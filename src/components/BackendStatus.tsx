@@ -28,6 +28,27 @@ export const BackendStatus: React.FC<BackendStatusProps> = ({
     return isConnected ? 'Backend Connected' : 'Backend Offline';
   };
 
+  // Get the actual API endpoint being used
+  const getApiEndpoint = () => {
+    const isProduction = window.location.hostname === 'pipnosis.com' || 
+                        window.location.hostname === 'www.pipnosis.com' ||
+                        window.location.hostname.includes('netlify.app');
+    
+    const isWebContainer = window.location.hostname.includes('webcontainer') || 
+                           window.location.hostname.includes('bolt.new') ||
+                           window.location.hostname.includes('stackblitz');
+    
+    if (isProduction) {
+      return 'pipnosis-production.up.railway.app';
+    }
+    
+    if (isWebContainer) {
+      return `${window.location.hostname}:3001`;
+    }
+    
+    return import.meta.env.VITE_PIPNOSIS_API_URL || 'localhost:3001';
+  };
+
   if (!showDetails) {
     // Compact version for header
     return (
@@ -81,14 +102,14 @@ export const BackendStatus: React.FC<BackendStatusProps> = ({
         <div className="flex items-center justify-between">
           <span className="text-sm text-slate-400">API Endpoint:</span>
           <span className="text-sm text-slate-300 font-mono">
-            {import.meta.env.VITE_PIPNOSIS_API_URL || 'localhost:3001'}
+            {getApiEndpoint()}
           </span>
         </div>
       </div>
 
       {!isConnected && !isChecking && (
         <div className="mt-3 p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-300">
-          Backend server is not responding. Make sure the server is running on port 3001.
+          Backend server is not responding. Make sure the server is running.
         </div>
       )}
     </div>
