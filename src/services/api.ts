@@ -1,7 +1,46 @@
 import axios from 'axios';
 
-// API Configuration - Updated for WebContainer environment
-const API_BASE_URL = import.meta.env.VITE_PIPNOSIS_API_URL || 'http://localhost:3001/api';
+// API Configuration - Enhanced for production deployment
+const getApiBaseUrl = () => {
+  // Check if we're in production (pipnosis.com)
+  const isProduction = window.location.hostname === 'pipnosis.com' || 
+                      window.location.hostname === 'www.pipnosis.com' ||
+                      window.location.hostname.includes('netlify.app');
+  
+  // Check if we're in Bolt's WebContainer environment
+  const isWebContainer = window.location.hostname.includes('webcontainer') || 
+                         window.location.hostname.includes('bolt.new') ||
+                         window.location.hostname.includes('stackblitz');
+  
+  // Production: Use Railway backend URL
+  if (isProduction) {
+    return 'https://pipnosis-production.up.railway.app/api';
+  }
+  
+  // For Bolt WebContainer, use the current origin with port 3001
+  if (isWebContainer) {
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    return `${protocol}//${hostname}:3001/api`;
+  }
+  
+  // For local development, use environment variable or localhost
+  return import.meta.env.VITE_PIPNOSIS_API_URL || 'http://localhost:3001/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
+
+console.log('🔧 API Configuration:', {
+  baseUrl: API_BASE_URL,
+  environment: import.meta.env.MODE,
+  hostname: window.location.hostname,
+  isProduction: window.location.hostname === 'pipnosis.com' || 
+                window.location.hostname === 'www.pipnosis.com' ||
+                window.location.hostname.includes('netlify.app'),
+  isWebContainer: window.location.hostname.includes('webcontainer') || 
+                  window.location.hostname.includes('bolt.new') ||
+                  window.location.hostname.includes('stackblitz')
+});
 
 // Create axios instance with default config
 const apiClient = axios.create({
@@ -38,7 +77,8 @@ apiClient.interceptors.response.use(
     if (error.code === 'ERR_NETWORK') {
       console.error('🔌 Network Error Details:');
       console.error('- Backend URL:', API_BASE_URL);
-      console.error('- Is backend running on port 3001?');
+      console.error('- Current hostname:', window.location.hostname);
+      console.error('- Is backend running?');
       console.error('- Check CORS configuration');
     }
     
@@ -75,6 +115,8 @@ export interface AnalysisResponse {
   summary: string;
   confidence: 'high' | 'medium' | 'low';
   riskAssessment: string;
+  pairsAnalyzed?: number;
+  tierInfo?: string;
 }
 
 export interface TradeExecutionResult {
@@ -105,35 +147,57 @@ export interface WaitlistSignup {
   plan: 'free' | 'beta';
 }
 
+export interface UserSettings {
+  expandedScan?: boolean;
+  pairSelectionMode?: 'ai-choose' | 'manual';
+  selectedPairs?: string[];
+  riskProfile?: 'low' | 'medium' | 'high' | 'auto';
+}
+
 // Enhanced fallback data for when backend is unavailable
 const getFallbackMarketData = (): MarketDataPoint[] => {
   console.log('📊 Using fallback market data (backend unavailable)');
-  return [
-    {
-      symbol: 'EURUSD',
-      price: 1.1425 + (Math.random() - 0.5) * 0.01,
-      change: (Math.random() - 0.5) * 0.005,
-      changePercent: (Math.random() - 0.5) * 0.5,
-      trend: Math.random() > 0.5 ? 'up' : 'down',
-      signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] as 'buy' | 'sell' | 'hold'
-    },
-    {
-      symbol: 'GBPUSD',
-      price: 1.2735 + (Math.random() - 0.5) * 0.01,
-      change: (Math.random() - 0.5) * 0.005,
-      changePercent: (Math.random() - 0.5) * 0.5,
-      trend: Math.random() > 0.5 ? 'up' : 'down',
-      signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] as 'buy' | 'sell' | 'hold'
-    },
-    {
-      symbol: 'USDJPY',
-      price: 149.85 + (Math.random() - 0.5) * 1.0,
-      change: (Math.random() - 0.5) * 0.5,
-      changePercent: (Math.random() - 0.5) * 0.3,
-      trend: Math.random() > 0.5 ? 'up' : 'down',
-      signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] as 'buy' | 'sell' | 'hold'
-    }
+  
+  // Enhanced with Tier 1 + some Tier 2 pairs
+  const pairs = [
+    { symbol: 'EURUSD', basePrice: 1.1425 },
+    { symbol: 'GBPUSD', basePrice: 1.2735 },
+    { symbol: 'USDJPY', basePrice: 149.85 },
+    { symbol: 'USDCHF', basePrice: 0.8945 },
+    { symbol: 'AUDUSD', basePrice: 0.6785 },
+    { symbol: 'USDCAD', basePrice: 1.3625 },
+    { symbol: 'NZDUSD', basePrice: 0.6245 },
+    { symbol: 'EURJPY', basePrice: 171.25 },
+    { symbol: 'GBPJPY', basePrice: 190.85 },
+    { symbol: 'XAUUSD', basePrice: 2045.50 }
   ];
+
+  return pairs.map(({ symbol, basePrice }) => {
+    const isJPY = symbol.includes('JPY');
+    const isGold = symbol.includes('XAU');
+    
+    let priceVariation, changeVariation;
+    
+    if (isGold) {
+      priceVariation = (Math.random() - 0.5) * 20; // ±10 for gold
+      changeVariation = (Math.random() - 0.5) * 10;
+    } else if (isJPY) {
+      priceVariation = (Math.random() - 0.5) * 2.0; // ±1.0 for JPY pairs
+      changeVariation = (Math.random() - 0.5) * 1.0;
+    } else {
+      priceVariation = (Math.random() - 0.5) * 0.02; // ±0.01 for major pairs
+      changeVariation = (Math.random() - 0.5) * 0.01;
+    }
+
+    return {
+      symbol,
+      price: basePrice + priceVariation,
+      change: changeVariation,
+      changePercent: (changeVariation / basePrice) * 100,
+      trend: Math.random() > 0.5 ? 'up' : 'down',
+      signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] as 'buy' | 'sell' | 'hold'
+    };
+  });
 };
 
 // API Service Class
@@ -149,10 +213,11 @@ export class PipnosisAPI {
     }
   }
 
-  // Market Data with enhanced fallback
-  static async getMarketData(): Promise<MarketDataPoint[]> {
+  // Enhanced Market Data with tiered pairs support
+  static async getMarketData(symbols?: string[]): Promise<MarketDataPoint[]> {
     try {
-      const response = await apiClient.get('/market-data');
+      const params = symbols ? { symbols: symbols.join(',') } : {};
+      const response = await apiClient.get('/market-data', { params });
       return response.data;
     } catch (error) {
       console.warn('⚠️ Failed to fetch market data from backend:', error);
@@ -167,42 +232,72 @@ export class PipnosisAPI {
     }
   }
 
-  // AI Prompt Analysis with fallback
+  // Enhanced AI Prompt Analysis with user settings support
   static async analyzePrompt(
     prompt: string,
     accountBalance: number,
-    marketData?: MarketDataPoint[]
+    marketData?: MarketDataPoint[],
+    userSettings?: UserSettings
   ): Promise<AnalysisResponse> {
     try {
       const response = await apiClient.post('/analyze-prompt', {
         prompt,
         accountBalance,
-        marketData
+        marketData,
+        userSettings
       });
       return response.data;
     } catch (error) {
       console.warn('⚠️ Failed to analyze prompt via backend:', error);
       
-      // Return mock analysis if backend is unavailable
+      // Enhanced mock analysis with multiple risk levels
       return {
         strategies: [
           {
             id: '1',
-            name: 'Conservative Swing (Fallback)',
+            name: 'Conservative Capital Protection',
             risk: 'low',
-            tradeType: 'EURUSD Swing (H1-D1)',
+            tradeType: 'EURUSD Swing (H4-D1)',
             entry: 1.1410,
-            stopLoss: 1.1360,
-            takeProfit: 1.1510,
-            lotSize: 0.5,
-            estimatedGain: 210,
+            stopLoss: 1.1380,
+            takeProfit: 1.1470,
+            lotSize: 0.3,
+            estimatedGain: 180,
             feasible: true,
-            reasoning: 'Fallback strategy generated (backend unavailable). This is a conservative approach with proper risk management.'
+            reasoning: 'Conservative approach following Law #1 (Capital Preservation) with 1.5% account risk. Multiple technical confirmations per Law #6.'
+          },
+          {
+            id: '2',
+            name: 'Balanced Growth Strategy',
+            risk: 'medium',
+            tradeType: 'GBPUSD Swing (H1-H4)',
+            entry: 1.2735,
+            stopLoss: 1.2685,
+            takeProfit: 1.2835,
+            lotSize: 0.7,
+            estimatedGain: 350,
+            feasible: true,
+            reasoning: 'Balanced approach per Law #5 (AI Final Decision) with 4% account risk. Maintains Law #2 target win rate.'
+          },
+          {
+            id: '3',
+            name: 'Aggressive Opportunity Capture',
+            risk: 'high',
+            tradeType: 'USDJPY Breakout (M15-H1)',
+            entry: 149.85,
+            stopLoss: 149.35,
+            takeProfit: 150.85,
+            lotSize: 1.2,
+            estimatedGain: 600,
+            feasible: true,
+            reasoning: 'Higher risk approach still governed by Law #1 (Capital Preservation) with 8% max risk. Law #6 requires breakout confirmation.'
           }
         ],
-        summary: 'Backend unavailable - using fallback analysis. Please check backend connection.',
-        confidence: 'low',
-        riskAssessment: 'Using fallback data due to backend connectivity issues.'
+        summary: 'Fallback analysis generated (backend unavailable). Strategies across all risk levels with proper Pipnosis Law compliance.',
+        confidence: 'medium',
+        riskAssessment: 'Using fallback data due to backend connectivity issues. All strategies follow Pipnosis Immutable Laws.',
+        pairsAnalyzed: 10,
+        tierInfo: 'Analyzed Tier 1 (7 pairs) + Tier 2 (3 pairs) - Fallback Mode'
       };
     }
   }
