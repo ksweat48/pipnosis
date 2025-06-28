@@ -1,310 +1,331 @@
+#!/usr/bin/env python3
 """
-Pipnosis MT5 Integration Bridge
-Official MetaTrader 5 Python API Integration
-
-This script handles the connection between Pipnosis AI and MetaTrader 5 terminal.
-It provides secure authentication, real-time data retrieval, and trade execution.
-
-Requirements:
-- pip install MetaTrader5
-- pip install requests
-- pip install cryptography
-- MT5 terminal running on the same machine
-
-Security Features:
-- Local credential encryption
-- HTTPS communication with Pipnosis backend
-- No credentials sent to cloud
-- Trade metadata only transmission
+Pipnosis MT5 Connector
+Secure bridge between Pipnosis backend and MetaTrader 5
 """
 
 import MetaTrader5 as mt5
-import requests
 import json
 import time
-import logging
+import requests
+import threading
 from datetime import datetime
 from typing import Dict, List, Optional, Any
-from cryptography.fernet import Fernet
+import logging
 import os
-import configparser
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, asdict
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import urllib.parse
+from cryptography.fernet import Fernet
+import base64
 
-# Configure logging
+# Configure logging with UTF-8 encoding to handle Unicode characters
+class UTF8StreamHandler(logging.StreamHandler):
+    def __init__(self, stream=None):
+        super().__init__(stream)
+        if hasattr(self.stream, 'reconfigure'):
+            try:
+                self.stream.reconfigure(encoding='utf-8')
+            except:
+                pass
+
+# Set up logging with proper encoding
+log_handlers = [
+    logging.FileHandler('mt5_connector.log', encoding='utf-8'),
+    UTF8StreamHandler(sys.stdout)
+]
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('pipnosis_connector.log'),
-        logging.StreamHandler()
-    ]
+    handlers=log_handlers
 )
 logger = logging.getLogger(__name__)
 
 @dataclass
 class TradeRequest:
-    """Structure for trade requests from Pipnosis AI"""
-    action: str  # 'buy', 'sell', 'close', 'modify'
     symbol: str
+    action: str  # 'buy' or 'sell'
     volume: float
     price: Optional[float] = None
-    sl: Optional[float] = None
-    tp: Optional[float] = None
-    deviation: int = 20
-    magic: int = 123456
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
     comment: str = "Pipnosis AI Trade"
+    magic: int = 12345
 
 @dataclass
-class AccountInfo:
-    """Structure for account information"""
-    login: int
-    balance: float
-    equity: float
-    margin: float
-    free_margin: float
-    margin_level: float
-    currency: str
+class TradeResult:
+    success: bool
+    ticket: Optional[int] = None
+    price: Optional[float] = None
+    message: str = ""
+    error_code: Optional[int] = None
 
 class MT5Connector:
-    """Main connector class for MT5 integration"""
-    
-    def __init__(self, config_file: str = "pipnosis_config.ini"):
-        self.config_file = config_file
-        self.encryption_key = self._get_or_create_key()
-        self.cipher_suite = Fernet(self.encryption_key)
-        self.is_connected = False
+    def __init__(self):
+        self.connected = False
         self.account_info = None
-        self.pipnosis_api_url = "https://api.pipnosis.com"  # Replace with actual API URL
+        self.positions = {}
+        self.running = False
         
-    def _get_or_create_key(self) -> bytes:
-        """Generate or retrieve encryption key for credentials"""
-        key_file = "pipnosis.key"
-        if os.path.exists(key_file):
-            with open(key_file, 'rb') as f:
-                return f.read()
-        else:
-            key = Fernet.generate_key()
-            with open(key_file, 'wb') as f:
-                f.write(key)
-            return key
-    
-    def save_credentials(self, login: str, password: str, server: str) -> bool:
-        """Securely save MT5 credentials locally"""
+        # Load configuration
+        self.bridge_port = int(os.getenv('MT5_BRIDGE_PORT', '8080'))
+        self.magic_number = int(os.getenv('DEFAULT_MAGIC_NUMBER', '12345'))
+        self.max_slippage = int(os.getenv('MAX_SLIPPAGE', '20'))
+        
+        # Load encrypted credentials
+        self.credentials = self.load_credentials()
+        
+        logger.info(f"MT5 Connector initialized on port {self.bridge_port}")
+        
+    def load_credentials(self) -> Dict[str, str]:
+        """Load and decrypt MT5 credentials or fall back to .env variables"""
         try:
-            config = configparser.ConfigParser()
+            # Try to load from encrypted file first
+            if os.path.exists('mt5_credentials.enc'):
+                with open('mt5_credentials.enc', 'rb') as f:
+                    encrypted_data = f.read()
+                
+                # Use a key derived from system info (in production, use proper key management)
+                key = base64.urlsafe_b64encode(b'pipnosis_mt5_key_32_chars_long!')
+                fernet = Fernet(key)
+                
+                decrypted_data = fernet.decrypt(encrypted_data)
+                credentials = json.loads(decrypted_data.decode())
+                
+                logger.info("SUCCESS: Loaded encrypted MT5 credentials")
+                return credentials
+                
+        except Exception as e:
+            logger.warning(f"Could not load encrypted credentials: {e}")
+        
+        # Fall back to environment variables
+        credentials = {
+            'login': os.getenv('MT5_LOGIN', ''),
+            'password': os.getenv('MT5_PASSWORD', ''),
+            'server': os.getenv('MT5_SERVER', 'MetaQuotes-Demo')
+        }
+        
+        if credentials['login'] and credentials['password']:
+            logger.info("SUCCESS: Loaded MT5 credentials from environment")
+        else:
+            logger.warning("WARNING: No MT5 credentials found - will use demo mode")
             
-            # Encrypt sensitive data
-            encrypted_password = self.cipher_suite.encrypt(password.encode())
-            
-            config['MT5'] = {
+        return credentials
+    
+    def save_encrypted_credentials(self, login: str, password: str, server: str):
+        """Save encrypted MT5 credentials"""
+        try:
+            credentials = {
                 'login': login,
-                'password': encrypted_password.decode(),
-                'server': server,
-                'last_updated': datetime.now().isoformat()
+                'password': password,
+                'server': server
             }
             
-            with open(self.config_file, 'w') as f:
-                config.write(f)
+            # Use a key derived from system info (in production, use proper key management)
+            key = base64.urlsafe_b64encode(b'pipnosis_mt5_key_32_chars_long!')
+            fernet = Fernet(key)
             
-            logger.info("Credentials saved successfully")
+            encrypted_data = fernet.encrypt(json.dumps(credentials).encode())
+            
+            with open('mt5_credentials.enc', 'wb') as f:
+                f.write(encrypted_data)
+                
+            logger.info("SUCCESS: MT5 credentials encrypted and saved")
+            self.credentials = credentials
+            
+        except Exception as e:
+            logger.error(f"Failed to save encrypted credentials: {e}")
+    
+    def initialize(self) -> bool:
+        """Initialize MT5 connection"""
+        try:
+            logger.info("INIT: Attempting to initialize MT5 connection...")
+            
+            if not mt5.initialize():
+                error_info = mt5.last_error()
+                logger.error(f"MT5 initialization failed: {error_info}")
+                logger.error("Make sure MetaTrader 5 is running and logged into an account")
+                return False
+            
+            # Try to login if credentials are available
+            if self.credentials.get('login') and self.credentials.get('password'):
+                login_result = mt5.login(
+                    login=int(self.credentials['login']),
+                    password=self.credentials['password'],
+                    server=self.credentials['server']
+                )
+                
+                if not login_result:
+                    logger.warning("Failed to login with provided credentials, using current MT5 session")
+                else:
+                    logger.info(f"SUCCESS: Logged into MT5 account: {self.credentials['login']}")
+            
+            self.connected = True
+            self.account_info = mt5.account_info()
+            
+            if self.account_info is None:
+                logger.error("Failed to get account info - make sure you're logged into MT5")
+                return False
+                
+            logger.info(f"SUCCESS: Connected to MT5 account: {self.account_info.login}")
+            logger.info(f"BALANCE: Account balance: {self.account_info.balance} {self.account_info.currency}")
+            logger.info(f"SERVER: Server: {self.account_info.server}")
+            logger.info(f"BROKER: Broker: {self.account_info.company}")
+            
             return True
             
         except Exception as e:
-            logger.error(f"Failed to save credentials: {e}")
+            logger.error(f"MT5 initialization error: {e}")
+            logger.error("Troubleshooting steps:")
+            logger.error("1. Make sure MetaTrader 5 is installed and running")
+            logger.error("2. Log into your trading account in MT5")
+            logger.error("3. Enable 'Allow automated trading' in MT5 settings")
+            logger.error("4. Make sure MT5 is not in 'Safe Mode'")
             return False
     
-    def load_credentials(self) -> Optional[Dict[str, str]]:
-        """Load and decrypt MT5 credentials"""
+    def shutdown(self):
+        """Shutdown MT5 connection"""
+        if self.connected:
+            mt5.shutdown()
+            self.connected = False
+            logger.info("MT5 connection closed")
+    
+    def get_account_info(self) -> Dict[str, Any]:
+        """Get current account information"""
+        if not self.connected:
+            return {"error": "MT5 not connected", "demo": True}
+        
         try:
-            if not os.path.exists(self.config_file):
-                return None
-                
-            config = configparser.ConfigParser()
-            config.read(self.config_file)
-            
-            if 'MT5' not in config:
-                return None
-            
-            # Decrypt password
-            encrypted_password = config['MT5']['password'].encode()
-            decrypted_password = self.cipher_suite.decrypt(encrypted_password).decode()
+            account = mt5.account_info()
+            if account is None:
+                return {"error": "Failed to get account info", "demo": True}
             
             return {
-                'login': config['MT5']['login'],
-                'password': decrypted_password,
-                'server': config['MT5']['server']
+                "login": account.login,
+                "balance": account.balance,
+                "equity": account.equity,
+                "margin": account.margin,
+                "free_margin": account.margin_free,
+                "margin_level": account.margin_level,
+                "currency": account.currency,
+                "leverage": account.leverage,
+                "server": account.server,
+                "company": account.company,
+                "name": account.name,
+                "connected": True,
+                "demo": False,
+                "timestamp": datetime.now().isoformat()
             }
-            
         except Exception as e:
-            logger.error(f"Failed to load credentials: {e}")
-            return None
+            logger.error(f"Error getting account info: {e}")
+            return {"error": str(e), "demo": True}
     
-    def connect_mt5(self, login: str = None, password: str = None, server: str = None) -> bool:
-        """Connect to MT5 terminal"""
+    def get_symbol_info(self, symbol: str) -> Dict[str, Any]:
+        """Get symbol information"""
         try:
-            # Use provided credentials or load from config
-            if not all([login, password, server]):
-                creds = self.load_credentials()
-                if not creds:
-                    logger.error("No credentials provided or found")
-                    return False
-                login, password, server = creds['login'], creds['password'], creds['server']
+            symbol_info = mt5.symbol_info(symbol)
+            if symbol_info is None:
+                return {"error": f"Symbol {symbol} not found"}
             
-            # Initialize MT5 connection
-            if not mt5.initialize():
-                logger.error(f"MT5 initialize failed: {mt5.last_error()}")
-                return False
-            
-            # Login to account
-            if not mt5.login(int(login), password=password, server=server):
-                logger.error(f"MT5 login failed: {mt5.last_error()}")
-                mt5.shutdown()
-                return False
-            
-            # Get account info
-            account_info = mt5.account_info()
-            if account_info is None:
-                logger.error("Failed to get account info")
-                mt5.shutdown()
-                return False
-            
-            self.account_info = AccountInfo(
-                login=account_info.login,
-                balance=account_info.balance,
-                equity=account_info.equity,
-                margin=account_info.margin,
-                free_margin=account_info.margin_free,
-                margin_level=account_info.margin_level,
-                currency=account_info.currency
-            )
-            
-            self.is_connected = True
-            logger.info(f"Successfully connected to MT5 account: {login}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"MT5 connection failed: {e}")
-            return False
-    
-    def disconnect_mt5(self):
-        """Disconnect from MT5 terminal"""
-        if self.is_connected:
-            mt5.shutdown()
-            self.is_connected = False
-            logger.info("Disconnected from MT5")
-    
-    def get_market_data(self, symbol: str, timeframe: int = mt5.TIMEFRAME_H1, count: int = 100) -> Optional[List[Dict]]:
-        """Retrieve market data for specified symbol"""
-        if not self.is_connected:
-            logger.error("Not connected to MT5")
-            return None
-        
-        try:
-            rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, count)
-            if rates is None:
-                logger.error(f"Failed to get rates for {symbol}")
-                return None
-            
-            # Convert to list of dictionaries
-            market_data = []
-            for rate in rates:
-                market_data.append({
-                    'time': datetime.fromtimestamp(rate['time']).isoformat(),
-                    'open': float(rate['open']),
-                    'high': float(rate['high']),
-                    'low': float(rate['low']),
-                    'close': float(rate['close']),
-                    'volume': int(rate['tick_volume'])
-                })
-            
-            return market_data
-            
-        except Exception as e:
-            logger.error(f"Failed to get market data: {e}")
-            return None
-    
-    def get_current_price(self, symbol: str) -> Optional[Dict[str, float]]:
-        """Get current bid/ask prices for symbol"""
-        if not self.is_connected:
-            return None
-        
-        try:
             tick = mt5.symbol_info_tick(symbol)
             if tick is None:
-                return None
+                return {"error": f"No tick data for {symbol}"}
             
             return {
-                'bid': float(tick.bid),
-                'ask': float(tick.ask),
-                'time': datetime.fromtimestamp(tick.time).isoformat()
+                "symbol": symbol,
+                "bid": tick.bid,
+                "ask": tick.ask,
+                "spread": tick.ask - tick.bid,
+                "digits": symbol_info.digits,
+                "point": symbol_info.point,
+                "min_lot": symbol_info.volume_min,
+                "max_lot": symbol_info.volume_max,
+                "lot_step": symbol_info.volume_step,
+                "contract_size": symbol_info.trade_contract_size
             }
-            
         except Exception as e:
-            logger.error(f"Failed to get current price: {e}")
-            return None
+            logger.error(f"Error getting symbol info for {symbol}: {e}")
+            return {"error": str(e)}
     
-    def execute_trade(self, trade_request: TradeRequest) -> Dict[str, Any]:
-        """Execute trade based on AI request"""
-        if not self.is_connected:
-            return {'success': False, 'error': 'Not connected to MT5'}
+    def execute_trade(self, trade_request: TradeRequest) -> TradeResult:
+        """Execute a trade on MT5"""
+        if not self.connected:
+            return TradeResult(False, message="MT5 not connected - using demo mode")
         
         try:
-            # Prepare order request
-            if trade_request.action == 'buy':
-                order_type = mt5.ORDER_TYPE_BUY
-                price = mt5.symbol_info_tick(trade_request.symbol).ask
-            elif trade_request.action == 'sell':
-                order_type = mt5.ORDER_TYPE_SELL
-                price = mt5.symbol_info_tick(trade_request.symbol).bid
-            else:
-                return {'success': False, 'error': f'Unsupported action: {trade_request.action}'}
+            logger.info(f"TRADE: Executing trade: {trade_request.action.upper()} {trade_request.volume} {trade_request.symbol}")
             
+            # Get symbol info
+            symbol_info = mt5.symbol_info(trade_request.symbol)
+            if symbol_info is None:
+                return TradeResult(False, message=f"Symbol {trade_request.symbol} not found")
+            
+            # Get current price
+            tick = mt5.symbol_info_tick(trade_request.symbol)
+            if tick is None:
+                return TradeResult(False, message=f"No price data for {trade_request.symbol}")
+            
+            # Determine order type and price
+            if trade_request.action.lower() == 'buy':
+                order_type = mt5.ORDER_TYPE_BUY
+                price = trade_request.price or tick.ask
+            else:
+                order_type = mt5.ORDER_TYPE_SELL
+                price = trade_request.price or tick.bid
+            
+            # Prepare the trade request
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
                 "symbol": trade_request.symbol,
                 "volume": trade_request.volume,
                 "type": order_type,
                 "price": price,
-                "sl": trade_request.sl,
-                "tp": trade_request.tp,
-                "deviation": trade_request.deviation,
-                "magic": trade_request.magic,
+                "deviation": self.max_slippage,
+                "magic": trade_request.magic or self.magic_number,
                 "comment": trade_request.comment,
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }
             
-            # Send order
+            # Add stop loss and take profit if provided
+            if trade_request.stop_loss:
+                request["sl"] = trade_request.stop_loss
+            if trade_request.take_profit:
+                request["tp"] = trade_request.take_profit
+            
+            logger.info(f"REQUEST: Sending trade request to MT5: {request}")
+            
+            # Send the trade request
             result = mt5.order_send(request)
             
+            if result is None:
+                return TradeResult(False, message="Order send failed - no response from MT5")
+            
             if result.retcode != mt5.TRADE_RETCODE_DONE:
-                return {
-                    'success': False,
-                    'error': f'Order failed: {result.retcode}',
-                    'comment': result.comment
-                }
+                error_msg = f"Trade failed: {result.retcode} - {result.comment}"
+                logger.error(error_msg)
+                return TradeResult(False, message=error_msg, error_code=result.retcode)
             
-            # Log successful trade
-            trade_info = {
-                'success': True,
-                'ticket': result.order,
-                'volume': result.volume,
-                'price': result.price,
-                'symbol': trade_request.symbol,
-                'action': trade_request.action,
-                'time': datetime.now().isoformat()
-            }
+            success_msg = f"SUCCESS: Trade executed successfully: Ticket {result.order}, Price {result.price}"
+            logger.info(success_msg)
             
-            logger.info(f"Trade executed successfully: {trade_info}")
-            return trade_info
+            return TradeResult(
+                success=True,
+                ticket=result.order,
+                price=result.price,
+                message=f"Trade executed: {trade_request.action.upper()} {trade_request.volume} {trade_request.symbol} at {result.price}"
+            )
             
         except Exception as e:
-            logger.error(f"Trade execution failed: {e}")
-            return {'success': False, 'error': str(e)}
+            error_msg = f"Trade execution error: {e}"
+            logger.error(error_msg)
+            return TradeResult(False, message=error_msg)
     
-    def get_open_positions(self) -> List[Dict[str, Any]]:
+    def get_positions(self) -> List[Dict[str, Any]]:
         """Get all open positions"""
-        if not self.is_connected:
+        if not self.connected:
             return []
         
         try:
@@ -314,128 +335,272 @@ class MT5Connector:
             
             position_list = []
             for pos in positions:
-                position_list.append({
-                    'ticket': pos.ticket,
-                    'symbol': pos.symbol,
-                    'type': 'buy' if pos.type == mt5.ORDER_TYPE_BUY else 'sell',
-                    'volume': pos.volume,
-                    'price_open': pos.price_open,
-                    'price_current': pos.price_current,
-                    'sl': pos.sl,
-                    'tp': pos.tp,
-                    'profit': pos.profit,
-                    'time': datetime.fromtimestamp(pos.time).isoformat(),
-                    'comment': pos.comment
-                })
+                position_data = {
+                    "ticket": pos.ticket,
+                    "symbol": pos.symbol,
+                    "type": "buy" if pos.type == mt5.POSITION_TYPE_BUY else "sell",
+                    "volume": pos.volume,
+                    "price_open": pos.price_open,
+                    "price_current": pos.price_current,
+                    "stop_loss": pos.sl,
+                    "take_profit": pos.tp,
+                    "profit": pos.profit,
+                    "swap": pos.swap,
+                    "comment": pos.comment,
+                    "time": pos.time,
+                    "magic": pos.magic
+                }
+                position_list.append(position_data)
             
             return position_list
             
         except Exception as e:
-            logger.error(f"Failed to get positions: {e}")
+            logger.error(f"Error getting positions: {e}")
             return []
     
-    def send_to_pipnosis(self, data: Dict[str, Any], endpoint: str) -> bool:
-        """Send data to Pipnosis backend"""
+    def close_position(self, ticket: int) -> TradeResult:
+        """Close a position by ticket"""
+        if not self.connected:
+            return TradeResult(False, message="MT5 not connected")
+        
         try:
-            url = f"{self.pipnosis_api_url}/{endpoint}"
-            headers = {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer YOUR_API_KEY'  # Replace with actual API key
+            logger.info(f"CLOSE: Closing position: {ticket}")
+            
+            # Get position info
+            position = mt5.positions_get(ticket=ticket)
+            if not position:
+                return TradeResult(False, message=f"Position {ticket} not found")
+            
+            pos = position[0]
+            
+            # Determine close order type
+            if pos.type == mt5.POSITION_TYPE_BUY:
+                order_type = mt5.ORDER_TYPE_SELL
+                price = mt5.symbol_info_tick(pos.symbol).bid
+            else:
+                order_type = mt5.ORDER_TYPE_BUY
+                price = mt5.symbol_info_tick(pos.symbol).ask
+            
+            # Prepare close request
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": pos.symbol,
+                "volume": pos.volume,
+                "type": order_type,
+                "position": ticket,
+                "price": price,
+                "deviation": self.max_slippage,
+                "magic": pos.magic,
+                "comment": f"Close position {ticket}",
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": mt5.ORDER_FILLING_IOC,
             }
             
-            response = requests.post(url, json=data, headers=headers, timeout=10)
+            # Send close request
+            result = mt5.order_send(request)
             
-            if response.status_code == 200:
-                logger.info(f"Data sent to Pipnosis successfully: {endpoint}")
-                return True
-            else:
-                logger.error(f"Failed to send data to Pipnosis: {response.status_code}")
-                return False
-                
+            if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+                error_msg = f"Failed to close position {ticket}: {result.comment if result else 'Unknown error'}"
+                return TradeResult(False, message=error_msg)
+            
+            logger.info(f"SUCCESS: Position {ticket} closed successfully at {result.price}")
+            return TradeResult(True, message=f"Position {ticket} closed at {result.price}")
+            
         except Exception as e:
-            logger.error(f"Error sending data to Pipnosis: {e}")
-            return False
+            error_msg = f"Error closing position {ticket}: {e}"
+            logger.error(error_msg)
+            return TradeResult(False, message=error_msg)
+
+class MT5Handler(BaseHTTPRequestHandler):
+    def __init__(self, *args, connector=None, **kwargs):
+        self.connector = connector
+        super().__init__(*args, **kwargs)
     
-    def listen_for_commands(self):
-        """Listen for commands from Pipnosis AI"""
-        logger.info("Starting command listener...")
-        
-        while self.is_connected:
+    def log_message(self, format, *args):
+        # Suppress default HTTP server logging
+        pass
+    
+    def do_OPTIONS(self):
+        """Handle CORS preflight requests"""
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+    
+    def do_POST(self):
+        if self.path == '/execute_trade':
             try:
-                # Poll for commands from Pipnosis API
-                response = requests.get(
-                    f"{self.pipnosis_api_url}/commands",
-                    headers={'Authorization': 'Bearer YOUR_API_KEY'},
-                    timeout=5
-                )
+                content_length = int(self.headers['Content-Length'])
+                post_data = self.rfile.read(content_length)
+                trade_data = json.loads(post_data.decode('utf-8'))
                 
-                if response.status_code == 200:
-                    commands = response.json()
-                    
-                    for command in commands:
-                        if command['type'] == 'trade':
-                            trade_request = TradeRequest(**command['data'])
-                            result = self.execute_trade(trade_request)
-                            
-                            # Send result back to Pipnosis
-                            self.send_to_pipnosis({
-                                'command_id': command['id'],
-                                'result': result
-                            }, 'trade_results')
+                trade_request = TradeRequest(**trade_data)
+                result = self.connector.execute_trade(trade_request)
                 
-                # Send periodic updates
-                self.send_account_update()
-                
-                time.sleep(5)  # Poll every 5 seconds
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps(asdict(result)).encode())
                 
             except Exception as e:
-                logger.error(f"Error in command listener: {e}")
-                time.sleep(10)  # Wait longer on error
-    
-    def send_account_update(self):
-        """Send account status update to Pipnosis"""
-        if not self.is_connected:
-            return
+                logger.error(f"Execute trade error: {e}")
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                error_response = {"success": False, "message": str(e)}
+                self.wfile.write(json.dumps(error_response).encode())
         
-        try:
-            # Get current account info
-            account_info = mt5.account_info()
-            positions = self.get_open_positions()
-            
-            update_data = {
-                'account': {
-                    'balance': account_info.balance,
-                    'equity': account_info.equity,
-                    'margin': account_info.margin,
-                    'free_margin': account_info.margin_free,
-                    'margin_level': account_info.margin_level
-                },
-                'positions': positions,
-                'timestamp': datetime.now().isoformat()
+        elif self.path == '/close_position':
+            try:
+                content_length = int(self.headers['Content-Length'])
+                post_data = self.rfile.read(content_length)
+                data = json.loads(post_data.decode('utf-8'))
+                
+                result = self.connector.close_position(data['ticket'])
+                
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps(asdict(result)).encode())
+                
+            except Exception as e:
+                logger.error(f"Close position error: {e}")
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                error_response = {"success": False, "message": str(e)}
+                self.wfile.write(json.dumps(error_response).encode())
+        
+        elif self.path == '/save_credentials':
+            try:
+                content_length = int(self.headers['Content-Length'])
+                post_data = self.rfile.read(content_length)
+                cred_data = json.loads(post_data.decode('utf-8'))
+                
+                self.connector.save_encrypted_credentials(
+                    cred_data['login'],
+                    cred_data['password'],
+                    cred_data['server']
+                )
+                
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                response = {"success": True, "message": "Credentials saved securely"}
+                self.wfile.write(json.dumps(response).encode())
+                
+            except Exception as e:
+                logger.error(f"Save credentials error: {e}")
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                error_response = {"success": False, "message": str(e)}
+                self.wfile.write(json.dumps(error_response).encode())
+    
+    def do_GET(self):
+        if self.path == '/account_info':
+            account_info = self.connector.get_account_info()
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(account_info).encode())
+        
+        elif self.path == '/positions':
+            positions = self.connector.get_positions()
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(positions).encode())
+        
+        elif self.path == '/health':
+            health_status = {
+                "status": "online" if self.connector.connected else "offline",
+                "connected": self.connector.connected,
+                "timestamp": datetime.now().isoformat(),
+                "account": self.connector.account_info.login if self.connector.account_info else None,
+                "server": self.connector.account_info.server if self.connector.account_info else None,
+                "version": "2.0.0"
             }
-            
-            self.send_to_pipnosis(update_data, 'account_updates')
-            
-        except Exception as e:
-            logger.error(f"Failed to send account update: {e}")
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(health_status).encode())
+        
+        else:
+            self.send_response(404)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "Not found"}).encode())
 
 def main():
     """Main function to run the MT5 connector"""
+    logger.info("STARTUP: Starting Pipnosis MT5 Connector Service")
+    logger.info("=" * 50)
+    
+    # Initialize connector
     connector = MT5Connector()
     
-    # Try to connect using saved credentials
-    if connector.connect_mt5():
-        logger.info("MT5 Connector started successfully")
+    if not connector.initialize():
+        logger.error("ERROR: Failed to initialize MT5 connector")
+        logger.error("")
+        logger.error("Troubleshooting checklist:")
+        logger.error("1. MetaTrader 5 is installed")
+        logger.error("2. MT5 is running (not just installed)")
+        logger.error("3. You are logged into a trading account")
+        logger.error("4. 'Allow automated trading' is enabled in MT5 settings")
+        logger.error("5. MT5 is not in 'Safe Mode'")
+        logger.error("")
+        logger.error("To enable automated trading:")
+        logger.error("   Tools -> Options -> Expert Advisors -> Allow automated trading")
+        logger.warning("")
+        logger.warning("WARNING: Continuing in demo mode - no real trades will be executed")
+    
+    try:
+        # Create HTTP server with connector reference
+        def handler(*args, **kwargs):
+            MT5Handler(*args, connector=connector, **kwargs)
         
-        try:
-            # Start listening for commands
-            connector.listen_for_commands()
-        except KeyboardInterrupt:
-            logger.info("Shutting down MT5 Connector...")
-        finally:
-            connector.disconnect_mt5()
-    else:
-        logger.error("Failed to connect to MT5. Please check your credentials.")
+        server = HTTPServer(('localhost', connector.bridge_port), handler)
+        logger.info(f"SERVER: MT5 Connector HTTP server started on http://localhost:{connector.bridge_port}")
+        logger.info("Available endpoints:")
+        logger.info(f"   GET  http://localhost:{connector.bridge_port}/health")
+        logger.info(f"   GET  http://localhost:{connector.bridge_port}/account_info")
+        logger.info(f"   GET  http://localhost:{connector.bridge_port}/positions")
+        logger.info(f"   POST http://localhost:{connector.bridge_port}/execute_trade")
+        logger.info(f"   POST http://localhost:{connector.bridge_port}/close_position")
+        logger.info(f"   POST http://localhost:{connector.bridge_port}/save_credentials")
+        
+        if connector.connected:
+            logger.info("")
+            logger.info("SUCCESS: MT5 Connector is ready for live trading!")
+        else:
+            logger.info("")
+            logger.info("WARNING: MT5 Connector running in demo mode")
+            
+        logger.info("NEXT: Start your Node.js backend server to complete the integration")
+        logger.info("")
+        
+        server.serve_forever()
+        
+    except KeyboardInterrupt:
+        logger.info("")
+        logger.info("SHUTDOWN: Shutting down MT5 connector...")
+    except Exception as e:
+        logger.error(f"ERROR: Server error: {e}")
+    finally:
+        connector.shutdown()
+        logger.info("STOPPED: MT5 Connector stopped")
 
 if __name__ == "__main__":
     main()

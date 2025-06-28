@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/Pipnosis icon copy.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pipnosis - AI Forex Trading System</title>
+    <script type="module" crossorigin src="/assets/index-BjvvkDZy.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-BPGY0Tcq.js">
+    <link rel="modulepreload" crossorigin href="/assets/router-tP-4t0cx.js">
+    <link rel="modulepreload" crossorigin href="/assets/ui-DAg-E7Jd.js">
+    <link rel="modulepreload" crossorigin href="/assets/supabase-ho6z_Je4.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-ToBLrSQ3.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
