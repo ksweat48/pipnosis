@@ -1,0 +1,546 @@
+/**
+ * Pipnosis MT5 WebSocket Client - ENHANCED VERSION
+ * Connects to the local MT5 bridge and receives real-time data
+ */
+
+export interface MT5AccountData {
+  login: number;
+  server: string;
+  name: string;
+  company: string;
+  currency: string;
+  balance: number;
+  equity: number;
+  margin: number;
+  freeMargin: number;
+  marginLevel: number;
+  profit: number;
+  credit: number;
+  leverage: number;
+  tradeAllowed: boolean;
+  tradeExpert: boolean;
+  lastUpdate: string;
+}
+
+export interface MT5Position {
+  ticket: string;
+  symbol: string;
+  type: 'buy' | 'sell';
+  volume: number;
+  openPrice: number;
+  currentPrice: number;
+  sl: number;
+  tp: number;
+  profit: number;
+  swap: number;
+  commission: number;
+  comment: string;
+  timeOpen: string;
+}
+
+export interface MT5Data {
+  type: string;
+  timestamp: string;
+  account: MT5AccountData;
+  positions: MT5Position[];
+  connectionStatus: 'connected' | 'disconnected';
+}
+
+export interface MT5OrderRequest {
+  symbol: string;
+  orderType: 'buy' | 'sell';
+  volume: number;
+  sl?: number;
+  tp?: number;
+  comment?: string;
+}
+
+export interface MT5OrderResponse {
+  success: boolean;
+  ticket?: string;
+  price?: number;
+  volume?: number;
+  comment?: string;
+  error?: string;
+}
+
+export class MT5WebSocketClient {
+  private ws: WebSocket | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectDelay = 1000; // Start with 1 second
+  private isConnecting = false;
+  private listeners: Map<string, Function[]> = new Map();
+  private pingInterval: NodeJS.Timeout | null = null;
+  
+  constructor(
+    private host: string = 'localhost',
+    private port: number = 8765
+  ) {
+    console.log('🔌 MT5 WebSocket Client initialized for', `${host}:${port}`);
+  }
+
+  /**
+   * Connect to the MT5 bridge WebSocket server
+   */
+  async connect(): Promise<boolean> {
+    if (this.isConnecting || (this.ws && this.ws.readyState === WebSocket.OPEN)) {
+      console.log('🔌 Already connected or connecting...');
+      return true;
+    }
+
+    this.isConnecting = true;
+    
+    // CRITICAL FIX: Try multiple connection methods
+    const connectionMethods = [
+      `ws://${this.host}:${this.port}`,
+      `ws://127.0.0.1:${this.port}`,
+      `ws://localhost:${this.port}`
+    ];
+    
+    for (const wsUrl of connectionMethods) {
+      try {
+        console.log(`🔌 Attempting to connect to MT5 bridge at ${wsUrl}...`);
+        
+        const connected = await this.attemptConnection(wsUrl);
+        if (connected) {
+          console.log(`✅ Successfully connected to MT5 bridge at ${wsUrl}`);
+          this.isConnecting = false;
+          return true;
+        }
+      } catch (error) {
+        console.log(`❌ Failed to connect to ${wsUrl}:`, error);
+        continue;
+      }
+    }
+    
+    this.isConnecting = false;
+    console.error('❌ Failed to connect to MT5 bridge on all attempted URLs');
+    return false;
+  }
+
+  /**
+   * Attempt connection to a specific WebSocket URL
+   */
+  private async attemptConnection(wsUrl: string): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      try {
+        this.ws = new WebSocket(wsUrl);
+        
+        const timeout = setTimeout(() => {
+          if (this.ws) {
+            this.ws.close();
+          }
+          reject(new Error('Connection timeout'));
+        }, 5000);
+
+        this.ws.onopen = () => {
+          clearTimeout(timeout);
+          this.isConnecting = false;
+          this.reconnectAttempts = 0;
+          this.reconnectDelay = 1000;
+          
+          console.log('✅ Connected to MT5 bridge');
+          this.emit('connected');
+          this.startPingInterval();
+          
+          // Store connection status
+          localStorage.setItem('pipnosis_mt5_connected', 'true');
+          localStorage.setItem('pipnosis_mt5_bridge_url', wsUrl);
+          
+          resolve(true);
+        };
+
+        this.ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            this.handleMessage(data);
+          } catch (error) {
+            console.error('❌ Error parsing WebSocket message:', error);
+          }
+        };
+
+        this.ws.onclose = (event) => {
+          clearTimeout(timeout);
+          this.isConnecting = false;
+          this.stopPingInterval();
+          
+          console.log(`🔌 MT5 bridge connection closed: ${event.code} - ${event.reason}`);
+          this.emit('disconnected');
+          
+          // Update connection status
+          localStorage.setItem('pipnosis_mt5_connected', 'false');
+          
+          // Attempt to reconnect if not a clean close
+          if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.scheduleReconnect();
+          }
+          
+          if (event.code === 1000) {
+            resolve(false);
+          } else {
+            reject(new Error(`Connection closed: ${event.code}`));
+          }
+        };
+
+        this.ws.onerror = (error) => {
+          clearTimeout(timeout);
+          this.isConnecting = false;
+          console.error('❌ MT5 bridge WebSocket error:', error);
+          
+          // CRITICAL FIX: Provide detailed error information
+          if (error instanceof Event) {
+            console.error('❌ WebSocket Error Details:');
+            console.error('   - URL:', wsUrl);
+            console.error('   - ReadyState:', this.ws?.readyState);
+            console.error('   - Error Type:', error.type);
+            
+            // Check if it's a connection refused error
+            if (this.ws?.readyState === WebSocket.CLOSED) {
+              console.error('💡 Connection was refused. Possible causes:');
+              console.error('   1. MT5 bridge is not running');
+              console.error('   2. Bridge is running on a different port');
+              console.error('   3. Firewall is blocking the connection');
+              console.error('   4. Bridge crashed or stopped');
+            }
+          }
+          
+          this.emit('error', error);
+          reject(error);
+        };
+        
+      } catch (error) {
+        console.error('❌ Failed to create WebSocket connection:', error);
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * Disconnect from the MT5 bridge
+   */
+  disconnect(): void {
+    this.stopPingInterval();
+    
+    if (this.ws) {
+      this.ws.close(1000, 'Client disconnect');
+      this.ws = null;
+    }
+    
+    localStorage.setItem('pipnosis_mt5_connected', 'false');
+    console.log('🔌 Disconnected from MT5 bridge');
+  }
+
+  /**
+   * Check if connected to MT5 bridge
+   */
+  isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Send a message to the MT5 bridge
+   */
+  private send(data: any): void {
+    if (!this.isConnected()) {
+      throw new Error('Not connected to MT5 bridge');
+    }
+
+    this.ws!.send(JSON.stringify(data));
+  }
+
+  /**
+   * Place a trading order
+   */
+  async placeOrder(order: MT5OrderRequest): Promise<MT5OrderResponse> {
+    return new Promise((resolve, reject) => {
+      if (!this.isConnected()) {
+        reject(new Error('Not connected to MT5 bridge'));
+        return;
+      }
+
+      const requestId = Date.now().toString();
+      
+      // Set up one-time listener for the response
+      const responseListener = (data: any) => {
+        if (data.type === 'order_response' && data.requestId === requestId) {
+          this.off('message', responseListener);
+          resolve(data.result);
+        }
+      };
+      
+      this.on('message', responseListener);
+      
+      // Send the order request
+      this.send({
+        type: 'place_order',
+        requestId,
+        symbol: order.symbol,
+        order_type: order.orderType,
+        volume: order.volume,
+        sl: order.sl,
+        tp: order.tp,
+        comment: order.comment || 'Pipnosis AI Trade'
+      });
+      
+      // Set timeout for the request
+      setTimeout(() => {
+        this.off('message', responseListener);
+        reject(new Error('Order request timeout'));
+      }, 10000);
+    });
+  }
+
+  /**
+   * Get symbol information
+   */
+  async getSymbolInfo(symbol: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!this.isConnected()) {
+        reject(new Error('Not connected to MT5 bridge'));
+        return;
+      }
+
+      const requestId = Date.now().toString();
+      
+      // Set up one-time listener for the response
+      const responseListener = (data: any) => {
+        if (data.type === 'symbol_info' && data.requestId === requestId) {
+          this.off('message', responseListener);
+          resolve(data.data);
+        }
+      };
+      
+      this.on('message', responseListener);
+      
+      // Send the symbol info request
+      this.send({
+        type: 'get_symbol_info',
+        requestId,
+        symbol
+      });
+      
+      // Set timeout for the request
+      setTimeout(() => {
+        this.off('message', responseListener);
+        reject(new Error('Symbol info request timeout'));
+      }, 5000);
+    });
+  }
+
+  /**
+   * Test connection to MT5 bridge
+   */
+  async testConnection(): Promise<{ success: boolean; error?: string; details?: any }> {
+    try {
+      console.log('🧪 Testing MT5 bridge connection...');
+      
+      // Test WebSocket connection directly
+      const wsConnected = await this.connect();
+      
+      if (wsConnected) {
+        console.log('✅ WebSocket connection test successful');
+        return {
+          success: true,
+          details: {
+            websocketConnected: true,
+            host: this.host,
+            port: this.port
+          }
+        };
+      } else {
+        console.log('❌ WebSocket connection test failed');
+        return {
+          success: false,
+          error: 'WebSocket connection failed',
+          details: {
+            websocketConnected: false,
+            host: this.host,
+            port: this.port,
+            troubleshooting: [
+              'Make sure MT5 bridge is running: python mt5_connector.py',
+              'Check that bridge shows "server listening on 127.0.0.1:8765"',
+              'Verify no firewall is blocking port 8765',
+              'Try restarting the bridge if it was running for a long time'
+            ]
+          }
+        };
+      }
+    } catch (error) {
+      console.error('❌ Connection test failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        details: { testFailed: true }
+      };
+    }
+  }
+
+  /**
+   * Handle incoming messages from MT5 bridge
+   */
+  private handleMessage(data: any): void {
+    console.log('📡 Received MT5 data:', data.type);
+    
+    switch (data.type) {
+      case 'initial_data':
+      case 'account_update':
+        this.handleAccountUpdate(data);
+        break;
+        
+      case 'order_response':
+        this.emit('order_response', data);
+        break;
+        
+      case 'symbol_info':
+        this.emit('symbol_info', data);
+        break;
+        
+      case 'pong':
+        // Handle ping response
+        break;
+        
+      default:
+        console.log('📡 Unknown message type:', data.type);
+    }
+    
+    // Emit generic message event
+    this.emit('message', data);
+  }
+
+  /**
+   * Handle account data updates
+   */
+  private handleAccountUpdate(data: MT5Data): void {
+    // Store the account data in localStorage for other components
+    const accountData = {
+      login: data.account.login,
+      server: data.account.server,
+      balance: data.account.balance,
+      equity: data.account.equity,
+      margin: data.account.margin,
+      freeMargin: data.account.freeMargin,
+      marginLevel: data.account.marginLevel,
+      openPositions: data.positions,
+      lastUpdate: data.timestamp,
+      connectionStatus: data.connectionStatus
+    };
+    
+    localStorage.setItem('pipnosis_mt5_account', JSON.stringify(accountData));
+    
+    // Emit the update event
+    this.emit('account_update', data);
+    
+    console.log(`💰 Account Update: Balance $${data.account.balance.toLocaleString()}, Equity $${data.account.equity.toLocaleString()}, Positions: ${data.positions.length}`);
+  }
+
+  /**
+   * Schedule a reconnection attempt
+   */
+  private scheduleReconnect(): void {
+    this.reconnectAttempts++;
+    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
+    
+    console.log(`🔄 Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
+    
+    setTimeout(() => {
+      if (this.reconnectAttempts <= this.maxReconnectAttempts) {
+        this.connect().catch(error => {
+          console.error('❌ Reconnection failed:', error);
+        });
+      } else {
+        console.error('❌ Max reconnection attempts reached');
+        this.emit('max_reconnects_reached');
+      }
+    }, delay);
+  }
+
+  /**
+   * Start ping interval to keep connection alive
+   */
+  private startPingInterval(): void {
+    this.pingInterval = setInterval(() => {
+      if (this.isConnected()) {
+        this.send({ type: 'ping', timestamp: new Date().toISOString() });
+      }
+    }, 30000); // Ping every 30 seconds
+  }
+
+  /**
+   * Stop ping interval
+   */
+  private stopPingInterval(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+  }
+
+  /**
+   * Add event listener
+   */
+  on(event: string, listener: Function): void {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, []);
+    }
+    this.listeners.get(event)!.push(listener);
+  }
+
+  /**
+   * Remove event listener
+   */
+  off(event: string, listener: Function): void {
+    const eventListeners = this.listeners.get(event);
+    if (eventListeners) {
+      const index = eventListeners.indexOf(listener);
+      if (index > -1) {
+        eventListeners.splice(index, 1);
+      }
+    }
+  }
+
+  /**
+   * Emit event to listeners
+   */
+  private emit(event: string, data?: any): void {
+    const eventListeners = this.listeners.get(event);
+    if (eventListeners) {
+      eventListeners.forEach(listener => {
+        try {
+          listener(data);
+        } catch (error) {
+          console.error(`❌ Error in event listener for ${event}:`, error);
+        }
+      });
+    }
+  }
+
+  /**
+   * Get connection statistics
+   */
+  getConnectionStats(): any {
+    return {
+      connected: this.isConnected(),
+      reconnectAttempts: this.reconnectAttempts,
+      maxReconnectAttempts: this.maxReconnectAttempts,
+      host: this.host,
+      port: this.port,
+      lastConnected: localStorage.getItem('pipnosis_mt5_last_connected'),
+      bridgeUrl: localStorage.getItem('pipnosis_mt5_bridge_url')
+    };
+  }
+}
+
+// Create singleton instance
+export const mt5Client = new MT5WebSocketClient();
+
+// Auto-connect on module load if previously connected
+if (typeof window !== 'undefined') {
+  const wasConnected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
+  if (wasConnected) {
+    console.log('🔄 Auto-connecting to MT5 bridge...');
+    mt5Client.connect().catch(error => {
+      console.log('ℹ️ Auto-connect failed (bridge may not be running):', error.message);
+    });
+  }
+}

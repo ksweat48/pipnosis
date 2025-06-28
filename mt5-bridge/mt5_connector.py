@@ -1,0 +1,502 @@
+"""
+Pipnosis MT5 Real-Time Data Connector - FIXED VERSION
+Connects directly to MetaTrader 5 and streams live data via WebSocket
+"""
+
+import MetaTrader5 as mt5
+import asyncio
+import websockets
+import json
+import time
+import logging
+from datetime import datetime
+from typing import Dict, List, Optional, Any
+import threading
+from dataclasses import dataclass, asdict
+
+# Configure logging with UTF-8 encoding to fix emoji issues
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('mt5_bridge.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+@dataclass
+class AccountInfo:
+    login: int
+    server: str
+    name: str
+    company: str
+    currency: str
+    balance: float
+    equity: float
+    margin: float
+    free_margin: float
+    margin_level: float
+    profit: float
+    credit: float
+    leverage: int
+    trade_allowed: bool
+    trade_expert: bool
+    last_update: str
+
+@dataclass
+class Position:
+    ticket: str
+    symbol: str
+    type: str  # 'buy' or 'sell'
+    volume: float
+    open_price: float
+    current_price: float
+    sl: float
+    tp: float
+    profit: float
+    swap: float
+    commission: float
+    comment: str
+    time_open: str
+
+class MT5Connector:
+    def __init__(self):
+        self.connected = False
+        self.account_info: Optional[AccountInfo] = None
+        self.positions: List[Position] = []
+        self.websocket_clients = set()
+        self.update_interval = 1.0  # Update every second
+        self.running = False
+        
+    def initialize_mt5(self) -> bool:
+        """Initialize connection to MT5 terminal"""
+        try:
+            logger.info("Initializing MT5 connection...")
+            
+            # Initialize MT5 connection
+            if not mt5.initialize():
+                error = mt5.last_error()
+                logger.error(f"MT5 initialization failed: {error}")
+                return False
+            
+            # Get account info
+            account_info = mt5.account_info()
+            if account_info is None:
+                logger.error("Failed to get account info - MT5 not logged in?")
+                mt5.shutdown()
+                return False
+            
+            # Check if trading is allowed
+            if not account_info.trade_allowed:
+                logger.warning("Trading is not allowed on this account")
+            
+            self.connected = True
+            logger.info(f"MT5 connected successfully!")
+            logger.info(f"Account: {account_info.login}")
+            logger.info(f"Server: {account_info.server}")
+            logger.info(f"Balance: ${account_info.balance:,.2f}")
+            logger.info(f"Equity: ${account_info.equity:,.2f}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"MT5 initialization error: {e}")
+            return False
+    
+    def get_account_info(self) -> Optional[AccountInfo]:
+        """Get current account information"""
+        try:
+            if not self.connected:
+                return None
+                
+            account = mt5.account_info()
+            if account is None:
+                logger.error("Failed to get account info")
+                return None
+            
+            return AccountInfo(
+                login=account.login,
+                server=account.server,
+                name=account.name,
+                company=account.company,
+                currency=account.currency,
+                balance=account.balance,
+                equity=account.equity,
+                margin=account.margin,
+                free_margin=account.margin_free,
+                margin_level=account.margin_level,
+                profit=account.profit,
+                credit=account.credit,
+                leverage=account.leverage,
+                trade_allowed=account.trade_allowed,
+                trade_expert=account.trade_expert,
+                last_update=datetime.now().isoformat()
+            )
+            
+        except Exception as e:
+            logger.error(f"Error getting account info: {e}")
+            return None
+    
+    def get_positions(self) -> List[Position]:
+        """Get all open positions - FIXED VERSION"""
+        try:
+            if not self.connected:
+                return []
+                
+            positions = mt5.positions_get()
+            if positions is None:
+                return []
+            
+            result = []
+            for pos in positions:
+                try:
+                    # Get current price for the symbol
+                    tick = mt5.symbol_info_tick(pos.symbol)
+                    if tick is None:
+                        logger.warning(f"Could not get tick data for {pos.symbol}")
+                        continue
+                        
+                    current_price = tick.bid if pos.type == 0 else tick.ask  # 0 = buy, 1 = sell
+                    
+                    # CRITICAL FIX: Handle missing commission attribute safely
+                    commission = 0.0
+                    if hasattr(pos, 'commission'):
+                        commission = pos.commission
+                    else:
+                        # Try to get commission from deals if available
+                        try:
+                            deals = mt5.history_deals_get(position=pos.ticket)
+                            if deals and len(deals) > 0:
+                                commission = sum(deal.commission for deal in deals if hasattr(deal, 'commission'))
+                        except:
+                            commission = 0.0
+                    
+                    position = Position(
+                        ticket=str(pos.ticket),
+                        symbol=pos.symbol,
+                        type='buy' if pos.type == 0 else 'sell',
+                        volume=pos.volume,
+                        open_price=pos.price_open,
+                        current_price=current_price,
+                        sl=pos.sl if hasattr(pos, 'sl') else 0.0,
+                        tp=pos.tp if hasattr(pos, 'tp') else 0.0,
+                        profit=pos.profit if hasattr(pos, 'profit') else 0.0,
+                        swap=pos.swap if hasattr(pos, 'swap') else 0.0,
+                        commission=commission,
+                        comment=pos.comment if hasattr(pos, 'comment') else '',
+                        time_open=datetime.fromtimestamp(pos.time).isoformat() if hasattr(pos, 'time') else datetime.now().isoformat()
+                    )
+                    result.append(position)
+                    
+                except Exception as pos_error:
+                    logger.error(f"Error processing position {pos.ticket}: {pos_error}")
+                    continue
+            
+            logger.info(f"Successfully retrieved {len(result)} positions")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error getting positions: {e}")
+            return []
+    
+    def get_symbol_info(self, symbol: str) -> Optional[Dict]:
+        """Get symbol information and current price"""
+        try:
+            if not self.connected:
+                return None
+                
+            # Get symbol info
+            symbol_info = mt5.symbol_info(symbol)
+            if symbol_info is None:
+                return None
+            
+            # Get current tick
+            tick = mt5.symbol_info_tick(symbol)
+            if tick is None:
+                return None
+            
+            return {
+                'symbol': symbol,
+                'bid': tick.bid,
+                'ask': tick.ask,
+                'spread': tick.ask - tick.bid,
+                'volume': tick.volume,
+                'time': datetime.fromtimestamp(tick.time).isoformat(),
+                'digits': symbol_info.digits,
+                'point': symbol_info.point,
+                'trade_allowed': symbol_info.trade_mode != 0
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting symbol info for {symbol}: {e}")
+            return None
+    
+    def place_order(self, symbol: str, order_type: str, volume: float, 
+                   price: float = None, sl: float = None, tp: float = None, 
+                   comment: str = "Pipnosis AI Trade") -> Dict:
+        """Place a trading order"""
+        try:
+            if not self.connected:
+                return {'success': False, 'error': 'MT5 not connected'}
+            
+            # Determine order type
+            if order_type.lower() == 'buy':
+                trade_type = mt5.ORDER_TYPE_BUY
+                if price is None:
+                    tick = mt5.symbol_info_tick(symbol)
+                    price = tick.ask
+            elif order_type.lower() == 'sell':
+                trade_type = mt5.ORDER_TYPE_SELL
+                if price is None:
+                    tick = mt5.symbol_info_tick(symbol)
+                    price = tick.bid
+            else:
+                return {'success': False, 'error': f'Invalid order type: {order_type}'}
+            
+            # Prepare the request
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": symbol,
+                "volume": volume,
+                "type": trade_type,
+                "price": price,
+                "deviation": 20,
+                "magic": 234000,
+                "comment": comment,
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": mt5.ORDER_FILLING_IOC,
+            }
+            
+            # Add SL and TP if provided
+            if sl is not None:
+                request["sl"] = sl
+            if tp is not None:
+                request["tp"] = tp
+            
+            # Send the order
+            result = mt5.order_send(request)
+            
+            if result.retcode != mt5.TRADE_RETCODE_DONE:
+                error_msg = f"Order failed: {result.retcode} - {result.comment}"
+                logger.error(f"Order error: {error_msg}")
+                return {'success': False, 'error': error_msg}
+            
+            logger.info(f"Order placed successfully: {result.order}")
+            return {
+                'success': True,
+                'ticket': result.order,
+                'price': result.price,
+                'volume': result.volume,
+                'comment': result.comment
+            }
+            
+        except Exception as e:
+            error_msg = f"Error placing order: {e}"
+            logger.error(f"Order exception: {error_msg}")
+            return {'success': False, 'error': error_msg}
+    
+    async def broadcast_data(self, data: Dict):
+        """Broadcast data to all connected WebSocket clients"""
+        if not self.websocket_clients:
+            return
+            
+        message = json.dumps(data)
+        disconnected_clients = set()
+        
+        for client in self.websocket_clients:
+            try:
+                await client.send(message)
+            except websockets.exceptions.ConnectionClosed:
+                disconnected_clients.add(client)
+            except Exception as e:
+                logger.error(f"Error broadcasting to client: {e}")
+                disconnected_clients.add(client)
+        
+        # Remove disconnected clients
+        self.websocket_clients -= disconnected_clients
+    
+    async def data_update_loop(self):
+        """Main loop to update and broadcast MT5 data"""
+        logger.info("Starting data update loop...")
+        
+        while self.running:
+            try:
+                if not self.connected:
+                    await asyncio.sleep(self.update_interval)
+                    continue
+                
+                # Get fresh data
+                account_info = self.get_account_info()
+                positions = self.get_positions()
+                
+                if account_info:
+                    self.account_info = account_info
+                    self.positions = positions
+                    
+                    # Prepare data for broadcast
+                    data = {
+                        'type': 'account_update',
+                        'timestamp': datetime.now().isoformat(),
+                        'account': asdict(account_info),
+                        'positions': [asdict(pos) for pos in positions],
+                        'connection_status': 'connected'
+                    }
+                    
+                    # Broadcast to all clients
+                    await self.broadcast_data(data)
+                
+                await asyncio.sleep(self.update_interval)
+                
+            except Exception as e:
+                logger.error(f"Error in data update loop: {e}")
+                await asyncio.sleep(self.update_interval)
+    
+    async def handle_websocket_client(self, websocket, path):
+        """Handle new WebSocket client connection"""
+        logger.info(f"New WebSocket client connected from {websocket.remote_address}")
+        self.websocket_clients.add(websocket)
+        
+        try:
+            # Send initial data
+            if self.account_info:
+                initial_data = {
+                    'type': 'initial_data',
+                    'timestamp': datetime.now().isoformat(),
+                    'account': asdict(self.account_info),
+                    'positions': [asdict(pos) for pos in self.positions],
+                    'connection_status': 'connected' if self.connected else 'disconnected'
+                }
+                await websocket.send(json.dumps(initial_data))
+            
+            # Handle incoming messages
+            async for message in websocket:
+                try:
+                    data = json.loads(message)
+                    await self.handle_client_message(websocket, data)
+                except json.JSONDecodeError:
+                    logger.error(f"Invalid JSON from client: {message}")
+                except Exception as e:
+                    logger.error(f"Error handling client message: {e}")
+                    
+        except websockets.exceptions.ConnectionClosed:
+            logger.info("WebSocket client disconnected")
+        except Exception as e:
+            logger.error(f"WebSocket error: {e}")
+        finally:
+            self.websocket_clients.discard(websocket)
+    
+    async def handle_client_message(self, websocket, data: Dict):
+        """Handle messages from WebSocket clients"""
+        try:
+            message_type = data.get('type')
+            
+            if message_type == 'place_order':
+                # Handle trade execution request
+                symbol = data.get('symbol')
+                order_type = data.get('order_type')
+                volume = data.get('volume')
+                sl = data.get('sl')
+                tp = data.get('tp')
+                comment = data.get('comment', 'Pipnosis AI Trade')
+                
+                result = self.place_order(symbol, order_type, volume, sl=sl, tp=tp, comment=comment)
+                
+                response = {
+                    'type': 'order_response',
+                    'timestamp': datetime.now().isoformat(),
+                    'result': result
+                }
+                
+                await websocket.send(json.dumps(response))
+                
+            elif message_type == 'get_symbol_info':
+                # Handle symbol info request
+                symbol = data.get('symbol')
+                symbol_info = self.get_symbol_info(symbol)
+                
+                response = {
+                    'type': 'symbol_info',
+                    'timestamp': datetime.now().isoformat(),
+                    'symbol': symbol,
+                    'data': symbol_info
+                }
+                
+                await websocket.send(json.dumps(response))
+                
+            elif message_type == 'ping':
+                # Handle ping request
+                response = {
+                    'type': 'pong',
+                    'timestamp': datetime.now().isoformat(),
+                    'connection_status': 'connected' if self.connected else 'disconnected'
+                }
+                
+                await websocket.send(json.dumps(response))
+                
+        except Exception as e:
+            logger.error(f"Error handling client message: {e}")
+    
+    async def start_websocket_server(self, host='localhost', port=8765):
+        """Start the WebSocket server"""
+        logger.info(f"Starting WebSocket server on {host}:{port}")
+        
+        server = await websockets.serve(
+            self.handle_websocket_client,
+            host,
+            port,
+            ping_interval=30,
+            ping_timeout=10
+        )
+        
+        logger.info(f"WebSocket server started on ws://{host}:{port}")
+        return server
+    
+    def start(self, host='localhost', port=8765):
+        """Start the MT5 connector"""
+        logger.info("Starting Pipnosis MT5 Connector...")
+        
+        # Initialize MT5
+        if not self.initialize_mt5():
+            logger.error("Failed to initialize MT5 - exiting")
+            return False
+        
+        self.running = True
+        
+        # Start the async event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            # Start WebSocket server and data update loop
+            server = loop.run_until_complete(self.start_websocket_server(host, port))
+            update_task = loop.create_task(self.data_update_loop())
+            
+            logger.info("Pipnosis MT5 Connector is running!")
+            logger.info("WebSocket clients can connect to receive live MT5 data")
+            logger.info("Press Ctrl+C to stop")
+            
+            # Run forever
+            loop.run_forever()
+            
+        except KeyboardInterrupt:
+            logger.info("Shutting down...")
+        except Exception as e:
+            logger.error(f"Server error: {e}")
+        finally:
+            self.running = False
+            if self.connected:
+                mt5.shutdown()
+            loop.close()
+            logger.info("MT5 Connector stopped")
+    
+    def stop(self):
+        """Stop the connector"""
+        self.running = False
+        if self.connected:
+            mt5.shutdown()
+            self.connected = False
+
+if __name__ == "__main__":
+    connector = MT5Connector()
+    connector.start(host='localhost', port=8765)

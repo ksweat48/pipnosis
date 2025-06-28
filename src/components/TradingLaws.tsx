@@ -5,12 +5,12 @@ interface TradingLaw {
   id: number;
   title: string;
   description: string;
-  icon: React.ComponentType<any>;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   category: 'capital' | 'performance' | 'risk' | 'execution' | 'discipline';
 }
 
 export const TradingLaws: React.FC = () => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false); // Default to collapsed
 
   const laws: TradingLaw[] = [
     {
@@ -107,11 +107,12 @@ export const TradingLaws: React.FC = () => {
     }
   };
 
-  const visibleLaws = isExpanded ? laws : laws.slice(0, 5);
+  // Show only the first law when collapsed, all laws when expanded
+  const visibleLaws = isExpanded ? laws : laws.slice(0, 1);
 
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700">
-      <div className="p-4 sm:p-6 border-b border-slate-700">
+      <div className="p-4 sm:p-6 border-b border-slate-700 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
         <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
             <Gavel className="h-5 w-5 text-amber-400 flex-shrink-0" />
@@ -121,16 +122,8 @@ export const TradingLaws: React.FC = () => {
             <div className="text-sm text-amber-400 font-medium">
               AI Laws of Risk & Success
             </div>
-            <button
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="flex items-center justify-center space-x-1 text-blue-400 hover:text-blue-300 transition-colors text-sm bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-lg"
-            >
-              <span>{isExpanded ? 'Show Less' : 'Show All Laws'}</span>
-              {isExpanded ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
+            <button className="p-2 text-slate-400 hover:text-white transition-colors">
+              {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
             </button>
           </div>
         </div>
@@ -174,50 +167,49 @@ export const TradingLaws: React.FC = () => {
           })}
         </div>
 
-        {/* Trade Morality Clause */}
-        <div className="mt-6 p-4 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border-2 border-amber-500/30 rounded-lg">
-          <div className="flex items-start space-x-3">
-            <div className="p-2 bg-amber-500/20 rounded-lg flex-shrink-0">
-              <Scale className="h-5 w-5 text-amber-400" />
-            </div>
-            <div>
-              <h4 className="text-amber-300 font-semibold mb-2">Trade Morality Clause</h4>
-              <p className="text-amber-200 text-sm leading-relaxed">
-                Pipnosis must never engage in unauthorized trading, never use deceptive logic to meet prompts, 
-                and always provide reasoning and transparency in its decisions even if the user doesn't ask.
-              </p>
+        {/* Show summary when collapsed */}
+        {!isExpanded && (
+          <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+            <p className="text-amber-200 text-sm text-center">
+              <strong>Law #1 is the foundation.</strong> Click to see the complete set of 10 immutable trading principles.
+            </p>
+          </div>
+        )}
+
+        {/* Trade Morality Clause - Only show when expanded */}
+        {isExpanded && (
+          <div className="mt-6 p-4 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border-2 border-amber-500/30 rounded-lg">
+            <div className="flex items-start space-x-3">
+              <div className="p-2 bg-amber-500/20 rounded-lg flex-shrink-0">
+                <Scale className="h-5 w-5 text-amber-400" />
+              </div>
+              <div>
+                <h4 className="text-amber-300 font-semibold mb-2">Trade Morality Clause</h4>
+                <p className="text-amber-200 text-sm leading-relaxed">
+                  Pipnosis must never engage in unauthorized trading, never use deceptive logic to meet prompts, 
+                  and always provide reasoning and transparency in its decisions even if the user doesn't ask.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* AI Integration Notice */}
-        <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-          <div className="flex items-start space-x-3">
-            <Brain className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-blue-300 text-sm">
-                <strong>These laws are hard-coded into Pipnosis AI's decision-making engine.</strong> Every trade analysis, 
-                strategy generation, and execution follows these immutable principles to ensure consistent, 
-                responsible, and profitable trading behavior.
-              </p>
-            </div>
+        {/* Category Legend - Only show when expanded */}
+        {isExpanded && (
+          <div className="mt-4 flex flex-wrap gap-2 justify-center">
+            {[
+              { category: 'capital', label: 'Capital Protection', color: 'bg-green-500/20 text-green-400' },
+              { category: 'performance', label: 'Performance', color: 'bg-blue-500/20 text-blue-400' },
+              { category: 'risk', label: 'Risk Management', color: 'bg-yellow-500/20 text-yellow-400' },
+              { category: 'execution', label: 'Execution', color: 'bg-purple-500/20 text-purple-400' },
+              { category: 'discipline', label: 'Discipline', color: 'bg-red-500/20 text-red-400' }
+            ].map((item) => (
+              <span key={item.category} className={`px-2 py-1 rounded text-xs font-medium ${item.color}`}>
+                {item.label}
+              </span>
+            ))}
           </div>
-        </div>
-
-        {/* Category Legend */}
-        <div className="mt-4 flex flex-wrap gap-2 justify-center">
-          {[
-            { category: 'capital', label: 'Capital Protection', color: 'bg-green-500/20 text-green-400' },
-            { category: 'performance', label: 'Performance', color: 'bg-blue-500/20 text-blue-400' },
-            { category: 'risk', label: 'Risk Management', color: 'bg-yellow-500/20 text-yellow-400' },
-            { category: 'execution', label: 'Execution', color: 'bg-purple-500/20 text-purple-400' },
-            { category: 'discipline', label: 'Discipline', color: 'bg-red-500/20 text-red-400' }
-          ].map((item) => (
-            <span key={item.category} className={`px-2 py-1 rounded text-xs font-medium ${item.color}`}>
-              {item.label}
-            </span>
-          ))}
-        </div>
+        )}
       </div>
     </div>
   );

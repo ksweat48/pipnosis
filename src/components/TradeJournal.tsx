@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookOpen, Clock, TrendingUp, TrendingDown, AlertCircle, CheckCircle, Pause, Target, ThumbsUp, RotateCcw, MessageCircle } from 'lucide-react';
+import { BookOpen, Clock, TrendingUp, TrendingDown, AlertCircle, Pause, Target, ThumbsUp, RotateCcw, MessageCircle } from 'lucide-react';
 
 interface JournalEntry {
   id: string;

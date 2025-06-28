@@ -1,7 +1,13 @@
-import React from 'react';
-import { TrendingUp, TrendingDown, BarChart3, Camera, Upload, RefreshCw, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { TrendingUp, TrendingDown, BarChart3, Camera, Upload, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 
-interface MarketData {
+interface MarketAnalysisProps {
+  analysisMode: 'api' | 'screenshot';
+  onModeChange: (mode: 'api' | 'screenshot') => void;
+  onScreenshotUpload: (files: FileList) => void;
+}
+
+interface MarketDataPoint {
   symbol: string;
   price: number;
   change: number;
@@ -10,29 +16,70 @@ interface MarketData {
   signal: 'buy' | 'sell' | 'hold';
 }
 
-interface MarketAnalysisProps {
-  marketData: MarketData[];
-  analysisMode: 'api' | 'screenshot';
-  onModeChange: (mode: 'api' | 'screenshot') => void;
-  onScreenshotUpload: (files: FileList) => void;
-  isLoading?: boolean;
-  error?: string | null;
-}
-
 export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
-  marketData,
   analysisMode,
   onModeChange,
-  onScreenshotUpload,
-  isLoading = false,
-  error = null
+  onScreenshotUpload
 }) => {
+  const [marketData, setMarketData] = useState<MarketDataPoint[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [showAll, setShowAll] = useState(false); // Default to show only 3
+
+  // Mock market data
+  const generateMockData = (): MarketDataPoint[] => {
+    const pairs = [
+      { symbol: 'EURUSD', basePrice: 1.1425 },
+      { symbol: 'GBPUSD', basePrice: 1.2735 },
+      { symbol: 'USDJPY', basePrice: 149.85 },
+      { symbol: 'USDCHF', basePrice: 0.8945 },
+      { symbol: 'AUDUSD', basePrice: 0.6785 },
+      { symbol: 'USDCAD', basePrice: 1.3625 },
+      { symbol: 'NZDUSD', basePrice: 0.6245 }
+    ];
+
+    return pairs.map(({ symbol, basePrice }) => {
+      const isJPY = symbol.includes('JPY');
+      const priceVariation = isJPY 
+        ? (Math.random() - 0.5) * 2.0 
+        : (Math.random() - 0.5) * 0.02;
+      const changeVariation = isJPY 
+        ? (Math.random() - 0.5) * 1.0 
+        : (Math.random() - 0.5) * 0.01;
+
+      return {
+        symbol,
+        price: basePrice + priceVariation,
+        change: changeVariation,
+        changePercent: (changeVariation / basePrice) * 100,
+        trend: Math.random() > 0.5 ? 'up' : 'down',
+        signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] as 'buy' | 'sell' | 'hold'
+      };
+    });
+  };
+
+  useEffect(() => {
+    const fetchData = () => {
+      setIsLoading(true);
+      setTimeout(() => {
+        setMarketData(generateMockData());
+        setLastUpdate(new Date());
+        setIsLoading(false);
+      }, 1000);
+    };
+
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   const getSignalColor = (signal: string) => {
     switch (signal) {
-      case 'buy': return 'text-green-400 bg-green-500/20';
-      case 'sell': return 'text-red-400 bg-red-500/20';
-      case 'hold': return 'text-yellow-400 bg-yellow-500/20';
-      default: return 'text-slate-400 bg-slate-500/20';
+      case 'buy': return 'text-green-400 bg-green-500/20 border-green-500/30';
+      case 'sell': return 'text-red-400 bg-red-500/20 border-red-500/30';
+      case 'hold': return 'text-yellow-400 bg-yellow-500/20 border-yellow-500/30';
+      default: return 'text-slate-400 bg-slate-500/20 border-slate-500/30';
     }
   };
 
@@ -44,13 +91,16 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
     }
   };
 
+  // Show only first 3 pairs by default, all when expanded
+  const displayedData = showAll ? marketData : marketData.slice(0, 3);
+
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700">
       <div className="p-4 sm:p-6 border-b border-slate-700">
         <div className="flex flex-col space-y-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
             <BarChart3 className="h-5 w-5 text-blue-400" />
-            <span>Market Analysis</span>
+            <span>Live Market Analysis</span>
             {isLoading && <RefreshCw className="h-4 w-4 text-blue-400 animate-spin" />}
           </h3>
           
@@ -62,8 +112,9 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
                   ? 'bg-blue-500 text-white' 
                   : 'text-slate-400 hover:text-white'
               }`}
+            
             >
-              Live API Data
+              Live Data
             </button>
             <button
               onClick={() => onModeChange('screenshot')}
@@ -117,8 +168,8 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
             </label>
           </div>
         ) : (
-          <div className="space-y-3">
-            {isLoading ? (
+          <div className="space-y-4">
+            {isLoading && marketData.length === 0 ? (
               <div className="text-center py-8">
                 <RefreshCw className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
                 <p className="text-slate-400">Loading live market data...</p>
@@ -129,62 +180,79 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
                 <p className="text-slate-400">No market data available</p>
               </div>
             ) : (
-              marketData.map((data) => (
-                <div key={data.symbol} className="bg-slate-900 rounded-lg p-3 sm:p-4 border border-slate-600">
-                  <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-                    <div className="flex items-center space-x-3 sm:space-x-4">
-                      <div className="flex items-center space-x-2">
-                        <h4 className="font-semibold text-white text-base sm:text-lg min-w-[60px] sm:min-w-[80px]">{data.symbol}</h4>
-                        {getTrendIcon(data.trend)}
-                      </div>
-                      
-                      <div className="flex items-center space-x-3 sm:space-x-6">
-                        <div>
-                          <p className="text-lg sm:text-xl font-bold text-white">
-                            {data.price.toFixed(data.symbol.includes('JPY') ? 2 : 5)}
-                          </p>
+              <div className="space-y-3">
+                {displayedData.map((data) => (
+                  <div key={data.symbol} className="bg-slate-900 rounded-lg p-3 sm:p-4 border border-slate-600 hover:border-slate-500 transition-colors">
+                    <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+                      <div className="flex items-center space-x-3 sm:space-x-4">
+                        <div className="flex items-center space-x-2">
+                          <h4 className="font-semibold text-white text-base sm:text-lg min-w-[60px] sm:min-w-[80px]">
+                            {data.symbol}
+                          </h4>
+                          {getTrendIcon(data.trend)}
                         </div>
                         
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-3 space-y-1 sm:space-y-0">
-                          <span className={`text-xs sm:text-sm font-medium ${data.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {data.change >= 0 ? '+' : ''}{data.change.toFixed(data.symbol.includes('JPY') ? 2 : 5)}
-                          </span>
-                          <span className={`text-xs sm:text-sm ${data.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            ({data.changePercent >= 0 ? '+' : ''}{data.changePercent.toFixed(2)}%)
-                          </span>
+                        <div className="flex items-center space-x-3 sm:space-x-6">
+                          <div>
+                            <p className="text-lg sm:text-xl font-bold text-white">
+                              {data.price.toFixed(data.symbol.includes('JPY') ? 2 : 5)}
+                            </p>
+                          </div>
+                          
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-3 space-y-1 sm:space-y-0">
+                            <span className={`text-xs sm:text-sm font-medium ${data.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {data.change >= 0 ? '+' : ''}{data.change.toFixed(data.symbol.includes('JPY') ? 2 : 5)}
+                            </span>
+                            <span className={`text-xs sm:text-sm ${data.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              ({data.changePercent >= 0 ? '+' : ''}{data.changePercent.toFixed(2)}%)
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    
-                    <div className="flex justify-end">
-                      <span className={`px-2 py-1 sm:px-3 rounded text-xs font-medium ${getSignalColor(data.signal)}`}>
-                        {data.signal.toUpperCase()}
-                      </span>
+                      
+                      <div className="flex items-center space-x-2">
+                        <span className={`px-2 py-1 sm:px-3 rounded text-xs font-medium border ${getSignalColor(data.signal)}`}>
+                          {data.signal.toUpperCase()}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                ))}
+                
+                {/* Show More/Less Button */}
+                {marketData.length > 3 && (
+                  <button 
+                    onClick={() => setShowAll(!showAll)}
+                    className="w-full py-2 text-blue-400 hover:text-blue-300 bg-slate-900 rounded-lg border border-slate-600 hover:border-blue-500 transition-colors flex items-center justify-center space-x-2"
+                  >
+                    <span>{showAll ? 'Show Less' : `Show ${marketData.length - 3} More Pairs`}</span>
+                    {showAll ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}
 
-        {/* Data Source Indicator */}
         <div className="mt-4 flex items-center justify-between text-xs text-slate-400">
           <div className="flex items-center space-x-2">
-            <div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-yellow-400 animate-pulse' : error ? 'bg-red-400' : 'bg-green-400'}`}></div>
+            <div className={`w-2 h-2 rounded-full ${
+              isLoading ? 'bg-yellow-400 animate-pulse' : 
+              error ? 'bg-red-400' : 'bg-green-400'
+            }`}></div>
             <span>
               {analysisMode === 'api' 
                 ? isLoading 
                   ? 'Fetching live data...' 
                   : error 
                   ? 'Using fallback data' 
-                  : 'Live market data'
+                  : `Live data: ${displayedData.length} pairs${!showAll && marketData.length > 3 ? ` (${marketData.length - 3} more)` : ''}`
                 : 'Screenshot mode'
               }
             </span>
           </div>
-          {analysisMode === 'api' && !isLoading && !error && (
-            <span>Updated: {new Date().toLocaleTimeString()}</span>
+          {analysisMode === 'api' && !isLoading && !error && marketData.length > 0 && lastUpdate && (
+            <span>Updated: {lastUpdate.toLocaleTimeString()}</span>
           )}
         </div>
       </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Settings, Radio, Upload, AlertTriangle, CheckCircle, Zap, TrendingUp } from 'lucide-react';
+import { X, Settings, Shield, Save, RotateCcw, Info, TrendingUp, CheckCircle } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -14,6 +14,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     // Trading Pairs Selection (API Mode only)
     pairSelectionMode: 'ai-choose', // 'ai-choose' or 'manual'
     selectedPairs: ['EURUSD', 'GBPUSD', 'USDJPY'],
+    expandedScan: false, // Enable Tier 2 pairs
     
     // Trading Objective
     tradingGoal: 'weekly-income',
@@ -33,18 +34,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     // Reporting & Alerts
     reportingMethod: 'both',
     feedbackStyle: 'ai-reasoning',
-    
-    // Snapshot Upload
-    uploadedAssets: [] as File[]
   });
 
-  const availablePairs = [
-    'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
-    'EURJPY', 'GBPJPY', 'EURGBP', 'AUDJPY', 'EURAUD', 'EURCHF', 'AUDCAD',
-    'GBPAUD', 'GBPCAD', 'GBPCHF', 'CADCHF', 'CADJPY', 'AUDCHF', 'NZDJPY'
-  ];
+  // Enhanced trading pairs with tiers
+  const tradingPairs = {
+    tier1: [
+      { symbol: 'EURUSD', name: 'Euro / US Dollar', spread: 'Low', liquidity: 'High' },
+      { symbol: 'GBPUSD', name: 'British Pound / USD', spread: 'Low', liquidity: 'High' },
+      { symbol: 'USDJPY', name: 'US Dollar / Japanese Yen', spread: 'Low', liquidity: 'High' },
+      { symbol: 'USDCHF', name: 'US Dollar / Swiss Franc', spread: 'Low', liquidity: 'High' },
+      { symbol: 'AUDUSD', name: 'Australian Dollar / USD', spread: 'Medium', liquidity: 'High' },
+      { symbol: 'USDCAD', name: 'US Dollar / Canadian Dollar', spread: 'Medium', liquidity: 'High' },
+      { symbol: 'NZDUSD', name: 'New Zealand Dollar / USD', spread: 'Medium', liquidity: 'Medium' }
+    ],
+    tier2: [
+      { symbol: 'EURJPY', name: 'Euro / Japanese Yen', spread: 'Medium', liquidity: 'Medium', reason: 'Trend-following potential' },
+      { symbol: 'GBPJPY', name: 'British Pound / Japanese Yen', spread: 'Medium', liquidity: 'Medium', reason: 'High volatility (breakouts)' },
+      { symbol: 'EURGBP', name: 'Euro / British Pound', spread: 'Low', liquidity: 'High', reason: 'Mean reversion' },
+      { symbol: 'XAUUSD', name: 'Gold / US Dollar', spread: 'Medium', liquidity: 'High', reason: 'Clear behavior patterns' },
+      { symbol: 'USDMXN', name: 'US Dollar / Mexican Peso', spread: 'High', liquidity: 'Low', reason: 'Highly directional' },
+      { symbol: 'USDZAR', name: 'US Dollar / South African Rand', spread: 'High', liquidity: 'Low', reason: 'High pip value' },
+      { symbol: 'BTCUSD', name: 'Bitcoin / US Dollar', spread: 'High', liquidity: 'Medium', reason: 'Crypto volatility' }
+    ]
+  };
 
-  const handleSettingChange = (key: string, value: any) => {
+  const handleSettingChange = (key: string, value: string | boolean) => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
@@ -70,13 +84,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         return prev; // Don't add if already at limit
       }
     });
-  };
-
-  const handleFileUpload = (files: FileList | null) => {
-    if (files) {
-      const fileArray = Array.from(files).slice(0, 12); // Max 3 assets × 4 timeframes
-      setSettings(prev => ({ ...prev, uploadedAssets: fileArray }));
-    }
   };
 
   const isApiMode = settings.dataMode === 'api';
@@ -106,7 +113,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           {/* Section 1: Data Mode Selector */}
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
-              <Radio className="h-5 w-5 text-blue-400" />
+              <Shield className="h-5 w-5 text-blue-400" />
               <span>Select Trading Mode</span>
             </h3>
             
@@ -132,6 +139,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   <li>• Connects directly to MetaTrader 5 using official MT5 Python API</li>
                   <li>• Grants access to live price data and real-time trade management</li>
                   <li>• Enables full feature set and AI optimization</li>
+                  <li>• Supports tiered pair analysis (Tier 1 + Tier 2)</li>
                 </ul>
               </div>
 
@@ -161,9 +169,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             </div>
           </div>
 
-          {/* Section 1.5: Trading Pairs Selection (API Mode Only) */}
+          {/* Section 1.5: Enhanced Trading Pairs Selection (API Mode Only) */}
           {isApiMode && (
-            <div className="space-y-4">
+            <div className="space-y-6">
               <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
                 <TrendingUp className="h-5 w-5 text-blue-400" />
                 <span>Trading Pairs Selection</span>
@@ -199,8 +207,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   </label>
                 </div>
 
+                {/* Expanded Scan Toggle */}
+                <div className="p-4 bg-slate-900 rounded-lg border border-slate-600">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h4 className="text-white font-medium">Expanded Pair Analysis</h4>
+                      <p className="text-sm text-slate-400">Include Tier 2 pairs for more opportunities</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.expandedScan}
+                        onChange={(e) => handleSettingChange('expandedScan', e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                    </label>
+                  </div>
+                  
+                  <div className="text-xs text-slate-400">
+                    <strong>Tier 1 (Always Analyzed):</strong> {tradingPairs.tier1.map(p => p.symbol).join(', ')}
+                    <br />
+                    <strong>Tier 2 (Optional):</strong> {tradingPairs.tier2.map(p => p.symbol).join(', ')}
+                  </div>
+                </div>
+
                 {settings.pairSelectionMode === 'manual' && (
-                  <div className="mt-4 p-4 bg-slate-900 rounded-lg border border-slate-600">
+                  <div className="p-4 bg-slate-900 rounded-lg border border-slate-600">
                     <div className="mb-3">
                       <p className="text-sm text-slate-300 mb-2">
                         Select up to 3 trading pairs ({settings.selectedPairs.length}/3 selected)
@@ -225,28 +258,62 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       )}
                     </div>
                     
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                      {availablePairs.map(pair => {
-                        const isSelected = settings.selectedPairs.includes(pair);
-                        const canSelect = settings.selectedPairs.length < 3 || isSelected;
-                        
-                        return (
-                          <button
-                            key={pair}
-                            onClick={() => handlePairToggle(pair)}
-                            disabled={!canSelect}
-                            className={`px-3 py-2 text-sm rounded-lg border transition-all ${
-                              isSelected
-                                ? 'border-blue-500 bg-blue-500/20 text-blue-400'
-                                : canSelect
-                                ? 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500 hover:bg-slate-700'
-                                : 'border-slate-700 bg-slate-800/50 text-slate-500 cursor-not-allowed'
-                            }`}
-                          >
-                            {pair}
-                          </button>
-                        );
-                      })}
+                    {/* Tier 1 Pairs */}
+                    <div className="mb-4">
+                      <h5 className="text-sm font-medium text-green-400 mb-2">🔷 Tier 1 - Most Popular & Liquid</h5>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                        {tradingPairs.tier1.map(pair => {
+                          const isSelected = settings.selectedPairs.includes(pair.symbol);
+                          const canSelect = settings.selectedPairs.length < 3 || isSelected;
+                          
+                          return (
+                            <button
+                              key={pair.symbol}
+                              onClick={() => handlePairToggle(pair.symbol)}
+                              disabled={!canSelect}
+                              className={`px-3 py-2 text-sm rounded-lg border transition-all ${
+                                isSelected
+                                  ? 'border-blue-500 bg-blue-500/20 text-blue-400'
+                                  : canSelect
+                                  ? 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500 hover:bg-slate-700'
+                                  : 'border-slate-700 bg-slate-800/50 text-slate-500 cursor-not-allowed'
+                              }`}
+                              title={`${pair.name} - Spread: ${pair.spread}, Liquidity: ${pair.liquidity}`}
+                            >
+                              {pair.symbol}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Tier 2 Pairs */}
+                    <div>
+                      <h5 className="text-sm font-medium text-yellow-400 mb-2">🔶 Tier 2 - Volatile & High RRR</h5>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                        {tradingPairs.tier2.map(pair => {
+                          const isSelected = settings.selectedPairs.includes(pair.symbol);
+                          const canSelect = settings.selectedPairs.length < 3 || isSelected;
+                          
+                          return (
+                            <button
+                              key={pair.symbol}
+                              onClick={() => handlePairToggle(pair.symbol)}
+                              disabled={!canSelect}
+                              className={`px-3 py-2 text-sm rounded-lg border transition-all ${
+                                isSelected
+                                  ? 'border-blue-500 bg-blue-500/20 text-blue-400'
+                                  : canSelect
+                                  ? 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500 hover:bg-slate-700'
+                                  : 'border-slate-700 bg-slate-800/50 text-slate-500 cursor-not-allowed'
+                              }`}
+                              title={`${pair.name} - ${pair.reason}`}
+                            >
+                              {pair.symbol}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                     
                     {settings.selectedPairs.length === 3 && (
@@ -264,7 +331,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
                     <p className="text-sm text-blue-300 flex items-center space-x-2">
                       <CheckCircle className="h-4 w-4" />
-                      <span>AI will analyze market conditions and select the most profitable pairs based on your trading goal and risk profile.</span>
+                      <span>
+                        AI will analyze Tier 1 pairs by default{settings.expandedScan ? ' + Tier 2 pairs' : ''} and select the most profitable opportunities based on your trading goal and risk profile.
+                      </span>
                     </p>
                   </div>
                 )}
@@ -307,192 +376,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             </div>
           </div>
 
-          {/* Section 4: Trading Style Preference */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-white">Trading Style Preference</h3>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">Preferred Trade Rhythm</label>
-              <select
-                value={settings.tradeRhythm}
-                onChange={(e) => handleSettingChange('tradeRhythm', e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="ai-choose">Let AI Choose</option>
-                <option value="short-term">Short-Term (scalping/intraday)</option>
-                <option value="medium-term">Medium-Term (swing 1–3 days)</option>
-              </select>
-              
-              {isSnapshotMode && settings.tradeRhythm === 'short-term' && (
-                <div className="mt-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-start space-x-2">
-                  <AlertTriangle className="h-4 w-4 text-yellow-400 mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-yellow-300">
-                    Scalping is not recommended in snapshot mode unless chart images are updated frequently.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Section 5: AI Behavior Mode */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-white">AI Behavior Mode</h3>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">AI Execution Style</label>
-              <select
-                value={settings.aiExecutionStyle}
-                onChange={(e) => handleSettingChange('aiExecutionStyle', e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="fully-automated">Fully Automated</option>
-                <option value="explain-before-entry">Explain Before Entry</option>
-                <option value="watch-learn">Watch & Learn Mode</option>
-              </select>
-              
-              {isSnapshotMode && settings.aiExecutionStyle === 'watch-learn' && (
-                <div className="mt-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-start space-x-2">
-                  <AlertTriangle className="h-4 w-4 text-yellow-400 mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-yellow-300">
-                    Watch & Learn Mode may be limited in snapshot mode.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Section 6: Trade Frequency Preference */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-white">Trade Frequency Preference</h3>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">Max Trade Activity</label>
-              <select
-                value={settings.maxTradeActivity}
-                onChange={(e) => handleSettingChange('maxTradeActivity', e.target.value)}
-                className={`w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  isSnapshotMode ? 'opacity-60' : ''
-                }`}
-                disabled={isSnapshotMode && settings.maxTradeActivity === 'moderate'}
-              >
-                <option value="minimal">Minimal (1–2/day)</option>
-                <option value="moderate" disabled={isSnapshotMode}>
-                  Moderate (up to 5/day) {isSnapshotMode ? '- Not available in snapshot mode' : ''}
-                </option>
-                <option value="ai-decide">
-                  Let AI Decide {isSnapshotMode ? '(1 trade only)' : ''}
-                </option>
-              </select>
-              
-              {isSnapshotMode && (
-                <div className="mt-2 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg flex items-start space-x-2">
-                  <CheckCircle className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-blue-300">
-                    Snapshot mode only supports single-entry strategies based on chart images. AI will choose best asset & entry from the 3.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Section 7: Reporting & Alerts */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-white">Reporting & Alerts</h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Receive Reports Via</label>
-                <select
-                  value={settings.reportingMethod}
-                  onChange={(e) => handleSettingChange('reportingMethod', e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="telegram">Telegram</option>
-                  <option value="email">Email</option>
-                  <option value="both">Both</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Performance Feedback Style</label>
-                <select
-                  value={settings.feedbackStyle}
-                  onChange={(e) => handleSettingChange('feedbackStyle', e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="summary-only">Summary Only</option>
-                  <option value="ai-reasoning">AI Trade Reasoning</option>
-                  <option value="visual-reports" disabled={isSnapshotMode}>
-                    Visual Reports (charts) {isSnapshotMode ? '- Not available in snapshot mode' : ''}
-                  </option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 8: Snapshot Upload Panel */}
-          {isSnapshotMode && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
-                <Upload className="h-5 w-5 text-blue-400" />
-                <span>Snapshot Upload Panel</span>
-              </h3>
-              
-              <div className="p-6 border-2 border-dashed border-slate-600 rounded-lg">
-                <input
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  onChange={(e) => handleFileUpload(e.target.files)}
-                  className="hidden"
-                  id="snapshot-upload-settings"
-                />
-                <label htmlFor="snapshot-upload-settings" className="cursor-pointer">
-                  <div className="text-center space-y-3">
-                    <div className="p-3 bg-slate-700 rounded-lg inline-block">
-                      <Upload className="h-8 w-8 text-slate-400" />
-                    </div>
-                    <div>
-                      <p className="text-white font-medium">Upload up to 3 assets</p>
-                      <p className="text-sm text-slate-400">For each asset: Upload 4 timeframes (W1, D1, H1, M15)</p>
-                    </div>
-                    <div className="bg-blue-500 text-white px-4 py-2 rounded-lg inline-block hover:bg-blue-600 transition-colors">
-                      Choose Chart Files
-                    </div>
-                  </div>
-                </label>
-                
-                {settings.uploadedAssets.length > 0 && (
-                  <div className="mt-4 p-3 bg-slate-900 rounded-lg">
-                    <p className="text-sm text-slate-300 mb-2">Uploaded files: {settings.uploadedAssets.length}</p>
-                    <div className="text-xs text-slate-400 space-y-1">
-                      {settings.uploadedAssets.map((file, index) => (
-                        <div key={index}>{file.name}</div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Optional Notes</label>
-                <textarea
-                  placeholder="Add any asset-specific comments or trading preferences..."
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none h-20"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Developer Recommendation */}
+          {/* Enhanced Recommendation */}
           <div className="p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-lg">
             <div className="flex items-start space-x-3">
-              <Zap className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
+              <Info className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
               <div>
-                <h4 className="text-white font-semibold mb-2">Pipnosis Recommendation</h4>
+                <h4 className="text-white font-semibold mb-2">Enhanced Pipnosis Features</h4>
                 <p className="text-sm text-slate-300 mb-2">
-                  Pipnosis is a prompt-based AI trading system designed for low-input, high-intelligence decision making.
+                  Pipnosis now supports tiered pair analysis and always generates Low, Medium, and High risk strategies unless you specify otherwise.
                 </p>
-                <p className="text-sm text-blue-300">
-                  👉 Start with Python-based control, using the official MetaTrader 5 Python API for optimal performance.
-                </p>
+                <ul className="text-sm text-blue-300 space-y-1">
+                  <li>👉 <strong>Tier 1:</strong> 7 most liquid pairs (always analyzed)</li>
+                  <li>👉 <strong>Tier 2:</strong> 7 volatile/exotic pairs (optional)</li>
+                  <li>👉 <strong>Multi-Risk:</strong> Get all risk levels in one analysis</li>
+                </ul>
               </div>
             </div>
           </div>

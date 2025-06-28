@@ -23,7 +23,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   onDismiss,
   isCollapsible = false
 }) => {
-  const [isCollapsed, setIsCollapsed] = useState(true); // Changed to true for collapsed by default
+  const [isCollapsed, setIsCollapsed] = useState(true); // Default to collapsed
 
   const getNotificationIcon = (type: string) => {
     switch (type) {

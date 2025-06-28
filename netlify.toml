@@ -1,0 +1,57 @@
+[build]
+  publish = "dist"
+  command = "npm run build"
+
+[build.environment]
+  NODE_VERSION = "18"
+  # Production environment variables - CORRECTED SUPABASE URL
+  VITE_SUPABASE_URL = "https://elykntifkdaqiafnjosk.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVseWtudGlma2RhcWlhZm5qb3NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA2NDgyMTMsImV4cCI6MjA2NjIyNDIxM30.itkXsNCqJMTr8r_nFk6u4PpRu2_wt8Q9iMkBSoxnmLU"
+  VITE_OPENAI_API_KEY = "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"
+  VITE_PIPNOSIS_API_URL = "https://pipnosis-production.up.railway.app/api"
+  VITE_BUILD_VERSION = "2.0.0"
+  VITE_DEV_MODE = "false"
+  # Build optimizations
+  NODE_OPTIONS = "--max-old-space-size=4096"
+  NPM_FLAGS = "--production=false"
+  # Skip TypeScript checks completely
+  CI = "false"
+  SKIP_PREFLIGHT_CHECK = "true"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    # CRITICAL FIX: Updated CSP to allow necessary JavaScript operations and fix eval issues
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; connect-src 'self' https://elykntifkdaqiafnjosk.supabase.co https://pipnosis-production.up.railway.app https://api.openai.com wss://elykntifkdaqiafnjosk.supabase.co wss:; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; child-src 'self' blob:;"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

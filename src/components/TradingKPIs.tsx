@@ -234,8 +234,6 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ kpiData }) => {
     }
   ];
 
-  const visibleItems = isExpanded ? kpiItems : kpiItems.slice(0, 6);
-
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700">
       <div className="p-4 sm:p-6 border-b border-slate-700">
@@ -264,7 +262,7 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ kpiData }) => {
       </div>
 
       <div className="p-4 sm:p-6">
-        {/* Summary Stats */}
+        {/* Summary Stats - Always visible */}
         <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 p-3 sm:p-4 bg-slate-900 rounded-lg border border-slate-600">
           <div className="text-center">
             <div className="text-lg sm:text-2xl font-bold text-green-400">{data.profitableTrades}</div>
@@ -280,87 +278,91 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ kpiData }) => {
           </div>
         </div>
 
-        {/* KPI Columns - Changed from rows to columns */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-          {visibleItems.map((kpi) => (
-            <div
-              key={kpi.id}
-              className="bg-slate-900 rounded-lg p-4 border border-slate-600 hover:border-slate-500 transition-colors"
-            >
-              <div className="flex flex-col space-y-3">
-                {/* Top: Icon and Label */}
-                <div className="flex items-center space-x-2">
-                  <kpi.icon className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <h4 className="text-white font-medium text-sm truncate">
-                    {kpi.label}
-                  </h4>
+        {/* Detailed KPIs - Only show when expanded */}
+        {isExpanded && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+              {kpiItems.map((kpi) => (
+                <div
+                  key={kpi.id}
+                  className="bg-slate-900 rounded-lg p-4 border border-slate-600 hover:border-slate-500 transition-colors"
+                >
+                  <div className="flex flex-col space-y-3">
+                    {/* Top: Icon and Label */}
+                    <div className="flex items-center space-x-2">
+                      <kpi.icon className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                      <h4 className="text-white font-medium text-sm truncate">
+                        {kpi.label}
+                      </h4>
+                    </div>
+                    
+                    {/* Middle: Value */}
+                    <div className={`text-xl sm:text-2xl font-bold ${getPerformanceColor(kpi.rawValue, kpi.type)} text-center`}>
+                      {kpi.value}
+                    </div>
+                    
+                    {/* Progress bar */}
+                    <div className="w-full bg-slate-700 rounded-full h-2">
+                      <div
+                        className={`h-2 rounded-full transition-all duration-300 ${getProgressBarColor(kpi.rawValue, kpi.type)}`}
+                        style={{
+                          width: `${
+                            kpi.type === 'drawdown'
+                              ? Math.min((20 - kpi.rawValue) * 5, 100)
+                              : kpi.type === 'ratio'
+                              ? Math.min(kpi.rawValue * 33.33, 100)
+                              : kpi.type === 'return'
+                              ? Math.min(Math.abs(kpi.rawValue) * 5, 100)
+                              : Math.min(kpi.rawValue, 100)
+                          }%`
+                        }}
+                      ></div>
+                    </div>
+                    
+                    {/* Bottom: Description and Performance icon */}
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-slate-400 flex-1">
+                        {kpi.description}
+                      </p>
+                      <div className="flex-shrink-0 ml-2">
+                        {getPerformanceIcon(kpi.rawValue, kpi.type)}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                
-                {/* Middle: Value */}
-                <div className={`text-xl sm:text-2xl font-bold ${getPerformanceColor(kpi.rawValue, kpi.type)} text-center`}>
-                  {kpi.value}
-                </div>
-                
-                {/* Progress bar */}
-                <div className="w-full bg-slate-700 rounded-full h-2">
-                  <div
-                    className={`h-2 rounded-full transition-all duration-300 ${getProgressBarColor(kpi.rawValue, kpi.type)}`}
-                    style={{
-                      width: `${
-                        kpi.type === 'drawdown'
-                          ? Math.min((20 - kpi.rawValue) * 5, 100)
-                          : kpi.type === 'ratio'
-                          ? Math.min(kpi.rawValue * 33.33, 100)
-                          : kpi.type === 'return'
-                          ? Math.min(Math.abs(kpi.rawValue) * 5, 100)
-                          : Math.min(kpi.rawValue, 100)
-                      }%`
-                    }}
-                  ></div>
-                </div>
-                
-                {/* Bottom: Description and Performance icon */}
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-slate-400 flex-1">
-                    {kpi.description}
-                  </p>
-                  <div className="flex-shrink-0 ml-2">
-                    {getPerformanceIcon(kpi.rawValue, kpi.type)}
+              ))}
+            </div>
+
+            {/* Performance Insights */}
+            <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+              <div className="flex items-start space-x-3">
+                <BarChart3 className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h4 className="text-blue-300 font-medium mb-2">AI Performance Insights</h4>
+                  <div className="space-y-1 text-sm text-blue-200">
+                    <p>• Your {data.winRate}% win rate is {data.winRate >= 70 ? 'excellent' : data.winRate >= 50 ? 'good' : 'needs improvement'} for AI trading</p>
+                    <p>• Risk-reward ratio of {data.averageRRR}:1 shows {data.averageRRR >= 2 ? 'strong' : 'moderate'} profit potential per trade</p>
+                    <p>• {data.recoveryAfterLoss}% recovery rate indicates {data.recoveryAfterLoss >= 80 ? 'excellent' : 'good'} AI adaptation after losses</p>
+                    <p>• Monthly return of {data.monthlyReturn}% is {data.monthlyReturn >= 10 ? 'outstanding' : data.monthlyReturn >= 5 ? 'solid' : 'conservative'} for automated trading</p>
                   </div>
                 </div>
               </div>
             </div>
-          ))}
-        </div>
 
-        {/* Performance Insights */}
-        <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-          <div className="flex items-start space-x-3">
-            <BarChart3 className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <h4 className="text-blue-300 font-medium mb-2">AI Performance Insights</h4>
-              <div className="space-y-1 text-sm text-blue-200">
-                <p>• Your {data.winRate}% win rate is {data.winRate >= 70 ? 'excellent' : data.winRate >= 50 ? 'good' : 'needs improvement'} for AI trading</p>
-                <p>• Risk-reward ratio of {data.averageRRR}:1 shows {data.averageRRR >= 2 ? 'strong' : 'moderate'} profit potential per trade</p>
-                <p>• {data.recoveryAfterLoss}% recovery rate indicates {data.recoveryAfterLoss >= 80 ? 'excellent' : 'good'} AI adaptation after losses</p>
-                <p>• Monthly return of {data.monthlyReturn}% is {data.monthlyReturn >= 10 ? 'outstanding' : data.monthlyReturn >= 5 ? 'solid' : 'conservative'} for automated trading</p>
+            {/* Time Period Selector */}
+            <div className="mt-4 flex flex-col space-y-2 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+              <div className="flex items-center space-x-2 text-sm text-slate-400">
+                <Calendar className="h-4 w-4 flex-shrink-0" />
+                <span>Data from last 30 days</span>
+              </div>
+              <div className="flex space-x-2">
+                <button className="px-3 py-1 text-xs bg-blue-500 text-white rounded-lg">30D</button>
+                <button className="px-3 py-1 text-xs bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors">7D</button>
+                <button className="px-3 py-1 text-xs bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors">90D</button>
               </div>
             </div>
-          </div>
-        </div>
-
-        {/* Time Period Selector */}
-        <div className="mt-4 flex flex-col space-y-2 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-          <div className="flex items-center space-x-2 text-sm text-slate-400">
-            <Calendar className="h-4 w-4 flex-shrink-0" />
-            <span>Data from last 30 days</span>
-          </div>
-          <div className="flex space-x-2">
-            <button className="px-3 py-1 text-xs bg-blue-500 text-white rounded-lg">30D</button>
-            <button className="px-3 py-1 text-xs bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors">7D</button>
-            <button className="px-3 py-1 text-xs bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors">90D</button>
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );

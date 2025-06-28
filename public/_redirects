@@ -1,0 +1,7 @@
+# Netlify redirects file
+
+# SPA fallback
+/*    /index.html   200
+
+# API proxy for development
+/api/*  https://pipnosis-production.up.railway.app/api/:splat  200

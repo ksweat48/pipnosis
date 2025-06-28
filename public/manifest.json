@@ -1,0 +1,21 @@
+{
+  "name": "Pipnosis AI Trading",
+  "short_name": "Pipnosis",
+  "description": "AI-powered forex trading platform with advanced risk management",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#3b82f6",
+  "icons": [
+    {
+      "src": "/Pipnosis icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/Pipnosis icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
