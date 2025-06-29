@@ -9,6 +9,7 @@ import websockets
 import json
 import time
 import logging
+import socket
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import threading
@@ -438,19 +439,38 @@ class MT5Connector:
             logger.error(f"Error handling client message: {e}")
     
     async def start_websocket_server(self, host='localhost', port=8765):
-        """Start the WebSocket server"""
-        logger.info(f"Starting WebSocket server on {host}:{port}")
+        """Start the WebSocket server with port fallback"""
+        # Try the specified port first, then fall back to alternatives if needed
+        ports_to_try = [port, 8766, 8767, 8768, 8769, 8770]
+        server = None
         
-        server = await websockets.serve(
-            self.handle_websocket_client,
-            host,
-            port,
-            ping_interval=30,
-            ping_timeout=10
-        )
+        for current_port in ports_to_try:
+            try:
+                logger.info(f"Starting WebSocket server on {host}:{current_port}")
+                server = await websockets.serve(
+                    self.handle_websocket_client,
+                    host,
+                    current_port,
+                    ping_interval=30,
+                    ping_timeout=10
+                )
+                logger.info(f"WebSocket server started on ws://{host}:{current_port}")
+                
+                # Store the successful port in a file for clients to discover
+                with open('mt5_bridge_port.txt', 'w') as f:
+                    f.write(str(current_port))
+                
+                return server, current_port
+            except socket.error as e:
+                logger.warning(f"Port {current_port} is already in use, trying next port: {e}")
+                continue
+            except Exception as e:
+                logger.error(f"Error starting WebSocket server on port {current_port}: {e}")
+                continue
         
-        logger.info(f"WebSocket server started on ws://{host}:{port}")
-        return server
+        # If we get here, all ports failed
+        logger.error("Failed to start WebSocket server on any port")
+        return None, None
     
     def start(self, host='localhost', port=8765):
         """Start the MT5 connector"""
@@ -469,11 +489,20 @@ class MT5Connector:
         
         try:
             # Start WebSocket server and data update loop
-            server = loop.run_until_complete(self.start_websocket_server(host, port))
+            server_result, actual_port = loop.run_until_complete(self.start_websocket_server(host, port))
+            
+            if server_result is None:
+                logger.error("Failed to start WebSocket server - exiting")
+                self.running = False
+                if self.connected:
+                    mt5.shutdown()
+                    self.connected = False
+                return False
+            
             update_task = loop.create_task(self.data_update_loop())
             
             logger.info("Pipnosis MT5 Connector is running!")
-            logger.info("WebSocket clients can connect to receive live MT5 data")
+            logger.info(f"WebSocket clients can connect to receive live MT5 data on port {actual_port}")
             logger.info("Press Ctrl+C to stop")
             
             # Run forever

@@ -78,6 +78,27 @@ export class MT5WebSocketClient {
     private port: number = 8765
   ) {
     console.log('🔌 MT5 WebSocket Client initialized for', `${host}:${port}`);
+    this.discoverPort();
+  }
+
+  /**
+   * Discover the port from the port file if available
+   */
+  private async discoverPort() {
+    try {
+      // Try to fetch the port file from the server
+      const response = await fetch('/mt5-bridge/mt5_bridge_port.txt');
+      if (response.ok) {
+        const portText = await response.text();
+        const discoveredPort = parseInt(portText.trim(), 10);
+        if (!isNaN(discoveredPort) && discoveredPort > 0) {
+          console.log(`🔍 Discovered MT5 bridge port: ${discoveredPort}`);
+          this.port = discoveredPort;
+        }
+      }
+    } catch (error) {
+      console.log('ℹ️ Could not discover MT5 bridge port, using default:', this.port);
+    }
   }
 
   /**
@@ -91,31 +112,36 @@ export class MT5WebSocketClient {
 
     this.isConnecting = true;
     
-    // CRITICAL FIX: Try multiple connection methods
+    // CRITICAL FIX: Try multiple connection methods and ports
+    const portsToTry = [this.port, 8766, 8767, 8768, 8769, 8770];
     const connectionMethods = [
-      `ws://${this.host}:${this.port}`,
-      `ws://127.0.0.1:${this.port}`,
-      `ws://localhost:${this.port}`
+      (port: number) => `ws://${this.host}:${port}`,
+      (port: number) => `ws://127.0.0.1:${port}`,
+      (port: number) => `ws://localhost:${port}`
     ];
     
-    for (const wsUrl of connectionMethods) {
-      try {
-        console.log(`🔌 Attempting to connect to MT5 bridge at ${wsUrl}...`);
-        
-        const connected = await this.attemptConnection(wsUrl);
-        if (connected) {
-          console.log(`✅ Successfully connected to MT5 bridge at ${wsUrl}`);
-          this.isConnecting = false;
-          return true;
+    for (const port of portsToTry) {
+      for (const getUrl of connectionMethods) {
+        const wsUrl = getUrl(port);
+        try {
+          console.log(`🔌 Attempting to connect to MT5 bridge at ${wsUrl}...`);
+          
+          const connected = await this.attemptConnection(wsUrl);
+          if (connected) {
+            console.log(`✅ Successfully connected to MT5 bridge at ${wsUrl}`);
+            this.isConnecting = false;
+            this.port = port; // Update the port to the one that worked
+            return true;
+          }
+        } catch (error) {
+          console.log(`❌ Failed to connect to ${wsUrl}:`, error);
+          continue;
         }
-      } catch (error) {
-        console.log(`❌ Failed to connect to ${wsUrl}:`, error);
-        continue;
       }
     }
     
     this.isConnecting = false;
-    console.error('❌ Failed to connect to MT5 bridge on all attempted URLs');
+    console.error('❌ Failed to connect to MT5 bridge on all attempted URLs and ports');
     return false;
   }
 
@@ -335,6 +361,9 @@ export class MT5WebSocketClient {
     try {
       console.log('🧪 Testing MT5 bridge connection...');
       
+      // Try to discover the port first
+      await this.discoverPort();
+      
       // Test WebSocket connection directly
       const wsConnected = await this.connect();
       
@@ -431,7 +460,7 @@ export class MT5WebSocketClient {
     // Emit the update event
     this.emit('account_update', data);
     
-    console.log(`💰 Account Update: Balance $${data.account.balance.toLocaleString()}, Equity $${data.account.equity.toLocaleString()}, Positions: ${data.positions.length}`);
+    console.log(`💰 Account Update: Balance $${data.account.balance?.toLocaleString() || 'N/A'}, Equity $${data.account.equity?.toLocaleString() || 'N/A'}, Positions: ${data.positions.length}`);
   }
 
   /**
