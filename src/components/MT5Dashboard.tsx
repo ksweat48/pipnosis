@@ -52,6 +52,14 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
   const [openPositions, setOpenPositions] = useState<OpenPosition[]>([]);
   const [isConnected, setIsConnected] = useState(false);
 
+  // CRITICAL FIX: Properly handle undefined values with a truly safe function
+  const safeToFixed = (value: any, digits: number = 2): string => {
+    if (typeof value === "number" && !isNaN(value)) {
+      return value.toFixed(digits);
+    }
+    return "N/A";
+  };
+
   // CRITICAL FIX: Load MT5 data from localStorage and update in real-time
   useEffect(() => {
     const loadMT5Data = () => {
@@ -233,7 +241,7 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                     <span className="text-sm text-slate-400">Balance</span>
                   </div>
                   <div className="text-xl font-bold text-green-400">
-                    ${connection.balance.toLocaleString()}
+                    ${safeToFixed(connection.balance, 2)}
                   </div>
                 </div>
 
@@ -243,7 +251,7 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                     <span className="text-sm text-slate-400">Equity</span>
                   </div>
                   <div className="text-xl font-bold text-blue-400">
-                    ${connection.equity.toLocaleString()}
+                    ${safeToFixed(connection.equity, 2)}
                   </div>
                 </div>
 
@@ -253,7 +261,7 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                     <span className="text-sm text-slate-400">Margin</span>
                   </div>
                   <div className="text-xl font-bold text-yellow-400">
-                    ${connection.margin.toLocaleString()}
+                    ${safeToFixed(connection.margin, 2)}
                   </div>
                 </div>
 
@@ -263,7 +271,7 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                     <span className="text-sm text-slate-400">Free Margin</span>
                   </div>
                   <div className="text-xl font-bold text-purple-400">
-                    ${connection.freeMargin.toLocaleString()}
+                    ${safeToFixed(connection.freeMargin, 2)}
                   </div>
                 </div>
               </div>
@@ -282,7 +290,7 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                   </div>
                   <div>
                     <span className="text-slate-400">Margin Level:</span>
-                    <span className="text-white ml-2">{connection.marginLevel.toFixed(2)}%</span>
+                    <span className="text-white ml-2">{safeToFixed(connection.marginLevel, 2)}%</span>
                   </div>
                   <div>
                     <span className="text-slate-400">Last Update:</span>
@@ -311,26 +319,26 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                             <span className="text-slate-400 text-sm">{position.volume} lots</span>
                           </div>
                           <div className={`text-lg font-bold ${position.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {position.profit >= 0 ? '+' : ''}${position.profit.toFixed(2)}
+                            {position.profit >= 0 ? '+' : ''}{safeToFixed(position.profit, 2)}
                           </div>
                         </div>
                         
                         <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 text-sm">
                           <div>
                             <span className="text-slate-400">Open:</span>
-                            <span className="text-white ml-1 font-mono">{position.openPrice.toFixed(5)}</span>
+                            <span className="text-white ml-1 font-mono">{safeToFixed(position.openPrice, 5)}</span>
                           </div>
                           <div>
                             <span className="text-slate-400">Current:</span>
-                            <span className="text-white ml-1 font-mono">{position.currentPrice.toFixed(5)}</span>
+                            <span className="text-white ml-1 font-mono">{safeToFixed(position.currentPrice, 5)}</span>
                           </div>
                           <div>
                             <span className="text-slate-400">SL:</span>
-                            <span className="text-red-400 ml-1 font-mono">{position.sl.toFixed(5)}</span>
+                            <span className="text-red-400 ml-1 font-mono">{safeToFixed(position.sl, 5)}</span>
                           </div>
                           <div>
                             <span className="text-slate-400">TP:</span>
-                            <span className="text-green-400 ml-1 font-mono">{position.tp.toFixed(5)}</span>
+                            <span className="text-green-400 ml-1 font-mono">{safeToFixed(position.tp, 5)}</span>
                           </div>
                           <div>
                             <span className="text-slate-400">Ticket:</span>
