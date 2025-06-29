@@ -168,7 +168,7 @@ class MT5Connector:
                         try:
                             deals = mt5.history_deals_get(position=pos.ticket)
                             if deals and len(deals) > 0:
-                                commission = sum(deal.commission for deal in deals if hasattr(deal, 'commission'))
+                                commission = sum(getattr(deal, 'commission', 0.0) for deal in deals)
                         except:
                             commission = 0.0
                     
@@ -179,13 +179,13 @@ class MT5Connector:
                         volume=pos.volume,
                         open_price=pos.price_open,
                         current_price=current_price,
-                        sl=pos.sl if hasattr(pos, 'sl') else 0.0,
-                        tp=pos.tp if hasattr(pos, 'tp') else 0.0,
-                        profit=pos.profit if hasattr(pos, 'profit') else 0.0,
-                        swap=pos.swap if hasattr(pos, 'swap') else 0.0,
+                        sl=getattr(pos, 'sl', 0.0),
+                        tp=getattr(pos, 'tp', 0.0),
+                        profit=getattr(pos, 'profit', 0.0),
+                        swap=getattr(pos, 'swap', 0.0),
                         commission=commission,
-                        comment=pos.comment if hasattr(pos, 'comment') else '',
-                        time_open=datetime.fromtimestamp(pos.time).isoformat() if hasattr(pos, 'time') else datetime.now().isoformat()
+                        comment=getattr(pos, 'comment', ''),
+                        time_open=datetime.fromtimestamp(getattr(pos, 'time', datetime.now().timestamp())).isoformat()
                     )
                     result.append(position)
                     
