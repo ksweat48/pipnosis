@@ -71,17 +71,98 @@ These laws are IMMUTABLE and must be followed in ALL trading decisions, strategy
 
 export class OpenAIService {
   private client: OpenAI;
+  private initialized: boolean = false;
+  private fallbackMode: boolean = false;
+  private apiKeyConfigured: boolean = false;
 
   constructor() {
     this.client = openai;
+    this.init();
+  }
+
+  private init() {
+    try {
+      // Check if API key is available and valid
+      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      
+      if (apiKey && apiKey !== 'your_openai_api_key_here' && !apiKey.includes('your_') && apiKey.length > 10) {
+        console.log('✅ OpenAI API key found, initializing...');
+        this.apiKeyConfigured = true;
+        this.initialized = true;
+        this.fallbackMode = false;
+      } else {
+        console.warn('⚠️ OpenAI API key not configured or invalid. Using fallback mode.');
+        this.apiKeyConfigured = false;
+        this.initialized = false;
+        this.fallbackMode = true;
+      }
+    } catch (error) {
+      console.error('❌ OpenAI initialization error:', error);
+      this.initialized = false;
+      this.fallbackMode = true;
+    }
+  }
+
+  // Get current status of OpenAI service
+  getStatus() {
+    return {
+      initialized: this.initialized,
+      fallbackMode: this.fallbackMode,
+      apiKeyConfigured: this.apiKeyConfigured
+    };
+  }
+
+  // Attempt to reconnect/reinitialize OpenAI
+  async reconnect(): Promise<boolean> {
+    try {
+      console.log('🔄 Attempting to reconnect to OpenAI...');
+      
+      // Re-check API key
+      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      
+      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_') || apiKey.length <= 10) {
+        console.warn('⚠️ OpenAI API key still not configured properly');
+        this.apiKeyConfigured = false;
+        this.initialized = false;
+        this.fallbackMode = true;
+        return false;
+      }
+      
+      // Test connection with a simple request
+      try {
+        const response = await this.client.chat.completions.create({
+          model: 'gpt-4',
+          messages: [{ role: 'user', content: 'Test connection' }],
+          max_tokens: 5
+        });
+        
+        if (response) {
+          console.log('✅ OpenAI connection test successful');
+          this.initialized = true;
+          this.fallbackMode = false;
+          return true;
+        }
+      } catch (testError) {
+        console.error('❌ OpenAI connection test failed:', testError);
+        this.initialized = false;
+        this.fallbackMode = true;
+        return false;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('❌ OpenAI reconnection error:', error);
+      this.initialized = false;
+      this.fallbackMode = true;
+      return false;
+    }
   }
 
   async interpretPrompt(prompt: string, accountBalance: number = 10000, marketData?: any[]): Promise<MarketAnalysis> {
     try {
       // Check if API key is available and valid
-      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
-        console.warn('OpenAI API key not configured or using placeholder. Using mock data.');
+      if (!this.apiKeyConfigured || this.fallbackMode) {
+        console.warn('OpenAI API key not configured or using fallback mode. Using mock data.');
         return this.getMockAnalysis();
       }
 
@@ -173,8 +254,7 @@ IMPORTANT:
   ): Promise<JournalEntry> {
     try {
       // Check if API key is available and valid
-      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
+      if (!this.apiKeyConfigured || this.fallbackMode) {
         return this.getMockJournalEntry(type, tradeData);
       }
 
@@ -237,8 +317,7 @@ Return a JSON object with this structure:
   async assessFeasibility(goal: string, balance: number, risk: string) {
     try {
       // Check if API key is available and valid
-      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
+      if (!this.apiKeyConfigured || this.fallbackMode) {
         return this.getMockFeasibilityAssessment();
       }
 
@@ -290,8 +369,7 @@ Return a JSON object with:
   async explainDecision(decision: string, context: any): Promise<string> {
     try {
       // Check if API key is available and valid
-      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
+      if (!this.apiKeyConfigured || this.fallbackMode) {
         return this.getMockExplanation(decision);
       }
 
