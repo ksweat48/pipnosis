@@ -62,67 +62,35 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
 
   // CRITICAL FIX: Load MT5 data from localStorage and update in real-time
   useEffect(() => {
-    const loadMT5Data = () => {
-      const mt5Connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
-      const mt5AccountData = localStorage.getItem('pipnosis_mt5_account');
-
-      if (mt5Connected && mt5AccountData) {
+    const checkMT5Status = () => {
+      const connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
+      const accountData = localStorage.getItem('pipnosis_mt5_account');
+      
+      setIsConnected(connected);
+      
+      if (connected && accountData) {
         try {
-          const accountData = JSON.parse(mt5AccountData);
-          setIsConnected(true);
-          setConnection({
-            status: 'connected',
-            server: accountData.server || 'Unknown Server',
-            account: accountData.login || 'Unknown',
-            balance: accountData.balance || 0,
-            equity: accountData.equity || 0,
-            margin: accountData.margin || 0,
-            freeMargin: accountData.freeMargin || 0,
-            marginLevel: accountData.marginLevel || 0,
-            lastUpdate: new Date().toLocaleTimeString()
-          });
-
-          // Set open positions if available
-          if (accountData.openPositions && Array.isArray(accountData.openPositions)) {
-            setOpenPositions(accountData.openPositions);
-          } else {
-            setOpenPositions([]);
-          }
-
-          console.log('✅ MT5 Dashboard loaded live data:', accountData.login);
+          const parsedData = JSON.parse(accountData);
+          setMt5AccountData(parsedData);
         } catch (error) {
           console.error('Error parsing MT5 account data:', error);
-          setIsConnected(false);
-          setConnection(prev => ({ ...prev, status: 'disconnected' }));
+          setMt5AccountData(null);
         }
       } else {
-        // No MT5 connection - show disconnected state
-        setIsConnected(false);
-        setConnection({
-          status: 'disconnected',
-          server: 'Not Connected',
-          account: 'N/A',
-          balance: 0,
-          equity: 0,
-          margin: 0,
-          freeMargin: 0,
-          marginLevel: 0,
-          lastUpdate: new Date().toLocaleTimeString()
-        });
-        setOpenPositions([]);
+        setMt5AccountData(null);
       }
     };
 
-    // Load data immediately
-    loadMT5Data();
+    // Check immediately
+    checkMT5Status();
 
-    // Set up interval to check for updates every 5 seconds
-    const interval = setInterval(loadMT5Data, 5000);
+    // Set up interval to check every 2 seconds
+    const interval = setInterval(checkMT5Status, 2000);
 
-    // Listen for storage changes (when MT5 connection changes)
+    // Listen for storage changes
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'pipnosis_mt5_connected' || e.key === 'pipnosis_mt5_account') {
-        loadMT5Data();
+        checkMT5Status();
       }
     };
 
@@ -133,6 +101,46 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
       window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
+
+  // CRITICAL FIX: Separate function to handle MT5 account data
+  const setMt5AccountData = (data: any) => {
+    if (!data) {
+      setIsConnected(false);
+      setConnection({
+        status: 'disconnected',
+        server: 'Not Connected',
+        account: 'N/A',
+        balance: 0,
+        equity: 0,
+        margin: 0,
+        freeMargin: 0,
+        marginLevel: 0,
+        lastUpdate: new Date().toLocaleTimeString()
+      });
+      setOpenPositions([]);
+      return;
+    }
+
+    setIsConnected(true);
+    setConnection({
+      status: 'connected',
+      server: data.server || 'Unknown Server',
+      account: data.login || 'Unknown',
+      balance: data.balance || 0,
+      equity: data.equity || 0,
+      margin: data.margin || 0,
+      freeMargin: data.freeMargin || 0,
+      marginLevel: data.marginLevel || 0,
+      lastUpdate: new Date().toLocaleTimeString()
+    });
+
+    // Set open positions if available
+    if (data.openPositions && Array.isArray(data.openPositions)) {
+      setOpenPositions(data.openPositions);
+    } else {
+      setOpenPositions([]);
+    }
+  };
 
   const getConnectionStatusColor = () => {
     switch (connection.status) {
@@ -316,7 +324,7 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                             }`}>
                               {position.type.toUpperCase()}
                             </span>
-                            <span className="text-slate-400 text-sm">{position.volume} lots</span>
+                            <span className="text-slate-400 text-sm">{safeToFixed(position.volume, 2)} lots</span>
                           </div>
                           <div className={`text-lg font-bold ${position.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {position.profit >= 0 ? '+' : ''}{safeToFixed(position.profit, 2)}

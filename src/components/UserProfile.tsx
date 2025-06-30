@@ -61,7 +61,9 @@ export const UserProfile: React.FC = () => {
     if (mt5Connected && mt5AccountData) {
       try {
         const accountData = JSON.parse(mt5AccountData);
-        return `$${accountData.balance?.toLocaleString() || '0.00'}`;
+        if (typeof accountData.balance === 'number') {
+          return `$${accountData.balance.toLocaleString()}`;
+        }
       } catch (error) {
         console.error('Error parsing MT5 account data:', error);
       }
@@ -76,7 +78,9 @@ export const UserProfile: React.FC = () => {
     if (mt5Connected && mt5AccountData) {
       try {
         const accountData = JSON.parse(mt5AccountData);
-        return `$${accountData.equity?.toLocaleString() || '0.00'}`;
+        if (typeof accountData.equity === 'number') {
+          return `$${accountData.equity.toLocaleString()}`;
+        }
       } catch (error) {
         console.error('Error parsing MT5 account data:', error);
       }
@@ -89,8 +93,11 @@ export const UserProfile: React.FC = () => {
     if (mt5Connected && mt5AccountData) {
       try {
         const accountData = JSON.parse(mt5AccountData);
-        if (accountData.openPositions && accountData.openPositions.length > 0) {
-          const totalPnL = accountData.openPositions.reduce((sum: number, pos: any) => sum + (pos.profit || 0), 0);
+        if (accountData.openPositions && Array.isArray(accountData.openPositions)) {
+          const totalPnL = accountData.openPositions.reduce((sum: number, pos: any) => {
+            const profit = typeof pos.profit === 'number' ? pos.profit : 0;
+            return sum + profit;
+          }, 0);
           return totalPnL;
         }
       } catch (error) {
@@ -98,6 +105,14 @@ export const UserProfile: React.FC = () => {
       }
     }
     return 0;
+  };
+
+  // CRITICAL FIX: Safe number formatting function
+  const safeToFixed = (value: any, digits: number = 2): string => {
+    if (typeof value === "number" && !isNaN(value)) {
+      return value.toFixed(digits);
+    }
+    return "N/A";
   };
 
   if (!user || !profile) {
@@ -198,7 +213,7 @@ export const UserProfile: React.FC = () => {
                 </p>
                 {floatingPnL !== 0 && (
                   <p className={`text-xs font-medium ${floatingPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    Floating P&L: {floatingPnL >= 0 ? '+' : ''}${floatingPnL.toFixed(2)}
+                    Floating P&L: {floatingPnL >= 0 ? '+' : ''}${safeToFixed(floatingPnL, 2)}
                   </p>
                 )}
               </div>
@@ -261,7 +276,7 @@ export const UserProfile: React.FC = () => {
                     const accountData = JSON.parse(mt5AccountData);
                     return (
                       <div className="mt-2 text-xs text-green-300">
-                        <p>Account: {accountData.login} | Server: {accountData.server} | Last Update: {new Date(accountData.lastUpdate).toLocaleTimeString()}</p>
+                        <p>Account: {accountData.login || 'Unknown'} | Server: {accountData.server || 'Unknown'} | Last Update: {accountData.lastUpdate ? new Date(accountData.lastUpdate).toLocaleTimeString() : 'Unknown'}</p>
                       </div>
                     );
                   } catch {

@@ -56,11 +56,18 @@ export const Header: React.FC = () => {
       }
     };
 
+    // Listen for custom MT5 modal open event
+    const handleOpenMT5Modal = () => {
+      setIsMT5ModalOpen(true);
+    };
+
     window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('openMT5Modal', handleOpenMT5Modal);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('openMT5Modal', handleOpenMT5Modal);
     };
   }, []);
 
@@ -100,21 +107,32 @@ export const Header: React.FC = () => {
     }
   };
 
+  // CRITICAL FIX: Safe number formatting function
+  const safeToFixed = (value: any, digits: number = 2): string => {
+    if (typeof value === "number" && !isNaN(value)) {
+      return value.toFixed(digits);
+    }
+    return "0.00";
+  };
+
+  // CRITICAL FIX: Get display balance from MT5 if connected, otherwise use profile balance
   const getDisplayBalance = () => {
     if (!user || !profile) return '$0.00';
     
-    // CRITICAL FIX: Use MT5 account balance if connected, otherwise use profile balance
+    // Use MT5 account balance if connected
     if (mt5Connected && mt5AccountData) {
-      return `$${mt5AccountData.balance?.toLocaleString() || '0.00'}`;
+      if (typeof mt5AccountData.balance === 'number') {
+        return `$${mt5AccountData.balance.toLocaleString()}`;
+      }
     }
     
-    return `$${profile.account_balance?.toLocaleString() || '0.00'}`;
+    // Fallback to profile balance
+    if (typeof profile.account_balance === 'number') {
+      return `$${profile.account_balance.toLocaleString()}`;
+    }
+    
+    return '$0.00';
   };
-
-  // Check if we're in production
-  const isProduction = window.location.hostname === 'pipnosis.com' || 
-                      window.location.hostname === 'www.pipnosis.com' ||
-                      window.location.hostname.includes('netlify.app');
 
   return (
     <>
@@ -136,7 +154,6 @@ export const Header: React.FC = () => {
           
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-4">
-            {/* Status Indicators */}
             <div className="flex items-center space-x-3">
               <BackendStatus />
               <DatabaseStatus />
@@ -205,7 +222,7 @@ export const Header: React.FC = () => {
                                 {databaseConnected ? 'Data synced' : 'Offline mode'}
                               </span>
                             </div>
-                            {/* CRITICAL FIX: Show MT5 connection status in user menu */}
+                            {/* CRITICAL FIX: Show MT5 status in user menu */}
                             <div className="flex items-center space-x-2 mt-1">
                               <div className={`w-2 h-2 rounded-full ${mt5Connected ? 'bg-green-400' : 'bg-red-400'}`}></div>
                               <span className="text-xs text-slate-500">
@@ -213,6 +230,7 @@ export const Header: React.FC = () => {
                               </span>
                             </div>
                           </div>
+                          
                           <button
                             onClick={handleWaitlistClick}
                             className="w-full flex items-center space-x-3 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
