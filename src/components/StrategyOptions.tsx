@@ -185,12 +185,9 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
         <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
           <div className="flex items-center space-x-3">
             <Loader className="h-5 w-5 text-blue-400 animate-spin flex-shrink-0" />
-            <div>
-              <p className="text-blue-300 font-medium">Executing Trade via Backend API</p>
-              <p className="text-blue-200 text-sm mt-1">
-                Sending trade request to MT5 connector... This may take a few seconds.
-              </p>
-            </div>
+            <p className="text-blue-300 font-medium">
+              Executing Trade via Backend API
+            </p>
           </div>
         </div>
       )}

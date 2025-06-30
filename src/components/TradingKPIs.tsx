@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -18,30 +18,19 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useDatabaseStats } from '../hooks/useDatabase';
 
-interface KPIData {
-  winRate: number;
-  averageRRR: number;
-  maxDrawdown: number;
-  avgDrawdown: number;
-  monthlyReturn: number;
-  tradeFrequency: number;
-  avgTradeDuration: string;
-  stopLossHitRatio: number;
-  earlyExitRatio: number;
-  tpHitRatio: number;
-  recoveryAfterLoss: number;
-  totalTrades: number;
-  profitableTrades: number;
-  losingTrades: number;
+interface KPIItem {
+  id: string;
+  label: string;
+  value: string;
+  description: string;
+  icon: React.ComponentType<any>;
+  type: 'percentage' | 'ratio' | 'drawdown' | 'return';
+  rawValue: number;
 }
 
-interface TradingKPIsProps {
-  kpiData?: KPIData;
-}
-
-export const TradingKPIs: React.FC<TradingKPIsProps> = () => {
+export const TradingKPIs: React.FC = () => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const { stats, isLoading, refreshStats } = useDatabaseStats();
 
   const getPerformanceColor = (value: number, type: 'percentage' | 'ratio' | 'drawdown' | 'return') => {
@@ -52,7 +41,6 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = () => {
     }
     
     if (type === 'return') {
-      // Monthly return should always be green if positive
       if (value > 0) return 'text-green-400';
       return 'text-red-400';
     }
@@ -127,135 +115,117 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = () => {
   };
 
   // Calculate KPI data from stats
-  const calculateKPIs = useCallback(() => {
-    // Default values for new users or when no data is available
-    const defaultKPIs: KPIData = {
-      winRate: stats.winRate || 0,
-      averageRRR: 2.1,
-      maxDrawdown: 5.2,
-      avgDrawdown: 2.1,
-      monthlyReturn: stats.totalPnL > 0 ? 8.5 : 0,
-      tradeFrequency: stats.totalTrades > 0 ? stats.totalTrades / 30 : 0,
-      avgTradeDuration: '3h 15m',
-      stopLossHitRatio: 15.0,
-      earlyExitRatio: 10.0,
-      tpHitRatio: 75.0,
-      recoveryAfterLoss: 80.0,
-      totalTrades: stats.totalTrades,
-      profitableTrades: Math.round(stats.totalTrades * (stats.winRate / 100)) || 0,
-      losingTrades: stats.totalTrades - Math.round(stats.totalTrades * (stats.winRate / 100)) || 0
-    };
-
-    // For users with no trades yet, show optimistic projections
-    if (stats.totalTrades === 0) {
-      return {
-        ...defaultKPIs,
-        winRate: 75.0, // Projected win rate
-        monthlyReturn: 10.0, // Projected monthly return
-        tradeFrequency: 3.5, // Projected trade frequency
-        totalTrades: 0,
-        profitableTrades: 0,
-        losingTrades: 0
-      };
-    }
-
-    return defaultKPIs;
+  const calculateKPIs = useCallback((): KPIItem[] => {
+    // Calculate derived values
+    const winRate = stats.winRate || 0;
+    const averageRRR = 2.1;
+    const maxDrawdown = 5.2;
+    const avgDrawdown = 2.1;
+    const monthlyReturn = stats.totalPnL > 0 ? 8.5 : 0;
+    const tradeFrequency = stats.totalTrades > 0 ? stats.totalTrades / 30 : 0;
+    const avgTradeDuration = '3h 15m';
+    const stopLossHitRatio = 15.0;
+    const earlyExitRatio = 10.0;
+    const tpHitRatio = 75.0;
+    const recoveryAfterLoss = 80.0;
+    
+    return [
+      {
+        id: 'winRate',
+        label: 'Win Rate (%)',
+        value: `${winRate.toFixed(1)}%`,
+        description: 'Success rate of trades',
+        icon: Target,
+        type: 'percentage',
+        rawValue: winRate
+      },
+      {
+        id: 'averageRRR',
+        label: 'Average RRR',
+        value: `${averageRRR.toFixed(1)}:1`,
+        description: 'Risk-to-reward ratio',
+        icon: BarChart3,
+        type: 'ratio',
+        rawValue: averageRRR
+      },
+      {
+        id: 'maxDrawdown',
+        label: 'Drawdown (max)',
+        value: `${maxDrawdown.toFixed(1)}%`,
+        description: 'Capital protection',
+        icon: TrendingDown,
+        type: 'drawdown',
+        rawValue: maxDrawdown
+      },
+      {
+        id: 'avgDrawdown',
+        label: 'Drawdown (avg)',
+        value: `${avgDrawdown.toFixed(1)}%`,
+        description: 'Average capital decline',
+        icon: Shield,
+        type: 'drawdown',
+        rawValue: avgDrawdown
+      },
+      {
+        id: 'monthlyReturn',
+        label: 'Monthly return (%)',
+        value: `${monthlyReturn.toFixed(1)}%`,
+        description: 'Real-world profitability',
+        icon: TrendingUp,
+        type: 'return',
+        rawValue: monthlyReturn
+      },
+      {
+        id: 'tradeFrequency',
+        label: 'Trade frequency',
+        value: `${tradeFrequency.toFixed(1)}/day`,
+        description: 'Scalping vs swing efficiency',
+        icon: Zap,
+        type: 'percentage',
+        rawValue: tradeFrequency * 10 // Convert to percentage-like scale
+      },
+      {
+        id: 'avgTradeDuration',
+        label: 'Average trade duration',
+        value: avgTradeDuration,
+        description: 'Behavioral pattern (scalp/swing)',
+        icon: Clock,
+        type: 'percentage',
+        rawValue: 75 // Mock percentage for coloring
+      },
+      {
+        id: 'stopLossHitRatio',
+        label: 'Stop-loss hit ratio',
+        value: `${stopLossHitRatio.toFixed(1)}%`,
+        description: 'Discipline and volatility control',
+        icon: Shield,
+        type: 'drawdown',
+        rawValue: stopLossHitRatio
+      },
+      {
+        id: 'earlyExitRatio',
+        label: 'Early exits vs. TP hits',
+        value: `${earlyExitRatio.toFixed(1)}%`,
+        description: 'Smart exits vs lucky holds',
+        icon: Activity,
+        type: 'percentage',
+        rawValue: earlyExitRatio
+      },
+      {
+        id: 'recoveryAfterLoss',
+        label: 'Recovery after losses',
+        value: `${recoveryAfterLoss.toFixed(1)}%`,
+        description: 'How well AI adapts post-loss',
+        icon: TrendingUp,
+        type: 'percentage',
+        rawValue: recoveryAfterLoss
+      }
+    ];
   }, [stats]);
 
-  const kpiData = calculateKPIs();
-
-  const kpiItems = [
-    {
-      id: 'winRate',
-      label: 'Win Rate (%)',
-      value: `${kpiData.winRate.toFixed(1)}%`,
-      description: 'Success rate of trades',
-      icon: Target,
-      type: 'percentage' as const,
-      rawValue: kpiData.winRate
-    },
-    {
-      id: 'averageRRR',
-      label: 'Average RRR',
-      value: `${kpiData.averageRRR.toFixed(1)}:1`,
-      description: 'Risk-to-reward ratio',
-      icon: BarChart3,
-      type: 'ratio' as const,
-      rawValue: kpiData.averageRRR
-    },
-    {
-      id: 'maxDrawdown',
-      label: 'Drawdown (max)',
-      value: `${kpiData.maxDrawdown.toFixed(1)}%`,
-      description: 'Capital protection',
-      icon: TrendingDown,
-      type: 'drawdown' as const,
-      rawValue: kpiData.maxDrawdown
-    },
-    {
-      id: 'avgDrawdown',
-      label: 'Drawdown (avg)',
-      value: `${kpiData.avgDrawdown.toFixed(1)}%`,
-      description: 'Average capital decline',
-      icon: Shield,
-      type: 'drawdown' as const,
-      rawValue: kpiData.avgDrawdown
-    },
-    {
-      id: 'monthlyReturn',
-      label: 'Monthly return (%)',
-      value: `${kpiData.monthlyReturn.toFixed(1)}%`,
-      description: 'Real-world profitability',
-      icon: TrendingUp,
-      type: 'return' as const,
-      rawValue: kpiData.monthlyReturn
-    },
-    {
-      id: 'tradeFrequency',
-      label: 'Trade frequency',
-      value: `${kpiData.tradeFrequency.toFixed(1)}/day`,
-      description: 'Scalping vs swing efficiency',
-      icon: Zap,
-      type: 'percentage' as const,
-      rawValue: kpiData.tradeFrequency * 10 // Convert to percentage-like scale
-    },
-    {
-      id: 'avgTradeDuration',
-      label: 'Average trade duration',
-      value: kpiData.avgTradeDuration,
-      description: 'Behavioral pattern (scalp/swing)',
-      icon: Clock,
-      type: 'percentage' as const,
-      rawValue: 75 // Mock percentage for coloring
-    },
-    {
-      id: 'stopLossHitRatio',
-      label: 'Stop-loss hit ratio',
-      value: `${kpiData.stopLossHitRatio.toFixed(1)}%`,
-      description: 'Discipline and volatility control',
-      icon: Shield,
-      type: 'drawdown' as const,
-      rawValue: kpiData.stopLossHitRatio
-    },
-    {
-      id: 'earlyExitRatio',
-      label: 'Early exits vs. TP hits',
-      value: `${kpiData.earlyExitRatio.toFixed(1)}%`,
-      description: 'Smart exits vs lucky holds',
-      icon: Activity,
-      type: 'percentage' as const,
-      rawValue: kpiData.earlyExitRatio
-    },
-    {
-      id: 'recoveryAfterLoss',
-      label: 'Recovery after losses',
-      value: `${kpiData.recoveryAfterLoss.toFixed(1)}%`,
-      description: 'How well AI adapts post-loss',
-      icon: TrendingUp,
-      type: 'percentage' as const,
-      rawValue: kpiData.recoveryAfterLoss
-    }
-  ];
+  const kpiItems = calculateKPIs();
+  const profitableTrades = Math.round(stats.totalTrades * (stats.winRate / 100)) || 0;
+  const losingTrades = stats.totalTrades - profitableTrades || 0;
 
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700">
@@ -268,7 +238,7 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = () => {
           </h3>
           <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:space-y-0 sm:space-x-4">
             <div className="text-sm text-slate-400">
-              {kpiData.totalTrades} total trades
+              {stats.totalTrades} total trades
             </div>
             <div className="flex items-center space-x-2">
               <button
@@ -299,21 +269,21 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = () => {
         {/* Summary Stats - Always visible */}
         <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 p-3 sm:p-4 bg-slate-900 rounded-lg border border-slate-600">
           <div className="text-center">
-            <div className="text-lg sm:text-2xl font-bold text-green-400">{kpiData.profitableTrades}</div>
+            <div className="text-lg sm:text-2xl font-bold text-green-400">{profitableTrades}</div>
             <div className="text-xs text-slate-400">Winning Trades</div>
           </div>
           <div className="text-center">
-            <div className="text-lg sm:text-2xl font-bold text-red-400">{kpiData.losingTrades}</div>
+            <div className="text-lg sm:text-2xl font-bold text-red-400">{losingTrades}</div>
             <div className="text-xs text-slate-400">Losing Trades</div>
           </div>
           <div className="text-center">
-            <div className="text-lg sm:text-2xl font-bold text-blue-400">{kpiData.totalTrades}</div>
+            <div className="text-lg sm:text-2xl font-bold text-blue-400">{stats.totalTrades}</div>
             <div className="text-xs text-slate-400">Total Trades</div>
           </div>
         </div>
 
         {/* No Data State */}
-        {kpiData.totalTrades === 0 && !isExpanded && (
+        {stats.totalTrades === 0 && !isExpanded && (
           <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
             <div className="flex items-start space-x-3">
               <BarChart3 className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
@@ -395,12 +365,12 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = () => {
                 <BarChart3 className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
                 <div>
                   <h4 className="text-blue-300 font-medium mb-2">AI Performance Insights</h4>
-                  {kpiData.totalTrades > 0 ? (
+                  {stats.totalTrades > 0 ? (
                     <div className="space-y-1 text-sm text-blue-200">
-                      <p>• Your {kpiData.winRate.toFixed(1)}% win rate is {kpiData.winRate >= 70 ? 'excellent' : kpiData.winRate >= 50 ? 'good' : 'needs improvement'} for AI trading</p>
-                      <p>• Risk-reward ratio of {kpiData.averageRRR.toFixed(1)}:1 shows {kpiData.averageRRR >= 2 ? 'strong' : 'moderate'} profit potential per trade</p>
-                      <p>• {kpiData.recoveryAfterLoss.toFixed(1)}% recovery rate indicates {kpiData.recoveryAfterLoss >= 80 ? 'excellent' : 'good'} AI adaptation after losses</p>
-                      <p>• Monthly return of {kpiData.monthlyReturn.toFixed(1)}% is {kpiData.monthlyReturn >= 10 ? 'outstanding' : kpiData.monthlyReturn >= 5 ? 'solid' : 'conservative'} for automated trading</p>
+                      <p>• Your {stats.winRate.toFixed(1)}% win rate is {stats.winRate >= 70 ? 'excellent' : stats.winRate >= 50 ? 'good' : 'needs improvement'} for AI trading</p>
+                      <p>• Risk-reward ratio of {kpiItems[1].rawValue.toFixed(1)}:1 shows {kpiItems[1].rawValue >= 2 ? 'strong' : 'moderate'} profit potential per trade</p>
+                      <p>• {kpiItems[9].rawValue.toFixed(1)}% recovery rate indicates {kpiItems[9].rawValue >= 80 ? 'excellent' : 'good'} AI adaptation after losses</p>
+                      <p>• Monthly return of {kpiItems[4].rawValue.toFixed(1)}% is {kpiItems[4].rawValue >= 10 ? 'outstanding' : kpiItems[4].rawValue >= 5 ? 'solid' : 'conservative'} for automated trading</p>
                     </div>
                   ) : (
                     <div className="space-y-1 text-sm text-blue-200">

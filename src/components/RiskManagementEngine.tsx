@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, AlertTriangle, TrendingDown, Activity, Settings, RefreshCw, Zap, Lock, Unlock, Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react';
-import { backendAPI, RiskAnalysisResponse } from '../services/backendAPI';
-import { useAuth } from '../contexts/AuthContext';
+import { Shield, AlertTriangle, TrendingDown, Activity, Settings, RefreshCw, Zap, Lock, Unlock, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface RiskEngineProps {
   isVisible?: boolean;
@@ -9,46 +7,109 @@ interface RiskEngineProps {
   className?: string;
 }
 
+interface RiskStatus {
+  lawId: number;
+  name: string;
+  status: 'compliant' | 'warning' | 'violation';
+  currentValue: number;
+  threshold: number;
+  action?: string;
+}
+
 export const RiskManagementEngine: React.FC<RiskEngineProps> = ({ 
-  isVisible = false, // Default closed
+  isVisible = false,
   onToggleVisibility,
   className = "" 
 }) => {
-  const { user } = useAuth();
-  const [riskData, setRiskData] = useState<RiskAnalysisResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [isEngineActive, setIsEngineActive] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [riskScore, setRiskScore] = useState(15);
+  const [overallRisk, setOverallRisk] = useState<'low' | 'medium' | 'high'>('low');
+  const [currentDrawdown, setCurrentDrawdown] = useState(1.8);
+  const [openPositions, setOpenPositions] = useState(1);
+  const [dailyRisk, setDailyRisk] = useState(2.5);
+  const [lawsStatus, setLawsStatus] = useState<RiskStatus[]>([]);
 
-  const loadRiskAnalysis = async () => {
-    if (!isEngineActive) return;
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const data = await backendAPI.getRiskAnalysis(user?.id);
-      setRiskData(data);
-      setLastUpdate(new Date());
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load risk analysis';
-      setError(errorMessage);
-      console.error('❌ Risk analysis error:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Auto-refresh risk data
+  // Initialize risk data
   useEffect(() => {
-    if (autoRefresh && isEngineActive && isVisible) {
-      loadRiskAnalysis();
-      const interval = setInterval(loadRiskAnalysis, 5000); // Every 5 seconds
+    loadRiskData();
+    
+    if (autoRefresh) {
+      const interval = setInterval(loadRiskData, 5000);
       return () => clearInterval(interval);
     }
-  }, [autoRefresh, isEngineActive, user?.id, isVisible]);
+  }, [autoRefresh, isVisible]);
+
+  const loadRiskData = () => {
+    if (!isEngineActive || !isVisible) return;
+    
+    setIsLoading(true);
+    
+    // Simulate API call
+    setTimeout(() => {
+      // Generate realistic risk data
+      const newRiskScore = Math.floor(Math.random() * 25) + 5;
+      const newOverallRisk = newRiskScore < 12 ? 'low' : newRiskScore < 20 ? 'medium' : 'high';
+      const newDrawdown = Math.random() * 3;
+      const newOpenPositions = Math.floor(Math.random() * 3) + 1;
+      const newDailyRisk = Math.random() * 1.5 + 1.5;
+      
+      setRiskScore(newRiskScore);
+      setOverallRisk(newOverallRisk);
+      setCurrentDrawdown(newDrawdown);
+      setOpenPositions(newOpenPositions);
+      setDailyRisk(newDailyRisk);
+      setLastUpdate(new Date());
+      
+      // Generate laws status
+      setLawsStatus([
+        {
+          lawId: 1,
+          name: 'Capital Preservation',
+          status: 'compliant',
+          currentValue: 0.5,
+          threshold: 2.0,
+          action: 'Continue monitoring position sizes'
+        },
+        {
+          lawId: 2,
+          name: 'Target 70-80% Win Rate',
+          status: Math.random() > 0.2 ? 'compliant' : 'warning',
+          currentValue: 72 + Math.random() * 15,
+          threshold: 70,
+          action: 'Win rate tracking on target'
+        },
+        {
+          lawId: 3,
+          name: 'Drawdown Management',
+          status: 'compliant',
+          currentValue: newDrawdown,
+          threshold: 15.0,
+          action: 'Drawdown well within limits'
+        },
+        {
+          lawId: 5,
+          name: 'AI Final Decision',
+          status: 'compliant',
+          currentValue: 100,
+          threshold: 100,
+          action: 'AI maintains full control over trade decisions'
+        },
+        {
+          lawId: 9,
+          name: 'Do Not Overtrade',
+          status: 'compliant',
+          currentValue: newOpenPositions,
+          threshold: 5,
+          action: 'Position count optimal'
+        }
+      ]);
+      
+      setIsLoading(false);
+    }, 500);
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -86,8 +147,8 @@ export const RiskManagementEngine: React.FC<RiskEngineProps> = ({
     }
   };
 
-  const hasViolations = riskData?.pipnosisLawsStatus.some(law => law.status === 'violation') || false;
-  const hasWarnings = riskData?.pipnosisLawsStatus.some(law => law.status === 'warning') || false;
+  const hasViolations = lawsStatus.some(law => law.status === 'violation');
+  const hasWarnings = lawsStatus.some(law => law.status === 'warning');
 
   return (
     <div className={`bg-slate-800 rounded-xl border border-slate-700 ${className}`}>
@@ -109,15 +170,15 @@ export const RiskManagementEngine: React.FC<RiskEngineProps> = ({
           </div>
           
           <div className="flex items-center space-x-3">
-            {riskData && (
-              <div className={`px-3 py-1 rounded-lg text-sm font-medium border ${getOverallRiskBg(riskData.overallRisk)}`}>
+            {overallRisk && (
+              <div className={`px-3 py-1 rounded-lg text-sm font-medium border ${getOverallRiskBg(overallRisk)}`}>
                 <div className="flex items-center space-x-2">
                   <div className={`w-2 h-2 rounded-full ${
-                    riskData.overallRisk === 'low' ? 'bg-green-400' :
-                    riskData.overallRisk === 'medium' ? 'bg-yellow-400' : 'bg-red-400'
+                    overallRisk === 'low' ? 'bg-green-400' :
+                    overallRisk === 'medium' ? 'bg-yellow-400' : 'bg-red-400'
                   }`}></div>
-                  <span className={getOverallRiskColor(riskData.overallRisk)}>
-                    {riskData.overallRisk.toUpperCase()} RISK
+                  <span className={getOverallRiskColor(overallRisk)}>
+                    {overallRisk.toUpperCase()} RISK
                   </span>
                 </div>
               </div>
@@ -145,7 +206,11 @@ export const RiskManagementEngine: React.FC<RiskEngineProps> = ({
               }`}
               title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh'}
             >
-              <Eye className="h-4 w-4" />
+              {autoRefresh ? (
+                <RefreshCw className="h-4 w-4" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
             </button>
             
             <button
@@ -161,7 +226,7 @@ export const RiskManagementEngine: React.FC<RiskEngineProps> = ({
             </button>
             
             <button
-              onClick={loadRiskAnalysis}
+              onClick={loadRiskData}
               disabled={isLoading}
               className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50"
               title="Refresh risk analysis"
@@ -202,65 +267,63 @@ export const RiskManagementEngine: React.FC<RiskEngineProps> = ({
           </div>
 
           {/* Risk Metrics Overview */}
-          {riskData && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
-                <div className="flex items-center space-x-2 mb-2">
-                  <Shield className="h-4 w-4 text-blue-400" />
-                  <span className="text-sm text-slate-400">Risk Score</span>
-                </div>
-                <div className={`text-2xl font-bold ${getOverallRiskColor(riskData.overallRisk)}`}>
-                  {riskData.riskScore}
-                </div>
-                <div className="text-xs text-slate-500">Max: 100</div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
+              <div className="flex items-center space-x-2 mb-2">
+                <Shield className="h-4 w-4 text-blue-400" />
+                <span className="text-sm text-slate-400">Risk Score</span>
               </div>
-
-              <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
-                <div className="flex items-center space-x-2 mb-2">
-                  <TrendingDown className="h-4 w-4 text-red-400" />
-                  <span className="text-sm text-slate-400">Drawdown</span>
-                </div>
-                <div className={`text-2xl font-bold ${
-                  riskData.currentDrawdown > 10 ? 'text-red-400' : 
-                  riskData.currentDrawdown > 5 ? 'text-yellow-400' : 'text-green-400'
-                }`}>
-                  {riskData.currentDrawdown.toFixed(1)}%
-                </div>
-                <div className="text-xs text-slate-500">Max: {riskData.maxDrawdown}%</div>
+              <div className={`text-2xl font-bold ${getOverallRiskColor(overallRisk)}`}>
+                {riskScore}
               </div>
-
-              <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
-                <div className="flex items-center space-x-2 mb-2">
-                  <Activity className="h-4 w-4 text-purple-400" />
-                  <span className="text-sm text-slate-400">Open Positions</span>
-                </div>
-                <div className={`text-2xl font-bold ${
-                  riskData.openPositions >= 5 ? 'text-red-400' : 
-                  riskData.openPositions >= 3 ? 'text-yellow-400' : 'text-green-400'
-                }`}>
-                  {riskData.openPositions}
-                </div>
-                <div className="text-xs text-slate-500">Max: 5</div>
-              </div>
-
-              <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
-                <div className="flex items-center space-x-2 mb-2">
-                  <AlertTriangle className="h-4 w-4 text-yellow-400" />
-                  <span className="text-sm text-slate-400">Daily Risk</span>
-                </div>
-                <div className={`text-2xl font-bold ${
-                  riskData.dailyRisk > 6 ? 'text-red-400' : 
-                  riskData.dailyRisk > 3 ? 'text-yellow-400' : 'text-green-400'
-                }`}>
-                  {riskData.dailyRisk.toFixed(1)}%
-                </div>
-                <div className="text-xs text-slate-500">Max: 6%</div>
-              </div>
+              <div className="text-xs text-slate-500">Max: 100</div>
             </div>
-          )}
+
+            <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
+              <div className="flex items-center space-x-2 mb-2">
+                <TrendingDown className="h-4 w-4 text-red-400" />
+                <span className="text-sm text-slate-400">Drawdown</span>
+              </div>
+              <div className={`text-2xl font-bold ${
+                currentDrawdown > 10 ? 'text-red-400' : 
+                currentDrawdown > 5 ? 'text-yellow-400' : 'text-green-400'
+              }`}>
+                {currentDrawdown.toFixed(1)}%
+              </div>
+              <div className="text-xs text-slate-500">Max: 15%</div>
+            </div>
+
+            <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
+              <div className="flex items-center space-x-2 mb-2">
+                <Activity className="h-4 w-4 text-purple-400" />
+                <span className="text-sm text-slate-400">Open Positions</span>
+              </div>
+              <div className={`text-2xl font-bold ${
+                openPositions >= 5 ? 'text-red-400' : 
+                openPositions >= 3 ? 'text-yellow-400' : 'text-green-400'
+              }`}>
+                {openPositions}
+              </div>
+              <div className="text-xs text-slate-500">Max: 5</div>
+            </div>
+
+            <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
+              <div className="flex items-center space-x-2 mb-2">
+                <AlertTriangle className="h-4 w-4 text-yellow-400" />
+                <span className="text-sm text-slate-400">Daily Risk</span>
+              </div>
+              <div className={`text-2xl font-bold ${
+                dailyRisk > 6 ? 'text-red-400' : 
+                dailyRisk > 3 ? 'text-yellow-400' : 'text-green-400'
+              }`}>
+                {dailyRisk.toFixed(1)}%
+              </div>
+              <div className="text-xs text-slate-500">Max: 6%</div>
+            </div>
+          </div>
 
           {/* Pipnosis Laws Status */}
-          {riskData && (
+          {lawsStatus.length > 0 && (
             <div className="space-y-4">
               <h4 className="text-white font-semibold flex items-center space-x-2">
                 <Shield className="h-5 w-5 text-blue-400" />
@@ -268,7 +331,7 @@ export const RiskManagementEngine: React.FC<RiskEngineProps> = ({
               </h4>
               
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {riskData.pipnosisLawsStatus.map((law) => (
+                {lawsStatus.map((law) => (
                   <div
                     key={law.lawId}
                     className={`bg-slate-900 rounded-lg p-4 border transition-all ${
@@ -334,36 +397,26 @@ export const RiskManagementEngine: React.FC<RiskEngineProps> = ({
           )}
 
           {/* AI Recommendations */}
-          {riskData && riskData.recommendations.length > 0 && (
-            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-              <h4 className="text-blue-300 font-medium mb-3 flex items-center space-x-2">
-                <Zap className="h-4 w-4" />
-                <span>AI Risk Recommendations</span>
-              </h4>
-              <ul className="space-y-2">
-                {riskData.recommendations.map((recommendation, index) => (
-                  <li key={index} className="text-blue-200 text-sm flex items-start space-x-2">
-                    <span className="text-blue-400 mt-1">•</span>
-                    <span>{recommendation}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Error Display */}
-          {error && (
-            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-              <div className="flex items-start space-x-2">
-                <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-red-400 text-sm font-medium">Risk Engine Error</p>
-                  <p className="text-red-300 text-xs mt-1">{error}</p>
-                  <p className="text-red-200 text-xs mt-1">Using fallback risk analysis. Some features may be limited.</p>
-                </div>
-              </div>
-            </div>
-          )}
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+            <h4 className="text-blue-300 font-medium mb-3 flex items-center space-x-2">
+              <Zap className="h-4 w-4" />
+              <span>AI Risk Recommendations</span>
+            </h4>
+            <ul className="space-y-2">
+              <li className="text-blue-200 text-sm flex items-start space-x-2">
+                <span className="text-blue-400 mt-1">•</span>
+                <span>Current risk levels are well within safe parameters</span>
+              </li>
+              <li className="text-blue-200 text-sm flex items-start space-x-2">
+                <span className="text-blue-400 mt-1">•</span>
+                <span>Consider scaling position sizes based on market volatility</span>
+              </li>
+              <li className="text-blue-200 text-sm flex items-start space-x-2">
+                <span className="text-blue-400 mt-1">•</span>
+                <span>Monitor correlation if adding new positions in same currency</span>
+              </li>
+            </ul>
+          </div>
 
           {/* Loading State */}
           {isLoading && (

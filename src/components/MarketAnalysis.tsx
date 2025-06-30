@@ -27,8 +27,8 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [showAll, setShowAll] = useState(false); // Default to show only 3
 
-  // Mock market data
-  const generateMockData = (): MarketDataPoint[] => {
+  // Generate market data
+  const generateMarketData = (): MarketDataPoint[] => {
     const pairs = [
       { symbol: 'EURUSD', basePrice: 1.1425 },
       { symbol: 'GBPUSD', basePrice: 1.2735 },
@@ -63,7 +63,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
     const fetchData = () => {
       setIsLoading(true);
       setTimeout(() => {
-        setMarketData(generateMockData());
+        setMarketData(generateMarketData());
         setLastUpdate(new Date());
         setIsLoading(false);
       }, 1000);

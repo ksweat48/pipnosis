@@ -319,7 +319,6 @@ export const useDatabaseStats = () => {
         // Different stats for admin vs regular test users
         const isAdmin = user.email?.includes('admin');
         const accountBalance = profile?.account_balance || (isAdmin ? 50000 : 10000);
-        const tradingDays = isAdmin ? 45 : 15;
         const tradeCount = isAdmin ? 32 : 8;
         const winRate = isAdmin ? 78.5 : 75.0;
         const pnl = isAdmin ? accountBalance * 0.15 : accountBalance * 0.05; // 15% or 5% profit

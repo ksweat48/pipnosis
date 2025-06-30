@@ -5,7 +5,7 @@ interface TradingLaw {
   id: number;
   title: string;
   description: string;
-  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  icon: React.ComponentType<any>;
   category: 'capital' | 'performance' | 'risk' | 'execution' | 'discipline';
 }
 
@@ -64,7 +64,7 @@ export const TradingLaws: React.FC = () => {
     },
     {
       id: 8,
-      title: "No Trading During High-Risk Events (unless user overrides)",
+      title: "No Trading During High-Risk Events",
       description: "Pipnosis must avoid entering trades before or during major economic news unless the strategy can adapt for volatility and the user explicitly enables this mode.",
       icon: Clock,
       category: 'risk'
@@ -173,24 +173,6 @@ export const TradingLaws: React.FC = () => {
             <p className="text-amber-200 text-sm text-center">
               <strong>Law #1 is the foundation.</strong> Click to see the complete set of 10 immutable trading principles.
             </p>
-          </div>
-        )}
-
-        {/* Trade Morality Clause - Only show when expanded */}
-        {isExpanded && (
-          <div className="mt-6 p-4 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border-2 border-amber-500/30 rounded-lg">
-            <div className="flex items-start space-x-3">
-              <div className="p-2 bg-amber-500/20 rounded-lg flex-shrink-0">
-                <Scale className="h-5 w-5 text-amber-400" />
-              </div>
-              <div>
-                <h4 className="text-amber-300 font-semibold mb-2">Trade Morality Clause</h4>
-                <p className="text-amber-200 text-sm leading-relaxed">
-                  Pipnosis must never engage in unauthorized trading, never use deceptive logic to meet prompts, 
-                  and always provide reasoning and transparency in its decisions even if the user doesn't ask.
-                </p>
-              </div>
-            </div>
           </div>
         )}
 
