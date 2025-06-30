@@ -1,11 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, Camera, Upload, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
-
-interface MarketAnalysisProps {
-  analysisMode: 'api' | 'screenshot';
-  onModeChange: (mode: 'api' | 'screenshot') => void;
-  onScreenshotUpload: (files: FileList) => void;
-}
+import { backendAPI } from '../services/backendAPI';
+import { useAuth } from '../contexts/AuthContext';
 
 interface MarketDataPoint {
   symbol: string;
@@ -16,18 +12,62 @@ interface MarketDataPoint {
   signal: 'buy' | 'sell' | 'hold';
 }
 
+interface MarketAnalysisProps {
+  analysisMode: 'api' | 'screenshot';
+  onModeChange: (mode: 'api' | 'screenshot') => void;
+  onScreenshotUpload: (files: FileList) => void;
+}
+
 export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   analysisMode,
   onModeChange,
   onScreenshotUpload
 }) => {
+  const { user } = useAuth();
   const [marketData, setMarketData] = useState<MarketDataPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [showAll, setShowAll] = useState(false); // Default to show only 3
 
-  // Generate market data
+  // Fetch real market data from backend API
+  const fetchRealMarketData = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const data = await backendAPI.getMarketAnalysis();
+      
+      if (data && data.symbols) {
+        // Convert backend format to component format
+        const formattedData: MarketDataPoint[] = data.symbols.map(symbol => ({
+          symbol: symbol.symbol,
+          price: (symbol.bid + symbol.ask) / 2, // Use mid price
+          change: symbol.change,
+          changePercent: symbol.changePercent,
+          trend: symbol.trend === 'bullish' ? 'up' : symbol.trend === 'bearish' ? 'down' : 'sideways',
+          signal: symbol.signals.includes('Buy Signal') ? 'buy' : 
+                 symbol.signals.includes('Sell Signal') ? 'sell' : 'hold'
+        }));
+        
+        setMarketData(formattedData);
+        setLastUpdate(new Date());
+      } else {
+        // Fallback to generated data if API returns empty data
+        setMarketData(generateMarketData());
+        setLastUpdate(new Date());
+      }
+    } catch (err) {
+      console.error('Failed to fetch market data:', err);
+      setError('Failed to fetch market data. Using fallback data.');
+      setMarketData(generateMarketData());
+      setLastUpdate(new Date());
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Generate market data for fallback or demo mode
   const generateMarketData = (): MarketDataPoint[] => {
     const pairs = [
       { symbol: 'EURUSD', basePrice: 1.1425 },
@@ -61,18 +101,26 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
 
   useEffect(() => {
     const fetchData = () => {
-      setIsLoading(true);
-      setTimeout(() => {
-        setMarketData(generateMarketData());
-        setLastUpdate(new Date());
-        setIsLoading(false);
-      }, 1000);
+      // Use real data if user is logged in, otherwise use generated data
+      if (user) {
+        fetchRealMarketData();
+      } else {
+        setIsLoading(true);
+        setTimeout(() => {
+          setMarketData(generateMarketData());
+          setLastUpdate(new Date());
+          setIsLoading(false);
+        }, 1000);
+      }
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 5000);
+    
+    // Set up auto-refresh interval
+    const interval = setInterval(fetchData, user ? 10000 : 5000); // Refresh every 10s for real data, 5s for demo
+    
     return () => clearInterval(interval);
-  }, []);
+  }, [user]);
 
   const getSignalColor = (signal: string) => {
     switch (signal) {
@@ -246,7 +294,9 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
                   ? 'Fetching live data...' 
                   : error 
                   ? 'Using fallback data' 
-                  : `Live data: ${displayedData.length} pairs${!showAll && marketData.length > 3 ? ` (${marketData.length - 3} more)` : ''}`
+                  : user
+                  ? 'Live market data'
+                  : 'Demo market data'
                 : 'Screenshot mode'
               }
             </span>

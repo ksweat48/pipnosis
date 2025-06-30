@@ -501,8 +501,8 @@ export class BackendAPIService {
         
         return {
           symbol,
-          bid: basePrice + change,
-          ask: basePrice + change + (isJPY ? 0.02 : 0.0002),
+          bid: basePrice + change - (isJPY ? 0.01 : 0.0001),
+          ask: basePrice + change + (isJPY ? 0.01 : 0.0001),
           spread: isJPY ? 0.02 : 0.0002,
           change,
           changePercent: (change / basePrice) * 100,
@@ -510,9 +510,15 @@ export class BackendAPIService {
           trend: trends[Math.floor(Math.random() * trends.length)],
           strength: Math.floor(Math.random() * 40) + 60, // 60-100 strength
           signals: [
-            'RSI Oversold', 'MACD Bullish Cross', 'Support Level Hold', 
-            'Trend Continuation', 'Volume Spike', 'Fibonacci Retracement',
-            'Moving Average Cross', 'Breakout Confirmed'
+            Math.random() > 0.5 ? 'Buy Signal' : 'Sell Signal',
+            'RSI Oversold', 
+            'MACD Bullish Cross', 
+            'Support Level Hold', 
+            'Trend Continuation', 
+            'Volume Spike', 
+            'Fibonacci Retracement',
+            'Moving Average Cross', 
+            'Breakout Confirmed'
           ].slice(0, Math.floor(Math.random() * 3) + 2),
           timeframe: 'H1'
         };
