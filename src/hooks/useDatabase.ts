@@ -284,7 +284,7 @@ export const useWaitlist = () => {
 
 // Hook for database statistics
 export const useDatabaseStats = () => {
-  const { user, databaseConnected } = useAuth();
+  const { user, profile, databaseConnected } = useAuth();
   const [stats, setStats] = useState({
     totalPrompts: 0,
     totalTrades: 0,
@@ -296,29 +296,15 @@ export const useDatabaseStats = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   const loadStats = useCallback(async () => {
-    if (!user || !databaseConnected) {
+    if (!user) {
       // Set default stats for non-connected users
       setStats({
         totalPrompts: 0,
         totalTrades: 0,
         totalJournalEntries: 0,
-        accountValue: 10000,
+        accountValue: 0,
         winRate: 0,
         totalPnL: 0
-      });
-      return;
-    }
-
-    // For test users, provide mock stats instead of querying database
-    if (!isValidUUID(user.id)) {
-      console.log('⚠️ Using mock stats for test user:', user.id);
-      setStats({
-        totalPrompts: 5,
-        totalTrades: 12,
-        totalJournalEntries: 18,
-        accountValue: user.id.includes('admin') ? 50000 : 10000,
-        winRate: 73.5,
-        totalPnL: user.id.includes('admin') ? 2500 : 150
       });
       return;
     }
@@ -326,45 +312,93 @@ export const useDatabaseStats = () => {
     setIsLoading(true);
 
     try {
-      // Load all user data to calculate stats
-      const [prompts, trades, entries] = await Promise.all([
-        getTradingPrompts(user.id),
-        getTradeRecords(user.id),
-        getJournalEntries(user.id)
-      ]);
+      // For test users, provide realistic stats based on user type
+      if (!isValidUUID(user.id)) {
+        console.log('⚠️ Using realistic stats for test user:', user.id);
+        
+        // Different stats for admin vs regular test users
+        const isAdmin = user.email?.includes('admin');
+        const accountBalance = profile?.account_balance || (isAdmin ? 50000 : 10000);
+        const tradingDays = isAdmin ? 45 : 15;
+        const tradeCount = isAdmin ? 32 : 8;
+        const winRate = isAdmin ? 78.5 : 75.0;
+        const pnl = isAdmin ? accountBalance * 0.15 : accountBalance * 0.05; // 15% or 5% profit
+        
+        setStats({
+          totalPrompts: isAdmin ? 18 : 5,
+          totalTrades: tradeCount,
+          totalJournalEntries: isAdmin ? 42 : 12,
+          accountValue: accountBalance,
+          winRate: winRate,
+          totalPnL: pnl
+        });
+        
+        setIsLoading(false);
+        return;
+      }
 
-      // Calculate statistics
-      const closedTrades = trades.filter(t => t.status === 'closed');
-      const winningTrades = closedTrades.filter(t => (t.pnl || 0) > 0);
-      const totalPnL = closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-      const winRate = closedTrades.length > 0 ? (winningTrades.length / closedTrades.length) * 100 : 0;
+      // For real users with database connection
+      if (databaseConnected) {
+        // Load all user data to calculate stats
+        const [prompts, trades, entries] = await Promise.all([
+          getTradingPrompts(user.id),
+          getTradeRecords(user.id),
+          getJournalEntries(user.id)
+        ]);
 
-      setStats({
-        totalPrompts: prompts.length,
-        totalTrades: trades.length,
-        totalJournalEntries: entries.length,
-        accountValue: 10000 + totalPnL, // Starting balance + PnL
-        winRate: Math.round(winRate * 100) / 100,
-        totalPnL: Math.round(totalPnL * 100) / 100
-      });
+        // Calculate statistics
+        const closedTrades = trades.filter(t => t.status === 'closed');
+        const winningTrades = closedTrades.filter(t => (t.pnl || 0) > 0);
+        const totalPnL = closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+        const winRate = closedTrades.length > 0 ? (winningTrades.length / closedTrades.length) * 100 : 0;
+        const accountBalance = profile?.account_balance || 10000;
+
+        setStats({
+          totalPrompts: prompts.length,
+          totalTrades: trades.length,
+          totalJournalEntries: entries.length,
+          accountValue: accountBalance + totalPnL, // Starting balance + PnL
+          winRate: Math.round(winRate * 10) / 10, // Round to 1 decimal place
+          totalPnL: Math.round(totalPnL * 100) / 100 // Round to 2 decimal places
+        });
+      } else {
+        // For users without database connection, use profile data
+        const accountBalance = profile?.account_balance || 10000;
+        
+        setStats({
+          totalPrompts: 0,
+          totalTrades: 0,
+          totalJournalEntries: 0,
+          accountValue: accountBalance,
+          winRate: 0,
+          totalPnL: 0
+        });
+      }
     } catch (err) {
       console.error('❌ Error loading database stats:', err);
-      // Fallback to default stats on error
+      // Fallback to profile data on error
+      const accountBalance = profile?.account_balance || 10000;
+      
       setStats({
         totalPrompts: 0,
         totalTrades: 0,
         totalJournalEntries: 0,
-        accountValue: 10000,
+        accountValue: accountBalance,
         winRate: 0,
         totalPnL: 0
       });
     } finally {
       setIsLoading(false);
     }
-  }, [user, databaseConnected]);
+  }, [user, profile, databaseConnected]);
 
+  // Load stats on mount and when dependencies change
   useEffect(() => {
     loadStats();
+    
+    // Refresh stats every 60 seconds
+    const interval = setInterval(loadStats, 60000);
+    return () => clearInterval(interval);
   }, [loadStats]);
 
   return {
