@@ -50,6 +50,7 @@ export interface MT5OrderRequest {
   symbol: string;
   orderType: 'buy' | 'sell';
   volume: number;
+  price?: number;
   sl?: number;
   tp?: number;
   comment?: string;
@@ -278,7 +279,7 @@ export class MT5WebSocketClient {
   /**
    * Place a trading order
    */
-  async placeOrder(order: MT5OrderRequest): Promise<MT5OrderResponse> {
+  placeOrder(order: MT5OrderRequest): Promise<MT5OrderResponse> {
     return new Promise((resolve, reject) => {
       if (!this.isConnected()) {
         reject(new Error('Not connected to MT5 bridge'));
@@ -298,16 +299,34 @@ export class MT5WebSocketClient {
       this.on('message', responseListener);
       
       // Send the order request
-      this.send({
-        type: 'place_order',
-        requestId,
-        symbol: order.symbol,
-        order_type: order.orderType,
-        volume: order.volume,
-        sl: order.sl,
-        tp: order.tp,
-        comment: order.comment || 'Pipnosis AI Trade'
-      });
+      try {
+        console.log('📤 Sending MT5 order:', {
+          type: 'place_order',
+          requestId,
+          symbol: order.symbol,
+          order_type: order.orderType,
+          volume: order.volume,
+          sl: order.sl,
+          tp: order.tp,
+          comment: order.comment || 'Pipnosis AI Trade'
+        });
+        
+        this.send({
+          type: 'place_order',
+          requestId,
+          symbol: order.symbol,
+          order_type: order.orderType,
+          volume: order.volume,
+          sl: order.sl,
+          tp: order.tp,
+          comment: order.comment || 'Pipnosis AI Trade'
+        });
+      } catch (error) {
+        console.error('❌ Error sending order to MT5:', error);
+        this.off('message', responseListener);
+        reject(error);
+        return;
+      }
       
       // Set timeout for the request
       setTimeout(() => {
@@ -320,7 +339,7 @@ export class MT5WebSocketClient {
   /**
    * Get symbol information
    */
-  async getSymbolInfo(symbol: string): Promise<any> {
+  getSymbolInfo(symbol: string): Promise<any> {
     return new Promise((resolve, reject) => {
       if (!this.isConnected()) {
         reject(new Error('Not connected to MT5 bridge'));
@@ -340,11 +359,17 @@ export class MT5WebSocketClient {
       this.on('message', responseListener);
       
       // Send the symbol info request
-      this.send({
-        type: 'get_symbol_info',
-        requestId,
-        symbol
-      });
+      try {
+        this.send({
+          type: 'get_symbol_info',
+          requestId,
+          symbol
+        });
+      } catch (error) {
+        this.off('message', responseListener);
+        reject(error);
+        return;
+      }
       
       // Set timeout for the request
       setTimeout(() => {

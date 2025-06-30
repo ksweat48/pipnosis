@@ -1,8 +1,3 @@
-/**
- * React hook for MT5 integration - ENHANCED VERSION
- * Manages connection state and provides real-time data
- */
-
 import { useState, useEffect, useCallback } from 'react';
 import { mt5Client, MT5Data, MT5OrderRequest, MT5OrderResponse } from '../services/mt5WebSocketClient';
 

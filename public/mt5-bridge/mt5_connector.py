@@ -19,7 +19,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('mt5_bridge.log'),
+        logging.FileHandler('mt5_bridge.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -150,27 +150,36 @@ class MT5Connector:
             
             result = []
             for pos in positions:
-                # Get current price for the symbol
-                tick = mt5.symbol_info_tick(pos.symbol)
-                current_price = tick.bid if pos.type == 0 else tick.ask  # 0 = buy, 1 = sell
-                
-                position = Position(
-                    ticket=str(pos.ticket),
-                    symbol=pos.symbol,
-                    type='buy' if pos.type == 0 else 'sell',
-                    volume=pos.volume,
-                    open_price=pos.price_open,
-                    current_price=current_price,
-                    sl=pos.sl,
-                    tp=pos.tp,
-                    profit=pos.profit,
-                    swap=pos.swap,
-                    commission=pos.commission,
-                    comment=pos.comment,
-                    time_open=datetime.fromtimestamp(pos.time).isoformat()
-                )
-                result.append(position)
+                try:
+                    # Get current price for the symbol
+                    tick = mt5.symbol_info_tick(pos.symbol)
+                    if tick is None:
+                        logger.warning(f"Could not get tick data for {pos.symbol}")
+                        continue
+                        
+                    current_price = tick.bid if pos.type == 0 else tick.ask  # 0 = buy, 1 = sell
+                    
+                    position = Position(
+                        ticket=str(pos.ticket),
+                        symbol=pos.symbol,
+                        type='buy' if pos.type == 0 else 'sell',
+                        volume=pos.volume,
+                        open_price=pos.price_open,
+                        current_price=current_price,
+                        sl=pos.sl,
+                        tp=pos.tp,
+                        profit=pos.profit,
+                        swap=pos.swap,
+                        commission=pos.commission if hasattr(pos, 'commission') else 0.0,
+                        comment=pos.comment,
+                        time_open=datetime.fromtimestamp(pos.time).isoformat()
+                    )
+                    result.append(position)
+                except Exception as pos_error:
+                    logger.error(f"Error processing position {pos.ticket}: {pos_error}")
+                    continue
             
+            logger.info(f"Successfully retrieved {len(result)} positions")
             return result
             
         except Exception as e:
@@ -251,6 +260,8 @@ class MT5Connector:
             if tp is not None:
                 request["tp"] = tp
             
+            logger.info(f"📤 Sending order: {order_type} {volume} {symbol} at {price} SL:{sl} TP:{tp}")
+            
             # Send the order
             result = mt5.order_send(request)
             
@@ -317,7 +328,7 @@ class MT5Connector:
                         'timestamp': datetime.now().isoformat(),
                         'account': asdict(account_info),
                         'positions': [asdict(pos) for pos in positions],
-                        'connection_status': 'connected'
+                        'connectionStatus': 'connected'
                     }
                     
                     # Broadcast to all clients
@@ -342,7 +353,7 @@ class MT5Connector:
                     'timestamp': datetime.now().isoformat(),
                     'account': asdict(self.account_info),
                     'positions': [asdict(pos) for pos in self.positions],
-                    'connection_status': 'connected' if self.connected else 'disconnected'
+                    'connectionStatus': 'connected' if self.connected else 'disconnected'
                 }
                 await websocket.send(json.dumps(initial_data))
             
@@ -367,24 +378,30 @@ class MT5Connector:
         """Handle messages from WebSocket clients"""
         try:
             message_type = data.get('type')
+            request_id = data.get('requestId', 'unknown')
             
             if message_type == 'place_order':
                 # Handle trade execution request
                 symbol = data.get('symbol')
                 order_type = data.get('order_type')
                 volume = data.get('volume')
+                price = data.get('price')
                 sl = data.get('sl')
                 tp = data.get('tp')
                 comment = data.get('comment', 'Pipnosis AI Trade')
                 
-                result = self.place_order(symbol, order_type, volume, sl=sl, tp=tp, comment=comment)
+                logger.info(f"📤 Received order request: {order_type} {volume} {symbol} SL:{sl} TP:{tp}")
+                
+                result = self.place_order(symbol, order_type, volume, price=price, sl=sl, tp=tp, comment=comment)
                 
                 response = {
                     'type': 'order_response',
+                    'requestId': request_id,
                     'timestamp': datetime.now().isoformat(),
                     'result': result
                 }
                 
+                logger.info(f"📥 Order result: {result}")
                 await websocket.send(json.dumps(response))
                 
             elif message_type == 'get_symbol_info':
@@ -394,6 +411,7 @@ class MT5Connector:
                 
                 response = {
                     'type': 'symbol_info',
+                    'requestId': request_id,
                     'timestamp': datetime.now().isoformat(),
                     'symbol': symbol,
                     'data': symbol_info
@@ -405,6 +423,7 @@ class MT5Connector:
                 # Handle ping request
                 response = {
                     'type': 'pong',
+                    'requestId': request_id,
                     'timestamp': datetime.now().isoformat(),
                     'connection_status': 'connected' if self.connected else 'disconnected'
                 }
@@ -413,21 +432,66 @@ class MT5Connector:
                 
         except Exception as e:
             logger.error(f"❌ Error handling client message: {e}")
+            # Send error response
+            try:
+                error_response = {
+                    'type': 'error',
+                    'requestId': data.get('requestId', 'unknown'),
+                    'timestamp': datetime.now().isoformat(),
+                    'error': str(e)
+                }
+                await websocket.send(json.dumps(error_response))
+            except:
+                pass
     
     async def start_websocket_server(self, host='localhost', port=8765):
         """Start the WebSocket server"""
         logger.info(f"🚀 Starting WebSocket server on {host}:{port}")
         
-        server = await websockets.serve(
-            self.handle_websocket_client,
-            host,
-            port,
-            ping_interval=30,
-            ping_timeout=10
-        )
-        
-        logger.info(f"✅ WebSocket server started on ws://{host}:{port}")
-        return server
+        try:
+            server = await websockets.serve(
+                self.handle_websocket_client,
+                host,
+                port,
+                ping_interval=30,
+                ping_timeout=10
+            )
+            
+            logger.info(f"✅ WebSocket server started on ws://{host}:{port}")
+            
+            # Save the port to a file for discovery
+            with open('mt5_bridge_port.txt', 'w') as f:
+                f.write(str(port))
+                
+            return server
+        except Exception as e:
+            logger.error(f"❌ Failed to start WebSocket server on port {port}: {e}")
+            
+            # Try alternate ports
+            alternate_ports = [8766, 8767, 8768, 8769, 8770]
+            for alt_port in alternate_ports:
+                try:
+                    logger.info(f"🔄 Trying alternate port: {alt_port}")
+                    server = await websockets.serve(
+                        self.handle_websocket_client,
+                        host,
+                        alt_port,
+                        ping_interval=30,
+                        ping_timeout=10
+                    )
+                    
+                    logger.info(f"✅ WebSocket server started on ws://{host}:{alt_port}")
+                    
+                    # Save the port to a file for discovery
+                    with open('mt5_bridge_port.txt', 'w') as f:
+                        f.write(str(alt_port))
+                        
+                    return server
+                except Exception as alt_error:
+                    logger.error(f"❌ Failed to start WebSocket server on port {alt_port}: {alt_error}")
+            
+            # If all ports fail, raise the original error
+            raise e
     
     def start(self, host='localhost', port=8765):
         """Start the MT5 connector"""

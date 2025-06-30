@@ -13,6 +13,8 @@ interface StrategyOption {
   estimatedGain: number;
   feasible: boolean;
   reasoning: string;
+  symbol?: string;
+  action?: string;
 }
 
 interface StrategyOptionsProps {
@@ -53,6 +55,17 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
     setExecutingStrategy(option.id);
     
     try {
+      console.log('🚀 Executing strategy:', option);
+      
+      // Extract symbol and action from tradeType if not provided directly
+      if (!option.symbol) {
+        option.symbol = option.tradeType.split(' ')[0];
+      }
+      
+      if (!option.action) {
+        option.action = option.tradeType.includes('BUY') ? 'buy' : 'sell';
+      }
+      
       // Call the parent's onSelect function
       await onSelect(option);
       
@@ -65,8 +78,11 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
       }, 3000);
       
     } catch (error) {
-      console.error('Strategy execution failed:', error);
+      console.error('❌ Strategy execution failed:', error);
       setExecutingStrategy(null);
+      
+      // Show error notification
+      alert(`Trade execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -186,7 +202,7 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
           <div className="flex items-center space-x-3">
             <Loader className="h-5 w-5 text-blue-400 animate-spin flex-shrink-0" />
             <p className="text-blue-300 font-medium">
-              Executing Trade via Backend API
+              Executing Trade via MT5 Bridge
             </p>
           </div>
         </div>

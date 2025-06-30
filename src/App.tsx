@@ -19,6 +19,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useBackendPromptAnalysis, useBackendTradeExecution } from './hooks/useBackendAPI';
 import { useOpenAI } from './hooks/useOpenAI';
 import { usePipnosisAI } from './hooks/usePipnosisAI';
+import { useTradeExecution } from './hooks/useTradeExecution';
 
 // Define proper types for the components
 interface Notification {
@@ -167,14 +168,21 @@ const Dashboard: React.FC = () => {
   
   // API Hooks
   const { analyzePrompt, isAnalyzing, error: analysisError } = useBackendPromptAnalysis();
-  const { executeTrade, isExecuting } = useBackendTradeExecution();
+  const { executeTrade: backendExecuteTrade, isExecuting: isBackendExecuting } = useBackendTradeExecution();
   const { generateJournalEntry, explainDecision } = useOpenAI();
   
   // Pipnosis AI Brain Hook
   const { processPrompt, executeStrategy, isProcessing, error: aiError } = usePipnosisAI();
+  
+  // MT5 Trade Execution Hook
+  const { executeTrade, isExecuting: isMT5Executing, error: mt5Error } = useTradeExecution();
 
   const { profile, user, databaseConnected } = useAuth();
   const accountBalance = profile?.account_balance || 10000;
+  
+  // Combined execution state
+  const isExecuting = isBackendExecuting || isProcessing || isMT5Executing;
+  const error = analysisError || aiError || mt5Error;
 
   // Auto-scroll to strategy options when they're available
   useEffect(() => {
@@ -266,27 +274,26 @@ const Dashboard: React.FC = () => {
 
   const handleStrategySelect = async (option: StrategyOption) => {
     try {
-      // Execute trade via Pipnosis AI Brain
-      const result = await executeStrategy({
-        id: option.id,
-        name: option.name,
-        risk: option.risk,
-        symbol: option.symbol || option.tradeType.split(' ')[0],
-        action: option.action as 'buy' | 'sell' || (option.tradeType.includes('BUY') ? 'buy' : 'sell'),
-        entry: parseFloat(option.entry),
+      console.log('🚀 Executing strategy via MT5:', option);
+      
+      // Extract symbol and action from tradeType if not provided directly
+      const symbol = option.symbol || option.tradeType.split(' ')[0];
+      const action = option.action || (option.tradeType.includes('BUY') ? 'buy' : 'sell');
+      
+      // Execute trade via MT5 WebSocket client
+      const result = await executeTrade({
+        symbol,
+        action: action as 'buy' | 'sell',
+        volume: option.lotSize,
+        price: parseFloat(option.entry),
         stopLoss: parseFloat(option.stopLoss),
         takeProfit: parseFloat(option.takeProfit),
-        lotSize: option.lotSize,
-        estimatedGain: option.estimatedGain,
-        confidence: option.confidence || 75,
-        reasoning: option.reasoning,
-        feasible: option.feasible,
-        pipnosisLawsCompliance: option.pipnosisLawsCompliance || []
+        comment: `Pipnosis AI: ${option.name}`
       });
 
       // Generate AI journal entry for strategy execution
       const journalEntry = await generateJournalEntry('trade_entry', {
-        symbol: option.symbol || option.tradeType.split(' ')[0],
+        symbol,
         action: 'entry',
         price: parseFloat(option.entry),
         strategy: option.name,
@@ -301,7 +308,7 @@ const Dashboard: React.FC = () => {
             ...journalEntry,
             id: Date.now().toString(),
             tradeId: result.tradeId || `TRD-${Date.now()}`,
-            symbol: option.symbol || option.tradeType.split(' ')[0],
+            symbol,
             userReaction: null
           },
           ...prev
@@ -404,7 +411,7 @@ const Dashboard: React.FC = () => {
             <PromptInput 
               onSubmit={handlePromptSubmit} 
               isLoading={isAnalyzing || isProcessing}
-              error={analysisError || aiError}
+              error={error}
             />
             
             {(isAnalyzing || isProcessing) && (
