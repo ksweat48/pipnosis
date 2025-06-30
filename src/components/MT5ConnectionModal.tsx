@@ -318,7 +318,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                       }`}
                       onClick={() => setInstallationMethod('manual')}
                     >
-                      <div className="flex items-center space-x-3 mb-4">
+                      <div className="flex items-center space-x-3 mb-3">
                         <div className={`w-4 h-4 rounded-full border-2 ${
                           installationMethod === 'manual' ? 'border-blue-500 bg-blue-500' : 'border-slate-400'
                         }`}>
@@ -343,7 +343,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                       }`}
                       onClick={() => setInstallationMethod('download')}
                     >
-                      <div className="flex items-center space-x-3 mb-4">
+                      <div className="flex items-center space-x-3 mb-3">
                         <div className={`w-4 h-4 rounded-full border-2 ${
                           installationMethod === 'download' ? 'border-blue-500 bg-blue-500' : 'border-slate-400'
                         }`}>
