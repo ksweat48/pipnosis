@@ -341,7 +341,7 @@ class MT5Connector:
                         'timestamp': datetime.now().isoformat(),
                         'account': asdict(account_info),
                         'positions': [asdict(pos) for pos in positions],
-                        'connectionStatus': 'connected'
+                        'connection_status': 'connected'
                     }
                     
                     # Broadcast to all clients
@@ -366,7 +366,7 @@ class MT5Connector:
                     'timestamp': datetime.now().isoformat(),
                     'account': asdict(self.account_info),
                     'positions': [asdict(pos) for pos in self.positions],
-                    'connectionStatus': 'connected' if self.connected else 'disconnected'
+                    'connection_status': 'connected' if self.connected else 'disconnected'
                 }
                 await websocket.send(json.dumps(initial_data))
             
@@ -405,7 +405,6 @@ class MT5Connector:
                 
                 response = {
                     'type': 'order_response',
-                    'requestId': data.get('requestId', 'unknown'),
                     'timestamp': datetime.now().isoformat(),
                     'result': result
                 }
@@ -419,7 +418,6 @@ class MT5Connector:
                 
                 response = {
                     'type': 'symbol_info',
-                    'requestId': data.get('requestId', 'unknown'),
                     'timestamp': datetime.now().isoformat(),
                     'symbol': symbol,
                     'data': symbol_info
@@ -431,7 +429,6 @@ class MT5Connector:
                 # Handle ping request
                 response = {
                     'type': 'pong',
-                    'requestId': data.get('requestId', 'unknown'),
                     'timestamp': datetime.now().isoformat(),
                     'connection_status': 'connected' if self.connected else 'disconnected'
                 }

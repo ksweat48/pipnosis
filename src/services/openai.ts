@@ -1,6 +1,11 @@
-import axios from 'axios';
+import OpenAI from 'openai';
 
-// Types
+// Initialize OpenAI client with proper environment variable handling
+const openai = new OpenAI({
+  apiKey: import.meta.env.VITE_OPENAI_API_KEY || '',
+  dangerouslyAllowBrowser: true // Required for client-side usage
+});
+
 export interface TradingStrategy {
   id: string;
   name: string;
@@ -65,69 +70,20 @@ These laws are IMMUTABLE and must be followed in ALL trading decisions, strategy
 `;
 
 export class OpenAIService {
-  private isInitialized: boolean = false;
-  private apiKey: string | undefined;
-  private apiEndpoint: string = 'https://api.openai.com/v1/chat/completions';
-  private model: string = 'gpt-4';
-  private fallbackMode: boolean = false;
+  private client: OpenAI;
 
   constructor() {
-    this.apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    this.initialize();
-  }
-
-  private async initialize() {
-    try {
-      // Check if API key is available and valid
-      this.apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      
-      if (!this.apiKey || this.apiKey === 'your_openai_api_key_here' || this.apiKey.includes('your_')) {
-        console.warn('⚠️ OpenAI API key not configured or using placeholder. Using mock data.');
-        this.isInitialized = false;
-        this.fallbackMode = true;
-        return;
-      }
-
-      console.log('🔑 OpenAI API Key:', this.apiKey.substring(0, 10) + '...');
-      
-      // Test the connection
-      try {
-        console.log('🧪 Testing OpenAI connection...');
-        // Simple test request to OpenAI API
-        const response = await axios.get('https://api.openai.com/v1/models', {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        if (response.status === 200) {
-          console.log('✅ OpenAI connection successful');
-          this.isInitialized = true;
-          this.fallbackMode = false;
-        }
-      } catch (testError) {
-        console.error('❌ OpenAI connection test failed:', testError);
-        console.log('⚠️ Using fallback mode with mock responses');
-        this.isInitialized = false;
-        this.fallbackMode = true;
-      }
-    } catch (error) {
-      console.error('❌ OpenAI initialization error:', error);
-      this.isInitialized = false;
-      this.fallbackMode = true;
-    }
+    this.client = openai;
   }
 
   async interpretPrompt(prompt: string, accountBalance: number = 10000, marketData?: any[]): Promise<MarketAnalysis> {
     try {
-      // Check if we're in fallback mode
-      if (this.fallbackMode || !this.isInitialized || !this.apiKey) {
-        console.warn('⚠️ Using mock data for prompt analysis');
+      // Check if API key is available and valid
+      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
+        console.warn('OpenAI API key not configured or using placeholder. Using mock data.');
         return this.getMockAnalysis();
       }
-
-      console.log('🤖 Sending prompt to OpenAI:', prompt);
 
       const systemPrompt = `You are Pipnosis, an expert AI forex trading assistant that STRICTLY follows the Pipnosis Immutable Laws of Trading.
 
@@ -175,69 +131,37 @@ IMPORTANT:
 - Scale down unrealistic goals per Law #4
 - Ensure position sizing follows capital preservation (Law #1)`;
 
+      const response = await this.client.chat.completions.create({
+        model: 'gpt-4',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 1500
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        throw new Error('No response from OpenAI');
+      }
+
+      // Try to parse JSON response
       try {
-        console.log('📡 Making API request to OpenAI...');
-        
-        const response = await axios.post(
-          this.apiEndpoint,
-          {
-            model: this.model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: prompt }
-            ],
-            temperature: 0.7,
-            max_tokens: 1500
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${this.apiKey}`,
-              'Content-Type': 'application/json'
-            },
-            timeout: 30000 // 30 second timeout
-          }
-        );
-
-        const content = response.data.choices[0]?.message?.content;
-        if (!content) {
-          console.warn('⚠️ Empty response from OpenAI');
-          throw new Error('No response from OpenAI');
-        }
-
-        console.log('✅ Received response from OpenAI');
-
-        // Try to parse JSON response
-        try {
-          const analysis = JSON.parse(content);
-          // Ensure the response has the correct structure
-          if (!analysis.strategies || !Array.isArray(analysis.strategies)) {
-            console.warn('⚠️ Invalid response structure from OpenAI, using mock data');
-            return this.getMockAnalysis();
-          }
-          return analysis;
-        } catch (parseError) {
-          console.error('❌ Failed to parse OpenAI response as JSON:', parseError);
-          console.log('Response content:', content);
+        const analysis = JSON.parse(content);
+        // Ensure the response has the correct structure
+        if (!analysis.strategies || !Array.isArray(analysis.strategies)) {
+          console.warn('Invalid response structure from OpenAI, using mock data');
           return this.getMockAnalysis();
         }
-      } catch (apiError: any) {
-        console.error('❌ OpenAI API request failed:', apiError.message);
-        
-        // Check for specific error types
-        if (apiError.response) {
-          // The request was made and the server responded with a status code
-          // that falls out of the range of 2xx
-          console.error('OpenAI API Error Response:', apiError.response.data);
-          console.error('Status:', apiError.response.status);
-        } else if (apiError.request) {
-          // The request was made but no response was received
-          console.error('OpenAI API No Response:', apiError.request);
-        }
-        
+        return analysis;
+      } catch (parseError) {
+        console.error('Failed to parse OpenAI response as JSON:', content);
         return this.getMockAnalysis();
       }
+
     } catch (error) {
-      console.error('❌ OpenAI API error:', error);
+      console.error('OpenAI API error:', error);
       return this.getMockAnalysis();
     }
   }
@@ -248,12 +172,11 @@ IMPORTANT:
     context?: string
   ): Promise<JournalEntry> {
     try {
-      // Check if we're in fallback mode
-      if (this.fallbackMode || !this.isInitialized || !this.apiKey) {
+      // Check if API key is available and valid
+      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
         return this.getMockJournalEntry(type, tradeData);
       }
-
-      console.log('🤖 Generating journal entry for:', type, tradeData);
 
       const systemPrompt = `You are Pipnosis AI, writing a trade journal entry that follows the Pipnosis Immutable Laws of Trading.
 
@@ -273,65 +196,102 @@ Return a JSON object with this structure:
 
       const userPrompt = `Write a journal entry for a ${type} event with this data: ${JSON.stringify(tradeData)}. ${context || ''}`;
 
-      try {
-        const response = await axios.post(
-          this.apiEndpoint,
-          {
-            model: this.model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt }
-            ],
-            temperature: 0.8,
-            max_tokens: 300
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${this.apiKey}`,
-              'Content-Type': 'application/json'
-            },
-            timeout: 15000 // 15 second timeout
-          }
-        );
+      const response = await this.client.chat.completions.create({
+        model: 'gpt-4',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.8,
+        max_tokens: 300
+      });
 
-        const content = response.data.choices[0]?.message?.content;
-        if (!content) {
-          return this.getMockJournalEntry(type, tradeData);
-        }
-
-        console.log('✅ Received journal entry from OpenAI');
-
-        try {
-          const parsed = JSON.parse(content);
-          return {
-            id: Date.now().toString(),
-            timestamp: new Date().toISOString(),
-            type: type as any,
-            title: parsed.title,
-            message: parsed.message,
-            confidence: parsed.confidence,
-            tradeId: tradeData.tradeId,
-            symbol: tradeData.symbol,
-            pnl: tradeData.pnl
-          };
-        } catch (parseError) {
-          console.error('❌ Failed to parse OpenAI journal entry response:', parseError);
-          return this.getMockJournalEntry(type, tradeData);
-        }
-      } catch (apiError) {
-        console.error('❌ OpenAI API request failed:', apiError);
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
         return this.getMockJournalEntry(type, tradeData);
       }
+
+      try {
+        const parsed = JSON.parse(content);
+        return {
+          id: Date.now().toString(),
+          timestamp: new Date().toISOString(),
+          type: type as any,
+          title: parsed.title,
+          message: parsed.message,
+          confidence: parsed.confidence,
+          tradeId: tradeData.tradeId,
+          symbol: tradeData.symbol,
+          pnl: tradeData.pnl
+        };
+      } catch (parseError) {
+        return this.getMockJournalEntry(type, tradeData);
+      }
+
     } catch (error) {
-      console.error('❌ OpenAI journal generation error:', error);
+      console.error('OpenAI journal generation error:', error);
       return this.getMockJournalEntry(type, tradeData);
+    }
+  }
+
+  async assessFeasibility(goal: string, balance: number, risk: string) {
+    try {
+      // Check if API key is available and valid
+      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
+        return this.getMockFeasibilityAssessment();
+      }
+
+      const systemPrompt = `You are Pipnosis, analyzing trading goal feasibility according to the Pipnosis Immutable Laws of Trading.
+
+${PIPNOSIS_TRADING_LAWS}
+
+Assess if the trading goal is realistic given the account balance and risk tolerance, strictly following the Immutable Laws.
+
+Reference specific laws in your assessment (especially Law #4: Never Chase Unrealistic Goals).
+
+Return a JSON object with:
+{
+  "feasible": true/false,
+  "reasoning": "Detailed explanation referencing applicable Pipnosis Laws",
+  "recommendations": "Suggested adjustments if needed, citing relevant laws",
+  "timeframe": "Estimated timeframe to achieve goal following Pipnosis Laws"
+}`;
+
+      const userPrompt = `Goal: ${goal}, Balance: $${balance}, Risk: ${risk}`;
+
+      const response = await this.client.chat.completions.create({
+        model: 'gpt-4',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 500
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        return this.getMockFeasibilityAssessment();
+      }
+
+      try {
+        return JSON.parse(content);
+      } catch (parseError) {
+        return this.getMockFeasibilityAssessment();
+      }
+
+    } catch (error) {
+      console.error('OpenAI feasibility assessment error:', error);
+      return this.getMockFeasibilityAssessment();
     }
   }
 
   async explainDecision(decision: string, context: any): Promise<string> {
     try {
-      // Check if we're in fallback mode
-      if (this.fallbackMode || !this.isInitialized || !this.apiKey) {
+      // Check if API key is available and valid
+      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
         return this.getMockExplanation(decision);
       }
 
@@ -345,57 +305,23 @@ Always reference which Immutable Laws guided the decision-making process.`;
 
       const userPrompt = `Explain this decision: ${decision}. Context: ${JSON.stringify(context)}`;
 
-      try {
-        const response = await axios.post(
-          this.apiEndpoint,
-          {
-            model: this.model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt }
-            ],
-            temperature: 0.8,
-            max_tokens: 400
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${this.apiKey}`,
-              'Content-Type': 'application/json'
-            },
-            timeout: 15000 // 15 second timeout
-          }
-        );
+      const response = await this.client.chat.completions.create({
+        model: 'gpt-4',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.8,
+        max_tokens: 400
+      });
 
-        const content = response.data.choices[0]?.message?.content;
-        return content || this.getMockExplanation(decision);
-      } catch (apiError) {
-        console.error('❌ OpenAI API request failed:', apiError);
-        return this.getMockExplanation(decision);
-      }
+      const content = response.choices[0]?.message?.content;
+      return content || this.getMockExplanation(decision);
+
     } catch (error) {
-      console.error('❌ OpenAI explanation error:', error);
+      console.error('OpenAI explanation error:', error);
       return this.getMockExplanation(decision);
     }
-  }
-
-  // Check if OpenAI is properly initialized
-  isOpenAIInitialized(): boolean {
-    return this.isInitialized && !this.fallbackMode;
-  }
-
-  // Get the current status of the OpenAI service
-  getStatus(): { initialized: boolean; fallbackMode: boolean; apiKeyConfigured: boolean } {
-    return {
-      initialized: this.isInitialized,
-      fallbackMode: this.fallbackMode,
-      apiKeyConfigured: !!this.apiKey && this.apiKey !== 'your_openai_api_key_here' && !this.apiKey.includes('your_')
-    };
-  }
-
-  // Force a reconnection attempt
-  async reconnect(): Promise<boolean> {
-    await this.initialize();
-    return this.isInitialized;
   }
 
   private getMockAnalysis(): MarketAnalysis {
@@ -450,16 +376,6 @@ Always reference which Immutable Laws guided the decision-making process.`;
         title: 'Position Updated',
         message: 'Adjusted trade parameters following Law #5 (AI Final Decision-Maker) based on evolving market conditions. Law #3 (Drawdown Management) ensures risk-reward optimization.',
         confidence: 'high' as const
-      },
-      market_update: {
-        title: 'Market Analysis Complete',
-        message: 'AI analyzed market conditions and generated strategies following Law #6 (High Quality Entry Conditions) and Law #1 (Capital Preservation). Multiple technical confirmations ensure optimal entry points.',
-        confidence: 'high' as const
-      },
-      trade_entry: {
-        title: 'Trade Executed Successfully',
-        message: 'Position opened with proper risk management. Following Law #1 (Capital Preservation) with appropriate position sizing and Law #6 (High Quality Entry) with multiple technical confirmations.',
-        confidence: 'high' as const
       }
     };
 
@@ -478,76 +394,6 @@ Always reference which Immutable Laws guided the decision-making process.`;
     };
   }
 
-  private getMockExplanation(decision: string): string {
-    return `This decision was made following the Pipnosis Immutable Laws of Trading. Law #1 (Capital Preservation) guided position sizing, Law #6 (High Quality Entry Conditions) ensured multiple technical confirmations, and Law #3 (Drawdown Management) maintained acceptable risk levels. The strategy aims to balance potential returns with Law #7 (Cut Losses Early, Let Winners Run) while maintaining Law #2's target of 70-80% win rate through disciplined execution.`;
-  }
-
-  async assessFeasibility(goal: string, balance: number, risk: string) {
-    try {
-      // Check if we're in fallback mode
-      if (this.fallbackMode || !this.isInitialized || !this.apiKey) {
-        return this.getMockFeasibilityAssessment();
-      }
-
-      const systemPrompt = `You are Pipnosis, analyzing trading goal feasibility according to the Pipnosis Immutable Laws of Trading.
-
-${PIPNOSIS_TRADING_LAWS}
-
-Assess if the trading goal is realistic given the account balance and risk tolerance, strictly following the Immutable Laws.
-
-Reference specific laws in your assessment (especially Law #4: Never Chase Unrealistic Goals).
-
-Return a JSON object with:
-{
-  "feasible": true/false,
-  "reasoning": "Detailed explanation referencing applicable Pipnosis Laws",
-  "recommendations": "Suggested adjustments if needed, citing relevant laws",
-  "timeframe": "Estimated timeframe to achieve goal following Pipnosis Laws"
-}`;
-
-      const userPrompt = `Goal: ${goal}, Balance: $${balance}, Risk: ${risk}`;
-
-      try {
-        const response = await axios.post(
-          this.apiEndpoint,
-          {
-            model: this.model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt }
-            ],
-            temperature: 0.7,
-            max_tokens: 500
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${this.apiKey}`,
-              'Content-Type': 'application/json'
-            },
-            timeout: 15000 // 15 second timeout
-          }
-        );
-
-        const content = response.data.choices[0]?.message?.content;
-        if (!content) {
-          return this.getMockFeasibilityAssessment();
-        }
-
-        try {
-          return JSON.parse(content);
-        } catch (parseError) {
-          return this.getMockFeasibilityAssessment();
-        }
-      } catch (apiError) {
-        console.error('❌ OpenAI API request failed:', apiError);
-        return this.getMockFeasibilityAssessment();
-      }
-    } catch (error) {
-      console.error('❌ OpenAI feasibility assessment error:', error);
-      return this.getMockFeasibilityAssessment();
-    }
-  }
-
   private getMockFeasibilityAssessment() {
     return {
       feasible: true,
@@ -555,6 +401,10 @@ Return a JSON object with:
       recommendations: 'Focus on Law #1 (Capital Preservation) and Law #3 (Drawdown Management) while maintaining disciplined trading approach per Law #9 (Do Not Overtrade).',
       timeframe: '3-6 months with consistent performance following all Pipnosis Immutable Laws'
     };
+  }
+
+  private getMockExplanation(decision: string): string {
+    return `This decision was made following the Pipnosis Immutable Laws of Trading. Law #1 (Capital Preservation) guided position sizing, Law #6 (High Quality Entry Conditions) ensured multiple technical confirmations, and Law #3 (Drawdown Management) maintained acceptable risk levels. The strategy aims to balance potential returns with Law #7 (Cut Losses Early, Let Winners Run) while maintaining Law #2's target of 70-80% win rate through disciplined execution.`;
   }
 }
 
