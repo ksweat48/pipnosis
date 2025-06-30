@@ -600,7 +600,8 @@ export class MT5WebSocketClient {
       marginLevel: data.account.marginLevel,
       openPositions: data.positions,
       lastUpdate: data.timestamp,
-      connectionStatus: data.connectionStatus
+      connectionStatus: data.connectionStatus,
+      tradeExpert: data.account.tradeExpert // Important: Store if automated trading is enabled
     };
     
     localStorage.setItem('pipnosis_mt5_account', JSON.stringify(accountData));
