@@ -71,19 +71,51 @@ These laws are IMMUTABLE and must be followed in ALL trading decisions, strategy
 
 export class OpenAIService {
   private client: OpenAI;
+  private isInitialized: boolean = false;
 
   constructor() {
     this.client = openai;
+    this.initialize();
+  }
+
+  private async initialize() {
+    try {
+      // Check if API key is available and valid
+      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
+        console.warn('OpenAI API key not configured or using placeholder. Using mock data.');
+        this.isInitialized = false;
+        return;
+      }
+
+      // Test the connection
+      try {
+        console.log('🧪 Testing OpenAI connection...');
+        const models = await this.client.models.list();
+        if (models) {
+          console.log('✅ OpenAI connection successful');
+          this.isInitialized = true;
+        }
+      } catch (testError) {
+        console.error('❌ OpenAI connection test failed:', testError);
+        this.isInitialized = false;
+      }
+    } catch (error) {
+      console.error('❌ OpenAI initialization error:', error);
+      this.isInitialized = false;
+    }
   }
 
   async interpretPrompt(prompt: string, accountBalance: number = 10000, marketData?: any[]): Promise<MarketAnalysis> {
     try {
       // Check if API key is available and valid
       const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
+      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_') || !this.isInitialized) {
         console.warn('OpenAI API key not configured or using placeholder. Using mock data.');
         return this.getMockAnalysis();
       }
+
+      console.log('🤖 Sending prompt to OpenAI:', prompt);
 
       const systemPrompt = `You are Pipnosis, an expert AI forex trading assistant that STRICTLY follows the Pipnosis Immutable Laws of Trading.
 
@@ -146,6 +178,8 @@ IMPORTANT:
         throw new Error('No response from OpenAI');
       }
 
+      console.log('✅ Received response from OpenAI');
+
       // Try to parse JSON response
       try {
         const analysis = JSON.parse(content);
@@ -174,9 +208,11 @@ IMPORTANT:
     try {
       // Check if API key is available and valid
       const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
+      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_') || !this.isInitialized) {
         return this.getMockJournalEntry(type, tradeData);
       }
+
+      console.log('🤖 Generating journal entry for:', type, tradeData);
 
       const systemPrompt = `You are Pipnosis AI, writing a trade journal entry that follows the Pipnosis Immutable Laws of Trading.
 
@@ -211,6 +247,8 @@ Return a JSON object with this structure:
         return this.getMockJournalEntry(type, tradeData);
       }
 
+      console.log('✅ Received journal entry from OpenAI');
+
       try {
         const parsed = JSON.parse(content);
         return {
@@ -225,6 +263,7 @@ Return a JSON object with this structure:
           pnl: tradeData.pnl
         };
       } catch (parseError) {
+        console.error('Failed to parse OpenAI journal entry response:', parseError);
         return this.getMockJournalEntry(type, tradeData);
       }
 
@@ -238,7 +277,7 @@ Return a JSON object with this structure:
     try {
       // Check if API key is available and valid
       const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
+      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_') || !this.isInitialized) {
         return this.getMockFeasibilityAssessment();
       }
 
@@ -291,7 +330,7 @@ Return a JSON object with:
     try {
       // Check if API key is available and valid
       const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
+      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_') || !this.isInitialized) {
         return this.getMockExplanation(decision);
       }
 
@@ -375,6 +414,16 @@ Always reference which Immutable Laws guided the decision-making process.`;
       modification: {
         title: 'Position Updated',
         message: 'Adjusted trade parameters following Law #5 (AI Final Decision-Maker) based on evolving market conditions. Law #3 (Drawdown Management) ensures risk-reward optimization.',
+        confidence: 'high' as const
+      },
+      market_update: {
+        title: 'Market Analysis Complete',
+        message: 'AI analyzed market conditions and generated strategies following Law #6 (High Quality Entry Conditions) and Law #1 (Capital Preservation). Multiple technical confirmations ensure optimal entry points.',
+        confidence: 'high' as const
+      },
+      trade_entry: {
+        title: 'Trade Executed Successfully',
+        message: 'Position opened with proper risk management. Following Law #1 (Capital Preservation) with appropriate position sizing and Law #6 (High Quality Entry) with multiple technical confirmations.',
         confidence: 'high' as const
       }
     };

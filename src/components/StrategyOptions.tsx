@@ -30,6 +30,7 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
 }) => {
   const [executingStrategy, setExecutingStrategy] = useState<string | null>(null);
   const [executedStrategies, setExecutedStrategies] = useState<Set<string>>(new Set());
+  const [executionError, setExecutionError] = useState<string | null>(null);
 
   const getRiskIcon = (risk: string) => {
     switch (risk) {
@@ -53,6 +54,7 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
     if (!option.feasible || executingStrategy || executedStrategies.has(option.id)) return;
 
     setExecutingStrategy(option.id);
+    setExecutionError(null);
     
     try {
       console.log('🚀 Executing strategy:', option);
@@ -81,8 +83,13 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
       console.error('❌ Strategy execution failed:', error);
       setExecutingStrategy(null);
       
-      // Show error notification
-      alert(`Trade execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Set error message
+      setExecutionError(error instanceof Error ? error.message : 'Trade execution failed');
+      
+      // Clear error after 5 seconds
+      setTimeout(() => {
+        setExecutionError(null);
+      }, 5000);
     }
   };
 
@@ -95,6 +102,20 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
         <span>AI Strategy Recommendations</span>
         {isExecuting && <Loader className="h-4 w-4 text-blue-400 animate-spin" />}
       </h3>
+      
+      {executionError && (
+        <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0" />
+            <p className="text-red-300 font-medium">
+              {executionError}
+            </p>
+          </div>
+          <p className="text-red-200 text-sm mt-2 ml-8">
+            Please check your MT5 connection and try again. Make sure the MT5 bridge is running.
+          </p>
+        </div>
+      )}
       
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         {options.map((option) => {

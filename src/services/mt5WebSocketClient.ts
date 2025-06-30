@@ -73,6 +73,7 @@ export class MT5WebSocketClient {
   private isConnecting = false;
   private listeners: Map<string, Function[]> = new Map();
   private pingInterval: NodeJS.Timeout | null = null;
+  private pendingRequests: Map<string, { resolve: Function, reject: Function, timeout: NodeJS.Timeout }> = new Map();
   
   constructor(
     private host: string = 'localhost',
@@ -288,53 +289,68 @@ export class MT5WebSocketClient {
 
       const requestId = Date.now().toString();
       
+      // Create the order request
+      const orderRequest = {
+        type: 'place_order',
+        requestId,
+        symbol: order.symbol,
+        order_type: order.orderType,
+        volume: order.volume,
+        price: order.price,
+        sl: order.sl,
+        tp: order.tp,
+        comment: order.comment || 'Pipnosis AI Trade'
+      };
+      
+      console.log('📤 Sending MT5 order:', orderRequest);
+      
+      // Set up timeout for the request
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error('Order request timeout'));
+      }, 15000);
+      
+      // Store the pending request
+      this.pendingRequests.set(requestId, {
+        resolve,
+        reject,
+        timeout
+      });
+      
       // Set up one-time listener for the response
-      const responseListener = (data: any) => {
+      const responseHandler = (data: any) => {
         if (data.type === 'order_response' && data.requestId === requestId) {
-          this.off('message', responseListener);
-          resolve(data.result);
+          this.off('message', responseHandler);
+          
+          const pendingRequest = this.pendingRequests.get(requestId);
+          if (pendingRequest) {
+            clearTimeout(pendingRequest.timeout);
+            this.pendingRequests.delete(requestId);
+            
+            if (data.result && data.result.success) {
+              resolve(data.result);
+            } else {
+              reject(new Error(data.result?.error || 'Unknown error'));
+            }
+          }
         }
       };
       
-      this.on('message', responseListener);
+      this.on('message', responseHandler);
       
       // Send the order request
       try {
-        console.log('📤 Sending MT5 order:', {
-          type: 'place_order',
-          requestId,
-          symbol: order.symbol,
-          order_type: order.orderType,
-          volume: order.volume,
-          price: order.price,
-          sl: order.sl,
-          tp: order.tp,
-          comment: order.comment || 'Pipnosis AI Trade'
-        });
-        
-        this.send({
-          type: 'place_order',
-          requestId,
-          symbol: order.symbol,
-          order_type: order.orderType,
-          volume: order.volume,
-          price: order.price,
-          sl: order.sl,
-          tp: order.tp,
-          comment: order.comment || 'Pipnosis AI Trade'
-        });
+        this.send(orderRequest);
       } catch (error) {
-        console.error('❌ Error sending order to MT5:', error);
-        this.off('message', responseListener);
+        // Clean up if sending fails
+        this.off('message', responseHandler);
+        const pendingRequest = this.pendingRequests.get(requestId);
+        if (pendingRequest) {
+          clearTimeout(pendingRequest.timeout);
+          this.pendingRequests.delete(requestId);
+        }
         reject(error);
-        return;
       }
-      
-      // Set timeout for the request
-      setTimeout(() => {
-        this.off('message', responseListener);
-        reject(new Error('Order request timeout'));
-      }, 10000);
     });
   }
 
@@ -350,15 +366,34 @@ export class MT5WebSocketClient {
 
       const requestId = Date.now().toString();
       
+      // Set up timeout for the request
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error('Symbol info request timeout'));
+      }, 5000);
+      
+      // Store the pending request
+      this.pendingRequests.set(requestId, {
+        resolve,
+        reject,
+        timeout
+      });
+      
       // Set up one-time listener for the response
-      const responseListener = (data: any) => {
+      const responseHandler = (data: any) => {
         if (data.type === 'symbol_info' && data.requestId === requestId) {
-          this.off('message', responseListener);
-          resolve(data.data);
+          this.off('message', responseHandler);
+          
+          const pendingRequest = this.pendingRequests.get(requestId);
+          if (pendingRequest) {
+            clearTimeout(pendingRequest.timeout);
+            this.pendingRequests.delete(requestId);
+            resolve(data.data);
+          }
         }
       };
       
-      this.on('message', responseListener);
+      this.on('message', responseHandler);
       
       // Send the symbol info request
       try {
@@ -368,16 +403,15 @@ export class MT5WebSocketClient {
           symbol
         });
       } catch (error) {
-        this.off('message', responseListener);
+        // Clean up if sending fails
+        this.off('message', responseHandler);
+        const pendingRequest = this.pendingRequests.get(requestId);
+        if (pendingRequest) {
+          clearTimeout(pendingRequest.timeout);
+          this.pendingRequests.delete(requestId);
+        }
         reject(error);
-        return;
       }
-      
-      // Set timeout for the request
-      setTimeout(() => {
-        this.off('message', responseListener);
-        reject(new Error('Symbol info request timeout'));
-      }, 5000);
     });
   }
 

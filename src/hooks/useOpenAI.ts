@@ -1,4 +1,5 @@
-import { useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import { openAIService } from '../services/openai';
 
 export interface JournalEntry {
   id: string;
@@ -13,48 +14,82 @@ export interface JournalEntry {
 }
 
 export const useOpenAI = () => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const analyzePrompt = useCallback(async (
+    prompt: string,
+    accountBalance: number,
+    marketData?: any[]
+  ) => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      console.log('🤖 Analyzing prompt with OpenAI:', prompt);
+      const analysis = await openAIService.interpretPrompt(prompt, accountBalance, marketData);
+      return analysis;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to analyze prompt';
+      setError(errorMessage);
+      console.error('❌ OpenAI analysis error:', err);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   const generateJournalEntry = useCallback(async (
     eventType: string,
-    tradeData: Record<string, unknown>
+    tradeData: any
   ): Promise<JournalEntry | null> => {
     try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const entries = {
-        entry: { title: 'New Trade Position Opened', message: 'Entered position following Pipnosis Law #6.', confidence: 'high' as const },
-        market_update: { title: 'Market Analysis Complete', message: 'AI analyzed market conditions and generated strategies.', confidence: 'high' as const },
-        trade_entry: { title: 'Trade Executed Successfully', message: 'Position opened with proper risk management.', confidence: 'high' as const }
-      };
-
-      const template = entries[eventType as keyof typeof entries] || entries.entry;
-
-      return {
-        id: Date.now().toString(),
-        timestamp: new Date().toISOString(),
-        type: eventType as 'entry' | 'modification' | 'exit' | 'update' | 'pause',
-        title: template.title,
-        message: template.message,
-        confidence: template.confidence,
-        tradeId: tradeData.tradeId as string,
-        symbol: tradeData.symbol as string,
-        pnl: tradeData.pnl as number
-      };
-    } catch {
+      console.log('🤖 Generating journal entry with OpenAI:', eventType, tradeData);
+      return await openAIService.generateJournalEntry(eventType, tradeData);
+    } catch (err) {
+      console.error('❌ Journal entry generation error:', err);
       return null;
+    }
+  }, []);
+
+  const assessFeasibility = useCallback(async (
+    goal: string,
+    balance: number,
+    risk: string
+  ) => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const assessment = await openAIService.assessFeasibility(goal, balance, risk);
+      return assessment;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to assess feasibility';
+      setError(errorMessage);
+      return null;
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
   const explainDecision = useCallback(async (
-    title: string,
-    context: Record<string, unknown>
+    decision: string,
+    context: any
   ): Promise<string | null> => {
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return `This decision followed Pipnosis Laws: Capital Preservation, High Quality Entry, and Drawdown Management.`;
-    } catch {
+      return await openAIService.explainDecision(decision, context);
+    } catch (err) {
+      console.error('❌ Decision explanation error:', err);
       return null;
     }
   }, []);
 
-  return { generateJournalEntry, explainDecision };
+  return {
+    isLoading,
+    error,
+    analyzePrompt,
+    generateJournalEntry,
+    assessFeasibility,
+    explainDecision
+  };
 };

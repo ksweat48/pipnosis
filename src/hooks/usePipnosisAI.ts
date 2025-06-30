@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { pipnosisAI, TradingGoal, TradeStrategy, PromptAnalysisResult } from '../services/pipnosisAIBrain';
 import { useAuth } from '../contexts/AuthContext';
+import { openAIService } from '../services/openai';
 
 /**
  * Hook for using the Pipnosis AI Brain
@@ -43,7 +44,64 @@ export const usePipnosisAI = () => {
         openTrades: 1
       });
       
-      // Process the prompt
+      // First try to use OpenAI for analysis
+      try {
+        console.log('🤖 Attempting to use OpenAI for prompt analysis');
+        const openAIResult = await openAIService.interpretPrompt(prompt, profile?.account_balance || 10000, marketData);
+        
+        if (openAIResult && openAIResult.strategies && openAIResult.strategies.length > 0) {
+          console.log('✅ Successfully used OpenAI for analysis');
+          
+          // Convert OpenAI result to Pipnosis AI format
+          const strategies = openAIResult.strategies.map((strategy, index) => {
+            // Extract symbol and action from tradeType
+            const tradeTypeParts = strategy.tradeType.split(' ');
+            const symbol = tradeTypeParts[0];
+            const action = tradeTypeParts[1]?.toLowerCase().includes('buy') ? 'buy' : 'sell';
+            
+            return {
+              id: strategy.id || `openai-${index}`,
+              name: strategy.name,
+              risk: strategy.risk,
+              symbol,
+              action,
+              entry: strategy.entry,
+              stopLoss: strategy.stopLoss,
+              takeProfit: strategy.takeProfit,
+              lotSize: strategy.lotSize,
+              estimatedGain: strategy.estimatedGain,
+              confidence: strategy.risk === 'low' ? 85 : strategy.risk === 'medium' ? 75 : 65,
+              reasoning: strategy.reasoning,
+              feasible: strategy.feasible,
+              pipnosisLawsCompliance: [
+                'Law #1: Capital Preservation',
+                'Law #6: High Quality Entry',
+                strategy.risk === 'low' ? 'Law #3: Drawdown Management' : 
+                strategy.risk === 'medium' ? 'Law #2: Target 70-80% Win Rate' : 
+                'Law #5: AI Final Decision'
+              ]
+            };
+          });
+          
+          return {
+            goal: {
+              type: 'profit',
+              amount: 500,
+              timeframe: 'week'
+            },
+            strategies,
+            marketAnalysis: openAIResult.summary,
+            riskAssessment: openAIResult.riskAssessment,
+            confidence: openAIResult.confidence,
+            aiRecommendation: `Based on the analysis, I recommend executing the ${strategies[0].risk} risk strategy first to test market conditions.`
+          };
+        }
+      } catch (openAIError) {
+        console.warn('⚠️ OpenAI analysis failed, falling back to local AI:', openAIError);
+      }
+      
+      // Process the prompt using local AI
+      console.log('🧠 Using local AI for prompt analysis');
       const result = await pipnosisAI.processPrompt(prompt);
       return result;
     } catch (err) {
@@ -54,7 +112,7 @@ export const usePipnosisAI = () => {
     } finally {
       setIsProcessing(false);
     }
-  }, []);
+  }, [profile]);
   
   /**
    * Execute a trading strategy

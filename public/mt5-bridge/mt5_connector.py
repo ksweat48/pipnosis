@@ -9,12 +9,13 @@ import websockets
 import json
 import time
 import logging
+import socket
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import threading
 from dataclasses import dataclass, asdict
 
-# Configure logging with UTF-8 encoding to handle Unicode characters
+# Configure logging with UTF-8 encoding to fix emoji issues
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -139,7 +140,7 @@ class MT5Connector:
             return None
     
     def get_positions(self) -> List[Position]:
-        """Get all open positions"""
+        """Get all open positions - FIXED VERSION"""
         try:
             if not self.connected:
                 return []
@@ -159,6 +160,19 @@ class MT5Connector:
                         
                     current_price = tick.bid if pos.type == 0 else tick.ask  # 0 = buy, 1 = sell
                     
+                    # CRITICAL FIX: Handle missing commission attribute safely
+                    commission = 0.0
+                    if hasattr(pos, 'commission'):
+                        commission = pos.commission
+                    else:
+                        # Try to get commission from deals if available
+                        try:
+                            deals = mt5.history_deals_get(position=pos.ticket)
+                            if deals and len(deals) > 0:
+                                commission = sum(getattr(deal, 'commission', 0.0) for deal in deals if hasattr(deal, 'commission'))
+                        except:
+                            commission = 0.0
+                    
                     position = Position(
                         ticket=str(pos.ticket),
                         symbol=pos.symbol,
@@ -166,15 +180,16 @@ class MT5Connector:
                         volume=pos.volume,
                         open_price=pos.price_open,
                         current_price=current_price,
-                        sl=pos.sl,
-                        tp=pos.tp,
-                        profit=pos.profit,
-                        swap=pos.swap,
-                        commission=pos.commission if hasattr(pos, 'commission') else 0.0,
-                        comment=pos.comment,
-                        time_open=datetime.fromtimestamp(pos.time).isoformat()
+                        sl=getattr(pos, 'sl', 0.0),
+                        tp=getattr(pos, 'tp', 0.0),
+                        profit=getattr(pos, 'profit', 0.0),
+                        swap=getattr(pos, 'swap', 0.0),
+                        commission=commission,
+                        comment=getattr(pos, 'comment', ''),
+                        time_open=datetime.fromtimestamp(getattr(pos, 'time', datetime.now().timestamp())).isoformat()
                     )
                     result.append(position)
+                    
                 except Exception as pos_error:
                     logger.error(f"Error processing position {pos.ticket}: {pos_error}")
                     continue
@@ -445,53 +460,38 @@ class MT5Connector:
                 pass
     
     async def start_websocket_server(self, host='localhost', port=8765):
-        """Start the WebSocket server"""
-        logger.info(f"Starting WebSocket server on {host}:{port}")
+        """Start the WebSocket server with port fallback"""
+        # Try the specified port first, then fall back to alternatives if needed
+        ports_to_try = [port, 8766, 8767, 8768, 8769, 8770]
+        server = None
         
-        try:
-            server = await websockets.serve(
-                self.handle_websocket_client,
-                host,
-                port,
-                ping_interval=30,
-                ping_timeout=10
-            )
-            
-            logger.info(f"WebSocket server started on ws://{host}:{port}")
-            
-            # Save the port to a file for discovery
-            with open('mt5_bridge_port.txt', 'w') as f:
-                f.write(str(port))
+        for current_port in ports_to_try:
+            try:
+                logger.info(f"Starting WebSocket server on {host}:{current_port}")
+                server = await websockets.serve(
+                    self.handle_websocket_client,
+                    host,
+                    current_port,
+                    ping_interval=30,
+                    ping_timeout=10
+                )
+                logger.info(f"WebSocket server started on ws://{host}:{current_port}")
                 
-            return server
-        except Exception as e:
-            logger.error(f"Failed to start WebSocket server on port {port}: {e}")
-            
-            # Try alternate ports
-            alternate_ports = [8766, 8767, 8768, 8769, 8770]
-            for alt_port in alternate_ports:
-                try:
-                    logger.info(f"Trying alternate port: {alt_port}")
-                    server = await websockets.serve(
-                        self.handle_websocket_client,
-                        host,
-                        alt_port,
-                        ping_interval=30,
-                        ping_timeout=10
-                    )
-                    
-                    logger.info(f"WebSocket server started on ws://{host}:{alt_port}")
-                    
-                    # Save the port to a file for discovery
-                    with open('mt5_bridge_port.txt', 'w') as f:
-                        f.write(str(alt_port))
-                        
-                    return server
-                except Exception as alt_error:
-                    logger.error(f"Failed to start WebSocket server on port {alt_port}: {alt_error}")
-            
-            # If all ports fail, raise the original error
-            raise e
+                # Store the successful port in a file for clients to discover
+                with open('mt5_bridge_port.txt', 'w') as f:
+                    f.write(str(current_port))
+                
+                return server, current_port
+            except socket.error as e:
+                logger.warning(f"Port {current_port} is already in use, trying next port: {e}")
+                continue
+            except Exception as e:
+                logger.error(f"Error starting WebSocket server on port {current_port}: {e}")
+                continue
+        
+        # If we get here, all ports failed
+        logger.error("Failed to start WebSocket server on any port")
+        return None, None
     
     def start(self, host='localhost', port=8765):
         """Start the MT5 connector"""
@@ -510,11 +510,20 @@ class MT5Connector:
         
         try:
             # Start WebSocket server and data update loop
-            server = loop.run_until_complete(self.start_websocket_server(host, port))
+            server_result, actual_port = loop.run_until_complete(self.start_websocket_server(host, port))
+            
+            if server_result is None:
+                logger.error("Failed to start WebSocket server - exiting")
+                self.running = False
+                if self.connected:
+                    mt5.shutdown()
+                    self.connected = False
+                return False
+            
             update_task = loop.create_task(self.data_update_loop())
             
             logger.info("Pipnosis MT5 Connector is running!")
-            logger.info("WebSocket clients can connect to receive live MT5 data")
+            logger.info(f"WebSocket clients can connect to receive live MT5 data on port {actual_port}")
             logger.info("Press Ctrl+C to stop")
             
             # Run forever
