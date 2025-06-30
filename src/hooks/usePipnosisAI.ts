@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { pipnosisAI, TradingGoal, TradeStrategy, PromptAnalysisResult } from '../services/pipnosisAIBrain';
 import { useAuth } from '../contexts/AuthContext';
 
