@@ -105,9 +105,7 @@ export const supabase = createClient(
         } else if (level === 'warn') {
           console.warn('🟡 Realtime WebSocket Warning:', message, details);
         }
-      },
-      transport: 'websocket',
-      timeout: 20000,
+      }
     },
   }
 );
@@ -850,125 +848,74 @@ export const subscribeToUserData = (userId: string, callback: (payload: any) => 
 
   try {
     console.log('🔄 Setting up Realtime subscription for user:', userId);
-    console.log('🌐 WebSocket URL:', supabaseUrl?.replace('https://', 'wss://') + '/realtime/v1/websocket');
     
-    // Test WebSocket connectivity first
-    const testWebSocket = () => {
-      try {
-        const wsUrl = supabaseUrl?.replace('https://', 'wss://') + '/realtime/v1/websocket';
-        const testWs = new WebSocket(wsUrl);
-        
-        testWs.onopen = () => {
-          console.log('✅ WebSocket test connection successful');
-          testWs.close();
-        };
-        
-        testWs.onerror = (error) => {
-          console.error('❌ WebSocket test connection failed:', error);
-          console.log('💡 This might indicate:');
-          console.log('   1. Network/firewall blocking WebSocket connections');
-          console.log('   2. Corporate proxy blocking WebSocket traffic');
-          console.log('   3. Browser extension interfering with WebSockets');
-          console.log('   4. Supabase Realtime service issues');
-        };
-        
-        testWs.onclose = (event) => {
-          if (event.code !== 1000) {
-            console.warn('⚠️ WebSocket test closed unexpectedly:', event.code, event.reason);
-          }
-        };
-        
-        // Clean up test connection after 5 seconds
-        setTimeout(() => {
-          if (testWs.readyState === WebSocket.CONNECTING || testWs.readyState === WebSocket.OPEN) {
-            testWs.close();
-          }
-        }, 5000);
-        
-      } catch (error) {
-        console.error('❌ WebSocket test failed:', error);
-      }
-    };
+    // CRITICAL FIX: Don't try to use WebSockets in WebContainer environment
+    const isWebContainer = window.location.hostname.includes('webcontainer') || 
+                          window.location.hostname.includes('bolt.new') ||
+                          window.location.hostname.includes('stackblitz') ||
+                          window.location.hostname.includes('local-credentialless');
     
-    // Run WebSocket test
-    testWebSocket();
+    if (isWebContainer) {
+      console.log('🌐 WebContainer environment detected - WebSockets are not supported');
+      console.log('💡 Skipping real-time subscription in WebContainer environment');
+      return { unsubscribe: () => {} };
+    }
     
-    const subscription = supabase
-      .channel(`user_${userId}`)
-      .on('postgres_changes', 
-        { 
-          event: '*', 
-          schema: 'public', 
-          table: 'trade_records',
-          filter: `user_id=eq.${userId}`
-        }, 
-        (payload) => {
-          console.log('📡 Realtime trade update:', payload);
-          callback(payload);
-        }
-      )
-      .on('postgres_changes', 
-        { 
-          event: '*', 
-          schema: 'public', 
-          table: 'journal_entries',
-          filter: `user_id=eq.${userId}`
-        }, 
-        (payload) => {
-          console.log('📡 Realtime journal update:', payload);
-          callback(payload);
-        }
-      )
-      .on('postgres_changes', 
-        { 
+    // CRITICAL FIX: Use a simpler channel subscription approach
+    try {
+      // Create a simple channel without trying to use WebSockets directly
+      const channel = supabase.channel(`user_${userId}`);
+      
+      // Set up listeners for different tables
+      channel
+        .on('postgres_changes', { 
           event: '*', 
           schema: 'public', 
           table: 'user_profiles',
           filter: `id=eq.${userId}`
-        }, 
-        (payload) => {
-          console.log('📡 Realtime profile update:', payload);
+        }, (payload) => {
+          console.log('📡 Profile update:', payload);
           callback(payload);
-        }
-      )
-      .on('postgres_changes', 
-        { 
+        })
+        .on('postgres_changes', { 
           event: '*', 
           schema: 'public', 
-          table: 'trading_prompts',
+          table: 'trade_records',
           filter: `user_id=eq.${userId}`
-        }, 
-        (payload) => {
-          console.log('📡 Realtime prompt update:', payload);
+        }, (payload) => {
+          console.log('📡 Trade update:', payload);
           callback(payload);
-        }
-      )
-      .subscribe((status, err) => {
-        console.log('🔄 Realtime subscription status change:', status);
+        })
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'journal_entries',
+          filter: `user_id=eq.${userId}`
+        }, (payload) => {
+          console.log('📡 Journal update:', payload);
+          callback(payload);
+        });
+      
+      // Subscribe with error handling
+      channel.subscribe((status, err) => {
+        console.log('🔄 Channel subscription status:', status);
         
         if (status === 'SUBSCRIBED') {
-          console.log('✅ Realtime subscription active for user:', userId);
-          console.log('🎉 Live data synchronization is now working!');
+          console.log('✅ Successfully subscribed to real-time updates');
         } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Realtime subscription error:', err);
-          console.log('💡 Troubleshooting steps:');
-          console.log('   1. ✅ Realtime is enabled on tables (confirmed from your screenshot)');
-          console.log('   2. Check if you\'re behind a firewall that blocks WebSockets');
-          console.log('   3. Try disabling browser extensions');
-          console.log('   4. Test in incognito/private mode');
-          console.log('   5. Check Supabase status: https://status.supabase.com');
-          console.log('   6. Verify your session is still valid');
+          console.error('❌ Channel subscription error:', err);
+          console.log('💡 This is expected in WebContainer environments');
         } else if (status === 'TIMED_OUT') {
-          console.warn('⏰ Realtime subscription timed out, will retry automatically');
-          console.log('💡 This might be due to network connectivity issues');
-        } else if (status === 'CLOSED') {
-          console.log('🔒 Realtime subscription closed');
-        } else {
-          console.log('🔄 Realtime subscription status:', status);
+          console.warn('⏰ Channel subscription timed out');
         }
       });
-
-    return subscription;
+      
+      return channel;
+    } catch (channelError) {
+      console.error('❌ Failed to create channel:', channelError);
+      console.log('💡 This is expected in WebContainer environments');
+      return { unsubscribe: () => {} };
+    }
   } catch (error) {
     console.error('❌ Failed to set up real-time subscription:', error);
     console.log('💡 This is likely due to one of the following:');
@@ -1232,48 +1179,58 @@ export const testSupabaseDirectly = async () => {
       console.log('Response:', text);
     }
     
-    // Test 3: WebSocket connectivity test
-    console.log('🔍 Test 3: WebSocket connectivity test...');
-    const wsUrl = supabaseUrl?.replace('https://', 'wss://') + '/realtime/v1/websocket';
-    console.log('🌐 WebSocket URL:', wsUrl);
+    // Test 3: WebSocket connectivity test - SKIP IN WEBCONTAINER
+    const isWebContainer = window.location.hostname.includes('webcontainer') || 
+                          window.location.hostname.includes('bolt.new') ||
+                          window.location.hostname.includes('stackblitz') ||
+                          window.location.hostname.includes('local-credentialless');
     
-    try {
-      const testWs = new WebSocket(wsUrl);
+    if (!isWebContainer) {
+      console.log('🔍 Test 3: WebSocket connectivity test...');
+      const wsUrl = supabaseUrl?.replace('https://', 'wss://') + '/realtime/v1/websocket';
+      console.log('🌐 WebSocket URL:', wsUrl);
       
-      testWs.onopen = () => {
-        console.log('✅ WebSocket connection successful!');
-        console.log('🎉 Realtime should work properly');
-        testWs.close();
-      };
-      
-      testWs.onerror = (error) => {
-        console.error('❌ WebSocket connection failed:', error);
-        console.log('💡 This explains the Realtime issues you\'re experiencing');
-        console.log('🔧 Possible solutions:');
-        console.log('   1. Check if you\'re behind a corporate firewall');
-        console.log('   2. Try disabling browser extensions');
-        console.log('   3. Test in incognito/private mode');
-        console.log('   4. Check with your network administrator');
-      };
-      
-      testWs.onclose = (event) => {
-        if (event.code === 1000) {
-          console.log('✅ WebSocket test completed successfully');
-        } else {
-          console.warn('⚠️ WebSocket closed with code:', event.code, event.reason);
-        }
-      };
-      
-      // Clean up after 10 seconds
-      setTimeout(() => {
-        if (testWs.readyState === WebSocket.CONNECTING || testWs.readyState === WebSocket.OPEN) {
+      try {
+        const testWs = new WebSocket(wsUrl);
+        
+        testWs.onopen = () => {
+          console.log('✅ WebSocket connection successful!');
+          console.log('🎉 Realtime should work properly');
           testWs.close();
-        }
-      }, 10000);
-      
-    } catch (wsError) {
-      console.error('❌ WebSocket test failed:', wsError);
-      console.log('💡 WebSocket connections are blocked in your environment');
+        };
+        
+        testWs.onerror = (error) => {
+          console.error('❌ WebSocket connection failed:', error);
+          console.log('💡 This explains the Realtime issues you\'re experiencing');
+          console.log('🔧 Possible solutions:');
+          console.log('   1. Check if you\'re behind a corporate firewall');
+          console.log('   2. Try disabling browser extensions');
+          console.log('   3. Test in incognito/private mode');
+          console.log('   4. Check with your network administrator');
+        };
+        
+        testWs.onclose = (event) => {
+          if (event.code === 1000) {
+            console.log('✅ WebSocket test completed successfully');
+          } else {
+            console.warn('⚠️ WebSocket closed with code:', event.code, event.reason);
+          }
+        };
+        
+        // Clean up after 10 seconds
+        setTimeout(() => {
+          if (testWs.readyState === WebSocket.CONNECTING || testWs.readyState === WebSocket.OPEN) {
+            testWs.close();
+          }
+        }, 10000);
+        
+      } catch (wsError) {
+        console.error('❌ WebSocket test failed:', wsError);
+        console.log('💡 WebSocket connections are blocked in your environment');
+      }
+    } else {
+      console.log('🔍 Test 3: WebSocket test skipped in WebContainer environment');
+      console.log('💡 WebSockets are not supported in WebContainer/Bolt environments');
     }
     
   } catch (err) {
