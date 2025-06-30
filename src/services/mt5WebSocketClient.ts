@@ -1,9 +1,8 @@
-import { EventEmitter } from 'events';
-
 /**
  * Pipnosis MT5 WebSocket Client
  * Connects to the local MT5 bridge and receives real-time data
  */
+import TinyEmitter from 'tiny-emitter';
 
 export interface MT5AccountData {
   login: number;
@@ -67,12 +66,13 @@ export interface MT5OrderResponse {
   error?: string;
 }
 
-export class MT5WebSocketClient extends EventEmitter {
+export class MT5WebSocketClient {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000; // Start with 1 second
   private isConnecting = false;
+  private emitter = new TinyEmitter();
   private pingInterval: NodeJS.Timeout | null = null;
   private pendingRequests: Map<string, { resolve: Function, reject: Function, timeout: NodeJS.Timeout }> = new Map();
   
@@ -80,7 +80,6 @@ export class MT5WebSocketClient extends EventEmitter {
     private host: string = 'localhost',
     private port: number = 8765
   ) {
-    super();
     console.log('🔌 MT5 WebSocket Client initialized for', `${host}:${port}`);
     this.discoverPort();
   }
@@ -652,6 +651,27 @@ export class MT5WebSocketClient extends EventEmitter {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
     }
+  }
+
+  /**
+   * Add event listener
+   */
+  on(event: string, listener: Function): void {
+    this.emitter.on(event, listener);
+  }
+
+  /**
+   * Remove event listener
+   */
+  off(event: string, listener: Function): void {
+    this.emitter.off(event, listener);
+  }
+
+  /**
+   * Emit event to listeners
+   */
+  private emit(event: string, data?: any): void {
+    this.emitter.emit(event, data);
   }
 
   /**

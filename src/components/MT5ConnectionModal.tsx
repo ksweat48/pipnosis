@@ -580,6 +580,88 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                       </div>
                     </div>
                   )}
+
+                  {/* MT5 Settings Check */}
+                  <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
+                    <h4 className="text-white font-semibold mb-4 flex items-center space-x-2">
+                      <Settings className="h-5 w-5 text-blue-400" />
+                      <span>MT5 Settings Check</span>
+                    </h4>
+                    
+                    <p className="text-slate-400 text-sm mb-4">
+                      Verify that your MetaTrader 5 terminal is properly configured for automated trading.
+                    </p>
+                    
+                    {mt5SettingsChecked ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400">Terminal Running:</span>
+                          <div className={`flex items-center space-x-1 ${
+                            mt5SettingsStatus.terminalRunning ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            {mt5SettingsStatus.terminalRunning ? (
+                              <CheckCircle className="h-3 w-3" />
+                            ) : (
+                              <AlertTriangle className="h-3 w-3" />
+                            )}
+                            <span>{mt5SettingsStatus.terminalRunning ? 'Yes' : 'No'}</span>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400">Automated Trading:</span>
+                          <div className={`flex items-center space-x-1 ${
+                            mt5SettingsStatus.automatedTradingEnabled ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            {mt5SettingsStatus.automatedTradingEnabled ? (
+                              <CheckCircle className="h-3 w-3" />
+                            ) : (
+                              <AlertTriangle className="h-3 w-3" />
+                            )}
+                            <span>{mt5SettingsStatus.automatedTradingEnabled ? 'Enabled' : 'Disabled'}</span>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400">Account Logged In:</span>
+                          <div className={`flex items-center space-x-1 ${
+                            mt5SettingsStatus.accountLoggedIn ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            {mt5SettingsStatus.accountLoggedIn ? (
+                              <CheckCircle className="h-3 w-3" />
+                            ) : (
+                              <AlertTriangle className="h-3 w-3" />
+                            )}
+                            <span>{mt5SettingsStatus.accountLoggedIn ? 'Yes' : 'No'}</span>
+                          </div>
+                        </div>
+                        
+                        {!mt5SettingsStatus.automatedTradingEnabled && (
+                          <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                            <p className="text-red-300 text-sm font-medium">Automated Trading is Disabled</p>
+                            <p className="text-red-200 text-xs mt-1">
+                              You need to enable automated trading in MT5:
+                              <br />
+                              1. Open MT5 → Tools → Options
+                              <br />
+                              2. Go to "Expert Advisors" tab
+                              <br />
+                              3. Check "Allow automated trading"
+                              <br />
+                              4. Click "OK" and restart MT5
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        onClick={checkMT5Settings}
+                        className="w-full py-2 px-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                      >
+                        Check MT5 Settings
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -879,21 +961,6 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                       </div>
                     </div>
                   )}
-
-                  <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                    <div className="flex items-start space-x-3">
-                      <Zap className="h-5 w-5 text-green-400 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <h4 className="text-green-300 font-medium">Real-Time Integration Active</h4>
-                        <ul className="text-green-200 text-sm mt-2 space-y-1">
-                          <li>• Live account balance and equity updates</li>
-                          <li>• Real-time position monitoring</li>
-                          <li>• AI can execute trades directly in MT5</li>
-                          <li>• Automatic risk management enforcement</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
 
                   {/* MT5 Settings Check */}
                   <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
