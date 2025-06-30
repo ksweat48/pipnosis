@@ -274,7 +274,7 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
                 Executing Trade via MT5 Bridge
               </p>
               <p className="text-blue-200 text-sm mt-1">
-                Sending trade request to MT5 connector... This may take a few seconds.
+                Sending trade request to MT5 connector... This may take up to 30 seconds.
               </p>
             </div>
           </div>

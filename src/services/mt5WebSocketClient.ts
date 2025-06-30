@@ -304,11 +304,11 @@ export class MT5WebSocketClient {
       
       console.log('📤 Sending MT5 order:', orderRequest);
       
-      // Set up timeout for the request
+      // Set up timeout for the request - INCREASED TIMEOUT HERE
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(requestId);
-        reject(new Error('Order request timeout'));
-      }, 15000);
+        reject(new Error('Order request timeout - MT5 bridge did not respond in time (30s). Check if MT5 terminal is running and logged in.'));
+      }, 30000); // Increased from 15000 to 30000 (30 seconds)
       
       // Store the pending request
       this.pendingRequests.set(requestId, {
@@ -370,7 +370,7 @@ export class MT5WebSocketClient {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(requestId);
         reject(new Error('Symbol info request timeout'));
-      }, 5000);
+      }, 10000); // Increased from 5000 to 10000 (10 seconds)
       
       // Store the pending request
       this.pendingRequests.set(requestId, {
