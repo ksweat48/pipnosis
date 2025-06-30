@@ -1,3 +1,5 @@
+import { EventEmitter } from 'events';
+
 /**
  * Pipnosis MT5 WebSocket Client
  * Connects to the local MT5 bridge and receives real-time data
@@ -65,13 +67,12 @@ export interface MT5OrderResponse {
   error?: string;
 }
 
-export class MT5WebSocketClient {
+export class MT5WebSocketClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000; // Start with 1 second
   private isConnecting = false;
-  private listeners: Map<string, Function[]> = new Map();
   private pingInterval: NodeJS.Timeout | null = null;
   private pendingRequests: Map<string, { resolve: Function, reject: Function, timeout: NodeJS.Timeout }> = new Map();
   
@@ -79,6 +80,7 @@ export class MT5WebSocketClient {
     private host: string = 'localhost',
     private port: number = 8765
   ) {
+    super();
     console.log('🔌 MT5 WebSocket Client initialized for', `${host}:${port}`);
     this.discoverPort();
   }
@@ -307,8 +309,8 @@ export class MT5WebSocketClient {
       // Set up timeout for the request - INCREASED TIMEOUT HERE
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(requestId);
-        reject(new Error('Order request timeout - MT5 bridge did not respond in time (30s). Check if MT5 terminal is running and logged in.'));
-      }, 30000); // Increased from 15000 to 30000 (30 seconds)
+        reject(new Error('Order request timeout - MT5 bridge did not respond in time (60s). Check if MT5 terminal is running and logged in, and that automated trading is enabled.'));
+      }, 60000); // Increased to 60 seconds for very slow systems
       
       // Store the pending request
       this.pendingRequests.set(requestId, {
@@ -430,14 +432,34 @@ export class MT5WebSocketClient {
       
       if (wsConnected) {
         console.log('✅ WebSocket connection test successful');
-        return {
-          success: true,
-          details: {
-            websocketConnected: true,
-            host: this.host,
-            port: this.port
-          }
-        };
+        
+        // Send a ping to verify the bridge is responsive
+        try {
+          const pingResponse = await this.sendPing();
+          console.log('✅ MT5 bridge ping successful:', pingResponse);
+          
+          return {
+            success: true,
+            details: {
+              websocketConnected: true,
+              host: this.host,
+              port: this.port,
+              pingResponse
+            }
+          };
+        } catch (pingError) {
+          console.log('❌ MT5 bridge ping failed:', pingError);
+          return {
+            success: false,
+            error: 'MT5 bridge is connected but not responding to commands',
+            details: {
+              websocketConnected: true,
+              host: this.host,
+              port: this.port,
+              pingError
+            }
+          };
+        }
       } else {
         console.log('❌ WebSocket connection test failed');
         return {
@@ -467,6 +489,67 @@ export class MT5WebSocketClient {
   }
 
   /**
+   * Send a ping to the MT5 bridge to verify it's responsive
+   */
+  private sendPing(): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!this.isConnected()) {
+        reject(new Error('Not connected to MT5 bridge'));
+        return;
+      }
+
+      const requestId = Date.now().toString();
+      
+      // Set up timeout for the ping
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error('Ping timeout'));
+      }, 5000);
+      
+      // Store the pending request
+      this.pendingRequests.set(requestId, {
+        resolve,
+        reject,
+        timeout
+      });
+      
+      // Set up one-time listener for the response
+      const responseHandler = (data: any) => {
+        if (data.type === 'pong' && data.requestId === requestId) {
+          this.off('message', responseHandler);
+          
+          const pendingRequest = this.pendingRequests.get(requestId);
+          if (pendingRequest) {
+            clearTimeout(pendingRequest.timeout);
+            this.pendingRequests.delete(requestId);
+            resolve(data);
+          }
+        }
+      };
+      
+      this.on('message', responseHandler);
+      
+      // Send the ping request
+      try {
+        this.send({
+          type: 'ping',
+          requestId,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        // Clean up if sending fails
+        this.off('message', responseHandler);
+        const pendingRequest = this.pendingRequests.get(requestId);
+        if (pendingRequest) {
+          clearTimeout(pendingRequest.timeout);
+          this.pendingRequests.delete(requestId);
+        }
+        reject(error);
+      }
+    });
+  }
+
+  /**
    * Handle incoming messages from MT5 bridge
    */
   private handleMessage(data: any): void {
@@ -487,7 +570,12 @@ export class MT5WebSocketClient {
         break;
         
       case 'pong':
-        // Handle ping response
+        this.emit('pong', data);
+        break;
+        
+      case 'error':
+        console.error('❌ MT5 bridge error:', data.error);
+        this.emit('error', new Error(data.error));
         break;
         
       default:
@@ -563,45 +651,6 @@ export class MT5WebSocketClient {
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
-    }
-  }
-
-  /**
-   * Add event listener
-   */
-  on(event: string, listener: Function): void {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, []);
-    }
-    this.listeners.get(event)!.push(listener);
-  }
-
-  /**
-   * Remove event listener
-   */
-  off(event: string, listener: Function): void {
-    const eventListeners = this.listeners.get(event);
-    if (eventListeners) {
-      const index = eventListeners.indexOf(listener);
-      if (index > -1) {
-        eventListeners.splice(index, 1);
-      }
-    }
-  }
-
-  /**
-   * Emit event to listeners
-   */
-  private emit(event: string, data?: any): void {
-    const eventListeners = this.listeners.get(event);
-    if (eventListeners) {
-      eventListeners.forEach(listener => {
-        try {
-          listener(data);
-        } catch (error) {
-          console.error(`❌ Error in event listener for ${event}:`, error);
-        }
-      });
     }
   }
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TrendingUp, Shield, Zap, DollarSign, Target, AlertTriangle, Loader, CheckCircle, RefreshCw } from 'lucide-react';
+import { TrendingUp, Shield, Zap, DollarSign, Target, AlertTriangle, Loader, CheckCircle, RefreshCw, MessageCircle } from 'lucide-react';
 
 interface StrategyOption {
   id: string;
@@ -87,10 +87,10 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
       // Set error message
       setExecutionError(error instanceof Error ? error.message : 'Trade execution failed');
       
-      // Clear error after 10 seconds
+      // Clear error after 30 seconds
       setTimeout(() => {
         setExecutionError(null);
-      }, 10000);
+      }, 30000);
     }
   };
 
@@ -119,6 +119,12 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
     }
   };
 
+  const handleCheckMT5Settings = () => {
+    // Open MT5 connection modal
+    const event = new CustomEvent('openMT5Modal');
+    window.dispatchEvent(event);
+  };
+
   if (options.length === 0) return null;
 
   return (
@@ -143,23 +149,32 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
                 </p>
               </div>
             </div>
-            <button
-              onClick={handleRetry}
-              disabled={retrying}
-              className="px-3 py-1 bg-red-500/20 text-red-300 border border-red-500/30 rounded hover:bg-red-500/30 transition-colors flex items-center space-x-1"
-            >
-              {retrying ? (
-                <>
-                  <Loader className="h-3 w-3 animate-spin" />
-                  <span>Retrying...</span>
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="h-3 w-3" />
-                  <span>Retry</span>
-                </>
-              )}
-            </button>
+            <div className="flex space-x-2">
+              <button
+                onClick={handleRetry}
+                disabled={retrying}
+                className="px-3 py-1 bg-red-500/20 text-red-300 border border-red-500/30 rounded hover:bg-red-500/30 transition-colors flex items-center space-x-1"
+              >
+                {retrying ? (
+                  <>
+                    <Loader className="h-3 w-3 animate-spin" />
+                    <span>Retrying...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-3 w-3" />
+                    <span>Retry</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={handleCheckMT5Settings}
+                className="px-3 py-1 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded hover:bg-blue-500/30 transition-colors flex items-center space-x-1"
+              >
+                <MessageCircle className="h-3 w-3" />
+                <span>Check MT5</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -274,7 +289,7 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
                 Executing Trade via MT5 Bridge
               </p>
               <p className="text-blue-200 text-sm mt-1">
-                Sending trade request to MT5 connector... This may take up to 30 seconds.
+                Sending trade request to MT5 connector... This may take up to 60 seconds.
               </p>
             </div>
           </div>

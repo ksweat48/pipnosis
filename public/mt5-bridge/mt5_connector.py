@@ -82,6 +82,7 @@ class MT5Connector:
         self.websocket_clients = set()
         self.update_interval = 1.0  # Update every second
         self.running = False
+        self.last_order_time = 0  # Track last order time to prevent flooding
         
     def initialize_mt5(self) -> bool:
         """Initialize connection to MT5 terminal"""
@@ -104,6 +105,10 @@ class MT5Connector:
             # Check if trading is allowed
             if not account_info.trade_allowed:
                 logger.warning("Trading is not allowed on this account")
+                
+            # Check if automated trading is enabled
+            if not account_info.trade_expert:
+                logger.warning("⚠️ AUTOMATED TRADING IS DISABLED IN MT5! Enable it in Tools > Options > Expert Advisors > Allow automated trading")
             
             self.connected = True
             logger.info(f"MT5 connected successfully!")
@@ -111,6 +116,7 @@ class MT5Connector:
             logger.info(f"Server: {account_info.server}")
             logger.info(f"Balance: ${account_info.balance:,.2f}")
             logger.info(f"Equity: ${account_info.equity:,.2f}")
+            logger.info(f"Automated trading: {'Enabled' if account_info.trade_expert else 'DISABLED'}")
             
             return True
             
@@ -250,11 +256,38 @@ class MT5Connector:
     def place_order(self, symbol: str, order_type: str, volume: float, 
                    price: float = None, sl: float = None, tp: float = None, 
                    comment: str = "Pipnosis AI Trade") -> Dict:
-        """Place a trading order"""
+        """Place a trading order with enhanced error handling and retries"""
+        # Prevent order flooding - enforce minimum 1 second between orders
+        current_time = time.time()
+        if current_time - self.last_order_time < 1.0:
+            time.sleep(1.0)  # Wait to prevent flooding
+        
+        self.last_order_time = time.time()
+        
+        # Check if MT5 is connected
+        if not self.connected:
+            return {'success': False, 'error': 'MT5 not connected'}
+        
+        # Check if automated trading is enabled
+        account_info = mt5.account_info()
+        if account_info and not account_info.trade_expert:
+            logger.error("⚠️ AUTOMATED TRADING IS DISABLED IN MT5! Enable it in Tools > Options > Expert Advisors > Allow automated trading")
+            return {'success': False, 'error': 'Automated trading is disabled in MT5. Enable it in Tools > Options > Expert Advisors > Allow automated trading'}
+        
+        # Verify symbol exists
+        symbol_info = mt5.symbol_info(symbol)
+        if symbol_info is None:
+            logger.error(f"Symbol {symbol} not found")
+            return {'success': False, 'error': f'Symbol {symbol} not found'}
+        
+        # Enable symbol for trading if needed
+        if not symbol_info.visible:
+            logger.info(f"Symbol {symbol} is not visible, enabling...")
+            if not mt5.symbol_select(symbol, True):
+                logger.error(f"Failed to enable symbol {symbol}")
+                return {'success': False, 'error': f'Failed to enable symbol {symbol}'}
+        
         try:
-            if not self.connected:
-                return {'success': False, 'error': 'MT5 not connected'}
-            
             # Determine order type
             if order_type.lower() == 'buy':
                 trade_type = mt5.ORDER_TYPE_BUY
@@ -268,6 +301,21 @@ class MT5Connector:
                     price = tick.bid
             else:
                 return {'success': False, 'error': f'Invalid order type: {order_type}'}
+            
+            # Validate volume against symbol limits
+            min_volume = symbol_info.volume_min
+            max_volume = symbol_info.volume_max
+            volume_step = symbol_info.volume_step
+            
+            if volume < min_volume:
+                logger.warning(f"Volume {volume} is below minimum {min_volume}, adjusting")
+                volume = min_volume
+            elif volume > max_volume:
+                logger.warning(f"Volume {volume} is above maximum {max_volume}, adjusting")
+                volume = max_volume
+            
+            # Round volume to valid step
+            volume = round(volume / volume_step) * volume_step
             
             # Prepare the request
             request = {
@@ -289,22 +337,52 @@ class MT5Connector:
             if tp is not None:
                 request["tp"] = tp
             
-            # Send the order
-            result = mt5.order_send(request)
+            logger.info(f"Sending order request: {request}")
             
-            if result.retcode != mt5.TRADE_RETCODE_DONE:
-                error_msg = f"Order failed: {result.retcode} - {result.comment}"
-                logger.error(f"Order error: {error_msg}")
-                return {'success': False, 'error': error_msg}
+            # Send the order with retry logic
+            max_retries = 3
+            retry_delay = 1.0  # seconds
             
-            logger.info(f"Order placed successfully: {result.order}")
-            return {
-                'success': True,
-                'ticket': result.order,
-                'price': result.price,
-                'volume': result.volume,
-                'comment': result.comment
-            }
+            for attempt in range(max_retries):
+                # Send the order
+                result = mt5.order_send(request)
+                
+                if result is None:
+                    logger.error(f"Order send failed: No response from MT5 (attempt {attempt+1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        continue
+                    return {'success': False, 'error': 'Order send failed: No response from MT5'}
+                
+                if result.retcode != mt5.TRADE_RETCODE_DONE:
+                    error_msg = f"Order failed: {result.retcode} - {result.comment}"
+                    logger.error(f"Order error (attempt {attempt+1}/{max_retries}): {error_msg}")
+                    
+                    # Check for specific error codes that might be resolved by retrying
+                    if result.retcode in [10004, 10006, 10008, 10009, 10010, 10011, 10012, 10013, 10014, 10018]:
+                        if attempt < max_retries - 1:
+                            logger.info(f"Retrying order in {retry_delay} seconds...")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff
+                            continue
+                    
+                    return {'success': False, 'error': error_msg, 'retcode': result.retcode}
+                
+                # Success!
+                success_msg = f"Order placed successfully: {result.order}, Price {result.price}, Volume {result.volume}"
+                logger.info(success_msg)
+                
+                return {
+                    'success': True,
+                    'ticket': result.order,
+                    'price': result.price,
+                    'volume': result.volume,
+                    'comment': result.comment
+                }
+            
+            # If we get here, all retries failed
+            return {'success': False, 'error': 'Order failed after multiple attempts'}
             
         except Exception as e:
             error_msg = f"Error placing order: {e}"

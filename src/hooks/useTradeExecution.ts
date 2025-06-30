@@ -54,6 +54,13 @@ export const useTradeExecution = () => {
         }
       }
 
+      // Verify MT5 is responsive with a ping before executing trade
+      try {
+        await mt5Client.testConnection();
+      } catch (pingError) {
+        console.warn('⚠️ MT5 bridge ping failed, but continuing with trade execution');
+      }
+
       // Execute trade via MT5 WebSocket client
       const result = await mt5Client.placeOrder({
         symbol: request.symbol,
@@ -85,10 +92,18 @@ export const useTradeExecution = () => {
       const errorMessage = err instanceof Error ? err.message : 'Trade execution failed';
       setError(errorMessage);
       
+      // Check if it's a timeout error
+      const isTimeout = errorMessage.includes('timeout');
+      
+      // Provide more helpful error message for timeout
+      const enhancedErrorMessage = isTimeout 
+        ? 'MT5 trade execution timed out. Please check: 1) MT5 terminal is running and logged in, 2) Automated trading is enabled in MT5 (Tools > Options > Expert Advisors), 3) The MT5 bridge is running properly.'
+        : errorMessage;
+      
       const failureResult = {
         success: false,
         message: 'Trade execution failed',
-        error: errorMessage,
+        error: enhancedErrorMessage,
         symbol: request.symbol
       };
       
@@ -140,9 +155,51 @@ export const useTradeExecution = () => {
     }
   }, [lastResult, executeTrade]);
 
+  // Check MT5 terminal settings
+  const checkMT5Settings = useCallback(async (): Promise<{ success: boolean; message: string; details?: any }> => {
+    try {
+      // First check if we're connected
+      if (!mt5Client.isConnected()) {
+        try {
+          await mt5Client.connect();
+        } catch (error) {
+          return {
+            success: false,
+            message: 'Failed to connect to MT5 bridge',
+            details: { error: error instanceof Error ? error.message : String(error) }
+          };
+        }
+      }
+      
+      // Test connection to verify bridge is responsive
+      const testResult = await mt5Client.testConnection();
+      
+      if (!testResult.success) {
+        return {
+          success: false,
+          message: testResult.error || 'MT5 bridge test failed',
+          details: testResult.details
+        };
+      }
+      
+      return {
+        success: true,
+        message: 'MT5 settings check passed',
+        details: testResult.details
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'MT5 settings check failed',
+        details: { error: error instanceof Error ? error.message : String(error) }
+      };
+    }
+  }, []);
+
   return {
     executeTrade,
     retryLastTrade,
+    checkMT5Settings,
     isExecuting,
     error,
     lastResult
