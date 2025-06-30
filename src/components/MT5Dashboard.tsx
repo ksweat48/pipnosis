@@ -326,9 +326,14 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                             </span>
                             <span className="text-slate-400 text-sm">{safeToFixed(position.volume, 2)} lots</span>
                           </div>
-                          <div className={`text-lg font-bold ${position.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {position.profit >= 0 ? '+' : ''}{safeToFixed(position.profit, 2)}
-                          </div>
+                          <div className={`text-lg font-bold ${
+  typeof position.profit === 'number' && position.profit >= 0 
+    ? 'text-green-400' 
+    : 'text-red-400'
+}`}>
+  {typeof position.profit === 'number' && position.profit >= 0 ? '+' : ''}
+  {safeToFixed(position.profit, 2)}
+</div>
                         </div>
                         
                         <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 text-sm">
