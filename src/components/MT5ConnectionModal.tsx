@@ -9,6 +9,8 @@ interface MT5ConnectionModalProps {
 
 export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, onClose }) => {
   const [currentStep, setCurrentStep] = useState(1);
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
+  const [error, setError] = useState<string | null>(null);
   const [credentials, setCredentials] = useState({
     login: '',
     password: '',
@@ -23,7 +25,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
     checkBridgeAvailability,
     isConnected,
     isConnecting,
-    error 
+    error: connectionError 
   } = useMT5Integration();
 
   const [bridgeAvailable, setBridgeAvailable] = useState(false);

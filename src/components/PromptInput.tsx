@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Send, Mic, Zap, AlertCircle, RefreshCw } from 'lucide-react';
+import { Send, Mic, Zap, AlertCircle, RefreshCw, CheckCircle } from 'lucide-react';
 import { openAIService } from '../services/openai';
 
 interface PromptInputProps {
@@ -176,6 +176,3 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, e
     </div>
   );
 };
-
-// Add missing import
-import { CheckCircle } from 'lucide-react';

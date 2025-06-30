@@ -1,5 +1,5 @@
 """
-Pipnosis MT5 Real-Time Data Connector
+Pipnosis MT5 Real-Time Data Connector - FIXED VERSION
 Connects directly to MetaTrader 5 and streams live data via WebSocket
 """
 
@@ -169,7 +169,7 @@ class MT5Connector:
                         try:
                             deals = mt5.history_deals_get(position=pos.ticket)
                             if deals and len(deals) > 0:
-                                commission = sum(getattr(deal, 'commission', 0.0) for deal in deals if hasattr(deal, 'commission'))
+                                commission = sum(getattr(deal, 'commission', 0.0) for deal in deals)
                         except:
                             commission = 0.0
                     
@@ -254,8 +254,6 @@ class MT5Connector:
                     price = tick.bid
             else:
                 return {'success': False, 'error': f'Invalid order type: {order_type}'}
-            
-            logger.info(f"📤 Sending order: {order_type} {volume} {symbol} at {price} SL:{sl} TP:{tp}")
             
             # Prepare the request
             request = {
@@ -393,30 +391,25 @@ class MT5Connector:
         """Handle messages from WebSocket clients"""
         try:
             message_type = data.get('type')
-            request_id = data.get('requestId', 'unknown')
             
             if message_type == 'place_order':
                 # Handle trade execution request
                 symbol = data.get('symbol')
                 order_type = data.get('order_type')
                 volume = data.get('volume')
-                price = data.get('price')
                 sl = data.get('sl')
                 tp = data.get('tp')
                 comment = data.get('comment', 'Pipnosis AI Trade')
                 
-                logger.info(f"📤 Received order request: {order_type} {volume} {symbol} SL:{sl} TP:{tp}")
-                
-                result = self.place_order(symbol, order_type, volume, price=price, sl=sl, tp=tp, comment=comment)
+                result = self.place_order(symbol, order_type, volume, sl=sl, tp=tp, comment=comment)
                 
                 response = {
                     'type': 'order_response',
-                    'requestId': request_id,
+                    'requestId': data.get('requestId', 'unknown'),
                     'timestamp': datetime.now().isoformat(),
                     'result': result
                 }
                 
-                logger.info(f"📥 Order result: {result}")
                 await websocket.send(json.dumps(response))
                 
             elif message_type == 'get_symbol_info':
@@ -426,7 +419,7 @@ class MT5Connector:
                 
                 response = {
                     'type': 'symbol_info',
-                    'requestId': request_id,
+                    'requestId': data.get('requestId', 'unknown'),
                     'timestamp': datetime.now().isoformat(),
                     'symbol': symbol,
                     'data': symbol_info
@@ -438,7 +431,7 @@ class MT5Connector:
                 # Handle ping request
                 response = {
                     'type': 'pong',
-                    'requestId': request_id,
+                    'requestId': data.get('requestId', 'unknown'),
                     'timestamp': datetime.now().isoformat(),
                     'connection_status': 'connected' if self.connected else 'disconnected'
                 }
@@ -447,17 +440,6 @@ class MT5Connector:
                 
         except Exception as e:
             logger.error(f"Error handling client message: {e}")
-            # Send error response
-            try:
-                error_response = {
-                    'type': 'error',
-                    'requestId': data.get('requestId', 'unknown'),
-                    'timestamp': datetime.now().isoformat(),
-                    'error': str(e)
-                }
-                await websocket.send(json.dumps(error_response))
-            except:
-                pass
     
     async def start_websocket_server(self, host='localhost', port=8765):
         """Start the WebSocket server with port fallback"""

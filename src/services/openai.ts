@@ -481,6 +481,81 @@ Always reference which Immutable Laws guided the decision-making process.`;
   private getMockExplanation(decision: string): string {
     return `This decision was made following the Pipnosis Immutable Laws of Trading. Law #1 (Capital Preservation) guided position sizing, Law #6 (High Quality Entry Conditions) ensured multiple technical confirmations, and Law #3 (Drawdown Management) maintained acceptable risk levels. The strategy aims to balance potential returns with Law #7 (Cut Losses Early, Let Winners Run) while maintaining Law #2's target of 70-80% win rate through disciplined execution.`;
   }
+
+  async assessFeasibility(goal: string, balance: number, risk: string) {
+    try {
+      // Check if we're in fallback mode
+      if (this.fallbackMode || !this.isInitialized || !this.apiKey) {
+        return this.getMockFeasibilityAssessment();
+      }
+
+      const systemPrompt = `You are Pipnosis, analyzing trading goal feasibility according to the Pipnosis Immutable Laws of Trading.
+
+${PIPNOSIS_TRADING_LAWS}
+
+Assess if the trading goal is realistic given the account balance and risk tolerance, strictly following the Immutable Laws.
+
+Reference specific laws in your assessment (especially Law #4: Never Chase Unrealistic Goals).
+
+Return a JSON object with:
+{
+  "feasible": true/false,
+  "reasoning": "Detailed explanation referencing applicable Pipnosis Laws",
+  "recommendations": "Suggested adjustments if needed, citing relevant laws",
+  "timeframe": "Estimated timeframe to achieve goal following Pipnosis Laws"
+}`;
+
+      const userPrompt = `Goal: ${goal}, Balance: $${balance}, Risk: ${risk}`;
+
+      try {
+        const response = await axios.post(
+          this.apiEndpoint,
+          {
+            model: this.model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.7,
+            max_tokens: 500
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${this.apiKey}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 15000 // 15 second timeout
+          }
+        );
+
+        const content = response.data.choices[0]?.message?.content;
+        if (!content) {
+          return this.getMockFeasibilityAssessment();
+        }
+
+        try {
+          return JSON.parse(content);
+        } catch (parseError) {
+          return this.getMockFeasibilityAssessment();
+        }
+      } catch (apiError) {
+        console.error('❌ OpenAI API request failed:', apiError);
+        return this.getMockFeasibilityAssessment();
+      }
+    } catch (error) {
+      console.error('❌ OpenAI feasibility assessment error:', error);
+      return this.getMockFeasibilityAssessment();
+    }
+  }
+
+  private getMockFeasibilityAssessment() {
+    return {
+      feasible: true,
+      reasoning: 'Goal appears achievable following Pipnosis Law #4 (Never Chase Unrealistic Goals) with proper risk management and Law #10 (Consistency Over Speed) for sustainable execution.',
+      recommendations: 'Focus on Law #1 (Capital Preservation) and Law #3 (Drawdown Management) while maintaining disciplined trading approach per Law #9 (Do Not Overtrade).',
+      timeframe: '3-6 months with consistent performance following all Pipnosis Immutable Laws'
+    };
+  }
 }
 
 export const openAIService = new OpenAIService();
