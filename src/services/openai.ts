@@ -1,11 +1,6 @@
-import OpenAI from 'openai';
+import axios from 'axios';
 
-// Initialize OpenAI client with proper environment variable handling
-const openai = new OpenAI({
-  apiKey: import.meta.env.VITE_OPENAI_API_KEY || '',
-  dangerouslyAllowBrowser: true // Required for client-side usage
-});
-
+// Types
 export interface TradingStrategy {
   id: string;
   name: string;
@@ -70,19 +65,20 @@ These laws are IMMUTABLE and must be followed in ALL trading decisions, strategy
 `;
 
 export class OpenAIService {
-  private client: OpenAI;
   private isInitialized: boolean = false;
+  private apiKey: string | undefined;
 
   constructor() {
-    this.client = openai;
+    this.apiKey = import.meta.env.VITE_OPENAI_API_KEY;
     this.initialize();
   }
 
   private async initialize() {
     try {
       // Check if API key is available and valid
-      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_')) {
+      this.apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      
+      if (!this.apiKey || this.apiKey === 'your_openai_api_key_here' || this.apiKey.includes('your_')) {
         console.warn('OpenAI API key not configured or using placeholder. Using mock data.');
         this.isInitialized = false;
         return;
@@ -91,8 +87,15 @@ export class OpenAIService {
       // Test the connection
       try {
         console.log('🧪 Testing OpenAI connection...');
-        const models = await this.client.models.list();
-        if (models) {
+        // Simple test request to OpenAI API
+        const response = await axios.get('https://api.openai.com/v1/models', {
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (response.status === 200) {
           console.log('✅ OpenAI connection successful');
           this.isInitialized = true;
         }
@@ -109,8 +112,7 @@ export class OpenAIService {
   async interpretPrompt(prompt: string, accountBalance: number = 10000, marketData?: any[]): Promise<MarketAnalysis> {
     try {
       // Check if API key is available and valid
-      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_') || !this.isInitialized) {
+      if (!this.apiKey || this.apiKey === 'your_openai_api_key_here' || this.apiKey.includes('your_') || !this.isInitialized) {
         console.warn('OpenAI API key not configured or using placeholder. Using mock data.');
         return this.getMockAnalysis();
       }
@@ -163,37 +165,50 @@ IMPORTANT:
 - Scale down unrealistic goals per Law #4
 - Ensure position sizing follows capital preservation (Law #1)`;
 
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 1500
-      });
-
-      const content = response.choices[0]?.message?.content;
-      if (!content) {
-        throw new Error('No response from OpenAI');
-      }
-
-      console.log('✅ Received response from OpenAI');
-
-      // Try to parse JSON response
       try {
-        const analysis = JSON.parse(content);
-        // Ensure the response has the correct structure
-        if (!analysis.strategies || !Array.isArray(analysis.strategies)) {
-          console.warn('Invalid response structure from OpenAI, using mock data');
+        const response = await axios.post(
+          'https://api.openai.com/v1/chat/completions',
+          {
+            model: 'gpt-4',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: prompt }
+            ],
+            temperature: 0.7,
+            max_tokens: 1500
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${this.apiKey}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+
+        const content = response.data.choices[0]?.message?.content;
+        if (!content) {
+          throw new Error('No response from OpenAI');
+        }
+
+        console.log('✅ Received response from OpenAI');
+
+        // Try to parse JSON response
+        try {
+          const analysis = JSON.parse(content);
+          // Ensure the response has the correct structure
+          if (!analysis.strategies || !Array.isArray(analysis.strategies)) {
+            console.warn('Invalid response structure from OpenAI, using mock data');
+            return this.getMockAnalysis();
+          }
+          return analysis;
+        } catch (parseError) {
+          console.error('Failed to parse OpenAI response as JSON:', content);
           return this.getMockAnalysis();
         }
-        return analysis;
-      } catch (parseError) {
-        console.error('Failed to parse OpenAI response as JSON:', content);
+      } catch (apiError) {
+        console.error('OpenAI API request failed:', apiError);
         return this.getMockAnalysis();
       }
-
     } catch (error) {
       console.error('OpenAI API error:', error);
       return this.getMockAnalysis();
@@ -207,8 +222,7 @@ IMPORTANT:
   ): Promise<JournalEntry> {
     try {
       // Check if API key is available and valid
-      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_') || !this.isInitialized) {
+      if (!this.apiKey || this.apiKey === 'your_openai_api_key_here' || this.apiKey.includes('your_') || !this.isInitialized) {
         return this.getMockJournalEntry(type, tradeData);
       }
 
@@ -232,41 +246,54 @@ Return a JSON object with this structure:
 
       const userPrompt = `Write a journal entry for a ${type} event with this data: ${JSON.stringify(tradeData)}. ${context || ''}`;
 
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.8,
-        max_tokens: 300
-      });
-
-      const content = response.choices[0]?.message?.content;
-      if (!content) {
-        return this.getMockJournalEntry(type, tradeData);
-      }
-
-      console.log('✅ Received journal entry from OpenAI');
-
       try {
-        const parsed = JSON.parse(content);
-        return {
-          id: Date.now().toString(),
-          timestamp: new Date().toISOString(),
-          type: type as any,
-          title: parsed.title,
-          message: parsed.message,
-          confidence: parsed.confidence,
-          tradeId: tradeData.tradeId,
-          symbol: tradeData.symbol,
-          pnl: tradeData.pnl
-        };
-      } catch (parseError) {
-        console.error('Failed to parse OpenAI journal entry response:', parseError);
+        const response = await axios.post(
+          'https://api.openai.com/v1/chat/completions',
+          {
+            model: 'gpt-4',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.8,
+            max_tokens: 300
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${this.apiKey}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+
+        const content = response.data.choices[0]?.message?.content;
+        if (!content) {
+          return this.getMockJournalEntry(type, tradeData);
+        }
+
+        console.log('✅ Received journal entry from OpenAI');
+
+        try {
+          const parsed = JSON.parse(content);
+          return {
+            id: Date.now().toString(),
+            timestamp: new Date().toISOString(),
+            type: type as any,
+            title: parsed.title,
+            message: parsed.message,
+            confidence: parsed.confidence,
+            tradeId: tradeData.tradeId,
+            symbol: tradeData.symbol,
+            pnl: tradeData.pnl
+          };
+        } catch (parseError) {
+          console.error('Failed to parse OpenAI journal entry response:', parseError);
+          return this.getMockJournalEntry(type, tradeData);
+        }
+      } catch (apiError) {
+        console.error('OpenAI API request failed:', apiError);
         return this.getMockJournalEntry(type, tradeData);
       }
-
     } catch (error) {
       console.error('OpenAI journal generation error:', error);
       return this.getMockJournalEntry(type, tradeData);
@@ -276,8 +303,7 @@ Return a JSON object with this structure:
   async assessFeasibility(goal: string, balance: number, risk: string) {
     try {
       // Check if API key is available and valid
-      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_') || !this.isInitialized) {
+      if (!this.apiKey || this.apiKey === 'your_openai_api_key_here' || this.apiKey.includes('your_') || !this.isInitialized) {
         return this.getMockFeasibilityAssessment();
       }
 
@@ -299,27 +325,40 @@ Return a JSON object with:
 
       const userPrompt = `Goal: ${goal}, Balance: $${balance}, Risk: ${risk}`;
 
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 500
-      });
-
-      const content = response.choices[0]?.message?.content;
-      if (!content) {
-        return this.getMockFeasibilityAssessment();
-      }
-
       try {
-        return JSON.parse(content);
-      } catch (parseError) {
+        const response = await axios.post(
+          'https://api.openai.com/v1/chat/completions',
+          {
+            model: 'gpt-4',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.7,
+            max_tokens: 500
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${this.apiKey}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+
+        const content = response.data.choices[0]?.message?.content;
+        if (!content) {
+          return this.getMockFeasibilityAssessment();
+        }
+
+        try {
+          return JSON.parse(content);
+        } catch (parseError) {
+          return this.getMockFeasibilityAssessment();
+        }
+      } catch (apiError) {
+        console.error('OpenAI API request failed:', apiError);
         return this.getMockFeasibilityAssessment();
       }
-
     } catch (error) {
       console.error('OpenAI feasibility assessment error:', error);
       return this.getMockFeasibilityAssessment();
@@ -329,8 +368,7 @@ Return a JSON object with:
   async explainDecision(decision: string, context: any): Promise<string> {
     try {
       // Check if API key is available and valid
-      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey.includes('your_') || !this.isInitialized) {
+      if (!this.apiKey || this.apiKey === 'your_openai_api_key_here' || this.apiKey.includes('your_') || !this.isInitialized) {
         return this.getMockExplanation(decision);
       }
 
@@ -344,19 +382,32 @@ Always reference which Immutable Laws guided the decision-making process.`;
 
       const userPrompt = `Explain this decision: ${decision}. Context: ${JSON.stringify(context)}`;
 
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.8,
-        max_tokens: 400
-      });
+      try {
+        const response = await axios.post(
+          'https://api.openai.com/v1/chat/completions',
+          {
+            model: 'gpt-4',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.8,
+            max_tokens: 400
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${this.apiKey}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
 
-      const content = response.choices[0]?.message?.content;
-      return content || this.getMockExplanation(decision);
-
+        const content = response.data.choices[0]?.message?.content;
+        return content || this.getMockExplanation(decision);
+      } catch (apiError) {
+        console.error('OpenAI API request failed:', apiError);
+        return this.getMockExplanation(decision);
+      }
     } catch (error) {
       console.error('OpenAI explanation error:', error);
       return this.getMockExplanation(decision);

@@ -64,6 +64,7 @@ export const useTradeExecution = () => {
       });
 
       if (result.success) {
+        console.log('✅ Trade executed successfully:', result);
         return {
           success: true,
           tradeId: `TRD-${Date.now()}`,
@@ -74,6 +75,7 @@ export const useTradeExecution = () => {
           message: `${request.action.toUpperCase()} ${request.symbol} executed successfully via MT5`
         };
       } else {
+        console.error('❌ MT5 trade execution failed:', result.error);
         throw new Error(result.error || 'MT5 trade execution failed');
       }
     } catch (err) {
