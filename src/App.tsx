@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import { Header } from './components/Header';
 import { PromptInput } from './components/PromptInput';
 import { StrategyOptions } from './components/StrategyOptions';
+import { TradingDashboard } from './components/TradingDashboard';
 import { MarketAnalysis } from './components/MarketAnalysis';
 import { NotificationCenter } from './components/NotificationCenter';
 import { TradeJournal } from './components/TradeJournal';
@@ -17,7 +18,7 @@ import { MT5ConnectionModal } from './components/MT5ConnectionModal';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useBackendPromptAnalysis, useBackendTradeExecution } from './hooks/useBackendAPI';
 import { useOpenAI } from './hooks/useOpenAI';
-import { useJournalEntries, useTradingPrompts } from './hooks/useDatabase';
+import { usePipnosisAI } from './hooks/usePipnosisAI';
 
 // Define proper types for the components
 interface Notification {
@@ -164,67 +165,21 @@ const Dashboard: React.FC = () => {
   
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
   
+  // API Hooks
   const { analyzePrompt, isAnalyzing, error: analysisError } = useBackendPromptAnalysis();
   const { executeTrade, isExecuting } = useBackendTradeExecution();
   const { generateJournalEntry, explainDecision } = useOpenAI();
+  
+  // Pipnosis AI Brain Hook
+  const { processPrompt, executeStrategy, isProcessing, error: aiError } = usePipnosisAI();
 
   const { profile, user, databaseConnected } = useAuth();
   const accountBalance = profile?.account_balance || 10000;
 
-  // Use database hooks for persistent data
-  const { entries: dbJournalEntries, saveEntry: saveJournalEntry } = useJournalEntries();
-  const { prompts: dbPrompts, savePrompt: saveTradingPrompt } = useTradingPrompts();
-
-  // Check if we're in production
-  const isProduction = window.location.hostname === 'pipnosis.com' || 
-                      window.location.hostname === 'www.pipnosis.com' ||
-                      window.location.hostname.includes('netlify.app');
-
-  // Load persisted data on component mount and when user changes
-  useEffect(() => {
-    if (user && databaseConnected) {
-      console.log('📚 Loading persisted journal entries and notifications...');
-      
-      // Convert database journal entries to component format
-      const convertedEntries: JournalEntry[] = dbJournalEntries.map(entry => ({
-        id: entry.id,
-        timestamp: entry.created_at,
-        type: entry.entry_type === 'trade_entry' ? 'entry' : 
-              entry.entry_type === 'trade_exit' ? 'exit' : 
-              entry.entry_type === 'market_update' ? 'update' : 'update',
-        title: entry.title,
-        message: entry.content,
-        tradeId: entry.trade_id || undefined,
-        confidence: entry.confidence_level || undefined,
-        userReaction: null
-      }));
-      
-      setJournalEntries(convertedEntries);
-      
-      // Generate notifications from recent journal entries (last 10)
-      const recentEntries = convertedEntries.slice(0, 10);
-      const generatedNotifications: Notification[] = recentEntries.map(entry => ({
-        id: `notif-${entry.id}`,
-        type: entry.type === 'entry' ? 'success' : 
-              entry.type === 'exit' ? 'info' : 'info',
-        title: entry.title,
-        message: entry.message.substring(0, 100) + (entry.message.length > 100 ? '...' : ''),
-        timestamp: new Date(entry.timestamp).toLocaleString(),
-        read: false
-      }));
-      
-      setNotifications(generatedNotifications);
-      
-      console.log(`✅ Loaded ${convertedEntries.length} journal entries and ${generatedNotifications.length} notifications`);
-    } else if (!user) {
-      // Clear data when user logs out
-      setJournalEntries([]);
-      setNotifications([]);
-    }
-  }, [user?.id, databaseConnected, dbJournalEntries]);
-
+  // Auto-scroll to strategy options when they're available
   useEffect(() => {
     if (strategyOptions.length > 0 && strategyOptionsRef.current) {
+      // Small delay to ensure the content is rendered
       setTimeout(() => {
         strategyOptionsRef.current?.scrollIntoView({
           behavior: 'smooth',
@@ -236,25 +191,19 @@ const Dashboard: React.FC = () => {
 
   const handlePromptSubmit = async (prompt: string) => {
     try {
-      console.log('🤖 Processing prompt with backend AI:', prompt);
-      
-      const analysis = await analyzePrompt(
-        prompt, 
-        accountBalance,
-        profile?.risk_profile as 'low' | 'medium' | 'high' | 'auto' || 'auto',
-        profile?.trading_preferences?.selectedPairs,
-        profile?.trading_preferences?.tradingGoal
-      );
+      // Use Pipnosis AI Brain for analysis
+      const analysis = await processPrompt(prompt);
       
       if (analysis && analysis.strategies.length > 0) {
-        const transformedStrategies: StrategyOption[] = analysis.strategies.map((strategy, index) => ({
-          id: strategy.id || `backend-${index}`,
+        // Transform API strategies to match our component format
+        const transformedStrategies = analysis.strategies.map((strategy, index) => ({
+          id: strategy.id || `ai-${index}`,
           name: strategy.name,
           risk: strategy.risk,
           tradeType: `${strategy.symbol} ${strategy.action.toUpperCase()}`,
-          entry: strategy.entry.toFixed(5),
-          stopLoss: strategy.stopLoss.toFixed(5),
-          takeProfit: strategy.takeProfit.toFixed(5),
+          entry: strategy.entry.toFixed(strategy.symbol.includes('JPY') ? 2 : 5),
+          stopLoss: strategy.stopLoss.toFixed(strategy.symbol.includes('JPY') ? 2 : 5),
+          takeProfit: strategy.takeProfit.toFixed(strategy.symbol.includes('JPY') ? 2 : 5),
           lotSize: strategy.lotSize,
           estimatedGain: strategy.estimatedGain,
           feasible: strategy.feasible,
@@ -267,17 +216,7 @@ const Dashboard: React.FC = () => {
         
         setStrategyOptions(transformedStrategies);
 
-        // Save prompt to database
-        if (user && databaseConnected) {
-          await saveTradingPrompt({
-            prompt_text: prompt,
-            account_balance: accountBalance,
-            strategies_generated: transformedStrategies,
-            ai_confidence: analysis.confidence,
-            status: 'completed'
-          });
-        }
-
+        // Generate AI journal entry for the analysis
         const journalEntry = await generateJournalEntry('market_update', {
           prompt,
           strategies: transformedStrategies.length,
@@ -286,40 +225,26 @@ const Dashboard: React.FC = () => {
         });
 
         if (journalEntry) {
-          const newEntry = {
-            ...journalEntry,
-            id: Date.now().toString(),
-            userReaction: null
-          };
-          
-          setJournalEntries(prev => [newEntry, ...prev]);
-          
-          // Save to database
-          if (user && databaseConnected) {
-            await saveJournalEntry({
-              entry_type: 'market_update',
-              title: newEntry.title,
-              content: newEntry.message,
-              confidence_level: newEntry.confidence,
-              metadata: {
-                prompt,
-                strategiesCount: transformedStrategies.length,
-                confidence: analysis.confidence
-              }
-            });
-          }
+          setJournalEntries(prev => [
+            {
+              ...journalEntry,
+              id: Date.now().toString(),
+              userReaction: null
+            },
+            ...prev
+          ]);
         }
-
-        // Add success notification
+        
+        // Add notification for analysis
         const notification: Notification = {
           id: Date.now().toString(),
-          type: 'success',
+          type: 'info',
           title: 'AI Analysis Complete',
           message: `Generated ${transformedStrategies.length} trading strategies with ${analysis.confidence} confidence`,
           timestamp: 'Just now',
           read: false
         };
-
+        
         setNotifications(prev => [notification, ...prev]);
       }
     } catch (err) {
@@ -334,97 +259,87 @@ const Dashboard: React.FC = () => {
         timestamp: 'Just now',
         read: false
       };
-
+      
       setNotifications(prev => [notification, ...prev]);
     }
   };
 
   const handleStrategySelect = async (option: StrategyOption) => {
     try {
-      console.log('📤 Executing strategy via backend:', option.name);
-      
-      const result = await executeTrade(
-        option.id,
-        option.symbol || 'EURUSD',
-        option.action as 'buy' | 'sell' || 'buy',
-        option.lotSize,
-        parseFloat(option.entry),
-        parseFloat(option.stopLoss),
-        parseFloat(option.takeProfit),
-        option.lotSize * 1000, // Risk amount calculation
-        `Pipnosis AI: ${option.name}`
-      );
+      // Execute trade via Pipnosis AI Brain
+      const result = await executeStrategy({
+        id: option.id,
+        name: option.name,
+        risk: option.risk,
+        symbol: option.symbol || option.tradeType.split(' ')[0],
+        action: option.action as 'buy' | 'sell' || (option.tradeType.includes('BUY') ? 'buy' : 'sell'),
+        entry: parseFloat(option.entry),
+        stopLoss: parseFloat(option.stopLoss),
+        takeProfit: parseFloat(option.takeProfit),
+        lotSize: option.lotSize,
+        estimatedGain: option.estimatedGain,
+        confidence: option.confidence || 75,
+        reasoning: option.reasoning,
+        feasible: option.feasible,
+        pipnosisLawsCompliance: option.pipnosisLawsCompliance || []
+      });
 
-      if (result) {
-        const journalEntry = await generateJournalEntry('trade_entry', {
-          symbol: option.symbol,
-          action: 'entry',
-          price: parseFloat(option.entry),
-          strategy: option.name,
-          reasoning: option.reasoning,
-          tradeId: result.tradeId,
-          success: result.success,
-          mt5Ticket: result.mt5Ticket
-        });
+      // Generate AI journal entry for strategy execution
+      const journalEntry = await generateJournalEntry('trade_entry', {
+        symbol: option.symbol || option.tradeType.split(' ')[0],
+        action: 'entry',
+        price: parseFloat(option.entry),
+        strategy: option.name,
+        reasoning: option.reasoning,
+        tradeId: result.tradeId,
+        success: result.success
+      });
 
-        if (journalEntry) {
-          const newEntry = {
+      if (journalEntry) {
+        setJournalEntries(prev => [
+          {
             ...journalEntry,
             id: Date.now().toString(),
-            tradeId: result.tradeId,
-            symbol: option.symbol,
+            tradeId: result.tradeId || `TRD-${Date.now()}`,
+            symbol: option.symbol || option.tradeType.split(' ')[0],
             userReaction: null
-          };
-          
-          setJournalEntries(prev => [newEntry, ...prev]);
-          
-          // Save to database
-          if (user && databaseConnected) {
-            await saveJournalEntry({
-              entry_type: 'trade_entry',
-              title: newEntry.title,
-              content: newEntry.message,
-              confidence_level: newEntry.confidence,
-              metadata: {
-                tradeId: result.tradeId,
-                symbol: option.symbol,
-                strategy: option.name,
-                mt5Ticket: result.mt5Ticket,
-                success: result.success
-              }
-            });
-          }
-        }
-
-        const notification: Notification = {
-          id: Date.now().toString(),
-          type: result.success ? 'success' : 'error',
-          title: result.success ? 'Trade Executed Successfully!' : 'Trade Execution Failed',
-          message: result.message + (result.mt5Ticket ? ` (MT5 Ticket: ${result.mt5Ticket})` : ''),
-          timestamp: 'Just now',
-          read: false
-        };
-
-        setNotifications(prev => [notification, ...prev]);
+          },
+          ...prev
+        ]);
       }
-    } catch (error) {
-      console.error('Trade execution failed:', error);
-      
+
+      // Add notification for trade execution
       const notification: Notification = {
         id: Date.now().toString(),
-        type: 'error',
-        title: 'Trade Execution Error',
-        message: 'Failed to execute trade. Please check your MT5 connection.',
+        type: result.success ? 'success' : 'error',
+        title: result.success ? 'Trade Executed' : 'Trade Failed',
+        message: result.message,
         timestamp: 'Just now',
         read: false
       };
 
+      setNotifications(prev => [notification, ...prev]);
+
+    } catch (error) {
+      console.error('Trade execution failed:', error);
+      
+      // Add error notification
+      const notification: Notification = {
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Trade Execution Error',
+        message: 'Failed to execute trade. Please try again.',
+        timestamp: 'Just now',
+        read: false
+      };
+      
       setNotifications(prev => [notification, ...prev]);
     }
   };
 
   const handleScreenshotUpload = (files: FileList) => {
     console.log('Uploaded files:', files);
+    // Handle screenshot upload
   };
 
   const handleMarkAsRead = (id: string) => {
@@ -452,33 +367,21 @@ const Dashboard: React.FC = () => {
         });
 
         if (explanation) {
-          const explanationEntry = {
-            id: `${entryId}-explanation`,
-            timestamp: new Date().toISOString(),
-            type: 'update' as const,
-            title: 'Detailed Analysis',
-            message: explanation,
-            tradeId: entry.tradeId,
-            symbol: entry.symbol,
-            confidence: 'high' as const,
-            userReaction: null
-          };
-          
-          setJournalEntries(prev => [explanationEntry, ...prev]);
-          
-          // Save explanation to database
-          if (user && databaseConnected) {
-            await saveJournalEntry({
-              entry_type: 'ai_decision',
-              title: explanationEntry.title,
-              content: explanationEntry.message,
-              confidence_level: explanationEntry.confidence,
-              metadata: {
-                originalEntryId: entryId,
-                isExplanation: true
-              }
-            });
-          }
+          // Add detailed explanation as a new journal entry
+          setJournalEntries(prev => [
+            {
+              id: `${entryId}-explanation`,
+              timestamp: new Date().toISOString(),
+              type: 'update' as const,
+              title: 'Detailed Analysis',
+              message: explanation,
+              tradeId: entry.tradeId,
+              symbol: entry.symbol,
+              confidence: 'high' as const,
+              userReaction: null
+            },
+            ...prev
+          ]);
         }
       }
     }
@@ -497,17 +400,17 @@ const Dashboard: React.FC = () => {
               onDismiss={handleDismissNotification}
               isCollapsible={true}
             />
-
+            
             <PromptInput 
               onSubmit={handlePromptSubmit} 
-              isLoading={isAnalyzing}
-              error={analysisError}
+              isLoading={isAnalyzing || isProcessing}
+              error={analysisError || aiError}
             />
             
-            {isAnalyzing && (
+            {(isAnalyzing || isProcessing) && (
               <div className="bg-slate-800 rounded-xl p-6 sm:p-8 text-center border border-slate-700">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                <p className="text-white">Backend AI is analyzing market conditions and generating strategies...</p>
+                <div className="animate-spin h-6 w-6 sm:h-8 sm:w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                <p className="text-slate-400 text-sm sm:text-base">Pipnosis AI is analyzing market conditions and generating strategies...</p>
                 <p className="text-xs text-slate-500 mt-2">This may take 10-30 seconds</p>
               </div>
             )}

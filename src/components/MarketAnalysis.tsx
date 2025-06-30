@@ -217,7 +217,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
           </div>
         ) : (
           <div className="space-y-4">
-            {isLoading && marketData.length === 0 ? (
+            {isLoading ? (
               <div className="text-center py-8">
                 <RefreshCw className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
                 <p className="text-slate-400">Loading live market data...</p>
@@ -259,7 +259,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
                       </div>
                       
                       <div className="flex items-center space-x-2">
-                        <span className={`px-2 py-1 sm:px-3 rounded text-xs font-medium border ${getSignalColor(data.signal)}`}>
+                        <span className={`px-2 py-1 rounded text-xs font-medium border ${getSignalColor(data.signal)}`}>
                           {data.signal.toUpperCase()}
                         </span>
                       </div>
