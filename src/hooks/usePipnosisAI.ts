@@ -10,6 +10,11 @@ export const usePipnosisAI = () => {
   const { user, profile } = useAuth();
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openAIStatus, setOpenAIStatus] = useState<{
+    initialized: boolean;
+    fallbackMode: boolean;
+    apiKeyConfigured: boolean;
+  }>({ initialized: false, fallbackMode: true, apiKeyConfigured: false });
   
   // Configure AI with user profile data
   useEffect(() => {
@@ -19,6 +24,11 @@ export const usePipnosisAI = () => {
         riskProfile: profile.risk_profile || 'auto'
       });
     }
+    
+    // Check OpenAI status
+    const status = openAIService.getStatus();
+    setOpenAIStatus(status);
+    console.log('🔍 OpenAI Status:', status);
   }, [profile]);
   
   /**
@@ -46,55 +56,63 @@ export const usePipnosisAI = () => {
       
       // First try to use OpenAI for analysis
       try {
-        console.log('🤖 Attempting to use OpenAI for prompt analysis');
-        const openAIResult = await openAIService.interpretPrompt(prompt, profile?.account_balance || 10000, marketData);
+        // Check if OpenAI is properly initialized
+        const status = openAIService.getStatus();
+        setOpenAIStatus(status);
         
-        if (openAIResult && openAIResult.strategies && openAIResult.strategies.length > 0) {
-          console.log('✅ Successfully used OpenAI for analysis');
+        if (status.initialized && !status.fallbackMode) {
+          console.log('🤖 Attempting to use OpenAI for prompt analysis');
+          const openAIResult = await openAIService.interpretPrompt(prompt, profile?.account_balance || 10000, marketData);
           
-          // Convert OpenAI result to Pipnosis AI format
-          const strategies = openAIResult.strategies.map((strategy, index) => {
-            // Extract symbol and action from tradeType
-            const tradeTypeParts = strategy.tradeType.split(' ');
-            const symbol = tradeTypeParts[0];
-            const action = tradeTypeParts[1]?.toLowerCase().includes('buy') ? 'buy' : 'sell';
+          if (openAIResult && openAIResult.strategies && openAIResult.strategies.length > 0) {
+            console.log('✅ Successfully used OpenAI for analysis');
+            
+            // Convert OpenAI result to Pipnosis AI format
+            const strategies = openAIResult.strategies.map((strategy, index) => {
+              // Extract symbol and action from tradeType
+              const tradeTypeParts = strategy.tradeType.split(' ');
+              const symbol = tradeTypeParts[0];
+              const action = tradeTypeParts[1]?.toLowerCase().includes('buy') ? 'buy' : 'sell';
+              
+              return {
+                id: strategy.id || `openai-${index}`,
+                name: strategy.name,
+                risk: strategy.risk,
+                symbol,
+                action,
+                entry: strategy.entry,
+                stopLoss: strategy.stopLoss,
+                takeProfit: strategy.takeProfit,
+                lotSize: strategy.lotSize,
+                estimatedGain: strategy.estimatedGain,
+                confidence: strategy.risk === 'low' ? 85 : strategy.risk === 'medium' ? 75 : 65,
+                reasoning: strategy.reasoning,
+                feasible: strategy.feasible,
+                pipnosisLawsCompliance: [
+                  'Law #1: Capital Preservation',
+                  'Law #6: High Quality Entry',
+                  strategy.risk === 'low' ? 'Law #3: Drawdown Management' : 
+                  strategy.risk === 'medium' ? 'Law #2: Target 70-80% Win Rate' : 
+                  'Law #5: AI Final Decision'
+                ]
+              };
+            });
             
             return {
-              id: strategy.id || `openai-${index}`,
-              name: strategy.name,
-              risk: strategy.risk,
-              symbol,
-              action,
-              entry: strategy.entry,
-              stopLoss: strategy.stopLoss,
-              takeProfit: strategy.takeProfit,
-              lotSize: strategy.lotSize,
-              estimatedGain: strategy.estimatedGain,
-              confidence: strategy.risk === 'low' ? 85 : strategy.risk === 'medium' ? 75 : 65,
-              reasoning: strategy.reasoning,
-              feasible: strategy.feasible,
-              pipnosisLawsCompliance: [
-                'Law #1: Capital Preservation',
-                'Law #6: High Quality Entry',
-                strategy.risk === 'low' ? 'Law #3: Drawdown Management' : 
-                strategy.risk === 'medium' ? 'Law #2: Target 70-80% Win Rate' : 
-                'Law #5: AI Final Decision'
-              ]
+              goal: {
+                type: 'profit',
+                amount: 500,
+                timeframe: 'week'
+              },
+              strategies,
+              marketAnalysis: openAIResult.summary,
+              riskAssessment: openAIResult.riskAssessment,
+              confidence: openAIResult.confidence,
+              aiRecommendation: `Based on the analysis, I recommend executing the ${strategies[0].risk} risk strategy first to test market conditions.`
             };
-          });
-          
-          return {
-            goal: {
-              type: 'profit',
-              amount: 500,
-              timeframe: 'week'
-            },
-            strategies,
-            marketAnalysis: openAIResult.summary,
-            riskAssessment: openAIResult.riskAssessment,
-            confidence: openAIResult.confidence,
-            aiRecommendation: `Based on the analysis, I recommend executing the ${strategies[0].risk} risk strategy first to test market conditions.`
-          };
+          }
+        } else {
+          console.warn('⚠️ OpenAI not initialized or in fallback mode:', status);
         }
       } catch (openAIError) {
         console.warn('⚠️ OpenAI analysis failed, falling back to local AI:', openAIError);
@@ -153,10 +171,26 @@ export const usePipnosisAI = () => {
     }
   }, []);
   
+  // Force a reconnection to OpenAI
+  const reconnectOpenAI = useCallback(async (): Promise<boolean> => {
+    try {
+      console.log('🔄 Attempting to reconnect to OpenAI...');
+      const success = await openAIService.reconnect();
+      const status = openAIService.getStatus();
+      setOpenAIStatus(status);
+      return success;
+    } catch (error) {
+      console.error('❌ OpenAI reconnection failed:', error);
+      return false;
+    }
+  }, []);
+  
   return {
     processPrompt,
     executeStrategy,
     isProcessing,
-    error
+    error,
+    openAIStatus,
+    reconnectOpenAI
   };
 };

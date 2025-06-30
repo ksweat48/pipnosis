@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Download, CheckCircle, AlertCircle, Loader, Shield, Server, Key, User, ExternalLink, Play, Monitor, Wifi, WifiOff, Zap, Copy, FileText } from 'lucide-react';
+import { X, Download, CheckCircle, AlertCircle, Loader, Shield, Server, Key, User, ExternalLink, Play, Monitor, Wifi, WifiOff, Zap, Copy, FileText, RefreshCw } from 'lucide-react';
 import { useMT5Integration } from '../hooks/useMT5Integration';
 
 interface MT5ConnectionModalProps {
@@ -29,6 +29,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
   const [bridgeAvailable, setBridgeAvailable] = useState(false);
   const [checkingBridge, setCheckingBridge] = useState(false);
   const [installationMethod, setInstallationMethod] = useState<'manual' | 'download'>('manual');
+  const [bridgeCheckAttempts, setBridgeCheckAttempts] = useState(0);
 
   const brokerServers = [
     'MetaQuotes-Demo',
@@ -96,6 +97,8 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
 
   const checkBridge = async () => {
     setCheckingBridge(true);
+    setBridgeCheckAttempts(prev => prev + 1);
+    
     try {
       const available = await checkBridgeAvailability();
       setBridgeAvailable(available);
@@ -380,7 +383,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-slate-400 text-xs">Command:</span>
                                   <button
-                                    onClick={() => copyToClipboard(step.command)}
+                                    onClick={() => copyToClipboard(step.command!)}
                                     className="text-blue-400 hover:text-blue-300 text-xs flex items-center space-x-1"
                                   >
                                     <Copy className="h-3 w-3" />
@@ -480,7 +483,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                     )}
                   </div>
 
-                  {!bridgeAvailable && !checkingBridge && (
+                  {!bridgeAvailable && !checkingBridge && bridgeCheckAttempts > 0 && (
                     <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
                       <div className="flex items-start space-x-3">
                         <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 flex-shrink-0" />
@@ -489,6 +492,16 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                           <p className="text-red-200 text-sm mt-1">
                             The MT5 Bridge is not running. Please follow the installation steps above and start the bridge.
                           </p>
+                          <div className="mt-3 p-3 bg-slate-800 rounded-lg border border-slate-700">
+                            <h5 className="text-white text-sm font-medium mb-2">Troubleshooting Steps:</h5>
+                            <ol className="text-slate-300 text-sm space-y-1 list-decimal list-inside">
+                              <li>Make sure Python 3.8+ is installed</li>
+                              <li>Install required packages: <code className="text-blue-300">pip install MetaTrader5 websockets</code></li>
+                              <li>Run the bridge: <code className="text-blue-300">python mt5_connector.py</code></li>
+                              <li>Ensure MetaTrader 5 is running and logged in</li>
+                              <li>Check if port 8765 is available (or try ports 8766-8770)</li>
+                            </ol>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -620,11 +633,19 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                         <span className="text-slate-400">Security:</span>
                         <span className="text-green-400">Local Connection Only</span>
                       </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400">Fallback Ports:</span>
+                        <span className="text-white">8766, 8767, 8768, 8769, 8770</span>
+                      </div>
                     </div>
 
                     {error && (
                       <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
                         <p className="text-red-400 text-sm">{error}</p>
+                        <p className="text-red-300 text-xs mt-2">
+                          Make sure the MT5 bridge is running and MetaTrader 5 is open and logged in.
+                        </p>
                       </div>
                     )}
 

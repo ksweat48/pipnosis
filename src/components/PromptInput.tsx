@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Send, Mic, Zap, AlertCircle } from 'lucide-react';
+import { Send, Mic, Zap, AlertCircle, RefreshCw } from 'lucide-react';
+import { openAIService } from '../services/openai';
 
 interface PromptInputProps {
   onSubmit: (prompt: string) => void;
@@ -9,12 +10,32 @@ interface PromptInputProps {
 
 export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, error }) => {
   const [prompt, setPrompt] = useState('');
+  const [isTestingOpenAI, setIsTestingOpenAI] = useState(false);
+  const [openAIStatus, setOpenAIStatus] = useState<{
+    initialized: boolean;
+    fallbackMode: boolean;
+    apiKeyConfigured: boolean;
+  } | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (prompt.trim() && !isLoading) {
       onSubmit(prompt.trim());
       setPrompt('');
+    }
+  };
+
+  const testOpenAIConnection = async () => {
+    setIsTestingOpenAI(true);
+    try {
+      await openAIService.reconnect();
+      const status = openAIService.getStatus();
+      setOpenAIStatus(status);
+      console.log('🔍 OpenAI Status:', status);
+    } catch (error) {
+      console.error('❌ OpenAI test failed:', error);
+    } finally {
+      setIsTestingOpenAI(false);
     }
   };
 
@@ -37,6 +58,14 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, e
         <div className="flex items-center space-x-2 text-xs">
           <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
           <span className="text-green-400">GPT-4 Connected</span>
+          <button 
+            onClick={testOpenAIConnection}
+            disabled={isTestingOpenAI}
+            className="p-1 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
+            title="Test OpenAI Connection"
+          >
+            <RefreshCw className={`h-3 w-3 ${isTestingOpenAI ? 'animate-spin' : ''}`} />
+          </button>
         </div>
       </div>
       
@@ -46,6 +75,40 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, e
           <div>
             <p className="text-red-400 text-sm font-medium">AI Analysis Error</p>
             <p className="text-red-300 text-xs mt-1">{error}</p>
+          </div>
+        </div>
+      )}
+      
+      {openAIStatus && (
+        <div className={`mb-4 p-3 ${
+          openAIStatus.initialized && !openAIStatus.fallbackMode 
+            ? 'bg-green-500/10 border border-green-500/30' 
+            : 'bg-yellow-500/10 border border-yellow-500/30'
+        } rounded-lg`}>
+          <div className="flex items-start space-x-2">
+            {openAIStatus.initialized && !openAIStatus.fallbackMode ? (
+              <CheckCircle className="h-4 w-4 text-green-400 mt-0.5 flex-shrink-0" />
+            ) : (
+              <AlertCircle className="h-4 w-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+            )}
+            <div>
+              <p className={`text-sm font-medium ${
+                openAIStatus.initialized && !openAIStatus.fallbackMode ? 'text-green-400' : 'text-yellow-400'
+              }`}>
+                {openAIStatus.initialized && !openAIStatus.fallbackMode 
+                  ? 'OpenAI Connection Successful' 
+                  : 'Using Fallback Mode'}
+              </p>
+              <p className={`text-xs mt-1 ${
+                openAIStatus.initialized && !openAIStatus.fallbackMode ? 'text-green-300' : 'text-yellow-300'
+              }`}>
+                {openAIStatus.initialized && !openAIStatus.fallbackMode 
+                  ? 'GPT-4 is connected and ready to analyze your prompts' 
+                  : openAIStatus.apiKeyConfigured 
+                    ? 'Connection to OpenAI failed. Using local AI instead.' 
+                    : 'OpenAI API key not configured. Using local AI instead.'}
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -102,11 +165,17 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, e
       <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
         <div className="flex items-start space-x-2">
           <Zap className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
-          <p className="text-blue-300 text-sm">
-            Advanced AI analyzes your goals, market conditions, and risk profile to generate executable trading strategies.
-          </p>
+          <div>
+            <p className="text-blue-300 text-sm font-medium">AI-Powered Trading</p>
+            <p className="text-blue-200 text-xs mt-1">
+              Advanced AI analyzes your goals, market conditions, and risk profile to generate executable trading strategies.
+            </p>
+          </div>
         </div>
       </div>
     </div>
   );
 };
+
+// Add missing import
+import { CheckCircle } from 'lucide-react';

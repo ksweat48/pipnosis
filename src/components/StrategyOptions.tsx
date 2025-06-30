@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TrendingUp, Shield, Zap, DollarSign, Target, AlertTriangle, Loader, CheckCircle } from 'lucide-react';
+import { TrendingUp, Shield, Zap, DollarSign, Target, AlertTriangle, Loader, CheckCircle, RefreshCw } from 'lucide-react';
 
 interface StrategyOption {
   id: string;
@@ -31,6 +31,7 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
   const [executingStrategy, setExecutingStrategy] = useState<string | null>(null);
   const [executedStrategies, setExecutedStrategies] = useState<Set<string>>(new Set());
   const [executionError, setExecutionError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
   const getRiskIcon = (risk: string) => {
     switch (risk) {
@@ -86,10 +87,35 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
       // Set error message
       setExecutionError(error instanceof Error ? error.message : 'Trade execution failed');
       
-      // Clear error after 5 seconds
+      // Clear error after 10 seconds
       setTimeout(() => {
         setExecutionError(null);
-      }, 5000);
+      }, 10000);
+    }
+  };
+
+  const handleRetry = async () => {
+    if (!executionError || retrying) return;
+    
+    setRetrying(true);
+    setExecutionError(null);
+    
+    try {
+      // Find the strategy that was being executed
+      const failedStrategy = options.find(opt => opt.id === executingStrategy);
+      if (!failedStrategy) {
+        throw new Error('Could not identify the failed strategy');
+      }
+      
+      console.log('🔄 Retrying strategy execution:', failedStrategy);
+      
+      // Try to execute again
+      await handleExecute(failedStrategy);
+    } catch (error) {
+      console.error('❌ Retry failed:', error);
+      setExecutionError(error instanceof Error ? error.message : 'Retry failed');
+    } finally {
+      setRetrying(false);
     }
   };
 
@@ -105,15 +131,36 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
       
       {executionError && (
         <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0" />
-            <p className="text-red-300 font-medium">
-              {executionError}
-            </p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0" />
+              <div>
+                <p className="text-red-300 font-medium">
+                  {executionError}
+                </p>
+                <p className="text-red-200 text-sm mt-1">
+                  Please check your MT5 connection and make sure the MT5 bridge is running.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleRetry}
+              disabled={retrying}
+              className="px-3 py-1 bg-red-500/20 text-red-300 border border-red-500/30 rounded hover:bg-red-500/30 transition-colors flex items-center space-x-1"
+            >
+              {retrying ? (
+                <>
+                  <Loader className="h-3 w-3 animate-spin" />
+                  <span>Retrying...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-3 w-3" />
+                  <span>Retry</span>
+                </>
+              )}
+            </button>
           </div>
-          <p className="text-red-200 text-sm mt-2 ml-8">
-            Please check your MT5 connection and try again. Make sure the MT5 bridge is running.
-          </p>
         </div>
       )}
       
@@ -222,9 +269,14 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
         <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
           <div className="flex items-center space-x-3">
             <Loader className="h-5 w-5 text-blue-400 animate-spin flex-shrink-0" />
-            <p className="text-blue-300 font-medium">
-              Executing Trade via MT5 Bridge
-            </p>
+            <div>
+              <p className="text-blue-300 font-medium">
+                Executing Trade via MT5 Bridge
+              </p>
+              <p className="text-blue-200 text-sm mt-1">
+                Sending trade request to MT5 connector... This may take a few seconds.
+              </p>
+            </div>
           </div>
         </div>
       )}

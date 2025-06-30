@@ -114,7 +114,7 @@ export class MT5WebSocketClient {
 
     this.isConnecting = true;
     
-    // CRITICAL FIX: Try multiple connection methods and ports
+    // Try multiple connection methods and ports
     const portsToTry = [this.port, 8766, 8767, 8768, 8769, 8770];
     const connectionMethods = [
       (port: number) => `ws://${this.host}:${port}`,
@@ -216,7 +216,7 @@ export class MT5WebSocketClient {
           this.isConnecting = false;
           console.error('❌ MT5 bridge WebSocket error:', error);
           
-          // CRITICAL FIX: Provide detailed error information
+          // Provide detailed error information
           if (error instanceof Event) {
             console.error('❌ WebSocket Error Details:');
             console.error('   - URL:', wsUrl);
