@@ -1,5 +1,5 @@
 /**
- * Pipnosis MT5 WebSocket Client - ENHANCED VERSION
+ * Pipnosis MT5 WebSocket Client
  * Connects to the local MT5 bridge and receives real-time data
  */
 
@@ -306,6 +306,7 @@ export class MT5WebSocketClient {
           symbol: order.symbol,
           order_type: order.orderType,
           volume: order.volume,
+          price: order.price,
           sl: order.sl,
           tp: order.tp,
           comment: order.comment || 'Pipnosis AI Trade'
@@ -317,6 +318,7 @@ export class MT5WebSocketClient {
           symbol: order.symbol,
           order_type: order.orderType,
           volume: order.volume,
+          price: order.price,
           sl: order.sl,
           tp: order.tp,
           comment: order.comment || 'Pipnosis AI Trade'

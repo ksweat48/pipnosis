@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Any
 import threading
 from dataclasses import dataclass, asdict
 
-# Configure logging
+# Configure logging with UTF-8 encoding to handle Unicode characters
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -72,36 +72,36 @@ class MT5Connector:
     def initialize_mt5(self) -> bool:
         """Initialize connection to MT5 terminal"""
         try:
-            logger.info("🔌 Initializing MT5 connection...")
+            logger.info("Initializing MT5 connection...")
             
             # Initialize MT5 connection
             if not mt5.initialize():
                 error = mt5.last_error()
-                logger.error(f"❌ MT5 initialization failed: {error}")
+                logger.error(f"MT5 initialization failed: {error}")
                 return False
             
             # Get account info
             account_info = mt5.account_info()
             if account_info is None:
-                logger.error("❌ Failed to get account info - MT5 not logged in?")
+                logger.error("Failed to get account info - MT5 not logged in?")
                 mt5.shutdown()
                 return False
             
             # Check if trading is allowed
             if not account_info.trade_allowed:
-                logger.warning("⚠️ Trading is not allowed on this account")
+                logger.warning("Trading is not allowed on this account")
             
             self.connected = True
-            logger.info(f"✅ MT5 connected successfully!")
-            logger.info(f"📊 Account: {account_info.login}")
-            logger.info(f"🏦 Server: {account_info.server}")
-            logger.info(f"💰 Balance: ${account_info.balance:,.2f}")
-            logger.info(f"📈 Equity: ${account_info.equity:,.2f}")
+            logger.info(f"MT5 connected successfully!")
+            logger.info(f"Account: {account_info.login}")
+            logger.info(f"Server: {account_info.server}")
+            logger.info(f"Balance: ${account_info.balance:,.2f}")
+            logger.info(f"Equity: ${account_info.equity:,.2f}")
             
             return True
             
         except Exception as e:
-            logger.error(f"❌ MT5 initialization error: {e}")
+            logger.error(f"MT5 initialization error: {e}")
             return False
     
     def get_account_info(self) -> Optional[AccountInfo]:
@@ -112,7 +112,7 @@ class MT5Connector:
                 
             account = mt5.account_info()
             if account is None:
-                logger.error("❌ Failed to get account info")
+                logger.error("Failed to get account info")
                 return None
             
             return AccountInfo(
@@ -135,7 +135,7 @@ class MT5Connector:
             )
             
         except Exception as e:
-            logger.error(f"❌ Error getting account info: {e}")
+            logger.error(f"Error getting account info: {e}")
             return None
     
     def get_positions(self) -> List[Position]:
@@ -183,7 +183,7 @@ class MT5Connector:
             return result
             
         except Exception as e:
-            logger.error(f"❌ Error getting positions: {e}")
+            logger.error(f"Error getting positions: {e}")
             return []
     
     def get_symbol_info(self, symbol: str) -> Optional[Dict]:
@@ -215,7 +215,7 @@ class MT5Connector:
             }
             
         except Exception as e:
-            logger.error(f"❌ Error getting symbol info for {symbol}: {e}")
+            logger.error(f"Error getting symbol info for {symbol}: {e}")
             return None
     
     def place_order(self, symbol: str, order_type: str, volume: float, 
@@ -240,6 +240,8 @@ class MT5Connector:
             else:
                 return {'success': False, 'error': f'Invalid order type: {order_type}'}
             
+            logger.info(f"📤 Sending order: {order_type} {volume} {symbol} at {price} SL:{sl} TP:{tp}")
+            
             # Prepare the request
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
@@ -260,17 +262,15 @@ class MT5Connector:
             if tp is not None:
                 request["tp"] = tp
             
-            logger.info(f"📤 Sending order: {order_type} {volume} {symbol} at {price} SL:{sl} TP:{tp}")
-            
             # Send the order
             result = mt5.order_send(request)
             
             if result.retcode != mt5.TRADE_RETCODE_DONE:
                 error_msg = f"Order failed: {result.retcode} - {result.comment}"
-                logger.error(f"❌ {error_msg}")
+                logger.error(f"Order error: {error_msg}")
                 return {'success': False, 'error': error_msg}
             
-            logger.info(f"✅ Order placed successfully: {result.order}")
+            logger.info(f"Order placed successfully: {result.order}")
             return {
                 'success': True,
                 'ticket': result.order,
@@ -281,7 +281,7 @@ class MT5Connector:
             
         except Exception as e:
             error_msg = f"Error placing order: {e}"
-            logger.error(f"❌ {error_msg}")
+            logger.error(f"Order exception: {error_msg}")
             return {'success': False, 'error': error_msg}
     
     async def broadcast_data(self, data: Dict):
@@ -298,7 +298,7 @@ class MT5Connector:
             except websockets.exceptions.ConnectionClosed:
                 disconnected_clients.add(client)
             except Exception as e:
-                logger.error(f"❌ Error broadcasting to client: {e}")
+                logger.error(f"Error broadcasting to client: {e}")
                 disconnected_clients.add(client)
         
         # Remove disconnected clients
@@ -306,7 +306,7 @@ class MT5Connector:
     
     async def data_update_loop(self):
         """Main loop to update and broadcast MT5 data"""
-        logger.info("🔄 Starting data update loop...")
+        logger.info("Starting data update loop...")
         
         while self.running:
             try:
@@ -337,12 +337,12 @@ class MT5Connector:
                 await asyncio.sleep(self.update_interval)
                 
             except Exception as e:
-                logger.error(f"❌ Error in data update loop: {e}")
+                logger.error(f"Error in data update loop: {e}")
                 await asyncio.sleep(self.update_interval)
     
     async def handle_websocket_client(self, websocket, path):
         """Handle new WebSocket client connection"""
-        logger.info(f"🔌 New WebSocket client connected from {websocket.remote_address}")
+        logger.info(f"New WebSocket client connected from {websocket.remote_address}")
         self.websocket_clients.add(websocket)
         
         try:
@@ -363,14 +363,14 @@ class MT5Connector:
                     data = json.loads(message)
                     await self.handle_client_message(websocket, data)
                 except json.JSONDecodeError:
-                    logger.error(f"❌ Invalid JSON from client: {message}")
+                    logger.error(f"Invalid JSON from client: {message}")
                 except Exception as e:
-                    logger.error(f"❌ Error handling client message: {e}")
+                    logger.error(f"Error handling client message: {e}")
                     
         except websockets.exceptions.ConnectionClosed:
-            logger.info("🔌 WebSocket client disconnected")
+            logger.info("WebSocket client disconnected")
         except Exception as e:
-            logger.error(f"❌ WebSocket error: {e}")
+            logger.error(f"WebSocket error: {e}")
         finally:
             self.websocket_clients.discard(websocket)
     
@@ -431,7 +431,7 @@ class MT5Connector:
                 await websocket.send(json.dumps(response))
                 
         except Exception as e:
-            logger.error(f"❌ Error handling client message: {e}")
+            logger.error(f"Error handling client message: {e}")
             # Send error response
             try:
                 error_response = {
@@ -446,7 +446,7 @@ class MT5Connector:
     
     async def start_websocket_server(self, host='localhost', port=8765):
         """Start the WebSocket server"""
-        logger.info(f"🚀 Starting WebSocket server on {host}:{port}")
+        logger.info(f"Starting WebSocket server on {host}:{port}")
         
         try:
             server = await websockets.serve(
@@ -457,7 +457,7 @@ class MT5Connector:
                 ping_timeout=10
             )
             
-            logger.info(f"✅ WebSocket server started on ws://{host}:{port}")
+            logger.info(f"WebSocket server started on ws://{host}:{port}")
             
             # Save the port to a file for discovery
             with open('mt5_bridge_port.txt', 'w') as f:
@@ -465,13 +465,13 @@ class MT5Connector:
                 
             return server
         except Exception as e:
-            logger.error(f"❌ Failed to start WebSocket server on port {port}: {e}")
+            logger.error(f"Failed to start WebSocket server on port {port}: {e}")
             
             # Try alternate ports
             alternate_ports = [8766, 8767, 8768, 8769, 8770]
             for alt_port in alternate_ports:
                 try:
-                    logger.info(f"🔄 Trying alternate port: {alt_port}")
+                    logger.info(f"Trying alternate port: {alt_port}")
                     server = await websockets.serve(
                         self.handle_websocket_client,
                         host,
@@ -480,7 +480,7 @@ class MT5Connector:
                         ping_timeout=10
                     )
                     
-                    logger.info(f"✅ WebSocket server started on ws://{host}:{alt_port}")
+                    logger.info(f"WebSocket server started on ws://{host}:{alt_port}")
                     
                     # Save the port to a file for discovery
                     with open('mt5_bridge_port.txt', 'w') as f:
@@ -488,18 +488,18 @@ class MT5Connector:
                         
                     return server
                 except Exception as alt_error:
-                    logger.error(f"❌ Failed to start WebSocket server on port {alt_port}: {alt_error}")
+                    logger.error(f"Failed to start WebSocket server on port {alt_port}: {alt_error}")
             
             # If all ports fail, raise the original error
             raise e
     
     def start(self, host='localhost', port=8765):
         """Start the MT5 connector"""
-        logger.info("🚀 Starting Pipnosis MT5 Connector...")
+        logger.info("Starting Pipnosis MT5 Connector...")
         
         # Initialize MT5
         if not self.initialize_mt5():
-            logger.error("❌ Failed to initialize MT5 - exiting")
+            logger.error("Failed to initialize MT5 - exiting")
             return False
         
         self.running = True
@@ -513,23 +513,23 @@ class MT5Connector:
             server = loop.run_until_complete(self.start_websocket_server(host, port))
             update_task = loop.create_task(self.data_update_loop())
             
-            logger.info("✅ Pipnosis MT5 Connector is running!")
-            logger.info("🔗 WebSocket clients can connect to receive live MT5 data")
-            logger.info("⏹️  Press Ctrl+C to stop")
+            logger.info("Pipnosis MT5 Connector is running!")
+            logger.info("WebSocket clients can connect to receive live MT5 data")
+            logger.info("Press Ctrl+C to stop")
             
             # Run forever
             loop.run_forever()
             
         except KeyboardInterrupt:
-            logger.info("🛑 Shutting down...")
+            logger.info("Shutting down...")
         except Exception as e:
-            logger.error(f"❌ Server error: {e}")
+            logger.error(f"Server error: {e}")
         finally:
             self.running = False
             if self.connected:
                 mt5.shutdown()
             loop.close()
-            logger.info("✅ MT5 Connector stopped")
+            logger.info("MT5 Connector stopped")
     
     def stop(self):
         """Stop the connector"""

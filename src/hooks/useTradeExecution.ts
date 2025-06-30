@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useMT5Integration } from './useMT5Integration';
+import { mt5Client } from '../services/mt5WebSocketClient';
 
 interface TradeRequest {
   symbol: string;
@@ -25,7 +25,6 @@ interface TradeResult {
 export const useTradeExecution = () => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { isConnected, placeOrder } = useMT5Integration();
 
   const executeTrade = useCallback(async (request: TradeRequest): Promise<TradeResult> => {
     setIsExecuting(true);
@@ -34,24 +33,27 @@ export const useTradeExecution = () => {
     try {
       console.log('🚀 Executing trade:', request);
 
+      // Check if MT5 is connected
+      const isConnected = mt5Client.isConnected();
       if (!isConnected) {
-        console.warn('⚠️ MT5 not connected, using mock execution');
+        console.warn('⚠️ MT5 not connected, attempting to connect...');
         
-        // Simulate execution delay
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        return {
-          success: true,
-          tradeId: `MOCK-${Date.now()}`,
-          symbol: request.symbol,
-          price: request.price,
-          volume: request.volume,
-          message: `${request.action.toUpperCase()} ${request.symbol} executed at ${request.price} (MOCK MODE)`
-        };
+        try {
+          // Try to connect to MT5
+          await mt5Client.connect();
+          
+          // Check if connection was successful
+          if (!mt5Client.isConnected()) {
+            throw new Error('Failed to connect to MT5');
+          }
+        } catch (connectError) {
+          console.error('❌ MT5 connection failed:', connectError);
+          throw new Error('MT5 connection failed. Please make sure the MT5 bridge is running.');
+        }
       }
 
       // Execute trade via MT5 WebSocket client
-      const result = await placeOrder({
+      const result = await mt5Client.placeOrder({
         symbol: request.symbol,
         orderType: request.action,
         volume: request.volume,
@@ -87,7 +89,7 @@ export const useTradeExecution = () => {
     } finally {
       setIsExecuting(false);
     }
-  }, [isConnected, placeOrder]);
+  }, []);
 
   return {
     executeTrade,
