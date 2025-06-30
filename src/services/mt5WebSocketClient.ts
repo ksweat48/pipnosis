@@ -148,7 +148,7 @@ export class MT5WebSocketClient {
   /**
    * Attempt connection to a specific WebSocket URL
    */
-  private async attemptConnection(wsUrl: string): Promise<boolean> {
+  private attemptConnection(wsUrl: string): Promise<boolean> {
     return new Promise((resolve, reject) => {
       try {
         this.ws = new WebSocket(wsUrl);

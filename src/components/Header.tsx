@@ -26,19 +26,25 @@ export const Header: React.FC = () => {
   // Monitor MT5 connection status
   useEffect(() => {
     const checkMT5Status = () => {
-      const connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
-      const accountData = localStorage.getItem('pipnosis_mt5_account');
-      
-      setMt5Connected(connected);
-      
-      if (connected && accountData) {
-        try {
-          setMt5AccountData(JSON.parse(accountData));
-        } catch (error) {
-          console.error('Error parsing MT5 account data:', error);
+      try {
+        const connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
+        const accountData = localStorage.getItem('pipnosis_mt5_account');
+        
+        setMt5Connected(connected);
+        
+        if (connected && accountData) {
+          try {
+            setMt5AccountData(JSON.parse(accountData));
+          } catch (error) {
+            console.error('Error parsing MT5 account data:', error);
+            setMt5AccountData(null);
+          }
+        } else {
           setMt5AccountData(null);
         }
-      } else {
+      } catch (error) {
+        console.error('Error checking MT5 status:', error);
+        setMt5Connected(false);
         setMt5AccountData(null);
       }
     };

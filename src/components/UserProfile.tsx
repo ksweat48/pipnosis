@@ -12,8 +12,55 @@ export const UserProfile: React.FC = () => {
   });
 
   // CRITICAL FIX: Check MT5 connection status
-  const mt5Connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
-  const mt5AccountData = localStorage.getItem('pipnosis_mt5_account');
+  const [mt5Connected, setMt5Connected] = useState(false);
+  const [mt5AccountData, setMt5AccountData] = useState<any>(null);
+
+  // Monitor MT5 connection status
+  React.useEffect(() => {
+    const checkMT5Status = () => {
+      try {
+        const connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
+        const accountData = localStorage.getItem('pipnosis_mt5_account');
+        
+        setMt5Connected(connected);
+        
+        if (connected && accountData) {
+          try {
+            setMt5AccountData(JSON.parse(accountData));
+          } catch (error) {
+            console.error('Error parsing MT5 account data:', error);
+            setMt5AccountData(null);
+          }
+        } else {
+          setMt5AccountData(null);
+        }
+      } catch (error) {
+        console.error('Error checking MT5 status:', error);
+        setMt5Connected(false);
+        setMt5AccountData(null);
+      }
+    };
+
+    // Check immediately
+    checkMT5Status();
+
+    // Set up interval to check every 2 seconds
+    const interval = setInterval(checkMT5Status, 2000);
+
+    // Listen for storage changes
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'pipnosis_mt5_connected' || e.key === 'pipnosis_mt5_account') {
+        checkMT5Status();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
 
   const handleSave = async () => {
     if (!profile) return;
@@ -59,30 +106,24 @@ export const UserProfile: React.FC = () => {
     
     // Use MT5 account balance if connected
     if (mt5Connected && mt5AccountData) {
-      try {
-        const accountData = JSON.parse(mt5AccountData);
-        if (typeof accountData.balance === 'number') {
-          return `$${accountData.balance.toLocaleString()}`;
-        }
-      } catch (error) {
-        console.error('Error parsing MT5 account data:', error);
+      if (typeof mt5AccountData.balance === 'number') {
+        return `$${mt5AccountData.balance.toLocaleString()}`;
       }
     }
     
     // Fallback to profile balance
-    return `$${profile.account_balance?.toLocaleString() || '0.00'}`;
+    if (typeof profile.account_balance === 'number') {
+      return `$${profile.account_balance.toLocaleString()}`;
+    }
+    
+    return '$0.00';
   };
 
   // CRITICAL FIX: Get equity from MT5 if connected
   const getEquity = () => {
     if (mt5Connected && mt5AccountData) {
-      try {
-        const accountData = JSON.parse(mt5AccountData);
-        if (typeof accountData.equity === 'number') {
-          return `$${accountData.equity.toLocaleString()}`;
-        }
-      } catch (error) {
-        console.error('Error parsing MT5 account data:', error);
+      if (typeof mt5AccountData.equity === 'number') {
+        return `$${mt5AccountData.equity.toLocaleString()}`;
       }
     }
     return getDisplayBalance(); // Fallback to balance
@@ -91,17 +132,12 @@ export const UserProfile: React.FC = () => {
   // CRITICAL FIX: Get floating P&L from MT5 if connected
   const getFloatingPnL = () => {
     if (mt5Connected && mt5AccountData) {
-      try {
-        const accountData = JSON.parse(mt5AccountData);
-        if (accountData.openPositions && Array.isArray(accountData.openPositions)) {
-          const totalPnL = accountData.openPositions.reduce((sum: number, pos: any) => {
-            const profit = typeof pos.profit === 'number' ? pos.profit : 0;
-            return sum + profit;
-          }, 0);
-          return totalPnL;
-        }
-      } catch (error) {
-        console.error('Error parsing MT5 account data:', error);
+      if (mt5AccountData.openPositions && Array.isArray(mt5AccountData.openPositions)) {
+        const totalPnL = mt5AccountData.openPositions.reduce((sum: number, pos: any) => {
+          const profit = typeof pos.profit === 'number' ? pos.profit : 0;
+          return sum + profit;
+        }, 0);
+        return totalPnL;
       }
     }
     return 0;
@@ -273,10 +309,9 @@ export const UserProfile: React.FC = () => {
                 </p>
                 {(() => {
                   try {
-                    const accountData = JSON.parse(mt5AccountData);
                     return (
                       <div className="mt-2 text-xs text-green-300">
-                        <p>Account: {accountData.login || 'Unknown'} | Server: {accountData.server || 'Unknown'} | Last Update: {accountData.lastUpdate ? new Date(accountData.lastUpdate).toLocaleTimeString() : 'Unknown'}</p>
+                        <p>Account: {mt5AccountData.login || 'Unknown'} | Server: {mt5AccountData.server || 'Unknown'} | Last Update: {mt5AccountData.lastUpdate ? new Date(mt5AccountData.lastUpdate).toLocaleTimeString() : 'Unknown'}</p>
                       </div>
                     );
                   } catch {
