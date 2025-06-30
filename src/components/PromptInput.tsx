@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Send, Mic, Zap, AlertCircle, RefreshCw, CheckCircle } from 'lucide-react';
 import { openAIService } from '../services/openai';
 
@@ -17,6 +17,11 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, e
     apiKeyConfigured: boolean;
   } | null>(null);
 
+  // Check OpenAI status on component mount
+  useEffect(() => {
+    checkOpenAIStatus();
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (prompt.trim() && !isLoading) {
@@ -25,13 +30,19 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, e
     }
   };
 
+  const checkOpenAIStatus = async () => {
+    const status = openAIService.getStatus();
+    setOpenAIStatus(status);
+    console.log('🔍 OpenAI Status:', status);
+  };
+
   const testOpenAIConnection = async () => {
     setIsTestingOpenAI(true);
     try {
       await openAIService.reconnect();
       const status = openAIService.getStatus();
       setOpenAIStatus(status);
-      console.log('🔍 OpenAI Status:', status);
+      console.log('🔍 OpenAI Status after reconnect:', status);
     } catch (error) {
       console.error('❌ OpenAI test failed:', error);
     } finally {
@@ -108,6 +119,13 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, e
                     ? 'Connection to OpenAI failed. Using local AI instead.' 
                     : 'OpenAI API key not configured. Using local AI instead.'}
               </p>
+              {!openAIStatus.apiKeyConfigured && (
+                <div className="mt-2 p-2 bg-slate-900 rounded border border-yellow-500/30 text-xs text-yellow-300">
+                  <p><strong>Solution:</strong> Add your OpenAI API key to the .env file:</p>
+                  <p className="mt-1 font-mono">VITE_OPENAI_API_KEY=sk-your-api-key</p>
+                  <p className="mt-1">Then restart the application.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
