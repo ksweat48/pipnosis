@@ -34,7 +34,6 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
   const [bridgeCheckAttempts, setBridgeCheckAttempts] = useState(0);
   const [automatedTradingEnabled, setAutomatedTradingEnabled] = useState<boolean | null>(null);
   const [checkingSettings, setCheckingSettings] = useState(false);
-  const [webRequestEnabled, setWebRequestEnabled] = useState<boolean | null>(null);
 
   const brokerServers = [
     'MetaQuotes-Demo',
@@ -177,7 +176,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
           setAutomatedTradingEnabled(connectionState.accountData.tradeExpert);
           
           if (!connectionState.accountData.tradeExpert) {
-            setError('Automated trading is disabled in MT5. Please enable it in Tools > Options > Expert Advisors > Allow automated trading.');
+            setError('Automated trading is disabled in MT5. Please enable it in Tools &gt; Options &gt; Expert Advisors &gt; Allow automated trading.');
           } else {
             setError(null);
           }
@@ -363,29 +362,6 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                     </div>
                   </div>
                 )}
-
-                {/* WebRequest Status */}
-                {isConnected && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">WebRequest:</span>
-                    <div className={`flex items-center space-x-1 ${
-                      webRequestEnabled === true ? 'text-green-400' :
-                      webRequestEnabled === false ? 'text-yellow-400' : 'text-slate-400'
-                    }`}>
-                      {webRequestEnabled === true ? (
-                        <CheckCircle className="h-3 w-3" />
-                      ) : webRequestEnabled === false ? (
-                        <AlertTriangle className="h-3 w-3" />
-                      ) : (
-                        <AlertCircle className="h-3 w-3" />
-                      )}
-                      <span>
-                        {webRequestEnabled === true ? 'Enabled' :
-                         webRequestEnabled === false ? 'Not Configured' : 'Unknown'}
-                      </span>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -410,39 +386,17 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                 <div className="flex items-start space-x-2">
                   <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="text-red-300 text-sm font-medium">Automated Trading Disabled</p>
+                    <p className="text-red-300 text-sm font-medium">Automated Trading is Disabled</p>
                     <p className="text-red-200 text-xs mt-1">
                       You must enable automated trading in MT5 to execute trades:
                     </p>
                     <ol className="text-red-200 text-xs mt-1 list-decimal list-inside">
                       <li>Open MetaTrader 5</li>
-                      <li>Go to Tools > Options</li>
+                      <li>Go to Tools &gt; Options</li>
                       <li>Select the "Expert Advisors" tab</li>
                       <li>Check "Allow automated trading"</li>
                       <li>Click "OK"</li>
-                    </ol>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* WebRequest Warning */}
-            {isConnected && webRequestEnabled === false && (
-              <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                <div className="flex items-start space-x-2">
-                  <AlertTriangle className="h-4 w-4 text-yellow-400 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-yellow-300 text-sm font-medium">WebRequest Not Configured</p>
-                    <p className="text-yellow-200 text-xs mt-1">
-                      If your MT5 connector needs to make web requests, enable this setting:
-                    </p>
-                    <ol className="text-yellow-200 text-xs mt-1 list-decimal list-inside">
-                      <li>Open MetaTrader 5</li>
-                      <li>Go to Tools > Options</li>
-                      <li>Select the "Expert Advisors" tab</li>
-                      <li>Check "Allow WebRequest for listed URL:"</li>
-                      <li>Add the necessary URLs (e.g., your API endpoints)</li>
-                      <li>Click "OK"</li>
+                      <li>Restart MetaTrader 5</li>
                     </ol>
                   </div>
                 </div>
@@ -861,27 +815,6 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                             </span>
                           </div>
                         </div>
-
-                        {/* WebRequest Setting */}
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-400">WebRequest:</span>
-                          <div className={`flex items-center space-x-1 ${
-                            webRequestEnabled === true ? 'text-green-400' :
-                            webRequestEnabled === false ? 'text-yellow-400' : 'text-slate-400'
-                          }`}>
-                            {webRequestEnabled === true ? (
-                              <CheckCircle className="h-3 w-3" />
-                            ) : webRequestEnabled === false ? (
-                              <AlertTriangle className="h-3 w-3" />
-                            ) : (
-                              <AlertCircle className="h-3 w-3" />
-                            )}
-                            <span>
-                              {webRequestEnabled === true ? 'Enabled' :
-                               webRequestEnabled === false ? 'Not Configured' : 'Unknown'}
-                            </span>
-                          </div>
-                        </div>
                         
                         <button
                           onClick={checkMT5Settings}
@@ -913,7 +846,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                               </p>
                               <ol className="text-red-200 text-xs mt-1 list-decimal list-inside">
                                 <li>Open MetaTrader 5</li>
-                                <li>Go to Tools > Options</li>
+                                <li>Go to Tools &gt; Options</li>
                                 <li>Select the "Expert Advisors" tab</li>
                                 <li>Check "Allow automated trading"</li>
                                 <li>Click "OK"</li>
@@ -923,32 +856,6 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                           </div>
                         </div>
                       )}
-
-                      {/* WebRequest Configuration Instructions */}
-                      <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                        <div className="flex items-start space-x-2">
-                          <AlertTriangle className="h-4 w-4 text-yellow-400 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <p className="text-yellow-300 text-sm font-medium">WebRequest Configuration</p>
-                            <p className="text-yellow-200 text-xs mt-1">
-                              For MT5 to communicate with external services, enable WebRequest:
-                            </p>
-                            <ol className="text-yellow-200 text-xs mt-1 list-decimal list-inside">
-                              <li>Open MetaTrader 5</li>
-                              <li>Go to Tools > Options</li>
-                              <li>Select the "Expert Advisors" tab</li>
-                              <li>Check "Allow WebRequest for listed URL:"</li>
-                              <li>Add these URLs (one per line):</li>
-                            </ol>
-                            <div className="mt-2 bg-slate-800 p-2 rounded text-xs font-mono text-blue-300">
-                              <div>https://elykntifkdaqiafnjosk.supabase.co</div>
-                              <div>https://api.openai.com</div>
-                              <div>http://localhost:3001</div>
-                              <div>https://pipnosis-production.up.railway.app</div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
                     </div>
                   )}
                 </div>
@@ -1024,27 +931,6 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                           </span>
                         </div>
                       </div>
-
-                      {/* WebRequest Setting */}
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400">WebRequest:</span>
-                        <div className={`flex items-center space-x-1 ${
-                          webRequestEnabled === true ? 'text-green-400' :
-                          webRequestEnabled === false ? 'text-yellow-400' : 'text-slate-400'
-                        }`}>
-                          {webRequestEnabled === true ? (
-                            <CheckCircle className="h-3 w-3" />
-                          ) : webRequestEnabled === false ? (
-                            <AlertTriangle className="h-3 w-3" />
-                          ) : (
-                            <AlertCircle className="h-3 w-3" />
-                          )}
-                          <span>
-                            {webRequestEnabled === true ? 'Enabled' :
-                             webRequestEnabled === false ? 'Not Configured' : 'Unknown'}
-                          </span>
-                        </div>
-                      </div>
                       
                       <button
                         onClick={checkMT5Settings}
@@ -1076,7 +962,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                             </p>
                             <ol className="text-red-200 text-xs mt-1 list-decimal list-inside">
                               <li>Open MetaTrader 5</li>
-                              <li>Go to Tools > Options</li>
+                              <li>Go to Tools &gt; Options</li>
                               <li>Select the "Expert Advisors" tab</li>
                               <li>Check "Allow automated trading"</li>
                               <li>Click "OK"</li>
@@ -1086,31 +972,6 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                         </div>
                       </div>
                     )}
-                  </div>
-
-                  {/* WebRequest Configuration Instructions */}
-                  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                    <div className="flex items-start space-x-3">
-                      <AlertTriangle className="h-5 w-5 text-yellow-400 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <h4 className="text-yellow-300 font-medium">WebRequest Configuration</h4>
-                        <p className="text-yellow-200 text-sm mt-1">
-                          For MT5 to communicate with external services, you need to enable WebRequest and add the following URLs:
-                        </p>
-                        <div className="mt-3 p-3 bg-slate-800 rounded-lg border border-slate-700">
-                          <h5 className="text-white text-sm font-medium mb-2">Required URLs:</h5>
-                          <div className="space-y-1 text-xs font-mono text-blue-300">
-                            <div>https://elykntifkdaqiafnjosk.supabase.co</div>
-                            <div>https://api.openai.com</div>
-                            <div>http://localhost:3001</div>
-                            <div>https://pipnosis-production.up.railway.app</div>
-                          </div>
-                          <p className="text-yellow-200 text-xs mt-3">
-                            To add these URLs: Tools > Options > Expert Advisors tab > Check "Allow WebRequest for listed URL:" > Add each URL
-                          </p>
-                        </div>
-                      </div>
-                    </div>
                   </div>
 
                   <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
