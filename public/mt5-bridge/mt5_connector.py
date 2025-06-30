@@ -14,15 +14,28 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
 import threading
 from dataclasses import dataclass, asdict
+import sys
 
 # Configure logging with UTF-8 encoding to fix emoji issues
+class UTF8StreamHandler(logging.StreamHandler):
+    def __init__(self, stream=None):
+        super().__init__(stream)
+        if hasattr(self.stream, 'reconfigure'):
+            try:
+                self.stream.reconfigure(encoding='utf-8')
+            except:
+                pass
+
+# Set up logging with proper encoding
+log_handlers = [
+    logging.FileHandler('mt5_bridge.log', encoding='utf-8'),
+    UTF8StreamHandler(sys.stdout)
+]
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('mt5_bridge.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+    handlers=log_handlers
 )
 logger = logging.getLogger(__name__)
 
@@ -404,7 +417,7 @@ class MT5Connector:
                 tp = data.get('tp')
                 comment = data.get('comment', 'Pipnosis AI Trade')
                 
-                logger.info(f"📤 Received order request: {order_type} {volume} {symbol} SL:{sl} TP:{tp}")
+                logger.info(f"Received order request: {order_type} {volume} {symbol} SL:{sl} TP:{tp}")
                 
                 result = self.place_order(symbol, order_type, volume, price=price, sl=sl, tp=tp, comment=comment)
                 
@@ -415,7 +428,7 @@ class MT5Connector:
                     'result': result
                 }
                 
-                logger.info(f"📥 Order result: {result}")
+                logger.info(f"Order result: {result}")
                 await websocket.send(json.dumps(response))
                 
             elif message_type == 'get_symbol_info':
