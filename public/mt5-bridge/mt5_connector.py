@@ -283,11 +283,17 @@ class MT5Connector:
                 trade_type = mt5.ORDER_TYPE_BUY
                 if price is None:
                     tick = mt5.symbol_info_tick(symbol)
+                    if tick is None:
+                        logger.error(f"Failed to get tick data for {symbol}")
+                        return {'success': False, 'error': f'No price data available for {symbol}'}
                     price = tick.ask
             elif order_type.lower() == 'sell':
                 trade_type = mt5.ORDER_TYPE_SELL
                 if price is None:
                     tick = mt5.symbol_info_tick(symbol)
+                    if tick is None:
+                        logger.error(f"Failed to get tick data for {symbol}")
+                        return {'success': False, 'error': f'No price data available for {symbol}'}
                     price = tick.bid
             else:
                 return {'success': False, 'error': f'Invalid order type: {order_type}'}
@@ -315,6 +321,10 @@ class MT5Connector:
                 
                 # Get current price
                 tick = mt5.symbol_info_tick(symbol)
+                if tick is None:
+                    logger.error(f"Failed to get tick data for {symbol}")
+                    return {'success': False, 'error': f'No price data available for {symbol}'}
+                
                 current_bid = tick.bid
                 current_ask = tick.ask
                 
@@ -381,6 +391,28 @@ class MT5Connector:
             retry_delay = 1.0  # seconds
             
             for attempt in range(max_retries):
+                # CRITICAL FIX: Ensure symbol is selected and has valid prices
+                if not mt5.symbol_select(symbol, True):
+                    logger.error(f"Failed to select symbol {symbol} for trading")
+                    return {'success': False, 'error': f'Failed to select symbol {symbol} for trading'}
+                
+                # Check if we have valid price data
+                tick = mt5.symbol_info_tick(symbol)
+                if tick is None or tick.bid == 0 or tick.ask == 0:
+                    logger.error(f"No valid price data for {symbol} (attempt {attempt+1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        logger.info(f"Waiting {retry_delay}s before retry...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        continue
+                    return {'success': False, 'error': f'No price data available for {symbol}'}
+                
+                # Update price based on latest tick
+                if order_type.lower() == 'buy':
+                    request["price"] = tick.ask
+                else:
+                    request["price"] = tick.bid
+                
                 # Send the order
                 result = mt5.order_send(request)
                 
@@ -397,7 +429,7 @@ class MT5Connector:
                     logger.error(f"Order error (attempt {attempt+1}/{max_retries}): {error_msg}")
                     
                     # Check for specific error codes that might be resolved by retrying
-                    if result.retcode in [10004, 10006, 10008, 10009, 10010, 10011, 10012, 10013, 10014, 10018]:
+                    if result.retcode in [10004, 10006, 10008, 10009, 10010, 10011, 10012, 10013, 10014, 10018, 10021]:
                         if attempt < max_retries - 1:
                             logger.info(f"Retrying order in {retry_delay} seconds...")
                             time.sleep(retry_delay)

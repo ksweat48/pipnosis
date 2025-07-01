@@ -2,7 +2,29 @@
 
 ## Common Issues and Solutions
 
-### 1. "Invalid stops" Error (Error Code 10016)
+### 1. "No prices" Error (Error Code 10021)
+
+**Symptoms:**
+- Error message: "Order failed: 10021 - No prices"
+- Trade execution fails despite connection being active
+
+**Solutions:**
+1. **Symbol Not Selected for Market Watch**
+   - The symbol you're trying to trade may not be selected in MT5
+   - Open MT5 terminal and add the symbol to Market Watch (right-click in Market Watch → Show All)
+   - The bridge now attempts to select the symbol automatically
+
+2. **Market Closed or No Liquidity**
+   - This error often occurs when the market is closed for the symbol
+   - Check if the forex market is open for the pair you're trading
+   - Some brokers have limited trading hours for certain instruments
+
+3. **Symbol Requires Initialization**
+   - Some symbols need time to initialize price data
+   - Try manually viewing the symbol chart in MT5 first
+   - The bridge now implements automatic retries for this error
+
+### 2. "Invalid stops" Error (Error Code 10016)
 
 **Symptoms:**
 - Error message: "Order failed: 10016 - Invalid stops"
@@ -24,7 +46,7 @@
    - MT5 will show the minimum allowed stop level distance
    - Use this as a reference for your automated trades
 
-### 2. Bridge Not Connecting to MT5
+### 3. Bridge Not Connecting to MT5
 
 **Symptoms:**
 - "MT5 initialization failed" error
@@ -52,7 +74,7 @@
    - Verify Python 3.8 or higher is installed: `python --version`
    - Reinstall the MetaTrader5 package: `pip install --force-reinstall MetaTrader5==5.0.45`
 
-### 3. WebSocket Connection Issues
+### 4. WebSocket Connection Issues
 
 **Symptoms:**
 - "WebSocket connection failed" error
@@ -77,7 +99,7 @@
    - Edit `mt5_connector.py` and change logging level to DEBUG
    - Restart the bridge and check for detailed error messages
 
-### 4. Trade Execution Failures
+### 5. Trade Execution Failures
 
 **Symptoms:**
 - "Order failed" errors
@@ -111,7 +133,7 @@
    - Check trading hours for the symbol
    - Verify minimum/maximum lot sizes
 
-### 5. Data Streaming Issues
+### 6. Data Streaming Issues
 
 **Symptoms:**
 - No account data showing in Pipnosis
@@ -133,7 +155,7 @@
    - The default update interval is 1 second
    - You can adjust this in the bridge code if needed
 
-### 6. Installation Issues
+### 7. Installation Issues
 
 **Symptoms:**
 - "Module not found" errors
@@ -255,6 +277,61 @@ print(f"Buy order - Minimum valid TP: {tick.ask + min_tp_distance}")
 # For sell orders
 print(f"Sell order - Minimum valid SL: {tick.ask + min_sl_distance}")
 print(f"Sell order - Minimum valid TP: {tick.bid - min_tp_distance}")
+
+mt5.shutdown()
+```
+
+### Checking Symbol Trading Hours
+
+Run this script to check if a symbol is currently tradable:
+
+```python
+import MetaTrader5 as mt5
+from datetime import datetime
+
+# Initialize MT5
+if not mt5.initialize():
+    print(f"MT5 initialization failed: {mt5.last_error()}")
+    exit()
+
+# Get symbol info
+symbol = "EURUSD"  # Change to your symbol
+symbol_info = mt5.symbol_info(symbol)
+
+if symbol_info is None:
+    print(f"Symbol {symbol} not found")
+    mt5.shutdown()
+    exit()
+
+# Check if symbol is selected in Market Watch
+if not symbol_info.visible:
+    print(f"Symbol {symbol} is not visible in Market Watch, selecting...")
+    if not mt5.symbol_select(symbol, True):
+        print(f"Failed to select symbol {symbol}")
+        mt5.shutdown()
+        exit()
+    else:
+        print(f"Symbol {symbol} selected successfully")
+        # Refresh symbol info
+        symbol_info = mt5.symbol_info(symbol)
+
+# Get current time
+current_time = datetime.now()
+server_time = mt5.symbol_info_tick(symbol).time
+print(f"Current local time: {current_time}")
+print(f"Server time: {datetime.fromtimestamp(server_time)}")
+
+# Check if trading is allowed
+print(f"Symbol: {symbol}")
+print(f"Trade mode: {symbol_info.trade_mode}")  # 0=disabled, 1=long only, 2=short only, 3=full
+print(f"Trading allowed: {'Yes' if symbol_info.trade_mode != 0 else 'No'}")
+print(f"Session status: {'Open' if symbol_info.session_deals > 0 else 'Closed'}")
+
+# Get current tick
+tick = mt5.symbol_info_tick(symbol)
+print(f"Current bid: {tick.bid}")
+print(f"Current ask: {tick.ask}")
+print(f"Last deal time: {datetime.fromtimestamp(tick.time)}")
 
 mt5.shutdown()
 ```
