@@ -75,6 +75,8 @@ export class MT5WebSocketClient {
   private emitter = new TinyEmitter();
   private pingInterval: NodeJS.Timeout | null = null;
   private pendingRequests: Map<string, { resolve: Function, reject: Function, timeout: NodeJS.Timeout }> = new Map();
+  private lastConnectionAttempt = 0;
+  private connectionAttemptThreshold = 5000; // 5 seconds between connection attempts
   
   constructor(
     private host: string = 'localhost',
@@ -108,6 +110,14 @@ export class MT5WebSocketClient {
    * Connect to the MT5 bridge WebSocket server
    */
   async connect(): Promise<boolean> {
+    // Prevent connection attempts too close together
+    const now = Date.now();
+    if (now - this.lastConnectionAttempt < this.connectionAttemptThreshold) {
+      console.log('🔄 Connection attempt throttled - too many attempts');
+      return false;
+    }
+    this.lastConnectionAttempt = now;
+
     if (this.isConnecting || (this.ws && this.ws.readyState === WebSocket.OPEN)) {
       console.log('🔌 Already connected or connecting...');
       return true;
@@ -154,11 +164,18 @@ export class MT5WebSocketClient {
   private attemptConnection(wsUrl: string): Promise<boolean> {
     return new Promise((resolve, reject) => {
       try {
+        // Close any existing connection
+        if (this.ws) {
+          this.ws.close();
+          this.ws = null;
+        }
+        
         this.ws = new WebSocket(wsUrl);
         
         const timeout = setTimeout(() => {
           if (this.ws) {
             this.ws.close();
+            this.ws = null;
           }
           reject(new Error('Connection timeout'));
         }, 5000);
@@ -176,6 +193,13 @@ export class MT5WebSocketClient {
           // Store connection status
           localStorage.setItem('pipnosis_mt5_connected', 'true');
           localStorage.setItem('pipnosis_mt5_bridge_url', wsUrl);
+          
+          // Send an initial ping to verify connection is working
+          this.sendPing().then(() => {
+            console.log('✅ Initial ping successful');
+          }).catch(err => {
+            console.warn('⚠️ Initial ping failed:', err);
+          });
           
           resolve(true);
         };
@@ -200,9 +224,10 @@ export class MT5WebSocketClient {
           // Update connection status
           localStorage.setItem('pipnosis_mt5_connected', 'false');
           
-          // Attempt to reconnect if not a clean close
+          // Don't attempt to reconnect if it was a clean close
           if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.scheduleReconnect();
+            // Don't schedule reconnect here - let the caller handle it
+            console.log('🔄 Connection closed, but not scheduling automatic reconnect');
           }
           
           if (event.code === 1000) {
@@ -637,9 +662,21 @@ export class MT5WebSocketClient {
    * Start ping interval to keep connection alive
    */
   private startPingInterval(): void {
+    // Clear any existing interval
+    this.stopPingInterval();
+    
     this.pingInterval = setInterval(() => {
       if (this.isConnected()) {
-        this.send({ type: 'ping', timestamp: new Date().toISOString() });
+        try {
+          this.send({ type: 'ping', timestamp: new Date().toISOString() });
+          console.log('📡 Sent ping to MT5 bridge');
+        } catch (error) {
+          console.error('❌ Failed to send ping:', error);
+          // Don't try to reconnect here - let the onclose handler do it
+        }
+      } else {
+        console.warn('⚠️ Cannot send ping - not connected');
+        this.stopPingInterval();
       }
     }, 30000); // Ping every 30 seconds
   }

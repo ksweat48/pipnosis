@@ -76,29 +76,32 @@ class MT5Connector:
         try:
             logger.info("Initializing MT5 connection...")
             
-            # Initialize MT5 connection
+            # Try to initialize MetaTrader 5
             if not mt5.initialize():
                 error = mt5.last_error()
-                logger.error(f"MT5 initialization failed: {error}")
+                logger.error(f"❌ MT5 initialization failed: {error}")
                 return False
-            
+
             # Get account info
             account_info = mt5.account_info()
             if account_info is None:
-                logger.error("Failed to get account info - MT5 not logged in?")
+                logger.error("❌ Failed to get account info — MT5 not logged in?")
                 mt5.shutdown()
                 return False
+
+            self.account_info = account_info
+            self.connected = True
+            logger.info(f"✅ Connected to MT5 account {account_info.login}, balance: {account_info.balance}")
             
             # Check if trading is allowed
             if not account_info.trade_allowed:
-                logger.warning("Trading is not allowed on this account")
+                logger.warning("⚠️ Trading is not allowed on this account")
                 
             # Check if automated trading is enabled
             if not account_info.trade_expert:
-                logger.warning("⚠️ AUTOMATED TRADING IS DISABLED IN MT5! Enable it in Tools > Options > Expert Advisors > Allow automated trading")
+                logger.warning("⚠️ AUTOMATED TRADING IS DISABLED IN MT5! Enable it in Tools &gt; Options &gt; Expert Advisors &gt; Allow automated trading")
             
-            self.connected = True
-            logger.info(f"MT5 connected successfully!")
+            logger.info(f"✅ MT5 connected successfully!")
             logger.info(f"Account: {account_info.login}")
             logger.info(f"Server: {account_info.server}")
             logger.info(f"Balance: ${account_info.balance:,.2f}")
@@ -258,8 +261,8 @@ class MT5Connector:
         # Check if automated trading is enabled
         account_info = mt5.account_info()
         if account_info and not account_info.trade_expert:
-            logger.error("⚠️ AUTOMATED TRADING IS DISABLED IN MT5! Enable it in Tools > Options > Expert Advisors > Allow automated trading")
-            return {'success': False, 'error': 'Automated trading is disabled in MT5. Enable it in Tools > Options > Expert Advisors > Allow automated trading'}
+            logger.error("⚠️ AUTOMATED TRADING IS DISABLED IN MT5! Enable it in Tools &gt; Options &gt; Expert Advisors &gt; Allow automated trading")
+            return {'success': False, 'error': 'Automated trading is disabled in MT5. Enable it in Tools &gt; Options &gt; Expert Advisors &gt; Allow automated trading'}
         
         # Verify symbol exists
         symbol_info = mt5.symbol_info(symbol)
@@ -434,7 +437,7 @@ class MT5Connector:
     
     async def handle_websocket_client(self, websocket, path):
         """Handle new WebSocket client connection"""
-        logger.info(f"New WebSocket client connected from {websocket.remote_address}")
+        logger.info(f"🔌 New WebSocket client connected from {websocket.remote_address}")
         self.websocket_clients.add(websocket)
         
         try:
@@ -452,12 +455,21 @@ class MT5Connector:
             # Handle incoming messages
             async for message in websocket:
                 try:
+                    logger.info(f"📨 Received message: {message}")
                     data = json.loads(message)
-                    await self.handle_client_message(websocket, data)
+                    response = await self.handle_client_message(websocket, data)
+                    if response:
+                        await websocket.send(json.dumps(response))
+                        logger.info(f"✅ Sent response: {response['type']}")
+                    else:
+                        await websocket.send(json.dumps({"type": "ack", "message": "Message received"}))
+                        logger.info("✅ Sent acknowledgment")
                 except json.JSONDecodeError:
                     logger.error(f"Invalid JSON from client: {message}")
+                    await websocket.send(json.dumps({"type": "error", "error": "Invalid JSON"}))
                 except Exception as e:
                     logger.error(f"Error handling client message: {e}")
+                    await websocket.send(json.dumps({"type": "error", "error": str(e)}))
                     
         except websockets.exceptions.ConnectionClosed:
             logger.info("WebSocket client disconnected")
@@ -494,7 +506,7 @@ class MT5Connector:
                 }
                 
                 logger.info(f"Order result: {result}")
-                await websocket.send(json.dumps(response))
+                return response
                 
             elif message_type == 'get_symbol_info':
                 # Handle symbol info request
@@ -509,7 +521,7 @@ class MT5Connector:
                     'data': symbol_info
                 }
                 
-                await websocket.send(json.dumps(response))
+                return response
                 
             elif message_type == 'ping':
                 # Handle ping request
@@ -520,21 +532,19 @@ class MT5Connector:
                     'connection_status': 'connected' if self.connected else 'disconnected'
                 }
                 
-                await websocket.send(json.dumps(response))
+                return response
+                
+            return None  # No specific response needed
                 
         except Exception as e:
             logger.error(f"Error handling client message: {e}")
             # Send error response
-            try:
-                error_response = {
-                    'type': 'error',
-                    'requestId': data.get('requestId', 'unknown'),
-                    'timestamp': datetime.now().isoformat(),
-                    'error': str(e)
-                }
-                await websocket.send(json.dumps(error_response))
-            except:
-                pass
+            return {
+                'type': 'error',
+                'requestId': data.get('requestId', 'unknown'),
+                'timestamp': datetime.now().isoformat(),
+                'error': str(e)
+            }
     
     async def start_websocket_server(self, host='localhost', port=8765):
         """Start the WebSocket server with port fallback"""
