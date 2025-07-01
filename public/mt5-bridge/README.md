@@ -1,67 +1,46 @@
-# Pipnosis MT5 Bridge - Manual Installation
+# Pipnosis MT5 Bridge - Deployment Guide
 
-## Quick Setup Guide
+This guide will help you set up and run the MT5 bridge that connects your MetaTrader 5 terminal with Pipnosis AI.
 
-### Prerequisites
-- Python 3.8 or higher
-- MetaTrader 5 terminal installed and logged in
-- pip (Python package installer)
+## Quick Start
 
-### Installation Steps
+### Windows Setup
+1. Make sure MetaTrader 5 is installed and running
+2. Run the `install_dependencies.bat` script to install required Python packages
+3. Start the bridge with `python mt5_connector.py`
 
-1. **Create Bridge Directory**
-   ```bash
-   mkdir C:\Pipnosis\MT5Bridge
-   cd C:\Pipnosis\MT5Bridge
-   ```
+### macOS/Linux Setup
+1. Make sure MetaTrader 5 is installed and running (via Wine or on a Windows VM)
+2. Run the `install_dependencies.sh` script to install required Python packages
+3. Start the bridge with `python3 mt5_connector.py`
 
-2. **Download Files**
-   - Download `mt5_connector.py` and `requirements.txt` from this directory
-   - Place them in your bridge directory
+## Troubleshooting
 
-3. **Install Dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+If you encounter any issues:
+1. Check the `troubleshooting.md` file for common problems and solutions
+2. Run `check_symbol.py` to verify your trading symbols are properly configured
+3. Ensure MetaTrader 5 is running and logged into an account
+4. Verify that automated trading is enabled in MT5 (Tools > Options > Expert Advisors)
 
-4. **Start the Bridge**
-   ```bash
-   python mt5_connector.py
-   ```
+## Connection Status
 
-### Expected Output
-When the bridge starts successfully, you should see:
-```
-✅ MT5 connected successfully!
-📊 Account: [Your Account Number]
-🏦 Server: [Your Server]
-💰 Balance: $[Your Balance]
-✅ WebSocket server started on ws://localhost:8765
-✅ Pipnosis MT5 Connector is running!
-```
+When the bridge is running successfully, you'll see:
+- "MT5 connected successfully" in the console
+- "WebSocket server started" message with the port number
+- Your account information displayed (login, balance, etc.)
 
-### Troubleshooting
+The Pipnosis web app will automatically connect to the bridge when it's running.
 
-**"MT5 initialization failed"**
-- Ensure MetaTrader 5 is running and logged in
-- Check that your account allows API access
+## Common Issues
 
-**"Failed to get account info"**
-- Make sure you're logged into MT5
-- Verify your account is active
+### "No module named 'MetaTrader5'"
+This means the MetaTrader5 Python package is not installed. Run the appropriate installation script for your platform.
 
-**"Module not found" errors**
-- Run `pip install -r requirements.txt` again
-- Ensure you're using the correct Python environment
+### "Failed to initialize MT5"
+Make sure MetaTrader 5 is running and logged into an account. The bridge cannot connect to a closed MT5 terminal.
 
-### Connection from Pipnosis
-1. Open Pipnosis web application
-2. Click the MT5 button (should turn green when bridge is running)
-3. Follow the connection wizard
-4. Your live MT5 data will appear in the dashboard
+### "Automated trading is disabled"
+Go to Tools > Options > Expert Advisors in MT5 and check "Allow automated trading".
 
-### Security Notes
-- The bridge runs locally on your computer
-- No data is sent to external servers
-- WebSocket connection is localhost-only
-- Your MT5 credentials never leave your computer
+### "No prices" Error
+This usually means the symbol is not properly selected in Market Watch or the market is closed. Use the `check_symbol.py` script to diagnose the issue.
