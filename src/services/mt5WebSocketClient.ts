@@ -1,7 +1,3 @@
-/**
- * Pipnosis MT5 WebSocket Client
- * Connects to the local MT5 bridge and receives real-time data
- */
 import TinyEmitter from 'tiny-emitter';
 
 export interface MT5AccountData {

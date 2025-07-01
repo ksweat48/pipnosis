@@ -24,6 +24,53 @@
    - Try manually viewing the symbol chart in MT5 first
    - The bridge now implements automatic retries for this error
 
+4. **Check Symbol Trading Hours**
+   - Run this script to check if a symbol is currently tradable:
+   ```python
+   import MetaTrader5 as mt5
+   from datetime import datetime
+   
+   # Initialize MT5
+   if not mt5.initialize():
+       print(f"MT5 initialization failed: {mt5.last_error()}")
+       exit()
+   
+   # Get symbol info
+   symbol = "EURUSD"  # Change to your symbol
+   symbol_info = mt5.symbol_info(symbol)
+   
+   if symbol_info is None:
+       print(f"Symbol {symbol} not found")
+       mt5.shutdown()
+       exit()
+   
+   # Check if symbol is selected in Market Watch
+   if not symbol_info.visible:
+       print(f"Symbol {symbol} is not visible in Market Watch, selecting...")
+       if not mt5.symbol_select(symbol, True):
+           print(f"Failed to select symbol {symbol}")
+       else:
+           print(f"Symbol {symbol} selected successfully")
+   
+   # Get current time
+   current_time = datetime.now()
+   server_time = mt5.symbol_info_tick(symbol).time
+   print(f"Current local time: {current_time}")
+   print(f"Server time: {datetime.fromtimestamp(server_time)}")
+   
+   # Check if trading is allowed
+   print(f"Symbol: {symbol}")
+   print(f"Trade mode: {symbol_info.trade_mode}")  # 0=disabled, 1=long only, 2=short only, 3=full
+   print(f"Trading allowed: {'Yes' if symbol_info.trade_mode != 0 else 'No'}")
+   
+   # Get current tick
+   tick = mt5.symbol_info_tick(symbol)
+   print(f"Current bid: {tick.bid}")
+   print(f"Current ask: {tick.ask}")
+   
+   mt5.shutdown()
+   ```
+
 ### 2. "Invalid stops" Error (Error Code 10016)
 
 **Symptoms:**
@@ -45,6 +92,53 @@
    - Open MT5 and try to place the same trade manually
    - MT5 will show the minimum allowed stop level distance
    - Use this as a reference for your automated trades
+
+4. **Check Minimum Stop Levels**
+   - Run this script to check minimum stop levels for a specific symbol:
+   ```python
+   import MetaTrader5 as mt5
+   
+   # Initialize MT5
+   if not mt5.initialize():
+       print(f"MT5 initialization failed: {mt5.last_error()}")
+       exit()
+   
+   # Get symbol info
+   symbol = "EURUSD"  # Change to your symbol
+   symbol_info = mt5.symbol_info(symbol)
+   
+   if symbol_info is None:
+       print(f"Symbol {symbol} not found")
+       mt5.shutdown()
+       exit()
+   
+   # Get current tick
+   tick = mt5.symbol_info_tick(symbol)
+   
+   print(f"Symbol: {symbol}")
+   print(f"Point: {symbol_info.point}")
+   print(f"Digits: {symbol_info.digits}")
+   print(f"Trade stops level: {symbol_info.trade_stops_level} points")
+   print(f"Current bid: {tick.bid}")
+   print(f"Current ask: {tick.ask}")
+   
+   # Calculate minimum stop levels
+   min_sl_distance = symbol_info.trade_stops_level * symbol_info.point
+   min_tp_distance = symbol_info.trade_stops_level * symbol_info.point
+   
+   print(f"Minimum SL distance: {min_sl_distance}")
+   print(f"Minimum TP distance: {min_tp_distance}")
+   
+   # For buy orders
+   print(f"Buy order - Minimum valid SL: {tick.bid - min_sl_distance}")
+   print(f"Buy order - Minimum valid TP: {tick.ask + min_tp_distance}")
+   
+   # For sell orders
+   print(f"Sell order - Minimum valid SL: {tick.ask + min_sl_distance}")
+   print(f"Sell order - Minimum valid TP: {tick.bid - min_tp_distance}")
+   
+   mt5.shutdown()
+   ```
 
 ### 3. Bridge Not Connecting to MT5
 
@@ -230,108 +324,4 @@ async def test_websocket():
         print(f"Error: {e}")
 
 asyncio.run(test_websocket())
-```
-
-### Checking Symbol Stop Levels
-
-Run this script to check minimum stop levels for a specific symbol:
-
-```python
-import MetaTrader5 as mt5
-
-# Initialize MT5
-if not mt5.initialize():
-    print(f"MT5 initialization failed: {mt5.last_error()}")
-    exit()
-
-# Get symbol info
-symbol = "EURUSD"  # Change to your symbol
-symbol_info = mt5.symbol_info(symbol)
-
-if symbol_info is None:
-    print(f"Symbol {symbol} not found")
-    mt5.shutdown()
-    exit()
-
-# Get current tick
-tick = mt5.symbol_info_tick(symbol)
-
-print(f"Symbol: {symbol}")
-print(f"Point: {symbol_info.point}")
-print(f"Digits: {symbol_info.digits}")
-print(f"Trade stops level: {symbol_info.trade_stops_level} points")
-print(f"Current bid: {tick.bid}")
-print(f"Current ask: {tick.ask}")
-
-# Calculate minimum stop levels
-min_sl_distance = symbol_info.trade_stops_level * symbol_info.point
-min_tp_distance = symbol_info.trade_stops_level * symbol_info.point
-
-print(f"Minimum SL distance: {min_sl_distance}")
-print(f"Minimum TP distance: {min_tp_distance}")
-
-# For buy orders
-print(f"Buy order - Minimum valid SL: {tick.bid - min_sl_distance}")
-print(f"Buy order - Minimum valid TP: {tick.ask + min_tp_distance}")
-
-# For sell orders
-print(f"Sell order - Minimum valid SL: {tick.ask + min_sl_distance}")
-print(f"Sell order - Minimum valid TP: {tick.bid - min_tp_distance}")
-
-mt5.shutdown()
-```
-
-### Checking Symbol Trading Hours
-
-Run this script to check if a symbol is currently tradable:
-
-```python
-import MetaTrader5 as mt5
-from datetime import datetime
-
-# Initialize MT5
-if not mt5.initialize():
-    print(f"MT5 initialization failed: {mt5.last_error()}")
-    exit()
-
-# Get symbol info
-symbol = "EURUSD"  # Change to your symbol
-symbol_info = mt5.symbol_info(symbol)
-
-if symbol_info is None:
-    print(f"Symbol {symbol} not found")
-    mt5.shutdown()
-    exit()
-
-# Check if symbol is selected in Market Watch
-if not symbol_info.visible:
-    print(f"Symbol {symbol} is not visible in Market Watch, selecting...")
-    if not mt5.symbol_select(symbol, True):
-        print(f"Failed to select symbol {symbol}")
-        mt5.shutdown()
-        exit()
-    else:
-        print(f"Symbol {symbol} selected successfully")
-        # Refresh symbol info
-        symbol_info = mt5.symbol_info(symbol)
-
-# Get current time
-current_time = datetime.now()
-server_time = mt5.symbol_info_tick(symbol).time
-print(f"Current local time: {current_time}")
-print(f"Server time: {datetime.fromtimestamp(server_time)}")
-
-# Check if trading is allowed
-print(f"Symbol: {symbol}")
-print(f"Trade mode: {symbol_info.trade_mode}")  # 0=disabled, 1=long only, 2=short only, 3=full
-print(f"Trading allowed: {'Yes' if symbol_info.trade_mode != 0 else 'No'}")
-print(f"Session status: {'Open' if symbol_info.session_deals > 0 else 'Closed'}")
-
-# Get current tick
-tick = mt5.symbol_info_tick(symbol)
-print(f"Current bid: {tick.bid}")
-print(f"Current ask: {tick.ask}")
-print(f"Last deal time: {datetime.fromtimestamp(tick.time)}")
-
-mt5.shutdown()
 ```

@@ -264,18 +264,27 @@ class MT5Connector:
             logger.error("⚠️ AUTOMATED TRADING IS DISABLED IN MT5! Enable it in Tools > Options > Expert Advisors > Allow automated trading")
             return {'success': False, 'error': 'Automated trading is disabled in MT5. Enable it in Tools > Options > Expert Advisors > Allow automated trading'}
         
-        # Verify symbol exists
+        # CRITICAL FIX: Ensure symbol is selected in Market Watch
+        if not mt5.symbol_select(symbol, True):
+            logger.error(f"Failed to select symbol {symbol} in Market Watch")
+            return {'success': False, 'error': f'Failed to select symbol {symbol} in Market Watch'}
+        
+        # Verify symbol exists and has valid price data
         symbol_info = mt5.symbol_info(symbol)
         if symbol_info is None:
             logger.error(f"Symbol {symbol} not found")
             return {'success': False, 'error': f'Symbol {symbol} not found'}
         
-        # Enable symbol for trading if needed
-        if not symbol_info.visible:
-            logger.info(f"Symbol {symbol} is not visible, enabling...")
-            if not mt5.symbol_select(symbol, True):
-                logger.error(f"Failed to enable symbol {symbol}")
-                return {'success': False, 'error': f'Failed to enable symbol {symbol}'}
+        # Check if symbol is tradable
+        if symbol_info.trade_mode == 0:
+            logger.error(f"Symbol {symbol} is not available for trading")
+            return {'success': False, 'error': f'Symbol {symbol} is not available for trading'}
+        
+        # Get current tick data to verify prices are available
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None or tick.bid == 0 or tick.ask == 0:
+            logger.error(f"No valid price data for {symbol}")
+            return {'success': False, 'error': f'No valid price data for {symbol}. Market may be closed.'}
         
         try:
             # Determine order type
@@ -405,7 +414,7 @@ class MT5Connector:
                         time.sleep(retry_delay)
                         retry_delay *= 2  # Exponential backoff
                         continue
-                    return {'success': False, 'error': f'No price data available for {symbol}'}
+                    return {'success': False, 'error': f'No price data available for {symbol}. Market may be closed.'}
                 
                 # Update price based on latest tick
                 if order_type.lower() == 'buy':
