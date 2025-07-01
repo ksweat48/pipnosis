@@ -99,7 +99,7 @@ class MT5Connector:
                 
             # Check if automated trading is enabled
             if not account_info.trade_expert:
-                logger.warning("⚠️ AUTOMATED TRADING IS DISABLED IN MT5! Enable it in Tools &gt; Options &gt; Expert Advisors &gt; Allow automated trading")
+                logger.warning("⚠️ AUTOMATED TRADING IS DISABLED IN MT5! Enable it in Tools > Options > Expert Advisors > Allow automated trading")
             
             logger.info(f"✅ MT5 connected successfully!")
             logger.info(f"Account: {account_info.login}")
@@ -261,8 +261,8 @@ class MT5Connector:
         # Check if automated trading is enabled
         account_info = mt5.account_info()
         if account_info and not account_info.trade_expert:
-            logger.error("⚠️ AUTOMATED TRADING IS DISABLED IN MT5! Enable it in Tools &gt; Options &gt; Expert Advisors &gt; Allow automated trading")
-            return {'success': False, 'error': 'Automated trading is disabled in MT5. Enable it in Tools &gt; Options &gt; Expert Advisors &gt; Allow automated trading'}
+            logger.error("⚠️ AUTOMATED TRADING IS DISABLED IN MT5! Enable it in Tools > Options > Expert Advisors > Allow automated trading")
+            return {'success': False, 'error': 'Automated trading is disabled in MT5. Enable it in Tools > Options > Expert Advisors > Allow automated trading'}
         
         # Verify symbol exists
         symbol_info = mt5.symbol_info(symbol)
@@ -306,6 +306,53 @@ class MT5Connector:
             
             # Round volume to valid step
             volume = round(volume / volume_step) * volume_step
+            
+            # CRITICAL FIX: Validate stop loss and take profit levels
+            if sl is not None or tp is not None:
+                # Get symbol properties
+                point = symbol_info.point
+                digits = symbol_info.digits
+                
+                # Get current price
+                tick = mt5.symbol_info_tick(symbol)
+                current_bid = tick.bid
+                current_ask = tick.ask
+                
+                # Calculate minimum stop level in points
+                stop_level = symbol_info.trade_stops_level
+                
+                # Convert stop level from points to price
+                min_stop_distance = stop_level * point
+                
+                # Validate and adjust stop loss
+                if sl is not None:
+                    if order_type.lower() == 'buy':
+                        # For buy orders, SL must be below current price
+                        min_valid_sl = current_bid - min_stop_distance
+                        if sl > min_valid_sl:
+                            logger.warning(f"Stop loss {sl} too close to current price {current_bid}, adjusting to {min_valid_sl:.{digits}f}")
+                            sl = min_valid_sl
+                    else:  # sell order
+                        # For sell orders, SL must be above current price
+                        min_valid_sl = current_ask + min_stop_distance
+                        if sl < min_valid_sl:
+                            logger.warning(f"Stop loss {sl} too close to current price {current_ask}, adjusting to {min_valid_sl:.{digits}f}")
+                            sl = min_valid_sl
+                
+                # Validate and adjust take profit
+                if tp is not None:
+                    if order_type.lower() == 'buy':
+                        # For buy orders, TP must be above current price
+                        min_valid_tp = current_ask + min_stop_distance
+                        if tp < min_valid_tp:
+                            logger.warning(f"Take profit {tp} too close to current price {current_ask}, adjusting to {min_valid_tp:.{digits}f}")
+                            tp = min_valid_tp
+                    else:  # sell order
+                        # For sell orders, TP must be below current price
+                        min_valid_tp = current_bid - min_stop_distance
+                        if tp > min_valid_tp:
+                            logger.warning(f"Take profit {tp} too close to current price {current_bid}, adjusting to {min_valid_tp:.{digits}f}")
+                            tp = min_valid_tp
             
             # Prepare the request
             request = {

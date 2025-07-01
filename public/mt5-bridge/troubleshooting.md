@@ -2,7 +2,29 @@
 
 ## Common Issues and Solutions
 
-### 1. Bridge Not Connecting to MT5
+### 1. "Invalid stops" Error (Error Code 10016)
+
+**Symptoms:**
+- Error message: "Order failed: 10016 - Invalid stops"
+- Trade execution fails despite connection being active
+
+**Solutions:**
+1. **Stop Loss/Take Profit Too Close to Current Price**
+   - MetaTrader 5 requires a minimum distance between the current price and stop levels
+   - This distance is defined by the broker and can vary by symbol
+   - The bridge now automatically adjusts stop levels to valid values
+
+2. **Check Symbol Properties**
+   - Different symbols have different minimum stop level requirements
+   - For major pairs, typically 5-10 pips minimum distance is required
+   - For exotic pairs or during high volatility, this can be higher
+
+3. **Verify in MT5 Terminal**
+   - Open MT5 and try to place the same trade manually
+   - MT5 will show the minimum allowed stop level distance
+   - Use this as a reference for your automated trades
+
+### 2. Bridge Not Connecting to MT5
 
 **Symptoms:**
 - "MT5 initialization failed" error
@@ -30,7 +52,7 @@
    - Verify Python 3.8 or higher is installed: `python --version`
    - Reinstall the MetaTrader5 package: `pip install --force-reinstall MetaTrader5==5.0.45`
 
-### 2. WebSocket Connection Issues
+### 3. WebSocket Connection Issues
 
 **Symptoms:**
 - "WebSocket connection failed" error
@@ -55,7 +77,7 @@
    - Edit `mt5_connector.py` and change logging level to DEBUG
    - Restart the bridge and check for detailed error messages
 
-### 3. Trade Execution Failures
+### 4. Trade Execution Failures
 
 **Symptoms:**
 - "Order failed" errors
@@ -89,7 +111,7 @@
    - Check trading hours for the symbol
    - Verify minimum/maximum lot sizes
 
-### 4. Data Streaming Issues
+### 5. Data Streaming Issues
 
 **Symptoms:**
 - No account data showing in Pipnosis
@@ -111,7 +133,7 @@
    - The default update interval is 1 second
    - You can adjust this in the bridge code if needed
 
-### 5. Installation Issues
+### 6. Installation Issues
 
 **Symptoms:**
 - "Module not found" errors
@@ -186,4 +208,53 @@ async def test_websocket():
         print(f"Error: {e}")
 
 asyncio.run(test_websocket())
+```
+
+### Checking Symbol Stop Levels
+
+Run this script to check minimum stop levels for a specific symbol:
+
+```python
+import MetaTrader5 as mt5
+
+# Initialize MT5
+if not mt5.initialize():
+    print(f"MT5 initialization failed: {mt5.last_error()}")
+    exit()
+
+# Get symbol info
+symbol = "EURUSD"  # Change to your symbol
+symbol_info = mt5.symbol_info(symbol)
+
+if symbol_info is None:
+    print(f"Symbol {symbol} not found")
+    mt5.shutdown()
+    exit()
+
+# Get current tick
+tick = mt5.symbol_info_tick(symbol)
+
+print(f"Symbol: {symbol}")
+print(f"Point: {symbol_info.point}")
+print(f"Digits: {symbol_info.digits}")
+print(f"Trade stops level: {symbol_info.trade_stops_level} points")
+print(f"Current bid: {tick.bid}")
+print(f"Current ask: {tick.ask}")
+
+# Calculate minimum stop levels
+min_sl_distance = symbol_info.trade_stops_level * symbol_info.point
+min_tp_distance = symbol_info.trade_stops_level * symbol_info.point
+
+print(f"Minimum SL distance: {min_sl_distance}")
+print(f"Minimum TP distance: {min_tp_distance}")
+
+# For buy orders
+print(f"Buy order - Minimum valid SL: {tick.bid - min_sl_distance}")
+print(f"Buy order - Minimum valid TP: {tick.ask + min_tp_distance}")
+
+# For sell orders
+print(f"Sell order - Minimum valid SL: {tick.ask + min_sl_distance}")
+print(f"Sell order - Minimum valid TP: {tick.bid - min_tp_distance}")
+
+mt5.shutdown()
 ```

@@ -573,27 +573,6 @@ export class MT5WebSocketClient {
   }
 
   /**
-   * Schedule a reconnection attempt
-   */
-  private scheduleReconnect(): void {
-    this.reconnectAttempts++;
-    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
-    
-    console.log(`🔄 Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
-    
-    setTimeout(() => {
-      if (this.reconnectAttempts <= this.maxReconnectAttempts) {
-        this.connect().catch(error => {
-          console.error('❌ Reconnection failed:', error);
-        });
-      } else {
-        console.error('❌ Max reconnection attempts reached');
-        this.emit('max_reconnects_reached');
-      }
-    }, delay);
-  }
-
-  /**
    * Handle incoming messages from MT5 bridge
    */
   private handleMessage(data: any): void {
