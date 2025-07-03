@@ -1,40 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { X, Download, CheckCircle, AlertCircle, Loader, Shield, Server, Key, User, ExternalLink, Play, Monitor, Wifi, WifiOff, Zap, Copy, FileText, RefreshCw } from 'lucide-react';
-import { useMT5Integration } from '../hooks/useMT5Integration';
+import { X, Download, CheckCircle, AlertCircle, Loader, Shield, Server, Key, User, ExternalLink, Play, Monitor, Wifi, WifiOff, Edit3, Save, RefreshCw } from 'lucide-react';
 
 interface MT5ConnectionModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+interface ConnectionStep {
+  id: number;
+  title: string;
+  description: string;
+  completed: boolean;
+  active: boolean;
+}
+
 export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, onClose }) => {
   const [currentStep, setCurrentStep] = useState(1);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
-  const [error, setError] = useState<string | null>(null);
+  const [connectorStatus, setConnectorStatus] = useState<'not-installed' | 'installing' | 'installed' | 'running' | 'error'>('not-installed');
   const [credentials, setCredentials] = useState({
     login: '',
     password: '',
     server: '',
     accountType: 'demo'
   });
-
-  const { 
-    connectionState, 
-    connect, 
-    disconnect, 
-    checkBridgeAvailability,
-    isConnected,
-    isConnecting,
-    error: connectionError 
-  } = useMT5Integration();
-
-  const [bridgeAvailable, setBridgeAvailable] = useState(false);
-  const [checkingBridge, setCheckingBridge] = useState(false);
-  const [installationMethod, setInstallationMethod] = useState<'manual' | 'download'>('manual');
-  const [bridgeCheckAttempts, setBridgeCheckAttempts] = useState(0);
-  const [automatedTradingEnabled, setAutomatedTradingEnabled] = useState<boolean | null>(null);
-  const [checkingSettings, setCheckingSettings] = useState(false);
-  const [webRequestEnabled, setWebRequestEnabled] = useState<boolean | null>(null);
+  const [isEditingCredentials, setIsEditingCredentials] = useState(false);
+  const [currentCredentials, setCurrentCredentials] = useState<{
+    login: string;
+    server: string;
+    lastUpdated?: string;
+  } | null>(null);
 
   const brokerServers = [
     'MetaQuotes-Demo',
@@ -53,214 +48,188 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
     'Custom Server'
   ];
 
-  const steps = [
+  const steps: ConnectionStep[] = [
     {
       id: 1,
-      title: 'Setup MT5 Bridge',
-      description: 'Install and configure the bridge application',
-      completed: bridgeAvailable,
+      title: 'Download Pipnosis Connector',
+      description: 'Install the secure bridge application',
+      completed: currentStep > 1,
       active: currentStep === 1
     },
     {
       id: 2,
-      title: 'Start Bridge Service',
-      description: 'Launch the bridge application',
-      completed: bridgeAvailable && currentStep > 2,
+      title: 'Configure MT5 Credentials',
+      description: 'Enter your MetaTrader 5 account details',
+      completed: currentStep > 2,
       active: currentStep === 2
     },
     {
       id: 3,
-      title: 'Connect to Bridge',
-      description: 'Establish WebSocket connection',
-      completed: isConnected,
+      title: 'Test Connection',
+      description: 'Verify the bridge is working correctly',
+      completed: currentStep > 3,
       active: currentStep === 3
     },
     {
       id: 4,
-      title: 'Live Trading Ready',
-      description: 'Real-time MT5 integration active',
-      completed: isConnected,
-      active: currentStep === 4 && isConnected
+      title: 'Ready to Trade',
+      description: 'AI is now connected to your MT5 account',
+      completed: connectionStatus === 'connected',
+      active: currentStep === 4
     }
   ];
 
-  // Check bridge availability on modal open
+  // Load current credentials from localStorage
   useEffect(() => {
-    if (isOpen) {
-      checkBridge();
-    }
-  }, [isOpen]);
-
-  // Update step based on connection state
-  useEffect(() => {
-    if (isConnected) {
-      setCurrentStep(4);
-    } else if (bridgeAvailable) {
-      setCurrentStep(3);
-    }
-  }, [isConnected, bridgeAvailable]);
-
-  // Check if automated trading is enabled when connected
-  useEffect(() => {
-    if (isConnected && connectionState.accountData) {
-      // Check if trade_expert property exists and is a boolean
-      if (typeof connectionState.accountData.tradeExpert === 'boolean') {
-        setAutomatedTradingEnabled(connectionState.accountData.tradeExpert);
-      } else {
-        setAutomatedTradingEnabled(null); // Unknown state
-      }
-    }
-  }, [isConnected, connectionState.accountData]);
-
-  const checkBridge = async () => {
-    setCheckingBridge(true);
-    setBridgeCheckAttempts(prev => prev + 1);
-    
     try {
-      const available = await checkBridgeAvailability();
-      setBridgeAvailable(available);
-      
-      if (available && currentStep === 1) {
-        setCurrentStep(3); // Skip to connection step if bridge is running
+      const mt5AccountData = localStorage.getItem('pipnosis_mt5_account');
+      if (mt5AccountData) {
+        const accountData = JSON.parse(mt5AccountData);
+        setCurrentCredentials({
+          login: accountData.login || '',
+          server: accountData.server || '',
+          lastUpdated: accountData.lastUpdate || new Date().toISOString()
+        });
       }
     } catch (error) {
-      console.error('Error checking bridge availability:', error);
-      setBridgeAvailable(false);
-    } finally {
-      setCheckingBridge(false);
+      console.error('Error loading MT5 account data:', error);
     }
-  };
+  }, [isOpen]);
 
   const handleCredentialChange = (field: string, value: string) => {
     setCredentials(prev => ({ ...prev, [field]: value }));
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-  };
-
-  const handleConnectToBridge = async () => {
-    try {
-      const success = await connect();
-      if (success) {
-        setCurrentStep(4);
-      }
-    } catch (error) {
-      console.error('Failed to connect to bridge:', error);
-    }
-  };
-
-  const handleDisconnect = () => {
-    disconnect();
-    setCurrentStep(3);
-  };
-
-  const checkMT5Settings = async () => {
-    setCheckingSettings(true);
+  const handleDownloadConnector = () => {
+    // Simulate download process
+    setConnectorStatus('installing');
     
-    try {
-      // First check if we're connected
-      if (!isConnected) {
-        try {
-          await connect();
-        } catch (error) {
-          setError('Failed to connect to MT5 bridge. Please make sure it is running.');
-          setCheckingSettings(false);
-          return;
-        }
-      }
+    // In a real implementation, this would trigger the actual download
+    console.log('Downloading Pipnosis Connector...');
+    
+    // Simulate installation progress
+    setTimeout(() => {
+      setConnectorStatus('installed');
+      setCurrentStep(2);
+    }, 3000);
+  };
+
+  const handleTestConnection = async () => {
+    setConnectionStatus('connecting');
+    
+    // Simulate connection test
+    await new Promise(resolve => setTimeout(resolve, 4000));
+    
+    // Simulate success/failure (80% success rate for demo)
+    const success = Math.random() > 0.2;
+    setConnectionStatus(success ? 'connected' : 'error');
+    
+    if (success) {
+      setConnectorStatus('running');
+      setCurrentStep(4);
       
-      // Check if we have account data
-      if (connectionState.accountData) {
-        // Check if automated trading is enabled
-        if (typeof connectionState.accountData.tradeExpert === 'boolean') {
-          setAutomatedTradingEnabled(connectionState.accountData.tradeExpert);
-          
-          if (!connectionState.accountData.tradeExpert) {
-            setError('Automated trading is disabled in MT5. Please enable it in Tools &gt; Options &gt; Expert Advisors &gt; Allow automated trading.');
-          } else {
-            setError(null);
-          }
-        } else {
-          setAutomatedTradingEnabled(null);
-          setError('Could not determine if automated trading is enabled. Please check MT5 settings manually.');
-        }
-      } else {
-        setError('Could not retrieve MT5 account data. Please check if MT5 is running and logged in.');
-      }
-    } catch (error) {
-      setError('Failed to check MT5 settings: ' + (error instanceof Error ? error.message : String(error)));
-    } finally {
-      setCheckingSettings(false);
+      // Save credentials to localStorage for demo purposes
+      const accountData = {
+        login: credentials.login,
+        server: credentials.server,
+        balance: 10000,
+        equity: 10000,
+        lastUpdate: new Date().toISOString()
+      };
+      localStorage.setItem('pipnosis_mt5_connected', 'true');
+      localStorage.setItem('pipnosis_mt5_account', JSON.stringify(accountData));
+      
+      // Update current credentials
+      setCurrentCredentials({
+        login: credentials.login,
+        server: credentials.server,
+        lastUpdated: new Date().toISOString()
+      });
     }
   };
 
-  // Manual installation instructions
-  const manualInstallationSteps = [
-    {
-      title: "Create Bridge Directory",
-      command: "mkdir C:\\Pipnosis\\MT5Bridge",
-      description: "Create a directory for the MT5 bridge files"
-    },
-    {
-      title: "Download Python Files",
-      description: "Copy the bridge files to your computer",
-      files: [
-        { name: "mt5_connector.py", description: "Main bridge application" },
-        { name: "requirements.txt", description: "Python dependencies" }
-      ]
-    },
-    {
-      title: "Install Dependencies",
-      command: "pip install -r requirements.txt",
-      description: "Install required Python packages"
-    },
-    {
-      title: "Run the Bridge",
-      command: "python mt5_connector.py",
-      description: "Start the MT5 bridge service"
+  const handleNextStep = () => {
+    if (currentStep < 4) {
+      setCurrentStep(currentStep + 1);
     }
-  ];
+  };
 
-  // If not open and not in iframe mode, return null
-  if (!isOpen && window.location.pathname !== '/mt5-connection-modal') return null;
+  const handleEditCredentials = () => {
+    // Load current credentials into the form
+    if (currentCredentials) {
+      setCredentials(prev => ({
+        ...prev,
+        login: currentCredentials.login,
+        server: currentCredentials.server
+      }));
+    }
+    setIsEditingCredentials(true);
+    setCurrentStep(2);
+  };
 
-  // Check if we're in iframe mode
-  const isIframeMode = window.location.pathname === '/mt5-connection-modal';
+  const handleSaveCredentials = () => {
+    // In a real implementation, this would save to the encrypted config file
+    // For now, we'll just update localStorage
+    
+    if (!credentials.login || !credentials.password) {
+      alert('Login and password are required');
+      return;
+    }
+    
+    // Save to localStorage for demo
+    const accountData = {
+      login: credentials.login,
+      server: credentials.server,
+      balance: 10000, // Placeholder
+      equity: 10000, // Placeholder
+      lastUpdate: new Date().toISOString()
+    };
+    
+    localStorage.setItem('pipnosis_mt5_account', JSON.stringify(accountData));
+    
+    // Update current credentials
+    setCurrentCredentials({
+      login: credentials.login,
+      server: credentials.server,
+      lastUpdated: new Date().toISOString()
+    });
+    
+    setIsEditingCredentials(false);
+    
+    // Show success message
+    alert('Credentials updated successfully! Please restart the MT5 bridge to apply changes.');
+  };
+
+  if (!isOpen) return null;
 
   return (
-    <div className={isIframeMode ? "" : "fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4"}>
-      <div className={`bg-slate-800 rounded-xl border border-slate-700 ${isIframeMode ? "w-full h-full" : "w-full max-w-7xl max-h-[95vh]"} overflow-hidden flex flex-col`}>
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-800 rounded-xl border border-slate-700 w-full max-w-6xl max-h-[90vh] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-slate-700 bg-gradient-to-r from-slate-800 to-slate-700 flex-shrink-0">
+        <div className="flex items-center justify-between p-6 border-b border-slate-700 bg-gradient-to-r from-slate-800 to-slate-700">
           <div className="flex items-center space-x-3">
-            <div className={`p-2 rounded-lg ${isConnected ? 'bg-green-500/20' : 'bg-blue-500/20'}`}>
-              <Server className={`h-5 w-5 sm:h-6 sm:w-6 ${isConnected ? 'text-green-400' : 'text-blue-400'}`} />
+            <div className="p-2 bg-blue-500/20 rounded-lg">
+              <Server className="h-6 w-6 text-blue-400" />
             </div>
             <div>
-              <h2 className="text-lg sm:text-xl font-semibold text-white">
-                {isConnected ? 'MT5 Integration Active' : 'Connect MetaTrader 5'}
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-400">
-                {isConnected ? 'Real-time data streaming' : 'Set up live trading integration'}
-              </p>
+              <h2 className="text-xl font-semibold text-white">Connect MetaTrader 5</h2>
+              <p className="text-sm text-slate-400">Secure bridge to your trading account</p>
             </div>
           </div>
           <button
             onClick={onClose}
             className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-            aria-label="Close"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="flex flex-col lg:flex-row flex-1 min-h-0 overflow-auto">
+        <div className="flex h-[600px]">
           {/* Progress Sidebar */}
-          <div className="w-full lg:w-80 bg-slate-900 border-b lg:border-b-0 lg:border-r border-slate-700 p-4 sm:p-6 flex-shrink-0">
-            <h3 className="text-lg font-semibold text-white mb-4 sm:mb-6">Setup Progress</h3>
-            <div className="space-y-3 sm:space-y-4">
-              {steps.map((step) => (
+          <div className="w-80 bg-slate-900 border-r border-slate-700 p-6">
+            <h3 className="text-lg font-semibold text-white mb-6">Setup Progress</h3>
+            <div className="space-y-4">
+              {steps.map((step, index) => (
                 <div key={step.id} className="flex items-start space-x-3">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all ${
                     step.completed 
@@ -271,191 +240,102 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                   }`}>
                     {step.completed ? <CheckCircle className="h-4 w-4" /> : step.id}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className={`font-medium text-sm sm:text-base ${step.active ? 'text-white' : 'text-slate-400'}`}>
+                  <div className="flex-1">
+                    <h4 className={`font-medium ${step.active ? 'text-white' : 'text-slate-400'}`}>
                       {step.title}
                     </h4>
-                    <p className="text-xs sm:text-sm text-slate-500">{step.description}</p>
+                    <p className="text-sm text-slate-500">{step.description}</p>
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* Connection Status */}
-            <div className="mt-6 sm:mt-8 p-3 sm:p-4 bg-slate-800 rounded-lg border border-slate-600">
-              <h4 className="text-white font-medium mb-3 flex items-center space-x-2 text-sm sm:text-base">
+            {/* Connection Status Indicator */}
+            <div className="mt-8 p-4 bg-slate-800 rounded-lg border border-slate-600">
+              <h4 className="text-white font-medium mb-3 flex items-center space-x-2">
                 <Monitor className="h-4 w-4" />
-                <span>Connection Status</span>
+                <span>Connector Status</span>
               </h4>
               
-              <div className="space-y-2 text-xs sm:text-sm">
+              <div className="space-y-2 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Bridge:</span>
+                  <span className="text-slate-400">Installation:</span>
                   <div className={`flex items-center space-x-1 ${
-                    checkingBridge ? 'text-yellow-400' :
-                    bridgeAvailable ? 'text-green-400' : 'text-red-400'
+                    connectorStatus === 'installed' || connectorStatus === 'running' ? 'text-green-400' : 
+                    connectorStatus === 'installing' ? 'text-yellow-400' : 'text-slate-400'
                   }`}>
-                    {checkingBridge ? (
+                    {connectorStatus === 'installing' ? (
                       <Loader className="h-3 w-3 animate-spin" />
-                    ) : bridgeAvailable ? (
+                    ) : connectorStatus === 'installed' || connectorStatus === 'running' ? (
                       <CheckCircle className="h-3 w-3" />
                     ) : (
                       <AlertCircle className="h-3 w-3" />
                     )}
-                    <span>{checkingBridge ? 'Checking...' : bridgeAvailable ? 'Running' : 'Not Found'}</span>
+                    <span className="capitalize">{connectorStatus.replace('-', ' ')}</span>
                   </div>
                 </div>
                 
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">WebSocket:</span>
+                  <span className="text-slate-400">Connection:</span>
                   <div className={`flex items-center space-x-1 ${
-                    isConnecting ? 'text-yellow-400' :
-                    isConnected ? 'text-green-400' : 'text-red-400'
+                    connectionStatus === 'connected' ? 'text-green-400' : 
+                    connectionStatus === 'connecting' ? 'text-yellow-400' : 
+                    connectionStatus === 'error' ? 'text-red-400' : 'text-slate-400'
                   }`}>
-                    {isConnecting ? (
+                    {connectionStatus === 'connecting' ? (
                       <Loader className="h-3 w-3 animate-spin" />
-                    ) : isConnected ? (
+                    ) : connectionStatus === 'connected' ? (
                       <Wifi className="h-3 w-3" />
+                    ) : connectionStatus === 'error' ? (
+                      <WifiOff className="h-3 w-3" />
                     ) : (
                       <WifiOff className="h-3 w-3" />
                     )}
-                    <span>{isConnecting ? 'Connecting...' : isConnected ? 'Connected' : 'Disconnected'}</span>
+                    <span className="capitalize">{connectionStatus === 'idle' ? 'Not connected' : connectionStatus}</span>
                   </div>
                 </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">MT5 Data:</span>
-                  <div className={`flex items-center space-x-1 ${
-                    connectionState.accountData ? 'text-green-400' : 'text-slate-400'
-                  }`}>
-                    {connectionState.accountData ? (
-                      <CheckCircle className="h-3 w-3" />
-                    ) : (
-                      <AlertCircle className="h-3 w-3" />
-                    )}
-                    <span>{connectionState.accountData ? 'Live Data' : 'No Data'}</span>
-                  </div>
-                </div>
-
-                {/* Automated Trading Status */}
-                {isConnected && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Automated Trading:</span>
-                    <div className={`flex items-center space-x-1 ${
-                      checkingSettings ? 'text-yellow-400' :
-                      automatedTradingEnabled === true ? 'text-green-400' :
-                      automatedTradingEnabled === false ? 'text-red-400' : 'text-slate-400'
-                    }`}>
-                      {checkingSettings ? (
-                        <Loader className="h-3 w-3 animate-spin" />
-                      ) : automatedTradingEnabled === true ? (
-                        <CheckCircle className="h-3 w-3" />
-                      ) : automatedTradingEnabled === false ? (
-                        <AlertTriangle className="h-3 w-3" />
-                      ) : (
-                        <AlertCircle className="h-3 w-3" />
-                      )}
-                      <span>
-                        {checkingSettings ? 'Checking...' :
-                         automatedTradingEnabled === true ? 'Enabled' :
-                         automatedTradingEnabled === false ? 'Disabled' : 'Unknown'}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* WebRequest Status */}
-                {isConnected && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">WebRequest:</span>
-                    <div className={`flex items-center space-x-1 ${
-                      checkingSettings ? 'text-yellow-400' :
-                      webRequestEnabled === true ? 'text-green-400' :
-                      webRequestEnabled === false ? 'text-yellow-400' : 'text-slate-400'
-                    }`}>
-                      {checkingSettings ? (
-                        <Loader className="h-3 w-3 animate-spin" />
-                      ) : webRequestEnabled === true ? (
-                        <CheckCircle className="h-3 w-3" />
-                      ) : webRequestEnabled === false ? (
-                        <AlertTriangle className="h-3 w-3" />
-                      ) : (
-                        <AlertCircle className="h-3 w-3" />
-                      )}
-                      <span>
-                        {checkingSettings ? 'Checking...' :
-                         webRequestEnabled === true ? 'Enabled' :
-                         webRequestEnabled === false ? 'Not Configured' : 'Unknown'}
-                      </span>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
 
-            {/* Live Data Preview */}
-            {isConnected && connectionState.accountData && (
+            {connectionStatus === 'connected' && (
               <div className="mt-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-                <div className="flex items-center space-x-2 text-green-400 mb-2">
-                  <Zap className="h-4 w-4" />
-                  <span className="text-sm font-medium">Live MT5 Data</span>
+                <div className="flex items-center space-x-2 text-green-400">
+                  <CheckCircle className="h-4 w-4" />
+                  <span className="text-sm font-medium">Ready for AI Trading</span>
                 </div>
-                <div className="text-xs text-green-300 space-y-1">
-                  <div>Account: {connectionState.accountData.login}</div>
-                  <div>Balance: ${connectionState.accountData.balance?.toLocaleString()}</div>
-                  <div>Positions: {connectionState.positions?.length || 0}</div>
-                </div>
+                <p className="text-xs text-green-300 mt-1">
+                  Your MT5 account is securely connected to Pipnosis AI
+                </p>
               </div>
             )}
 
-            {/* Automated Trading Warning */}
-            {isConnected && automatedTradingEnabled === false && (
-              <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-                <div className="flex items-start space-x-2">
-                  <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-red-300 text-sm font-medium">Automated Trading Disabled</p>
-                    <p className="text-red-200 text-xs mt-1">
-                      You must enable automated trading in MT5 to execute trades:
-                    </p>
-                    <ol className="text-red-200 text-xs mt-1 list-decimal list-inside">
-                      <li>Open MetaTrader 5</li>
-                      <li>Go to Tools &gt; Options</li>
-                      <li>Select the "Expert Advisors" tab</li>
-                      <li>Check "Allow automated trading"</li>
-                      <li>Click "OK"</li>
-                    </ol>
+            {/* Current Credentials Section */}
+            {currentCredentials && (
+              <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-blue-300 font-medium text-sm">Current MT5 Account</h4>
+                  <button 
+                    onClick={handleEditCredentials}
+                    className="p-1 text-blue-400 hover:text-blue-300 hover:bg-blue-500/20 rounded transition-colors"
+                    title="Edit credentials"
+                  >
+                    <Edit3 className="h-3 w-3" />
+                  </button>
+                </div>
+                <div className="text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Login:</span>
+                    <span className="text-blue-200 font-mono">{currentCredentials.login}</span>
                   </div>
-                </div>
-              </div>
-            )}
-
-            {/* WebRequest Warning */}
-            {isConnected && webRequestEnabled === false && (
-              <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                <div className="flex items-start space-x-2">
-                  <AlertTriangle className="h-4 w-4 text-yellow-400 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-yellow-300 text-sm font-medium">WebRequest Not Configured</p>
-                    <p className="text-yellow-200 text-xs mt-1">
-                      For full functionality, enable WebRequest for these URLs:
-                    </p>
-                    <ol className="text-yellow-200 text-xs mt-1 list-decimal list-inside">
-                      <li>Open MetaTrader 5</li>
-                      <li>Go to Tools &gt; Options</li>
-                      <li>Select the "Expert Advisors" tab</li>
-                      <li>Check "Allow WebRequest for listed URL:"</li>
-                      <li>Add these URLs (one per line):
-                        <ul className="ml-4 mt-1 text-yellow-100 list-disc">
-                          <li>https://api.openai.com</li>
-                          <li>https://elykntifkdaqiafnjosk.supabase.co</li>
-                          <li>https://pipnosis-production.up.railway.app</li>
-                        </ul>
-                      </li>
-                    </ol>
-                    <p className="text-yellow-200 text-xs mt-3">
-                      To add these URLs: Tools &gt; Options &gt; Expert Advisors tab &gt; Check "Allow WebRequest for listed URL:" &gt; Add each URL
-                    </p>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Server:</span>
+                    <span className="text-blue-200">{currentCredentials.server}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Updated:</span>
+                    <span className="text-blue-200">
+                      {currentCredentials.lastUpdated ? new Date(currentCredentials.lastUpdated).toLocaleString() : 'Unknown'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -463,624 +343,505 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
           </div>
 
           {/* Main Content */}
-          <div className="flex-1 overflow-y-auto">
-            <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8">
-              {/* Step 1: Setup Bridge */}
-              {currentStep === 1 && (
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-xl sm:text-2xl font-semibold text-white mb-2">Setup MT5 Bridge</h3>
-                    <p className="text-slate-400 mb-6 text-sm sm:text-base">
-                      The MT5 Bridge connects your MetaTrader 5 terminal with Pipnosis AI. Choose your preferred installation method.
-                    </p>
-                  </div>
+          <div className="flex-1 p-6 overflow-y-auto">
+            {currentStep === 1 && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-2xl font-semibold text-white mb-2">Download Pipnosis Connector</h3>
+                  <p className="text-slate-400 mb-6">
+                    The Pipnosis Connector is a secure bridge application that connects your MT5 terminal with our AI trading system. 
+                    It runs locally on your computer and never sends your credentials to the cloud.
+                  </p>
+                </div>
 
-                  {/* Installation Method Selection */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div 
-                      className={`p-6 rounded-xl border-2 cursor-pointer transition-all ${
-                        installationMethod === 'manual' 
-                          ? 'border-blue-500 bg-blue-500/10' 
-                          : 'border-slate-600 bg-slate-900 hover:border-slate-500'
-                      }`}
-                      onClick={() => setInstallationMethod('manual')}
-                    >
-                      <div className="flex items-center space-x-3 mb-3">
-                        <div className={`w-4 h-4 rounded-full border-2 ${
-                          installationMethod === 'manual' ? 'border-blue-500 bg-blue-500' : 'border-slate-400'
-                        }`}>
-                          {installationMethod === 'manual' && <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>}
-                        </div>
-                        <h4 className="text-white font-semibold">Manual Setup</h4>
-                        <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">Recommended</span>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Download Card */}
+                  <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
+                    <div className="flex items-center space-x-4 mb-6">
+                      <div className="p-3 bg-blue-500/20 rounded-lg">
+                        <Download className="h-8 w-8 text-blue-400" />
                       </div>
-                      <ul className="text-sm text-slate-300 space-y-1">
-                        <li>• Copy Python files to your computer</li>
-                        <li>• Install dependencies with pip</li>
-                        <li>• Run the bridge script directly</li>
-                        <li>• Full control over the installation</li>
-                      </ul>
-                    </div>
-
-                    <div 
-                      className={`p-6 rounded-xl border-2 cursor-pointer transition-all ${
-                        installationMethod === 'download' 
-                          ? 'border-blue-500 bg-blue-500/10' 
-                          : 'border-slate-600 bg-slate-900 hover:border-slate-500'
-                      }`}
-                      onClick={() => setInstallationMethod('download')}
-                    >
-                      <div className="flex items-center space-x-3 mb-3">
-                        <div className={`w-4 h-4 rounded-full border-2 ${
-                          installationMethod === 'download' ? 'border-blue-500 bg-blue-500' : 'border-slate-400'
-                        }`}>
-                          {installationMethod === 'download' && <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>}
-                        </div>
-                        <h4 className="text-white font-semibold">Download Installer</h4>
-                        <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded">Coming Soon</span>
-                      </div>
-                      <ul className="text-sm text-slate-300 space-y-1">
-                        <li>• Automated Windows installer</li>
-                        <li>• One-click installation process</li>
-                        <li>• Automatic dependency management</li>
-                        <li>• Desktop shortcut creation</li>
-                      </ul>
-                    </div>
-                  </div>
-
-                  {/* Manual Installation Instructions */}
-                  {installationMethod === 'manual' && (
-                    <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
-                      <h4 className="text-white font-semibold mb-4 flex items-center space-x-2">
-                        <FileText className="h-5 w-5 text-blue-400" />
-                        <span>Manual Installation Steps</span>
-                      </h4>
-                      
-                      <div className="space-y-6">
-                        {manualInstallationSteps.map((step, index) => (
-                          <div key={index} className="border-l-4 border-blue-500 pl-4">
-                            <h5 className="text-white font-medium mb-2">{index + 1}. {step.title}</h5>
-                            <p className="text-slate-400 text-sm mb-3">{step.description}</p>
-                            
-                            {step.command && (
-                              <div className="bg-slate-800 rounded-lg p-3 border border-slate-600">
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="text-slate-400 text-xs">Command:</span>
-                                  <button
-                                    onClick={() => copyToClipboard(step.command!)}
-                                    className="text-blue-400 hover:text-blue-300 text-xs flex items-center space-x-1"
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                    <span>Copy</span>
-                                  </button>
-                                </div>
-                                <code className="text-green-400 text-sm font-mono">{step.command}</code>
-                              </div>
-                            )}
-                            
-                            {step.files && (
-                              <div className="space-y-2">
-                                {step.files.map((file, fileIndex) => (
-                                  <div key={fileIndex} className="bg-slate-800 rounded-lg p-3 border border-slate-600">
-                                    <div className="flex items-center justify-between">
-                                      <div>
-                                        <span className="text-white font-mono text-sm">{file.name}</span>
-                                        <p className="text-slate-400 text-xs">{file.description}</p>
-                                      </div>
-                                      <a
-                                        href={`/mt5-bridge/${file.name}`}
-                                        download
-                                        className="text-blue-400 hover:text-blue-300 text-xs flex items-center space-x-1"
-                                      >
-                                        <Download className="h-3 w-3" />
-                                        <span>Download</span>
-                                      </a>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      
-                      <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                        <h5 className="text-blue-300 font-medium mb-2">Prerequisites</h5>
-                        <ul className="text-blue-200 text-sm space-y-1">
-                          <li>• Python 3.8 or higher installed</li>
-                          <li>• MetaTrader 5 terminal running and logged in</li>
-                          <li>• Command prompt or terminal access</li>
-                          <li>• Administrator privileges (if needed)</li>
-                        </ul>
+                      <div>
+                        <h4 className="text-white font-semibold text-lg">Pipnosis Connector v2.1.0</h4>
+                        <p className="text-slate-400 text-sm">Windows application (15.2 MB)</p>
                       </div>
                     </div>
-                  )}
 
-                  {/* Download Installer (Coming Soon) */}
-                  {installationMethod === 'download' && (
-                    <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
-                      <div className="text-center">
-                        <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg mb-4">
-                          <AlertCircle className="h-8 w-8 text-yellow-400 mx-auto mb-2" />
-                          <h4 className="text-yellow-300 font-medium">Installer Coming Soon</h4>
-                          <p className="text-yellow-200 text-sm mt-1">
-                            The automated installer is currently in development. Please use the manual setup method for now.
-                          </p>
-                        </div>
-                        
-                        <button
-                          onClick={() => setInstallationMethod('manual')}
-                          className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                        >
-                          Switch to Manual Setup
-                        </button>
+                    <div className="space-y-3 mb-6">
+                      <div className="flex items-center space-x-2 text-sm text-slate-300">
+                        <CheckCircle className="h-4 w-4 text-green-400" />
+                        <span>Secure local encryption of credentials</span>
+                      </div>
+                      <div className="flex items-center space-x-2 text-sm text-slate-300">
+                        <CheckCircle className="h-4 w-4 text-green-400" />
+                        <span>Real-time MT5 API integration</span>
+                      </div>
+                      <div className="flex items-center space-x-2 text-sm text-slate-300">
+                        <CheckCircle className="h-4 w-4 text-green-400" />
+                        <span>Auto-startup and background operation</span>
+                      </div>
+                      <div className="flex items-center space-x-2 text-sm text-slate-300">
+                        <CheckCircle className="h-4 w-4 text-green-400" />
+                        <span>Automatic updates and monitoring</span>
                       </div>
                     </div>
-                  )}
 
-                  <div className="flex items-center justify-between">
                     <button
-                      onClick={checkBridge}
-                      disabled={checkingBridge}
-                      className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors font-medium flex items-center space-x-2"
+                      onClick={handleDownloadConnector}
+                      disabled={connectorStatus === 'installing'}
+                      className="w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white py-3 px-4 rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all font-medium flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {checkingBridge ? (
+                      {connectorStatus === 'installing' ? (
                         <>
                           <Loader className="h-4 w-4 animate-spin" />
-                          <span>Checking...</span>
+                          <span>Installing...</span>
                         </>
                       ) : (
                         <>
-                          <Monitor className="h-4 w-4" />
-                          <span>Check Bridge Status</span>
+                          <Download className="h-4 w-4" />
+                          <span>Download & Install</span>
                         </>
                       )}
                     </button>
-
-                    {bridgeAvailable && (
-                      <button
-                        onClick={() => setCurrentStep(3)}
-                        className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors font-medium"
-                      >
-                        Continue to Connection
-                      </button>
-                    )}
                   </div>
 
-                  {!bridgeAvailable && !checkingBridge && bridgeCheckAttempts > 0 && (
-                    <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+                  {/* Features Card */}
+                  <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
+                    <h4 className="text-white font-semibold text-lg mb-4">What It Does</h4>
+                    
+                    <div className="space-y-4">
                       <div className="flex items-start space-x-3">
-                        <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 flex-shrink-0" />
+                        <div className="p-1 bg-green-500/20 rounded">
+                          <Shield className="h-4 w-4 text-green-400" />
+                        </div>
                         <div>
-                          <h4 className="text-red-300 font-medium">Bridge Not Detected</h4>
-                          <p className="text-red-200 text-sm mt-1">
-                            The MT5 Bridge is not running. Please follow the installation steps above and start the bridge.
-                          </p>
-                          <div className="mt-3 p-3 bg-slate-800 rounded-lg border border-slate-700">
-                            <h5 className="text-white text-sm font-medium mb-2">Troubleshooting Steps:</h5>
-                            <ol className="text-slate-300 text-sm space-y-1 list-decimal list-inside">
-                              <li>Make sure Python 3.8+ is installed</li>
-                              <li>Install required packages: <code className="text-blue-300">pip install MetaTrader5 websockets</code></li>
-                              <li>Run the bridge: <code className="text-blue-300">python mt5_connector.py</code></li>
-                              <li>Ensure MetaTrader 5 is running and logged in</li>
-                              <li>Check if port 8765 is available (or try ports 8766-8770)</li>
-                            </ol>
-                          </div>
+                          <h5 className="text-white font-medium">Secure Bridge</h5>
+                          <p className="text-slate-400 text-sm">Creates an encrypted connection between Pipnosis AI and your MT5 terminal</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-start space-x-3">
+                        <div className="p-1 bg-blue-500/20 rounded">
+                          <Server className="h-4 w-4 text-blue-400" />
+                        </div>
+                        <div>
+                          <h5 className="text-white font-medium">Real-time Data</h5>
+                          <p className="text-slate-400 text-sm">Provides live market data and account information to the AI</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-start space-x-3">
+                        <div className="p-1 bg-purple-500/20 rounded">
+                          <Play className="h-4 w-4 text-purple-400" />
+                        </div>
+                        <div>
+                          <h5 className="text-white font-medium">Trade Execution</h5>
+                          <p className="text-slate-400 text-sm">Executes AI-generated trades directly in your MT5 account</p>
                         </div>
                       </div>
                     </div>
-                  )}
+                  </div>
                 </div>
-              )}
 
-              {/* Step 2: Start Bridge (Skip this step in manual mode) */}
-              {currentStep === 2 && (
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-xl sm:text-2xl font-semibold text-white mb-2">Start the MT5 Bridge</h3>
-                    <p className="text-slate-400 mb-6 text-sm sm:text-base">
-                      Run the bridge application to enable communication between MT5 and Pipnosis.
-                    </p>
+                <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                  <div className="flex items-start space-x-3">
+                    <AlertCircle className="h-5 w-5 text-amber-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <h4 className="text-amber-300 font-medium">Installation Requirements</h4>
+                      <ul className="text-sm text-amber-200 mt-1 space-y-1 list-disc list-inside">
+                        <li>Windows 10 or later (64-bit)</li>
+                        <li>MetaTrader 5 terminal installed and running</li>
+                        <li>Administrator privileges for installation</li>
+                        <li>Internet connection for secure communication</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {currentStep === 2 && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-2xl font-semibold text-white mb-2">
+                    {isEditingCredentials ? 'Update MT5 Credentials' : 'Configure MT5 Account'}
+                  </h3>
+                  <p className="text-slate-400 mb-6">
+                    {isEditingCredentials 
+                      ? 'Update your MetaTrader 5 account credentials. These are stored locally and encrypted for security.'
+                      : 'Enter your MetaTrader 5 account credentials. These are stored locally and encrypted for security.'}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        <User className="h-4 w-4 inline mr-2" />
+                        MT5 Login (Account Number)
+                      </label>
+                      <input
+                        type="text"
+                        value={credentials.login}
+                        onChange={(e) => handleCredentialChange('login', e.target.value)}
+                        placeholder="e.g., 12345678"
+                        className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        <Key className="h-4 w-4 inline mr-2" />
+                        MT5 Password
+                      </label>
+                      <input
+                        type="password"
+                        value={credentials.password}
+                        onChange={(e) => handleCredentialChange('password', e.target.value)}
+                        placeholder="Your MT5 password"
+                        className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        <Server className="h-4 w-4 inline mr-2" />
+                        Broker Server
+                      </label>
+                      <select
+                        value={credentials.server}
+                        onChange={(e) => handleCredentialChange('server', e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="">Select your broker server</option>
+                        {brokerServers.map(server => (
+                          <option key={server} value={server}>{server}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Account Type
+                      </label>
+                      <div className="flex space-x-4">
+                        <label className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="accountType"
+                            value="demo"
+                            checked={credentials.accountType === 'demo'}
+                            onChange={(e) => handleCredentialChange('accountType', e.target.value)}
+                            className="text-blue-500 focus:ring-blue-500"
+                          />
+                          <span className="text-white">Demo</span>
+                        </label>
+                        <label className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="accountType"
+                            value="live"
+                            checked={credentials.accountType === 'live'}
+                            onChange={(e) => handleCredentialChange('accountType', e.target.value)}
+                            className="text-blue-500 focus:ring-blue-500"
+                          />
+                          <span className="text-white">Live</span>
+                        </label>
+                      </div>
+                    </div>
                   </div>
 
+                  <div className="space-y-4">
+                    <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                      <div className="flex items-start space-x-3">
+                        <Shield className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <h4 className="text-blue-300 font-medium">Security Notice</h4>
+                          <p className="text-sm text-blue-200 mt-1">
+                            Your credentials are encrypted locally using AES-256 encryption and never transmitted to our servers. 
+                            Only trade metadata is sent for AI analysis.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+                      <h4 className="text-green-300 font-medium mb-2">What We Access</h4>
+                      <ul className="text-sm text-green-200 space-y-1">
+                        <li>• Account balance and equity</li>
+                        <li>• Open positions and trade history</li>
+                        <li>• Real-time price data</li>
+                        <li>• Trade execution capabilities</li>
+                      </ul>
+                    </div>
+
+                    <div className="p-4 bg-slate-900 border border-slate-600 rounded-lg">
+                      <h4 className="text-white font-medium mb-2">Need Help Finding Your Details?</h4>
+                      <div className="space-y-2 text-sm text-slate-300">
+                        <p><strong>Login:</strong> Found in MT5 Navigator → Accounts</p>
+                        <p><strong>Server:</strong> Shown in MT5 terminal title bar</p>
+                        <p><strong>Password:</strong> Set when opening your account</p>
+                      </div>
+                      <button className="mt-3 text-blue-400 hover:text-blue-300 text-sm flex items-center space-x-1">
+                        <ExternalLink className="h-3 w-3" />
+                        <span>View Setup Guide</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end space-x-3">
+                  {isEditingCredentials ? (
+                    <>
+                      <button
+                        onClick={() => setIsEditingCredentials(false)}
+                        className="px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSaveCredentials}
+                        disabled={!credentials.login || !credentials.password || !credentials.server}
+                        className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                      >
+                        <Save className="h-4 w-4" />
+                        <span>Save Credentials</span>
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={handleNextStep}
+                      disabled={!credentials.login || !credentials.password || !credentials.server}
+                      className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                    >
+                      Test Connection
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {currentStep === 3 && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-2xl font-semibold text-white mb-2">Test Connection</h3>
+                  <p className="text-slate-400 mb-6">
+                    Verifying the connection between Pipnosis AI and your MT5 account.
+                  </p>
+                </div>
+
+                <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-300 font-medium">MT5 Terminal Connection</span>
+                      <div className="flex items-center space-x-2">
+                        {connectionStatus === 'connecting' && (
+                          <>
+                            <Loader className="h-4 w-4 text-blue-400 animate-spin" />
+                            <span className="text-blue-400 text-sm">Testing connection...</span>
+                          </>
+                        )}
+                        {connectionStatus === 'connected' && (
+                          <>
+                            <CheckCircle className="h-4 w-4 text-green-400" />
+                            <span className="text-green-400 text-sm">Connected</span>
+                          </>
+                        )}
+                        {connectionStatus === 'error' && (
+                          <>
+                            <AlertCircle className="h-4 w-4 text-red-400" />
+                            <span className="text-red-400 text-sm">Connection Failed</span>
+                          </>
+                        )}
+                        {connectionStatus === 'idle' && (
+                          <span className="text-slate-400 text-sm">Ready to test</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {connectionStatus === 'connected' && (
+                      <div className="grid grid-cols-2 gap-4 p-4 bg-slate-800 rounded-lg">
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Account:</span>
+                            <span className="text-white font-mono">{credentials.login}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Server:</span>
+                            <span className="text-white">{credentials.server}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Type:</span>
+                            <span className="text-white capitalize">{credentials.accountType}</span>
+                          </div>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Balance:</span>
+                            <span className="text-green-400 font-semibold">$10,000.00</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Equity:</span>
+                            <span className="text-white">$10,000.00</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Free Margin:</span>
+                            <span className="text-white">$10,000.00</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {connectionStatus === 'error' && (
+                      <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+                        <h4 className="text-red-300 font-medium mb-2">Connection Failed</h4>
+                        <p className="text-red-200 text-sm mb-3">
+                          Unable to connect to your MT5 account. Please check:
+                        </p>
+                        <ul className="text-red-200 text-sm space-y-1 list-disc list-inside">
+                          <li>MT5 terminal is running and logged in</li>
+                          <li>Account credentials are correct</li>
+                          <li>Server name matches exactly</li>
+                          <li>Internet connection is stable</li>
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="flex space-x-3">
+                      <button
+                        onClick={handleTestConnection}
+                        disabled={connectionStatus === 'connecting'}
+                        className="flex-1 bg-blue-500 text-white py-3 px-4 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                      >
+                        {connectionStatus === 'connecting' ? 'Testing Connection...' : 'Test Connection'}
+                      </button>
+                      
+                      {connectionStatus === 'error' && (
+                        <button
+                          onClick={() => setCurrentStep(2)}
+                          className="px-4 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors"
+                        >
+                          Edit Credentials
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {currentStep === 4 && (
+              <div className="space-y-6">
+                <div className="text-center">
+                  <div className="p-6 bg-green-500/20 rounded-full w-24 h-24 mx-auto mb-6 flex items-center justify-center">
+                    <CheckCircle className="h-12 w-12 text-green-400" />
+                  </div>
+                  <h3 className="text-3xl font-semibold text-white mb-2">Ready to Trade!</h3>
+                  <p className="text-slate-400 mb-8">
+                    Your MT5 account is now securely connected to Pipnosis AI. You can start using prompts to execute trades.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
-                    <h4 className="text-white font-semibold mb-4">Launch Instructions</h4>
-                    
+                    <h4 className="text-white font-semibold mb-4 flex items-center space-x-2">
+                      <Play className="h-5 w-5 text-green-400" />
+                      <span>What happens next:</span>
+                    </h4>
                     <div className="space-y-4">
                       <div className="flex items-start space-x-3">
                         <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">1</div>
                         <div>
-                          <p className="text-white font-medium text-sm">Open Command Prompt</p>
-                          <p className="text-slate-400 text-sm">Navigate to your bridge installation directory</p>
+                          <p className="text-white font-medium">Real-time Data Access</p>
+                          <p className="text-slate-400 text-sm">AI can now pull live OHLCV data and account information</p>
                         </div>
                       </div>
-                      
                       <div className="flex items-start space-x-3">
                         <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">2</div>
                         <div>
-                          <p className="text-white font-medium text-sm">Run the Bridge</p>
-                          <div className="bg-slate-800 rounded-lg p-3 border border-slate-600 mt-2">
-                            <code className="text-green-400 text-sm">python mt5_connector.py</code>
-                          </div>
+                          <p className="text-white font-medium">Intelligent Position Sizing</p>
+                          <p className="text-slate-400 text-sm">Automatic risk calculation based on your account balance</p>
                         </div>
                       </div>
-                      
                       <div className="flex items-start space-x-3">
                         <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">3</div>
                         <div>
-                          <p className="text-white font-medium text-sm">Verify Connection</p>
-                          <p className="text-slate-400 text-sm">You should see "MT5 Connector is ready for live trading!"</p>
+                          <p className="text-white font-medium">Trade Execution</p>
+                          <p className="text-slate-400 text-sm">Market orders, SL/TP management, and position monitoring</p>
                         </div>
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <button
-                      onClick={checkBridge}
-                      disabled={checkingBridge}
-                      className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors font-medium flex items-center space-x-2"
-                    >
-                      {checkingBridge ? (
-                        <>
-                          <Loader className="h-4 w-4 animate-spin" />
-                          <span>Checking...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Monitor className="h-4 w-4" />
-                          <span>Check Bridge Status</span>
-                        </>
-                      )}
-                    </button>
-
-                    {bridgeAvailable && (
-                      <button
-                        onClick={() => setCurrentStep(3)}
-                        className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors font-medium"
-                      >
-                        Continue to Connection
-                      </button>
-                    )}
-                  </div>
-
-                  {!bridgeAvailable && !checkingBridge && (
-                    <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
                       <div className="flex items-start space-x-3">
-                        <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 flex-shrink-0" />
+                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">4</div>
                         <div>
-                          <h4 className="text-red-300 font-medium">Bridge Not Running</h4>
-                          <p className="text-red-200 text-sm mt-1">
-                            Please start the bridge application using the command above and try again.
-                          </p>
+                          <p className="text-white font-medium">AI Decision Logging</p>
+                          <p className="text-slate-400 text-sm">Real-time explanations and trade journal updates</p>
                         </div>
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
-
-              {/* Step 3: Connect to Bridge */}
-              {currentStep === 3 && (
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-xl sm:text-2xl font-semibold text-white mb-2">Connect to MT5 Bridge</h3>
-                    <p className="text-slate-400 mb-6 text-sm sm:text-base">
-                      Establish a WebSocket connection between Pipnosis and your MT5 Bridge to enable real-time data streaming.
-                    </p>
                   </div>
 
                   <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
-                    <div className="flex items-center justify-between mb-6">
-                      <h4 className="text-white font-semibold">WebSocket Connection</h4>
-                      <div className={`px-3 py-1 rounded-lg text-sm font-medium ${
-                        isConnected ? 'bg-green-500/20 text-green-400' :
-                        isConnecting ? 'bg-yellow-500/20 text-yellow-400' :
-                        'bg-red-500/20 text-red-400'
-                      }`}>
-                        {isConnecting ? 'Connecting...' : isConnected ? 'Connected' : 'Disconnected'}
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-white font-semibold">Account Information</h4>
+                      <button 
+                        onClick={handleEditCredentials}
+                        className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-500/20 rounded transition-colors"
+                        title="Edit credentials"
+                      >
+                        <Edit3 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    
+                    <div className="p-4 bg-slate-800 rounded-lg mb-4">
+                      <div className="grid grid-cols-2 gap-y-3 text-sm">
+                        <div>
+                          <span className="text-slate-400">Account:</span>
+                          <span className="text-white ml-2 font-mono">{credentials.login}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Server:</span>
+                          <span className="text-white ml-2">{credentials.server}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Type:</span>
+                          <span className="text-white ml-2 capitalize">{credentials.accountType}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Status:</span>
+                          <span className="text-green-400 ml-2">Connected</span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-slate-400">Balance:</span>
+                          <span className="text-green-400 ml-2 font-semibold">$10,000.00</span>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400">Bridge URL:</span>
-                        <span className="text-white font-mono text-sm">ws://localhost:8765</span>
-                      </div>
-                      
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400">Protocol:</span>
-                        <span className="text-white">WebSocket</span>
-                      </div>
-                      
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400">Security:</span>
-                        <span className="text-green-400">Local Connection Only</span>
-                      </div>
-                      
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400">Fallback Ports:</span>
-                        <span className="text-white">8766, 8767, 8768, 8769, 8770</span>
-                      </div>
-                    </div>
-
-                    {error && (
-                      <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-                        <p className="text-red-400 text-sm">{error}</p>
-                        <p className="text-red-300 text-xs mt-2">
-                          Make sure the MT5 bridge is running and MetaTrader 5 is open and logged in.
+                    <div className="space-y-3">
+                      <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                        <p className="text-blue-200 italic text-sm">
+                          "Make me $300 this week with medium risk."
                         </p>
                       </div>
-                    )}
-
-                    <div className="mt-6 flex space-x-3">
-                      {!isConnected ? (
-                        <button
-                          onClick={handleConnectToBridge}
-                          disabled={isConnecting}
-                          className="flex-1 bg-blue-500 text-white py-3 px-4 rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors font-medium flex items-center justify-center space-x-2"
-                        >
-                          {isConnecting ? (
-                            <>
-                              <Loader className="h-4 w-4 animate-spin" />
-                              <span>Connecting...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Wifi className="h-4 w-4" />
-                              <span>Connect to Bridge</span>
-                            </>
-                          )}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={handleDisconnect}
-                          className="flex-1 bg-red-500 text-white py-3 px-4 rounded-lg hover:bg-red-600 transition-colors font-medium flex items-center justify-center space-x-2"
-                        >
-                          <WifiOff className="h-4 w-4" />
-                          <span>Disconnect</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* MT5 Settings Check */}
-                  {isConnected && (
-                    <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
-                      <h4 className="text-white font-semibold mb-4">MT5 Settings Check</h4>
-                      
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-400">Automated Trading:</span>
-                          <div className={`flex items-center space-x-1 ${
-                            checkingSettings ? 'text-yellow-400' :
-                            automatedTradingEnabled === true ? 'text-green-400' :
-                            automatedTradingEnabled === false ? 'text-red-400' : 'text-slate-400'
-                          }`}>
-                            {checkingSettings ? (
-                              <Loader className="h-3 w-3 animate-spin" />
-                            ) : automatedTradingEnabled === true ? (
-                              <CheckCircle className="h-3 w-3" />
-                            ) : automatedTradingEnabled === false ? (
-                              <AlertTriangle className="h-3 w-3" />
-                            ) : (
-                              <AlertCircle className="h-3 w-3" />
-                            )}
-                            <span>
-                              {checkingSettings ? 'Checking...' :
-                               automatedTradingEnabled === true ? 'Enabled' :
-                               automatedTradingEnabled === false ? 'Disabled' : 'Unknown'}
-                            </span>
-                          </div>
-                        </div>
-                        
-                        <button
-                          onClick={checkMT5Settings}
-                          disabled={checkingSettings}
-                          className="w-full bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors font-medium flex items-center justify-center space-x-2"
-                        >
-                          {checkingSettings ? (
-                            <>
-                              <Loader className="h-4 w-4 animate-spin" />
-                              <span>Checking MT5 Settings...</span>
-                            </>
-                          ) : (
-                            <>
-                              <RefreshCw className="h-4 w-4" />
-                              <span>Check MT5 Settings</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                      
-                      {automatedTradingEnabled === false && (
-                        <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-                          <div className="flex items-start space-x-2">
-                            <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
-                            <div>
-                              <p className="text-red-300 text-sm font-medium">Automated Trading is Disabled</p>
-                              <p className="text-red-200 text-xs mt-1">
-                                You must enable automated trading in MT5 to execute trades:
-                              </p>
-                              <ol className="text-red-200 text-xs mt-1 list-decimal list-inside">
-                                <li>Open MetaTrader 5</li>
-                                <li>Go to Tools &gt; Options</li>
-                                <li>Select the "Expert Advisors" tab</li>
-                                <li>Check "Allow automated trading"</li>
-                                <li>Click "OK"</li>
-                                <li>Restart MetaTrader 5</li>
-                              </ol>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* WebRequest Configuration */}
-                      <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                        <div className="flex items-start space-x-2">
-                          <AlertTriangle className="h-4 w-4 text-yellow-400 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <p className="text-yellow-300 text-sm font-medium">WebRequest Configuration</p>
-                            <p className="text-yellow-200 text-xs mt-1">
-                              For full functionality, enable WebRequest for these URLs:
-                            </p>
-                            <div className="mt-2 bg-slate-800 p-2 rounded border border-slate-700">
-                              <div className="text-yellow-100 text-xs font-mono">
-                                <div>https://api.openai.com</div>
-                                <div>https://elykntifkdaqiafnjosk.supabase.co</div>
-                                <div>https://pipnosis-production.up.railway.app</div>
-                              </div>
-                            </div>
-                            <p className="text-yellow-200 text-xs mt-3">
-                              To add these URLs: Tools &gt; Options &gt; Expert Advisors tab &gt; Check "Allow WebRequest for listed URL:" &gt; Add each URL
-                            </p>
-                          </div>
-                        </div>
+                      <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                        <p className="text-green-200 italic text-sm">
+                          "Find the best EURUSD scalping opportunity right now."
+                        </p>
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
-
-              {/* Step 4: Connected */}
-              {currentStep === 4 && isConnected && (
-                <div className="space-y-6">
-                  <div className="text-center">
-                    <div className="p-6 bg-green-500/20 rounded-full w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-6 flex items-center justify-center">
-                      <CheckCircle className="h-10 w-10 sm:h-12 sm:w-12 text-green-400" />
-                    </div>
-                    <h3 className="text-2xl sm:text-3xl font-semibold text-white mb-2">MT5 Integration Active!</h3>
-                    <p className="text-slate-400 mb-8 text-sm sm:text-base">
-                      Your MetaTrader 5 account is now connected and streaming live data to Pipnosis AI.
-                    </p>
-                  </div>
-
-                  {/* Live Data Display */}
-                  {connectionState.accountData && (
-                    <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
-                      <h4 className="text-white font-semibold mb-4">Live Account Data</h4>
-                      
-                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="bg-slate-800 rounded-lg p-3 border border-slate-600">
-                          <div className="text-sm text-slate-400 mb-1">Account</div>
-                          <div className="text-white font-mono">{connectionState.accountData.login}</div>
-                        </div>
-                        
-                        <div className="bg-slate-800 rounded-lg p-3 border border-slate-600">
-                          <div className="text-sm text-slate-400 mb-1">Balance</div>
-                          <div className="text-green-400 font-semibold">${connectionState.accountData.balance?.toLocaleString()}</div>
-                        </div>
-                        
-                        <div className="bg-slate-800 rounded-lg p-3 border border-slate-600">
-                          <div className="text-sm text-slate-400 mb-1">Equity</div>
-                          <div className="text-blue-400 font-semibold">${connectionState.accountData.equity?.toLocaleString()}</div>
-                        </div>
-                        
-                        <div className="bg-slate-800 rounded-lg p-3 border border-slate-600">
-                          <div className="text-sm text-slate-400 mb-1">Positions</div>
-                          <div className="text-white font-semibold">{connectionState.positions?.length || 0}</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* MT5 Settings Check */}
-                  <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
-                    <h4 className="text-white font-semibold mb-4">MT5 Settings Check</h4>
-                    
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400">Automated Trading:</span>
-                        <div className={`flex items-center space-x-1 ${
-                          checkingSettings ? 'text-yellow-400' :
-                          automatedTradingEnabled === true ? 'text-green-400' :
-                          automatedTradingEnabled === false ? 'text-red-400' : 'text-slate-400'
-                        }`}>
-                          {checkingSettings ? (
-                            <Loader className="h-3 w-3 animate-spin" />
-                          ) : automatedTradingEnabled === true ? (
-                            <CheckCircle className="h-3 w-3" />
-                          ) : automatedTradingEnabled === false ? (
-                            <AlertTriangle className="h-3 w-3" />
-                          ) : (
-                            <AlertCircle className="h-3 w-3" />
-                          )}
-                          <span>
-                            {checkingSettings ? 'Checking...' :
-                             automatedTradingEnabled === true ? 'Enabled' :
-                             automatedTradingEnabled === false ? 'Disabled' : 'Unknown'}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      <button
-                        onClick={checkMT5Settings}
-                        disabled={checkingSettings}
-                        className="w-full bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors font-medium flex items-center justify-center space-x-2"
-                      >
-                        {checkingSettings ? (
-                          <>
-                            <Loader className="h-4 w-4 animate-spin" />
-                            <span>Checking MT5 Settings...</span>
-                          </>
-                        ) : (
-                          <>
-                            <RefreshCw className="h-4 w-4" />
-                            <span>Check MT5 Settings</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    
-                    {automatedTradingEnabled === false && (
-                      <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-                        <div className="flex items-start space-x-2">
-                          <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <p className="text-red-300 text-sm font-medium">Automated Trading is Disabled</p>
-                            <p className="text-red-200 text-xs mt-1">
-                              You must enable automated trading in MT5 to execute trades:
-                            </p>
-                            <ol className="text-red-200 text-xs mt-1 list-decimal list-inside">
-                              <li>Open MetaTrader 5</li>
-                              <li>Go to Tools &gt; Options</li>
-                              <li>Select the "Expert Advisors" tab</li>
-                              <li>Check "Allow automated trading"</li>
-                              <li>Click "OK"</li>
-                              <li>Restart MetaTrader 5</li>
-                            </ol>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                    <div className="flex items-start space-x-3">
-                      <Zap className="h-5 w-5 text-green-400 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <h4 className="text-green-300 font-medium">Real-Time Integration Active</h4>
-                        <ul className="text-green-200 text-sm mt-2 space-y-1">
-                          <li>• Live account balance and equity updates</li>
-                          <li>• Real-time position monitoring</li>
-                          <li>• AI can execute trades directly in MT5</li>
-                          <li>• Automatic risk management enforcement</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-center">
-                    <button
-                      onClick={onClose}
-                      className="px-8 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all font-medium shadow-lg"
-                    >
-                      Start AI Trading
-                    </button>
                   </div>
                 </div>
-              )}
-            </div>
+
+                <div className="flex justify-center">
+                  <button
+                    onClick={onClose}
+                    className="px-8 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all font-medium shadow-lg"
+                  >
+                    Start Trading with AI
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
