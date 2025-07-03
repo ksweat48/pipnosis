@@ -44,50 +44,66 @@ def patch_filling_mode(file_path):
     def get_filling_mode(self, symbol: str) -> int:
         \"\"\"Get the appropriate filling mode for a symbol\"\"\"
         try:
-            # Get the filling modes allowed for this symbol
+            # Get the symbol info
             symbol_info = mt5.symbol_info(symbol)
             if symbol_info is None:
                 logger.error(f"Symbol {symbol} not found")
                 return mt5.ORDER_FILLING_IOC  # Default to IOC
             
-            # Check if the symbol has specific filling modes
-            filling_mode = None
-            
-            # Try different filling modes in order of preference
-            if symbol_info.filling_mode & mt5.SYMBOL_FILLING_FOK:
-                logger.info(f"Symbol {symbol} supports FOK filling mode")
-                filling_mode = mt5.ORDER_FILLING_FOK
-            elif symbol_info.filling_mode & mt5.SYMBOL_FILLING_IOC:
-                logger.info(f"Symbol {symbol} supports IOC filling mode")
-                filling_mode = mt5.ORDER_FILLING_IOC
-            elif symbol_info.filling_mode & mt5.SYMBOL_FILLING_RETURN:
-                logger.info(f"Symbol {symbol} supports RETURN filling mode")
-                filling_mode = mt5.ORDER_FILLING_RETURN
-            else:
-                # If no specific modes are indicated, try to determine from the execution mode
-                if hasattr(symbol_info, 'execution_mode'):
-                    if symbol_info.execution_mode == mt5.SYMBOL_TRADE_EXECUTION_MARKET:
-                        logger.info(f"Symbol {symbol} uses MARKET execution, using IOC filling")
-                        filling_mode = mt5.ORDER_FILLING_IOC
-                    elif symbol_info.execution_mode == mt5.SYMBOL_TRADE_EXECUTION_EXCHANGE:
-                        logger.info(f"Symbol {symbol} uses EXCHANGE execution, using RETURN filling")
-                        filling_mode = mt5.ORDER_FILLING_RETURN
-                    elif symbol_info.execution_mode == mt5.SYMBOL_TRADE_EXECUTION_INSTANT:
-                        logger.info(f"Symbol {symbol} uses INSTANT execution, using IOC filling")
-                        filling_mode = mt5.ORDER_FILLING_IOC
-                    else:
-                        logger.info(f"Symbol {symbol} has unknown execution mode, using IOC filling")
-                        filling_mode = mt5.ORDER_FILLING_IOC
+            # Check the trade_fill_flags property to determine supported filling modes
+            if hasattr(symbol_info, 'trade_fill_flags'):
+                logger.info(f"Symbol {symbol} has trade_fill_flags: {symbol_info.trade_fill_flags}")
+                
+                # Check supported filling modes based on flags
+                # 1 = FOK, 2 = IOC, 4 = RETURN
+                if symbol_info.trade_fill_flags & 1:
+                    logger.info(f"Symbol {symbol} supports FOK filling mode")
+                    return mt5.ORDER_FILLING_FOK
+                elif symbol_info.trade_fill_flags & 2:
+                    logger.info(f"Symbol {symbol} supports IOC filling mode")
+                    return mt5.ORDER_FILLING_IOC
+                elif symbol_info.trade_fill_flags & 4:
+                    logger.info(f"Symbol {symbol} supports RETURN filling mode")
+                    return mt5.ORDER_FILLING_RETURN
                 else:
-                    logger.info(f"Symbol {symbol} has no filling mode info, using IOC filling")
-                    filling_mode = mt5.ORDER_FILLING_IOC
-            
-            logger.info(f"Selected filling mode for {symbol}: {filling_mode}")
-            return filling_mode
+                    logger.info(f"Symbol {symbol} has no supported filling modes in flags, using RETURN as fallback")
+                    return mt5.ORDER_FILLING_RETURN  # Most commonly supported
+            else:
+                # Fallback to checking filling_mode property
+                if hasattr(symbol_info, 'filling_mode'):
+                    logger.info(f"Symbol {symbol} has filling_mode: {symbol_info.filling_mode}")
+                    
+                    if symbol_info.filling_mode & mt5.SYMBOL_FILLING_FOK:
+                        logger.info(f"Symbol {symbol} supports FOK filling mode")
+                        return mt5.ORDER_FILLING_FOK
+                    elif symbol_info.filling_mode & mt5.SYMBOL_FILLING_IOC:
+                        logger.info(f"Symbol {symbol} supports IOC filling mode")
+                        return mt5.ORDER_FILLING_IOC
+                    else:
+                        logger.info(f"Symbol {symbol} has no supported filling modes, using RETURN as fallback")
+                        return mt5.ORDER_FILLING_RETURN
+                else:
+                    # If no specific modes are indicated, try to determine from the execution mode
+                    if hasattr(symbol_info, 'execution_mode'):
+                        if symbol_info.execution_mode == mt5.SYMBOL_TRADE_EXECUTION_MARKET:
+                            logger.info(f"Symbol {symbol} uses MARKET execution, using RETURN filling")
+                            return mt5.ORDER_FILLING_RETURN
+                        elif symbol_info.execution_mode == mt5.SYMBOL_TRADE_EXECUTION_EXCHANGE:
+                            logger.info(f"Symbol {symbol} uses EXCHANGE execution, using RETURN filling")
+                            return mt5.ORDER_FILLING_RETURN
+                        elif symbol_info.execution_mode == mt5.SYMBOL_TRADE_EXECUTION_INSTANT:
+                            logger.info(f"Symbol {symbol} uses INSTANT execution, using IOC filling")
+                            return mt5.ORDER_FILLING_IOC
+                        else:
+                            logger.info(f"Symbol {symbol} has unknown execution mode, using RETURN filling")
+                            return mt5.ORDER_FILLING_RETURN
+                    else:
+                        logger.info(f"Symbol {symbol} has no filling mode info, using RETURN filling")
+                        return mt5.ORDER_FILLING_RETURN  # Most commonly supported
             
         except Exception as e:
             logger.error(f"Error determining filling mode: {e}")
-            return mt5.ORDER_FILLING_IOC  # Default to IOC as fallback
+            return mt5.ORDER_FILLING_RETURN  # Default to RETURN as fallback
     """
     
     # Find the class definition
