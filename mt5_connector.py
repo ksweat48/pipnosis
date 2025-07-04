@@ -78,14 +78,15 @@ class MT5Connector:
             
             # Initialize MT5 connection
             if not mt5.initialize():
-                error = mt5.last_error()
-                logger.error(f"MT5 initialization failed: {error}")
+                error_code, error_message = mt5.last_error()
+                logger.error(f"MT5 initialization failed: {error_code} - {error_message}")
                 return False
             
             # Get account info
             account_info = mt5.account_info()
             if account_info is None:
-                logger.error("Failed to get account info - MT5 not logged in?")
+                error_code, error_message = mt5.last_error()
+                logger.error(f"Failed to get account info - MT5 not logged in? Error: {error_code} - {error_message}")
                 mt5.shutdown()
                 return False
             
@@ -119,7 +120,8 @@ class MT5Connector:
                 
             account = mt5.account_info()
             if account is None:
-                logger.error("Failed to get account info")
+                error_code, error_message = mt5.last_error()
+                logger.error(f"Failed to get account info: {error_code} - {error_message}")
                 return None
             
             return AccountInfo(
@@ -153,6 +155,8 @@ class MT5Connector:
                 
             positions = mt5.positions_get()
             if positions is None:
+                error_code, error_message = mt5.last_error()
+                logger.error(f"Failed to get positions: {error_code} - {error_message}")
                 return []
             
             result = []
@@ -176,7 +180,8 @@ class MT5Connector:
                             deals = mt5.history_deals_get(position=pos.ticket)
                             if deals and len(deals) > 0:
                                 commission = sum(getattr(deal, 'commission', 0.0) for deal in deals)
-                        except:
+                        except Exception as deal_error:
+                            logger.warning(f"Could not get commission from deals: {deal_error}")
                             commission = 0.0
                     
                     position = Position(
@@ -212,15 +217,22 @@ class MT5Connector:
         try:
             if not self.connected:
                 return None
+            
+            # Format symbol to MT5 standard
+            symbol = self.format_symbol(symbol)
                 
             # Get symbol info
             symbol_info = mt5.symbol_info(symbol)
             if symbol_info is None:
+                error_code, error_message = mt5.last_error()
+                logger.error(f"Symbol {symbol} not found: {error_code} - {error_message}")
                 return None
             
             # Get current tick
             tick = mt5.symbol_info_tick(symbol)
             if tick is None:
+                error_code, error_message = mt5.last_error()
+                logger.error(f"No tick data for {symbol}: {error_code} - {error_message}")
                 return None
             
             return {
@@ -232,7 +244,8 @@ class MT5Connector:
                 'time': datetime.fromtimestamp(tick.time).isoformat(),
                 'digits': symbol_info.digits,
                 'point': symbol_info.point,
-                'trade_allowed': symbol_info.trade_mode != 0
+                'trade_allowed': symbol_info.trade_mode != 0,
+                'filling_mode': self.get_filling_mode(symbol)
             }
             
         except Exception as e:
@@ -250,14 +263,16 @@ class MT5Connector:
             # Get symbol info
             symbol_info = mt5.symbol_info(symbol)
             if symbol_info is None:
-                logger.error(f"Symbol {symbol} not found")
+                error_code, error_message = mt5.last_error()
+                logger.error(f"Symbol {symbol} not found: {error_code} - {error_message}")
                 return False
             
             # Check if symbol is selected in Market Watch
             if not symbol_info.visible:
                 logger.info(f"Symbol {symbol} is not visible in Market Watch, selecting...")
                 if not mt5.symbol_select(symbol, True):
-                    logger.error(f"Failed to select symbol {symbol}")
+                    error_code, error_message = mt5.last_error()
+                    logger.error(f"Failed to select symbol {symbol}: {error_code} - {error_message}")
                     return False
                 
                 # Wait for symbol to be fully loaded
@@ -276,7 +291,8 @@ class MT5Connector:
             # Get current tick to verify data is available
             tick = mt5.symbol_info_tick(symbol)
             if tick is None or tick.bid == 0 or tick.ask == 0:
-                logger.error(f"No valid price data for {symbol}")
+                error_code, error_message = mt5.last_error()
+                logger.error(f"No valid price data for {symbol}: {error_code} - {error_message}")
                 return False
             
             logger.info(f"✅ Symbol {symbol} has valid price data: Bid={tick.bid}, Ask={tick.ask}")
@@ -298,7 +314,9 @@ class MT5Connector:
             # Convert to uppercase
             formatted = formatted.upper()
             
-            logger.info(f"Symbol format conversion: {symbol} -> {formatted}")
+            if formatted != symbol:
+                logger.info(f"Symbol format conversion: {symbol} -> {formatted}")
+            
             return formatted
             
         except Exception as e:
@@ -312,7 +330,7 @@ class MT5Connector:
             symbol_info = mt5.symbol_info(symbol)
             if symbol_info is None:
                 logger.error(f"Symbol {symbol} not found")
-                return mt5.ORDER_FILLING_IOC  # Default to IOC
+                return mt5.ORDER_FILLING_RETURN  # Default to RETURN as most compatible
             
             # Check the trade_fill_flags property to determine supported filling modes
             if hasattr(symbol_info, 'trade_fill_flags'):
@@ -400,7 +418,8 @@ class MT5Connector:
         # Verify symbol exists and has valid price data
         symbol_info = mt5.symbol_info(symbol)
         if symbol_info is None:
-            logger.error(f"Symbol {symbol} not found")
+            error_code, error_message = mt5.last_error()
+            logger.error(f"Symbol {symbol} not found: {error_code} - {error_message}")
             return {'success': False, 'error': f'Symbol {symbol} not found'}
         
         # Check if symbol is tradable
@@ -411,7 +430,8 @@ class MT5Connector:
         # Get current tick data to verify prices are available
         tick = mt5.symbol_info_tick(symbol)
         if tick is None or tick.bid == 0 or tick.ask == 0:
-            logger.error(f"No valid price data for {symbol}")
+            error_code, error_message = mt5.last_error()
+            logger.error(f"No valid price data for {symbol}: {error_code} - {error_message}")
             return {'success': False, 'error': f'No valid price data for {symbol}. Market may be closed.'}
         
         try:
@@ -490,6 +510,7 @@ class MT5Connector:
             
             # CRITICAL FIX: Get the appropriate filling mode for this symbol
             filling_mode = self.get_filling_mode(symbol)
+            logger.info(f"Using filling mode: {filling_mode} for symbol {symbol}")
             
             # Prepare the request
             request = {
@@ -520,13 +541,15 @@ class MT5Connector:
             for attempt in range(max_retries):
                 # CRITICAL FIX: Ensure symbol is selected and has valid prices
                 if not mt5.symbol_select(symbol, True):
-                    logger.error(f"Failed to select symbol {symbol} for trading")
+                    error_code, error_message = mt5.last_error()
+                    logger.error(f"Failed to select symbol {symbol} for trading: {error_code} - {error_message}")
                     return {'success': False, 'error': f'Failed to select symbol {symbol} for trading'}
                 
                 # Check if we have valid price data
                 tick = mt5.symbol_info_tick(symbol)
                 if tick is None or tick.bid == 0 or tick.ask == 0:
-                    logger.error(f"No valid price data for {symbol} (attempt {attempt+1}/{max_retries})")
+                    error_code, error_message = mt5.last_error()
+                    logger.error(f"No valid price data for {symbol} (attempt {attempt+1}/{max_retries}): {error_code} - {error_message}")
                     if attempt < max_retries - 1:
                         logger.info(f"Waiting {retry_delay}s before retry...")
                         time.sleep(retry_delay)
@@ -546,10 +569,28 @@ class MT5Connector:
                 if result is None:
                     error_code, error_message = mt5.last_error()
                     logger.error(f"Order send failed: No response from MT5 (attempt {attempt+1}/{max_retries}). Error: {error_code} - {error_message}")
+                    
+                    # Check for specific error conditions
+                    if error_code == 10021:  # No prices
+                        logger.error("No prices error detected - this usually means the symbol is not properly selected in Market Watch")
+                        # Try to force select the symbol again
+                        mt5.symbol_select(symbol, True)
+                        time.sleep(1)  # Wait for symbol to be fully loaded
+                    elif error_code == 10030:  # Unsupported filling mode
+                        logger.error("Unsupported filling mode error detected - trying different filling mode")
+                        # Try a different filling mode
+                        if request["type_filling"] == mt5.ORDER_FILLING_FOK:
+                            request["type_filling"] = mt5.ORDER_FILLING_IOC
+                        elif request["type_filling"] == mt5.ORDER_FILLING_IOC:
+                            request["type_filling"] = mt5.ORDER_FILLING_RETURN
+                        else:
+                            request["type_filling"] = mt5.ORDER_FILLING_FOK
+                    
                     if attempt < max_retries - 1:
                         time.sleep(retry_delay)
                         retry_delay *= 2  # Exponential backoff
                         continue
+                    
                     return {'success': False, 'error': f'Order send failed: No response from MT5. Error: {error_code} - {error_message}'}
                 
                 if result.retcode != mt5.TRADE_RETCODE_DONE:
@@ -557,7 +598,22 @@ class MT5Connector:
                     logger.error(f"Order error (attempt {attempt+1}/{max_retries}): {error_msg}")
                     
                     # Check for specific error codes that might be resolved by retrying
-                    if result.retcode in [10004, 10006, 10008, 10009, 10010, 10011, 10012, 10013, 10014, 10018, 10021]:
+                    if result.retcode == 10030:  # Unsupported filling mode
+                        logger.error("Unsupported filling mode error detected - trying different filling mode")
+                        # Try a different filling mode
+                        if request["type_filling"] == mt5.ORDER_FILLING_FOK:
+                            request["type_filling"] = mt5.ORDER_FILLING_IOC
+                        elif request["type_filling"] == mt5.ORDER_FILLING_IOC:
+                            request["type_filling"] = mt5.ORDER_FILLING_RETURN
+                        else:
+                            request["type_filling"] = mt5.ORDER_FILLING_FOK
+                        
+                        if attempt < max_retries - 1:
+                            logger.info(f"Retrying order with different filling mode in {retry_delay} seconds...")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff
+                            continue
+                    elif result.retcode in [10004, 10006, 10008, 10009, 10010, 10011, 10012, 10013, 10014, 10018, 10021]:
                         if attempt < max_retries - 1:
                             logger.info(f"Retrying order in {retry_delay} seconds...")
                             time.sleep(retry_delay)
