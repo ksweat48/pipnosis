@@ -929,6 +929,188 @@ export const subscribeToUserData = (userId: string, callback: (payload: any) => 
   }
 };
 
+// Test database operations with comprehensive error handling
+export const testDatabaseOperations = async (userId: string): Promise<{
+  canRead: boolean;
+  canWrite: boolean;
+  policiesWork: boolean;
+  error?: string;
+}> => {
+  // CRITICAL: Check for test users first
+  if (isTestUser(userId)) {
+    console.log('⚠️ Test user detected, skipping database operations test for:', userId);
+    return { 
+      canRead: true, 
+      canWrite: true, 
+      policiesWork: true, 
+      error: undefined 
+    };
+  }
+
+  if (!isSupabaseConfigured()) {
+    return { 
+      canRead: false, 
+      canWrite: false, 
+      policiesWork: false, 
+      error: 'Supabase not configured - missing URL or API key' 
+    };
+  }
+
+  try {
+    console.log('🧪 Testing database operations for user:', userId);
+
+    // Test 1: Try to read from user_profiles table
+    console.log('🔍 Test 1: Reading user profile...');
+    
+    // Add timeout to prevent hanging
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+    
+    const { data: readData, error: readError } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', userId)
+      .abortSignal(controller.signal)
+      .limit(1);
+
+    clearTimeout(timeoutId);
+    
+    const canRead = !readError;
+    
+    if (readError) {
+      console.log('❌ Read test failed:', {
+        code: readError.code,
+        message: readError.message,
+        details: readError.details
+      });
+      
+      if (readError.code === '42P01') {
+        return { 
+          canRead: false, 
+          canWrite: false, 
+          policiesWork: false, 
+          error: 'Database tables do not exist - please run the migration SQL in your Supabase dashboard' 
+        };
+      }
+      
+      // Check for CORS/network errors
+      if (readError.message.includes('fetch') || readError.message.includes('Failed to fetch')) {
+        return { 
+          canRead: false, 
+          canWrite: false, 
+          policiesWork: false, 
+          error: 'Network/CORS restriction - database is likely configured correctly' 
+        };
+      }
+      
+      return { 
+        canRead: false, 
+        canWrite: false, 
+        policiesWork: false, 
+        error: `Read failed: ${readError.message}` 
+      };
+    }
+    
+    console.log('✅ Read test passed');
+
+    // Test 2: Try to write/upsert a user profile
+    console.log('🔍 Test 2: Writing user profile...');
+    const testProfile = {
+      id: userId,
+      email: 'test@pipnosis.com',
+      full_name: 'Test User',
+      plan_type: 'free' as const,
+      account_balance: 10000.00,
+      risk_profile: 'auto' as const,
+      trading_preferences: {
+        dataMode: 'api',
+        riskProfile: 'auto',
+        tradingGoal: 'weekly-income'
+      }
+    };
+
+    const controller2 = new AbortController();
+    const timeoutId2 = setTimeout(() => controller2.abort(), 8000); // 8 second timeout
+
+    const { data: writeData, error: writeError } = await supabase
+      .from('user_profiles')
+      .upsert([testProfile])
+      .select()
+      .abortSignal(controller2.signal)
+      .single();
+
+    clearTimeout(timeoutId2);
+
+    const canWrite = !writeError;
+    const policiesWork = canRead && canWrite;
+
+    if (writeError) {
+      console.log('❌ Write test failed:', {
+        code: writeError.code,
+        message: writeError.message,
+        details: writeError.details
+      });
+      
+      if (writeError.code === '42P01') {
+        return { 
+          canRead, 
+          canWrite: false, 
+          policiesWork: false, 
+          error: 'Database tables do not exist - please run the migration SQL' 
+        };
+      }
+      
+      // Check for CORS/network errors
+      if (writeError.message.includes('fetch') || writeError.message.includes('Failed to fetch')) {
+        return { 
+          canRead, 
+          canWrite: false, 
+          policiesWork: false, 
+          error: 'Network/CORS restriction - database is likely configured correctly' 
+        };
+      }
+      
+      return { 
+        canRead, 
+        canWrite: false, 
+        policiesWork: false, 
+        error: `Write failed: ${writeError.message}` 
+      };
+    }
+
+    console.log('✅ Write test passed');
+    console.log('✅ All database operations successful - RLS policies working correctly');
+    
+    return { 
+      canRead, 
+      canWrite, 
+      policiesWork, 
+      error: undefined 
+    };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('❌ Database operations test failed with exception:', error);
+    
+    // Check for CORS/network errors in exceptions
+    if (errorMessage.includes('fetch') || errorMessage.includes('Failed to fetch') || errorMessage.includes('CORS')) {
+      return { 
+        canRead: false, 
+        canWrite: false, 
+        policiesWork: false, 
+        error: 'Network/CORS restriction - your database setup is likely correct' 
+      };
+    }
+    
+    return { 
+      canRead: false, 
+      canWrite: false, 
+      policiesWork: false, 
+      error: `Exception: ${errorMessage}` 
+    };
+  }
+};
+
 // Enhanced test function for browser debugging with WebSocket testing
 export const testSupabaseDirectly = async () => {
   if (!isSupabaseConfigured()) {

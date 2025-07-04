@@ -212,6 +212,27 @@ class MT5Connector:
             logger.error(f"Error getting positions: {e}")
             return []
     
+    def format_symbol(self, symbol: str) -> str:
+        """Format symbol to MT5 standard (e.g., EUR/USD -> EURUSD)"""
+        try:
+            # Remove any slashes
+            formatted = symbol.replace('/', '')
+            
+            # Remove any spaces
+            formatted = formatted.replace(' ', '')
+            
+            # Convert to uppercase
+            formatted = formatted.upper()
+            
+            if formatted != symbol:
+                logger.info(f"Symbol format conversion: {symbol} -> {formatted}")
+            
+            return formatted
+            
+        except Exception as e:
+            logger.error(f"Error formatting symbol: {e}")
+            return symbol  # Return original symbol if formatting fails
+    
     def get_symbol_info(self, symbol: str) -> Optional[Dict]:
         """Get symbol information and current price"""
         try:
@@ -301,27 +322,6 @@ class MT5Connector:
         except Exception as e:
             logger.error(f"Error ensuring symbol selection: {e}")
             return False
-    
-    def format_symbol(self, symbol: str) -> str:
-        """Format symbol to MT5 standard (e.g., EUR/USD -> EURUSD)"""
-        try:
-            # Remove any slashes
-            formatted = symbol.replace('/', '')
-            
-            # Remove any spaces
-            formatted = formatted.replace(' ', '')
-            
-            # Convert to uppercase
-            formatted = formatted.upper()
-            
-            if formatted != symbol:
-                logger.info(f"Symbol format conversion: {symbol} -> {formatted}")
-            
-            return formatted
-            
-        except Exception as e:
-            logger.error(f"Error formatting symbol: {e}")
-            return symbol  # Return original symbol if formatting fails
     
     def get_filling_mode(self, symbol: str) -> int:
         """Get the appropriate filling mode for a symbol"""
