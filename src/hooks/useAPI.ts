@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { pipnosisAPI, MarketDataPoint, AnalysisResponse, TradingStrategy, TradeExecutionResult, MT5Status } from '../services/api';
+import { pipnosisAPI } from '../services/api';
 
 // Hook for backend connection status
 export const useBackendConnection = () => {
@@ -22,10 +22,7 @@ export const useBackendConnection = () => {
 
   useEffect(() => {
     checkConnection();
-    
-    // Check connection every 30 seconds
     const interval = setInterval(checkConnection, 30000);
-    
     return () => clearInterval(interval);
   }, [checkConnection]);
 
@@ -39,7 +36,7 @@ export const useBackendConnection = () => {
 
 // Hook for market data
 export const useMarketData = (refreshInterval: number = 5000) => {
-  const [marketData, setMarketData] = useState<MarketDataPoint[]>([]);
+  const [marketData, setMarketData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -59,10 +56,7 @@ export const useMarketData = (refreshInterval: number = 5000) => {
 
   useEffect(() => {
     fetchMarketData();
-    
-    // Set up auto-refresh
     const interval = setInterval(fetchMarketData, refreshInterval);
-    
     return () => clearInterval(interval);
   }, [fetchMarketData, refreshInterval]);
 
@@ -83,8 +77,8 @@ export const usePromptAnalysis = () => {
   const analyzePrompt = useCallback(async (
     prompt: string,
     accountBalance: number,
-    marketData?: MarketDataPoint[]
-  ): Promise<AnalysisResponse | null> => {
+    marketData?: any[]
+  ): Promise<any | null> => {
     setIsAnalyzing(true);
     setError(null);
 
@@ -112,7 +106,7 @@ export const useTradeExecution = () => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const executeTrade = useCallback(async (strategy: TradingStrategy): Promise<TradeExecutionResult> => {
+  const executeTrade = useCallback(async (strategy: any): Promise<any> => {
     setIsExecuting(true);
     setError(null);
 
@@ -143,7 +137,7 @@ export const useTradeExecution = () => {
 
 // Hook for MT5 status
 export const useMT5Status = (refreshInterval: number = 10000) => {
-  const [status, setStatus] = useState<MT5Status>({
+  const [status, setStatus] = useState<any>({
     connected: false,
     status: 'disconnected',
     message: 'Checking connection...'
@@ -167,10 +161,7 @@ export const useMT5Status = (refreshInterval: number = 10000) => {
 
   useEffect(() => {
     fetchStatus();
-    
-    // Set up auto-refresh
     const interval = setInterval(fetchStatus, refreshInterval);
-    
     return () => clearInterval(interval);
   }, [fetchStatus, refreshInterval]);
 

@@ -60,7 +60,6 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
     try {
       console.log('🚀 Executing strategy:', option);
       
-      // Extract symbol and action from tradeType if not provided directly
       if (!option.symbol) {
         option.symbol = option.tradeType.split(' ')[0];
       }
@@ -69,13 +68,10 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
         option.action = option.tradeType.includes('BUY') ? 'buy' : 'sell';
       }
       
-      // Call the parent's onSelect function
       await onSelect(option);
       
-      // Mark as executed after successful execution
       setExecutedStrategies(prev => new Set([...prev, option.id]));
       
-      // Show success feedback for 3 seconds
       setTimeout(() => {
         setExecutingStrategy(null);
       }, 3000);
@@ -84,10 +80,8 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
       console.error('❌ Strategy execution failed:', error);
       setExecutingStrategy(null);
       
-      // Set error message
       setExecutionError(error instanceof Error ? error.message : 'Trade execution failed');
       
-      // Clear error after 30 seconds
       setTimeout(() => {
         setExecutionError(null);
       }, 30000);
@@ -101,7 +95,6 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
     setExecutionError(null);
     
     try {
-      // Find the strategy that was being executed
       const failedStrategy = options.find(opt => opt.id === executingStrategy);
       if (!failedStrategy) {
         throw new Error('Could not identify the failed strategy');
@@ -109,7 +102,6 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
       
       console.log('🔄 Retrying strategy execution:', failedStrategy);
       
-      // Try to execute again
       await handleExecute(failedStrategy);
     } catch (error) {
       console.error('❌ Retry failed:', error);
@@ -120,7 +112,6 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
   };
 
   const handleCheckMT5Settings = () => {
-    // Open MT5 connection modal
     const event = new CustomEvent('openMT5Modal');
     window.dispatchEvent(event);
   };

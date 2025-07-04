@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Settings, DollarSign, Shield, Mail, Calendar, Edit3, Save, X, LogOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -11,12 +11,10 @@ export const UserProfile: React.FC = () => {
     risk_profile: profile?.risk_profile || 'auto',
   });
 
-  // CRITICAL FIX: Check MT5 connection status
   const [mt5Connected, setMt5Connected] = useState(false);
   const [mt5AccountData, setMt5AccountData] = useState<any>(null);
 
-  // Monitor MT5 connection status
-  React.useEffect(() => {
+  useEffect(() => {
     const checkMT5Status = () => {
       try {
         const connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
@@ -41,13 +39,9 @@ export const UserProfile: React.FC = () => {
       }
     };
 
-    // Check immediately
     checkMT5Status();
-
-    // Set up interval to check every 2 seconds
     const interval = setInterval(checkMT5Status, 2000);
-
-    // Listen for storage changes
+    
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'pipnosis_mt5_connected' || e.key === 'pipnosis_mt5_account') {
         checkMT5Status();
@@ -80,7 +74,7 @@ export const UserProfile: React.FC = () => {
   };
 
   const handleSignOut = async () => {
-    if (isSigningOut) return; // Prevent double-clicking
+    if (isSigningOut) return;
     
     setIsSigningOut(true);
     
@@ -100,18 +94,15 @@ export const UserProfile: React.FC = () => {
     }
   };
 
-  // CRITICAL FIX: Get display balance from MT5 if connected, otherwise use profile balance
   const getDisplayBalance = () => {
     if (!user || !profile) return '$0.00';
     
-    // Use MT5 account balance if connected
     if (mt5Connected && mt5AccountData) {
       if (typeof mt5AccountData.balance === 'number') {
         return `$${mt5AccountData.balance.toLocaleString()}`;
       }
     }
     
-    // Fallback to profile balance
     if (typeof profile.account_balance === 'number') {
       return `$${profile.account_balance.toLocaleString()}`;
     }
@@ -119,17 +110,15 @@ export const UserProfile: React.FC = () => {
     return '$0.00';
   };
 
-  // CRITICAL FIX: Get equity from MT5 if connected
   const getEquity = () => {
     if (mt5Connected && mt5AccountData) {
       if (typeof mt5AccountData.equity === 'number') {
         return `$${mt5AccountData.equity.toLocaleString()}`;
       }
     }
-    return getDisplayBalance(); // Fallback to balance
+    return getDisplayBalance();
   };
 
-  // CRITICAL FIX: Get floating P&L from MT5 if connected
   const getFloatingPnL = () => {
     if (mt5Connected && mt5AccountData) {
       if (mt5AccountData.openPositions && Array.isArray(mt5AccountData.openPositions)) {
@@ -143,7 +132,6 @@ export const UserProfile: React.FC = () => {
     return 0;
   };
 
-  // CRITICAL FIX: Safe number formatting function
   const safeToFixed = (value: any, digits: number = 2): string => {
     if (typeof value === "number" && !isNaN(value)) {
       return value.toFixed(digits);
@@ -229,7 +217,7 @@ export const UserProfile: React.FC = () => {
           </div>
         </div>
 
-        {/* CRITICAL FIX: Account Info with MT5 data if connected */}
+        {/* Account Info with MT5 data if connected */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
             <div className="flex items-center space-x-2 mb-2">
@@ -297,7 +285,7 @@ export const UserProfile: React.FC = () => {
           </div>
         </div>
 
-        {/* CRITICAL FIX: MT5 Connection Status */}
+        {/* MT5 Connection Status */}
         {mt5Connected && mt5AccountData && (
           <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
             <div className="flex items-start space-x-3">
@@ -354,7 +342,6 @@ export const UserProfile: React.FC = () => {
                 {user.email_confirmed_at ? 'Yes' : 'Pending'}
               </span>
             </div>
-            {/* CRITICAL FIX: Show MT5 connection status */}
             <div>
               <span className="text-slate-400">MT5 Status:</span>
               <span className={`ml-2 ${mt5Connected ? 'text-green-400' : 'text-red-400'}`}>

@@ -28,9 +28,8 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const [showAll, setShowAll] = useState(false); // Default to show only 3
+  const [showAll, setShowAll] = useState(false);
 
-  // Fetch real market data from backend API
   const fetchRealMarketData = async () => {
     try {
       setIsLoading(true);
@@ -39,10 +38,9 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
       const data = await backendAPI.getMarketAnalysis();
       
       if (data && data.symbols) {
-        // Convert backend format to component format
         const formattedData: MarketDataPoint[] = data.symbols.map(symbol => ({
           symbol: symbol.symbol,
-          price: (symbol.bid + symbol.ask) / 2, // Use mid price
+          price: (symbol.bid + symbol.ask) / 2,
           change: symbol.change,
           changePercent: symbol.changePercent,
           trend: symbol.trend === 'bullish' ? 'up' : symbol.trend === 'bearish' ? 'down' : 'sideways',
@@ -53,7 +51,6 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
         setMarketData(formattedData);
         setLastUpdate(new Date());
       } else {
-        // Fallback to generated data if API returns empty data
         setMarketData(generateMarketData());
         setLastUpdate(new Date());
       }
@@ -67,7 +64,6 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
     }
   };
 
-  // Generate market data for fallback or demo mode
   const generateMarketData = (): MarketDataPoint[] => {
     const pairs = [
       { symbol: 'EURUSD', basePrice: 1.1425 },
@@ -101,7 +97,6 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
 
   useEffect(() => {
     const fetchData = () => {
-      // Use real data if user is logged in, otherwise use generated data
       if (user) {
         fetchRealMarketData();
       } else {
@@ -116,8 +111,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
 
     fetchData();
     
-    // Set up auto-refresh interval
-    const interval = setInterval(fetchData, user ? 10000 : 5000); // Refresh every 10s for real data, 5s for demo
+    const interval = setInterval(fetchData, user ? 10000 : 5000);
     
     return () => clearInterval(interval);
   }, [user]);
@@ -139,7 +133,6 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
     }
   };
 
-  // Show only first 3 pairs by default, all when expanded
   const displayedData = showAll ? marketData : marketData.slice(0, 3);
 
   return (
@@ -267,7 +260,6 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
                   </div>
                 ))}
                 
-                {/* Show More/Less Button */}
                 {marketData.length > 3 && (
                   <button 
                     onClick={() => setShowAll(!showAll)}

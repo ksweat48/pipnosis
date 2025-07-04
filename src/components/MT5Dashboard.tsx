@@ -6,39 +6,12 @@ interface MT5DashboardProps {
   onToggleVisibility?: () => void;
 }
 
-interface MT5Connection {
-  status: 'connected' | 'disconnected' | 'connecting';
-  server: string;
-  account: string;
-  balance: number;
-  equity: number;
-  margin: number;
-  freeMargin: number;
-  marginLevel: number;
-  lastUpdate: string;
-}
-
-interface OpenPosition {
-  ticket: string;
-  symbol: string;
-  type: 'buy' | 'sell';
-  volume: number;
-  openPrice: number;
-  currentPrice: number;
-  sl: number;
-  tp: number;
-  profit: number;
-  swap: number;
-  commission: number;
-}
-
 export const MT5Dashboard: React.FC<MT5DashboardProps> = ({ 
-  isVisible = false, // Default closed
+  isVisible = false,
   onToggleVisibility 
 }) => {
-  // CRITICAL FIX: Use real MT5 data if connected, otherwise use mock data
-  const [connection, setConnection] = useState<MT5Connection>({
-    status: 'disconnected',
+  const [connection, setConnection] = useState({
+    status: 'disconnected' as 'connected' | 'disconnected' | 'connecting',
     server: 'Not Connected',
     account: 'N/A',
     balance: 0,
@@ -49,11 +22,10 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
     lastUpdate: new Date().toLocaleTimeString()
   });
 
-  const [openPositions, setOpenPositions] = useState<OpenPosition[]>([]);
+  const [openPositions, setOpenPositions] = useState<any[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [mt5AccountData, setMt5AccountData] = useState<any>(null);
 
-  // CRITICAL FIX: Properly handle undefined values with a truly safe function
   const safeToFixed = (value: any, digits: number = 2): string => {
     if (typeof value === "number" && !isNaN(value)) {
       return value.toFixed(digits);
@@ -61,7 +33,6 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
     return "N/A";
   };
 
-  // CRITICAL FIX: Load MT5 data from localStorage and update in real-time
   useEffect(() => {
     const checkMT5Status = () => {
       try {
@@ -75,7 +46,6 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
             const parsedData = JSON.parse(accountData);
             setMt5AccountData(parsedData);
             
-            // Update connection state with parsed data
             setConnection({
               status: 'connected',
               server: parsedData.server || 'Unknown Server',
@@ -88,7 +58,6 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
               lastUpdate: new Date().toLocaleTimeString()
             });
             
-            // Set open positions if available
             if (parsedData.openPositions && Array.isArray(parsedData.openPositions)) {
               setOpenPositions(parsedData.openPositions);
             } else {
@@ -103,7 +72,6 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
           setMt5AccountData(null);
           setOpenPositions([]);
           
-          // Reset connection state
           setConnection({
             status: 'disconnected',
             server: 'Not Connected',
@@ -124,20 +92,15 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
       }
     };
 
-    // Check immediately
     checkMT5Status();
-
-    // Set up interval to check every 2 seconds
     const interval = setInterval(checkMT5Status, 2000);
-
-    // Listen for storage changes
+    
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'pipnosis_mt5_connected' || e.key === 'pipnosis_mt5_account') {
         checkMT5Status();
       }
     };
 
-    // Listen for custom MT5 modal open event
     const handleOpenMT5Modal = () => {
       const event = new CustomEvent('openMT5Modal');
       window.dispatchEvent(event);
@@ -173,7 +136,6 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
 
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700">
-      {/* Collapsible Header */}
       <div className="p-4 sm:p-6 border-b border-slate-700 cursor-pointer" onClick={onToggleVisibility}>
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -202,7 +164,6 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
               <span className="text-sm font-medium capitalize">{connection.status}</span>
             </div>
             
-            {/* Toggle Button */}
             <button className="p-2 text-slate-400 hover:text-white transition-colors">
               {isVisible ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
             </button>
@@ -210,10 +171,8 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
         </div>
       </div>
 
-      {/* Expandable Content */}
       {isVisible && (
         <div className="p-4 sm:p-6 space-y-6">
-          {/* CRITICAL FIX: Show connection prompt if not connected */}
           {!isConnected ? (
             <div className="text-center py-8">
               <div className="p-6 bg-red-500/10 border border-red-500/30 rounded-lg">
@@ -224,7 +183,6 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                 </p>
                 <button 
                   onClick={() => {
-                    // This will be handled by the parent component
                     const event = new CustomEvent('openMT5Modal');
                     window.dispatchEvent(event);
                   }}
@@ -236,7 +194,6 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
             </div>
           ) : (
             <>
-              {/* Control Buttons */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
@@ -252,7 +209,6 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                 </div>
               </div>
 
-              {/* Account Information */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
                   <div className="flex items-center space-x-2 mb-2">
@@ -295,7 +251,6 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                 </div>
               </div>
 
-              {/* Connection Details */}
               <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
                 <h4 className="text-white font-semibold mb-3">Connection Details</h4>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
@@ -318,7 +273,6 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                 </div>
               </div>
 
-              {/* Open Positions */}
               <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
                 <h4 className="text-white font-semibold mb-3">Open Positions</h4>
                 {openPositions.length === 0 ? (
@@ -375,7 +329,6 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                 )}
               </div>
 
-              {/* Live Data Notice */}
               <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
                 <div className="flex items-center space-x-2">
                   <Wifi className="h-4 w-4 text-green-400" />

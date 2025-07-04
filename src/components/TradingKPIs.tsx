@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -17,16 +17,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useDatabaseStats } from '../hooks/useDatabase';
-
-interface KPIItem {
-  id: string;
-  label: string;
-  value: string;
-  description: string;
-  icon: React.ComponentType<any>;
-  type: 'percentage' | 'ratio' | 'drawdown' | 'return';
-  rawValue: number;
-}
 
 export const TradingKPIs: React.FC = () => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -60,33 +50,6 @@ export const TradingKPIs: React.FC = () => {
     return 'text-slate-300';
   };
 
-  const getPerformanceIcon = (value: number, type: 'percentage' | 'ratio' | 'drawdown' | 'return') => {
-    if (type === 'drawdown') {
-      if (value <= 5) return <CheckCircle className="h-4 w-4 text-green-400" />;
-      if (value <= 10) return <AlertTriangle className="h-4 w-4 text-yellow-400" />;
-      return <AlertTriangle className="h-4 w-4 text-red-400" />;
-    }
-    
-    if (type === 'return') {
-      if (value > 0) return <TrendingUp className="h-4 w-4 text-green-400" />;
-      return <TrendingDown className="h-4 w-4 text-red-400" />;
-    }
-    
-    if (type === 'percentage') {
-      if (value >= 70) return <TrendingUp className="h-4 w-4 text-green-400" />;
-      if (value >= 50) return <Activity className="h-4 w-4 text-yellow-400" />;
-      return <TrendingDown className="h-4 w-4 text-red-400" />;
-    }
-    
-    if (type === 'ratio') {
-      if (value >= 2.0) return <Target className="h-4 w-4 text-green-400" />;
-      if (value >= 1.5) return <Target className="h-4 w-4 text-yellow-400" />;
-      return <Target className="h-4 w-4 text-red-400" />;
-    }
-    
-    return <Activity className="h-4 w-4 text-slate-400" />;
-  };
-
   const getProgressBarColor = (value: number, type: 'percentage' | 'ratio' | 'drawdown' | 'return') => {
     if (type === 'drawdown') {
       if (value <= 5) return 'bg-green-400';
@@ -114,116 +77,45 @@ export const TradingKPIs: React.FC = () => {
     return 'bg-slate-400';
   };
 
-  // Calculate KPI data from stats
-  const calculateKPIs = useCallback((): KPIItem[] => {
-    // Calculate derived values
-    const winRate = stats.winRate || 0;
-    const averageRRR = 2.1;
-    const maxDrawdown = 5.2;
-    const avgDrawdown = 2.1;
-    const monthlyReturn = stats.totalPnL > 0 ? 8.5 : 0;
-    const tradeFrequency = stats.totalTrades > 0 ? stats.totalTrades / 30 : 0;
-    const avgTradeDuration = '3h 15m';
-    const stopLossHitRatio = 15.0;
-    const earlyExitRatio = 10.0;
-    const tpHitRatio = 75.0;
-    const recoveryAfterLoss = 80.0;
-    
-    return [
-      {
-        id: 'winRate',
-        label: 'Win Rate (%)',
-        value: `${winRate.toFixed(1)}%`,
-        description: 'Success rate of trades',
-        icon: Target,
-        type: 'percentage',
-        rawValue: winRate
-      },
-      {
-        id: 'averageRRR',
-        label: 'Average RRR',
-        value: `${averageRRR.toFixed(1)}:1`,
-        description: 'Risk-to-reward ratio',
-        icon: BarChart3,
-        type: 'ratio',
-        rawValue: averageRRR
-      },
-      {
-        id: 'maxDrawdown',
-        label: 'Drawdown (max)',
-        value: `${maxDrawdown.toFixed(1)}%`,
-        description: 'Capital protection',
-        icon: TrendingDown,
-        type: 'drawdown',
-        rawValue: maxDrawdown
-      },
-      {
-        id: 'avgDrawdown',
-        label: 'Drawdown (avg)',
-        value: `${avgDrawdown.toFixed(1)}%`,
-        description: 'Average capital decline',
-        icon: Shield,
-        type: 'drawdown',
-        rawValue: avgDrawdown
-      },
-      {
-        id: 'monthlyReturn',
-        label: 'Monthly return (%)',
-        value: `${monthlyReturn.toFixed(1)}%`,
-        description: 'Real-world profitability',
-        icon: TrendingUp,
-        type: 'return',
-        rawValue: monthlyReturn
-      },
-      {
-        id: 'tradeFrequency',
-        label: 'Trade frequency',
-        value: `${tradeFrequency.toFixed(1)}/day`,
-        description: 'Scalping vs swing efficiency',
-        icon: Zap,
-        type: 'percentage',
-        rawValue: tradeFrequency * 10 // Convert to percentage-like scale
-      },
-      {
-        id: 'avgTradeDuration',
-        label: 'Average trade duration',
-        value: avgTradeDuration,
-        description: 'Behavioral pattern (scalp/swing)',
-        icon: Clock,
-        type: 'percentage',
-        rawValue: 75 // Mock percentage for coloring
-      },
-      {
-        id: 'stopLossHitRatio',
-        label: 'Stop-loss hit ratio',
-        value: `${stopLossHitRatio.toFixed(1)}%`,
-        description: 'Discipline and volatility control',
-        icon: Shield,
-        type: 'drawdown',
-        rawValue: stopLossHitRatio
-      },
-      {
-        id: 'earlyExitRatio',
-        label: 'Early exits vs. TP hits',
-        value: `${earlyExitRatio.toFixed(1)}%`,
-        description: 'Smart exits vs lucky holds',
-        icon: Activity,
-        type: 'percentage',
-        rawValue: earlyExitRatio
-      },
-      {
-        id: 'recoveryAfterLoss',
-        label: 'Recovery after losses',
-        value: `${recoveryAfterLoss.toFixed(1)}%`,
-        description: 'How well AI adapts post-loss',
-        icon: TrendingUp,
-        type: 'percentage',
-        rawValue: recoveryAfterLoss
-      }
-    ];
-  }, [stats]);
+  const kpiItems = [
+    {
+      id: 'winRate',
+      label: 'Win Rate (%)',
+      value: `${stats.winRate.toFixed(1)}%`,
+      description: 'Success rate of trades',
+      icon: Target,
+      type: 'percentage' as const,
+      rawValue: stats.winRate
+    },
+    {
+      id: 'averageRRR',
+      label: 'Average RRR',
+      value: '2.1:1',
+      description: 'Risk-to-reward ratio',
+      icon: BarChart3,
+      type: 'ratio' as const,
+      rawValue: 2.1
+    },
+    {
+      id: 'maxDrawdown',
+      label: 'Drawdown (max)',
+      value: '5.2%',
+      description: 'Capital protection',
+      icon: TrendingDown,
+      type: 'drawdown' as const,
+      rawValue: 5.2
+    },
+    {
+      id: 'monthlyReturn',
+      label: 'Monthly return (%)',
+      value: '8.5%',
+      description: 'Real-world profitability',
+      icon: TrendingUp,
+      type: 'return' as const,
+      rawValue: 8.5
+    }
+  ];
 
-  const kpiItems = calculateKPIs();
   const profitableTrades = Math.round(stats.totalTrades * (stats.winRate / 100)) || 0;
   const losingTrades = stats.totalTrades - profitableTrades || 0;
 
@@ -240,27 +132,17 @@ export const TradingKPIs: React.FC = () => {
             <div className="text-sm text-slate-400">
               {stats.totalTrades} total trades
             </div>
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={refreshStats}
-                disabled={isLoading}
-                className="p-1 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-                title="Refresh stats"
-              >
-                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-              </button>
-              <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="flex items-center justify-center space-x-1 text-blue-400 hover:text-blue-300 transition-colors text-sm bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-lg"
-              >
-                <span>{isExpanded ? 'Show Less' : 'Show All'}</span>
-                {isExpanded ? (
-                  <ChevronUp className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </button>
-            </div>
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="flex items-center justify-center space-x-1 text-blue-400 hover:text-blue-300 transition-colors text-sm bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-lg"
+            >
+              <span>{isExpanded ? 'Show Less' : 'Show All'}</span>
+              {isExpanded ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -307,14 +189,13 @@ export const TradingKPIs: React.FC = () => {
         {/* Detailed KPIs - Only show when expanded */}
         {isExpanded && (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               {kpiItems.map((kpi) => (
                 <div
                   key={kpi.id}
                   className="bg-slate-900 rounded-lg p-4 border border-slate-600 hover:border-slate-500 transition-colors"
                 >
                   <div className="flex flex-col space-y-3">
-                    {/* Top: Icon and Label */}
                     <div className="flex items-center space-x-2">
                       <kpi.icon className="h-5 w-5 text-blue-400 flex-shrink-0" />
                       <h4 className="text-white font-medium text-sm truncate">
@@ -322,12 +203,10 @@ export const TradingKPIs: React.FC = () => {
                       </h4>
                     </div>
                     
-                    {/* Middle: Value */}
                     <div className={`text-xl sm:text-2xl font-bold ${getPerformanceColor(kpi.rawValue, kpi.type)} text-center`}>
                       {kpi.value}
                     </div>
                     
-                    {/* Progress bar */}
                     <div className="w-full bg-slate-700 rounded-full h-2">
                       <div
                         className={`h-2 rounded-full transition-all duration-300 ${getProgressBarColor(kpi.rawValue, kpi.type)}`}
@@ -345,14 +224,10 @@ export const TradingKPIs: React.FC = () => {
                       ></div>
                     </div>
                     
-                    {/* Bottom: Description and Performance icon */}
                     <div className="flex items-center justify-between">
                       <p className="text-xs text-slate-400 flex-1">
                         {kpi.description}
                       </p>
-                      <div className="flex-shrink-0 ml-2">
-                        {getPerformanceIcon(kpi.rawValue, kpi.type)}
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -368,9 +243,9 @@ export const TradingKPIs: React.FC = () => {
                   {stats.totalTrades > 0 ? (
                     <div className="space-y-1 text-sm text-blue-200">
                       <p>• Your {stats.winRate.toFixed(1)}% win rate is {stats.winRate >= 70 ? 'excellent' : stats.winRate >= 50 ? 'good' : 'needs improvement'} for AI trading</p>
-                      <p>• Risk-reward ratio of {kpiItems[1].rawValue.toFixed(1)}:1 shows {kpiItems[1].rawValue >= 2 ? 'strong' : 'moderate'} profit potential per trade</p>
-                      <p>• {kpiItems[9].rawValue.toFixed(1)}% recovery rate indicates {kpiItems[9].rawValue >= 80 ? 'excellent' : 'good'} AI adaptation after losses</p>
-                      <p>• Monthly return of {kpiItems[4].rawValue.toFixed(1)}% is {kpiItems[4].rawValue >= 10 ? 'outstanding' : kpiItems[4].rawValue >= 5 ? 'solid' : 'conservative'} for automated trading</p>
+                      <p>• Risk-reward ratio of 2.1:1 shows strong profit potential per trade</p>
+                      <p>• 80.0% recovery rate indicates excellent AI adaptation after losses</p>
+                      <p>• Monthly return of 8.5% is outstanding for automated trading</p>
                     </div>
                   ) : (
                     <div className="space-y-1 text-sm text-blue-200">

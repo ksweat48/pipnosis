@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Shield, Scale, Target, AlertTriangle, Brain, TrendingUp, Clock, Zap, Activity, CheckCircle, ChevronDown, ChevronUp, Gavel } from 'lucide-react';
+import { Shield, Scale, Target, AlertTriangle, Brain, TrendingUp, Clock, Zap, Activity, ChevronDown, ChevronUp, Gavel } from 'lucide-react';
 
 interface TradingLaw {
   id: number;
@@ -10,7 +10,7 @@ interface TradingLaw {
 }
 
 export const TradingLaws: React.FC = () => {
-  const [isExpanded, setIsExpanded] = useState(false); // Default to collapsed
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const laws: TradingLaw[] = [
     {
@@ -52,7 +52,7 @@ export const TradingLaws: React.FC = () => {
       id: 6,
       title: "Trades Must Have High Quality Entry Conditions",
       description: "Each trade must meet multiple technical confirmations (e.g., price action, trend alignment, volume, S/R) regardless of urgency. Pipnosis must wait for optimal setups.",
-      icon: CheckCircle,
+      icon: Activity,
       category: 'execution'
     },
     {

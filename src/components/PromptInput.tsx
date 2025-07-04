@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Send, Mic, Zap, AlertCircle, RefreshCw, CheckCircle } from 'lucide-react';
-import { openAIService } from '../services/openai';
+import React, { useState } from 'react';
+import { Send, Mic, Zap, AlertCircle } from 'lucide-react';
 
 interface PromptInputProps {
   onSubmit: (prompt: string) => void;
@@ -10,43 +9,12 @@ interface PromptInputProps {
 
 export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, error }) => {
   const [prompt, setPrompt] = useState('');
-  const [isTestingOpenAI, setIsTestingOpenAI] = useState(false);
-  const [openAIStatus, setOpenAIStatus] = useState<{
-    initialized: boolean;
-    fallbackMode: boolean;
-    apiKeyConfigured: boolean;
-  } | null>(null);
-
-  // Check OpenAI status on component mount
-  useEffect(() => {
-    checkOpenAIStatus();
-  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (prompt.trim() && !isLoading) {
       onSubmit(prompt.trim());
       setPrompt('');
-    }
-  };
-
-  const checkOpenAIStatus = async () => {
-    const status = openAIService.getStatus();
-    setOpenAIStatus(status);
-    console.log('🔍 OpenAI Status:', status);
-  };
-
-  const testOpenAIConnection = async () => {
-    setIsTestingOpenAI(true);
-    try {
-      await openAIService.reconnect();
-      const status = openAIService.getStatus();
-      setOpenAIStatus(status);
-      console.log('🔍 OpenAI Status after reconnect:', status);
-    } catch (error) {
-      console.error('❌ OpenAI test failed:', error);
-    } finally {
-      setIsTestingOpenAI(false);
     }
   };
 
@@ -69,14 +37,6 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, e
         <div className="flex items-center space-x-2 text-xs">
           <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
           <span className="text-green-400">GPT-4 Connected</span>
-          <button 
-            onClick={testOpenAIConnection}
-            disabled={isTestingOpenAI}
-            className="p-1 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
-            title="Test OpenAI Connection"
-          >
-            <RefreshCw className={`h-3 w-3 ${isTestingOpenAI ? 'animate-spin' : ''}`} />
-          </button>
         </div>
       </div>
       
@@ -86,47 +46,6 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, e
           <div>
             <p className="text-red-400 text-sm font-medium">AI Analysis Error</p>
             <p className="text-red-300 text-xs mt-1">{error}</p>
-          </div>
-        </div>
-      )}
-      
-      {openAIStatus && (
-        <div className={`mb-4 p-3 ${
-          openAIStatus.initialized && !openAIStatus.fallbackMode 
-            ? 'bg-green-500/10 border border-green-500/30' 
-            : 'bg-yellow-500/10 border border-yellow-500/30'
-        } rounded-lg`}>
-          <div className="flex items-start space-x-2">
-            {openAIStatus.initialized && !openAIStatus.fallbackMode ? (
-              <CheckCircle className="h-4 w-4 text-green-400 mt-0.5 flex-shrink-0" />
-            ) : (
-              <AlertCircle className="h-4 w-4 text-yellow-400 mt-0.5 flex-shrink-0" />
-            )}
-            <div>
-              <p className={`text-sm font-medium ${
-                openAIStatus.initialized && !openAIStatus.fallbackMode ? 'text-green-400' : 'text-yellow-400'
-              }`}>
-                {openAIStatus.initialized && !openAIStatus.fallbackMode 
-                  ? 'OpenAI Connection Successful' 
-                  : 'Using Fallback Mode'}
-              </p>
-              <p className={`text-xs mt-1 ${
-                openAIStatus.initialized && !openAIStatus.fallbackMode ? 'text-green-300' : 'text-yellow-300'
-              }`}>
-                {openAIStatus.initialized && !openAIStatus.fallbackMode 
-                  ? 'GPT-4 is connected and ready to analyze your prompts' 
-                  : openAIStatus.apiKeyConfigured 
-                    ? 'Connection to OpenAI failed. Using local AI instead.' 
-                    : 'OpenAI API key not configured. Using local AI instead.'}
-              </p>
-              {!openAIStatus.apiKeyConfigured && (
-                <div className="mt-2 p-2 bg-slate-900 rounded border border-yellow-500/30 text-xs text-yellow-300">
-                  <p><strong>Solution:</strong> Add your OpenAI API key to the .env file:</p>
-                  <p className="mt-1 font-mono">VITE_OPENAI_API_KEY=sk-your-api-key</p>
-                  <p className="mt-1">Then restart the application.</p>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       )}
