@@ -9,8 +9,9 @@ import websockets
 import json
 import time
 import logging
+import socket
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import threading
 from dataclasses import dataclass, asdict
 
@@ -68,35 +69,44 @@ class MT5Connector:
         self.websocket_clients = set()
         self.update_interval = 1.0  # Update every second
         self.running = False
+        self.last_order_time = 0  # Track last order time to prevent flooding
         
     def initialize_mt5(self) -> bool:
         """Initialize connection to MT5 terminal"""
         try:
             logger.info("Initializing MT5 connection...")
             
-            # Initialize MT5 connection
+            # Try to initialize MetaTrader 5
             if not mt5.initialize():
                 error = mt5.last_error()
-                logger.error(f"MT5 initialization failed: {error}")
+                logger.error(f"❌ MT5 initialization failed: {error}")
                 return False
-            
+
             # Get account info
             account_info = mt5.account_info()
             if account_info is None:
-                logger.error("Failed to get account info - MT5 not logged in?")
+                logger.error("❌ Failed to get account info — MT5 not logged in?")
                 mt5.shutdown()
                 return False
+
+            self.account_info = account_info
+            self.connected = True
+            logger.info(f"✅ Connected to MT5 account {account_info.login}, balance: {account_info.balance}")
             
             # Check if trading is allowed
             if not account_info.trade_allowed:
-                logger.warning("Trading is not allowed on this account")
+                logger.warning("⚠️ Trading is not allowed on this account")
+                
+            # Check if automated trading is enabled
+            if not account_info.trade_expert:
+                logger.warning("⚠️ AUTOMATED TRADING IS DISABLED IN MT5! Enable it in Tools > Options > Expert Advisors > Allow automated trading")
             
-            self.connected = True
-            logger.info(f"MT5 connected successfully!")
+            logger.info(f"✅ MT5 connected successfully!")
             logger.info(f"Account: {account_info.login}")
             logger.info(f"Server: {account_info.server}")
             logger.info(f"Balance: ${account_info.balance:,.2f}")
             logger.info(f"Equity: ${account_info.equity:,.2f}")
+            logger.info(f"Automated trading: {'Enabled' if account_info.trade_expert else 'DISABLED'}")
             
             return True
             
@@ -168,8 +178,9 @@ class MT5Connector:
                         try:
                             deals = mt5.history_deals_get(position=pos.ticket)
                             if deals and len(deals) > 0:
-                                commission = sum(deal.commission for deal in deals if hasattr(deal, 'commission'))
-                        except:
+                                commission = sum(getattr(deal, 'commission', 0.0) for deal in deals)
+                        except Exception as deal_error:
+                            logger.warning(f"Could not get commission from deals: {deal_error}")
                             commission = 0.0
                     
                     position = Position(
@@ -179,13 +190,13 @@ class MT5Connector:
                         volume=pos.volume,
                         open_price=pos.price_open,
                         current_price=current_price,
-                        sl=pos.sl if hasattr(pos, 'sl') else 0.0,
-                        tp=pos.tp if hasattr(pos, 'tp') else 0.0,
-                        profit=pos.profit if hasattr(pos, 'profit') else 0.0,
-                        swap=pos.swap if hasattr(pos, 'swap') else 0.0,
+                        sl=getattr(pos, 'sl', 0.0),
+                        tp=getattr(pos, 'tp', 0.0),
+                        profit=getattr(pos, 'profit', 0.0),
+                        swap=getattr(pos, 'swap', 0.0),
                         commission=commission,
-                        comment=pos.comment if hasattr(pos, 'comment') else '',
-                        time_open=datetime.fromtimestamp(pos.time).isoformat() if hasattr(pos, 'time') else datetime.now().isoformat()
+                        comment=getattr(pos, 'comment', ''),
+                        time_open=datetime.fromtimestamp(getattr(pos, 'time', datetime.now().timestamp())).isoformat()
                     )
                     result.append(position)
                     
@@ -235,24 +246,132 @@ class MT5Connector:
     def place_order(self, symbol: str, order_type: str, volume: float, 
                    price: float = None, sl: float = None, tp: float = None, 
                    comment: str = "Pipnosis AI Trade") -> Dict:
-        """Place a trading order"""
+        """Place a trading order with enhanced error handling and retries"""
+        # Prevent order flooding - enforce minimum 1 second between orders
+        current_time = time.time()
+        if current_time - self.last_order_time < 1.0:
+            time.sleep(1.0)  # Wait to prevent flooding
+        
+        self.last_order_time = time.time()
+        
+        # Check if MT5 is connected
+        if not self.connected:
+            return {'success': False, 'error': 'MT5 not connected'}
+        
+        # Check if automated trading is enabled
+        account_info = mt5.account_info()
+        if account_info and not account_info.trade_expert:
+            logger.error("⚠️ AUTOMATED TRADING IS DISABLED IN MT5! Enable it in Tools > Options > Expert Advisors > Allow automated trading")
+            return {'success': False, 'error': 'Automated trading is disabled in MT5. Enable it in Tools > Options > Expert Advisors > Allow automated trading'}
+        
+        # CRITICAL FIX: Ensure symbol is selected in Market Watch
+        if not mt5.symbol_select(symbol, True):
+            logger.error(f"Failed to select symbol {symbol} in Market Watch")
+            return {'success': False, 'error': f'Failed to select symbol {symbol} in Market Watch'}
+        
+        # Verify symbol exists and has valid price data
+        symbol_info = mt5.symbol_info(symbol)
+        if symbol_info is None:
+            logger.error(f"Symbol {symbol} not found")
+            return {'success': False, 'error': f'Symbol {symbol} not found'}
+        
+        # Check if symbol is tradable
+        if symbol_info.trade_mode == 0:
+            logger.error(f"Symbol {symbol} is not available for trading")
+            return {'success': False, 'error': f'Symbol {symbol} is not available for trading'}
+        
+        # Get current tick data to verify prices are available
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None or tick.bid == 0 or tick.ask == 0:
+            logger.error(f"No valid price data for {symbol}")
+            return {'success': False, 'error': f'No valid price data for {symbol}. Market may be closed.'}
+        
         try:
-            if not self.connected:
-                return {'success': False, 'error': 'MT5 not connected'}
-            
             # Determine order type
             if order_type.lower() == 'buy':
                 trade_type = mt5.ORDER_TYPE_BUY
                 if price is None:
                     tick = mt5.symbol_info_tick(symbol)
+                    if tick is None:
+                        logger.error(f"Failed to get tick data for {symbol}")
+                        return {'success': False, 'error': f'No price data available for {symbol}'}
                     price = tick.ask
             elif order_type.lower() == 'sell':
                 trade_type = mt5.ORDER_TYPE_SELL
                 if price is None:
                     tick = mt5.symbol_info_tick(symbol)
+                    if tick is None:
+                        logger.error(f"Failed to get tick data for {symbol}")
+                        return {'success': False, 'error': f'No price data available for {symbol}'}
                     price = tick.bid
             else:
                 return {'success': False, 'error': f'Invalid order type: {order_type}'}
+            
+            # Validate volume against symbol limits
+            min_volume = symbol_info.volume_min
+            max_volume = symbol_info.volume_max
+            volume_step = symbol_info.volume_step
+            
+            if volume < min_volume:
+                logger.warning(f"Volume {volume} is below minimum {min_volume}, adjusting")
+                volume = min_volume
+            elif volume > max_volume:
+                logger.warning(f"Volume {volume} is above maximum {max_volume}, adjusting")
+                volume = max_volume
+            
+            # Round volume to valid step
+            volume = round(volume / volume_step) * volume_step
+            
+            # CRITICAL FIX: Validate stop loss and take profit levels
+            if sl is not None or tp is not None:
+                # Get symbol properties
+                point = symbol_info.point
+                digits = symbol_info.digits
+                
+                # Get current price
+                tick = mt5.symbol_info_tick(symbol)
+                if tick is None:
+                    logger.error(f"Failed to get tick data for {symbol}")
+                    return {'success': False, 'error': f'No price data available for {symbol}'}
+                
+                current_bid = tick.bid
+                current_ask = tick.ask
+                
+                # Calculate minimum stop level in points
+                stop_level = symbol_info.trade_stops_level
+                
+                # Convert stop level from points to price
+                min_stop_distance = stop_level * point
+                
+                # Validate and adjust stop loss
+                if sl is not None:
+                    if order_type.lower() == 'buy':
+                        # For buy orders, SL must be below current price
+                        min_valid_sl = current_bid - min_stop_distance
+                        if sl > min_valid_sl:
+                            logger.warning(f"Stop loss {sl} too close to current price {current_bid}, adjusting to {min_valid_sl:.{digits}f}")
+                            sl = min_valid_sl
+                    else:  # sell order
+                        # For sell orders, SL must be above current price
+                        min_valid_sl = current_ask + min_stop_distance
+                        if sl < min_valid_sl:
+                            logger.warning(f"Stop loss {sl} too close to current price {current_ask}, adjusting to {min_valid_sl:.{digits}f}")
+                            sl = min_valid_sl
+                
+                # Validate and adjust take profit
+                if tp is not None:
+                    if order_type.lower() == 'buy':
+                        # For buy orders, TP must be above current price
+                        min_valid_tp = current_ask + min_stop_distance
+                        if tp < min_valid_tp:
+                            logger.warning(f"Take profit {tp} too close to current price {current_ask}, adjusting to {min_valid_tp:.{digits}f}")
+                            tp = min_valid_tp
+                    else:  # sell order
+                        # For sell orders, TP must be below current price
+                        min_valid_tp = current_bid - min_stop_distance
+                        if tp > min_valid_tp:
+                            logger.warning(f"Take profit {tp} too close to current price {current_bid}, adjusting to {min_valid_tp:.{digits}f}")
+                            tp = min_valid_tp
             
             # Prepare the request
             request = {
@@ -274,22 +393,74 @@ class MT5Connector:
             if tp is not None:
                 request["tp"] = tp
             
-            # Send the order
-            result = mt5.order_send(request)
+            logger.info(f"Sending order request: {request}")
             
-            if result.retcode != mt5.TRADE_RETCODE_DONE:
-                error_msg = f"Order failed: {result.retcode} - {result.comment}"
-                logger.error(f"Order error: {error_msg}")
-                return {'success': False, 'error': error_msg}
+            # Send the order with retry logic
+            max_retries = 3
+            retry_delay = 1.0  # seconds
             
-            logger.info(f"Order placed successfully: {result.order}")
-            return {
-                'success': True,
-                'ticket': result.order,
-                'price': result.price,
-                'volume': result.volume,
-                'comment': result.comment
-            }
+            for attempt in range(max_retries):
+                # CRITICAL FIX: Ensure symbol is selected and has valid prices
+                if not mt5.symbol_select(symbol, True):
+                    logger.error(f"Failed to select symbol {symbol} for trading")
+                    return {'success': False, 'error': f'Failed to select symbol {symbol} for trading'}
+                
+                # Check if we have valid price data
+                tick = mt5.symbol_info_tick(symbol)
+                if tick is None or tick.bid == 0 or tick.ask == 0:
+                    logger.error(f"No valid price data for {symbol} (attempt {attempt+1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        logger.info(f"Waiting {retry_delay}s before retry...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        continue
+                    return {'success': False, 'error': f'No price data available for {symbol}. Market may be closed.'}
+                
+                # Update price based on latest tick
+                if order_type.lower() == 'buy':
+                    request["price"] = tick.ask
+                else:
+                    request["price"] = tick.bid
+                
+                # Send the order
+                result = mt5.order_send(request)
+                
+                if result is None:
+                    logger.error(f"Order send failed: No response from MT5 (attempt {attempt+1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        continue
+                    return {'success': False, 'error': 'Order send failed: No response from MT5'}
+                
+                if result.retcode != mt5.TRADE_RETCODE_DONE:
+                    error_msg = f"Order failed: {result.retcode} - {result.comment}"
+                    logger.error(f"Order error (attempt {attempt+1}/{max_retries}): {error_msg}")
+                    
+                    # Check for specific error codes that might be resolved by retrying
+                    if result.retcode in [10004, 10006, 10008, 10009, 10010, 10011, 10012, 10013, 10014, 10018, 10021]:
+                        if attempt < max_retries - 1:
+                            logger.info(f"Retrying order in {retry_delay} seconds...")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff
+                            continue
+                    
+                    return {'success': False, 'error': error_msg, 'retcode': result.retcode}
+                
+                # Success!
+                success_msg = f"Order placed successfully: {result.order}, Price {result.price}, Volume {result.volume}"
+                logger.info(success_msg)
+                
+                return {
+                    'success': True,
+                    'ticket': result.order,
+                    'price': result.price,
+                    'volume': result.volume,
+                    'comment': result.comment
+                }
+            
+            # If we get here, all retries failed
+            return {'success': False, 'error': 'Order failed after multiple attempts'}
             
         except Exception as e:
             error_msg = f"Error placing order: {e}"
@@ -354,7 +525,7 @@ class MT5Connector:
     
     async def handle_websocket_client(self, websocket, path):
         """Handle new WebSocket client connection"""
-        logger.info(f"New WebSocket client connected from {websocket.remote_address}")
+        logger.info(f"🔌 New WebSocket client connected from {websocket.remote_address}")
         self.websocket_clients.add(websocket)
         
         try:
@@ -372,12 +543,21 @@ class MT5Connector:
             # Handle incoming messages
             async for message in websocket:
                 try:
+                    logger.info(f"📨 Received message: {message}")
                     data = json.loads(message)
-                    await self.handle_client_message(websocket, data)
+                    response = await self.handle_client_message(websocket, data)
+                    if response:
+                        await websocket.send(json.dumps(response))
+                        logger.info(f"✅ Sent response: {response['type']}")
+                    else:
+                        await websocket.send(json.dumps({"type": "ack", "message": "Message received"}))
+                        logger.info("✅ Sent acknowledgment")
                 except json.JSONDecodeError:
                     logger.error(f"Invalid JSON from client: {message}")
+                    await websocket.send(json.dumps({"type": "error", "error": "Invalid JSON"}))
                 except Exception as e:
                     logger.error(f"Error handling client message: {e}")
+                    await websocket.send(json.dumps({"type": "error", "error": str(e)}))
                     
         except websockets.exceptions.ConnectionClosed:
             logger.info("WebSocket client disconnected")
@@ -390,25 +570,31 @@ class MT5Connector:
         """Handle messages from WebSocket clients"""
         try:
             message_type = data.get('type')
+            request_id = data.get('requestId', 'unknown')
             
             if message_type == 'place_order':
                 # Handle trade execution request
                 symbol = data.get('symbol')
                 order_type = data.get('order_type')
                 volume = data.get('volume')
+                price = data.get('price')
                 sl = data.get('sl')
                 tp = data.get('tp')
                 comment = data.get('comment', 'Pipnosis AI Trade')
                 
-                result = self.place_order(symbol, order_type, volume, sl=sl, tp=tp, comment=comment)
+                logger.info(f"Received order request: {order_type} {volume} {symbol} SL:{sl} TP:{tp}")
+                
+                result = self.place_order(symbol, order_type, volume, price=price, sl=sl, tp=tp, comment=comment)
                 
                 response = {
                     'type': 'order_response',
+                    'requestId': request_id,
                     'timestamp': datetime.now().isoformat(),
                     'result': result
                 }
                 
-                await websocket.send(json.dumps(response))
+                logger.info(f"Order result: {result}")
+                return response
                 
             elif message_type == 'get_symbol_info':
                 # Handle symbol info request
@@ -417,40 +603,70 @@ class MT5Connector:
                 
                 response = {
                     'type': 'symbol_info',
+                    'requestId': request_id,
                     'timestamp': datetime.now().isoformat(),
                     'symbol': symbol,
                     'data': symbol_info
                 }
                 
-                await websocket.send(json.dumps(response))
+                return response
                 
             elif message_type == 'ping':
                 # Handle ping request
                 response = {
                     'type': 'pong',
+                    'requestId': request_id,
                     'timestamp': datetime.now().isoformat(),
                     'connection_status': 'connected' if self.connected else 'disconnected'
                 }
                 
-                await websocket.send(json.dumps(response))
+                return response
+                
+            return None  # No specific response needed
                 
         except Exception as e:
             logger.error(f"Error handling client message: {e}")
+            # Send error response
+            return {
+                'type': 'error',
+                'requestId': data.get('requestId', 'unknown'),
+                'timestamp': datetime.now().isoformat(),
+                'error': str(e)
+            }
     
     async def start_websocket_server(self, host='localhost', port=8765):
-        """Start the WebSocket server"""
-        logger.info(f"Starting WebSocket server on {host}:{port}")
+        """Start the WebSocket server with port fallback"""
+        # Try the specified port first, then fall back to alternatives if needed
+        ports_to_try = [port, 8766, 8767, 8768, 8769, 8770]
+        server = None
         
-        server = await websockets.serve(
-            self.handle_websocket_client,
-            host,
-            port,
-            ping_interval=30,
-            ping_timeout=10
-        )
+        for current_port in ports_to_try:
+            try:
+                logger.info(f"Starting WebSocket server on {host}:{current_port}")
+                server = await websockets.serve(
+                    self.handle_websocket_client,
+                    host,
+                    current_port,
+                    ping_interval=30,
+                    ping_timeout=10
+                )
+                logger.info(f"WebSocket server started on ws://{host}:{current_port}")
+                
+                # Store the successful port in a file for clients to discover
+                with open('mt5_bridge_port.txt', 'w') as f:
+                    f.write(str(current_port))
+                
+                return server, current_port
+            except socket.error as e:
+                logger.warning(f"Port {current_port} is already in use, trying next port: {e}")
+                continue
+            except Exception as e:
+                logger.error(f"Error starting WebSocket server on port {current_port}: {e}")
+                continue
         
-        logger.info(f"WebSocket server started on ws://{host}:{port}")
-        return server
+        # If we get here, all ports failed
+        logger.error("Failed to start WebSocket server on any port")
+        return None, None
     
     def start(self, host='localhost', port=8765):
         """Start the MT5 connector"""
@@ -469,11 +685,20 @@ class MT5Connector:
         
         try:
             # Start WebSocket server and data update loop
-            server = loop.run_until_complete(self.start_websocket_server(host, port))
+            server_result, actual_port = loop.run_until_complete(self.start_websocket_server(host, port))
+            
+            if server_result is None:
+                logger.error("Failed to start WebSocket server - exiting")
+                self.running = False
+                if self.connected:
+                    mt5.shutdown()
+                    self.connected = False
+                return False
+            
             update_task = loop.create_task(self.data_update_loop())
             
             logger.info("Pipnosis MT5 Connector is running!")
-            logger.info("WebSocket clients can connect to receive live MT5 data")
+            logger.info(f"WebSocket clients can connect to receive live MT5 data on port {actual_port}")
             logger.info("Press Ctrl+C to stop")
             
             # Run forever
