@@ -26,26 +26,32 @@ export const TradingKPIs: React.FC = () => {
   // Get trade counts from localStorage
   const [tradeCounts, setTradeCounts] = useState({
     totalTrades: 0,
-    winningTrades: 0,
+    winningTrades: 0, 
     losingTrades: 0
   });
   
   // Load trade counts from localStorage
   React.useEffect(() => {
     try {
-      const totalTradesStr = localStorage.getItem('pipnosis_trade_count') || '0';
-      const winningTradesStr = localStorage.getItem('pipnosis_winning_trades') || '0';
-      const losingTradesStr = localStorage.getItem('pipnosis_losing_trades') || '0';
+      const totalTradesStr = localStorage.getItem('pipnosis_trade_count');
+      const winningTradesStr = localStorage.getItem('pipnosis_winning_trades');
+      const losingTradesStr = localStorage.getItem('pipnosis_losing_trades');
+      
+      const totalTrades = totalTradesStr ? parseInt(totalTradesStr, 10) : 0;
+      const winningTrades = winningTradesStr ? parseInt(winningTradesStr, 10) : 0;
+      const losingTrades = losingTradesStr ? parseInt(losingTradesStr, 10) : 0;
       
       setTradeCounts({
-        totalTrades: parseInt(totalTradesStr, 10),
-        winningTrades: parseInt(winningTradesStr, 10),
-        losingTrades: parseInt(losingTradesStr, 10)
+        totalTrades,
+        winningTrades,
+        losingTrades
       });
+      
+      console.log('📊 Loaded trade counts:', { totalTrades, winningTrades, losingTrades });
     } catch (error) {
       console.error('Error loading trade counts:', error);
     }
-  }, [stats.totalTrades]);
+  }, [stats.totalTrades, isExpanded]);
 
   // Refresh stats when component mounts or when expanded
   React.useEffect(() => {

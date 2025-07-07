@@ -83,6 +83,7 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
   useEffect(() => {
     const checkMT5Status = () => {
       try {
+        setIsRefreshing(true);
         const connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
         const accountData = localStorage.getItem('pipnosis_mt5_account');
         
@@ -135,6 +136,8 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
         console.error('Error checking MT5 status:', error);
         setIsConnected(false);
         setMt5AccountData(null);
+      } finally {
+        setTimeout(() => setIsRefreshing(false), 500);
         setOpenPositions([]);
       }
     };
@@ -155,6 +158,9 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
 
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('openMT5Modal', handleOpenMT5Modal);
+
+    // Initial check
+    checkMT5Status();
 
     return () => {
       clearInterval(interval);

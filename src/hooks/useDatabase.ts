@@ -166,10 +166,7 @@ export const useDatabaseStats = () => {
         // Use MT5 balance if available, otherwise use profile balance
         const accountBalance = mt5Balance || profile?.account_balance || 10000;
         const openPositionsCount = mt5Positions.length;
-        const calculatedWinRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 75.0;
-        const openPositionsCount = mt5Positions.length;
-        const tradeCount = openPositionsCount > 0 ? openPositionsCount + 5 : 12;
-        const winningTrades = Math.round(tradeCount * 0.75);
+        const calculatedWinRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 75.0;        
         
         setStats({
           totalPrompts: Math.max(3, Math.round(totalTrades * 0.8)),
