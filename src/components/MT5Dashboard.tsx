@@ -229,16 +229,7 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                     const event = new CustomEvent('openMT5Modal');
                     window.dispatchEvent(event);
                   }}
-                  className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                <button 
-                  onClick={refreshData}
-                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-                  title="Refresh data"
-                <button 
-                  onClick={openMT5Settings}
-                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-                  title="MT5 settings"
-                >
+                  className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
                   Connect MT5 Account
                 </button>
               </div>
@@ -251,10 +242,16 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                   <span className="text-sm text-green-400">Live Data</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <button className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors">
+                  <button 
+                    onClick={refreshData}
+                    className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                    title="Refresh data">
                     <RefreshCw className="h-4 w-4" />
                   </button>
-                  <button className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors">
+                  <button 
+                    onClick={openMT5Settings}
+                    className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                    title="MT5 settings">
                     <Settings className="h-4 w-4" />
                   </button>
                 </div>
