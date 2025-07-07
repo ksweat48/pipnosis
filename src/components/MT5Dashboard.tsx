@@ -101,6 +101,9 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
       // Simulate connection for demo purposes
       await new Promise(resolve => setTimeout(resolve, 1000));
       
+      // Use production bridge host for pipnosis.com
+      const bridgeHost = window.location.hostname === 'pipnosis.com' ? '97.180.94.170' : 'localhost';
+      
       // Set connected status in localStorage
       localStorage.setItem('pipnosis_mt5_connected', 'true');
       
@@ -108,6 +111,8 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
       const mockAccountData = {
         login: '5037742044',
         server: 'MetaQuotes-Demo',
+        bridgeHost: bridgeHost,
+        bridgePort: '8765',
         balance: 9999.30,
         equity: 9999.30,
         margin: 0,

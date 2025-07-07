@@ -24,7 +24,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
     password: '',
     server: 'MetaQuotes-Demo',
     accountType: 'demo',
-    bridgeHost: 'localhost',
+    bridgeHost: window.location.hostname === 'pipnosis.com' ? '97.180.94.170' : 'localhost',
     bridgePort: '8765'
   });
   const [isEditingCredentials, setIsEditingCredentials] = useState(false);

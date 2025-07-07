@@ -9,7 +9,7 @@
   VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVseWtudGlma2RhcWlhZm5qb3NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA2NDgyMTMsImV4cCI6MjA2NjIyNDIxM30.itkXsNCqJMTr8r_nFk6u4PpRu2_wt8Q9iMkBSoxnmLU"
   VITE_OPENAI_API_KEY = "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"
   VITE_PIPNOSIS_API_URL = "https://pipnosis-production.up.railway.app/api"
-  VITE_MT5_BRIDGE_URL = "ws://localhost:8765"
+  VITE_MT5_BRIDGE_URL = "ws://${MT5_BRIDGE_HOST}:${MT5_BRIDGE_PORT}"
   VITE_BUILD_VERSION = "2.0.0"
   VITE_DEV_MODE = "false"
   # Build optimizations

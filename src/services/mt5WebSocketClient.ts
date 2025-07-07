@@ -74,15 +74,70 @@ export class MT5WebSocketClient {
   private lastConnectionAttempt = 0;
   private connectionAttemptThreshold = 5000; // 5 seconds between connection attempts
   private error: string | null = null;
+  private defaultHost = 'localhost';
+  private defaultPort = 8765;
   
   constructor(
-    private host: string = 'localhost',
-    private port: number = 8765
+    private host: string = '',
+    private port: number = 0
   ) {
-    console.log('🔌 MT5 WebSocket Client initialized for', `${host}:${port}`);
+    // Get host and port from environment variables or localStorage
+    this.host = host || this.getHostFromEnv() || this.defaultHost;
+    this.port = port || this.getPortFromEnv() || this.defaultPort;
+    
+    console.log('🔌 MT5 WebSocket Client initialized for', `${this.host}:${this.port}`);
     this.discoverPort();
   }
 
+  /**
+   * Get host from environment variables
+   */
+  private getHostFromEnv(): string {
+    try {
+      // Try to get from environment variable
+      const envHost = import.meta.env.VITE_MT5_BRIDGE_HOST;
+      if (envHost) return envHost;
+      
+      // Try to parse from VITE_MT5_BRIDGE_URL
+      const bridgeUrl = import.meta.env.VITE_MT5_BRIDGE_URL;
+      if (bridgeUrl) {
+        const match = bridgeUrl.match(/ws:\/\/([^:]+):/);
+        if (match && match[1]) {
+          return match[1].replace('${MT5_BRIDGE_HOST}', this.defaultHost);
+        }
+      }
+      
+      return '';
+    } catch (error) {
+      console.error('Error getting host from env:', error);
+      return '';
+    }
+  }
+
+  /**
+   * Get port from environment variables
+   */
+  private getPortFromEnv(): number {
+    try {
+      // Try to get from environment variable
+      const envPort = import.meta.env.VITE_MT5_BRIDGE_PORT;
+      if (envPort) return parseInt(envPort, 10);
+      
+      // Try to parse from VITE_MT5_BRIDGE_URL
+      const bridgeUrl = import.meta.env.VITE_MT5_BRIDGE_URL;
+      if (bridgeUrl) {
+        const match = bridgeUrl.match(/:(\d+)/);
+        if (match && match[1]) {
+          return parseInt(match[1].replace('${MT5_BRIDGE_PORT}', this.defaultPort.toString()), 10);
+        }
+      }
+      
+      return 0;
+    } catch (error) {
+      console.error('Error getting port from env:', error);
+      return 0;
+    }
+  }
   /**
    * Configure the WebSocket client with new host and port
    */
@@ -99,6 +154,14 @@ export class MT5WebSocketClient {
       
       // Reset error state
       this.error = null;
+      
+      // Save to localStorage for persistence
+      try {
+        localStorage.setItem('pipnosis_mt5_bridge_host', host);
+        localStorage.setItem('pipnosis_mt5_bridge_port', port.toString());
+      } catch (error) {
+        console.error('Error saving MT5 bridge config to localStorage:', error);
+      }
     }
   }
 
