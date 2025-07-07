@@ -89,11 +89,26 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
   useEffect(() => {
     try {
       // Set default bridge host based on environment
+      const envHost = import.meta.env.VITE_MT5_BRIDGE_HOST;
+      const envPort = import.meta.env.VITE_MT5_BRIDGE_PORT;
+      const savedHost = localStorage.getItem('pipnosis_mt5_bridge_host');
+      const savedPort = localStorage.getItem('pipnosis_mt5_bridge_port');
+      
+      // Determine default host based on environment
+      let defaultHost = 'localhost';
+      if (window.location.hostname === 'pipnosis.com') {
+        defaultHost = savedHost || '';
+      } else if (envHost) {
+        defaultHost = envHost;
+      }
+      
+      // Determine default port
+      const defaultPort = savedPort || envPort || '8765';
+      
       setCredentials(prev => ({
         ...prev,
-        bridgeHost: window.location.hostname === 'pipnosis.com' ? 
-          localStorage.getItem('pipnosis_mt5_bridge_host') || '' : 
-          'localhost'
+        bridgeHost: defaultHost,
+        bridgePort: defaultPort
       }));
       
       const mt5AccountData = localStorage.getItem('pipnosis_mt5_account');
@@ -137,6 +152,10 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
     try {
       // Configure the MT5 client with the provided host and port
       mt5Client.configure(credentials.bridgeHost, parseInt(credentials.bridgePort, 10));
+
+      // Save to localStorage for persistence
+      localStorage.setItem('pipnosis_mt5_bridge_host', credentials.bridgeHost);
+      localStorage.setItem('pipnosis_mt5_bridge_port', credentials.bridgePort);
       
       // Test connection to the MT5 bridge
       const result = await mt5Client.testConnection();
@@ -619,10 +638,12 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                         )}
                       </label>
                       <input
-                        type="text"
+                        type="text" 
                         value={credentials.bridgeHost}
                         onChange={(e) => handleCredentialChange('bridgeHost', e.target.value)}
-                        placeholder="e.g., 192.168.1.100 or your public IP"
+                        placeholder={window.location.hostname === 'pipnosis.com' ? 
+                          "Enter your public IP address" : 
+                          "localhost or 127.0.0.1"}
                         className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                       {window.location.hostname === 'pipnosis.com' ? (

@@ -254,7 +254,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // CRITICAL FIX: Enhanced session initialization with better timeout handling
   useEffect(() => {
     let mounted = true;
-    let timeout: NodeJS.Timeout;
+    let initializationTimeout: NodeJS.Timeout | null = null;
+    let sessionCheckTimeout: NodeJS.Timeout | null = null;
 
     // Check for test user session first
     const checkTestUser = () => {
@@ -293,19 +294,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         console.log('🔐 Checking initial auth session...');
         
-        // Set timeout to prevent hanging
-        timeout = setTimeout(() => {
+        // Shorter timeout for production to prevent hanging
+        const sessionTimeout = isProduction ? 8000 : 12000;
+        
+        initializationTimeout = setTimeout(() => {
           if (mounted && loading && !authInitialized) {
-            console.warn('⚠️ Session check timeout');
+            console.warn('⚠️ Session check timeout, setting loading to false');
             setLoading(false);
             setAuthInitialized(true);
           }
-        }, 8000);
+        }, sessionTimeout);
+        
+        // Add session-specific timeout
+        sessionCheckTimeout = setTimeout(() => {
+          if (mounted && loading && !authInitialized) {
+            console.warn('⚠️ Session check taking too long, forcing completion');
+            setLoading(false);
+            setAuthInitialized(true);
+          }
+        }, sessionTimeout / 2);
         
         const { data: { session }, error } = await supabase.auth.getSession();
         
-        if (timeout) {
-          clearTimeout(timeout);
+        if (initializationTimeout) {
+          clearTimeout(initializationTimeout);
+          initializationTimeout = null;
+        }
+        if (sessionCheckTimeout) {
+          clearTimeout(sessionCheckTimeout);
+          sessionCheckTimeout = null;
         }
         
         if (error) {
@@ -423,6 +440,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       mounted = false;
       if (initializationTimeout) {
         clearTimeout(initializationTimeout);
+        initializationTimeout = null;
+      }
+      if (sessionCheckTimeout) {
+        clearTimeout(sessionCheckTimeout);
+        sessionCheckTimeout = null;
       }
       if (sessionCheckTimeout) {
         clearTimeout(sessionCheckTimeout);

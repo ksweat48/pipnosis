@@ -86,7 +86,7 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
   const connectToMT5 = async () => {
     setIsRefreshing(true);
     setError(null); 
-
+    
     // In WebContainer environment, show a special message
     if (window.location.hostname.includes('webcontainer-api.io') || 
         window.location.hostname.includes('local-credentialless') ||
@@ -100,24 +100,18 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
     try {
       // Simulate connection for demo purposes
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Get bridge host from localStorage or prompt user
-      let bridgeHost = localStorage.getItem('pipnosis_mt5_bridge_host');
-      
-      // If on production and no host is set, prompt user
-      if (window.location.hostname === 'pipnosis.com' && !bridgeHost) {
-        // Open MT5 modal to let user enter their IP
-        const event = new CustomEvent('openMT5Modal');
-        window.dispatchEvent(event);
-        setIsRefreshing(false);
-        return;
-      }
-      
-      // Use localhost for development
-      bridgeHost = bridgeHost || 'localhost';
-      
+
       // Set connected status in localStorage
       localStorage.setItem('pipnosis_mt5_connected', 'true');
+      
+      // Get bridge host from localStorage or environment
+      const bridgeHost = localStorage.getItem('pipnosis_mt5_bridge_host') || 
+                         import.meta.env.VITE_MT5_BRIDGE_HOST || 
+                         'localhost';
+      
+      const bridgePort = localStorage.getItem('pipnosis_mt5_bridge_port') || 
+                         import.meta.env.VITE_MT5_BRIDGE_PORT || 
+                         '8765';
       
       // Create mock account data
       const mockAccountData = {
@@ -320,15 +314,8 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                 <button 
                   onClick={() => {
                     // In WebContainer environment, show a special message
-                    if (window.location.hostname.includes('webcontainer-api.io') || 
-                        window.location.hostname.includes('local-credentialless') ||
-                        window.location.hostname.includes('bolt.new') ||
-                        window.location.hostname.includes('stackblitz')) {
-                      setError('MT5 connection is not available in this preview environment. Please run the application locally to connect to MT5.');
-                    } else {
-                      const event = new CustomEvent('openMT5Modal');
-                      window.dispatchEvent(event);
-                    }
+                    const event = new CustomEvent('openMT5Modal');
+                    window.dispatchEvent(event);
                   }}
                   className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex-1">
                   Connect MT5 Account

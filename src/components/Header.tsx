@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, User, Menu, X, ExternalLink, LogIn, LogOut, Zap } from 'lucide-react';
+import { Settings, User, Menu, X, ExternalLink, LogIn, LogOut, Zap, HelpCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { SettingsModal } from './SettingsModal';
 import { MT5ConnectionStatus } from './MT5ConnectionStatus';
@@ -192,10 +192,23 @@ export const Header: React.FC = () => {
                   title={mt5Connected ? 'MT5 Connected - Click to manage' : 'Connect to MetaTrader 5'}
                 >
                   <Zap className="h-4 w-4" />
-                  <span className="hidden lg:inline">
+                  <span className="hidden lg:inline whitespace-nowrap">
                     {mt5Connected ? 'MT5 ✓' : 'MT5'}
                   </span>
                 </button>
+              )}
+              
+              {/* MT5 Setup Guide */}
+              {user && (
+                <a 
+                  href="/PRODUCTION_MT5_SETUP.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                  title="MT5 Setup Guide"
+                >
+                  <HelpCircle className="h-5 w-5" />
+                </a>
               )}
               
               {user && (
