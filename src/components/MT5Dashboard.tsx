@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Server, Activity, DollarSign, TrendingUp, TrendingDown, Settings, RefreshCw, Wifi, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { mt5Client } from '../services/mt5WebSocketClient';
+import { WebContainerNotice } from './WebContainerNotice';
 
 interface MT5DashboardProps {
   isVisible?: boolean;
@@ -286,6 +287,7 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
         <div className="p-4 sm:p-6 space-y-6">
           {!isConnected ? (
             <div className="text-center py-8">
+              <WebContainerNotice />
               <div className="p-6 bg-red-500/10 border border-red-500/30 rounded-lg">
                 <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
                 <h4 className="text-white font-semibold mb-2">MT5 Not Connected</h4>

@@ -13,6 +13,7 @@ import socket
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
 import threading
+import argparse
 from dataclasses import dataclass, asdict
 
 # Configure logging with UTF-8 encoding to fix emoji issues
@@ -765,4 +766,11 @@ class MT5Connector:
 
 if __name__ == "__main__":
     connector = MT5Connector()
-    connector.start(host='localhost', port=8765)
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Pipnosis MT5 Connector')
+    parser.add_argument('--host', type=str, default='localhost', help='Host to bind to (use 0.0.0.0 for all interfaces)')
+    parser.add_argument('--port', type=int, default=8765, help='Port to listen on')
+    args = parser.parse_args()
+    
+    connector.start(host=args.host, port=args.port)
