@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, Download, CheckCircle, AlertCircle, Loader, Shield, Server, Key, User, ExternalLink, Play, Monitor, Wifi, WifiOff, Edit3, Save, RefreshCw } from 'lucide-react';
+import { mt5Client } from '../services/mt5WebSocketClient';
+import { MT5ConnectionSettings } from './MT5ConnectionSettings';
+import { WebContainerNotice } from './WebContainerNotice';
 
 interface MT5ConnectionModalProps {
   isOpen: boolean;
@@ -18,16 +21,21 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
   const [currentStep, setCurrentStep] = useState(1);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [connectorStatus, setConnectorStatus] = useState<'not-installed' | 'installing' | 'installed' | 'running' | 'error'>('not-installed');
+  const [error, setError] = useState<string | null>(null);
   const [credentials, setCredentials] = useState({
     login: '',
     password: '',
-    server: '',
-    accountType: 'demo'
+    server: 'MetaQuotes-Demo',
+    accountType: 'demo',
+    bridgeHost: 'localhost',
+    bridgePort: '8765'
   });
   const [isEditingCredentials, setIsEditingCredentials] = useState(false);
   const [currentCredentials, setCurrentCredentials] = useState<{
     login: string;
     server: string;
+    bridgeHost?: string;
+    bridgePort?: string;
     lastUpdated?: string;
   } | null>(null);
 
@@ -86,8 +94,10 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
       if (mt5AccountData) {
         const accountData = JSON.parse(mt5AccountData);
         setCurrentCredentials({
-          login: accountData.login || '',
-          server: accountData.server || '',
+          login: accountData.login || 'Unknown',
+          server: accountData.server || 'Unknown',
+          bridgeHost: accountData.bridgeHost || 'localhost',
+          bridgePort: accountData.bridgePort || '8765',
           lastUpdated: accountData.lastUpdate || new Date().toISOString()
         });
       }
@@ -117,34 +127,47 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
   const handleTestConnection = async () => {
     setConnectionStatus('connecting');
     
-    // Simulate connection test
-    await new Promise(resolve => setTimeout(resolve, 4000));
-    
-    // Simulate success/failure (80% success rate for demo)
-    const success = Math.random() > 0.2;
-    setConnectionStatus(success ? 'connected' : 'error');
-    
-    if (success) {
-      setConnectorStatus('running');
-      setCurrentStep(4);
+    try {
+      // Configure the MT5 client with the provided host and port
+      mt5Client.configure(credentials.bridgeHost, parseInt(credentials.bridgePort, 10));
       
-      // Save credentials to localStorage for demo purposes
-      const accountData = {
-        login: credentials.login,
-        server: credentials.server,
-        balance: 10000,
-        equity: 10000,
-        lastUpdate: new Date().toISOString()
-      };
-      localStorage.setItem('pipnosis_mt5_connected', 'true');
-      localStorage.setItem('pipnosis_mt5_account', JSON.stringify(accountData));
+      // Test connection to the MT5 bridge
+      const result = await mt5Client.testConnection();
       
-      // Update current credentials
-      setCurrentCredentials({
-        login: credentials.login,
-        server: credentials.server,
-        lastUpdated: new Date().toISOString()
-      });
+      if (result.success) {
+        setConnectionStatus('connected');
+        setConnectorStatus('running');
+        setCurrentStep(4);
+        
+        // Save credentials to localStorage for demo purposes
+        const accountData = {
+          login: credentials.login,
+          server: credentials.server,
+          bridgeHost: credentials.bridgeHost,
+          bridgePort: credentials.bridgePort,
+          balance: 10000,
+          equity: 10000,
+          lastUpdate: new Date().toISOString()
+        };
+        localStorage.setItem('pipnosis_mt5_connected', 'true');
+        localStorage.setItem('pipnosis_mt5_account', JSON.stringify(accountData));
+        
+        // Update current credentials
+        setCurrentCredentials({
+          login: credentials.login,
+          server: credentials.server,
+          bridgeHost: credentials.bridgeHost,
+          bridgePort: credentials.bridgePort,
+          lastUpdated: new Date().toISOString()
+        });
+      } else {
+        setConnectionStatus('error');
+        setError(result.error || 'Failed to connect to MT5 bridge');
+      }
+    } catch (error) {
+      console.error('Connection test error:', error);
+      setConnectionStatus('error');
+      setError(error instanceof Error ? error.message : 'Unknown connection error');
     }
   };
 
@@ -157,11 +180,14 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
   const handleEditCredentials = () => {
     // Load current credentials into the form
     if (currentCredentials) {
-      setCredentials(prev => ({
-        ...prev,
-        login: currentCredentials.login,
-        server: currentCredentials.server
-      }));
+      setCredentials({
+        login: currentCredentials.login || '',
+        password: '',
+        server: currentCredentials.server || 'MetaQuotes-Demo',
+        accountType: 'demo',
+        bridgeHost: currentCredentials.bridgeHost || 'localhost',
+        bridgePort: currentCredentials.bridgePort || '8765'
+      });
     }
     setIsEditingCredentials(true);
     setCurrentStep(2);
@@ -170,9 +196,20 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
   const handleSaveCredentials = () => {
     // In a real implementation, this would save to the encrypted config file
     // For now, we'll just update localStorage
-    
-    if (!credentials.login || !credentials.password) {
-      alert('Login and password are required');
+
+    // Validate required fields
+    if (!credentials.login) {
+      alert('Login is required');
+      return;
+    }
+
+    if (!credentials.bridgeHost) {
+      alert('Bridge Host is required');
+      return;
+    }
+
+    if (!credentials.bridgePort) {
+      alert('Bridge Port is required');
       return;
     }
     
@@ -180,6 +217,8 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
     const accountData = {
       login: credentials.login,
       server: credentials.server,
+      bridgeHost: credentials.bridgeHost,
+      bridgePort: credentials.bridgePort,
       balance: 10000, // Placeholder
       equity: 10000, // Placeholder
       lastUpdate: new Date().toISOString()
@@ -191,6 +230,8 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
     setCurrentCredentials({
       login: credentials.login,
       server: credentials.server,
+      bridgeHost: credentials.bridgeHost,
+      bridgePort: credentials.bridgePort,
       lastUpdated: new Date().toISOString()
     });
     
@@ -478,7 +519,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                     <div>
                       <label className="block text-sm font-medium text-slate-300 mb-2">
                         <User className="h-4 w-4 inline mr-2" />
-                        MT5 Login (Account Number)
+                        MT5 Account Number
                       </label>
                       <input
                         type="text"
@@ -552,6 +593,40 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                   </div>
 
                   <div className="space-y-4">
+                    <h4 className="text-white font-medium">Bridge Connection Settings</h4>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        <Server className="h-4 w-4 inline mr-2" />
+                        Bridge Host
+                      </label>
+                      <input
+                        type="text"
+                        value={credentials.bridgeHost}
+                        onChange={(e) => handleCredentialChange('bridgeHost', e.target.value)}
+                        placeholder="e.g., 192.168.1.100 or your public IP"
+                        className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">Your computer's IP address or domain name where the MT5 bridge is running</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        <Server className="h-4 w-4 inline mr-2" />
+                        Bridge Port
+                      </label>
+                      <input
+                        type="text"
+                        value={credentials.bridgePort}
+                        onChange={(e) => handleCredentialChange('bridgePort', e.target.value)}
+                        placeholder="e.g., 8765"
+                        className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">Default is 8765. Change only if you modified the bridge port.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
                     <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
                       <div className="flex items-start space-x-3">
                         <Shield className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
@@ -607,14 +682,20 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                         <Save className="h-4 w-4" />
                         <span>Save Credentials</span>
                       </button>
-                    </>
+                        Unable to connect to your MT5 bridge. Please check:
                   ) : (
                     <button
                       onClick={handleNextStep}
-                      disabled={!credentials.login || !credentials.password || !credentials.server}
-                      className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
-                    >
+                        <li>MT5 bridge is running (python mt5_connector.py)</li>
+                        <li>Bridge host and port are correct</li>
+                        <li>Port forwarding is set up on your router (for remote connections)</li>
+                        <li>Firewall allows connections to the specified port</li>
                       Test Connection
+                      {error && (
+                        <div className="mt-3 p-2 bg-red-500/20 border border-red-500/40 rounded">
+                          <p className="text-red-300 text-xs">{error}</p>
+                        </div>
+                      )}
                     </button>
                   )}
                 </div>
@@ -623,110 +704,14 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
 
             {currentStep === 3 && (
               <div className="space-y-6">
-                <div>
-                  <h3 className="text-2xl font-semibold text-white mb-2">Test Connection</h3>
-                  <p className="text-slate-400 mb-6">
-                    Verifying the connection between Pipnosis AI and your MT5 account.
-                  </p>
-                </div>
-
-                <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-300 font-medium">MT5 Terminal Connection</span>
-                      <div className="flex items-center space-x-2">
-                        {connectionStatus === 'connecting' && (
-                          <>
-                            <Loader className="h-4 w-4 text-blue-400 animate-spin" />
-                            <span className="text-blue-400 text-sm">Testing connection...</span>
-                          </>
-                        )}
-                        {connectionStatus === 'connected' && (
-                          <>
-                            <CheckCircle className="h-4 w-4 text-green-400" />
-                            <span className="text-green-400 text-sm">Connected</span>
-                          </>
-                        )}
-                        {connectionStatus === 'error' && (
-                          <>
-                            <AlertCircle className="h-4 w-4 text-red-400" />
-                            <span className="text-red-400 text-sm">Connection Failed</span>
-                          </>
-                        )}
-                        {connectionStatus === 'idle' && (
-                          <span className="text-slate-400 text-sm">Ready to test</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {connectionStatus === 'connected' && (
-                      <div className="grid grid-cols-2 gap-4 p-4 bg-slate-800 rounded-lg">
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Account:</span>
-                            <span className="text-white font-mono">{credentials.login}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Server:</span>
-                            <span className="text-white">{credentials.server}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Type:</span>
-                            <span className="text-white capitalize">{credentials.accountType}</span>
-                          </div>
-                        </div>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Balance:</span>
-                            <span className="text-green-400 font-semibold">$10,000.00</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Equity:</span>
-                            <span className="text-white">$10,000.00</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Free Margin:</span>
-                            <span className="text-white">$10,000.00</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {connectionStatus === 'error' && (
-                      <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-                        <h4 className="text-red-300 font-medium mb-2">Connection Failed</h4>
-                        <p className="text-red-200 text-sm mb-3">
-                          Unable to connect to your MT5 account. Please check:
-                        </p>
-                        <ul className="text-red-200 text-sm space-y-1 list-disc list-inside">
-                          <li>MT5 terminal is running and logged in</li>
-                          <li>Account credentials are correct</li>
-                          <li>Server name matches exactly</li>
-                          <li>Internet connection is stable</li>
-                        </ul>
-                      </div>
-                    )}
-
-                    <div className="flex space-x-3">
-                      <button
-                        onClick={handleTestConnection}
-                        disabled={connectionStatus === 'connecting'}
-                        className="flex-1 bg-blue-500 text-white py-3 px-4 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
-                      >
-                        {connectionStatus === 'connecting' ? 'Testing Connection...' : 'Test Connection'}
-                      </button>
-                      
-                      {connectionStatus === 'error' && (
-                        <button
-                          onClick={() => setCurrentStep(2)}
-                          className="px-4 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors"
-                        >
-                          Edit Credentials
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <WebContainerNotice />
+                <MT5ConnectionSettings 
+                  onSave={() => {
+                    setConnectionStatus('connected');
+                    setConnectorStatus('running');
+                    setCurrentStep(4);
+                  }}
+                />
               </div>
             )}
 
@@ -746,35 +731,37 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                   <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
                     <h4 className="text-white font-semibold mb-4 flex items-center space-x-2">
                       <Play className="h-5 w-5 text-green-400" />
-                      <span>What happens next:</span>
+                      <span>Connection Details:</span>
                     </h4>
-                    <div className="space-y-4">
-                      <div className="flex items-start space-x-3">
-                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">1</div>
-                        <div>
-                          <p className="text-white font-medium">Real-time Data Access</p>
-                          <p className="text-slate-400 text-sm">AI can now pull live OHLCV data and account information</p>
+                    <div className="p-4 bg-slate-800 rounded-lg mb-4">
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Account:</span>
+                            <span className="text-white font-mono">{currentCredentials?.login || credentials.login}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Server:</span>
+                            <span className="text-white">{currentCredentials?.server || credentials.server}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Bridge Host:</span>
+                            <span className="text-white">{currentCredentials?.bridgeHost || credentials.bridgeHost}</span>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-start space-x-3">
-                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">2</div>
-                        <div>
-                          <p className="text-white font-medium">Intelligent Position Sizing</p>
-                          <p className="text-slate-400 text-sm">Automatic risk calculation based on your account balance</p>
-                        </div>
-                      </div>
-                      <div className="flex items-start space-x-3">
-                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">3</div>
-                        <div>
-                          <p className="text-white font-medium">Trade Execution</p>
-                          <p className="text-slate-400 text-sm">Market orders, SL/TP management, and position monitoring</p>
-                        </div>
-                      </div>
-                      <div className="flex items-start space-x-3">
-                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">4</div>
-                        <div>
-                          <p className="text-white font-medium">AI Decision Logging</p>
-                          <p className="text-slate-400 text-sm">Real-time explanations and trade journal updates</p>
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Bridge Port:</span>
+                            <span className="text-white">{currentCredentials?.bridgePort || credentials.bridgePort}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Status:</span>
+                            <span className="text-green-400">Connected</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Last Updated:</span>
+                            <span className="text-white">{new Date().toLocaleTimeString()}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -796,11 +783,11 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                       <div className="grid grid-cols-2 gap-y-3 text-sm">
                         <div>
                           <span className="text-slate-400">Account:</span>
-                          <span className="text-white ml-2 font-mono">{credentials.login}</span>
+                          <span className="text-white font-mono">{credentials.login || 'Unknown'}</span>
                         </div>
                         <div>
                           <span className="text-slate-400">Server:</span>
-                          <span className="text-white ml-2">{credentials.server}</span>
+                          <span className="text-white">{credentials.server || 'Unknown'}</span>
                         </div>
                         <div>
                           <span className="text-slate-400">Type:</span>
@@ -813,6 +800,22 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                         <div className="col-span-2">
                           <span className="text-slate-400">Balance:</span>
                           <span className="text-green-400 ml-2 font-semibold">$10,000.00</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Bridge Host:</span>
+                          <span className="text-white">{credentials.bridgeHost || 'localhost'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Bridge Port:</span>
+                          <span className="text-white">{credentials.bridgePort || '8765'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Bridge Host:</span>
+                          <span className="text-white">{credentials.bridgeHost || 'localhost'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Bridge Port:</span>
+                          <span className="text-white">{credentials.bridgePort || '8765'}</span>
                         </div>
                       </div>
                     </div>
@@ -835,9 +838,10 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                 <div className="flex justify-center">
                   <button
                     onClick={onClose}
-                    className="px-8 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all font-medium shadow-lg"
+                    className="px-8 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all font-medium shadow-lg flex items-center space-x-2"
                   >
-                    Start Trading with AI
+                    <Wifi className="h-5 w-5" />
+                    <span>Start Trading with MT5</span>
                   </button>
                 </div>
               </div>

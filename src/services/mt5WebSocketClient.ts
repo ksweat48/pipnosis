@@ -65,7 +65,7 @@ export interface MT5OrderResponse {
 export class MT5WebSocketClient {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
+  private maxReconnectAttempts = 3;
   private reconnectDelay = 1000; // Start with 1 second
   private isConnecting = false;
   private emitter = new TinyEmitter();
@@ -73,6 +73,7 @@ export class MT5WebSocketClient {
   private pendingRequests: Map<string, { resolve: Function, reject: Function, timeout: NodeJS.Timeout }> = new Map();
   private lastConnectionAttempt = 0;
   private connectionAttemptThreshold = 5000; // 5 seconds between connection attempts
+  private error: string | null = null;
   
   constructor(
     private host: string = 'localhost',
@@ -80,6 +81,25 @@ export class MT5WebSocketClient {
   ) {
     console.log('🔌 MT5 WebSocket Client initialized for', `${host}:${port}`);
     this.discoverPort();
+  }
+
+  /**
+   * Configure the WebSocket client with new host and port
+   */
+  configure(host: string, port: number): void {
+    if (this.host !== host || this.port !== port) {
+      console.log(`🔧 Reconfiguring MT5 WebSocket client: ${this.host}:${this.port} -> ${host}:${port}`);
+      this.host = host;
+      this.port = port;
+      
+      // Disconnect if already connected
+      if (this.isConnected()) {
+        this.disconnect();
+      }
+      
+      // Reset error state
+      this.error = null;
+    }
   }
 
   /**
@@ -446,69 +466,83 @@ export class MT5WebSocketClient {
    * Test connection to MT5 bridge
    */
   async testConnection(): Promise<{ success: boolean; error?: string; details?: any }> {
+    // Reset error state
+    this.error = null;
+    
     try {
       console.log('🧪 Testing MT5 bridge connection...');
       
-      // Try to discover the port first
-      await this.discoverPort();
-      
-      // Test WebSocket connection directly
-      const wsConnected = await this.connect();
-      
-      if (wsConnected) {
-        console.log('✅ WebSocket connection test successful');
-        
-        // Send a ping to verify the bridge is responsive
-        try {
-          const pingResponse = await this.sendPing();
-          console.log('✅ MT5 bridge ping successful:', pingResponse);
-          
-          return {
-            success: true,
-            details: {
-              websocketConnected: true,
-              host: this.host,
-              port: this.port,
-              pingResponse
-            }
-          };
-        } catch (pingError) {
-          console.log('❌ MT5 bridge ping failed:', pingError);
-          return {
-            success: false,
-            error: 'MT5 bridge is connected but not responding to commands',
-            details: {
-              websocketConnected: true,
-              host: this.host,
-              port: this.port,
-              pingError
-            }
-          };
-        }
-      } else {
-        console.log('❌ WebSocket connection test failed');
+      // Check if we're in WebContainer environment
+      if (window.location.hostname.includes('webcontainer-api.io') || 
+          window.location.hostname.includes('local-credentialless') ||
+          window.location.hostname.includes('bolt.new') ||
+          window.location.hostname.includes('stackblitz')) {
+        this.error = 'MT5 connection is not available in this preview environment. Please run the application locally to connect to MT5.';
         return {
           success: false,
-          error: 'WebSocket connection failed',
-          details: {
-            websocketConnected: false,
-            host: this.host,
-            port: this.port,
-            troubleshooting: [
-              'Make sure MT5 bridge is running: python mt5_connector.py',
-              'Check that bridge shows "server listening on 127.0.0.1:8765"',
-              'Verify no firewall is blocking port 8765',
-              'Try restarting the bridge if it was running for a long time'
-            ]
-          }
+          error: this.error,
+          details: { environment: 'webcontainer' }
         };
       }
+      
+      // Create a test WebSocket connection
+      const wsUrl = `ws://${this.host}:${this.port}`;
+      console.log(`🔌 Testing connection to ${wsUrl}...`);
+      
+      // Set a timeout for the connection test
+      const timeoutPromise = new Promise<{ success: false, error: string }>((_, reject) => {
+        setTimeout(() => {
+          reject({ 
+            success: false, 
+            error: `Connection timeout. Could not connect to ${this.host}:${this.port} within 5 seconds.` 
+          });
+        }, 5000);
+      });
+      
+      // Create a connection promise
+      const connectionPromise = new Promise<{ success: boolean, error?: string }>((resolve) => {
+        try {
+          const testWs = new WebSocket(wsUrl);
+          
+          testWs.onopen = () => {
+            console.log('✅ Test connection successful');
+            testWs.close();
+            resolve({ success: true });
+          };
+          
+          testWs.onerror = (event) => {
+            console.error('❌ Test connection failed:', event);
+            this.error = `Failed to connect to MT5 bridge at ${wsUrl}`;
+            resolve({ 
+              success: false, 
+              error: this.error
+            });
+          };
+        } catch (error) {
+          console.error('❌ Test connection error:', error);
+          this.error = error instanceof Error ? error.message : 'Unknown connection error';
+          resolve({ 
+            success: false, 
+            error: this.error
+          });
+        }
+      });
+      
+      // Race the connection and timeout
+      const result = await Promise.race([connectionPromise, timeoutPromise]);
+      
+      return result;
     } catch (error) {
       console.error('❌ Connection test failed:', error);
+      this.error = error instanceof Error ? error.message : 'Unknown connection error';
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        details: { testFailed: true }
+        error: this.error,
+        details: { 
+          testFailed: true,
+          host: this.host,
+          port: this.port
+        }
       };
     }
   }
@@ -706,11 +740,12 @@ export class MT5WebSocketClient {
    */
   getConnectionStats(): any {
     return {
-      connected: this.isConnected(),
+      connected: this.isConnected() || localStorage.getItem('pipnosis_mt5_connected') === 'true',
       reconnectAttempts: this.reconnectAttempts,
       maxReconnectAttempts: this.maxReconnectAttempts,
       host: this.host,
       port: this.port,
+      error: this.error,
       lastConnected: localStorage.getItem('pipnosis_mt5_last_connected'),
       bridgeUrl: localStorage.getItem('pipnosis_mt5_bridge_url')
     };
@@ -718,15 +753,30 @@ export class MT5WebSocketClient {
 }
 
 // Create singleton instance
-export const mt5Client = new MT5WebSocketClient();
+export const mt5Client = new MT5WebSocketClient('localhost', 8765);
 
 // Auto-connect on module load if previously connected
 if (typeof window !== 'undefined') {
   const wasConnected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
-  if (wasConnected) {
-    console.log('🔄 Auto-connecting to MT5 bridge...');
-    mt5Client.connect().catch(error => {
-      console.log('ℹ️ Auto-connect failed (bridge may not be running):', error.message);
-    });
+  
+  // Get saved bridge host and port
+  try {
+    const accountData = localStorage.getItem('pipnosis_mt5_account');
+    if (accountData) {
+      const data = JSON.parse(accountData);
+      if (data.bridgeHost && data.bridgePort) {
+        mt5Client.configure(data.bridgeHost, parseInt(data.bridgePort, 10));
+      }
+    }
+    
+    // Auto-connect if previously connected
+    if (wasConnected) {
+      console.log('🔄 Auto-connecting to MT5 bridge...');
+      mt5Client.connect().catch(error => {
+        console.log('ℹ️ Auto-connect failed (bridge may not be running):', error.message);
+      });
+    }
+  } catch (error) {
+    console.error('Error loading MT5 account data:', error);
   }
 }
