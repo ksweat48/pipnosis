@@ -95,17 +95,8 @@ export class MT5WebSocketClient {
   private getHostFromEnv(): string {
     try {
       // Try to get from environment variable
-      const envHost = import.meta.env.VITE_MT5_BRIDGE_HOST;
+      const envHost = import.meta.env.VITE_MT5_BRIDGE_HOST || '';
       if (envHost) return envHost;
-      
-      // Try to parse from VITE_MT5_BRIDGE_URL
-      const bridgeUrl = import.meta.env.VITE_MT5_BRIDGE_URL;
-      if (bridgeUrl) {
-        const match = bridgeUrl.match(/ws:\/\/([^:]+):/);
-        if (match && match[1]) {
-          return match[1].replace('${MT5_BRIDGE_HOST}', this.defaultHost);
-        }
-      }
       
       return '';
     } catch (error) {
@@ -120,17 +111,8 @@ export class MT5WebSocketClient {
   private getPortFromEnv(): number {
     try {
       // Try to get from environment variable
-      const envPort = import.meta.env.VITE_MT5_BRIDGE_PORT;
+      const envPort = import.meta.env.VITE_MT5_BRIDGE_PORT || '';
       if (envPort) return parseInt(envPort, 10);
-      
-      // Try to parse from VITE_MT5_BRIDGE_URL
-      const bridgeUrl = import.meta.env.VITE_MT5_BRIDGE_URL;
-      if (bridgeUrl) {
-        const match = bridgeUrl.match(/:(\d+)/);
-        if (match && match[1]) {
-          return parseInt(match[1].replace('${MT5_BRIDGE_PORT}', this.defaultPort.toString()), 10);
-        }
-      }
       
       return 0;
     } catch (error) {
