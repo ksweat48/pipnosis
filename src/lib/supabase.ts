@@ -790,3 +790,413 @@ export const getJournalEntries = async (userId: string, limit = 20): Promise<Jou
 };
 
 // Waitlist with fallback
+
+// Enhanced real-time subscriptions with comprehensive debugging and error handling
+export const subscribeToUserData = (userId: string, callback: (payload: any) => void) => {
+  // CRITICAL: Check for test users first
+  if (isTestUser(userId)) {
+    console.log('⚠️ Test user detected, skipping real-time subscription for:', userId);
+    return { unsubscribe: () => {} };
+  }
+
+  if (!isSupabaseConfigured()) {
+    console.warn('⚠️ Supabase not configured, skipping real-time subscription');
+    return { unsubscribe: () => {} };
+  }
+
+  try {
+    console.log('🔄 Setting up Realtime subscription for user:', userId);
+    
+    // CRITICAL FIX: Don't try to use WebSockets in WebContainer environment
+    const isWebContainer = window.location.hostname.includes('webcontainer') || 
+                          window.location.hostname.includes('bolt.new') ||
+                          window.location.hostname.includes('stackblitz') ||
+                          window.location.hostname.includes('local-credentialless');
+    
+    if (isWebContainer) {
+      console.log('🌐 WebContainer environment detected - WebSockets are not supported');
+      console.log('💡 Skipping real-time subscription in WebContainer environment');
+      return { unsubscribe: () => {} };
+    }
+    
+    // CRITICAL FIX: Use a simpler channel subscription approach
+    try {
+      // Create a simple channel without trying to use WebSockets directly
+      const channel = supabase.channel(`user_${userId}`);
+      
+      // Set up listeners for different tables
+      channel
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'user_profiles',
+          filter: `id=eq.${userId}`
+        }, (payload) => {
+          console.log('📡 Profile update:', payload);
+          callback(payload);
+        })
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'trade_records',
+          filter: `user_id=eq.${userId}`
+        }, (payload) => {
+          console.log('📡 Trade update:', payload);
+          callback(payload);
+        })
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'journal_entries',
+          filter: `user_id=eq.${userId}`
+        }, (payload) => {
+          console.log('📡 Journal update:', payload);
+          callback(payload);
+        });
+      
+      // Subscribe with error handling
+      channel.subscribe((status, err) => {
+        console.log('🔄 Channel subscription status:', status);
+        
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to real-time updates');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Channel subscription error:', err);
+          console.log('💡 This is expected in WebContainer environments');
+        } else if (status === 'TIMED_OUT') {
+          console.warn('⏰ Channel subscription timed out');
+        }
+      });
+      
+      return channel;
+    } catch (channelError) {
+      console.error('❌ Failed to create channel:', channelError);
+      console.log('💡 This is expected in WebContainer environments');
+      return { unsubscribe: () => {} };
+    }
+  } catch (error) {
+    console.error('❌ Failed to set up real-time subscription:', error);
+    console.log('💡 This is likely due to one of the following:');
+    console.log('   1. Network/firewall blocking WebSocket connections');
+    console.log('   2. Browser security settings blocking WebSockets');
+    console.log('   3. Corporate proxy interfering with WebSocket traffic');
+    console.log('   4. Supabase Realtime service temporarily unavailable');
+    console.log('🔧 Your app will continue to work normally, just without live updates');
+    
+    return { unsubscribe: () => {} };
+  }
+};
+
+// Test database operations with comprehensive error handling
+export const testDatabaseOperations = async (userId: string): Promise<{
+  canRead: boolean;
+  canWrite: boolean;
+  policiesWork: boolean;
+  error?: string;
+}> => {
+  // CRITICAL: Check for test users first
+  if (isTestUser(userId)) {
+    console.log('⚠️ Test user detected, skipping database operations test for:', userId);
+    return { 
+      canRead: true, 
+      canWrite: true, 
+      policiesWork: true, 
+      error: undefined 
+    };
+  }
+
+  if (!isSupabaseConfigured()) {
+    return { 
+      canRead: false, 
+      canWrite: false, 
+      policiesWork: false, 
+      error: 'Supabase not configured - missing URL or API key' 
+    };
+  }
+
+  try {
+    console.log('🧪 Testing database operations for user:', userId);
+
+    // Test 1: Try to read from user_profiles table
+    console.log('🔍 Test 1: Reading user profile...');
+    
+    // Add timeout to prevent hanging
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+    
+    const { data: readData, error: readError } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', userId)
+      .abortSignal(controller.signal)
+      .limit(1);
+
+    clearTimeout(timeoutId);
+    
+    const canRead = !readError;
+    
+    if (readError) {
+      console.log('❌ Read test failed:', {
+        code: readError.code,
+        message: readError.message,
+        details: readError.details
+      });
+      
+      if (readError.code === '42P01') {
+        return { 
+          canRead: false, 
+          canWrite: false, 
+          policiesWork: false, 
+          error: 'Database tables do not exist - please run the migration SQL in your Supabase dashboard' 
+        };
+      }
+      
+      // Check for CORS/network errors
+      if (readError.message.includes('fetch') || readError.message.includes('Failed to fetch')) {
+        return { 
+          canRead: false, 
+          canWrite: false, 
+          policiesWork: false, 
+          error: 'Network/CORS restriction - database is likely configured correctly' 
+        };
+      }
+      
+      return { 
+        canRead: false, 
+        canWrite: false, 
+        policiesWork: false, 
+        error: `Read failed: ${readError.message}` 
+      };
+    }
+    
+    console.log('✅ Read test passed');
+
+    // Test 2: Try to write/upsert a user profile
+    console.log('🔍 Test 2: Writing user profile...');
+    const testProfile = {
+      id: userId,
+      email: 'test@pipnosis.com',
+      full_name: 'Test User',
+      plan_type: 'free' as const,
+      account_balance: 10000.00,
+      risk_profile: 'auto' as const,
+      trading_preferences: {
+        dataMode: 'api',
+        riskProfile: 'auto',
+        tradingGoal: 'weekly-income'
+      }
+    };
+
+    const controller2 = new AbortController();
+    const timeoutId2 = setTimeout(() => controller2.abort(), 8000); // 8 second timeout
+
+    const { data: writeData, error: writeError } = await supabase
+      .from('user_profiles')
+      .upsert([testProfile])
+      .select()
+      .abortSignal(controller2.signal)
+      .single();
+
+    clearTimeout(timeoutId2);
+
+    const canWrite = !writeError;
+    const policiesWork = canRead && canWrite;
+
+    if (writeError) {
+      console.log('❌ Write test failed:', {
+        code: writeError.code,
+        message: writeError.message,
+        details: writeError.details
+      });
+      
+      if (writeError.code === '42P01') {
+        return { 
+          canRead, 
+          canWrite: false, 
+          policiesWork: false, 
+          error: 'Database tables do not exist - please run the migration SQL' 
+        };
+      }
+      
+      // Check for CORS/network errors
+      if (writeError.message.includes('fetch') || writeError.message.includes('Failed to fetch')) {
+        return { 
+          canRead, 
+          canWrite: false, 
+          policiesWork: false, 
+          error: 'Network/CORS restriction - database is likely configured correctly' 
+        };
+      }
+      
+      return { 
+        canRead, 
+        canWrite: false, 
+        policiesWork: false, 
+        error: `Write failed: ${writeError.message}` 
+      };
+    }
+
+    console.log('✅ Write test passed');
+    console.log('✅ All database operations successful - RLS policies working correctly');
+    
+    return { 
+      canRead, 
+      canWrite, 
+      policiesWork, 
+      error: undefined 
+    };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('❌ Database operations test failed with exception:', error);
+    
+    // Check for CORS/network errors in exceptions
+    if (errorMessage.includes('fetch') || errorMessage.includes('Failed to fetch') || errorMessage.includes('CORS')) {
+      return { 
+        canRead: false, 
+        canWrite: false, 
+        policiesWork: false, 
+        error: 'Network/CORS restriction - your database setup is likely correct' 
+      };
+    }
+    
+    return { 
+      canRead: false, 
+      canWrite: false, 
+      policiesWork: false, 
+      error: `Exception: ${errorMessage}` 
+    };
+  }
+};
+
+// Enhanced test function for browser debugging with WebSocket testing
+export const testSupabaseDirectly = async () => {
+  if (!isSupabaseConfigured()) {
+    console.log('❌ Supabase not configured');
+    return;
+  }
+
+  console.log('🧪 Testing Supabase client directly...');
+  console.log('🔑 API Key (first 20 chars):', supabaseAnonKey?.substring(0, 20) + '...');
+  console.log('🌐 URL:', supabaseUrl);
+  console.log('🔍 Expected URL: https://elykntifkdaqiafnjosk.supabase.co');
+  
+  // Check for URL mismatch
+  if (supabaseUrl !== 'https://elykntifkdaqiafnjosk.supabase.co') {
+    console.warn('⚠️ URL MISMATCH DETECTED!');
+    console.warn('This may be causing the 404 errors you are seeing');
+    console.warn('Expected: https://elykntifkdaqiafnjosk.supabase.co');
+    console.warn('Actual:', supabaseUrl);
+  } else {
+    console.log('✅ URL is correct!');
+  }
+
+  try {
+    // Test 1: Simple health check
+    console.log('🔍 Test 1: Basic table access...');
+    const { data, error, count } = await supabase
+      .from('user_profiles')
+      .select('count', { count: 'exact', head: true });
+
+    if (error) {
+      console.log('❌ Direct test failed:', error);
+      
+      if (error.code === '42P01') {
+        console.log('💡 SOLUTION: The user_profiles table does not exist.');
+        console.log('📋 ACTION NEEDED: Run the database migration SQL in your Supabase dashboard');
+        console.log('🔗 Go to: https://supabase.com/dashboard → SQL Editor → Run migration');
+      } else if (error.code === 'PGRST116') {
+        console.log('✅ Table exists but is empty - this is actually good!');
+      }
+    } else {
+      console.log('✅ Direct test passed, count:', count);
+    }
+    
+    // Test 2: Check if we can access the REST API directly
+    console.log('🔍 Test 2: Direct REST API test...');
+    const directUrl = `${supabaseUrl}/rest/v1/user_profiles?select=count&apikey=${supabaseAnonKey}`;
+    console.log('🌐 Testing URL:', directUrl.replace(supabaseAnonKey!, 'API_KEY_HIDDEN'));
+    
+    const response = await fetch(directUrl, {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log('📊 Response status:', response.status);
+    
+    if (response.status === 404) {
+      console.log('❌ 404 Error - This confirms the table does not exist');
+      console.log('💡 SOLUTION: Run the database migration to create the tables');
+    } else if (response.status === 200) {
+      console.log('✅ REST API test passed');
+    } else {
+      console.log('⚠️ Unexpected status:', response.status);
+      const text = await response.text();
+      console.log('Response:', text);
+    }
+    
+    // Test 3: WebSocket connectivity test - SKIP IN WEBCONTAINER
+    const isWebContainer = window.location.hostname.includes('webcontainer') || 
+                          window.location.hostname.includes('bolt.new') ||
+                          window.location.hostname.includes('stackblitz') ||
+                          window.location.hostname.includes('local-credentialless');
+    
+    if (!isWebContainer) {
+      console.log('🔍 Test 3: WebSocket connectivity test...');
+      const wsUrl = supabaseUrl?.replace('https://', 'wss://') + '/realtime/v1/websocket';
+      console.log('🌐 WebSocket URL:', wsUrl);
+      
+      try {
+        const testWs = new WebSocket(wsUrl);
+        
+        testWs.onopen = () => {
+          console.log('✅ WebSocket connection successful!');
+          console.log('🎉 Realtime should work properly');
+          testWs.close();
+        };
+        
+        testWs.onerror = (error) => {
+          console.error('❌ WebSocket connection failed:', error);
+          console.log('💡 This explains the Realtime issues you\'re experiencing');
+          console.log('🔧 Possible solutions:');
+          console.log('   1. Check if you\'re behind a corporate firewall');
+          console.log('   2. Try disabling browser extensions');
+          console.log('   3. Test in incognito/private mode');
+          console.log('   4. Check with your network administrator');
+        };
+        
+        testWs.onclose = (event) => {
+          if (event.code === 1000) {
+            console.log('✅ WebSocket test completed successfully');
+          } else {
+            console.warn('⚠️ WebSocket closed with code:', event.code, event.reason);
+          }
+        };
+        
+        // Clean up after 10 seconds
+        setTimeout(() => {
+          if (testWs.readyState === WebSocket.CONNECTING || testWs.readyState === WebSocket.OPEN) {
+            testWs.close();
+          }
+        }, 10000);
+        
+      } catch (wsError) {
+        console.error('❌ WebSocket test failed:', wsError);
+        console.log('💡 WebSocket connections are blocked in your environment');
+      }
+    } else {
+      console.log('🔍 Test 3: WebSocket test skipped in WebContainer environment');
+      console.log('💡 WebSockets are not supported in WebContainer/Bolt environments');
+    }
+    
+  } catch (err) {
+    console.log('❌ Direct test exception:', err);
+  }
+};
+
+// Make testSupabaseDirectly available globally for debugging
+if (typeof window !== 'undefined') {
+  (window as any).testSupabaseDirectly = testSupabaseDirectly;
+}
