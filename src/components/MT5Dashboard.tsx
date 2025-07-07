@@ -39,22 +39,25 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
       if (connected && accountData) {
         try {
           const parsedData = JSON.parse(accountData);
-          setMt5AccountData(parsedData);
-          
-          setConnection({
-            status: 'connected',
-            server: parsedData.server || 'Unknown Server',
-            account: parsedData.login || 'Unknown',
-            balance: parsedData.balance || 0,
-            equity: parsedData.equity || 0,
-            margin: parsedData.margin || 0,
-            freeMargin: parsedData.freeMargin || 0,
-            marginLevel: parsedData.marginLevel || 0,
-            lastUpdate: new Date().toLocaleTimeString()
-          });
-          
-          if (parsedData.openPositions && Array.isArray(parsedData.openPositions)) {
-            setOpenPositions(parsedData.openPositions);
+          // Add null check before accessing properties
+          if (parsedData) {
+            setMt5AccountData(parsedData);
+            
+            setConnection({
+              status: 'connected',
+              server: parsedData.server || 'Unknown Server',
+              account: parsedData.login || 'Unknown',
+              balance: parsedData.balance || 0,
+              equity: parsedData.equity || 0,
+              margin: parsedData.margin || 0,
+              freeMargin: parsedData.freeMargin || 0,
+              marginLevel: parsedData.marginLevel || 0,
+              lastUpdate: new Date().toLocaleTimeString()
+            });
+            
+            if (parsedData.openPositions && Array.isArray(parsedData.openPositions)) {
+              setOpenPositions(parsedData.openPositions);
+            }
           }
         } catch (error) {
           console.error('Error parsing MT5 account data:', error);
@@ -91,23 +94,26 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
         
         if (connected && accountData) {
           try {
-            const parsedData = JSON.parse(accountData);
-            setMt5AccountData(parsedData);
-            
-            setConnection({
-              status: 'connected',
-              server: parsedData.server || 'Unknown Server',
-              account: parsedData.login || 'Unknown',
-              balance: parsedData.balance || 0,
-              equity: parsedData.equity || 0,
-              margin: parsedData.margin || 0,
-              freeMargin: parsedData.freeMargin || 0,
-              marginLevel: parsedData.marginLevel || 0,
-              lastUpdate: new Date().toLocaleTimeString()
-            });
-            
-            if (parsedData.openPositions && Array.isArray(parsedData.openPositions)) {
-              setOpenPositions(parsedData.openPositions);
+            const parsedData = JSON.parse(accountData || '{}');
+            // Add null check before accessing properties
+            if (parsedData) {
+              setMt5AccountData(parsedData);
+              
+              setConnection({
+                status: 'connected',
+                server: parsedData.server || 'Unknown Server',
+                account: parsedData.login || 'Unknown',
+                balance: parsedData.balance || 0,
+                equity: parsedData.equity || 0,
+                margin: parsedData.margin || 0,
+                freeMargin: parsedData.freeMargin || 0,
+                marginLevel: parsedData.marginLevel || 0,
+                lastUpdate: new Date().toLocaleTimeString()
+              });
+              
+              if (parsedData.openPositions && Array.isArray(parsedData.openPositions)) {
+                setOpenPositions(parsedData.openPositions);
+              }
             } else {
               setOpenPositions([]);
             }

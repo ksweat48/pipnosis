@@ -26,12 +26,12 @@ export const TradingKPIs: React.FC = () => {
   // Get trade counts from localStorage
   const [tradeCounts, setTradeCounts] = useState({
     totalTrades: 0,
-    winningTrades: 0, 
+    winningTrades: 0,
     losingTrades: 0
   });
   
   // Load trade counts from localStorage
-  React.useEffect(() => {
+  useEffect(() => {
     try {
       const totalTradesStr = localStorage.getItem('pipnosis_trade_count');
       const winningTradesStr = localStorage.getItem('pipnosis_winning_trades');
@@ -54,7 +54,7 @@ export const TradingKPIs: React.FC = () => {
   }, [stats.totalTrades, isExpanded]);
 
   // Refresh stats when component mounts or when expanded
-  React.useEffect(() => {
+  useEffect(() => {
     if (isExpanded) {
       refreshStats();
     }

@@ -56,8 +56,11 @@ export const useDatabaseStats = () => {
         
       try {
         const parsedData = JSON.parse(mt5AccountData);
-        mt5Balance = parsedData.balance || 0;
-        mt5Positions = parsedData.openPositions || [];
+        // Add null check before accessing properties
+        if (parsedData) {
+          mt5Balance = parsedData.balance || 0;
+          mt5Positions = parsedData.openPositions || [];
+        }
       } catch (error) {
         console.error('Error parsing MT5 account data:', error);
       }
@@ -201,7 +204,12 @@ export const useDatabaseStats = () => {
         
         if (mt5Connected && mt5AccountData) {
           const parsedData = JSON.parse(mt5AccountData);
-          accountBalance = parsedData.balance || profile?.account_balance || 10000;
+          // Add null check before accessing properties
+          if (parsedData && parsedData.balance) {
+            accountBalance = parsedData.balance;
+          } else {
+            accountBalance = profile?.account_balance || 10000;
+          }
         } else {
           accountBalance = profile?.account_balance || 10000;
         }

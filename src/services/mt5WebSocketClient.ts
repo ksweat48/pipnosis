@@ -613,26 +613,35 @@ export class MT5WebSocketClient {
    */
   private handleAccountUpdate(data: MT5Data): void {
     // Store the account data in localStorage for other components
-    const accountData = {
-      login: data.account.login,
-      server: data.account.server,
-      balance: data.account.balance,
-      equity: data.account.equity,
-      margin: data.account.margin,
-      freeMargin: data.account.freeMargin,
-      marginLevel: data.account.marginLevel,
-      openPositions: data.positions,
-      lastUpdate: data.timestamp,
-      connectionStatus: data.connectionStatus,
-      tradeExpert: data.account.tradeExpert // Important: Store if automated trading is enabled
-    };
-    
-    localStorage.setItem('pipnosis_mt5_account', JSON.stringify(accountData));
-    
-    // Emit the update event
-    this.emit('account_update', data);
-    
-    console.log(`💰 Account Update: Balance $${data.account.balance?.toLocaleString() || 'N/A'}, Equity $${data.account.equity?.toLocaleString() || 'N/A'}, Positions: ${data.positions.length}`);
+    try {
+      // Ensure all required properties exist before creating the object
+      if (data && data.account) {
+        const accountData = {
+          login: data.account.login || 0,
+          server: data.account.server || 'Unknown',
+          balance: typeof data.account.balance === 'number' ? data.account.balance : 0,
+          equity: typeof data.account.equity === 'number' ? data.account.equity : 0,
+          margin: typeof data.account.margin === 'number' ? data.account.margin : 0,
+          freeMargin: typeof data.account.freeMargin === 'number' ? data.account.freeMargin : 0,
+          marginLevel: typeof data.account.marginLevel === 'number' ? data.account.marginLevel : 0,
+          openPositions: Array.isArray(data.positions) ? data.positions : [],
+          lastUpdate: data.timestamp || new Date().toISOString(),
+          connectionStatus: data.connectionStatus || 'connected',
+          tradeExpert: data.account.tradeExpert || false
+        };
+        
+        localStorage.setItem('pipnosis_mt5_account', JSON.stringify(accountData));
+        
+        // Emit the update event
+        this.emit('account_update', data);
+        
+        console.log(`💰 Account Update: Balance $${accountData.balance?.toLocaleString() || 'N/A'}, Equity $${accountData.equity?.toLocaleString() || 'N/A'}, Positions: ${data.positions.length}`);
+      } else {
+        console.warn('❌ Invalid account data received:', data);
+      }
+    } catch (error) {
+      console.error('❌ Error handling account update:', error);
+    }
   }
 
   /**
