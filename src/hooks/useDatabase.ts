@@ -37,29 +37,29 @@ export const useDatabaseStats = () => {
       let mt5Positions = [];
       let mt5Balance = 0;
       
+      const isAdmin = user.email?.includes('admin');
         
-        // Get trade count from localStorage if available
-        let tradeCount = 0;
-        try {
-          const storedTradeCount = localStorage.getItem('pipnosis_trade_count');
-          if (storedTradeCount) {
-            tradeCount = parseInt(storedTradeCount, 10);
-          } else {
-            tradeCount = isAdmin ? 32 : 8;
-            // Store initial count
-            localStorage.setItem('pipnosis_trade_count', tradeCount.toString());
-          }
-        } catch (error) {
+      // Get trade count from localStorage if available
+      let tradeCount = 0;
+      try {
+        const storedTradeCount = localStorage.getItem('pipnosis_trade_count');
+        if (storedTradeCount) {
+          tradeCount = parseInt(storedTradeCount, 10);
+        } else {
           tradeCount = isAdmin ? 32 : 8;
+          // Store initial count
+          localStorage.setItem('pipnosis_trade_count', tradeCount.toString());
         }
+      } catch (error) {
+        tradeCount = isAdmin ? 32 : 8;
+      }
         
-        try {
-          const parsedData = JSON.parse(mt5AccountData);
-          mt5Balance = parsedData.balance || 0;
-          mt5Positions = parsedData.openPositions || [];
-        } catch (error) {
-          console.error('Error parsing MT5 account data:', error);
-        }
+      try {
+        const parsedData = JSON.parse(mt5AccountData);
+        mt5Balance = parsedData.balance || 0;
+        mt5Positions = parsedData.openPositions || [];
+      } catch (error) {
+        console.error('Error parsing MT5 account data:', error);
       }
 
       // For test users, provide realistic stats based on user type
