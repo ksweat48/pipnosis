@@ -1,6 +1,3 @@
-Here's the fixed version with all missing closing brackets added:
-
-```typescript
 import React, { useState, useEffect } from 'react';
 import { X, Download, CheckCircle, AlertCircle, Loader, Shield, Server, Key, User, ExternalLink, Play, Monitor, Wifi, WifiOff, Edit3, Save, RefreshCw } from 'lucide-react';
 import { mt5Client } from '../services/mt5WebSocketClient';
@@ -127,6 +124,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
 
   const handleTestConnection = async () => {
     setConnectionStatus('connecting');
+    setError(null);
     
     try {
       // Configure the MT5 client with the provided host and port
@@ -372,6 +370,14 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                   <div className="flex justify-between">
                     <span className="text-slate-400">Server:</span>
                     <span className="text-blue-200">{currentCredentials.server}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Bridge Host:</span>
+                    <span className="text-blue-200">{currentCredentials.bridgeHost || 'localhost'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Bridge Port:</span>
+                    <span className="text-blue-200">{currentCredentials.bridgePort || '8765'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Updated:</span>
@@ -670,4 +676,262 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                   {isEditingCredentials ? (
                     <>
                       <button
-                        onClick={() =>
+                        onClick={() => setIsEditingCredentials(false)}
+                        className="px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSaveCredentials}
+                        disabled={!credentials.login || !credentials.bridgeHost || !credentials.bridgePort}
+                        className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                      >
+                        <Save className="h-4 w-4" />
+                        <span>Save Credentials</span>
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={handleNextStep}
+                      disabled={!credentials.login || !credentials.bridgeHost || !credentials.bridgePort}
+                      className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                    >
+                      Test Connection
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {currentStep === 3 && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-2xl font-semibold text-white mb-2">Test Connection</h3>
+                  <p className="text-slate-400 mb-6">
+                    Verifying the connection between Pipnosis AI and your MT5 account.
+                  </p>
+                </div>
+
+                <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-300 font-medium">MT5 Terminal Connection</span>
+                      <div className="flex items-center space-x-2">
+                        {connectionStatus === 'connecting' && (
+                          <>
+                            <Loader className="h-4 w-4 text-blue-400 animate-spin" />
+                            <span className="text-blue-400 text-sm">Testing connection...</span>
+                          </>
+                        )}
+                        {connectionStatus === 'connected' && (
+                          <>
+                            <CheckCircle className="h-4 w-4 text-green-400" />
+                            <span className="text-green-400 text-sm">Connected</span>
+                          </>
+                        )}
+                        {connectionStatus === 'error' && (
+                          <>
+                            <AlertCircle className="h-4 w-4 text-red-400" />
+                            <span className="text-red-400 text-sm">Connection Failed</span>
+                          </>
+                        )}
+                        {connectionStatus === 'idle' && (
+                          <span className="text-slate-400 text-sm">Ready to test</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {connectionStatus === 'connected' && (
+                      <div className="grid grid-cols-2 gap-4 p-4 bg-slate-800 rounded-lg">
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Account:</span>
+                            <span className="text-white font-mono">{credentials.login}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Server:</span>
+                            <span className="text-white">{credentials.server}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Type:</span>
+                            <span className="text-white capitalize">{credentials.accountType}</span>
+                          </div>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Bridge Host:</span>
+                            <span className="text-white">{credentials.bridgeHost}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Bridge Port:</span>
+                            <span className="text-white">{credentials.bridgePort}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Status:</span>
+                            <span className="text-green-400">Connected</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {connectionStatus === 'error' && (
+                      <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+                        <h4 className="text-red-300 font-medium mb-2">Connection Failed</h4>
+                        <p className="text-red-200 text-sm mb-3">
+                          {error || 'Unable to connect to your MT5 account. Please check:'}
+                        </p>
+                        <ul className="text-red-200 text-sm space-y-1 list-disc list-inside">
+                          <li>MT5 terminal is running and logged in</li>
+                          <li>MT5 bridge is running on your computer</li>
+                          <li>Bridge host and port are correct</li>
+                          <li>If using a public IP, check port forwarding on your router</li>
+                          <li>Internet connection is stable</li>
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="flex space-x-3">
+                      <button
+                        onClick={handleTestConnection}
+                        disabled={connectionStatus === 'connecting'}
+                        className="flex-1 bg-blue-500 text-white py-3 px-4 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                      >
+                        {connectionStatus === 'connecting' ? 'Testing Connection...' : 'Test Connection'}
+                      </button>
+                      
+                      {connectionStatus === 'error' && (
+                        <button
+                          onClick={() => setCurrentStep(2)}
+                          className="px-4 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors"
+                        >
+                          Edit Connection Settings
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {currentStep === 4 && (
+              <div className="space-y-6">
+                <div className="text-center">
+                  <div className="p-6 bg-green-500/20 rounded-full w-24 h-24 mx-auto mb-6 flex items-center justify-center">
+                    <CheckCircle className="h-12 w-12 text-green-400" />
+                  </div>
+                  <h3 className="text-3xl font-semibold text-white mb-2">Ready to Trade!</h3>
+                  <p className="text-slate-400 mb-8">
+                    Your MT5 account is now securely connected to Pipnosis AI. You can start using prompts to execute trades.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
+                    <h4 className="text-white font-semibold mb-4 flex items-center space-x-2">
+                      <Play className="h-5 w-5 text-green-400" />
+                      <span>What happens next:</span>
+                    </h4>
+                    <div className="space-y-4">
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">1</div>
+                        <div>
+                          <p className="text-white font-medium">Real-time Data Access</p>
+                          <p className="text-slate-400 text-sm">AI can now pull live OHLCV data and account information</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">2</div>
+                        <div>
+                          <p className="text-white font-medium">Intelligent Position Sizing</p>
+                          <p className="text-slate-400 text-sm">Automatic risk calculation based on your account balance</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">3</div>
+                        <div>
+                          <p className="text-white font-medium">Trade Execution</p>
+                          <p className="text-slate-400 text-sm">Market orders, SL/TP management, and position monitoring</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">4</div>
+                        <div>
+                          <p className="text-white font-medium">AI Decision Logging</p>
+                          <p className="text-slate-400 text-sm">Real-time explanations and trade journal updates</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-white font-semibold">Connection Information</h4>
+                      <button 
+                        onClick={handleEditCredentials}
+                        className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-500/20 rounded transition-colors"
+                        title="Edit credentials"
+                      >
+                        <Edit3 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    
+                    <div className="p-4 bg-slate-800 rounded-lg mb-4">
+                      <div className="grid grid-cols-2 gap-y-3 text-sm">
+                        <div>
+                          <span className="text-slate-400">Account:</span>
+                          <span className="text-white ml-2 font-mono">{credentials.login}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Server:</span>
+                          <span className="text-white ml-2">{credentials.server}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Bridge Host:</span>
+                          <span className="text-white ml-2">{credentials.bridgeHost}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Bridge Port:</span>
+                          <span className="text-white ml-2">{credentials.bridgePort}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Type:</span>
+                          <span className="text-white ml-2 capitalize">{credentials.accountType}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Status:</span>
+                          <span className="text-green-400 ml-2">Connected</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                        <p className="text-blue-200 italic text-sm">
+                          "Make me $300 this week with medium risk."
+                        </p>
+                      </div>
+                      <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                        <p className="text-green-200 italic text-sm">
+                          "Find the best EURUSD scalping opportunity right now."
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-center">
+                  <button
+                    onClick={onClose}
+                    className="px-8 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all font-medium shadow-lg"
+                  >
+                    Start Trading with AI
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
