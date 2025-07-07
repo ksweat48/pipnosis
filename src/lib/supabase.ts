@@ -1,5 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 
+// Helper function to check if a string is a valid UUID
+export const isValidUUID = (str: string): boolean => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+};
+
+// Helper function to check if user is a test user
+export const isTestUser = (userId: string): boolean => {
+  return !isValidUUID(userId) || userId.startsWith('test-') || userId.includes('mock');
+};
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
@@ -109,22 +120,6 @@ export const supabase = createClient(
     },
   }
 );
-
-// Database operations for client-side
-export const createUserProfile = async (userId: string, profileData: any) => {
-  const { data, error } = await supabase
-    .from('user_profiles')
-    .upsert({
-      id: userId,
-      ...profileData,
-      updated_at: new Date().toISOString()
-    })
-    .select()
-    .single();
-  
-  if (error) throw error;
-  return data;
-};
 
 // Database Types
 export interface UserProfile {
@@ -549,17 +544,6 @@ export const createUserProfile = async (profile: Partial<UserProfile>): Promise<
       plan_type: profile.plan_type || 'free',
       account_balance: profile.account_balance || 10000.00,
       risk_profile: profile.risk_profile || 'auto',
-      trading_preferences: profile.trading_preferences || {
-        dataMode: 'api',
-        riskProfile: 'auto',
-        tradingGoal: 'weekly-income'
-      },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-  }
-};
-
 // Trading Prompts with fallback
 export const saveTradingPrompt = async (prompt: Partial<TradingPrompt>): Promise<TradingPrompt> => {
   // CRITICAL: Check for test users first
