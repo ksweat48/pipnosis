@@ -828,14 +828,14 @@ if (typeof window !== 'undefined') {
         if (window.location.hostname === 'pipnosis.com') {
           console.log('🌐 Production environment detected - will prompt for MT5 bridge host');
           
-          
-        // Only prompt if no host is configured
-        if (!localStorage.getItem('pipnosis_mt5_bridge_host')) {
-          // Dispatch event to open MT5 modal
-          setTimeout(() => {
-            const event = new CustomEvent('openMT5Modal');
-            window.dispatchEvent(event);
-          }, 2000);
+          // Only prompt if no host is configured
+          if (!localStorage.getItem('pipnosis_mt5_bridge_host')) {
+            // Dispatch event to open MT5 modal
+            setTimeout(() => {
+              const event = new CustomEvent('openMT5Modal');
+              window.dispatchEvent(event);
+            }, 2000);
+          }
         }
       }
     }
