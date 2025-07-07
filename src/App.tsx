@@ -20,6 +20,7 @@ import { useBackendPromptAnalysis, useBackendTradeExecution } from './hooks/useB
 import { useOpenAI } from './hooks/useOpenAI';
 import { usePipnosisAI } from './hooks/usePipnosisAI';
 import { useTradeExecution } from './hooks/useTradeExecution';
+import { useDatabaseStats } from './hooks/useDatabase';
 
 // Define proper types for the components
 interface Notification {
@@ -178,6 +179,7 @@ const Dashboard: React.FC = () => {
   const { executeTrade, isExecuting: isMT5Executing, error: mt5Error } = useTradeExecution();
 
   const { profile, user, databaseConnected } = useAuth();
+  const { updateTradeCount } = useDatabaseStats();
   const accountBalance = profile?.account_balance || 10000;
   
   // Combined execution state
@@ -290,6 +292,9 @@ const Dashboard: React.FC = () => {
         takeProfit: parseFloat(option.takeProfit),
         comment: `Pipnosis AI: ${option.name}`
       });
+
+      // Update trade count in localStorage
+      updateTradeCount(result.success);
 
       // Generate AI journal entry for strategy execution
       const journalEntry = await generateJournalEntry('trade_entry', {
