@@ -30,8 +30,6 @@ const getApiBaseUrl = () => {
 
 const API_BASE_URL = getApiBaseUrl();
 
-console.log('🔧 API URL:', API_BASE_URL);
-
 // Create axios instance with default config
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -44,7 +42,7 @@ const apiClient = axios.create({
 // Request interceptor for logging
 apiClient.interceptors.request.use(
   (config) => {
-    console.log(`🔄 API: ${config.method?.toUpperCase()} ${config.url}`);
+    console.log(`🔄 API Request: ${config.method?.toUpperCase()} ${config.url}`);
     return config;
   },
   (error) => {
@@ -56,95 +54,17 @@ apiClient.interceptors.request.use(
 // Response interceptor for error handling
 apiClient.interceptors.response.use(
   (response) => {
-    console.log(`✅ API: ${response.config.method?.toUpperCase()} ${response.config.url}`);
+    console.log(`✅ API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`);
     return response;
   },
   (error) => {
-    console.error('❌ API Error:', error.response?.data || error.message);
-    
-    // Enhanced error logging for debugging
-    if (error.code === 'ERR_NETWORK') {
-      console.error('🔌 Network Error Details:');
-      console.error('- Backend URL:', API_BASE_URL);
-      console.error('- Current hostname:', window.location.hostname);
-      console.error('- Is backend running?');
-      console.error('- Check CORS configuration');
-    }
-    
+    console.error('❌ API Response Error:', error.response?.data || error.message);
     return Promise.reject(error);
   }
 );
 
-// Types
-export interface MarketDataPoint {
-  symbol: string;
-  price: number;
-  change: number;
-  changePercent: number;
-  trend: 'up' | 'down' | 'sideways';
-  signal: 'buy' | 'sell' | 'hold';
-}
-
-export interface TradingStrategy {
-  id: string;
-  name: string;
-  risk: 'low' | 'medium' | 'high';
-  tradeType: string;
-  entry: number;
-  stopLoss: number;
-  takeProfit: number;
-  lotSize: number;
-  estimatedGain: number;
-  feasible: boolean;
-  reasoning: string;
-}
-
-export interface AnalysisResponse {
-  strategies: TradingStrategy[];
-  summary: string;
-  confidence: 'high' | 'medium' | 'low';
-  riskAssessment: string;
-  pairsAnalyzed?: number;
-  tierInfo?: string;
-}
-
-export interface TradeExecutionResult {
-  success: boolean;
-  tradeId?: string;
-  symbol?: string;
-  entry?: number;
-  lotSize?: number;
-  timestamp?: string;
-  message: string;
-  error?: string;
-}
-
-export interface MT5Status {
-  connected: boolean;
-  status: 'connected' | 'disconnected' | 'connecting' | 'error';
-  message: string;
-  accountInfo?: {
-    login?: string;
-    balance?: number;
-    equity?: number;
-    margin?: number;
-  };
-}
-
-export interface WaitlistSignup {
-  email: string;
-  plan: 'free' | 'beta';
-}
-
-export interface UserSettings {
-  expandedScan?: boolean;
-  pairSelectionMode?: 'ai-choose' | 'manual';
-  selectedPairs?: string[];
-  riskProfile?: 'low' | 'medium' | 'high' | 'auto';
-}
-
 // Enhanced fallback data for when backend is unavailable
-const getFallbackMarketData = (): MarketDataPoint[] => {
+const getFallbackMarketData = () => {
   console.log('📊 Using fallback market data (backend unavailable)');
   
   // Generate basic market data for common pairs
@@ -173,20 +93,13 @@ export class PipnosisAPI {
   }
 
   // Enhanced Market Data with tiered pairs support
-  static async getMarketData(symbols?: string[]): Promise<MarketDataPoint[]> {
+  static async getMarketData(symbols?: string[]): Promise<any[]> {
     try {
       const params = symbols ? { symbols: symbols.join(',') } : {};
       const response = await apiClient.get('/market-data', { params });
       return response.data;
     } catch (error) {
       console.warn('⚠️ Failed to fetch market data from backend:', error);
-      
-      // Check if it's a network error
-      if (error.code === 'ERR_NETWORK') {
-        console.log('🔌 Backend appears to be offline. Using fallback data.');
-      }
-      
-      // Return fallback data instead of throwing
       return getFallbackMarketData();
     }
   }
@@ -195,9 +108,9 @@ export class PipnosisAPI {
   static async analyzePrompt(
     prompt: string,
     accountBalance: number,
-    marketData?: MarketDataPoint[],
-    userSettings?: UserSettings
-  ): Promise<AnalysisResponse> {
+    marketData?: any[],
+    userSettings?: any
+  ): Promise<any> {
     try {
       const response = await apiClient.post('/analyze-prompt', {
         prompt,
@@ -262,7 +175,7 @@ export class PipnosisAPI {
   }
 
   // Trade Execution with fallback
-  static async executeTrade(strategy: TradingStrategy): Promise<TradeExecutionResult> {
+  static async executeTrade(strategy: any): Promise<any> {
     try {
       const response = await apiClient.post('/execute-trade', {
         strategy
@@ -286,7 +199,7 @@ export class PipnosisAPI {
   }
 
   // MT5 Status with fallback
-  static async getMT5Status(): Promise<MT5Status> {
+  static async getMT5Status(): Promise<any> {
     try {
       const response = await apiClient.get('/mt5-status');
       return response.data;
@@ -301,7 +214,7 @@ export class PipnosisAPI {
   }
 
   // Waitlist Signup with fallback
-  static async joinWaitlist(data: WaitlistSignup): Promise<{ success: boolean; message: string; plan: string }> {
+  static async joinWaitlist(data: {email: string, plan: string}): Promise<any> {
     try {
       const response = await apiClient.post('/waitlist', data);
       return response.data;
