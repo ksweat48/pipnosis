@@ -642,9 +642,9 @@ class MT5Connector:
         
         for current_port in ports_to_try:
             try:
-                # Allow connections from any host when in production
-                bind_host = '0.0.0.0' if host == 'localhost' else host
-                logger.info(f"Starting WebSocket server on {bind_host}:{current_port} (accepting connections from any host)")
+                # Always bind to 0.0.0.0 to accept connections from any host
+                bind_host = '0.0.0.0'
+                logger.info(f"Starting WebSocket server on {bind_host}:{current_port} (accepting connections from any interface)")
                 server = await websockets.serve(
                     self.handle_websocket_client,
                     bind_host,
@@ -706,13 +706,26 @@ class MT5Connector:
             # Start WebSocket server and data update loop
             server_result, actual_port = loop.run_until_complete(self.start_websocket_server(host, port))
             
-            # Print connection instructions
+            # Print detailed connection instructions
             if server_result:
                 logger.info("=" * 80)
                 logger.info("CONNECTION INSTRUCTIONS:")
                 logger.info(f"  Local URL: ws://localhost:{actual_port}")
-                logger.info(f"  LAN URL: ws://<your-local-ip>:{actual_port}")
-                logger.info(f"  For production: Set up port forwarding on your router for port {actual_port}")
+                
+                # Try to get local IP address
+                try:
+                    import socket
+                    hostname = socket.gethostname()
+                    local_ip = socket.gethostbyname(hostname)
+                    logger.info(f"  LAN URL: ws://{local_ip}:{actual_port}")
+                except:
+                    logger.info(f"  LAN URL: ws://<your-local-ip>:{actual_port}")
+                
+                # Production setup instructions
+                logger.info("  PRODUCTION SETUP:")
+                logger.info(f"  1. Set up port forwarding on your router: External Port {actual_port} -> Internal Port {actual_port}")
+                logger.info(f"  2. Use your public IP or domain in Pipnosis MT5 Connection settings")
+                logger.info(f"  3. For secure connections, set up a reverse proxy with SSL/TLS")
                 logger.info("=" * 80)
             
             if server_result is None:
