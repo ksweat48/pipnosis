@@ -65,19 +65,55 @@ export const useDatabaseStats = () => {
       // For test users, provide realistic stats based on user type
       if (!isValidUUID(user.id)) {
         console.log('⚠️ Using realistic stats for test user:', user.id);
-        
+
         const isAdmin = user.email?.includes('admin');
         // Use MT5 balance if available, otherwise use profile balance
         const accountBalance = mt5Balance || profile?.account_balance || (isAdmin ? 50000 : 10000);
         // Count MT5 positions if available
         const openPositionsCount = mt5Positions.length;
-        const tradeCount = isAdmin ? 32 : (openPositionsCount > 0 ? openPositionsCount + 5 : 8);
+        
+        // Get trade counts from localStorage
+        let totalTrades = 0;
+        let winningTrades = 0;
+        let losingTrades = 0;
+        
+        try {
+          const storedTotalTrades = localStorage.getItem('pipnosis_trade_count');
+          const storedWinningTrades = localStorage.getItem('pipnosis_winning_trades');
+          const storedLosingTrades = localStorage.getItem('pipnosis_losing_trades');
+          
+          if (storedTotalTrades) {
+            totalTrades = parseInt(storedTotalTrades, 10);
+          } else {
+            totalTrades = isAdmin ? 32 : (openPositionsCount > 0 ? openPositionsCount + 5 : 8);
+            localStorage.setItem('pipnosis_trade_count', totalTrades.toString());
+          }
+          
+          if (storedWinningTrades) {
+            winningTrades = parseInt(storedWinningTrades, 10);
+          } else {
+            winningTrades = Math.round(totalTrades * 0.75);
+            localStorage.setItem('pipnosis_winning_trades', winningTrades.toString());
+          }
+          
+          if (storedLosingTrades) {
+            losingTrades = parseInt(storedLosingTrades, 10);
+          } else {
+            losingTrades = totalTrades - winningTrades;
+            localStorage.setItem('pipnosis_losing_trades', losingTrades.toString());
+          }
+        } catch (error) {
+          totalTrades = isAdmin ? 32 : (openPositionsCount > 0 ? openPositionsCount + 5 : 8);
+          winningTrades = Math.round(totalTrades * 0.75);
+          losingTrades = totalTrades - winningTrades;
+        }
+        
         const winRate = isAdmin ? 78.5 : 75.0;
         const pnl = isAdmin ? accountBalance * 0.15 : accountBalance * 0.05;
         
         setStats({
           totalPrompts: isAdmin ? 18 : 5,
-          totalTrades: tradeCount,
+          totalTrades: totalTrades,
           totalJournalEntries: isAdmin ? 42 : 12,
           accountValue: accountBalance,
           winRate: winRate,
@@ -91,18 +127,56 @@ export const useDatabaseStats = () => {
       // For real users with database connection
       if (databaseConnected) {
         // In a real implementation, this would fetch data from the database
+        // Get trade counts from localStorage
+        let totalTrades = 0;
+        let winningTrades = 0;
+        let losingTrades = 0;
+        
+        try {
+          const storedTotalTrades = localStorage.getItem('pipnosis_trade_count');
+          const storedWinningTrades = localStorage.getItem('pipnosis_winning_trades');
+          const storedLosingTrades = localStorage.getItem('pipnosis_losing_trades');
+          
+          if (storedTotalTrades) {
+            totalTrades = parseInt(storedTotalTrades, 10);
+          } else {
+            totalTrades = 12;
+            localStorage.setItem('pipnosis_trade_count', totalTrades.toString());
+          }
+          
+          if (storedWinningTrades) {
+            winningTrades = parseInt(storedWinningTrades, 10);
+          } else {
+            winningTrades = Math.round(totalTrades * 0.75);
+            localStorage.setItem('pipnosis_winning_trades', winningTrades.toString());
+          }
+          
+          if (storedLosingTrades) {
+            losingTrades = parseInt(storedLosingTrades, 10);
+          } else {
+            losingTrades = totalTrades - winningTrades;
+            localStorage.setItem('pipnosis_losing_trades', losingTrades.toString());
+          }
+        } catch (error) {
+          totalTrades = 12;
+          winningTrades = 9;
+          losingTrades = 3;
+        }
+        
         // Use MT5 balance if available, otherwise use profile balance
         const accountBalance = mt5Balance || profile?.account_balance || 10000;
+        const openPositionsCount = mt5Positions.length;
+        const calculatedWinRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 75.0;
         const openPositionsCount = mt5Positions.length;
         const tradeCount = openPositionsCount > 0 ? openPositionsCount + 5 : 12;
         const winningTrades = Math.round(tradeCount * 0.75);
         
         setStats({
-          totalPrompts: Math.max(3, Math.round(tradeCount * 0.8)),
-          totalTrades: tradeCount,
-          totalJournalEntries: Math.max(5, Math.round(tradeCount * 1.5)),
+          totalPrompts: Math.max(3, Math.round(totalTrades * 0.8)),
+          totalTrades: totalTrades,
+          totalJournalEntries: Math.max(5, Math.round(totalTrades * 1.5)),
           accountValue: accountBalance,
-          winRate: 75.0,
+          winRate: calculatedWinRate,
           totalPnL: Math.round(accountBalance * 0.05)
         });
       } else {
@@ -161,18 +235,18 @@ export const useDatabaseStats = () => {
   // Function to update trade count when a new trade is executed
   const updateTradeCount = useCallback((success: boolean = true) => {
     if (!user) return;
-    
+
     try {
       // Get current counts
       const totalTradesStr = localStorage.getItem('pipnosis_trade_count') || '0';
       const winningTradesStr = localStorage.getItem('pipnosis_winning_trades') || '0';
       const losingTradesStr = localStorage.getItem('pipnosis_losing_trades') || '0';
-      
+
       // Parse to numbers
       let totalTrades = parseInt(totalTradesStr, 10);
       let winningTrades = parseInt(winningTradesStr, 10);
       let losingTrades = parseInt(losingTradesStr, 10);
-      
+
       // Increment counts
       totalTrades += 1;
       if (success) {
@@ -180,14 +254,16 @@ export const useDatabaseStats = () => {
       } else {
         losingTrades += 1;
       }
-      
+
       // Store updated counts
       localStorage.setItem('pipnosis_trade_count', totalTrades.toString());
       localStorage.setItem('pipnosis_winning_trades', winningTrades.toString());
       localStorage.setItem('pipnosis_losing_trades', losingTrades.toString());
-      
+
       // Refresh stats
-      loadStats();
+      setTimeout(loadStats, 500);
+      
+      console.log('✅ Trade count updated:', { totalTrades, winningTrades, losingTrades });
     } catch (error) {
       console.error('Error updating trade count:', error);
     }

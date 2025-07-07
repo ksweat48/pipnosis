@@ -25,9 +25,11 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
   const [openPositions, setOpenPositions] = useState<any[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [mt5AccountData, setMt5AccountData] = useState<any>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Function to refresh MT5 data manually
   const refreshData = () => {
+    setIsRefreshing(true);
     try {
       const connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
       const accountData = localStorage.getItem('pipnosis_mt5_account');
@@ -60,6 +62,8 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
       }
     } catch (error) {
       console.error('Error refreshing MT5 data:', error);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
     }
   };
 
@@ -244,9 +248,9 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                 <div className="flex items-center space-x-2">
                   <button 
                     onClick={refreshData}
-                    className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                    className={`p-2 ${isRefreshing ? 'text-blue-400' : 'text-slate-400 hover:text-white'} hover:bg-slate-700 rounded-lg transition-colors`}
                     title="Refresh data">
-                    <RefreshCw className="h-4 w-4" />
+                    <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                   </button>
                   <button 
                     onClick={openMT5Settings}

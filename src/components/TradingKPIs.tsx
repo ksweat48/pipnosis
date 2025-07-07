@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -22,10 +22,36 @@ export const TradingKPIs: React.FC = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const { user } = useAuth();
   const { stats, isLoading, refreshStats } = useDatabaseStats();
+  
+  // Get trade counts from localStorage
+  const [tradeCounts, setTradeCounts] = useState({
+    totalTrades: 0,
+    winningTrades: 0,
+    losingTrades: 0
+  });
+  
+  // Load trade counts from localStorage
+  React.useEffect(() => {
+    try {
+      const totalTradesStr = localStorage.getItem('pipnosis_trade_count') || '0';
+      const winningTradesStr = localStorage.getItem('pipnosis_winning_trades') || '0';
+      const losingTradesStr = localStorage.getItem('pipnosis_losing_trades') || '0';
+      
+      setTradeCounts({
+        totalTrades: parseInt(totalTradesStr, 10),
+        winningTrades: parseInt(winningTradesStr, 10),
+        losingTrades: parseInt(losingTradesStr, 10)
+      });
+    } catch (error) {
+      console.error('Error loading trade counts:', error);
+    }
+  }, [stats.totalTrades]);
 
   // Refresh stats when component mounts or when expanded
-  useEffect(() => {
-    refreshStats();
+  React.useEffect(() => {
+    if (isExpanded) {
+      refreshStats();
+    }
   }, [refreshStats, isExpanded]);
 
   const getPerformanceColor = (value: number, type: 'percentage' | 'ratio' | 'drawdown' | 'return') => {
@@ -121,8 +147,10 @@ export const TradingKPIs: React.FC = () => {
     }
   ];
 
-  const profitableTrades = Math.round(stats.totalTrades * (stats.winRate / 100)) || 0;
-  const losingTrades = stats.totalTrades - profitableTrades || 0;
+  // Use localStorage values if available, otherwise calculate from stats
+  const profitableTrades = tradeCounts.winningTrades || Math.round(stats.totalTrades * (stats.winRate / 100)) || 0;
+  const losingTrades = tradeCounts.losingTrades || (stats.totalTrades - profitableTrades) || 0;
+  const totalTrades = tradeCounts.totalTrades || stats.totalTrades || 0;
 
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700">
@@ -135,7 +163,7 @@ export const TradingKPIs: React.FC = () => {
           </h3>
           <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:space-y-0 sm:space-x-4">
             <div className="text-sm text-slate-400">
-              {stats.totalTrades || 0} total trades
+              {totalTrades} total trades
             </div>
             <button
               onClick={() => setIsExpanded(!isExpanded)}
@@ -156,15 +184,15 @@ export const TradingKPIs: React.FC = () => {
         {/* Summary Stats - Always visible */}
         <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 p-3 sm:p-4 bg-slate-900 rounded-lg border border-slate-600">
           <div className="text-center">
-            <div className="text-lg sm:text-2xl font-bold text-green-400">{profitableTrades || 0}</div>
+            <div className="text-lg sm:text-2xl font-bold text-green-400">{profitableTrades}</div>
             <div className="text-xs text-slate-400">Winning Trades</div>
           </div>
           <div className="text-center">
-            <div className="text-lg sm:text-2xl font-bold text-red-400">{losingTrades || 0}</div>
+            <div className="text-lg sm:text-2xl font-bold text-red-400">{losingTrades}</div>
             <div className="text-xs text-slate-400">Losing Trades</div>
           </div>
           <div className="text-center">
-            <div className="text-lg sm:text-2xl font-bold text-blue-400">{stats.totalTrades || 0}</div>
+            <div className="text-lg sm:text-2xl font-bold text-blue-400">{totalTrades}</div>
             <div className="text-xs text-slate-400">Total Trades</div>
           </div>
         </div>
