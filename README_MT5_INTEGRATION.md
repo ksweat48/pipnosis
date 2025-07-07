@@ -1,134 +1,108 @@
-# Pipnosis MT5 Real-Time Integration
+# Pipnosis MT5 Integration Guide for Production
 
-## 🚀 **REAL MT5 Integration - Complete Setup Guide**
+This guide explains how to set up the MT5 bridge for production use, allowing Pipnosis to place live trades via MetaTrader 5 from the production server at pipnosis.com.
 
-This is the **actual MT5 integration** that connects to your MetaTrader 5 terminal and streams live data in real-time.
+## Overview
 
-## 📋 **What's Included**
+The Pipnosis MT5 integration works as follows:
 
-### 1. **Python MT5 Bridge** (`mt5-bridge/`)
-- `mt5_connector.py` - Main bridge application that connects to MT5
-- `bridge_installer.py` - Windows installer with GUI
-- `requirements.txt` - Python dependencies
+1. The MT5 bridge runs on your local machine where MetaTrader 5 is installed
+2. The bridge creates a WebSocket server that listens for commands
+3. The Pipnosis web application connects to this WebSocket server to execute trades
+4. Your MT5 credentials are stored locally and never transmitted to the cloud
 
-### 2. **WebSocket Client** (`src/services/`)
-- `mt5WebSocketClient.ts` - Real-time WebSocket client
-- `useMT5Integration.ts` - React hook for MT5 integration
+## Setup Instructions
 
-### 3. **Updated Components**
-- `MT5ConnectionModal.tsx` - Complete setup wizard
-- `MT5Dashboard.tsx` - Live data display
-- `Header.tsx` - Connection status indicators
+### Step 1: Install the MT5 Bridge
 
-## 🔧 **Installation Steps**
+1. Download and install the MT5 bridge on your local machine:
+   ```bash
+   # Clone the repository or download the files
+   git clone https://github.com/pipnosis/mt5-bridge.git
+   cd mt5-bridge
+   
+   # Install dependencies
+   pip install -r requirements.txt
+   ```
 
-### Step 1: Install Python Dependencies
-```bash
-cd mt5-bridge
-pip install -r requirements.txt
-```
+2. Make sure MetaTrader 5 is installed and running on your machine
 
-### Step 2: Run the MT5 Bridge
-```bash
-python mt5_connector.py
-```
+### Step 2: Configure the MT5 Bridge
 
-### Step 3: Connect from Pipnosis
-1. Open Pipnosis web app
-2. Click the MT5 button (should be red)
-3. Follow the connection wizard
-4. Bridge will auto-detect and connect
+1. Run the credentials setup script:
+   ```bash
+   python edit_credentials.py
+   ```
 
-## 🌟 **Features**
+2. Enter your MT5 account details:
+   - Login (account number)
+   - Password
+   - Server name (e.g., "MetaQuotes-Demo", "ICMarkets-Live01")
 
-### ✅ **Real-Time Data Streaming**
-- Account balance, equity, margin
-- Open positions with live P&L
-- Real-time price updates
-- Connection status monitoring
+3. The credentials will be encrypted and stored locally
 
-### ✅ **Live Trade Execution**
-- Place market orders directly from Pipnosis
-- Set stop loss and take profit
-- Real-time order confirmation
-- MT5 ticket numbers
+### Step 3: Start the MT5 Bridge
 
-### ✅ **Secure Local Connection**
-- WebSocket runs on localhost:8765
-- No cloud data transmission
-- Direct MT5 terminal connection
-- Encrypted local communication
+1. Start the bridge:
+   ```bash
+   python mt5_connector.py
+   ```
 
-### ✅ **Auto-Reconnection**
-- Automatic reconnection on disconnect
-- Connection health monitoring
-- Graceful error handling
-- Status persistence
+2. The bridge will start a WebSocket server on port 8765 (or fallback to another port if 8765 is in use)
+3. You should see a message like: "WebSocket server started on ws://0.0.0.0:8765"
 
-## 📊 **Data Flow**
+### Step 4: Configure Your Router/Firewall (For Production Use)
 
-```
-MetaTrader 5 Terminal
-        ↓
-Python MT5 Bridge (WebSocket Server)
-        ↓
-Pipnosis Web App (WebSocket Client)
-        ↓
-Real-Time UI Updates
-```
+For the production Pipnosis website to connect to your local MT5 bridge:
 
-## 🔍 **Testing the Integration**
+1. Set up port forwarding on your router to forward port 8765 to your local machine
+2. Configure your firewall to allow incoming connections on port 8765
+3. Consider using a dynamic DNS service if your IP address changes frequently
 
-1. **Start MT5 Terminal** - Make sure you're logged in
-2. **Run the Bridge** - `python mt5_connector.py`
-3. **Open Pipnosis** - The MT5 button should turn green
-4. **Check Live Data** - Your real balance should appear
-5. **Test Trade** - Use AI prompt to place a test trade
+### Step 5: Connect Pipnosis to Your MT5 Bridge
 
-## 🛠 **Troubleshooting**
+1. Log in to your Pipnosis account at pipnosis.com
+2. Go to Settings > MT5 Connection
+3. Enter your local machine's public IP address or hostname
+4. Click "Connect" to establish the connection
 
-### Bridge Won't Start
-- Ensure MT5 is running and logged in
-- Check Python dependencies are installed
-- Run as administrator if needed
+## Security Considerations
 
-### Connection Failed
-- Verify WebSocket port 8765 is available
-- Check Windows Firewall settings
-- Ensure MT5 allows API connections
+- The MT5 bridge uses WebSocket Secure (WSS) for encrypted communication
+- Your MT5 credentials are encrypted and stored only on your local machine
+- The bridge only accepts connections from pipnosis.com
+- Consider using a VPN for additional security
 
-### No Live Data
-- Confirm MT5 account is active
-- Check MT5 terminal connection status
-- Verify bridge shows "Connected to MT5"
+## Troubleshooting
 
-## 📝 **Configuration**
+### Connection Issues
 
-### WebSocket Settings
-- **Host**: localhost
-- **Port**: 8765
-- **Protocol**: WebSocket
-- **Security**: Local only
+If Pipnosis cannot connect to your MT5 bridge:
 
-### MT5 Requirements
-- MetaTrader 5 terminal
-- Active trading account
-- API access enabled
-- Python 3.8+ with MetaTrader5 package
+1. Verify the MT5 bridge is running (`python mt5_connector.py`)
+2. Check your router's port forwarding configuration
+3. Ensure your firewall allows incoming connections on port 8765
+4. Verify MetaTrader 5 is running and logged in
+5. Check the MT5 bridge logs for any errors
 
-## 🎯 **Next Steps**
+### Trading Issues
 
-1. **Install the bridge** using the provided installer
-2. **Test the connection** with your MT5 account
-3. **Verify live data** is streaming correctly
-4. **Place a test trade** using Pipnosis AI
-5. **Monitor real-time updates** in the dashboard
+If trades are not executing properly:
 
-## ⚡ **Performance**
+1. Ensure automated trading is enabled in MetaTrader 5 (Tools > Options > Expert Advisors)
+2. Check if your account has sufficient margin
+3. Verify the symbol is available for trading
+4. Check the MT5 bridge logs for any error messages
 
-- **Update Frequency**: 1 second
-- **Latency**: < 100ms local
-- **Memory Usage**: ~50MB
-- **CPU Usage**: < 1%
+## Advanced Configuration
 
-This is a **production-ready** MT5 integration that provides real-time data streaming and trade execution capabilities.
+For advanced users, you can modify the following settings:
+
+- Change the WebSocket port in `mt5_connector.py`
+- Configure SSL/TLS for secure WebSocket connections
+- Set up authentication for the WebSocket server
+- Implement IP whitelisting for additional security
+
+## Support
+
+If you encounter any issues, please contact support@pipnosis.com or visit our documentation at https://docs.pipnosis.com/mt5-integration

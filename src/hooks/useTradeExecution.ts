@@ -46,6 +46,22 @@ export const useTradeExecution = () => {
       if (!isConnected) {
         console.warn('⚠️ MT5 not connected, attempting to connect...');
         
+        // Check if we're in production
+        const isProduction = window.location.hostname === 'pipnosis.com' || 
+                            window.location.hostname === 'www.pipnosis.com' ||
+                            window.location.hostname.includes('netlify.app');
+        
+        // If in production, try to connect to the production MT5 bridge
+        if (isProduction) {
+          try {
+            // Show a user-friendly message
+            alert('Please make sure your MT5 bridge is running and connected to your MetaTrader 5 terminal.');
+            throw new Error('MT5 bridge not connected in production environment');
+          } catch (error) {
+            throw new Error('MT5 connection failed in production. Please ensure the MT5 bridge is running on your local machine.');
+          }
+        }
+        
         try {
           // Try to connect to MT5
           await mt5Client.connect();

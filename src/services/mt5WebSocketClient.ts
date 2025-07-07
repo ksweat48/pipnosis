@@ -75,7 +75,7 @@ export class MT5WebSocketClient {
   private connectionAttemptThreshold = 5000; // 5 seconds between connection attempts
   
   constructor(
-    private host: string = 'localhost',
+    private host: string = window.location.hostname === 'pipnosis.com' ? 'api.pipnosis.com' : 'localhost',
     private port: number = 8765
   ) {
     console.log('🔌 MT5 WebSocket Client initialized for', `${host}:${port}`);
@@ -124,8 +124,9 @@ export class MT5WebSocketClient {
     // Try multiple connection methods and ports
     const portsToTry = [this.port, 8766, 8767, 8768, 8769, 8770];
     const connectionMethods = [
-      (port: number) => `ws://localhost:${port}`,
-      (port: number) => `ws://127.0.0.1:${port}`
+      (port: number) => `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${this.host}:${port}`,
+      (port: number) => `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://127.0.0.1:${port}`,
+      (port: number) => `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://localhost:${port}`
     ];
     
     for (const port of portsToTry) {

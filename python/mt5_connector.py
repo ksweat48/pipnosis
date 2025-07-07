@@ -642,15 +642,17 @@ class MT5Connector:
         
         for current_port in ports_to_try:
             try:
-                logger.info(f"Starting WebSocket server on {host}:{current_port}")
+                # Allow connections from any host when in production
+                bind_host = '0.0.0.0' if host == 'localhost' else host
+                logger.info(f"Starting WebSocket server on {bind_host}:{current_port} (accepting connections from any host)")
                 server = await websockets.serve(
                     self.handle_websocket_client,
-                    host,
+                    bind_host,
                     current_port,
                     ping_interval=30,
                     ping_timeout=10
                 )
-                logger.info(f"WebSocket server started on ws://{host}:{current_port}")
+                logger.info(f"WebSocket server started on ws://{bind_host}:{current_port}")
                 
                 # Store the successful port in a file for clients to discover
                 with open('mt5_bridge_port.txt', 'w') as f:
