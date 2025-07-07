@@ -274,7 +274,26 @@ export class BackendAPIService {
   // Enhanced Health Check
   async healthCheck(): Promise<{ status: string; timestamp: string; online: boolean; version?: string }> {
     try {
-      const result = await this.makeRequest('/health');
+      // Use a shorter timeout for health check
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      
+      const response = await fetch(`${this.config.baseURL}/health`, {
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'User-Agent': 'Pipnosis-Frontend/2.0.0'
+        }
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
       this.isOnline = true;
       this.lastHealthCheck = new Date();
       return { 
@@ -286,6 +305,8 @@ export class BackendAPIService {
     } catch (error) {
       this.isOnline = false;
       this.lastHealthCheck = new Date();
+      console.log('Health check failed, using demo mode:', error);
+      this.fallbackMode = true;
       return { 
         status: 'demo', 
         timestamp: new Date().toISOString(),

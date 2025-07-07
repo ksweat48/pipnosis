@@ -11,15 +11,16 @@ export const useBackendConnection = () => {
   const checkConnection = useCallback(async () => {
     setIsChecking(true);
     try {
-      const health = await backendAPI.healthCheck();
-      setIsConnected(health.online);
+      try {
+        const health = await backendAPI.healthCheck();
+        setIsConnected(health.online);
+      } catch (error) {
+        console.log('Backend health check failed, using demo mode');
+        setIsConnected(false);
+      }
       setLastChecked(new Date());
       
-      if (health.online) {
-        console.log('✅ Backend API connected');
-      } else {
-        console.log('🔄 Using demo mode - all features available');
-      }
+      console.log('🔄 Using demo mode - all features available');
     } catch (error) {
       setIsConnected(false);
       setLastChecked(new Date());

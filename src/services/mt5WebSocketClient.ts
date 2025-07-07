@@ -205,13 +205,31 @@ export class MT5WebSocketClient {
   private attemptConnection(wsUrl: string): Promise<boolean> {
     return new Promise((resolve, reject) => {
       try {
+        console.log(`Attempting WebSocket connection to ${wsUrl}...`);
+        
         // Close any existing connection
         if (this.ws) {
           this.ws.close();
           this.ws = null;
         }
         
-        this.ws = new WebSocket(wsUrl);
+        // Check if we're in WebContainer environment
+        if (window.location.hostname.includes('webcontainer-api.io') || 
+            window.location.hostname.includes('local-credentialless') ||
+            window.location.hostname.includes('bolt.new') ||
+            window.location.hostname.includes('stackblitz')) {
+          console.log('WebContainer environment detected - WebSocket connections not supported');
+          reject(new Error('WebSocket connections are not supported in this preview environment'));
+          return;
+        }
+        
+        try {
+          this.ws = new WebSocket(wsUrl);
+        } catch (wsError) {
+          console.error('Failed to create WebSocket:', wsError);
+          reject(wsError);
+          return;
+        }
         
         const timeout = setTimeout(() => {
           if (this.ws) {
@@ -494,7 +512,7 @@ export class MT5WebSocketClient {
   async testConnection(): Promise<{ success: boolean; error?: string; details?: any }> {
     // Reset error state
     this.error = null;
-    console.log(`🧪 Testing MT5 bridge connection to ${this.host}:${this.port}...`);
+    console.log(`Testing MT5 bridge connection to ${this.host}:${this.port}...`);
     
     try {
       // Check if we're in WebContainer environment
@@ -512,10 +530,10 @@ export class MT5WebSocketClient {
       
       // Create a test WebSocket connection
       const wsUrl = `ws://${this.host}:${this.port}`;
-      console.log(`🔌 Testing connection to ${wsUrl}...`);
+      console.log(`Testing connection to ${wsUrl}...`);
 
       // Log detailed connection attempt
-      console.log(`🔍 Connection details:
+      console.log(`Connection details:
 - Host: ${this.host}
 - Port: ${this.port}
 - URL: ${wsUrl}
@@ -525,6 +543,7 @@ export class MT5WebSocketClient {
       // Set a timeout for the connection test
       const timeoutPromise = new Promise<{ success: false, error: string }>((_, reject) => {
         setTimeout(() => {
+          console.log('Connection test timed out');
           reject({ 
             success: false, 
             error: `Connection timeout. Could not connect to ${this.host}:${this.port} within 5 seconds.` 
@@ -535,16 +554,27 @@ export class MT5WebSocketClient {
       // Create a connection promise
       const connectionPromise = new Promise<{ success: boolean, error?: string }>((resolve) => {
         try {
-          const testWs = new WebSocket(wsUrl);
+          let testWs: WebSocket;
+          
+          try {
+            testWs = new WebSocket(wsUrl);
+          } catch (wsError) {
+            console.error('Failed to create test WebSocket:', wsError);
+            resolve({ 
+              success: false, 
+              error: `Failed to create WebSocket: ${wsError instanceof Error ? wsError.message : String(wsError)}`
+            });
+            return;
+          }
           
           testWs.onopen = () => {
-            console.log('✅ Test connection successful');
+            console.log('Test connection successful');
             testWs.close();
             resolve({ success: true });
           };
           
           testWs.onerror = (event) => {
-            console.error('❌ Test connection failed:', event);
+            console.error('Test connection failed:', event);
             this.error = `Failed to connect to MT5 bridge at ${wsUrl}`;
             resolve({ 
               success: false, 
@@ -552,7 +582,7 @@ export class MT5WebSocketClient {
             });
           };
         } catch (error) {
-          console.error('❌ Test connection error:', error);
+          console.error('Test connection error:', error);
           this.error = error instanceof Error ? error.message : 'Unknown connection error';
           resolve({ 
             success: false, 
@@ -566,7 +596,7 @@ export class MT5WebSocketClient {
       
       return result;
     } catch (error) {
-      console.error('❌ Connection test failed:', error);
+      console.error('Connection test failed:', error);
       this.error = error instanceof Error ? error.message : 'Unknown connection error';
       return {
         success: false,

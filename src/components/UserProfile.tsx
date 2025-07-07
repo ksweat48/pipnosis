@@ -18,8 +18,8 @@ export const UserProfile: React.FC = () => {
   useEffect(() => {
     if (profile) {
       setEditData({
-        full_name: profile.full_name || '',
-        risk_profile: profile.risk_profile || 'auto',
+        full_name: profile?.full_name || '',
+        risk_profile: profile?.risk_profile || 'auto',
       });
     }
   }, [profile]);
