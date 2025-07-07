@@ -70,15 +70,17 @@ export class MT5WebSocketClient {
   private isConnecting = false;
   private emitter = new TinyEmitter();
   private pingInterval: NodeJS.Timeout | null = null;
+  private pingInterval: NodeJS.Timeout | null = null;
   private pendingRequests: Map<string, { resolve: Function, reject: Function, timeout: NodeJS.Timeout }> = new Map();
   private lastConnectionAttempt = 0;
   private connectionAttemptThreshold = 5000; // 5 seconds between connection attempts
   
   constructor(
     private host: string = window.location.hostname === 'pipnosis.com' ? 'api.pipnosis.com' : 'localhost',
-    private port: number = 8765
+    private port: number = 8765,
+    private secure: boolean = window.location.protocol === 'https:'
   ) {
-    console.log('🔌 MT5 WebSocket Client initialized for', `${host}:${port}`);
+    console.log('🔌 MT5 WebSocket Client initialized for', `${secure ? 'wss' : 'ws'}://${host}:${port}`);
     this.discoverPort();
   }
 
@@ -124,10 +126,16 @@ export class MT5WebSocketClient {
     // Try multiple connection methods and ports
     const portsToTry = [this.port, 8766, 8767, 8768, 8769, 8770];
     const connectionMethods = [
-      (port: number) => `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${this.host}:${port}`,
-      (port: number) => `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://127.0.0.1:${port}`,
-      (port: number) => `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://localhost:${port}`
+      (port: number) => `${this.secure ? 'wss' : 'ws'}://${this.host}:${port}`,
     ];
+    
+    // If we're in local development, also try localhost and 127.0.0.1
+    if (window.location.hostname === 'localhost' || window.location.hostname.includes('127.0.0.1')) {
+      connectionMethods.push(
+        (port: number) => `ws://127.0.0.1:${port}`,
+        (port: number) => `ws://localhost:${port}`
+      );
+    }
     
     for (const port of portsToTry) {
       for (const getUrl of connectionMethods) {
@@ -182,8 +190,9 @@ export class MT5WebSocketClient {
           this.reconnectAttempts = 0;
           this.reconnectDelay = 1000;
           
-          console.log('✅ Connected to MT5 bridge');
+          console.log('✅ Connected to MT5 bridge at', wsUrl);
           this.emit('connected');
+          this.startPingInterval();
           this.startPingInterval();
           
           // Store connection status
@@ -212,6 +221,7 @@ export class MT5WebSocketClient {
         this.ws.onclose = (event) => {
           clearTimeout(timeout);
           this.isConnecting = false;
+          this.stopPingInterval();
           this.stopPingInterval();
           
           console.log(`🔌 MT5 bridge connection closed: ${event.code} - ${event.reason}`);
@@ -272,6 +282,8 @@ export class MT5WebSocketClient {
   disconnect(): void {
     this.stopPingInterval();
     
+    this.stopPingInterval();
+    
     if (this.ws) {
       this.ws.close(1000, 'Client disconnect');
       this.ws = null;
@@ -297,6 +309,39 @@ export class MT5WebSocketClient {
     }
 
     this.ws!.send(JSON.stringify(data));
+  }
+
+  /**
+   * Start ping interval to keep connection alive
+   */
+  private startPingInterval(): void {
+    // Clear any existing interval
+    this.stopPingInterval();
+    
+    this.pingInterval = setInterval(() => {
+      if (this.isConnected()) {
+        try {
+          this.send({ type: 'ping', timestamp: new Date().toISOString() });
+          console.log('📡 Sent ping to MT5 bridge');
+        } catch (error) {
+          console.error('❌ Failed to send ping:', error);
+          // Don't try to reconnect here - let the onclose handler do it
+        }
+      } else {
+        console.warn('⚠️ Cannot send ping - not connected');
+        this.stopPingInterval();
+      }
+    }, 30000); // Ping every 30 seconds
+  }
+
+  /**
+   * Stop ping interval
+   */
+  private stopPingInterval(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
   }
 
   /**

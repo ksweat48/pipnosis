@@ -673,11 +673,28 @@ class MT5Connector:
     def start(self, host='localhost', port=8765):
         """Start the MT5 connector"""
         logger.info("Starting Pipnosis MT5 Connector...")
+        logger.info(f"Binding to {host}:{port} (will accept connections from any host)")
         
         # Initialize MT5
         if not self.initialize_mt5():
             logger.error("Failed to initialize MT5 - exiting")
             return False
+        
+        # Print MT5 terminal information
+        account_info = mt5.account_info()
+        if account_info:
+            logger.info(f"MT5 Terminal Information:")
+            logger.info(f"  Account: {account_info.login}")
+            logger.info(f"  Name: {account_info.name}")
+            logger.info(f"  Server: {account_info.server}")
+            logger.info(f"  Company: {account_info.company}")
+            logger.info(f"  Balance: ${account_info.balance:,.2f}")
+            logger.info(f"  Leverage: 1:{account_info.leverage}")
+            logger.info(f"  Automated Trading: {'Enabled' if account_info.trade_expert else 'DISABLED'}")
+            
+            if not account_info.trade_expert:
+                logger.warning("⚠️ AUTOMATED TRADING IS DISABLED IN MT5!")
+                logger.warning("⚠️ Enable it in Tools > Options > Expert Advisors > Allow automated trading")
         
         self.running = True
         
@@ -688,6 +705,15 @@ class MT5Connector:
         try:
             # Start WebSocket server and data update loop
             server_result, actual_port = loop.run_until_complete(self.start_websocket_server(host, port))
+            
+            # Print connection instructions
+            if server_result:
+                logger.info("=" * 80)
+                logger.info("CONNECTION INSTRUCTIONS:")
+                logger.info(f"  Local URL: ws://localhost:{actual_port}")
+                logger.info(f"  LAN URL: ws://<your-local-ip>:{actual_port}")
+                logger.info(f"  For production: Set up port forwarding on your router for port {actual_port}")
+                logger.info("=" * 80)
             
             if server_result is None:
                 logger.error("Failed to start WebSocket server - exiting")

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Settings, User, Menu, X, ExternalLink, LogIn, LogOut, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { SettingsModal } from './SettingsModal';
+import { MT5ConnectionStatus } from './MT5ConnectionStatus';
 import { AuthModal } from './auth/AuthModal';
 import { BackendStatus } from './BackendStatus';
 import { DatabaseStatus } from './DatabaseStatus';
@@ -161,6 +162,7 @@ export const Header: React.FC = () => {
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-4">
             <div className="flex items-center space-x-3">
+              <MT5ConnectionStatus />
               <BackendStatus />
               <DatabaseStatus />
             </div>
@@ -298,6 +300,7 @@ export const Header: React.FC = () => {
           {/* Mobile Menu Button */}
           <div className="md:hidden flex items-center space-x-2">
             <div className="flex items-center space-x-2">
+              <MT5ConnectionStatus />
               <BackendStatus />
               <DatabaseStatus />
             </div>
