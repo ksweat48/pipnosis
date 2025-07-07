@@ -76,50 +76,29 @@ export class MT5WebSocketClient {
   private error: string | null = null;
   private defaultHost = 'localhost';
   private defaultPort = 8765;
+  private pingInterval: NodeJS.Timeout | null = null;
+  private pendingRequests: Map<string, { resolve: Function, reject: Function, timeout: NodeJS.Timeout }> = new Map();
+  private lastConnectionAttempt = 0;
+  private connectionAttemptThreshold = 5000; // 5 seconds between connection attempts
+  private error: string | null = null;
+  private defaultHost = 'localhost';
+  private defaultPort = 8765;
   
   constructor(
-    private host: string = '',
-    private port: number = 0
+    private host: string = 'localhost',
+    private port: number = 8765
   ) {
-    // Get host and port from environment variables or localStorage
-    this.host = host || this.getHostFromEnv() || this.defaultHost;
-    this.port = port || this.getPortFromEnv() || this.defaultPort;
+    // Try to get host and port from localStorage first
+    const savedHost = localStorage.getItem('pipnosis_mt5_bridge_host');
+    const savedPort = localStorage.getItem('pipnosis_mt5_bridge_port');
+    
+    if (savedHost) this.host = savedHost;
+    if (savedPort) this.port = parseInt(savedPort, 10);
     
     console.log('🔌 MT5 WebSocket Client initialized for', `${this.host}:${this.port}`);
     this.discoverPort();
   }
 
-  /**
-   * Get host from environment variables
-   */
-  private getHostFromEnv(): string {
-    try {
-      // Try to get from environment variable
-      const envHost = import.meta.env.VITE_MT5_BRIDGE_HOST || '';
-      if (envHost) return envHost;
-      
-      return '';
-    } catch (error) {
-      console.error('Error getting host from env:', error);
-      return '';
-    }
-  }
-
-  /**
-   * Get port from environment variables
-   */
-  private getPortFromEnv(): number {
-    try {
-      // Try to get from environment variable
-      const envPort = import.meta.env.VITE_MT5_BRIDGE_PORT || '';
-      if (envPort) return parseInt(envPort, 10);
-      
-      return 0;
-    } catch (error) {
-      console.error('Error getting port from env:', error);
-      return 0;
-    }
-  }
   /**
    * Configure the WebSocket client with new host and port
    */
@@ -137,7 +116,7 @@ export class MT5WebSocketClient {
       // Reset error state
       this.error = null;
       
-      // Save to localStorage for persistence
+      // Save to localStorage for persistence across page reloads
       try {
         localStorage.setItem('pipnosis_mt5_bridge_host', host);
         localStorage.setItem('pipnosis_mt5_bridge_port', port.toString());
@@ -831,9 +810,26 @@ if (typeof window !== 'undefined') {
     // Auto-connect if previously connected
     if (wasConnected) {
       console.log('🔄 Auto-connecting to MT5 bridge...');
-      mt5Client.connect().catch(error => {
-        console.log('ℹ️ Auto-connect failed (bridge may not be running):', error.message);
-      });
+      
+      // Only auto-connect if we have a host
+      if (mt5Client.getConnectionStats().host) {
+        mt5Client.connect().catch(error => {
+          console.log('ℹ️ Auto-connect failed (bridge may not be running):', error.message);
+        });
+      } else {
+        console.log('ℹ️ Auto-connect skipped (no host configured)');
+        
+        // If on production, prompt for host
+        if (window.location.hostname === 'pipnosis.com') {
+          console.log('🌐 Production environment detected - will prompt for MT5 bridge host');
+          
+          // Dispatch event to open MT5 modal
+          setTimeout(() => {
+            const event = new CustomEvent('openMT5Modal');
+            window.dispatchEvent(event);
+          }, 2000);
+        }
+      }
     }
   } catch (error) {
     console.error('Error loading MT5 account data:', error);

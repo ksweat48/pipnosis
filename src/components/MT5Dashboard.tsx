@@ -86,7 +86,7 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
   const connectToMT5 = async () => {
     setIsRefreshing(true);
     setError(null); 
-    
+
     // In WebContainer environment, show a special message
     if (window.location.hostname.includes('webcontainer-api.io') || 
         window.location.hostname.includes('local-credentialless') ||
@@ -101,8 +101,20 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
       // Simulate connection for demo purposes
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Use production bridge host for pipnosis.com
-      const bridgeHost = window.location.hostname === 'pipnosis.com' ? '97.180.94.170' : 'localhost';
+      // Get bridge host from localStorage or prompt user
+      let bridgeHost = localStorage.getItem('pipnosis_mt5_bridge_host');
+      
+      // If on production and no host is set, prompt user
+      if (window.location.hostname === 'pipnosis.com' && !bridgeHost) {
+        // Open MT5 modal to let user enter their IP
+        const event = new CustomEvent('openMT5Modal');
+        window.dispatchEvent(event);
+        setIsRefreshing(false);
+        return;
+      }
+      
+      // Use localhost for development
+      bridgeHost = bridgeHost || 'localhost';
       
       // Set connected status in localStorage
       localStorage.setItem('pipnosis_mt5_connected', 'true');
