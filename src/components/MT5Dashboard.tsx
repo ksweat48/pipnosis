@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Server, Activity, DollarSign, TrendingUp, TrendingDown, Settings, RefreshCw, Wifi, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { Server, Activity, DollarSign, TrendingUp, TrendingDown, Settings, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { mt5Client } from '../services/mt5WebSocketClient';
 import { WebContainerNotice } from './WebContainerNotice';
 

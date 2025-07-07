@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { pipnosisAI, TradingGoal, TradeStrategy, PromptAnalysisResult } from '../services/pipnosisAIBrain';
+import { pipnosisAI } from '../services/pipnosisAIBrain';
 import { useAuth } from '../contexts/AuthContext';
 import { openAIService } from '../services/openai';
 

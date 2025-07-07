@@ -124,7 +124,7 @@ export class BackendAPIService {
     // For WebContainer, immediately enable fallback mode
     if (isWebContainer) {
       this.fallbackMode = true;
-      console.log('🔄 Running in WebContainer - using demo mode with realistic AI responses');
+      console.log('🔄 Running in WebContainer - using demo mode');
     }
 
     // Determine API endpoint based on environment
@@ -146,16 +146,12 @@ export class BackendAPIService {
 
     this.config = {
       baseURL,
-      timeout: 3000, // Very short timeout for quick fallback
-      retries: 1, // Single retry for quick fallback
+      timeout: 5000,
+      retries: 1,
       apiKey: import.meta.env.VITE_PIPNOSIS_API_KEY
     };
 
-    console.log('🚀 Backend API Configuration:', {
-      baseURL: this.config.baseURL,
-      environment: isProduction ? 'production' : isWebContainer ? 'webcontainer' : 'development',
-      fallbackMode: this.fallbackMode
-    });
+    console.log('🚀 Backend API initialized');
   }
 
   private async makeRequest<T>(

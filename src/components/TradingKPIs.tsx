@@ -1,19 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  BarChart3, 
-  TrendingUp, 
-  TrendingDown, 
-  Target, 
-  Clock, 
-  Shield, 
-  Zap, 
-  AlertTriangle,
-  CheckCircle,
-  Activity,
-  Calendar,
-  ChevronDown,
-  ChevronUp,
-  RefreshCw
+  BarChart3, TrendingUp, TrendingDown, Target, CheckCircle, Activity, 
+  Calendar, ChevronDown, ChevronUp, RefreshCw
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useDatabaseStats } from '../hooks/useDatabase';
@@ -22,7 +10,7 @@ export const TradingKPIs: React.FC = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const { user } = useAuth();
   const { stats, isLoading, refreshStats } = useDatabaseStats();
-  
+
   // Get trade counts from localStorage
   const [tradeCounts, setTradeCounts] = useState({
     totalTrades: 0,

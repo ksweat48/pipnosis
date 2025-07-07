@@ -76,13 +76,6 @@ export class MT5WebSocketClient {
   private error: string | null = null;
   private defaultHost = 'localhost';
   private defaultPort = 8765;
-  private pingInterval: NodeJS.Timeout | null = null;
-  private pendingRequests: Map<string, { resolve: Function, reject: Function, timeout: NodeJS.Timeout }> = new Map();
-  private lastConnectionAttempt = 0;
-  private connectionAttemptThreshold = 5000; // 5 seconds between connection attempts
-  private error: string | null = null;
-  private defaultHost = 'localhost';
-  private defaultPort = 8765;
   
   constructor(
     private host: string = 'localhost',
@@ -777,12 +770,15 @@ export class MT5WebSocketClient {
    * Get connection statistics
    */
   getConnectionStats(): any {
+    const host = this.host || localStorage.getItem('pipnosis_mt5_bridge_host') || this.defaultHost;
+    const port = this.port || parseInt(localStorage.getItem('pipnosis_mt5_bridge_port') || '', 10) || this.defaultPort;
+    
     return {
       connected: this.isConnected() || localStorage.getItem('pipnosis_mt5_connected') === 'true',
       reconnectAttempts: this.reconnectAttempts,
       maxReconnectAttempts: this.maxReconnectAttempts,
-      host: this.host,
-      port: this.port,
+      host,
+      port,
       error: this.error,
       lastConnected: localStorage.getItem('pipnosis_mt5_last_connected'),
       bridgeUrl: localStorage.getItem('pipnosis_mt5_bridge_url')

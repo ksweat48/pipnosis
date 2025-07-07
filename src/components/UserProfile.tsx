@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Settings, DollarSign, Shield, Mail, Calendar, Edit3, Save, X, LogOut } from 'lucide-react';
+import { User, DollarSign, Shield, Mail, Calendar, Edit3, Save, X, LogOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export const UserProfile: React.FC = () => {

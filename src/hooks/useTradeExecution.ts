@@ -38,16 +38,8 @@ export const useTradeExecution = () => {
       // Format symbol to remove slashes (e.g., GBP/JPY -> GBPJPY)
       const formattedSymbol = request.symbol.replace('/', '').toUpperCase();
 
-      // Log detailed connection information with more helpful details
-      console.log('🔌 MT5 Connection Details:', {
-        connected: mt5Client.isConnected(),
-        connectionStats: mt5Client.getConnectionStats(),
-        symbol: formattedSymbol,
-        action: request.action,
-        volume: request.volume,
-        bridgeHost: mt5Client.getConnectionStats().host,
-        bridgePort: mt5Client.getConnectionStats().port
-      });
+      // Log basic connection information
+      console.log('🔌 MT5 Connection:', mt5Client.isConnected() ? 'Connected' : 'Disconnected');
 
       // Limit comment to 31 characters (MT5 requirement)
       const limitedComment = request.comment ? request.comment.substring(0, 31) : 'Pipnosis AI Trade';

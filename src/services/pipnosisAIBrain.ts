@@ -63,15 +63,15 @@ export interface PromptAnalysisResult {
 // Constants
 const PIPNOSIS_LAWS = [
   "Capital Preservation Above All",
-  "Target 70–80% Win Rate Over Time",
-  "Manage Drawdown Relentlessly",
-  "Never Chase Unrealistic Goals",
-  "AI Is the Final Decision-Maker",
-  "Trades Must Have High Quality Entry Conditions",
-  "Cut Losses Early, Let Winners Run",
-  "No Trading During High-Risk Events",
-  "Do Not Overtrade",
-  "Prioritize Consistency Over Speed"
+  "Target 70–80% Win Rate",
+  "Manage Drawdown",
+  "No Unrealistic Goals",
+  "AI Final Decision",
+  "Quality Entry Conditions",
+  "Cut Losses Early",
+  "Avoid High-Risk Events",
+  "No Overtrading",
+  "Consistency Over Speed"
 ];
 
 const TIER_1_PAIRS = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD'];

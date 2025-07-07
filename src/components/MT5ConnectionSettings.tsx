@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Server, Save, RefreshCw, AlertCircle, CheckCircle, Globe, Wifi } from 'lucide-react';
+import { Server, Save, RefreshCw, AlertCircle, CheckCircle, Globe } from 'lucide-react';
 import { mt5Client } from '../services/mt5WebSocketClient';
 
 interface MT5ConnectionSettingsProps {
