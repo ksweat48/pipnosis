@@ -255,8 +255,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // CRITICAL FIX: Enhanced session initialization with better timeout handling
   useEffect(() => {
     let mounted = true;
-    let initializationTimeout: ReturnType<typeof setTimeout> | null = null;
-    let sessionCheckTimeout: ReturnType<typeof setTimeout> | null = null;
+    let initializationTimeout: number | null = null;
+    let sessionCheckTimeout: number | null = null;
 
     // Check for test user session first
     const checkTestUser = () => {
@@ -293,7 +293,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // CRITICAL FIX: Enhanced session check with multiple timeout layers
     const getInitialSession = async () => {
       try {
-        console.log('🔐 Checking initial auth session...');
+        console.log('Checking initial auth session...');
         
         // Shorter timeout for production to prevent hanging
         const sessionTimeout = isProduction ? 8000 : 12000;
@@ -308,10 +308,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         // Add session-specific timeout
         sessionCheckTimeout = setTimeout(() => {
-          if (mounted && loading && !authInitialized) {
-            console.warn('⚠️ Session check taking too long, forcing completion');
-            setLoading(false);
-            setAuthInitialized(true);
+          if (mounted) {
+            if (loading && !authInitialized) {
+              console.warn('Session check taking too long, forcing completion');
+              setLoading(false);
+              setAuthInitialized(true);
+            }
           }
         }, sessionTimeout / 2);
         
@@ -321,13 +323,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           clearTimeout(initializationTimeout);
           initializationTimeout = null;
         }
+        
         if (sessionCheckTimeout) {
           clearTimeout(sessionCheckTimeout);
           sessionCheckTimeout = null;
         }
         
         if (error) {
-          console.error('❌ Error getting session:', error);
+          console.error('Error getting session:', error);
           if (mounted) {
             setLoading(false);
             setAuthInitialized(true);
@@ -360,7 +363,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
       } catch (error) {
-        console.error('❌ Error in getInitialSession:', error);
+        console.error('Error in getInitialSession:', error);
         if (mounted) {
           setLoading(false);
           setAuthInitialized(true);
@@ -440,11 +443,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       mounted = false;
       if (initializationTimeout) {
-        clearTimeout(initializationTimeout);
+        window.clearTimeout(initializationTimeout);
         initializationTimeout = null;
       }
       if (sessionCheckTimeout) {
-        clearTimeout(sessionCheckTimeout);
+        window.clearTimeout(sessionCheckTimeout);
         sessionCheckTimeout = null;
       }
       subscription.unsubscribe();

@@ -205,7 +205,7 @@ export class MT5WebSocketClient {
   private attemptConnection(wsUrl: string): Promise<boolean> {
     return new Promise((resolve, reject) => {
       try {
-        console.log(`Attempting WebSocket connection to ${wsUrl}...`);
+        console.log(`Attempting WebSocket connection to ${wsUrl}`);
         
         // Close any existing connection
         if (this.ws) {
@@ -216,10 +216,9 @@ export class MT5WebSocketClient {
         // Check if we're in WebContainer environment
         if (window.location.hostname.includes('webcontainer-api.io') || 
             window.location.hostname.includes('local-credentialless') ||
-            window.location.hostname.includes('bolt.new') ||
-            window.location.hostname.includes('stackblitz')) {
-          console.log('WebContainer environment detected - WebSocket connections not supported');
-          reject(new Error('WebSocket connections are not supported in this preview environment'));
+            window.location.hostname.includes('bolt.new')) {
+          console.log('WebContainer environment detected - WebSockets not supported');
+          reject(new Error('WebSockets not supported in this preview environment'));
           return;
         }
         
@@ -233,7 +232,11 @@ export class MT5WebSocketClient {
         
         const timeout = setTimeout(() => {
           if (this.ws) {
-            this.ws.close();
+            try {
+              this.ws.close();
+            } catch (e) {
+              console.error('Error closing WebSocket:', e);
+            }
             this.ws = null;
           }
           reject(new Error('Connection timeout'));
@@ -242,10 +245,10 @@ export class MT5WebSocketClient {
         this.ws.onopen = () => {
           clearTimeout(timeout);
           this.isConnecting = false;
-          this.reconnectAttempts = 0;
-          this.reconnectDelay = 1000;
+          this.reconnectAttempts = 0; 
+          this.reconnectDelay = 1000; 
           
-          console.log('✅ Connected to MT5 bridge');
+          console.log('Connected to MT5 bridge');
           this.emit('connected');
           this.startPingInterval();
           
@@ -255,9 +258,9 @@ export class MT5WebSocketClient {
           
           // Send an initial ping to verify connection is working
           this.sendPing().then(() => {
-            console.log('✅ Initial ping successful');
+            console.log('Initial ping successful');
           }).catch(err => {
-            console.warn('⚠️ Initial ping failed:', err);
+            console.warn('Initial ping failed:', err);
           });
           
           resolve(true);
@@ -275,9 +278,11 @@ export class MT5WebSocketClient {
         this.ws.onclose = (event) => {
           clearTimeout(timeout);
           this.isConnecting = false;
-          this.stopPingInterval();
+          if (this.pingInterval) {
+            this.stopPingInterval();
+          }
           
-          console.log(`🔌 MT5 bridge connection closed: ${event.code} - ${event.reason}`);
+          console.log(`MT5 bridge connection closed: ${event.code} - ${event.reason}`);
           this.emit('disconnected');
           
           // Update connection status
@@ -286,7 +291,7 @@ export class MT5WebSocketClient {
           // Don't attempt to reconnect if it was a clean close
           if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
             // Don't schedule reconnect here - let the caller handle it
-            console.log('🔄 Connection closed, but not scheduling automatic reconnect');
+            console.log('Connection closed, not scheduling automatic reconnect');
           }
           
           if (event.code === 1000) {
@@ -299,18 +304,18 @@ export class MT5WebSocketClient {
         this.ws.onerror = (error) => {
           clearTimeout(timeout);
           this.isConnecting = false;
-          console.error('❌ MT5 bridge WebSocket error:', error);
+          console.error('MT5 bridge WebSocket error:', error);
           
           // Provide detailed error information
           if (error instanceof Event) {
-            console.error('❌ WebSocket Error Details:');
+            console.error('WebSocket Error Details:');
             console.error('   - URL:', wsUrl);
             console.error('   - ReadyState:', this.ws?.readyState);
             console.error('   - Error Type:', error.type);
             
             // Check if it's a connection refused error
             if (this.ws?.readyState === WebSocket.CLOSED) {
-              console.error('💡 Connection was refused. Possible causes:');
+              console.error('Connection was refused. Possible causes:');
               console.error('   1. MT5 bridge is not running');
               console.error('   2. Bridge is running on a different port');
               console.error('   3. Firewall is blocking the connection');
@@ -322,8 +327,8 @@ export class MT5WebSocketClient {
           reject(error);
         };
         
-      } catch (error) {
-        console.error('❌ Failed to create WebSocket connection:', error);
+      } catch (error) { 
+        console.error('Failed to create WebSocket connection:', error);
         reject(error);
       }
     });

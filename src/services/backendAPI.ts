@@ -275,8 +275,11 @@ export class BackendAPIService {
   async healthCheck(): Promise<{ status: string; timestamp: string; online: boolean; version?: string }> {
     try {
       // Use a shorter timeout for health check
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const controller = new AbortController(); 
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+        console.log('Health check timeout - aborting request');
+      }, 2000); // Even shorter timeout (2 seconds)
       
       const response = await fetch(`${this.config.baseURL}/health`, {
         signal: controller.signal,
@@ -289,11 +292,18 @@ export class BackendAPIService {
       
       clearTimeout(timeoutId);
       
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      if (!response || !response.ok) {
+        throw new Error(`HTTP ${response?.status || 'unknown'}: ${response?.statusText || 'Connection failed'}`);
       }
       
-      const result = await response.json();
+      let result;
+      try {
+        result = await response.json();
+      } catch (jsonError) {
+        console.error('Error parsing health check response:', jsonError);
+        throw new Error('Invalid response format');
+      }
+      
       this.isOnline = true;
       this.lastHealthCheck = new Date();
       return { 
@@ -305,7 +315,7 @@ export class BackendAPIService {
     } catch (error) {
       this.isOnline = false;
       this.lastHealthCheck = new Date();
-      console.log('Health check failed, using demo mode:', error);
+      console.log('Health check failed, using demo mode');
       this.fallbackMode = true;
       return { 
         status: 'demo', 
