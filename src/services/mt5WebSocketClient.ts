@@ -468,10 +468,9 @@ export class MT5WebSocketClient {
   async testConnection(): Promise<{ success: boolean; error?: string; details?: any }> {
     // Reset error state
     this.error = null;
+    console.log(`🧪 Testing MT5 bridge connection to ${this.host}:${this.port}...`);
     
     try {
-      console.log('🧪 Testing MT5 bridge connection...');
-      
       // Check if we're in WebContainer environment
       if (window.location.hostname.includes('webcontainer-api.io') || 
           window.location.hostname.includes('local-credentialless') ||
@@ -488,6 +487,14 @@ export class MT5WebSocketClient {
       // Create a test WebSocket connection
       const wsUrl = `ws://${this.host}:${this.port}`;
       console.log(`🔌 Testing connection to ${wsUrl}...`);
+
+      // Log detailed connection attempt
+      console.log(`🔍 Connection details:
+        - Host: ${this.host}
+        - Port: ${this.port}
+        - URL: ${wsUrl}
+        - Current time: ${new Date().toISOString()}
+      `);
       
       // Set a timeout for the connection test
       const timeoutPromise = new Promise<{ success: false, error: string }>((_, reject) => {
@@ -613,6 +620,13 @@ export class MT5WebSocketClient {
    */
   private handleMessage(data: any): void {
     console.log('📡 Received MT5 data:', data.type);
+    
+    // Log detailed message for debugging
+    if (data.type === 'error') {
+      console.error('❌ MT5 bridge error:', data.error);
+    } else if (data.type === 'order_response') {
+      console.log('📊 Order response:', data.result);
+    }
     
     switch (data.type) {
       case 'initial_data':

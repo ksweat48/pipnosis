@@ -75,7 +75,7 @@ export const MT5ConnectionStatus: React.FC<MT5ConnectionStatusProps> = ({
 
   const getStatusText = () => {
     if (isChecking) return 'Checking...';
-    return isConnected ? 'MT5 Connected' : 'MT5 Disconnected';
+    return isConnected ? 'MT5 Connected' : 'Bridge Disconnected';
   };
 
   if (!showDetails) {
@@ -154,8 +154,9 @@ export const MT5ConnectionStatus: React.FC<MT5ConnectionStatusProps> = ({
           <div className="flex items-start space-x-2">
             <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="font-medium">MT5 bridge not connected</p>
-              <p className="mt-1">Make sure the MT5 bridge is running on your local machine and MetaTrader 5 is open.</p>
+              <p className="font-medium">MT5 bridge not connected at {currentCredentials?.bridgeHost || '97.180.94.170'}:{currentCredentials?.bridgePort || '8765'}</p>
+              <p className="mt-1">Make sure the MT5 bridge is running and MetaTrader 5 is open.</p>
+              <p className="mt-1">Check firewall settings and ensure the bridge is accessible.</p>
             </div>
           </div>
         </div>

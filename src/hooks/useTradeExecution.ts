@@ -38,13 +38,22 @@ export const useTradeExecution = () => {
       // Format symbol to remove slashes (e.g., GBP/JPY -> GBPJPY)
       const formattedSymbol = request.symbol.replace('/', '').toUpperCase();
 
+      // Log detailed connection information
+      console.log('🔌 MT5 Connection Details:', {
+        connected: mt5Client.isConnected(),
+        connectionStats: mt5Client.getConnectionStats(),
+        symbol: formattedSymbol,
+        action: request.action,
+        volume: request.volume
+      });
+
       // Limit comment to 31 characters (MT5 requirement)
       const limitedComment = request.comment ? request.comment.substring(0, 31) : 'Pipnosis AI Trade';
 
       // Check if MT5 is connected
       const isConnected = mt5Client.isConnected();
       if (!isConnected) {
-        console.warn('⚠️ MT5 not connected, attempting to connect...');
+        console.warn('⚠️ MT5 not connected, attempting to connect to bridge...');
         
         // Check if we're in WebContainer environment
         if (window.location.hostname.includes('webcontainer-api.io') || 
@@ -57,14 +66,15 @@ export const useTradeExecution = () => {
         try {
           // Try to connect to MT5
           await mt5Client.connect();
+          console.log('🔄 Connection attempt result:', mt5Client.isConnected() ? 'Success' : 'Failed');
           
           // Check if connection was successful
           if (!mt5Client.isConnected()) {
-            throw new Error('Failed to connect to MT5');
+            throw new Error('Failed to connect to MT5 bridge');
           }
         } catch (connectError) {
-          console.error('❌ MT5 connection failed:', connectError);
-          throw new Error('MT5 connection failed. Please make sure the MT5 bridge is running.');
+          console.error('❌ MT5 bridge connection failed:', connectError);
+          throw new Error(`MT5 bridge connection failed. Please make sure the MT5 bridge is running at ${mt5Client.getConnectionStats().host}:${mt5Client.getConnectionStats().port}.`);
         }
       }
 
