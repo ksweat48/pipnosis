@@ -76,11 +76,11 @@ export class MT5WebSocketClient {
   private connectionAttemptThreshold = 5000; // 5 seconds between connection attempts
   
   constructor(
-    private host: string = window.location.hostname === 'pipnosis.com' ? 'api.pipnosis.com' : 'localhost',
+    private host: string = window.location.hostname,
     private port: number = 8765,
     private secure: boolean = window.location.protocol === 'https:'
   ) {
-    console.log('🔌 MT5 WebSocket Client initialized for', `${secure ? 'wss' : 'ws'}://${host}:${port}`);
+    console.log('🔌 MT5 WebSocket Client initialized for', `${this.secure ? 'wss' : 'ws'}://${this.host}:${this.port}`);
     this.discoverPort();
   }
 
@@ -125,16 +125,22 @@ export class MT5WebSocketClient {
     
     // Try multiple connection methods and ports
     const portsToTry = [this.port, 8766, 8767, 8768, 8769, 8770];
-    const connectionMethods = [
-      (port: number) => `${this.secure ? 'wss' : 'ws'}://${this.host}:${port}`,
-    ];
+    const connectionMethods: Array<(port: number) => string> = [];
     
-    // If we're in local development, also try localhost and 127.0.0.1
-    if (window.location.hostname === 'localhost' || window.location.hostname.includes('127.0.0.1')) {
+    // Primary method: Use the current window's hostname and protocol
+    connectionMethods.push((port: number) => `${this.secure ? 'wss' : 'ws'}://${this.host}:${port}`);
+    
+    // Fallback methods for local development environments
+    if (this.host === 'localhost' || this.host.includes('127.0.0.1') || this.host.includes('webcontainer')) {
+      // Try localhost and 127.0.0.1 as fallbacks for local development
       connectionMethods.push(
-        (port: number) => `ws://127.0.0.1:${port}`,
-        (port: number) => `ws://localhost:${port}`
+        (port: number) => `ws://localhost:${port}`,
+        (port: number) => `ws://127.0.0.1:${port}`
       );
+    } else if (this.host.includes('webcontainer-api.io') || this.host.includes('local-credentialless')) {
+      // For WebContainer environments, try the base hostname without subdomain
+      const baseHost = this.host.split('.').slice(-3).join('.');
+      connectionMethods.push((port: number) => `${this.secure ? 'wss' : 'ws'}://${baseHost}:${port}`);
     }
     
     for (const port of portsToTry) {
