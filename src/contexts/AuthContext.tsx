@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, Session, AuthError } from '@supabase/supabase-js';
+import { User, Session } from '@supabase/supabase-js';
 import { 
   supabase, 
   createUserProfile, 
@@ -217,18 +217,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       email,
       user_metadata: { full_name: fullName },
       app_metadata: {},
-      aud: 'authenticated',
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      email_confirmed_at: new Date().toISOString(),
-      phone_confirmed_at: null,
-      confirmation_sent_at: null,
-      recovery_sent_at: null,
-      email_change_sent_at: null,
-      new_email: null,
-      invited_at: null,
-      action_link: null,
-      role: 'authenticated'
+      email_confirmed_at: new Date().toISOString()
     };
 
     const mockProfile: UserProfile = {
@@ -264,8 +254,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // CRITICAL FIX: Enhanced session initialization with better timeout handling
   useEffect(() => {
     let mounted = true;
-    let initializationTimeout: NodeJS.Timeout;
-    let sessionCheckTimeout: NodeJS.Timeout;
+    let timeout: NodeJS.Timeout;
 
     // Check for test user session first
     const checkTestUser = () => {
@@ -304,33 +293,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         console.log('🔐 Checking initial auth session...');
         
-        // CRITICAL FIX: Shorter timeout for production to prevent hanging
-        const sessionTimeout = isProduction ? 8000 : 12000;
-        
-        initializationTimeout = setTimeout(() => {
+        // Set timeout to prevent hanging
+        timeout = setTimeout(() => {
           if (mounted && loading && !authInitialized) {
-            console.warn('⚠️ Session check timeout, setting loading to false');
+            console.warn('⚠️ Session check timeout');
             setLoading(false);
             setAuthInitialized(true);
           }
-        }, sessionTimeout);
-        
-        // CRITICAL FIX: Add session-specific timeout
-        sessionCheckTimeout = setTimeout(() => {
-          if (mounted && loading && !authInitialized) {
-            console.warn('⚠️ Session check taking too long, forcing completion');
-            setLoading(false);
-            setAuthInitialized(true);
-          }
-        }, sessionTimeout / 2);
+        }, 8000);
         
         const { data: { session }, error } = await supabase.auth.getSession();
         
-        if (initializationTimeout) {
-          clearTimeout(initializationTimeout);
-        }
-        if (sessionCheckTimeout) {
-          clearTimeout(sessionCheckTimeout);
+        if (timeout) {
+          clearTimeout(timeout);
         }
         
         if (error) {

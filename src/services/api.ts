@@ -30,17 +30,7 @@ const getApiBaseUrl = () => {
 
 const API_BASE_URL = getApiBaseUrl();
 
-console.log('🔧 API Configuration:', {
-  baseUrl: API_BASE_URL,
-  environment: import.meta.env.MODE,
-  hostname: window.location.hostname,
-  isProduction: window.location.hostname === 'pipnosis.com' || 
-                window.location.hostname === 'www.pipnosis.com' ||
-                window.location.hostname.includes('netlify.app'),
-  isWebContainer: window.location.hostname.includes('webcontainer') || 
-                  window.location.hostname.includes('bolt.new') ||
-                  window.location.hostname.includes('stackblitz')
-});
+console.log('🔧 API URL:', API_BASE_URL);
 
 // Create axios instance with default config
 const apiClient = axios.create({
@@ -54,8 +44,7 @@ const apiClient = axios.create({
 // Request interceptor for logging
 apiClient.interceptors.request.use(
   (config) => {
-    console.log(`🔄 API Request: ${config.method?.toUpperCase()} ${config.url}`);
-    console.log(`🔗 Full URL: ${config.baseURL}${config.url}`);
+    console.log(`🔄 API: ${config.method?.toUpperCase()} ${config.url}`);
     return config;
   },
   (error) => {
@@ -67,11 +56,11 @@ apiClient.interceptors.request.use(
 // Response interceptor for error handling
 apiClient.interceptors.response.use(
   (response) => {
-    console.log(`✅ API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`, response.data);
+    console.log(`✅ API: ${response.config.method?.toUpperCase()} ${response.config.url}`);
     return response;
   },
   (error) => {
-    console.error('❌ API Response Error:', error.response?.data || error.message);
+    console.error('❌ API Error:', error.response?.data || error.message);
     
     // Enhanced error logging for debugging
     if (error.code === 'ERR_NETWORK') {
@@ -158,46 +147,16 @@ export interface UserSettings {
 const getFallbackMarketData = (): MarketDataPoint[] => {
   console.log('📊 Using fallback market data (backend unavailable)');
   
-  // Enhanced with Tier 1 + some Tier 2 pairs
-  const pairs = [
-    { symbol: 'EURUSD', basePrice: 1.1425 },
-    { symbol: 'GBPUSD', basePrice: 1.2735 },
-    { symbol: 'USDJPY', basePrice: 149.85 },
-    { symbol: 'USDCHF', basePrice: 0.8945 },
-    { symbol: 'AUDUSD', basePrice: 0.6785 },
-    { symbol: 'USDCAD', basePrice: 1.3625 },
-    { symbol: 'NZDUSD', basePrice: 0.6245 },
-    { symbol: 'EURJPY', basePrice: 171.25 },
-    { symbol: 'GBPJPY', basePrice: 190.85 },
-    { symbol: 'XAUUSD', basePrice: 2045.50 }
+  // Generate basic market data for common pairs
+  return [
+    { symbol: 'EURUSD', price: 1.1425, change: 0.0010, changePercent: 0.09, trend: 'up', signal: 'buy' },
+    { symbol: 'GBPUSD', price: 1.2735, change: -0.0005, changePercent: -0.04, trend: 'down', signal: 'sell' },
+    { symbol: 'USDJPY', price: 149.85, change: 0.25, changePercent: 0.17, trend: 'up', signal: 'buy' },
+    { symbol: 'USDCHF', price: 0.8945, change: -0.0015, changePercent: -0.17, trend: 'down', signal: 'sell' },
+    { symbol: 'AUDUSD', price: 0.6785, change: 0.0008, changePercent: 0.12, trend: 'up', signal: 'hold' },
+    { symbol: 'USDCAD', price: 1.3625, change: 0.0012, changePercent: 0.09, trend: 'up', signal: 'buy' },
+    { symbol: 'NZDUSD', price: 0.6245, change: -0.0007, changePercent: -0.11, trend: 'down', signal: 'sell' }
   ];
-
-  return pairs.map(({ symbol, basePrice }) => {
-    const isJPY = symbol.includes('JPY');
-    const isGold = symbol.includes('XAU');
-    
-    let priceVariation, changeVariation;
-    
-    if (isGold) {
-      priceVariation = (Math.random() - 0.5) * 20; // ±10 for gold
-      changeVariation = (Math.random() - 0.5) * 10;
-    } else if (isJPY) {
-      priceVariation = (Math.random() - 0.5) * 2.0; // ±1.0 for JPY pairs
-      changeVariation = (Math.random() - 0.5) * 1.0;
-    } else {
-      priceVariation = (Math.random() - 0.5) * 0.02; // ±0.01 for major pairs
-      changeVariation = (Math.random() - 0.5) * 0.01;
-    }
-
-    return {
-      symbol,
-      price: basePrice + priceVariation,
-      change: changeVariation,
-      changePercent: (changeVariation / basePrice) * 100,
-      trend: Math.random() > 0.5 ? 'up' : 'down',
-      signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] as 'buy' | 'sell' | 'hold'
-    };
-  });
 };
 
 // API Service Class
