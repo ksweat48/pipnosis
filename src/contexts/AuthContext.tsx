@@ -1,13 +1,105 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { 
-  supabase, 
-  createUserProfile, 
-  getUserProfile, 
-  UserProfile,
-  subscribeToUserData,
-  checkDatabaseHealth
-} from '../lib/supabase';
+  createClient
+} from '@supabase/supabase-js';
+
+// Initialize Supabase client
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://elykntifkdaqiafnjosk.supabase.co';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVseWtudGlma2RhcWlhZm5qb3NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA2NDgyMTMsImV4cCI6MjA2NjIyNDIxM30.itkXsNCqJMTr8r_nFk6u4PpRu2_wt8Q9iMkBSoxnmLU';
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Types
+interface UserProfile {
+  id: string;
+  email: string;
+  full_name?: string;
+  avatar_url?: string;
+  plan_type?: string;
+  account_balance?: number;
+  risk_profile?: string;
+  trading_preferences?: any;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface AuthError {
+  message: string;
+  status?: number;
+  code?: string;
+}
+
+// Helper function to check if a string is a valid UUID
+function isValidUUID(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
+// Get user profile
+async function getUserProfile(userId: string): Promise<UserProfile | null> {
+  try {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      console.error('Error fetching user profile:', error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error in getUserProfile:', error);
+    return null;
+  }
+}
+
+// Create or update user profile
+async function createUserProfile(profile: UserProfile): Promise<UserProfile | null> {
+  try {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .upsert(profile, { onConflict: 'id' })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating/updating user profile:', error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error in createUserProfile:', error);
+    return null;
+  }
+}
+
+// Check database health
+async function checkDatabaseHealth(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('count')
+      .limit(1);
+
+    return !error;
+  } catch (error) {
+    console.error('Database health check failed:', error);
+    return false;
+  }
+}
+
+// Subscribe to user data changes
+function subscribeToUserData(userId: string, callback: (payload: any) => void) {
+  return supabase
+    .channel(`public:user_profiles:id=eq.${userId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'user_profiles', filter: `id=eq.${userId}` }, callback)
+    .subscribe();
+}
 
 interface AuthContextType {
   user: User | null;
@@ -254,8 +346,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // CRITICAL FIX: Enhanced session initialization with better timeout handling
   useEffect(() => {
     let mounted = true;
-    let initializationTimeout: NodeJS.Timeout | null = null;
-    let sessionCheckTimeout: NodeJS.Timeout | null = null;
+    let initializationTimeout: number | null = null;
+    let sessionCheckTimeout: number | null = null;
 
     // Check for test user session first
     const checkTestUser = () => {
