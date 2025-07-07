@@ -48,7 +48,7 @@ def patch_filling_mode(file_path):
             symbol_info = mt5.symbol_info(symbol)
             if symbol_info is None:
                 logger.error(f"Symbol {symbol} not found")
-                return mt5.ORDER_FILLING_IOC  # Default to IOC
+                return mt5.ORDER_FILLING_RETURN  # Default to RETURN as most compatible
             
             # Check the trade_fill_flags property to determine supported filling modes
             if hasattr(symbol_info, 'trade_fill_flags'):
