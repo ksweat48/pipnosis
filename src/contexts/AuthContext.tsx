@@ -446,9 +446,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         clearTimeout(sessionCheckTimeout);
         sessionCheckTimeout = null;
       }
-      if (sessionCheckTimeout) {
-        clearTimeout(sessionCheckTimeout);
-      }
       subscription.unsubscribe();
     };
   }, [isProduction]);

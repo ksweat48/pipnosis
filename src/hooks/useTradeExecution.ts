@@ -38,8 +38,8 @@ export const useTradeExecution = () => {
       // Format symbol to remove slashes (e.g., GBP/JPY -> GBPJPY)
       const formattedSymbol = request.symbol.replace('/', '').toUpperCase();
 
-      // Log basic connection information
-      console.log('🔌 MT5 Connection:', mt5Client.isConnected() ? 'Connected' : 'Disconnected');
+      // Log trade execution attempt
+      console.log(`🚀 Executing ${request.action} ${formattedSymbol} ${request.volume} lots`);
 
       // Limit comment to 31 characters (MT5 requirement)
       const limitedComment = request.comment ? request.comment.substring(0, 31) : 'Pipnosis AI Trade';

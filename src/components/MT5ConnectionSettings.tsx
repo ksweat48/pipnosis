@@ -146,7 +146,7 @@ export const MT5ConnectionSettings: React.FC<MT5ConnectionSettingsProps> = ({
           <label className="block text-sm font-medium text-slate-300 mb-2">
             <Server className="h-4 w-4 inline mr-2" />
             Bridge Host
-            {window.location.hostname === 'pipnosis.com' && (
+            {window.location.hostname.includes('pipnosis.com') && (
               <span className="text-xs text-blue-400 ml-1">(Your Public IP)</span>
             )}
           </label>
@@ -157,7 +157,7 @@ export const MT5ConnectionSettings: React.FC<MT5ConnectionSettingsProps> = ({
             placeholder="e.g., 192.168.1.100 or your public IP"
             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
-          {window.location.hostname === 'pipnosis.com' ? (
+          {window.location.hostname.includes('pipnosis.com') ? (
             <p className="text-xs text-slate-500 mt-1">Enter your public IP address (find it at <a href="https://whatismyip.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">whatismyip.com</a>)</p>
           ) : (
             <p className="text-xs text-slate-500 mt-1">Your computer's IP address or domain name where the MT5 bridge is running</p>

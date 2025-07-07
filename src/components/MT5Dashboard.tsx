@@ -143,8 +143,8 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
   const safeToFixed = (value: any, digits: number = 2): string => {
     if (typeof value === "number" && !isNaN(value)) {
       return value.toFixed(digits);
-    }
-    return "N/A";
+    } 
+    return "0.00";
   };
 
   useEffect(() => {
@@ -313,9 +313,13 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                 <div className="flex space-x-3">
                 <button 
                   onClick={() => {
-                    // In WebContainer environment, show a special message
-                    const event = new CustomEvent('openMT5Modal');
-                    window.dispatchEvent(event);
+                    try {
+                      const event = new CustomEvent('openMT5Modal');
+                      window.dispatchEvent(event);
+                    } catch (error) {
+                      console.error('Error opening MT5 modal:', error);
+                      setError('Failed to open MT5 connection modal. Please try again.');
+                    }
                   }}
                   className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex-1">
                   Connect MT5 Account

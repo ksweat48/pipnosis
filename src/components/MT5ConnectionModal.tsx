@@ -19,7 +19,14 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
   const [currentStep, setCurrentStep] = useState(1);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [connectorStatus, setConnectorStatus] = useState<'not-installed' | 'installing' | 'installed' | 'running' | 'error'>('not-installed');
-  const [credentials, setCredentials] = useState({
+  const [credentials, setCredentials] = useState<{
+    login: string;
+    password: string;
+    server: string;
+    accountType: string;
+    bridgeHost: string;
+    bridgePort: string;
+  }>({
     login: '',
     password: '',
     server: 'MetaQuotes-Demo',
@@ -30,7 +37,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
   const [isEditingCredentials, setIsEditingCredentials] = useState(false);
   const [currentCredentials, setCurrentCredentials] = useState<{
     login: string;
-    server: string;
+    server?: string;
     bridgeHost?: string;
     bridgePort?: string;
     lastUpdated?: string;
@@ -97,7 +104,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
       // Determine default host based on environment
       let defaultHost = 'localhost';
       if (window.location.hostname === 'pipnosis.com') {
-        defaultHost = savedHost || '';
+        defaultHost = savedHost || ''; // Empty for production to prompt user
       } else if (envHost) {
         defaultHost = envHost;
       }
@@ -633,7 +640,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                       <label className="block text-sm font-medium text-slate-300 mb-2">
                         <Server className="h-4 w-4 inline mr-2" />
                         Bridge Host
-                        {window.location.hostname === 'pipnosis.com' && (
+                        {window.location.hostname.includes('pipnosis.com') && (
                           <span className="text-xs text-blue-400 ml-1">(Your Public IP)</span>
                         )}
                       </label>
@@ -641,12 +648,12 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                         type="text" 
                         value={credentials.bridgeHost}
                         onChange={(e) => handleCredentialChange('bridgeHost', e.target.value)}
-                        placeholder={window.location.hostname === 'pipnosis.com' ? 
+                        placeholder={window.location.hostname.includes('pipnosis.com') ? 
                           "Enter your public IP address" : 
                           "localhost or 127.0.0.1"}
                         className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
-                      {window.location.hostname === 'pipnosis.com' ? (
+                      {window.location.hostname.includes('pipnosis.com') ? (
                         <p className="text-xs text-slate-500 mt-1">Enter your public IP address (find it at <a href="https://whatismyip.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">whatismyip.com</a>)</p>
                       ) : (
                         <p className="text-xs text-slate-500 mt-1">Your computer's IP address or domain name where the MT5 bridge is running</p>

@@ -69,7 +69,7 @@ export class MT5WebSocketClient {
   private reconnectDelay = 1000; // Start with 1 second
   private isConnecting = false;
   private emitter = new TinyEmitter();
-  private pingInterval: NodeJS.Timeout | null = null;
+  private pingInterval: number | null = null;
   private pendingRequests: Map<string, { resolve: Function, reject: Function, timeout: NodeJS.Timeout }> = new Map();
   private lastConnectionAttempt = 0;
   private connectionAttemptThreshold = 5000; // 5 seconds between connection attempts
@@ -726,9 +726,12 @@ export class MT5WebSocketClient {
    */
   private startPingInterval(): void {
     // Clear any existing interval
-    this.stopPingInterval();
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
     
-    this.pingInterval = setInterval(() => {
+    this.pingInterval = window.setInterval(() => {
       if (this.isConnected()) {
         try {
           this.send({ type: 'ping', timestamp: new Date().toISOString() });
@@ -749,7 +752,7 @@ export class MT5WebSocketClient {
    */
   private stopPingInterval(): void {
     if (this.pingInterval) {
-      clearInterval(this.pingInterval);
+      window.clearInterval(this.pingInterval);
       this.pingInterval = null;
     }
   }

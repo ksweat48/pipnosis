@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, DollarSign, Shield, Mail, Calendar, Edit3, Save, X, LogOut } from 'lucide-react';
+import { User, DollarSign, Shield, Mail, Calendar, Edit3, Save, X, LogOut, Settings } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export const UserProfile: React.FC = () => {
@@ -7,12 +7,22 @@ export const UserProfile: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [editData, setEditData] = useState({
-    full_name: profile?.full_name || '',
-    risk_profile: profile?.risk_profile || 'auto',
+    full_name: '',
+    risk_profile: 'auto',
   });
 
   const [mt5Connected, setMt5Connected] = useState(false);
   const [mt5AccountData, setMt5AccountData] = useState<any>(null);
+
+  // Update edit data when profile changes
+  useEffect(() => {
+    if (profile) {
+      setEditData({
+        full_name: profile.full_name || '',
+        risk_profile: profile.risk_profile || 'auto',
+      });
+    }
+  }, [profile]);
 
   useEffect(() => {
     const checkMT5Status = () => {
