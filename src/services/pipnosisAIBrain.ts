@@ -428,10 +428,13 @@ export class PipnosisAIBrain {
       // Determine if it's a buy or sell based on trend
       const action = marketCondition.trend === 'bullish' ? 'buy' : 'sell';
       
+      // Format pair to ensure it doesn't have slashes
+      const formattedPair = marketCondition.pair.replace('/', '').toUpperCase();
+      
       // Calculate entry, SL, and TP
       const basePrice = action === 'buy' ? 
-        (marketCondition.pair.includes('JPY') ? marketCondition.support * 1.0001 : marketCondition.support * 1.0001) : 
-        (marketCondition.pair.includes('JPY') ? marketCondition.resistance * 0.9999 : marketCondition.resistance * 0.9999);
+        (formattedPair.includes('JPY') ? marketCondition.support * 1.0001 : marketCondition.support * 1.0001) : 
+        (formattedPair.includes('JPY') ? marketCondition.resistance * 0.9999 : marketCondition.resistance * 0.9999);
       
       // SL distance based on volatility and risk level
       const slDistancePercentage = marketCondition.volatility === 'high' ? 
@@ -451,8 +454,8 @@ export class PipnosisAIBrain {
       
       // Calculate lot size based on risk amount and SL distance
       // For simplicity, assume 1 pip = $10 per standard lot
-      const pipValue = marketCondition.pair.includes('JPY') ? 1000 : 100000;
-      const pipDistance = marketCondition.pair.includes('JPY') ? 
+      const pipValue = formattedPair.includes('JPY') ? 1000 : 100000;
+      const pipDistance = formattedPair.includes('JPY') ? 
         Math.abs(basePrice - stopLoss) * 100 : 
         Math.abs(basePrice - stopLoss) * 10000;
       
@@ -494,7 +497,7 @@ export class PipnosisAIBrain {
         id: `strategy-${risk}-${Date.now()}`,
         name: strategyName,
         risk,
-        symbol: marketCondition.pair,
+        symbol: formattedPair,
         action,
         entry: basePrice,
         stopLoss,

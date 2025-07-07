@@ -110,6 +110,22 @@ export const supabase = createClient(
   }
 );
 
+// Database operations for client-side
+export const createUserProfile = async (userId: string, profileData: any) => {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .upsert({
+      id: userId,
+      ...profileData,
+      updated_at: new Date().toISOString()
+    })
+    .select()
+    .single();
+  
+  if (error) throw error;
+  return data;
+};
+
 // Database Types
 export interface UserProfile {
   id: string;

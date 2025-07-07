@@ -308,13 +308,16 @@ export class MT5WebSocketClient {
         return;
       }
 
+      // Format symbol to remove slashes (e.g., GBP/JPY -> GBPJPY)
+      const formattedSymbol = order.symbol.replace('/', '').toUpperCase();
+
       const requestId = Date.now().toString();
       
       // Create the order request
       const orderRequest = {
         type: 'place_order',
         requestId,
-        symbol: order.symbol,
+        symbol: formattedSymbol,
         order_type: order.orderType,
         volume: order.volume,
         price: order.price,

@@ -61,7 +61,9 @@ def patch_connector_file(file_path):
             # Convert to uppercase
             formatted = formatted.upper()
             
-            logger.info(f"Symbol format conversion: {symbol} -> {formatted}")
+            if formatted != symbol:
+                logger.info(f"Symbol format conversion: {symbol} -> {formatted}")
+            
             return formatted
             
         except Exception as e:
@@ -83,14 +85,13 @@ def patch_connector_file(file_path):
     place_order_end = new_content.find('def', place_order_start + 1) if new_content.find('def', place_order_start + 1) != -1 else len(new_content)
     place_order_body = new_content[place_order_start:place_order_end]
     
-    # Add symbol formatting at the beginning of the method
-    format_line = "        symbol = self.format_symbol(symbol)  # Format symbol to MT5 standard\n"
-    
     # Find the first line after the method definition with proper indentation
     method_def_end = place_order_body.find(':') + 1
     next_line_start = place_order_body.find('\n', method_def_end) + 1
     
     # Insert the format line after the first line with proper indentation
+    format_line = "        # Format symbol to MT5 standard (e.g., EUR/USD -> EURUSD)\n        symbol = self.format_symbol(symbol)\n"
+    
     modified_place_order = place_order_body[:next_line_start] + format_line + place_order_body[next_line_start:]
     
     # Replace the original method with the modified one

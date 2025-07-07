@@ -35,6 +35,9 @@ export const useTradeExecution = () => {
     try {
       console.log('🚀 Executing trade:', request);
 
+      // Format symbol to remove slashes (e.g., GBP/JPY -> GBPJPY)
+      const formattedSymbol = request.symbol.replace('/', '').toUpperCase();
+
       // Check if MT5 is connected
       const isConnected = mt5Client.isConnected();
       if (!isConnected) {
@@ -63,7 +66,7 @@ export const useTradeExecution = () => {
 
       // Execute trade via MT5 WebSocket client
       const result = await mt5Client.placeOrder({
-        symbol: request.symbol,
+        symbol: formattedSymbol,
         orderType: request.action,
         volume: request.volume,
         price: request.price,
@@ -78,7 +81,7 @@ export const useTradeExecution = () => {
         success: true,
         tradeId: `TRD-${Date.now()}`,
         mt5Ticket: result.ticket,
-        symbol: request.symbol,
+        symbol: formattedSymbol,
         price: result.price || request.price,
         volume: result.volume || request.volume,
         message: `${request.action.toUpperCase()} ${request.symbol} executed successfully via MT5`
