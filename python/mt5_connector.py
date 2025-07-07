@@ -382,7 +382,7 @@ class MT5Connector:
                 "price": price,
                 "deviation": 20,
                 "magic": 234000,
-                "comment": comment,
+                "comment": comment[:31],  # Limit comment to 31 characters (MT5 requirement)
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }
