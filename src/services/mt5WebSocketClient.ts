@@ -490,10 +490,10 @@ export class MT5WebSocketClient {
 
       // Log detailed connection attempt
       console.log(`🔍 Connection details:
-        - Host: ${this.host}
-        - Port: ${this.port}
-        - URL: ${wsUrl}
-        - Current time: ${new Date().toISOString()}
+- Host: ${this.host}
+- Port: ${this.port}
+- URL: ${wsUrl}
+- Current time: ${new Date().toISOString()}
       `);
       
       // Set a timeout for the connection test

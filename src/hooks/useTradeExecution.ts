@@ -38,13 +38,15 @@ export const useTradeExecution = () => {
       // Format symbol to remove slashes (e.g., GBP/JPY -> GBPJPY)
       const formattedSymbol = request.symbol.replace('/', '').toUpperCase();
 
-      // Log detailed connection information
+      // Log detailed connection information with more helpful details
       console.log('🔌 MT5 Connection Details:', {
         connected: mt5Client.isConnected(),
         connectionStats: mt5Client.getConnectionStats(),
         symbol: formattedSymbol,
         action: request.action,
-        volume: request.volume
+        volume: request.volume,
+        bridgeHost: mt5Client.getConnectionStats().host,
+        bridgePort: mt5Client.getConnectionStats().port
       });
 
       // Limit comment to 31 characters (MT5 requirement)
@@ -53,7 +55,7 @@ export const useTradeExecution = () => {
       // Check if MT5 is connected
       const isConnected = mt5Client.isConnected();
       if (!isConnected) {
-        console.warn('⚠️ MT5 not connected, attempting to connect to bridge...');
+        console.warn('⚠️ MT5 not connected, attempting to connect to MT5 bridge...');
         
         // Check if we're in WebContainer environment
         if (window.location.hostname.includes('webcontainer-api.io') || 
@@ -66,15 +68,17 @@ export const useTradeExecution = () => {
         try {
           // Try to connect to MT5
           await mt5Client.connect();
-          console.log('🔄 Connection attempt result:', mt5Client.isConnected() ? 'Success' : 'Failed');
+          console.log('🔄 MT5 connection attempt result:', mt5Client.isConnected() ? 'Success' : 'Failed');
           
           // Check if connection was successful
           if (!mt5Client.isConnected()) {
-            throw new Error('Failed to connect to MT5 bridge');
+            const stats = mt5Client.getConnectionStats();
+            throw new Error(`Failed to connect to MT5 bridge at ${stats.host}:${stats.port}`);
           }
         } catch (connectError) {
           console.error('❌ MT5 bridge connection failed:', connectError);
-          throw new Error(`MT5 bridge connection failed. Please make sure the MT5 bridge is running at ${mt5Client.getConnectionStats().host}:${mt5Client.getConnectionStats().port}.`);
+          const stats = mt5Client.getConnectionStats();
+          throw new Error(`MT5 bridge connection failed. Please make sure the MT5 bridge is running at ${stats.host}:${stats.port} and MetaTrader 5 is open.`);
         }
       }
 
