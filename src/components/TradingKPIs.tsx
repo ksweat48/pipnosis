@@ -23,6 +23,11 @@ export const TradingKPIs: React.FC = () => {
   const { user } = useAuth();
   const { stats, isLoading, refreshStats } = useDatabaseStats();
 
+  // Refresh stats when component mounts or when expanded
+  useEffect(() => {
+    refreshStats();
+  }, [refreshStats, isExpanded]);
+
   const getPerformanceColor = (value: number, type: 'percentage' | 'ratio' | 'drawdown' | 'return') => {
     if (type === 'drawdown') {
       if (value <= 5) return 'text-green-400';
@@ -130,7 +135,7 @@ export const TradingKPIs: React.FC = () => {
           </h3>
           <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:space-y-0 sm:space-x-4">
             <div className="text-sm text-slate-400">
-              {stats.totalTrades} total trades
+              {stats.totalTrades || 0} total trades
             </div>
             <button
               onClick={() => setIsExpanded(!isExpanded)}
@@ -151,15 +156,15 @@ export const TradingKPIs: React.FC = () => {
         {/* Summary Stats - Always visible */}
         <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 p-3 sm:p-4 bg-slate-900 rounded-lg border border-slate-600">
           <div className="text-center">
-            <div className="text-lg sm:text-2xl font-bold text-green-400">{profitableTrades}</div>
+            <div className="text-lg sm:text-2xl font-bold text-green-400">{profitableTrades || 0}</div>
             <div className="text-xs text-slate-400">Winning Trades</div>
           </div>
           <div className="text-center">
-            <div className="text-lg sm:text-2xl font-bold text-red-400">{losingTrades}</div>
+            <div className="text-lg sm:text-2xl font-bold text-red-400">{losingTrades || 0}</div>
             <div className="text-xs text-slate-400">Losing Trades</div>
           </div>
           <div className="text-center">
-            <div className="text-lg sm:text-2xl font-bold text-blue-400">{stats.totalTrades}</div>
+            <div className="text-lg sm:text-2xl font-bold text-blue-400">{stats.totalTrades || 0}</div>
             <div className="text-xs text-slate-400">Total Trades</div>
           </div>
         </div>
@@ -263,12 +268,16 @@ export const TradingKPIs: React.FC = () => {
             <div className="mt-4 flex flex-col space-y-2 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
               <div className="flex items-center space-x-2 text-sm text-slate-400">
                 <Calendar className="h-4 w-4 flex-shrink-0" />
-                <span>Data from last 30 days</span>
+                <span>Data from {new Date().toLocaleDateString()}</span>
               </div>
-              <div className="flex space-x-2">
-                <button className="px-3 py-1 text-xs bg-blue-500 text-white rounded-lg">30D</button>
-                <button className="px-3 py-1 text-xs bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors">7D</button>
-                <button className="px-3 py-1 text-xs bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors">90D</button>
+              <div className="flex items-center space-x-2">
+                <button 
+                  onClick={refreshStats} 
+                  className="flex items-center space-x-1 px-3 py-1 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                >
+                  <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </button>
               </div>
             </div>
           </>

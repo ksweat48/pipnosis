@@ -26,6 +26,49 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
   const [isConnected, setIsConnected] = useState(false);
   const [mt5AccountData, setMt5AccountData] = useState<any>(null);
 
+  // Function to refresh MT5 data manually
+  const refreshData = () => {
+    try {
+      const connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
+      const accountData = localStorage.getItem('pipnosis_mt5_account');
+      
+      setIsConnected(connected);
+      
+      if (connected && accountData) {
+        try {
+          const parsedData = JSON.parse(accountData);
+          setMt5AccountData(parsedData);
+          
+          setConnection({
+            status: 'connected',
+            server: parsedData.server || 'Unknown Server',
+            account: parsedData.login || 'Unknown',
+            balance: parsedData.balance || 0,
+            equity: parsedData.equity || 0,
+            margin: parsedData.margin || 0,
+            freeMargin: parsedData.freeMargin || 0,
+            marginLevel: parsedData.marginLevel || 0,
+            lastUpdate: new Date().toLocaleTimeString()
+          });
+          
+          if (parsedData.openPositions && Array.isArray(parsedData.openPositions)) {
+            setOpenPositions(parsedData.openPositions);
+          }
+        } catch (error) {
+          console.error('Error parsing MT5 account data:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing MT5 data:', error);
+    }
+  };
+
+  // Function to open MT5 settings
+  const openMT5Settings = () => {
+    const event = new CustomEvent('openMT5Modal');
+    window.dispatchEvent(event);
+  };
+
   const safeToFixed = (value: any, digits: number = 2): string => {
     if (typeof value === "number" && !isNaN(value)) {
       return value.toFixed(digits);
@@ -187,6 +230,14 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                     window.dispatchEvent(event);
                   }}
                   className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                <button 
+                  onClick={refreshData}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                  title="Refresh data"
+                <button 
+                  onClick={openMT5Settings}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                  title="MT5 settings"
                 >
                   Connect MT5 Account
                 </button>
