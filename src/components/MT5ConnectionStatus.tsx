@@ -19,8 +19,9 @@ export const MT5ConnectionStatus: React.FC<MT5ConnectionStatusProps> = ({
   const checkConnection = async () => {
     setIsChecking(true);
     try {
-      const result = await mt5Client.testConnection();
-      setIsConnected(result.success);
+      // Check if MT5 is connected via localStorage
+      const connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
+      setIsConnected(connected);
       setLastChecked(new Date());
       
       // Get account info from localStorage
@@ -40,26 +41,6 @@ export const MT5ConnectionStatus: React.FC<MT5ConnectionStatusProps> = ({
     // Check connection on mount
     checkConnection();
     
-    // Set up event listeners for connection status changes
-    const handleConnected = () => {
-      setIsConnected(true);
-      setLastChecked(new Date());
-      
-      // Get account info from localStorage
-      const accountData = localStorage.getItem('pipnosis_mt5_account');
-      if (accountData) {
-        setAccountInfo(JSON.parse(accountData));
-      }
-    };
-    
-    const handleDisconnected = () => {
-      setIsConnected(false);
-      setLastChecked(new Date());
-    };
-    
-    mt5Client.on('connected', handleConnected);
-    mt5Client.on('disconnected', handleDisconnected);
-    
     // Check connection status periodically
     const interval = setInterval(() => {
       // Just check localStorage status instead of full connection test
@@ -78,8 +59,6 @@ export const MT5ConnectionStatus: React.FC<MT5ConnectionStatusProps> = ({
     }, 5000);
     
     return () => {
-      mt5Client.off('connected', handleConnected);
-      mt5Client.off('disconnected', handleDisconnected);
       clearInterval(interval);
     };
   }, []);

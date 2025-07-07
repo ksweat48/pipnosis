@@ -21,11 +21,8 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
   const [credentials, setCredentials] = useState({
     login: '',
     password: '',
-    server: 'MetaQuotes-Demo',
-    accountType: 'demo',
-    bridgeHost: 'localhost',
-    bridgePort: '8765',
-    useSecureConnection: false
+    server: '',
+    accountType: 'demo'
   });
   const [isEditingCredentials, setIsEditingCredentials] = useState(false);
   const [currentCredentials, setCurrentCredentials] = useState<{
@@ -141,11 +138,6 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
       };
       localStorage.setItem('pipnosis_mt5_connected', 'true');
       localStorage.setItem('pipnosis_mt5_account', JSON.stringify(accountData));
-      
-      // Save bridge connection settings
-      localStorage.setItem('pipnosis_mt5_bridge_host', credentials.bridgeHost);
-      localStorage.setItem('pipnosis_mt5_bridge_port', credentials.bridgePort);
-      localStorage.setItem('pipnosis_mt5_bridge_secure', credentials.useSecureConnection.toString());
       
       // Update current credentials
       setCurrentCredentials({
@@ -514,7 +506,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                     <div>
                       <label className="block text-sm font-medium text-slate-300 mb-2">
                         <Server className="h-4 w-4 inline mr-2" />
-                        MT5 Broker Server
+                        Broker Server
                       </label>
                       <select
                         value={credentials.server}
@@ -555,58 +547,6 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                           />
                           <span className="text-white">Live</span>
                         </label>
-                      </div>
-                    </div>
-                    
-                    {/* Bridge Connection Settings */}
-                    <div className="mt-4 border-t border-slate-700 pt-4">
-                      <h4 className="text-white font-medium mb-3">MT5 Bridge Connection Settings</h4>
-                      
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-sm font-medium text-slate-300 mb-2">
-                            Bridge Host
-                          </label>
-                          <input
-                            type="text"
-                            value={credentials.bridgeHost}
-                            onChange={(e) => handleCredentialChange('bridgeHost', e.target.value)}
-                            placeholder="localhost or IP address"
-                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          />
-                          <p className="text-xs text-slate-500 mt-1">
-                            For local use: localhost<br />
-                            For production: Your public IP or domain
-                          </p>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-slate-300 mb-2">
-                            Bridge Port
-                          </label>
-                          <input
-                            type="text"
-                            value={credentials.bridgePort}
-                            onChange={(e) => handleCredentialChange('bridgePort', e.target.value)}
-                            placeholder="8765"
-                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="flex items-center space-x-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={credentials.useSecureConnection}
-                              onChange={(e) => handleCredentialChange('useSecureConnection', e.target.checked)}
-                              className="text-blue-500 focus:ring-blue-500"
-                            />
-                            <span className="text-white">Use Secure Connection (WSS)</span>
-                          </label>
-                          <p className="text-xs text-slate-500 mt-1 ml-5">
-                            Enable for production with SSL/TLS certificate
-                          </p>
-                        </div>
                       </div>
                     </div>
                   </div>
@@ -806,54 +746,50 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                   <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
                     <h4 className="text-white font-semibold mb-4 flex items-center space-x-2">
                       <Play className="h-5 w-5 text-green-400" />
-                      <span>Connection Details:</span>
+                      <span>What happens next:</span>
                     </h4>
-                    <div className="p-4 bg-slate-800 rounded-lg mb-4">
-                      <div className="grid grid-cols-1 gap-y-3 text-sm">
+                    <div className="space-y-4">
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">1</div>
                         <div>
-                          <span className="text-slate-400">MT5 Bridge Host:</span>
-                          <span className="text-white ml-2 font-mono">{credentials.bridgeHost}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">MT5 Bridge Port:</span>
-                          <span className="text-white ml-2 font-mono">{credentials.bridgePort}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">Connection Type:</span>
-                          <span className="text-white ml-2">{credentials.useSecureConnection ? 'Secure (WSS)' : 'Standard (WS)'}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">WebSocket URL:</span>
-                          <span className="text-white ml-2 font-mono text-xs">
-                            {credentials.useSecureConnection ? 'wss' : 'ws'}://{credentials.bridgeHost}:{credentials.bridgePort}
-                          </span>
+                          <p className="text-white font-medium">Real-time Data Access</p>
+                          <p className="text-slate-400 text-sm">AI can now pull live OHLCV data and account information</p>
                         </div>
                       </div>
-                    </div>
-                    
-                    <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                      <h5 className="text-blue-300 font-medium mb-2">Production Setup Instructions</h5>
-                      <ol className="text-sm text-blue-200 space-y-2 list-decimal list-inside">
-                        <li>Make sure the MT5 bridge is running on your computer</li>
-                        <li>For remote access, set up port forwarding on your router for port {credentials.bridgePort}</li>
-                        <li>Use your public IP address or domain name as the Bridge Host</li>
-                        <li>For secure connections, set up SSL/TLS with a certificate</li>
-                      </ol>
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">2</div>
+                        <div>
+                          <p className="text-white font-medium">Intelligent Position Sizing</p>
+                          <p className="text-slate-400 text-sm">Automatic risk calculation based on your account balance</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">3</div>
+                        <div>
+                          <p className="text-white font-medium">Trade Execution</p>
+                          <p className="text-slate-400 text-sm">Market orders, SL/TP management, and position monitoring</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">4</div>
+                        <div>
+                          <p className="text-white font-medium">AI Decision Logging</p>
+                          <p className="text-slate-400 text-sm">Real-time explanations and trade journal updates</p>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
                   <div className="bg-slate-900 rounded-xl border border-slate-600 p-6">
                     <div className="flex items-center justify-between mb-4">
                       <h4 className="text-white font-semibold">Account Information</h4>
-                      <div className="flex space-x-2">
-                        <button 
-                          onClick={handleEditCredentials}
-                          className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-500/20 rounded transition-colors"
-                          title="Edit credentials"
-                        >
-                          <Edit3 className="h-4 w-4" />
-                        </button>
-                      </div>
+                      <button 
+                        onClick={handleEditCredentials}
+                        className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-500/20 rounded transition-colors"
+                        title="Edit credentials"
+                      >
+                        <Edit3 className="h-4 w-4" />
+                      </button>
                     </div>
                     
                     <div className="p-4 bg-slate-800 rounded-lg mb-4">

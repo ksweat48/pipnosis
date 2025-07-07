@@ -76,27 +76,9 @@ export class MT5WebSocketClient {
   
   constructor(
     private host: string = 'localhost',
-    private port: number = 8765,
-    private secure: boolean = window.location.protocol === 'https:',
-    private productionMode: boolean = window.location.hostname === 'pipnosis.com' || 
-                                      window.location.hostname === 'www.pipnosis.com' ||
-                                      window.location.hostname.includes('netlify.app')
+    private port: number = 8765
   ) {
-    // In production, we need to use the user's configured MT5 bridge address
-    if (this.productionMode) {
-      // Try to get saved bridge address from localStorage
-      const savedHost = localStorage.getItem('pipnosis_mt5_bridge_host');
-      const savedPort = localStorage.getItem('pipnosis_mt5_bridge_port');
-      const savedSecure = localStorage.getItem('pipnosis_mt5_bridge_secure');
-      
-      if (savedHost) this.host = savedHost;
-      if (savedPort) this.port = parseInt(savedPort, 10);
-      if (savedSecure) this.secure = savedSecure === 'true';
-      
-      console.log('🔌 MT5 WebSocket Client initialized in PRODUCTION mode');
-    }
-    
-    console.log('🔌 MT5 WebSocket Client configured for', `${this.secure ? 'wss' : 'ws'}://${this.host}:${this.port}`);
+    console.log('🔌 MT5 WebSocket Client initialized for', `${host}:${port}`);
     this.discoverPort();
   }
 
@@ -141,31 +123,10 @@ export class MT5WebSocketClient {
     
     // Try multiple connection methods and ports
     const portsToTry = [this.port, 8766, 8767, 8768, 8769, 8770];
-    const connectionMethods: Array<(port: number) => string> = [];
-    
-    // Different connection strategies based on environment
-    if (this.productionMode) {
-      // In production, use the configured host/port with proper protocol
-      connectionMethods.push((port: number) => `${this.secure ? 'wss' : 'ws'}://${this.host}:${port}`);
-    } else {
-      // In development, try multiple connection methods
-      
-      // Primary method: Use the configured host/port
-      connectionMethods.push((port: number) => `${this.secure ? 'wss' : 'ws'}://${this.host}:${port}`);
-      
-      // Fallback methods for local development environments
-      if (this.host === 'localhost' || this.host.includes('127.0.0.1')) {
-        // Try localhost and 127.0.0.1 as fallbacks for local development
-        connectionMethods.push(
-          (port: number) => `ws://localhost:${port}`,
-          (port: number) => `ws://127.0.0.1:${port}`
-        );
-      } else if (window.location.hostname.includes('webcontainer-api.io') || 
-                window.location.hostname.includes('local-credentialless')) {
-        // For WebContainer environments, try the WebContainer hostname
-        connectionMethods.push((port: number) => `ws://${window.location.hostname}:${port}`);
-      }
-    }
+    const connectionMethods = [
+      (port: number) => `ws://localhost:${port}`,
+      (port: number) => `ws://127.0.0.1:${port}`
+    ];
     
     for (const port of portsToTry) {
       for (const getUrl of connectionMethods) {
@@ -220,16 +181,7 @@ export class MT5WebSocketClient {
           this.reconnectAttempts = 0;
           this.reconnectDelay = 1000;
           
-          console.log('✅ Connected to MT5 bridge at', wsUrl);
-          
-          // Save successful connection details for future use
-          if (this.productionMode) {
-            const urlObj = new URL(wsUrl);
-            localStorage.setItem('pipnosis_mt5_bridge_host', urlObj.hostname);
-            localStorage.setItem('pipnosis_mt5_bridge_port', urlObj.port);
-            localStorage.setItem('pipnosis_mt5_bridge_secure', urlObj.protocol === 'wss:' ? 'true' : 'false');
-          }
-          
+          console.log('✅ Connected to MT5 bridge');
           this.emit('connected');
           this.startPingInterval();
           
