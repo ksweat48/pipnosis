@@ -310,6 +310,9 @@ export class MT5WebSocketClient {
 
       // Format symbol to remove slashes (e.g., GBP/JPY -> GBPJPY)
       const formattedSymbol = order.symbol.replace('/', '').toUpperCase();
+      
+      // Limit comment to 31 characters (MT5 requirement)
+      const limitedComment = order.comment ? order.comment.substring(0, 31) : 'Pipnosis AI Trade';
 
       const requestId = Date.now().toString();
       
@@ -323,7 +326,7 @@ export class MT5WebSocketClient {
         price: order.price,
         sl: order.sl,
         tp: order.tp,
-        comment: order.comment || 'Pipnosis AI Trade'
+        comment: limitedComment
       };
       
       console.log('📤 Sending MT5 order:', orderRequest);

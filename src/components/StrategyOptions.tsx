@@ -68,6 +68,11 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
         option.action = option.tradeType.includes('BUY') ? 'buy' : 'sell';
       }
       
+      // Create a shorter strategy name for MT5 comment (31 char limit)
+      const shortName = option.name.length > 20 ? 
+        option.name.substring(0, 17) + '...' : 
+        option.name;
+      
       await onSelect(option);
       
       setExecutedStrategies(prev => new Set([...prev, option.id]));
