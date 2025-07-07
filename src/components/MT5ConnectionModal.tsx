@@ -24,7 +24,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
     password: '',
     server: 'MetaQuotes-Demo',
     accountType: 'demo',
-    bridgeHost: 'localhost',
+    bridgeHost: '97.180.94.170',
     bridgePort: '8765'
   });
   const [isEditingCredentials, setIsEditingCredentials] = useState(false);
@@ -878,7 +878,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
                     <div className="p-4 bg-slate-800 rounded-lg mb-4">
                       <div className="grid grid-cols-2 gap-y-3 text-sm">
                         <div>
-                          <span className="text-slate-400">Account:</span>
+                          <span className="text-slate-400">MT5 Account:</span>
                           <span className="text-white ml-2 font-mono">{credentials.login}</span>
                         </div>
                         <div>
