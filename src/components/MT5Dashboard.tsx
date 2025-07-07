@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Server, Activity, DollarSign, TrendingUp, TrendingDown, Settings, RefreshCw, Wifi, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { mt5Client } from '../services/mt5WebSocketClient';
 
 interface MT5DashboardProps {
   isVisible?: boolean;
@@ -26,10 +27,12 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
   const [isConnected, setIsConnected] = useState(false);
   const [mt5AccountData, setMt5AccountData] = useState<any>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Function to refresh MT5 data manually
   const refreshData = () => {
     setIsRefreshing(true);
+    setError(null);
     try {
       const connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
       const accountData = localStorage.getItem('pipnosis_mt5_account');
@@ -65,6 +68,7 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
       }
     } catch (error) {
       console.error('Error refreshing MT5 data:', error);
+      setError('Failed to refresh MT5 data. Please check if the MT5 bridge is running.');
     } finally {
       setTimeout(() => setIsRefreshing(false), 500);
     }
@@ -74,6 +78,27 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
   const openMT5Settings = () => {
     const event = new CustomEvent('openMT5Modal');
     window.dispatchEvent(event);
+    setError(null);
+  };
+  
+  // Function to connect to MT5
+  const connectToMT5 = async () => {
+    setIsRefreshing(true);
+    setError(null);
+    try {
+      const result = await mt5Client.connect();
+      if (result) {
+        console.log('✅ Connected to MT5 bridge');
+        refreshData();
+      } else {
+        setError('Failed to connect to MT5 bridge. Please check if the MT5 bridge is running.');
+      }
+    } catch (error) {
+      console.error('Error connecting to MT5:', error);
+      setError('Error connecting to MT5: ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const safeToFixed = (value: any, digits: number = 2): string => {
@@ -237,17 +262,37 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
               <div className="p-6 bg-red-500/10 border border-red-500/30 rounded-lg">
                 <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
                 <h4 className="text-white font-semibold mb-2">MT5 Not Connected</h4>
-                <p className="text-slate-400 mb-4">
+                <p className="text-slate-400 mb-2">
                   Connect your MetaTrader 5 account to see live trading data, account balance, and open positions.
                 </p>
+                {error && (
+                  <p className="text-red-400 text-sm mb-4">
+                    {error}
+                  </p>
+                )}
+                <div className="flex space-x-3">
                 <button 
                   onClick={() => {
                     const event = new CustomEvent('openMT5Modal');
                     window.dispatchEvent(event);
                   }}
-                  className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
+                  className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex-1">
                   Connect MT5 Account
                 </button>
+                <button 
+                  onClick={connectToMT5}
+                  disabled={isRefreshing}
+                  className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-1">
+                  {isRefreshing ? (
+                    <div className="flex items-center justify-center space-x-2">
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      <span>Connecting...</span>
+                    </div>
+                  ) : (
+                    'Retry Connection'
+                  )}
+                </button>
+                </div>
               </div>
             </div>
           ) : (
@@ -256,6 +301,11 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
                 <div className="flex items-center space-x-2">
                   <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
                   <span className="text-sm text-green-400">Live Data</span>
+                  {isConnected && mt5AccountData && (
+                    <span className="text-xs text-slate-400">
+                      {mt5AccountData.server || 'Unknown Server'}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center space-x-2">
                   <button 
