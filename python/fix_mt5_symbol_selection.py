@@ -44,7 +44,7 @@ def add_symbol_selection_function(file_path):
     def ensure_symbol_selected(self, symbol: str) -> bool:
         \"\"\"Ensure a symbol is selected in Market Watch\"\"\"
         try:
-            logger.info(f"Checking if symbol {symbol} is selected in Market Watch...")
+            logger.info(f"Ensuring symbol {symbol} is selected in Market Watch...")
             
             # Get symbol info
             symbol_info = mt5.symbol_info(symbol)
@@ -55,8 +55,18 @@ def add_symbol_selection_function(file_path):
             # Check if symbol is selected in Market Watch
             if not symbol_info.visible:
                 logger.info(f"Symbol {symbol} is not visible in Market Watch, selecting...")
-                if not mt5.symbol_select(symbol, True):
-                    logger.error(f"Failed to select symbol {symbol}")
+                
+                # Try to select the symbol with retry logic
+                for attempt in range(3):
+                    if mt5.symbol_select(symbol, True):
+                        break
+                    
+                    error_code, error_message = mt5.last_error()
+                    logger.warning(f"Failed to select symbol {symbol} (attempt {attempt+1}/3): {error_code} - {error_message}")
+                    time.sleep(0.5)  # Wait before retry
+                else:
+                    # All attempts failed
+                    logger.error(f"Failed to select symbol {symbol} after multiple attempts")
                     return False
                 
                 # Wait for symbol to be fully loaded

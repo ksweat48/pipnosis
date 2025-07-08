@@ -404,10 +404,10 @@ const Dashboard: React.FC = () => {
             
             <MarketAnalysis
               analysisMode={analysisMode}
+              isLoading={marketLoading}
+              error={marketError}
               onModeChange={setAnalysisMode}
               onScreenshotUpload={handleScreenshotUpload}
-            />
-            
             {/* Risk Management Dashboard */}
             <RiskManagementEngine 
               isVisible={showRiskDashboard}

@@ -13,6 +13,7 @@ import socket
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
 import threading
+import time
 from dataclasses import dataclass, asdict
 
 # Configure logging with UTF-8 encoding to fix emoji issues
@@ -74,21 +75,38 @@ class MT5Connector:
     def initialize_mt5(self) -> bool:
         """Initialize connection to MT5 terminal"""
         try:
-            logger.info("Initializing MT5 connection...")
+            logger.info("Initializing MT5 connection with reconnection support...")
             
-            # Initialize MT5 connection
+            # Ensure MT5 is not already initialized
+            if mt5.terminal_info() is not None:
+                logger.info("MT5 already initialized, shutting down first...")
+                mt5.shutdown()
+                time.sleep(1)  # Give it time to fully shut down
+            
+            # Initialize MT5 connection with retry
             if not mt5.initialize():
-                error_code, error_message = mt5.last_error()
-                logger.error(f"MT5 initialization failed: {error_code} - {error_message}")
-                return False
+                logger.warning("First initialization attempt failed, retrying...")
+                time.sleep(1)  # Wait before retry
+                
+                # Try one more time
+                if not mt5.initialize():
+                    error_code, error_message = mt5.last_error()
+                    logger.error(f"MT5 initialization failed after retry: {error_code} - {error_message}")
+                    return False
             
             # Get account info
             account_info = mt5.account_info()
             if account_info is None:
                 error_code, error_message = mt5.last_error()
-                logger.error(f"Failed to get account info - MT5 not logged in? Error: {error_code} - {error_message}")
-                mt5.shutdown()
-                return False
+                logger.error("❌ Failed to get account info - MT5 not logged in? Retrying...")
+                time.sleep(1)  # Wait before retry
+                
+                # Try one more time
+                account_info = mt5.account_info()
+                if account_info is None:
+                    logger.error("❌ Failed to get account info after retry - MT5 not logged in")
+                    mt5.shutdown()
+                    return False
             
             # Check if trading is allowed
             if not account_info.trade_allowed:
@@ -115,8 +133,13 @@ class MT5Connector:
     def get_account_info(self) -> Optional[AccountInfo]:
         """Get current account information"""
         try:
-            if not self.connected:
-                return None
+            # Ensure MT5 is still connected
+            if not self.connected or mt5.terminal_info() is None:
+                logger.warning("MT5 connection lost, attempting to reconnect...")
+                if not self.initialize_mt5():
+                    logger.error("Failed to reconnect to MT5")
+                    return None
+                logger.info("Reconnected to MT5 successfully")
                 
             account = mt5.account_info()
             if account is None:
@@ -150,8 +173,13 @@ class MT5Connector:
     def get_positions(self) -> List[Position]:
         """Get all open positions - FIXED VERSION"""
         try:
-            if not self.connected:
-                return []
+            # Ensure MT5 is still connected
+            if not self.connected or mt5.terminal_info() is None:
+                logger.warning("MT5 connection lost, attempting to reconnect...")
+                if not self.initialize_mt5():
+                    logger.error("Failed to reconnect to MT5")
+                    return []
+                logger.info("Reconnected to MT5 successfully")
                 
             positions = mt5.positions_get()
             if positions is None:
@@ -276,7 +304,7 @@ class MT5Connector:
     def ensure_symbol_selected(self, symbol: str) -> bool:
         """Ensure a symbol is selected in Market Watch"""
         try:
-            logger.info(f"Checking if symbol {symbol} is selected in Market Watch...")
+            logger.info(f"Ensuring symbol {symbol} is selected in Market Watch...")
             
             # Format symbol to MT5 standard (e.g., EUR/USD -> EURUSD)
             symbol = self.format_symbol(symbol)
@@ -291,9 +319,18 @@ class MT5Connector:
             # Check if symbol is selected in Market Watch
             if not symbol_info.visible:
                 logger.info(f"Symbol {symbol} is not visible in Market Watch, selecting...")
-                if not mt5.symbol_select(symbol, True):
+                
+                # Try to select the symbol with retry logic
+                for attempt in range(3):
+                    if mt5.symbol_select(symbol, True):
+                        break
+                    
                     error_code, error_message = mt5.last_error()
-                    logger.error(f"Failed to select symbol {symbol}: {error_code} - {error_message}")
+                    logger.warning(f"Failed to select symbol {symbol} (attempt {attempt+1}/3): {error_code} - {error_message}")
+                    time.sleep(0.5)  # Wait before retry
+                else:
+                    # All attempts failed
+                    logger.error(f"Failed to select symbol {symbol} after multiple attempts")
                     return False
                 
                 # Wait for symbol to be fully loaded
@@ -390,7 +427,7 @@ class MT5Connector:
     def place_order(self, symbol: str, order_type: str, volume: float, 
                    price: float = None, sl: float = None, tp: float = None, 
                    comment: str = "Pipnosis AI Trade") -> Dict:
-        """Place a trading order with enhanced error handling and retries"""
+        """Place a trading order with enhanced error handling, reconnection and retries"""
         # Prevent order flooding - enforce minimum 1 second between orders
         current_time = time.time()
         if current_time - self.last_order_time < 1.0:
@@ -405,9 +442,13 @@ class MT5Connector:
         # Format symbol to MT5 standard (e.g., EUR/USD -> EURUSD)
         symbol = self.format_symbol(symbol)
         
-        # Check if MT5 is connected
-        if not self.connected:
-            return {'success': False, 'error': 'MT5 not connected'}
+        # Ensure MT5 is still connected
+        if not self.connected or mt5.terminal_info() is None:
+            logger.warning("MT5 connection lost, attempting to reconnect...")
+            if not self.initialize_mt5():
+                logger.error("Failed to reconnect to MT5")
+                return {'success': False, 'error': 'MT5 not connected and reconnection failed'}
+            logger.info("Reconnected to MT5 successfully")
         
         # Check if automated trading is enabled
         account_info = mt5.account_info()
@@ -537,13 +578,12 @@ class MT5Connector:
             # Send order with retry logic
             max_retries = 3
             retry_delay = 1.0  # seconds
+            last_error = None
             
             for attempt in range(max_retries):
                 # CRITICAL FIX: Ensure symbol is selected and has valid prices
-                if not mt5.symbol_select(symbol, True):
-                    error_code, error_message = mt5.last_error()
-                    logger.error(f"Failed to select symbol {symbol} for trading: {error_code} - {error_message}")
-                    return {'success': False, 'error': f'Failed to select symbol {symbol} for trading'}
+                if not self.ensure_symbol_selected(symbol):
+                    return {'success': False, 'error': f'Failed to select symbol {symbol} for trading after multiple attempts'}
                 
                 # Check if we have valid price data
                 tick = mt5.symbol_info_tick(symbol)
@@ -566,7 +606,7 @@ class MT5Connector:
                 # Send the order
                 result = mt5.order_send(request)
                 
-                if result is None:
+                if result is None or not hasattr(result, 'retcode'):
                     error_code, error_message = mt5.last_error()
                     logger.error(f"Order send failed: No response from MT5 (attempt {attempt+1}/{max_retries}). Error: {error_code} - {error_message}")
                     
@@ -587,11 +627,12 @@ class MT5Connector:
                             request["type_filling"] = mt5.ORDER_FILLING_FOK
                     
                     if attempt < max_retries - 1:
+                        last_error = f"Order send failed: No response from MT5. Error: {error_code} - {error_message}"
                         time.sleep(retry_delay)
                         retry_delay *= 2  # Exponential backoff
                         continue
                     
-                    return {'success': False, 'error': f'Order send failed: No response from MT5. Error: {error_code} - {error_message}'}
+                    return {'success': False, 'error': last_error or f'Order send failed: No response from MT5. Error: {error_code} - {error_message}'}
                 
                 if result.retcode != mt5.TRADE_RETCODE_DONE:
                     error_msg = f"Order failed: {result.retcode} - {result.comment}"
@@ -610,12 +651,14 @@ class MT5Connector:
                         
                         if attempt < max_retries - 1:
                             logger.info(f"Retrying order with different filling mode in {retry_delay} seconds...")
+                            last_error = error_msg
                             time.sleep(retry_delay)
                             retry_delay *= 2  # Exponential backoff
                             continue
                     elif result.retcode in [10004, 10006, 10008, 10009, 10010, 10011, 10012, 10013, 10014, 10018, 10021]:
                         if attempt < max_retries - 1:
                             logger.info(f"Retrying order in {retry_delay} seconds...")
+                            last_error = error_msg
                             time.sleep(retry_delay)
                             retry_delay *= 2  # Exponential backoff
                             continue
@@ -636,7 +679,7 @@ class MT5Connector:
             
             # If we get here, all retries failed
             error_code, error_message = mt5.last_error()
-            return {'success': False, 'error': f'Order failed after multiple attempts. Last error: {error_code} - {error_message}'}
+            return {'success': False, 'error': last_error or f'Order failed after multiple attempts. Last error: {error_code} - {error_message}'}
             
         except Exception as e:
             error_msg = f"Error placing order: {e}"
@@ -666,10 +709,22 @@ class MT5Connector:
     async def data_update_loop(self):
         """Main loop to update and broadcast MT5 data"""
         logger.info("Starting data update loop...")
+        reconnect_attempts = 0
+        max_reconnect_attempts = 5
         
         while self.running:
             try:
                 if not self.connected:
+                    # Try to reconnect if we've lost connection
+                    if reconnect_attempts < max_reconnect_attempts:
+                        logger.info(f"Attempting to reconnect to MT5 (attempt {reconnect_attempts+1}/{max_reconnect_attempts})...")
+                        if self.initialize_mt5():
+                            logger.info("✅ Reconnected to MT5 successfully")
+                            reconnect_attempts = 0
+                        else:
+                            reconnect_attempts += 1
+                            logger.warning(f"Failed to reconnect to MT5 (attempt {reconnect_attempts}/{max_reconnect_attempts})")
+                    
                     await asyncio.sleep(self.update_interval)
                     continue
                 
@@ -677,7 +732,11 @@ class MT5Connector:
                 account_info = self.get_account_info()
                 positions = self.get_positions()
                 
-                if account_info:
+                # Reset reconnect attempts on successful data fetch
+                reconnect_attempts = 0
+                
+                # Broadcast data if we have account info
+                if account_info is not None:
                     self.account_info = account_info
                     self.positions = positions
                     
@@ -692,11 +751,16 @@ class MT5Connector:
                     
                     # Broadcast to all clients
                     await self.broadcast_data(data)
+                else:
+                    logger.warning("Failed to get account info, will try to reconnect on next loop")
+                    self.connected = False
                 
                 await asyncio.sleep(self.update_interval)
                 
             except Exception as e:
                 logger.error(f"Error in data update loop: {e}")
+                # If we encounter an error, mark as disconnected to trigger reconnect
+                self.connected = False
                 await asyncio.sleep(self.update_interval)
     
     async def handle_websocket_client(self, websocket, path):

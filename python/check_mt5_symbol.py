@@ -8,6 +8,7 @@ import MetaTrader5 as mt5
 from datetime import datetime
 import time
 import sys
+import sys
 
 def check_symbol(symbol="USDCAD"):
     """Check if a symbol is properly configured and available for trading"""
@@ -32,11 +33,24 @@ def check_symbol(symbol="USDCAD"):
         # Check if symbol is selected in Market Watch
         print(f"2. Checking if symbol is selected in Market Watch...")
         if not symbol_info.visible:
-            print(f"⚠️ Symbol {symbol} is not visible in Market Watch, selecting...")
-            if not mt5.symbol_select(symbol, True):
-                print(f"❌ Failed to select symbol {symbol}")
+            print(f"⚠️ Symbol {symbol} is not visible in Market Watch, attempting to select...")
+            
+            # Try multiple times to select the symbol
+            selected = False
+            for attempt in range(3):
+                if mt5.symbol_select(symbol, True):
+                    selected = True
+                    print(f"✅ Symbol {symbol} selected successfully on attempt {attempt+1}")
+                    break
+                else:
+                    error_code, error_message = mt5.last_error()
+                    print(f"⚠️ Selection attempt {attempt+1} failed: {error_code} - {error_message}")
+                    time.sleep(0.5)  # Wait before retry
+            
+            if not selected:
+                print(f"❌ Failed to select symbol {symbol} after multiple attempts")
                 return False
-            print(f"✅ Symbol {symbol} selected successfully")
+            
             # Wait for symbol to be fully loaded
             time.sleep(1)
             # Refresh symbol info

@@ -28,7 +28,10 @@ export const useMarketData = (refreshInterval: number = 5000) => {
       
       try {
         // First try the backend API
-        const data = await backendAPI.getMarketAnalysis();
+        const data = await backendAPI.getMarketAnalysis().catch(error => {
+          console.warn('Backend API market analysis failed:', error);
+          throw error;
+        });
         
         if (data && data.symbols) {
           const formattedData: MarketDataPoint[] = data.symbols.map(symbol => ({
@@ -53,7 +56,11 @@ export const useMarketData = (refreshInterval: number = 5000) => {
       
       // Fallback to pipnosisAPI
       try {
-        const fallbackData = await pipnosisAPI.getMarketData();
+        const fallbackData = await pipnosisAPI.getMarketData().catch(error => {
+          console.warn('PipnosisAPI market data failed:', error);
+          throw error;
+        });
+        
         setMarketData(fallbackData);
         console.log('✅ Market data fetched successfully from pipnosisAPI');
         setLastUpdated(new Date());
