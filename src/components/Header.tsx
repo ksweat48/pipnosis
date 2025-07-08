@@ -7,7 +7,11 @@ import { WebContainerNotice } from './WebContainerNotice';
 import { BackendStatus } from './BackendStatus';
 import { MT5ConnectionModal } from './MT5ConnectionModal';
 
-export const Header: React.FC = () => {
+interface HeaderProps {
+  onOpenMT5Modal: () => void;
+}
+
+export const Header: React.FC<HeaderProps> = ({ onOpenMT5Modal }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -59,7 +63,7 @@ export const Header: React.FC = () => {
 
     // Listen for custom MT5 modal open event
     const handleOpenMT5Modal = () => {
-      setIsMT5ModalOpen(true);
+      onOpenMT5Modal();
     };
 
     window.addEventListener('storage', handleStorageChange);
@@ -139,7 +143,7 @@ export const Header: React.FC = () => {
             <div className="flex items-center space-x-2">
               {/* CRITICAL FIX: MT5 Connect Button with proper status colors */}
               <button 
-                onClick={() => setIsMT5ModalOpen(true)}
+                onClick={onOpenMT5Modal}
                 className={`flex items-center space-x-2 px-3 py-2 border rounded-lg transition-colors text-sm ${
                   mt5Connected 
                     ? 'bg-green-500/20 text-green-400 border-green-500/30 hover:bg-green-500/30' 
@@ -188,7 +192,7 @@ export const Header: React.FC = () => {
             </div>
             {/* CRITICAL FIX: Mobile MT5 Button with proper status colors */}
             <button 
-              onClick={() => setIsMT5ModalOpen(true)}
+              onClick={onOpenMT5Modal}
               className={`p-2 border rounded-lg transition-colors ${
                 mt5Connected 
                   ? 'bg-green-500/20 text-green-400 border-green-500/30 hover:bg-green-500/30' 
@@ -214,7 +218,7 @@ export const Header: React.FC = () => {
               {/* CRITICAL FIX: Mobile MT5 Connect Button with proper status */}
               <button 
                 onClick={() => {
-                  setIsMT5ModalOpen(true);
+                  onOpenMT5Modal();
                   setIsMobileMenuOpen(false);
                 }}
                 className={`w-full flex items-center space-x-3 p-3 border rounded-lg transition-colors ${
@@ -261,12 +265,6 @@ export const Header: React.FC = () => {
       <SettingsModal 
         isOpen={isSettingsOpen} 
         onClose={() => setIsSettingsOpen(false)} 
-      />
-
-      {/* MT5 Connection Modal */}
-      <MT5ConnectionModal
-        isOpen={isMT5ModalOpen}
-        onClose={() => setIsMT5ModalOpen(false)}
       />
       
       <DisclaimerModal 

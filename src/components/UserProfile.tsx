@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, DollarSign, Settings } from 'lucide-react';
 
-export const UserProfile: React.FC = () => {
-  // Mock data for local development
-  const accountBalance = 10000;
+interface UserProfileProps {
+  accountBalance: number;
+}
+export const UserProfile: React.FC<UserProfileProps> = ({ accountBalance }) => {
   const [mt5Connected, setMt5Connected] = React.useState(false);
   const [mt5AccountData, setMt5AccountData] = React.useState<any>(null);
 

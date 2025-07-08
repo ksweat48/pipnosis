@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { pipnosisAPI } from '../services/api';
 import { backendAPI } from '../services/backendAPI';
-import { useAuth } from '../contexts/AuthContext';
 
 export interface MarketDataPoint {
   symbol: string;
@@ -17,7 +16,6 @@ export const useMarketData = (refreshInterval: number = 5000) => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const { user } = useAuth();
 
   const fetchMarketData = useCallback(async () => {
     try {
@@ -128,9 +126,9 @@ export const useMarketData = (refreshInterval: number = 5000) => {
 
   useEffect(() => {
     fetchMarketData();
-    const interval = setInterval(fetchMarketData, user ? 10000 : refreshInterval);
+    const interval = setInterval(fetchMarketData, refreshInterval);
     return () => clearInterval(interval);
-  }, [fetchMarketData, refreshInterval, user]);
+  }, [fetchMarketData, refreshInterval]);
 
   return {
     marketData,

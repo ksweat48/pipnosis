@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { pipnosisAPI } from '../services/api';
-import { useAuth } from '../contexts/AuthContext';
 
 // Hook for backend connection status
 export const useBackendConnection = () => {
@@ -41,7 +40,6 @@ export const useMarketData = (refreshInterval: number = 5000) => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const { user } = useAuth();
 
   const fetchMarketData = useCallback(async () => {
     try {
@@ -81,13 +79,13 @@ export const useMarketData = (refreshInterval: number = 5000) => {
     } finally {
       setIsLoading(false);
     }
-  }, [user?.id]);
+  }, []);
 
   useEffect(() => {
     fetchMarketData();
-    const interval = setInterval(fetchMarketData, user ? 10000 : refreshInterval);
+    const interval = setInterval(fetchMarketData, refreshInterval);
     return () => clearInterval(interval);
-  }, [fetchMarketData, refreshInterval, user]);
+  }, [fetchMarketData, refreshInterval]);
 
   return {
     marketData,

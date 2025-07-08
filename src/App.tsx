@@ -14,7 +14,7 @@ import { WebContainerNotice } from './components/WebContainerNotice';
 import { MT5ConnectionModal } from './components/MT5ConnectionModal';
 import { RiskManagementEngine } from './components/RiskManagementEngine';
 import { UserProfile } from './components/UserProfile';
-import { useBackendPromptAnalysis, useBackendTradeExecution } from './hooks/useBackendAPI';
+import { useBackendPromptAnalysis } from './hooks/useBackendAPI';
 import { useOpenAI } from './hooks/useOpenAI'; 
 import { usePipnosisAI } from './hooks/usePipnosisAI';
 import { useMarketData } from './hooks/useMarketData';
@@ -69,11 +69,8 @@ const App: React.FC = () => {
   const [showMT5Modal, setShowMT5Modal] = useState(false);
   
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
-  
-  // API Hooks
+
   const { generateJournalEntry, explainDecision } = useOpenAI();
-  
-  // Pipnosis AI Brain Hook
   const { processPrompt, executeStrategy, isProcessing, error: aiError } = usePipnosisAI();
   
   const accountBalance = 10000;
@@ -98,7 +95,6 @@ const App: React.FC = () => {
 
   const handlePromptSubmit = async (prompt: string) => {
     try {
-      // Use Pipnosis AI Brain for analysis
       const analysis = await processPrompt(prompt);
       
       if (analysis && analysis.strategies.length > 0) {
@@ -287,7 +283,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-900">
-      <Header />
+      <Header onOpenMT5Modal={() => setShowMT5Modal(true)} />
       
       <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8 space-y-4 sm:space-y-8">
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-8">
@@ -348,7 +344,7 @@ const App: React.FC = () => {
           </div>
           
           <div className="space-y-4 sm:space-y-6">
-            <UserProfile />
+            <UserProfile accountBalance={accountBalance} />
             
             <TradeJournal
               entries={journalEntries}

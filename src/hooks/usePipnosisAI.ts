@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { pipnosisAI } from '../services/pipnosisAIBrain';
 import { openAIService } from '../services/openai'; 
 import { backendAPI } from '../services/backendAPI';
+import { useEffect } from 'react';
 
 /**
  * Hook for using the Pipnosis AI Brain
@@ -15,14 +16,12 @@ export const usePipnosisAI = () => {
     apiKeyConfigured: boolean;
   }>({ initialized: false, fallbackMode: true, apiKeyConfigured: false });
   
-  // Configure AI with default account balance
   useEffect(() => {
     pipnosisAI.configure({
       accountBalance: 10000,
       riskProfile: 'auto'
     });
     
-    // Check OpenAI status
     const status = openAIService.getStatus();
     setOpenAIStatus(status);
     console.log('🔍 OpenAI Status:', status);

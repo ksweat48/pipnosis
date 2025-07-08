@@ -1,26 +1,20 @@
 import axios from 'axios';
 
-// API Configuration - Enhanced for production deployment
 const getApiBaseUrl = () => {
-  // Check if we're in production (pipnosis.com)
   const isProduction = isProductionEnvironment();
   
-  // Check if we're in Bolt's WebContainer environment
   const isWebContainer = isWebContainerEnvironment();
   
-  // Production: Use Railway backend URL
   if (isProduction) {
     return 'https://pipnosis-production.up.railway.app/api';
   }
   
-  // For Bolt WebContainer, use the current origin with port 3001
   if (isWebContainer) {
     const protocol = window.location.protocol;
     const hostname = window.location.hostname;
     return `${protocol}//${hostname}:3001/api`;
   }
   
-  // For local development, use environment variable or localhost
   return import.meta.env.VITE_PIPNOSIS_API_URL || 'http://localhost:3001/api';
 };
 
@@ -34,7 +28,6 @@ const apiClient = axios.create({
   isWebContainer: isWebContainerEnvironment()
 });
 
-// Request interceptor for logging
 apiClient.interceptors.request.use(
   (config) => {
     console.log(`🔄 API Request: ${config.method?.toUpperCase()} ${config.url}`);
@@ -46,7 +39,6 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Response interceptor for error handling
 apiClient.interceptors.response.use(
   (response) => {
     console.log(`✅ API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`);
@@ -58,11 +50,9 @@ apiClient.interceptors.response.use(
   }
 );
 
-// Enhanced fallback data for when backend is unavailable
 const getFallbackMarketData = () => {
   console.log('📊 Generating fallback market data for API');
   
-  // Generate basic market data for common pairs
   return [
     { symbol: 'EURUSD', price: 1.1425, change: 0.0010, changePercent: 0.09, trend: 'up', signal: 'buy' },
     { symbol: 'GBPUSD', price: 1.2735, change: -0.0005, changePercent: -0.04, trend: 'down', signal: 'sell' },

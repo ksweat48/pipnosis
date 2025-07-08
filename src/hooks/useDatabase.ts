@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 
-// Hook for database statistics
 export const useDatabaseStats = () => {
   const [stats, setStats] = useState({
     openPositions: 0,
@@ -13,14 +12,12 @@ export const useDatabaseStats = () => {
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  // Get trade counts from localStorage
   const [tradeCounts, setTradeCounts] = useState({
     totalTrades: 0,
     winningTrades: 0,
     losingTrades: 0
   });
 
-  // Load trade counts from localStorage
   useEffect(() => {
     try {
       const totalTradesStr = localStorage.getItem('pipnosis_trade_count');
@@ -37,7 +34,6 @@ export const useDatabaseStats = () => {
         losingTrades
       });
       
-      // Update stats based on localStorage values
       setStats(prev => ({
         ...prev,
         totalTrades,
@@ -51,10 +47,8 @@ export const useDatabaseStats = () => {
     }
   }, []);
 
-  // Function to update trade count when a new trade is executed
   const updateTradeCount = useCallback((success: boolean = true) => {
     try {
-      // Update local storage counts for faster feedback
       const totalTradesStr = localStorage.getItem('pipnosis_trade_count') || '0';
       const winningTradesStr = localStorage.getItem('pipnosis_winning_trades') || '0';
       const losingTradesStr = localStorage.getItem('pipnosis_losing_trades') || '0';
@@ -67,7 +61,6 @@ export const useDatabaseStats = () => {
       localStorage.setItem('pipnosis_winning_trades', winningTrades.toString());
       localStorage.setItem('pipnosis_losing_trades', losingTrades.toString());
       
-      // Update stats
       setStats(prev => ({
         ...prev,
         totalTrades,

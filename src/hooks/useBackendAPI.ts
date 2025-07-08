@@ -64,8 +64,7 @@ export const useBackendPromptAnalysis = () => {
         riskProfile: 'auto' as 'low' | 'medium' | 'high' | 'auto',
         selectedPairs,
         tradingGoal,
-        timeframe: 'H1',
-        userId: undefined
+        timeframe: 'H1'
       };
 
       console.log('🤖 Processing AI prompt:', { 

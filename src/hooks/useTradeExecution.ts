@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react';
 import { mt5Client } from '../services/mt5WebSocketClient';
-import { db } from '../lib/supabase';
 
 interface TradeRequest {
   symbol: string;
@@ -96,24 +95,21 @@ export const useTradeExecution = () => {
 
       console.log('✅ Trade executed successfully:', result);
 
-      // Log trade to local database
-      if (result.success) {
-        try {
-          await db.trades.create({
-            symbol: formattedSymbol,
-            trade_type: request.action,
-            lot_size: request.volume,
-            entry_price: result.price || request.price || 0,
-            stop_loss: request.stopLoss,
-            take_profit: request.takeProfit,
-            status: 'open',
-            mt5_ticket: result.ticket,
-            opened_at: new Date().toISOString()
-          });
-          console.log('✅ Trade logged to database');
-        } catch (dbError) {
-          console.error('❌ Failed to log trade to database:', dbError);
-        }
+      // Update local storage for trade tracking
+      try {
+        // Get current counts
+        const totalTradesStr = localStorage.getItem('pipnosis_trade_count') || '0';
+        const winningTradesStr = localStorage.getItem('pipnosis_winning_trades') || '0';
+        
+        const totalTrades = parseInt(totalTradesStr, 10) + 1;
+        const winningTrades = parseInt(winningTradesStr, 10) + 1; // Assume winning for now
+        
+        localStorage.setItem('pipnosis_trade_count', totalTrades.toString());
+        localStorage.setItem('pipnosis_winning_trades', winningTrades.toString());
+        
+        console.log('✅ Trade logged to local storage');
+      } catch (storageError) {
+        console.error('❌ Failed to log trade to local storage:', storageError);
       }
       
       const tradeResult = {
