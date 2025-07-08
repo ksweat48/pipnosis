@@ -4,9 +4,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { backendAPI } from '../services/backendAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { backendAPI } from '../services/backendAPI';
-  analysisMode: 'api' | 'screenshot';
 
 interface MarketAnalysisProps {
+  analysisMode: 'api' | 'screenshot';
   onModeChange: (mode: 'api' | 'screenshot') => void;
   onScreenshotUpload: (files: FileList) => void;
 }
@@ -451,4 +451,6 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
           )}
         </div>
       </div>
-};
+    </div>
+  );
+}
