@@ -318,16 +318,20 @@ const Dashboard: React.FC = () => {
             <TradingLaws />
           </div>
         </div>
-      </main>
+</main>
 
-      <MT5ConnectionModal
-        isOpen={showMT5Modal}
-        onClose={() => setShowMT5Modal(false)}
-      />
-    </div>
+<MT5ConnectionModal
+  isOpen={showMT5Modal}
+  onClose={() => setShowMT5Modal(false)}
+/>
+</div>
+); // 👈 This was missing: Close the App's return block
+
 function AppContent() {
-    if (isEmailConfirmation) {
-      console.log('📧 Email confirmation detected in URL');
-      // Clear the URL parameters
+  if (isEmailConfirmation) {
+    console.log('📧 Email confirmation detected in URL');
+    // Clear the URL parameters
+  }
+}
 
 export default App;
