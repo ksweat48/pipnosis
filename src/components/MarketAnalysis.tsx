@@ -9,12 +9,14 @@ interface MarketAnalysisProps {
   onModeChange: (mode: 'api' | 'screenshot') => void;
   onScreenshotUpload: (files: FileList) => void;
 }
+
+const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   analysisMode,
   onModeChange,
   onScreenshotUpload
+}) => {
   const { user } = useAuth();
   const [marketData, setMarketData] = useState<MarketDataPoint[]>([]);
-  onScreenshotUpload
   const [showAll, setShowAll] = useState(false);
 
   // Function to fetch market data
@@ -99,12 +101,13 @@ interface MarketAnalysisProps {
     }, user ? 10000 : 5000);
     
     return () => clearInterval(interval);
+  }, [user]);
+
   const { user } = useAuth();
   const [marketData, setMarketData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  }, [user]);
 
   // Function to fetch market data
   const fetchMarketData = async () => {
@@ -454,3 +457,5 @@ interface MarketAnalysisProps {
     </div>
   );
 };
+
+export default MarketAnalysis;
