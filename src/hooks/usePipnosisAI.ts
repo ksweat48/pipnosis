@@ -35,12 +35,10 @@ export const usePipnosisAI = () => {
   /**
    * Process a user prompt and generate trading strategies
    */
-  const processPrompt = useCallback(async (
-    prompt: string,
-    marketData?: any[]
-  ): Promise<any> {
+  const processPrompt = useCallback(
+  async (prompt: string, marketData?: any[]): Promise<any> => {
     setIsProcessing(true);
-    setError(null);
+    setError(null);  // ✅ Moved inside the callback
     
     try {
       // Process the prompt using backend API
