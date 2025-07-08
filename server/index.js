@@ -264,10 +264,16 @@ app.get('/api/market-data', async (req, res) => {
       try {
         marketData = await mt5Service.getMarketData();
         if (!marketData || marketData.length === 0) {
+        }
+      }
+    }
     if (aiService && aiService.analyzePrompt) {
       try {
         analysis = await aiService.analyzePrompt(
           prompt, 
+        )
+      }
+    }
     res.status(500).json({ error: 'Failed to analyze prompt' });
   }
 });
