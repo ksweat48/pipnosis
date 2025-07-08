@@ -53,8 +53,7 @@ export const useTradeExecution = () => {
         if (window.location.hostname.includes('webcontainer-api.io') || 
             window.location.hostname.includes('local-credentialless') ||
             window.location.hostname.includes('bolt.new') ||
-            window.location.hostname.includes('stackblitz') ||
-            window.location.hostname.includes('stackblitz.io')) {
+            window.location.hostname.includes('stackblitz')) {
           throw new Error('MT5 connection is not available in this preview environment. Please run the application locally to connect to MT5.');
         }
         
