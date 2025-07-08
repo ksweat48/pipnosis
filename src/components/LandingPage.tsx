@@ -1,24 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  TrendingUp, 
-  Camera, 
-  Target, 
-  MessageCircle, 
-  CheckCircle, 
-  Star,
-  ArrowRight,
-  Shield,
-  DollarSign,
-  AlertCircle,
-  Menu,
-  X
-import { useWaitlist } from '../hooks/useDatabase';
+  TrendingUp, Brain, Camera, Target, MessageCircle, 
+  CheckCircle, Star, ArrowRight, Play, Shield, 
+  DollarSign, Home, Menu, X
+} from 'lucide-react';
 
+export const LandingPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [selectedPlan, setSelectedPlan] = useState<'free' | 'beta'>('free');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
+
   const handleBackToDashboard = () => {
     navigate('/');
   };
@@ -143,7 +136,7 @@ import { useWaitlist } from '../hooks/useDatabase';
                       : 'bg-slate-800 border-2 border-emerald-500 text-emerald-400 hover:bg-emerald-500 hover:text-white'
                   }`}
                 >
-                  Join Free Waitlist. Available in 12 Months
+                  Free Plan. Available in 12 Months
                 </button>
                 <button 
                   onClick={() => setSelectedPlan('beta')}
@@ -153,7 +146,7 @@ import { useWaitlist } from '../hooks/useDatabase';
                       : 'bg-slate-800 border-2 border-emerald-500 text-emerald-400 hover:bg-emerald-500 hover:text-white'
                   }`}
                 >
-                  Join Beta in 3 Months. $20 Fast Track Access
+                  Beta Access in 3 Months. $20 Fast Track
                 </button>
               </div>
               
@@ -239,7 +232,7 @@ import { useWaitlist } from '../hooks/useDatabase';
                   : 'bg-slate-800 border-2 border-emerald-500 text-emerald-400 hover:bg-emerald-500 hover:text-white'
               }`}
             >
-              Free Plan. Launching in 12 Months
+              Free Plan Available in 12 Months
             </button>
             <button 
               onClick={() => setSelectedPlan('beta')}
@@ -249,7 +242,7 @@ import { useWaitlist } from '../hooks/useDatabase';
                   : 'bg-slate-800 border-2 border-emerald-500 text-emerald-400 hover:bg-emerald-500 hover:text-white'
               }`}
             >
-              Beta Test. $20 Access in 3 Months
+              Beta Access. $20 in 3 Months
             </button>
           </div>
         </div>

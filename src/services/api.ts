@@ -141,17 +141,6 @@ class PipnosisAPI {
       });
       return response.data;
     } catch (error) {
-      console.error('❌ Failed to execute trade via backend:', error);
-      throw error;
-    }
-  }
-
-  // MT5 Status with fallback
-  static async getMT5Status(): Promise<any> {
-    try {
-      const response = await apiClient.get('/mt5-status');
-      return response.data;
-    }
   }
   static async testConnection(): Promise<boolean> {
     try {

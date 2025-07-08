@@ -531,55 +531,6 @@ app.post('/api/waitlist', async (req, res) => {
       }
     }
     
-    const response = {
-      success: true,
-      message: 'Successfully added to waitlist',
-      plan: plan
-    };
-    
-    console.log('📧 Waitlist response:', response);
-    res.json(response);
-  } catch (error) {
-    console.error('Waitlist signup error:', error);
-    res.status(500).json({ error: 'Failed to join waitlist' });
-  }
-});
-
-// Market analysis endpoint - Added to fix 404 error
-app.get('/api/market/analysis', (req, res) => {
-  try {
-    console.log('📊 Market analysis requested from:', req.get('Origin') || 'unknown');
-    
-    // Use the same fallback data as the market-data endpoint
-    const fallbackMarketData = [
-      { symbol: 'EURUSD', price: 1.1425 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
-      { symbol: 'GBPUSD', price: 1.2735 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
-      { symbol: 'USDJPY', price: 149.85 + (Math.random() - 0.5) * 2.0, change: (Math.random() - 0.5) * 1.0, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
-      { symbol: 'USDCHF', price: 0.8945 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
-      { symbol: 'AUDUSD', price: 0.6785 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
-      { symbol: 'USDCAD', price: 1.3625 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
-      { symbol: 'NZDUSD', price: 0.6245 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
-      { symbol: 'EURJPY', price: 171.25 + (Math.random() - 0.5) * 2.0, change: (Math.random() - 0.5) * 1.0, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
-      { symbol: 'GBPJPY', price: 190.85 + (Math.random() - 0.5) * 2.0, change: (Math.random() - 0.5) * 1.0, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
-      { symbol: 'XAUUSD', price: 2045.50 + (Math.random() - 0.5) * 20, change: (Math.random() - 0.5) * 10, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] }
-    ];
-
-    // Format the response to match the expected structure
-    const response = {
-      symbols: fallbackMarketData.map(item => ({
-        symbol: item.symbol || 'EURUSD',
-        bid: (item.price || 1.1425) - 0.0002,
-        ask: (item.price || 1.1425) + 0.0002,
-        spread: 0.0004,
-        change: item.change || 0.0001,
-        changePercent: item.changePercent || 0.01,
-      }
-      )
-      )
-    }
-  }
-}
-)
 // Real-time market data WebSocket info
 app.get('/api/websocket-info', (req, res) => {
   res.json({
@@ -634,7 +585,6 @@ app.use((req, res) => {
       'GET /api/market-data', 
       'POST /api/analyze-prompt',
       'POST /api/execute-trade',
-      'GET /api/mt5-status',
       'GET /api/debug/routes',
       'GET /api/debug/cors'
     ]
@@ -678,7 +628,6 @@ app.listen(PORT, '0.0.0.0', async () => {
   console.log('- POST /api/analyze-prompt');
   console.log('- POST /api/execute-trade');
   console.log('- GET  /api/mt5-status');
-  console.log('- POST /api/waitlist');
   console.log('- GET  /api/debug/routes');
   console.log('- GET  /api/debug/cors');
 });
