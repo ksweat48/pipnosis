@@ -151,24 +151,6 @@ class PipnosisAPI {
     try {
       const response = await apiClient.get('/mt5-status');
       return response.data;
-    } catch (error) {
-      console.error('❌ Failed to get MT5 status:', error);
-      throw error;
-    }
-  }
-
-  // Waitlist Signup with fallback
-  static async joinWaitlist(data: {email: string, plan: string}): Promise<any> {
-    try {
-      const response = await apiClient.post('/waitlist', data);
-      return response.data;
-    } catch (error) {
-      console.error('❌ Failed to join waitlist via backend:', error);
-      throw error;
-    }
-  }
-
-  // Connection Test
   static async testConnection(): Promise<boolean> {
     try {
       await this.healthCheck();

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   TrendingUp, 
-  Brain, 
   Camera, 
   Target, 
   MessageCircle, 
@@ -11,50 +10,17 @@ import {
   ArrowRight,
   Shield,
   DollarSign,
-  Home,
-  Loader,
   AlertCircle,
   Menu,
   X
-} from 'lucide-react';
 import { useWaitlist } from '../hooks/useDatabase';
 
-export const LandingPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [selectedPlan, setSelectedPlan] = useState<'free' | 'beta'>('free');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
-  
-  const { submitToWaitlist, isSubmitting, error, success, resetState } = useWaitlist();
-
-  // Reset state on component mount to prevent persistent errors
-  useEffect(() => {
-    resetState();
-  }, [resetState]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim()) return;
-    
-    try {
-      const result = await submitToWaitlist(email, selectedPlan);
-      if (result) {
-        console.log('Successfully joined waitlist');
-      }
-    } catch (err) {
-      console.error('Waitlist submission error:', err);
-    }
-  };
-
   const handleBackToDashboard = () => {
     navigate('/');
-  };
-
-  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setEmail(e.target.value);
-    if (error || success) {
-      resetState();
-    }
   };
 
   return (
@@ -264,57 +230,6 @@ export const LandingPage: React.FC = () => {
             No strategy to learn. No screen time required. Just prompt. Pipnosis delivers.
           </p>
           
-          <form onSubmit={handleSubmit} className="max-w-md mx-auto mb-8">
-            <div className="flex flex-col space-y-3 sm:space-y-4">
-              <input
-                type="email"
-                value={email}
-                onChange={handleEmailChange}
-                placeholder="Enter your email"
-                className="w-full px-4 py-3 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                required
-                disabled={isSubmitting}
-              />
-              <button
-                type="submit"
-                disabled={isSubmitting || !email.trim()}
-                className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSubmitting ? (
-                  <div className="flex items-center justify-center space-x-2">
-                    <Loader className="h-4 w-4 animate-spin" />
-                    <span>Joining...</span>
-                  </div>
-                ) : (
-                  'Join Waitlist'
-                )}
-              </button>
-            </div>
-            
-            {/* Success/Error Messages */}
-            {success && (
-              <div className="mt-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg flex items-start space-x-2">
-                <CheckCircle className="h-4 w-4 text-green-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-green-400 text-sm font-medium">Successfully joined waitlist!</p>
-                  <p className="text-green-300 text-xs mt-1">
-                    You'll receive updates about the {selectedPlan === 'beta' ? 'beta release' : 'public launch'}.
-                  </p>
-                </div>
-              </div>
-            )}
-            
-            {error && (
-              <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start space-x-2">
-                <AlertCircle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-red-400 text-sm font-medium">Failed to join waitlist</p>
-                  <p className="text-red-300 text-xs mt-1">{error}</p>
-                </div>
-              </div>
-            )}
-          </form>
-          
           <div className="flex flex-col space-y-3 sm:space-y-4 justify-center">
             <button 
               onClick={() => setSelectedPlan('free')}
@@ -324,7 +239,7 @@ export const LandingPage: React.FC = () => {
                   : 'bg-slate-800 border-2 border-emerald-500 text-emerald-400 hover:bg-emerald-500 hover:text-white'
               }`}
             >
-              Join Free Waitlist. Launching in 12 Months
+              Free Plan. Launching in 12 Months
             </button>
             <button 
               onClick={() => setSelectedPlan('beta')}
@@ -334,7 +249,7 @@ export const LandingPage: React.FC = () => {
                   : 'bg-slate-800 border-2 border-emerald-500 text-emerald-400 hover:bg-emerald-500 hover:text-white'
               }`}
             >
-              Join Beta Test. $20 Access in 3 Months
+              Beta Test. $20 Access in 3 Months
             </button>
           </div>
         </div>
