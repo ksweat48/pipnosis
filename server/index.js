@@ -548,7 +548,7 @@ app.post('/api/waitlist', async (req, res) => {
 // Market analysis endpoint - Added to fix 404 error
 app.get('/api/market/analysis', (req, res) => {
   try {
-    console.log('📊 Market analysis requested');
+    console.log('📊 Market analysis requested from:', req.get('Origin') || 'unknown');
     
     // Use the same fallback data as the market-data endpoint
     const fallbackMarketData = [
@@ -567,12 +567,12 @@ app.get('/api/market/analysis', (req, res) => {
     // Format the response to match the expected structure
     const response = {
       symbols: fallbackMarketData.map(item => ({
-        symbol: item.symbol,
-        bid: item.price - 0.0002,
-        ask: item.price + 0.0002,
+        symbol: item.symbol || 'EURUSD',
+        bid: (item.price || 1.1425) - 0.0002,
+        ask: (item.price || 1.1425) + 0.0002,
         spread: 0.0004,
-        change: item.change,
-        changePercent: item.changePercent,
+        change: item.change || 0.0001,
+        changePercent: item.changePercent || 0.01,
         volume: Math.floor(Math.random() * 1000000) + 500000,
         trend: item.trend === 'up' ? 'bullish' : item.trend === 'down' ? 'bearish' : 'sideways',
         strength: Math.floor(Math.random() * 40) + 60, // 60-100 strength
@@ -596,7 +596,7 @@ app.get('/api/market/analysis', (req, res) => {
 // Account info endpoint - Added to fix 404 error
 app.get('/api/account/info', (req, res) => {
   try {
-    console.log('👤 Account info requested');
+    console.log('👤 Account info requested from:', req.get('Origin') || 'unknown');
     
     // Mock account info
     const accountInfo = {
@@ -617,7 +617,7 @@ app.get('/api/account/info', (req, res) => {
     
     res.json(accountInfo);
   } catch (error) {
-    console.error('Account info error:', error);
+    console.error('❌ Account info error:', error);
     res.status(500).json({ error: 'Failed to fetch account info' });
   }
 });

@@ -33,7 +33,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   const fetchRealMarketData = async () => {
     try {
       setIsLoading(true);
-      setError(null);
+      if (error) setError(null);
       
       // Use the correct API method for market analysis
       const data = await backendAPI.getMarketAnalysis();
@@ -41,7 +41,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
       if (data && data.symbols) {
         const formattedData: MarketDataPoint[] = data.symbols.map(symbol => ({
           symbol: symbol.symbol,
-          price: (symbol.bid + symbol.ask) / 2,
+          price: symbol.bid && symbol.ask ? (symbol.bid + symbol.ask) / 2 : 1.1425,
           change: symbol.change,
           changePercent: symbol.changePercent,
           trend: symbol.trend === 'bullish' ? 'up' : symbol.trend === 'bearish' ? 'down' : 'sideways',
@@ -115,7 +115,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
     const interval = setInterval(fetchData, user ? 10000 : 5000);
     
     return () => clearInterval(interval);
-  }, [user]);
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getSignalColor = (signal: string) => {
     switch (signal) {
