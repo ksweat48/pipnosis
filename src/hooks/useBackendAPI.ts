@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { backendAPI } from '../services/backendAPI';
-import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
 
 // Hook for backend connection status
 export const useBackendConnection = () => {
@@ -15,12 +13,6 @@ export const useBackendConnection = () => {
       try {
         const health = await backendAPI.healthCheck();
         setIsConnected(health.online);
-        
-        // Also check Supabase connection
-        const { data, error } = await supabase.from('user_profiles').select('count').limit(1);
-        if (!error) {
-          setIsConnected(true);
-        }
       } catch (error) {
         console.log('Backend health check failed, using demo mode');
         setIsConnected(false);
@@ -52,10 +44,8 @@ export const useBackendConnection = () => {
 
 // Hook for AI prompt analysis with backend
 export const useBackendPromptAnalysis = () => {
-  const { user } = useAuth();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null); 
-  const { profile } = useAuth();
 
   const analyzePrompt = useCallback(async (
     prompt: string,
@@ -71,16 +61,16 @@ export const useBackendPromptAnalysis = () => {
       const request = {
         prompt,
         accountBalance,
-        riskProfile: profile?.risk_profile || 'auto' as 'low' | 'medium' | 'high' | 'auto',
+        riskProfile: 'auto' as 'low' | 'medium' | 'high' | 'auto',
         selectedPairs,
         tradingGoal,
         timeframe: 'H1',
-        userId: user?.id
+        userId: undefined
       };
 
       console.log('🤖 Processing AI prompt:', { 
         prompt: prompt.substring(0, 50) + '...', 
-        riskProfile: profile?.risk_profile || 'auto', 
+        riskProfile: 'auto', 
         accountBalance: `$${accountBalance.toLocaleString()}` 
       });
       
@@ -101,7 +91,7 @@ export const useBackendPromptAnalysis = () => {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [user, profile]);
+  }, []);
 
   return {
     analyzePrompt,
@@ -112,7 +102,6 @@ export const useBackendPromptAnalysis = () => {
 
 // Hook for trade execution with backend
 export const useBackendTradeExecution = () => {
-  const { user } = useAuth();
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -140,7 +129,7 @@ export const useBackendTradeExecution = () => {
     } finally {
       setIsExecuting(false);
     }
-  }, [user?.id]);
+  }, []);
 
   return {
     executeTrade,

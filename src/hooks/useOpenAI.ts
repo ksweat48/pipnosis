@@ -1,7 +1,5 @@
 import { useState, useCallback } from 'react';
 import { openAIService } from '../services/openai';
-import { saveAIJournalEntry } from '../lib/supabase';
-import { useAuth } from '../contexts/AuthContext';
 
 export interface JournalEntry {
   id: string;
@@ -18,7 +16,6 @@ export interface JournalEntry {
 export const useOpenAI = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { user } = useAuth();
 
   const analyzePrompt = useCallback(async (
     prompt: string,
@@ -50,29 +47,12 @@ export const useOpenAI = () => {
       console.log('🤖 Generating journal entry with OpenAI:', eventType, tradeData);
       const journalEntry = await openAIService.generateJournalEntry(eventType, tradeData);
       
-      // Save to database if user is logged in
-      if (user && journalEntry) {
-        try {
-          await saveAIJournalEntry({
-            user_id: user.id,
-            trade_id: tradeData.tradeId,
-            entry_type: eventType,
-            title: journalEntry.title,
-            content: journalEntry.message,
-            confidence_level: journalEntry.confidence
-          });
-          console.log('✅ Journal entry saved to database');
-        } catch (error) {
-          console.error('❌ Failed to save journal entry to database:', error);
-        }
-      }
-      
       return journalEntry;
     } catch (err) {
       console.error('❌ Journal entry generation error:', err);
       return null;
     }
-  }, [user]);
+  }, []);
 
   const assessFeasibility = useCallback(async (
     goal: string,

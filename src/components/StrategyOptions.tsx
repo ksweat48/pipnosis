@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
 import { TrendingUp, Shield, Zap, DollarSign, Target, AlertTriangle, Loader, CheckCircle, RefreshCw, MessageCircle } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
-import { updateTradingPrompt, supabase } from '../lib/supabase';
 
 interface StrategyOption {
   id: string;
@@ -34,7 +32,6 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
   const [executedStrategies, setExecutedStrategies] = useState<Set<string>>(new Set());
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
-  const { user, profile } = useAuth();
 
   const getRiskIcon = (risk: string) => {
     switch (risk) {
@@ -62,30 +59,7 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
     
     try {
       console.log('🚀 Executing strategy:', option);
-      
-      // Save selected strategy to database if user is logged in
-      if (user) {
-        try {
-          // Find the most recent prompt
-          const { data: prompts, error } = await supabase
-            .from('trading_prompts')
-            .select('id')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false })
-            .limit(1);
-            
-          if (prompts && prompts.length > 0) {
-            await updateTradingPrompt(prompts[0].id, {
-              selected_strategy: option,
-              status: 'executed'
-            });
-            console.log('✅ Selected strategy saved to database');
-          }
-        } catch (error) {
-          console.error('❌ Failed to save selected strategy to database:', error);
-        }
-      }
-      
+
       if (!option.symbol) {
         option.symbol = option.tradeType.split(' ')[0];
       }
