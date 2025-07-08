@@ -16,8 +16,8 @@ interface MarketAnalysisProps {
   analysisMode: 'api' | 'screenshot';
   onModeChange: (mode: 'api' | 'screenshot') => void;
   onScreenshotUpload: (files: FileList) => void;
-  isLoading: propIsLoading,
-  error: propError
+  isLoading: boolean;
+  error: string | null;
 }
 
 export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({

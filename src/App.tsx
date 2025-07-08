@@ -22,6 +22,7 @@ import { useOpenAI } from './hooks/useOpenAI';
 import { usePipnosisAI } from './hooks/usePipnosisAI';
 import { useTradeExecution } from './hooks/useTradeExecution';
 import { useDatabaseStats } from './hooks/useDatabase';
+import { useMarketData } from './hooks/useMarketData';
 
 const WelcomeScreen = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -152,6 +153,7 @@ const Dashboard: React.FC = () => {
   const { profile, user, databaseConnected } = useAuth();
   const { updateTradeCount } = useDatabaseStats();
   const accountBalance = profile?.account_balance || 10000;
+  const { isLoading: marketLoading, error: marketError } = useMarketData();
   
   // Combined execution state
   const isExecuting = isProcessing;
