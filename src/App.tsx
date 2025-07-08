@@ -23,13 +23,69 @@ import { usePipnosisAI } from './hooks/usePipnosisAI';
 import { useTradeExecution } from './hooks/useTradeExecution';
 import { useDatabaseStats } from './hooks/useDatabase';
 
-          </div>
-        </div>
+const WelcomeScreen = () => {
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  
+  return (
+    <div className="min-h-screen bg-slate-900">
+      <Header />
+      
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="space-y-6">
+            <div className="bg-slate-800 rounded-xl border border-slate-700 p-6">
+              <h2 className="text-2xl font-bold text-white mb-4">Welcome to Pipnosis AI</h2>
+              <p className="text-slate-300 mb-6">Your intelligent forex trading companion powered by advanced AI.</p>
+              
+              <div className="space-y-4">
+                <button
+                  onClick={() => {
+                    setAuthMode('login');
+                    setShowAuthModal(true);
+                  }}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                >
+                  Login to Continue
+                </button>
+                
+                <button
+                  onClick={() => {
+                    setAuthMode('signup');
+                    setShowAuthModal(true);
+                  }}
+                  className="w-full bg-slate-700 hover:bg-slate-600 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                >
+                  Create Account
+                </button>
+              </div>
+            </div>
 
-        {/* Live Market Preview */}
-        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6">
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
+            <div className="bg-slate-800 rounded-xl border border-slate-700 p-6">
+              <h3 className="text-xl font-semibold text-white mb-4">Key Features</h3>
+              <ul className="space-y-3 text-slate-300">
+                <li className="flex items-center">
+                  <span className="mr-2">🤖</span>
+                  Advanced AI Trading Analysis
+                </li>
+                <li className="flex items-center">
+                  <span className="mr-2">📊</span>
+                  Real-time Market Data
+                </li>
+                <li className="flex items-center">
+                  <span className="mr-2">📈</span>
+                  MT5 Integration
+                </li>
+                <li className="flex items-center">
+                  <span className="mr-2">🛡️</span>
+                  Risk Management
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Live Market Preview */}
+          <div className="bg-slate-800 rounded-xl border border-slate-700 p-6">
             <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
               <h4 className="text-white font-medium mb-2">Live Market Data</h4>
               <div className="space-y-2">
@@ -48,10 +104,10 @@ import { useDatabaseStats } from './hooks/useDatabase';
               </div>
             </div>
             
-            <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
-              trades={[]}
-              todayPnL={0}
-              weeklyPnL={0}
+            <div className="bg-slate-900 rounded-lg p-4 border border-slate-600 mt-4">
+              <h4 className="text-white font-medium mb-2">Risk Management Tiers</h4>
+              <div className="space-y-2">
+                <div className="p-2 bg-green-500/20 border border-green-500/30 rounded text-green-400 text-sm">
                   Low Risk: 2% per trade
                 </div>
                 <div className="p-2 bg-yellow-500/20 border border-yellow-500/30 rounded text-yellow-400 text-sm">
