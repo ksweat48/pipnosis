@@ -26,6 +26,7 @@ export const useTradeExecution = () => {
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<TradeResult | null>(null);
 
+  const executeTrade = useCallback(async (request: TradeRequest): Promise<TradeResult> => {
     setIsExecuting(true);
     setError(null);
     setLastResult(null);
@@ -95,6 +96,8 @@ export const useTradeExecution = () => {
 
       // Log trade to local database
       if (result.success) {
+        try {
+          await mt5Client.logTrade({
             lot_size: request.volume,
             entry_price: result.price || request.price || 0,
             stop_loss: request.stopLoss,
