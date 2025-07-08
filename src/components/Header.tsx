@@ -17,6 +17,7 @@ export const Header: React.FC = () => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMT5ModalOpen, setIsMT5ModalOpen] = useState(false);
+  const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
   const navigate = useNavigate();
   const { user, profile, signOut, loading, databaseConnected } = useAuth();
 
@@ -78,8 +79,8 @@ export const Header: React.FC = () => {
     };
   }, []);
 
-  const handleWaitlistClick = () => {
-    navigate('/waitlist');
+  const handleDisclaimerClick = () => {
+    setIsDisclaimerOpen(true);
     setIsUserMenuOpen(false);
     setIsMobileMenuOpen(false);
   };
@@ -253,11 +254,11 @@ export const Header: React.FC = () => {
                           </div>
                           
                           <button
-                            onClick={handleWaitlistClick}
-                            className="w-full flex items-center space-x-3 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+                            onClick={handleDisclaimerClick}
+                            className="w-full flex items-center space-x-3 px-4 py-2 text-slate-300 hover:text-amber-400 hover:bg-slate-700 transition-colors"
                           >
                             <ExternalLink className="h-4 w-4" />
-                            <span>Waitlist Page</span>
+                            <span>Risk Disclaimer</span>
                           </button>
                           <div className="border-t border-slate-700 my-1"></div>
                           <button
@@ -295,11 +296,11 @@ export const Header: React.FC = () => {
                             <span>Create Account</span>
                           </button>
                           <button
-                            onClick={handleWaitlistClick}
-                            className="w-full flex items-center space-x-3 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+                            onClick={handleDisclaimerClick}
+                            className="w-full flex items-center space-x-3 px-4 py-2 text-slate-300 hover:text-amber-400 hover:bg-slate-700 transition-colors"
                           >
                             <ExternalLink className="h-4 w-4" />
-                            <span>Waitlist Page</span>
+                            <span>Risk Disclaimer</span>
                           </button>
                         </>
                       )}
@@ -388,12 +389,13 @@ export const Header: React.FC = () => {
                     <span>{mt5Connected ? 'Manage MT5 Connection' : 'Connect MT5'}</span>
                   </button>
                   
+                  <WebContainerNotice />
                   <button 
-                    onClick={handleWaitlistClick}
-                    className="w-full flex items-center space-x-3 p-3 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                    onClick={handleDisclaimerClick}
+                    className="w-full flex items-center space-x-3 p-3 text-slate-300 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors"
                   >
                     <ExternalLink className="h-5 w-5" />
-                    <span>Waitlist Page</span>
+                    <span>Risk Disclaimer</span>
                   </button>
                   <button 
                     onClick={() => {
@@ -440,11 +442,11 @@ export const Header: React.FC = () => {
                     <span>Create Account</span>
                   </button>
                   <button 
-                    onClick={handleWaitlistClick}
-                    className="w-full flex items-center space-x-3 p-3 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                    onClick={handleDisclaimerClick}
+                    className="w-full flex items-center space-x-3 p-3 text-slate-300 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors"
                   >
                     <ExternalLink className="h-5 w-5" />
-                    <span>Waitlist Page</span>
+                    <span>Risk Disclaimer</span>
                   </button>
                 </>
               )}

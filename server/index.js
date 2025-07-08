@@ -573,55 +573,13 @@ app.get('/api/market/analysis', (req, res) => {
         spread: 0.0004,
         change: item.change || 0.0001,
         changePercent: item.changePercent || 0.01,
-        volume: Math.floor(Math.random() * 1000000) + 500000,
-        trend: item.trend === 'up' ? 'bullish' : item.trend === 'down' ? 'bearish' : 'sideways',
-        strength: Math.floor(Math.random() * 40) + 60, // 60-100 strength
-        signals: [item.signal === 'buy' ? 'Buy Signal' : item.signal === 'sell' ? 'Sell Signal' : 'Neutral'],
-        timeframe: 'H1'
-      })),
-      marketSentiment: ['bullish', 'bearish', 'neutral'][Math.floor(Math.random() * 3)],
-      volatility: ['low', 'medium', 'high'][Math.floor(Math.random() * 3)],
-      newsImpact: ['low', 'medium', 'high'][Math.floor(Math.random() * 3)],
-      tradingRecommendation: 'Favorable conditions for trend-following strategies with proper risk management.',
-      timestamp: new Date().toISOString()
-    };
-    
-    res.json(response);
-  } catch (error) {
-    console.error('Market analysis error:', error);
-    res.status(500).json({ error: 'Failed to fetch market analysis' });
+      }
+      )
+      )
+    }
   }
-});
-
-// Account info endpoint - Added to fix 404 error
-app.get('/api/account/info', (req, res) => {
-  try {
-    console.log('👤 Account info requested from:', req.get('Origin') || 'unknown');
-    
-    // Mock account info
-    const accountInfo = {
-      balance: Math.round((10000 + (Math.random() - 0.5) * 2000) * 100) / 100,
-      equity: Math.round((10000 + (Math.random() - 0.5) * 1000) * 100) / 100,
-      margin: Math.random() * 3000 + 1000,
-      freeMargin: Math.round((8000 + (Math.random() - 0.5) * 1000) * 100) / 100,
-      marginLevel: Math.round((500 + (Math.random() - 0.5) * 100) * 100) / 100,
-      server: 'Pipnosis-Demo-Server',
-      account: '12345678',
-      currency: 'USD',
-      leverage: 100,
-      name: 'Demo Account',
-      company: 'Pipnosis Demo',
-      lastUpdate: new Date().toISOString(),
-      connectionStatus: 'Demo Mode - All features available'
-    };
-    
-    res.json(accountInfo);
-  } catch (error) {
-    console.error('❌ Account info error:', error);
-    res.status(500).json({ error: 'Failed to fetch account info' });
-  }
-});
-
+}
+)
 // Real-time market data WebSocket info
 app.get('/api/websocket-info', (req, res) => {
   res.json({
@@ -677,7 +635,6 @@ app.use((req, res) => {
       'POST /api/analyze-prompt',
       'POST /api/execute-trade',
       'GET /api/mt5-status',
-      'POST /api/waitlist',
       'GET /api/debug/routes',
       'GET /api/debug/cors'
     ]

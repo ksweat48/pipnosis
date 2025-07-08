@@ -151,6 +151,8 @@ class PipnosisAPI {
     try {
       const response = await apiClient.get('/mt5-status');
       return response.data;
+    }
+  }
   static async testConnection(): Promise<boolean> {
     try {
       await this.healthCheck();
