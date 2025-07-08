@@ -144,6 +144,7 @@ export class PipnosisAIBrain {
   public parsePrompt(prompt: string): TradingGoal {
     console.log('🧠 Parsing prompt:', prompt);
     
+    // Create a more dynamic parsing based on the actual prompt
     // Default goal
     let goal: TradingGoal = {
       type: 'profit',
@@ -179,6 +180,13 @@ export class PipnosisAIBrain {
       goal.timeframe = 'week';
     } else if (prompt.includes('this month') || prompt.includes('monthly')) {
       goal.timeframe = 'month';
+    }
+    
+    // Look for specific timeframes like "in 2 days" or "over 3 weeks"
+    const dayMatch = prompt.match(/(\d+)\s+days?/i);
+    if (dayMatch) {
+      goal.timeframe = 'custom';
+      goal.days = parseInt(dayMatch[1]);
     }
     
     console.log('🧠 Parsed goal:', goal);
@@ -520,6 +528,9 @@ export class PipnosisAIBrain {
   public async processPrompt(prompt: string): Promise<PromptAnalysisResult> {
     console.log('🧠 Processing prompt:', prompt);
     
+    // Create a seed based on the prompt for consistent randomization
+    const seed = prompt.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    
     // 1. Parse the prompt to extract the trading goal
     const goal = this.parsePrompt(prompt);
     
@@ -530,7 +541,13 @@ export class PipnosisAIBrain {
     const finalGoal = feasibility.feasible ? goal : (feasibility.adjustedGoal || goal);
     
     // 4. Analyze trading pairs
-    const marketConditions = this.analyzePairs(finalGoal, true);
+    // Use the prompt to influence pair selection
+    const useTier2 = prompt.toLowerCase().includes('aggressive') || 
+                    prompt.toLowerCase().includes('high risk') || 
+                    prompt.toLowerCase().includes('tier 2') ||
+                    prompt.toLowerCase().includes('volatile');
+    
+    const marketConditions = this.analyzePairs(finalGoal, useTier2);
     
     // 5. Generate strategies
     const strategies = this.generateStrategies(finalGoal, marketConditions);
