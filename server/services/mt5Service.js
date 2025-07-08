@@ -1,6 +1,5 @@
 import { spawn } from 'child_process';
 import WebSocket from 'ws';
-import { logTradeExecution, saveAIJournalEntry } from '../lib/supabase.js';
 
 class MT5Service {
   constructor() {
@@ -160,30 +159,7 @@ class MT5Service {
 
   async handleTradeResult(tradeData) {
     try {
-      // Save trade to Supabase
-      await logTradeExecution({
-        user_id: tradeData.user_id,
-        symbol: tradeData.symbol,
-        trade_type: tradeData.action,
-        lot_size: tradeData.volume,
-        entry_price: tradeData.price,
-        stop_loss: tradeData.sl,
-        take_profit: tradeData.tp,
-        status: tradeData.success ? 'open' : 'failed',
-        mt5_ticket: tradeData.ticket,
-        opened_at: new Date().toISOString()
-      });
-
-      // Generate AI journal entry
-      await saveAIJournalEntry({
-        user_id: tradeData.user_id,
-        entry_type: 'trade_entry',
-        title: `${tradeData.symbol} ${tradeData.action.toUpperCase()} Trade ${tradeData.success ? 'Executed' : 'Failed'}`,
-        content: `Trade ${tradeData.success ? 'successfully executed' : 'failed'} via MT5. ${tradeData.comment || ''}`,
-        confidence_level: 'high'
-      });
-
-      console.log('✅ Trade result processed and saved to Supabase');
+      console.log('✅ Trade result processed:', tradeData);
     } catch (error) {
       console.error('❌ Failed to process trade result:', error);
     }
@@ -210,12 +186,6 @@ class MT5Service {
   async handleAccountUpdate(accountData) {
     try {
       this.accountInfo = accountData;
-      
-      // Update account balance in Supabase if user_id is available
-      if (accountData.user_id) {
-        // Note: updateAccountBalance function would need to be imported
-        // await updateAccountBalance(accountData.user_id, accountData.balance);
-      }
     } catch (error) {
       console.error('❌ Failed to update account info:', error);
     }

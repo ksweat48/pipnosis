@@ -61,7 +61,7 @@ export const useBackendPromptAnalysis = () => {
       const request = {
         prompt,
         accountBalance,
-        riskProfile: 'auto' as 'low' | 'medium' | 'high' | 'auto',
+        riskProfile: 'auto',
         selectedPairs,
         tradingGoal,
         timeframe: 'H1'

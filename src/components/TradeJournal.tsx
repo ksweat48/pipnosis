@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { BookOpen, Clock, TrendingUp, TrendingDown, AlertCircle, Pause, Target, ThumbsUp, RotateCcw, MessageCircle } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
 
 interface JournalEntry {
   id: string;
@@ -22,7 +21,6 @@ interface TradeJournalProps {
 
 export const TradeJournal: React.FC<TradeJournalProps> = ({ entries, onReaction }) => {
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
-  const { user } = useAuth();
 
   const getEntryIcon = (type: string) => {
     switch (type) {
@@ -95,19 +93,9 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ entries, onReaction 
       <div className="max-h-80 sm:max-h-96 overflow-y-auto">
         {entries.length === 0 ? (
           <div className="p-4 sm:p-6 text-center text-slate-400">
-            {user ? (
-              <>
-                <BookOpen className="h-8 w-8 sm:h-12 sm:w-12 mx-auto mb-3 opacity-50" />
-                <p className="text-sm sm:text-base">No trading activity yet</p>
-                <p className="text-xs sm:text-sm">AI decisions will appear here in real-time</p>
-              </>
-            ) : (
-              <>
-                <BookOpen className="h-8 w-8 sm:h-12 sm:w-12 mx-auto mb-3 opacity-50" />
-                <p className="text-sm sm:text-base">Sign in to view your trade journal</p>
-                <p className="text-xs sm:text-sm">Your trading decisions and AI insights will be recorded here</p>
-              </>
-            )}
+            <BookOpen className="h-8 w-8 sm:h-12 sm:w-12 mx-auto mb-3 opacity-50" />
+            <p className="text-sm sm:text-base">No trading activity yet</p>
+            <p className="text-xs sm:text-sm">AI decisions will appear here in real-time</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-700">

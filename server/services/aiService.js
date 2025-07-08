@@ -16,7 +16,6 @@ console.log('- OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? `${process.env.OPE
 
 // Import OpenAI AFTER environment variables are loaded
 import OpenAI from 'openai';
-import { saveAIJournalEntry, saveTradingSession } from '../lib/supabase.js';
 
 // Initialize OpenAI with better error handling - DON'T crash if API key is missing
 let openai = null;
@@ -95,20 +94,6 @@ class AIService {
 
   async analyzePrompt(prompt, accountBalance, marketData, userId) {
     try {
-      // Save the trading session to Supabase
-      let session = null;
-      try {
-        session = await saveTradingSession({
-          user_id: userId,
-          prompt_text: prompt,
-          account_balance: accountBalance,
-          market_data: marketData,
-          status: 'analyzing'
-        });
-      } catch (supabaseError) {
-        console.warn('⚠️ Failed to save trading session:', supabaseError.message);
-      }
-
       let analysis;
 
       if (this.isInitialized && openai) {
@@ -119,54 +104,10 @@ class AIService {
         analysis = this.getMockAnalysis();
       }
 
-      // Update session with results
-      if (session) {
-        try {
-          await saveTradingSession({
-            ...session,
-            strategies_generated: analysis.strategies,
-            status: 'completed',
-            ai_confidence: analysis.confidence
-          });
-        } catch (supabaseError) {
-          console.warn('⚠️ Failed to update trading session:', supabaseError.message);
-        }
-      }
-
-      // Generate AI journal entry
-      if (userId) {
-        try {
-          await saveAIJournalEntry({
-            user_id: userId,
-            entry_type: 'market_update',
-            title: 'AI Strategy Analysis Complete',
-            content: `Analyzed prompt: "${prompt}". Generated ${analysis.strategies.length} strategies with ${analysis.confidence} confidence. ${analysis.summary}`,
-            confidence_level: analysis.confidence
-          });
-        } catch (supabaseError) {
-          console.warn('⚠️ Failed to save journal entry:', supabaseError.message);
-        }
-      }
-
       return analysis;
     } catch (error) {
       console.error('❌ AI Analysis failed:', error);
       
-      // Save error to journal
-      if (userId) {
-        try {
-          await saveAIJournalEntry({
-            user_id: userId,
-            entry_type: 'ai_decision',
-            title: 'Analysis Error',
-            content: `Failed to analyze prompt due to: ${error.message}. Using fallback strategies.`,
-            confidence_level: 'low'
-          });
-        } catch (supabaseError) {
-          console.warn('⚠️ Failed to save error journal entry:', supabaseError.message);
-        }
-      }
-
       return this.getMockAnalysis();
     }
   }
@@ -310,17 +251,16 @@ Return a JSON object with this structure:
 
       const parsed = JSON.parse(content);
       
-      // Save to Supabase
-      const entry = await saveAIJournalEntry({
-        user_id: userId,
-        trade_id: tradeData.tradeId,
-        entry_type: eventType,
+      return {
+        id: Date.now().toString(),
+        timestamp: new Date().toISOString(),
+        type: eventType,
         title: parsed.title,
         content: parsed.content,
-        confidence_level: parsed.confidence_level
-      });
-
-      return entry;
+        confidence_level: parsed.confidence_level,
+        tradeId: tradeData.tradeId,
+        symbol: tradeData.symbol
+      };
     } catch (error) {
       console.error('❌ Failed to generate journal entry:', error);
       return this.getMockJournalEntry(eventType, tradeData);

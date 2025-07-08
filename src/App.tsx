@@ -13,7 +13,6 @@ import { MT5Dashboard } from './components/MT5Dashboard';
 import { WebContainerNotice } from './components/WebContainerNotice';
 import { MT5ConnectionModal } from './components/MT5ConnectionModal';
 import { RiskManagementEngine } from './components/RiskManagementEngine';
-import { UserProfile } from './components/UserProfile';
 import { useBackendPromptAnalysis } from './hooks/useBackendAPI';
 import { useOpenAI } from './hooks/useOpenAI'; 
 import { usePipnosisAI } from './hooks/usePipnosisAI';
@@ -344,8 +343,6 @@ const App: React.FC = () => {
           </div>
           
           <div className="space-y-4 sm:space-y-6">
-            <UserProfile accountBalance={accountBalance} />
-            
             <TradeJournal
               entries={journalEntries}
               onReaction={handleJournalReaction}
@@ -364,4 +361,11 @@ const App: React.FC = () => {
   );
 };
 
-export default App;
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Dashboard />} />
+      <Route path="/waitlist" element={<LandingPage />} />
+    </Routes>
+  );
+}

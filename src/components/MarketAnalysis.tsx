@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, Camera, Upload, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
 
 interface MarketDataPoint {
   symbol: string;
@@ -32,7 +31,6 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   lastUpdated = null,
   refetch = () => {}
 }) => {
-  const { user } = useAuth();
   const [showAll, setShowAll] = useState(false);
 
   const getSignalColor = (signal: string) => {
@@ -290,7 +288,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
               {analysisMode === 'api' 
                 ? isLoading ? 'Fetching live data...' 
                 : error ? 'Using fallback data' 
-                : user ? 'Live market data' : 'Demo market data'
+                : 'Demo market data'
                 : 'Screenshot mode'}
             </span>
           </div>

@@ -48,14 +48,12 @@ if (!envLoaded) {
 // Verify critical environment variables
 console.log('\n🔑 Environment Variable Status:');
 console.log('- OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? `${process.env.OPENAI_API_KEY.substring(0, 10)}...` : '❌ MISSING');
-console.log('- SUPABASE_URL:', process.env.SUPABASE_URL ? '✅ SET' : '❌ MISSING');
-console.log('- SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? '✅ SET' : '❌ MISSING');
 console.log('- PORT:', process.env.PORT || '3001 (default)');
 console.log('- NODE_ENV:', process.env.NODE_ENV || 'development (default)');
 
 // Import services AFTER environment variables are loaded
 console.log('\n📦 Loading services...');
-let mt5Service, aiService, supabase, createUserProfile, logTradeExecution;
+let mt5Service, aiService;
 
 try {
   const mt5Module = await import('./services/mt5Service.js');
@@ -88,19 +86,6 @@ try {
   };
 }
 
-try {
-  const supabaseModule = await import('./lib/supabase.js');
-  supabase = supabaseModule.supabase;
-  createUserProfile = supabaseModule.createUserProfile;
-  logTradeExecution = supabaseModule.logTradeExecution;
-  console.log('✅ Supabase loaded');
-} catch (error) {
-  console.warn('⚠️ Supabase failed to load:', error.message);
-  // Create mock Supabase functions
-  supabase = { from: () => ({ select: () => ({ limit: () => ({ data: null, error: new Error('Supabase not available') }) }) }) };
-  createUserProfile = async () => null;
-  logTradeExecution = async () => null;
-}
 
 console.log('✅ All services loaded successfully');
 
@@ -176,16 +161,6 @@ async function initializeServices() {
   console.log('🚀 Initializing Pipnosis Backend Services...');
   
   try {
-    // Test Supabase connection
-    if (supabase && supabase.from) {
-      const { data, error } = await supabase.from('user_profiles').select('count').limit(1);
-      if (error) {
-        console.warn('⚠️ Supabase connection failed:', error.message);
-      } else {
-        console.log('✅ Supabase connected successfully');
-      }
-    }
-
     // Initialize MT5 service
     if (mt5Service && mt5Service.initializeBridge) {
       const mt5Initialized = await mt5Service.initializeBridge();
@@ -242,7 +217,6 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     version: '2.0.0',
     services: {
-      supabase: supabase && supabase.from ? 'connected' : 'disconnected',
       mt5: mt5Service && mt5Service.getConnectionStatus ? 
            (mt5Service.getConnectionStatus().connected ? 'connected' : 'disconnected') : 'unavailable',
       ai: aiService && aiService.isInitialized ? 'connected' : 'mock'
@@ -290,55 +264,10 @@ app.get('/api/market-data', async (req, res) => {
       try {
         marketData = await mt5Service.getMarketData();
         if (!marketData || marketData.length === 0) {
-          marketData = fallbackMarketData;
-        }
-      } catch (error) {
-        console.warn('⚠️ MT5 market data failed, using fallback:', error.message);
-        marketData = fallbackMarketData;
-      }
-    }
-    
-    console.log('📊 Returning market data:', marketData.length, 'items');
-    res.json(marketData);
-  } catch (error) {
-    console.error('Market data error:', error);
-    res.status(500).json({ error: 'Failed to fetch market data' });
-  }
-});
-
-// AI prompt analysis endpoint
-app.post('/api/analyze-prompt', async (req, res) => {
-  try {
-    const { prompt, accountBalance, marketData, userId } = req.body;
-    
-    if (!prompt) {
-      return res.status(400).json({ error: 'Prompt is required' });
-    }
-
-    console.log(`🧠 Analyzing prompt: "${prompt}" for user: ${userId || 'anonymous'}`);
-    
-    let analysis;
-    
     if (aiService && aiService.analyzePrompt) {
       try {
         analysis = await aiService.analyzePrompt(
           prompt, 
-          accountBalance || 10000, 
-          marketData,
-          userId
-        );
-      } catch (error) {
-        console.warn('⚠️ AI analysis failed, using fallback:', error.message);
-        analysis = getFallbackAnalysis();
-      }
-    } else {
-      analysis = getFallbackAnalysis();
-    }
-    
-    console.log('🧠 Analysis complete:', analysis.strategies.length, 'strategies generated');
-    res.json(analysis);
-  } catch (error) {
-    console.error('Prompt analysis error:', error);
     res.status(500).json({ error: 'Failed to analyze prompt' });
   }
 });
@@ -430,22 +359,6 @@ app.post('/api/execute-trade', async (req, res) => {
       result = getMockTradeResult(tradeRequest);
     }
 
-    // Generate AI journal entry for the trade
-    if (userId && aiService && aiService.generateJournalEntry) {
-      try {
-        await aiService.generateJournalEntry('trade_entry', {
-          symbol: result.symbol,
-          action: tradeRequest.action,
-          price: result.price,
-          strategy: strategy.name,
-          tradeId: result.ticket,
-          success: result.success
-        }, userId);
-      } catch (error) {
-        console.warn('⚠️ Journal entry generation failed:', error.message);
-      }
-    }
-
     const response = {
       success: result.success,
       tradeId: result.ticket,
@@ -506,30 +419,6 @@ app.post('/api/waitlist', async (req, res) => {
     }
 
     console.log('📧 Waitlist signup:', { email, plan, timestamp: new Date().toISOString() });
-    
-    // Save to Supabase waitlist table
-    if (supabase && supabase.from) {
-      try {
-        const { data, error } = await supabase
-          .from('waitlist')
-          .insert({
-            email,
-            plan_type: plan || 'free',
-            created_at: new Date().toISOString()
-          })
-          .select()
-          .single();
-
-        if (error && error.code !== '23505') { // Ignore duplicate email errors
-          throw error;
-        }
-
-        console.log('✅ Waitlist entry saved to Supabase');
-      } catch (supabaseError) {
-        console.warn('⚠️ Supabase waitlist save failed:', supabaseError.message);
-        // Continue with response even if Supabase fails
-      }
-    }
     
     const response = {
       success: true,

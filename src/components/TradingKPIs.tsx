@@ -3,7 +3,6 @@ import {
   BarChart3, TrendingUp, TrendingDown, Target, CheckCircle, Activity, 
   Calendar, ChevronDown, ChevronUp, RefreshCw
 } from 'lucide-react';
-import { backendAPI } from '../services/backendAPI';
 
 interface TradingKPIsProps {
   className?: string;
@@ -13,10 +12,10 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [kpiData, setKpiData] = useState({
-    winRate: 0,
-    averageRRR: 0,
-    maxDrawdown: 0,
-    monthlyReturn: 0
+    winRate: 73.5,
+    averageRRR: 2.1,
+    maxDrawdown: 8.2,
+    monthlyReturn: 12.8
   });
 
   // Get trade counts from localStorage
@@ -30,22 +29,21 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
   const refreshStats = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      // Get real KPI data from backend
-      try {
-        const riskAnalysis = await backendAPI.getRiskAnalysis();
+      // Simulate loading data
+      setTimeout(() => {
         setKpiData({
           winRate: 73.5,
-          averageRRR: 2.1, // This would come from the backend in a real implementation
-          maxDrawdown: riskAnalysis.maxDrawdown || 0,
-          monthlyReturn: riskAnalysis.weeklyRisk * 4 || 0 // Approximation
+          averageRRR: 2.1,
+          maxDrawdown: 8.2,
+          monthlyReturn: 12.8
         });
-      } catch (error) {
-        console.error('Failed to load KPI data:', error);
-      }
+        setIsRefreshing(false);
+      }, 500);
     } catch (error) {
       console.error('Error refreshing stats:', error);
-    } finally {
       setIsRefreshing(false);
+    } finally {
+      // Handled in the timeout
     }
   }, []);
   

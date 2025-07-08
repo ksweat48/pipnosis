@@ -20,7 +20,7 @@ export const useMarketData = (refreshInterval: number = 5000) => {
   const fetchMarketData = useCallback(async () => {
     try {
       setIsLoading(true);
-      setError(null); 
+      setError(null);
       
       // Check if we're in WebContainer environment - simplified check
       const isWebContainer = window.location.hostname.includes('webcontainer') || 

@@ -1,3 +1,5 @@
+// Simple mock data hook to replace Supabase database functionality
+
 import { useState, useEffect, useCallback } from 'react';
 
 export const useDatabaseStats = () => {
