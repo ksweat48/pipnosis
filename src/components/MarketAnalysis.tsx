@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, Camera, Upload, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
-import { backendAPI } from '../services/backendAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { useMarketData } from '../hooks/useAPI';
 
@@ -45,7 +44,17 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
     }
   };
 
-  const displayedData = showAll ? marketData : marketData.slice(0, 3);
+  // Ensure marketData is always an array
+  const safeMarketData = Array.isArray(marketData) ? marketData : [];
+  
+  // Tier 1 pairs (first 7) - always shown in "show less" mode
+  const tier1Pairs = safeMarketData.slice(0, 7);
+  // Tier 2 pairs (remaining) - only shown in "show more" mode
+  const tier2Pairs = safeMarketData.slice(7);
+  
+  // Show only Tier 1 pairs by default, or all pairs if showAll is true
+  const displayedData = showAll ? safeMarketData : tier1Pairs;
+  const hasTier2Pairs = tier2Pairs.length > 0;
 
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700">
@@ -65,7 +74,6 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
                   ? 'bg-blue-500 text-white' 
                   : 'text-slate-400 hover:text-white'
               }`}
-            
             >
               Live Data
             </button>
@@ -127,73 +135,144 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
                 <RefreshCw className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
                 <p className="text-slate-400">Loading live market data...</p>
               </div>
-            ) : marketData.length === 0 ? (
+            ) : safeMarketData.length === 0 ? (
               <div className="text-center py-8">
                 <BarChart3 className="h-8 w-8 text-slate-400 mx-auto mb-3" />
                 <p className="text-slate-400">No market data available</p>
+                <p className="text-slate-500 text-sm mt-1">
+                  {error ? 'Connection error - check backend status' : 'Waiting for data...'}
+                </p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {displayedData.map((data) => (
-                  <div key={data.symbol} className="bg-slate-900 rounded-lg p-3 sm:p-4 border border-slate-600 hover:border-slate-500 transition-colors">
-                    <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-                      <div className="flex items-center space-x-3 sm:space-x-4">
-                        <div className="flex items-center space-x-2">
-                          <h4 className="font-semibold text-white text-base sm:text-lg min-w-[60px] sm:min-w-[80px]">
-                            {data.symbol}
-                          </h4>
-                          {getTrendIcon(data.trend)}
-                        </div>
-                        
-                        <div className="flex items-center space-x-3 sm:space-x-6">
-                          <div>
-                            <p className="text-lg sm:text-xl font-bold text-white">
-                              {data.price.toFixed(data.symbol.includes('JPY') ? 2 : 5)}
-                            </p>
+              <>
+                {/* Tier 1 Pairs Section */}
+                {tier1Pairs.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-medium text-emerald-400 flex items-center space-x-2">
+                        <span>🔷 Tier 1 - Major Pairs</span>
+                        <span className="text-xs text-slate-400">({tier1Pairs.length} pairs)</span>
+                      </h4>
+                    </div>
+                    
+                    {tier1Pairs.map((data) => (
+                      <div key={data.symbol} className="bg-slate-900 rounded-lg p-3 sm:p-4 border border-slate-600">
+                        <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+                          <div className="flex items-center space-x-3 sm:space-x-4">
+                            <div className="flex items-center space-x-2">
+                              <h4 className="font-semibold text-white text-base sm:text-lg min-w-[60px] sm:min-w-[80px]">{data.symbol}</h4>
+                              {getTrendIcon(data.trend)}
+                            </div>
+                            
+                            <div className="flex items-center space-x-3 sm:space-x-6">
+                              <div>
+                                <p className="text-lg sm:text-xl font-bold text-white">
+                                  {data.price.toFixed(data.symbol.includes('JPY') ? 2 : 5)}
+                                </p>
+                              </div>
+                              
+                              <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-3 space-y-1 sm:space-y-0">
+                                <span className={`text-xs sm:text-sm font-medium ${data.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  {data.change >= 0 ? '+' : ''}{data.change.toFixed(data.symbol.includes('JPY') ? 2 : 5)}
+                                </span>
+                                <span className={`text-xs sm:text-sm ${data.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  ({data.changePercent >= 0 ? '+' : ''}{data.changePercent.toFixed(2)}%)
+                                </span>
+                              </div>
+                            </div>
                           </div>
                           
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-3 space-y-1 sm:space-y-0">
-                            <span className={`text-xs sm:text-sm font-medium ${data.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              {data.change >= 0 ? '+' : ''}{data.change.toFixed(data.symbol.includes('JPY') ? 2 : 5)}
-                            </span>
-                            <span className={`text-xs sm:text-sm ${data.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              ({data.changePercent >= 0 ? '+' : ''}{data.changePercent.toFixed(2)}%)
+                          <div className="flex justify-end">
+                            <span className={`px-2 py-1 sm:px-3 rounded text-xs font-medium border ${getSignalColor(data.signal)}`}>
+                              {data.signal.toUpperCase()}
                             </span>
                           </div>
                         </div>
                       </div>
-                      
-                      <div className="flex items-center space-x-2">
-                        <span className={`px-2 py-1 rounded text-xs font-medium border ${getSignalColor(data.signal)}`}>
-                          {data.signal.toUpperCase()}
-                        </span>
-                      </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-                
-                {marketData.length > 3 && (
-                  <button 
-                    onClick={() => setShowAll(!showAll)}
-                    className="w-full py-2 text-blue-400 hover:text-blue-300 bg-slate-900 rounded-lg border border-slate-600 hover:border-blue-500 transition-colors flex items-center justify-center space-x-2"
-                  >
-                    <span>{showAll ? 'Show Less' : `Show ${marketData.length - 3} More Pairs`}</span>
-                    {showAll ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </button>
                 )}
-              </div>
+
+                {/* Tier 2 Pairs Section - Only show when expanded */}
+                {showAll && tier2Pairs.length > 0 && (
+                  <div className="space-y-3 mt-6">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-medium text-yellow-400 flex items-center space-x-2">
+                        <span>🔶 Tier 2 - Volatile & High RRR</span>
+                        <span className="text-xs text-slate-400">({tier2Pairs.length} pairs)</span>
+                      </h4>
+                    </div>
+                    
+                    {tier2Pairs.map((data) => (
+                      <div key={data.symbol} className="bg-slate-900 rounded-lg p-3 sm:p-4 border border-slate-600">
+                        <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+                          <div className="flex items-center space-x-3 sm:space-x-4">
+                            <div className="flex items-center space-x-2">
+                              <h4 className="font-semibold text-white text-base sm:text-lg min-w-[60px] sm:min-w-[80px]">{data.symbol}</h4>
+                              {getTrendIcon(data.trend)}
+                            </div>
+                            
+                            <div className="flex items-center space-x-3 sm:space-x-6">
+                              <div>
+                                <p className="text-lg sm:text-xl font-bold text-white">
+                                  {data.price.toFixed(data.symbol.includes('JPY') ? 2 : 5)}
+                                </p>
+                              </div>
+                              
+                              <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-3 space-y-1 sm:space-y-0">
+                                <span className={`text-xs sm:text-sm font-medium ${data.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  {data.change >= 0 ? '+' : ''}{data.change.toFixed(data.symbol.includes('JPY') ? 2 : 5)}
+                                </span>
+                                <span className={`text-xs sm:text-sm ${data.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  ({data.changePercent >= 0 ? '+' : ''}{data.changePercent.toFixed(2)}%)
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex justify-end">
+                            <span className={`px-2 py-1 sm:px-3 rounded text-xs font-medium border ${getSignalColor(data.signal)}`}>
+                              {data.signal.toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Show More/Less Button */}
+                {hasTier2Pairs && (
+                  <div className="flex justify-center pt-4">
+                    <button
+                      onClick={() => setShowAll(!showAll)}
+                      className="flex items-center space-x-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors text-sm"
+                    >
+                      <span>
+                        {showAll 
+                          ? `Show Less (Tier 1 only - ${tier1Pairs.length} pairs)` 
+                          : `Show More (Tier 1 + Tier 2 - ${safeMarketData.length} total pairs)`
+                        }
+                      </span>
+                      {showAll ? (
+                        <ChevronUp className="h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
+        {/* Data Source Indicator */}
         <div className="mt-4 flex items-center justify-between text-xs text-slate-400">
           <div className="flex items-center space-x-2">
-            <div className={`w-2 h-2 rounded-full ${
-              isLoading ? 'bg-yellow-400 animate-pulse' : 
-              error ? 'bg-red-400' : 'bg-green-400'
-            }`}></div>
+            <div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-yellow-400 animate-pulse' : error ? 'bg-red-400' : 'bg-green-400'}`}></div>
             <span>
-              {lastUpdated && `Updated: ${lastUpdated.toLocaleTimeString()}`}
+              {analysisMode === 'api' 
                 ? isLoading 
                   ? 'Fetching live data...' 
                   : error 
@@ -205,8 +284,8 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
               }
             </span>
           </div>
-          {analysisMode === 'api' && !isLoading && !error && marketData.length > 0 && lastUpdate && (
-            <span>Updated: {lastUpdate.toLocaleTimeString()}</span>
+          {analysisMode === 'api' && !isLoading && !error && safeMarketData.length > 0 && lastUpdated && (
+            <span>Updated: {lastUpdated.toLocaleTimeString()}</span>
           )}
         </div>
       </div>
