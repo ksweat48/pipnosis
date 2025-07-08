@@ -18,7 +18,8 @@ import { AuthModal } from './components/auth/AuthModal';
 import { MT5ConnectionModal } from './components/MT5ConnectionModal';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useBackendPromptAnalysis, useBackendTradeExecution } from './hooks/useBackendAPI';
-import { useOpenAI } from './hooks/useOpenAI';
+import { useOpenAI } from './hooks/useOpenAI'; 
+import { usePipnosisAI } from './hooks/usePipnosisAI';
 import { usePipnosisAI } from './hooks/usePipnosisAI';
 import { useTradeExecution } from './hooks/useTradeExecution';
 import { useDatabaseStats } from './hooks/useDatabase';
@@ -146,7 +147,7 @@ const Dashboard: React.FC = () => {
   // API Hooks
   const { analyzePrompt, isAnalyzing, error: analysisError } = useBackendPromptAnalysis();
   const { executeTrade: backendExecuteTrade, isExecuting: isBackendExecuting } = useBackendTradeExecution();
-  const { generateJournalEntry, explainDecision } = useOpenAI();
+  const { executeTrade, isExecuting: isMT5Executing, error: mt5Error } = useTradeExecution();
   
   // Pipnosis AI Brain Hook
   const { processPrompt, executeStrategy, isProcessing, error: aiError } = usePipnosisAI();
@@ -159,7 +160,14 @@ const Dashboard: React.FC = () => {
   const accountBalance = profile?.account_balance || 10000;
   
   // Combined execution state
+  
+  // Pipnosis AI Brain Hook
+  const { processPrompt, executeStrategy, isProcessing, error: aiError } = usePipnosisAI();
   const isExecuting = isBackendExecuting || isProcessing || isMT5Executing;
+  const error = analysisError || aiError || mt5Error;
+  
+  // Combined execution state
+  const isExecuting = isMT5Executing || isProcessing;
   const error = analysisError || aiError || mt5Error;
 
   // Auto-scroll to strategy options when they're available
@@ -252,7 +260,6 @@ const Dashboard: React.FC = () => {
 
   const handleStrategySelect = async (option: StrategyOption) => {
     try {
-      console.log('🚀 Executing strategy via MT5:', option);
       
       // Extract symbol and action from tradeType if not provided directly
       const symbol = option.symbol || option.tradeType.split(' ')[0];
@@ -419,8 +426,6 @@ const Dashboard: React.FC = () => {
               analysisMode={analysisMode}
               onModeChange={setAnalysisMode}
               onScreenshotUpload={handleScreenshotUpload}
-            />
-            
             {/* Risk Management Dashboard */}
             <RiskManagementEngine 
               isVisible={showRiskDashboard}
