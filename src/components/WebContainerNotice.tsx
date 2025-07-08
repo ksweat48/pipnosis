@@ -8,8 +8,8 @@ interface WebContainerNoticeProps {
 export const WebContainerNotice: React.FC<WebContainerNoticeProps> = ({ onClose }) => {
   const isWebContainer = window.location.hostname.includes('webcontainer-api.io') || 
                          window.location.hostname.includes('local-credentialless') ||
-                         window.location.hostname.includes('bolt.new') ||
-                         window.location.hostname.includes('stackblitz');
+                         window.location.hostname.includes('bolt.new') || 
+                         window.location.hostname.includes('stackblitz.io');
 
   if (!isWebContainer) return null;
 
