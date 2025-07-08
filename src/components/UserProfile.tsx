@@ -7,8 +7,8 @@ export const UserProfile: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [editData, setEditData] = useState({
-    full_name: profile?.full_name || '',
-    risk_profile: profile?.risk_profile || 'auto',
+    full_name: profile?.full_name || '', 
+    risk_profile: profile?.risk_profile || 'auto', 
   });
 
   const [mt5Connected, setMt5Connected] = useState(false);

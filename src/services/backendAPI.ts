@@ -157,7 +157,7 @@ export class BackendAPIService {
   private async makeRequest<T>(
     endpoint: string, 
     options: RequestInit = {}
-  ): Promise<T> {
+  ): Promise<T> { 
     // If in fallback mode, immediately throw to use mock data
     if (this.fallbackMode) {
       throw new Error('Using fallback mode');
@@ -168,7 +168,7 @@ export class BackendAPIService {
     const defaultHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      'User-Agent': 'Pipnosis-Frontend/2.0.0'
+      'User-Agent': 'Pipnosis-Frontend/2.0.0' 
     };
 
     if (this.config.apiKey) {
@@ -275,8 +275,8 @@ export class BackendAPIService {
   async healthCheck(): Promise<{ status: string; timestamp: string; online: boolean; version?: string }> {
     try {
       // Use a shorter timeout for health check
-      const controller = new AbortController(); 
-      const timeoutId = setTimeout(() => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => { 
         controller.abort();
         console.log('Health check timeout - aborting request');
       }, 2000); // Even shorter timeout (2 seconds)

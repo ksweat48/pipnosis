@@ -2,12 +2,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { 
   supabase, 
-  createUserProfile, 
-  getUserProfile, 
-  UserProfile,
-  subscribeToUserData,
-  checkDatabaseHealth,
-  isValidUUID
+  createUserProfile, getUserProfile, UserProfile,
+  subscribeToUserData, checkDatabaseHealth, isValidUUID
 } from '../lib/supabase';
 
 interface AuthContextType {
@@ -44,8 +40,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [showDatabaseSetup, setShowDatabaseSetup] = useState(false);
   const [authInitialized, setAuthInitialized] = useState(false);
   const [isTestUser, setIsTestUser] = useState(false);
-  const [dbCheckInProgress, setDbCheckInProgress] = useState(false);
-  const [dbConnectionConfirmed, setDbConnectionConfirmed] = useState(false);
+  const [dbCheckInProgress, setDbCheckInProgress] = useState(false); 
+  const [dbConnectionConfirmed, setDbConnectionConfirmed] = useState(false); 
 
   // Check if we're in production
   const isProduction = window.location.hostname === 'pipnosis.com' || 
@@ -57,7 +53,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let mounted = true;
     let checkTimeout: NodeJS.Timeout;
 
-    const checkDB = async () => {
+    const checkDB = async () => { 
       // CRITICAL FIX: If user is logged in and we've already confirmed DB connection, 
       // don't check again unless it's been a long time
       if (user && dbConnectionConfirmed && !isTestUser) {
@@ -255,8 +251,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // CRITICAL FIX: Enhanced session initialization with better timeout handling
   useEffect(() => {
     let mounted = true;
-    let initializationTimeout: number | null = null;
-    let sessionCheckTimeout: number | null = null;
+    let initializationTimeout: NodeJS.Timeout | null = null;
+    let sessionCheckTimeout: NodeJS.Timeout | null = null;
 
     // Check for test user session first
     const checkTestUser = () => {
@@ -296,7 +292,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.log('Checking initial auth session...');
         
         // Shorter timeout for production to prevent hanging
-        const sessionTimeout = isProduction ? 8000 : 12000;
+        const sessionTimeout = isProduction ? 8000 : 12000; 
         
         initializationTimeout = setTimeout(() => {
           if (mounted && loading && !authInitialized) {
@@ -443,11 +439,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       mounted = false;
       if (initializationTimeout) {
-        window.clearTimeout(initializationTimeout);
+        clearTimeout(initializationTimeout);
         initializationTimeout = null;
       }
       if (sessionCheckTimeout) {
-        window.clearTimeout(sessionCheckTimeout);
+        clearTimeout(sessionCheckTimeout);
         sessionCheckTimeout = null;
       }
       subscription.unsubscribe();
