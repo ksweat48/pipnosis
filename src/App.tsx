@@ -129,6 +129,7 @@ const WelcomeScreen = () => {
       />
     </div>
   );
+};
 
 // Dashboard Component
 const Dashboard: React.FC = () => {
