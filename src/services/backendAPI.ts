@@ -254,7 +254,7 @@ export class BackendAPIService {
     try {
       // Use the correct endpoint that was added to the backend
       const params = symbols ? `?symbols=${symbols.join(',')}` : '';
-      const response = await this.makeRequest<MarketAnalysisResponse>(`/market/analysis${params}`);
+      const response = await this.makeRequest<MarketAnalysisResponse>(`/api/market/analysis${params}`);
       
       return response;
     } catch (error) {
@@ -267,7 +267,7 @@ export class BackendAPIService {
     try {
       // Use the correct endpoint that was added to the backend
       const params = userId ? `?userId=${userId}` : '';
-      return await this.makeRequest(`/account/info${params}`);
+      return await this.makeRequest(`/api/account/info${params}`);
     } catch (error) {
       return this.getMockAccountInfo();
     }

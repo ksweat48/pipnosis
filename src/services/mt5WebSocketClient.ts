@@ -525,7 +525,8 @@ export class MT5WebSocketClient {
       if (window.location.hostname.includes('webcontainer-api.io') || 
           window.location.hostname.includes('local-credentialless') ||
           window.location.hostname.includes('bolt.new') ||
-          window.location.hostname.includes('stackblitz')) {
+          window.location.hostname.includes('stackblitz') ||
+          window.location.hostname.includes('stackblitz.io')) {
         this.error = 'MT5 connection is not available in this preview environment. Please run the application locally to connect to MT5.';
         return {
           success: false,
