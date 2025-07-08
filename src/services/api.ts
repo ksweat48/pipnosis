@@ -25,6 +25,9 @@ const getApiBaseUrl = () => {
 };
 
 const API_BASE_URL = getApiBaseUrl();
+
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
   environment: import.meta.env.MODE, 
   hostname: window.location.hostname, 
   isProduction: isProductionEnvironment(),
