@@ -247,7 +247,7 @@ export class BackendAPIService {
   // Market Analysis with enhanced fallback
   async getMarketAnalysis(symbols?: string[]): Promise<MarketAnalysisResponse> {
     try {
-      console.log('🔄 Fetching market analysis from backend...');
+      console.log('🔄 Fetching market analysis from backend API...');
       
       // First try the market-data endpoint
       let url = '/market-data';
@@ -257,6 +257,7 @@ export class BackendAPIService {
       
       const response = await this.makeRequest<MarketAnalysisResponse>(url);
       console.log('✅ Market analysis fetched successfully');
+      this.fallbackMode = false;
       
       return response;
     } catch (error) {
@@ -267,12 +268,16 @@ export class BackendAPIService {
         console.log('🔄 Trying alternative endpoint...');
         const fallbackResponse = await this.makeRequest<MarketAnalysisResponse>('/market/analysis');
         console.log('✅ Market analysis fetched from alternative endpoint');
+        this.fallbackMode = false;
         return fallbackResponse;
       } catch (fallbackError) {
         console.error('Failed to get market analysis from alternative endpoint:', fallbackError);
       }
       
-      throw error;
+      // Enable fallback mode and return mock data
+      this.fallbackMode = true;
+      console.log('⚠️ Using mock market analysis data');
+      return this.getMockMarketAnalysis(symbols);
     }
   }
 

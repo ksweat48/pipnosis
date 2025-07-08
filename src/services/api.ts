@@ -86,12 +86,14 @@ class PipnosisAPI {
   // Market Data with fallback
   static async getMarketData(): Promise<any[]> {
     try {
-      console.log('🔄 Fetching market data from backend...');
+      console.log('🔄 Fetching market data from API...');
       const response = await apiClient.get('/market-data');
       console.log('✅ Market data fetched successfully:', response.data.length, 'items');
+      return response.data;
     } catch (error) {
       console.error('❌ Failed to fetch market data via backend:', error);
-      throw error;
+      // Return fallback data instead of throwing
+      return getFallbackMarketData();
     }
   }
 

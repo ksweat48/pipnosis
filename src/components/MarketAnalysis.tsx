@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, Camera, Upload, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useMarketData } from '../hooks/useMarketData';
+import { useState } from 'react';
 
 interface MarketDataPoint {
   symbol: string;
@@ -26,6 +27,11 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   const { user } = useAuth();
   const { marketData, isLoading, error, lastUpdated, refetch } = useMarketData();
   const [showAll, setShowAll] = useState(false);
+
+  // Handle refresh button click
+  const handleRefresh = () => {
+    refetch();
+  };
 
   const getSignalColor = (signal: string) => {
     switch (signal) {
@@ -63,6 +69,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
           <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
             <BarChart3 className="h-5 w-5 text-blue-400" />
             <span>Live Market Analysis</span>
+            <button onClick={handleRefresh} className="p-1 text-slate-400 hover:text-white transition-colors">{isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}</button>
             {isLoading && <RefreshCw className="h-4 w-4 text-blue-400 animate-spin" />}
           </h3>
           
@@ -90,16 +97,18 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
           </div>
         </div>
 
-        {analysisMode === 'api' ? (
-          <div>
-            <div className="text-sm text-slate-400 mt-2">
-              {isLoading ? 'Fetching live data...' : 
-               error ? 'Using fallback data' : 
-               'Live market data'}
+      </div>
+
+      <div className="p-4 sm:p-6">
+        {error && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start space-x-2">
+            <AlertCircle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-red-400 text-sm font-medium">Market Data Error</p>
               <p className="text-red-300 text-xs mt-1">{error}</p>
             </div>
           </div>
-        ) : null}
+        )}
 
         {analysisMode === 'screenshot' ? (
           <div className="p-4 sm:p-6 border-2 border-dashed border-slate-600 rounded-lg text-center">
@@ -134,7 +143,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
                 <RefreshCw className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
                 <p className="text-slate-400">Loading live market data...</p>
               </div>
-            ) : safeMarketData.length === 0 ? (
+            ) : marketData.length === 0 ? (
               <div className="text-center py-8">
                 <BarChart3 className="h-8 w-8 text-slate-400 mx-auto mb-3" />
                 <p className="text-slate-400">No market data available</p>
@@ -147,7 +156,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
                 {/* Tier 1 Pairs Section */}
                 {tier1Pairs.length > 0 && (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between mb-2">
                       <h4 className="text-sm font-medium text-emerald-400 flex items-center space-x-2">
                         <span>🔷 Tier 1 - Major Pairs</span>
                         <span className="text-xs text-slate-400">({tier1Pairs.length} pairs)</span>
@@ -195,7 +204,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
                 {/* Tier 2 Pairs Section - Only show when expanded */}
                 {showAll && tier2Pairs.length > 0 && (
                   <div className="space-y-3 mt-6">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between mb-2">
                       <h4 className="text-sm font-medium text-yellow-400 flex items-center space-x-2">
                         <span>🔶 Tier 2 - Volatile & High RRR</span>
                         <span className="text-xs text-slate-400">({tier2Pairs.length} pairs)</span>
@@ -242,7 +251,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
 
                 {/* Show More/Less Button */}
                 {hasTier2Pairs && (
-                  <div className="flex justify-center pt-4">
+                  <div className="flex justify-center pt-4 mt-4">
                     <button
                       onClick={() => setShowAll(!showAll)}
                       className="flex items-center space-x-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors text-sm"
@@ -267,7 +276,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
         )}
 
         {/* Data Source Indicator */}
-        <div className="mt-4 flex items-center justify-between text-xs text-slate-400">
+        <div className="mt-6 flex items-center justify-between text-xs text-slate-400">
           <div className="flex items-center space-x-2">
             <div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-yellow-400 animate-pulse' : error ? 'bg-red-400' : 'bg-green-400'}`}></div>
             <span>

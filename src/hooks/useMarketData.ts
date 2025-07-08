@@ -24,6 +24,8 @@ export const useMarketData = (refreshInterval: number = 5000) => {
       setIsLoading(true);
       setError(null);
       
+      console.log('🔄 Fetching market data...');
+      
       try {
         // First try the backend API
         const data = await backendAPI.getMarketAnalysis();
@@ -42,6 +44,7 @@ export const useMarketData = (refreshInterval: number = 5000) => {
           setMarketData(formattedData);
           setLastUpdated(new Date());
           setIsLoading(false);
+          console.log('✅ Market data fetched successfully from backend API');
           return;
         }
       } catch (backendError) {
@@ -52,6 +55,7 @@ export const useMarketData = (refreshInterval: number = 5000) => {
       try {
         const fallbackData = await pipnosisAPI.getMarketData();
         setMarketData(fallbackData);
+        console.log('✅ Market data fetched successfully from pipnosisAPI');
         setLastUpdated(new Date());
       } catch (fallbackError) {
         console.error('Both APIs failed:', fallbackError);
@@ -60,6 +64,7 @@ export const useMarketData = (refreshInterval: number = 5000) => {
         // Generate fallback data
         const generatedData = generateFallbackData();
         setMarketData(generatedData);
+        console.log('⚠️ Using generated fallback market data');
         setLastUpdated(new Date());
       }
     } finally {
@@ -69,6 +74,7 @@ export const useMarketData = (refreshInterval: number = 5000) => {
 
   // Generate fallback market data
   const generateFallbackData = (): MarketDataPoint[] => {
+    console.log('📊 Generating fallback market data');
     const pairs = [
       { symbol: 'EURUSD', basePrice: 1.1425 },
       { symbol: 'GBPUSD', basePrice: 1.2735 },
