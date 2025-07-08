@@ -143,23 +143,18 @@ const Dashboard: React.FC = () => {
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
   
   // API Hooks
-  const { analyzePrompt, isAnalyzing, error: analysisError } = usePromptAnalysis();
-  const { executeTrade: backendExecuteTrade, isExecuting: isBackendExecuting } = useTradeExecution();
   const { generateJournalEntry, explainDecision } = useOpenAI();
   
   // Pipnosis AI Brain Hook
   const { processPrompt, executeStrategy, isProcessing, error: aiError } = usePipnosisAI();
   
-  // MT5 Trade Execution Hook
-  const { executeTrade: mt5ExecuteTrade, isExecuting: isMT5Executing, error: mt5Error } = useTradeExecution();
-
   const { profile, user, databaseConnected } = useAuth();
   const { updateTradeCount } = useDatabaseStats();
   const accountBalance = profile?.account_balance || 10000;
   
   // Combined execution state
-  const isExecuting = isBackendExecuting || isProcessing;
-  const error = analysisError || aiError;
+  const isExecuting = isProcessing;
+  const error = aiError;
 
   // Auto-scroll to strategy options when they're available
   useEffect(() => {
@@ -388,11 +383,11 @@ const Dashboard: React.FC = () => {
             
             <PromptInput 
               onSubmit={handlePromptSubmit} 
-              isLoading={isAnalyzing || isProcessing}
+              isLoading={isProcessing}
               error={error}
             />
             
-            {(isAnalyzing || isProcessing) && (
+            {isProcessing && (
               <div className="bg-slate-800 rounded-xl p-6 sm:p-8 text-center border border-slate-700">
                 <div className="animate-spin h-6 w-6 sm:h-8 sm:w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
                 <p className="text-slate-400 text-sm sm:text-base">Pipnosis AI is analyzing market conditions and generating strategies...</p>
