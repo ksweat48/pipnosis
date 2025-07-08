@@ -319,9 +319,11 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
                       <p>• Pipnosis AI targets a 70-80% win rate through careful trade selection</p>
                       <p>• Risk-reward ratios of 2:1 or higher are prioritized for long-term profitability</p>
                       <p>• The system adapts after losses to maintain consistent performance</p>
-                  <p>• Risk-reward ratio of {kpiData.averageRRR.toFixed(1)}:1 shows {kpiData.averageRRR >= 2 ? 'strong' : 'moderate'} profit potential per trade</p>
-                  <p>• Recovery rate indicates {stats.winRate >= 70 ? 'excellent' : 'good'} AI adaptation after losses</p>
-                  <p>• Monthly return of {kpiData.monthlyReturn.toFixed(1)}% is {kpiData.monthlyReturn >= 10 ? 'outstanding' : kpiData.monthlyReturn >= 5 ? 'solid' : 'conservative'} for automated trading</p>
+                      <p>• Risk-reward ratio of {kpiData.averageRRR.toFixed(1)}:1 shows {kpiData.averageRRR >= 2 ? 'strong' : 'moderate'} profit potential per trade</p>
+                      <p>• Recovery rate indicates {stats.winRate >= 70 ? 'excellent' : 'good'} AI adaptation after losses</p>
+                      <p>• Monthly return of {kpiData.monthlyReturn.toFixed(1)}% is {kpiData.monthlyReturn >= 10 ? 'outstanding' : kpiData.monthlyReturn >= 5 ? 'solid' : 'conservative'} for automated trading</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
