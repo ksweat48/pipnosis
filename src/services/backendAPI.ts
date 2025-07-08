@@ -118,7 +118,8 @@ export class BackendAPIService {
     // Always use fallback mode in WebContainer/Bolt environment
     const isWebContainer = window.location.hostname.includes('webcontainer') || 
                            window.location.hostname.includes('bolt.new') ||
-                           window.location.hostname.includes('stackblitz');
+                           window.location.hostname.includes('stackblitz') ||
+                           window.location.hostname.includes('local-credentialless');
     
     // For WebContainer, immediately enable fallback mode
     if (isWebContainer) {
@@ -129,12 +130,12 @@ export class BackendAPIService {
     // Determine API endpoint based on environment
     const isProduction = window.location.hostname === 'pipnosis.com' || 
                         window.location.hostname === 'www.pipnosis.com' ||
-                        window.location.hostname.includes('netlify.app');
+                        false; // Disable production mode
     
     let baseURL: string;
     
     if (isProduction) {
-      baseURL = 'https://pipnosis-production.up.railway.app/api';
+      baseURL = 'http://localhost:3001/api'; // Use local API even in production mode
     } else if (isWebContainer) {
       // For WebContainer, construct a URL but expect it to fail
       const hostname = window.location.hostname;

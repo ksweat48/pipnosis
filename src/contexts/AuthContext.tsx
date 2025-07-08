@@ -49,7 +49,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Check if we're in production
   const isProduction = window.location.hostname === 'pipnosis.com' || 
                       window.location.hostname === 'www.pipnosis.com' ||
-                      window.location.hostname.includes('netlify.app');
+                      false; // Disable production mode
 
   // CRITICAL FIX: Enhanced database connection check with better persistence and timeout handling
   useEffect(() => {
@@ -81,62 +81,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         // In production, be more optimistic about database connectivity
         if (isProduction) {
-          console.log('🚀 Production environment detected - optimized database checks');
+          console.log('🔄 Local development environment - standard database checks');
           
-          // If user is logged in, assume database is working (since they could log in)
-          if (user && !isTestUser) {
-            console.log('✅ User is logged in - database must be working');
-            if (mounted) {
-              setDatabaseConnected(true);
-              setDbConnectionConfirmed(true);
-              localStorage.setItem('pipnosis_db_confirmed', Date.now().toString());
-            }
-            return;
-          }
-          
-          // Try a quick health check with very short timeout for production
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 2000);
-            
-            const isConnected = await Promise.race([
-              checkDatabaseHealth(),
-              new Promise<boolean>((_, reject) => 
-                setTimeout(() => reject(new Error('Timeout')), 2000)
-              )
-            ]);
-            
-            clearTimeout(timeoutId);
-            
-            if (mounted) {
-              if (isConnected) {
-                console.log('✅ Production database confirmed online');
-                setDatabaseConnected(true);
-                if (user && !isTestUser) {
-                  setDbConnectionConfirmed(true);
-                  localStorage.setItem('pipnosis_db_confirmed', Date.now().toString());
-                }
-              } else {
-                console.log('🚀 Production fallback - assuming database is working (network restrictions)');
-                setDatabaseConnected(true);
-                if (user && !isTestUser) {
-                  setDbConnectionConfirmed(true);
-                  localStorage.setItem('pipnosis_db_confirmed', Date.now().toString());
-                }
-              }
-            }
-          } catch (error) {
-            if (mounted) {
-              console.log('🚀 Production network timeout - assuming database is configured correctly');
-              setDatabaseConnected(true);
-              if (user && !isTestUser) {
-                setDbConnectionConfirmed(true);
-                localStorage.setItem('pipnosis_db_confirmed', Date.now().toString());
-              }
-            }
-          }
-          
-          setShowDatabaseSetup(false);
+          // Use standard database health check for local development
         } else {
           // Development environment - normal health check but with better error handling
           try {

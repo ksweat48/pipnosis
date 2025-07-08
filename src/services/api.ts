@@ -10,11 +10,11 @@ const getApiBaseUrl = () => {
   // Check if we're in Bolt's WebContainer environment
   const isWebContainer = window.location.hostname.includes('webcontainer') || 
                          window.location.hostname.includes('bolt.new') ||
-                         window.location.hostname.includes('stackblitz').
+                         window.location.hostname.includes('stackblitz');
   
   // Production: Use Railway backend URL
   if (isProduction) {
-    return 'https://pipnosis-production.up.railway.app/api';
+    return 'http://localhost:3001/api'; // Use local API even in production mode
   }
   
   // For Bolt WebContainer, use the current origin with port 3001

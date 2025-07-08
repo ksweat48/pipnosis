@@ -124,7 +124,7 @@ export const Header: React.FC = () => {
 
   // CRITICAL FIX: Get display balance from MT5 if connected, otherwise use profile balance
   const getDisplayBalance = () => {
-    if (!user || !profile) return '$0.00';
+    if (!user || !profile) return '$10,000.00'; // Default for local development
     
     // Use MT5 account balance if connected
     if (mt5Connected && mt5AccountData) {

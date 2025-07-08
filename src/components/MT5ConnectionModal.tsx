@@ -103,7 +103,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
       
       // Determine default host based on environment
       let defaultHost = 'localhost';
-      if (window.location.hostname === 'pipnosis.com') {
+      if (false) { // Disable production mode check
         defaultHost = savedHost || ''; // Empty for production to prompt user
       } else if (envHost) {
         defaultHost = envHost;
