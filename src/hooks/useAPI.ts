@@ -82,6 +82,8 @@ export const useMarketData = (refreshInterval: number = 5000) => {
     }
   }, [user?.id]);
 
+  useEffect(() => {
+    fetchMarketData();
     const interval = setInterval(fetchMarketData, user ? 10000 : refreshInterval);
     return () => clearInterval(interval);
   }, [fetchMarketData, refreshInterval, user]);
