@@ -546,7 +546,7 @@ app.post('/api/waitlist', async (req, res) => {
 });
 
 // Market analysis endpoint - Added to fix 404 error
-app.get('/api/market/analysis', async (req, res) => {
+app.get('/api/market/analysis', (req, res) => {
   try {
     console.log('📊 Market analysis requested');
     
@@ -594,17 +594,17 @@ app.get('/api/market/analysis', async (req, res) => {
 });
 
 // Account info endpoint - Added to fix 404 error
-app.get('/api/account/info', async (req, res) => {
+app.get('/api/account/info', (req, res) => {
   try {
     console.log('👤 Account info requested');
     
     // Mock account info
     const accountInfo = {
-      balance: 10000 + (Math.random() - 0.5) * 2000,
-      equity: 10000 + (Math.random() - 0.5) * 1000,
+      balance: Math.round((10000 + (Math.random() - 0.5) * 2000) * 100) / 100,
+      equity: Math.round((10000 + (Math.random() - 0.5) * 1000) * 100) / 100,
       margin: Math.random() * 3000 + 1000,
-      freeMargin: 8000 + (Math.random() - 0.5) * 1000,
-      marginLevel: 500 + (Math.random() - 0.5) * 100,
+      freeMargin: Math.round((8000 + (Math.random() - 0.5) * 1000) * 100) / 100,
+      marginLevel: Math.round((500 + (Math.random() - 0.5) * 100) * 100) / 100,
       server: 'Pipnosis-Demo-Server',
       account: '12345678',
       currency: 'USD',

@@ -118,7 +118,7 @@ export class BackendAPIService {
     // Always use fallback mode in WebContainer/Bolt environment
     const isWebContainer = window.location.hostname.includes('webcontainer') || 
                            window.location.hostname.includes('bolt.new') ||
-                           window.location.hostname.includes('stackblitz.io') || 
+                           window.location.hostname.includes('stackblitz') || 
                            window.location.hostname.includes('local-credentialless');
     
     // For WebContainer, immediately enable fallback mode
@@ -252,9 +252,9 @@ export class BackendAPIService {
   // Market Analysis with enhanced fallback
   async getMarketAnalysis(symbols?: string[]): Promise<MarketAnalysisResponse> {
     try {
+      // Use the correct endpoint that was added to the backend
       const params = symbols ? `?symbols=${symbols.join(',')}` : '';
-      // Fix the endpoint to match what's available on the backend
-      const response = await this.makeRequest<MarketAnalysisResponse>(`/market-data${params}`);
+      const response = await this.makeRequest<MarketAnalysisResponse>(`/market/analysis${params}`);
       
       return response;
     } catch (error) {
@@ -265,9 +265,9 @@ export class BackendAPIService {
   // Account Information with enhanced fallback
   async getAccountInfo(userId?: string): Promise<any> {
     try {
+      // Use the correct endpoint that was added to the backend
       const params = userId ? `?userId=${userId}` : '';
-      // Fix the endpoint to match what's available on the backend
-      return await this.makeRequest(`/health${params}`);
+      return await this.makeRequest(`/account/info${params}`);
     } catch (error) {
       return this.getMockAccountInfo();
     }
