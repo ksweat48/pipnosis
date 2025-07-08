@@ -49,68 +49,27 @@ export const RiskManagementEngine: React.FC<RiskEngineProps> = ({
     
     setIsLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      // Generate realistic risk data
-      const newRiskScore = Math.floor(Math.random() * 25) + 5;
-      const newOverallRisk = newRiskScore < 12 ? 'low' : newRiskScore < 20 ? 'medium' : 'high';
-      const newDrawdown = Math.random() * 3;
-      const newOpenPositions = Math.floor(Math.random() * 3) + 1;
-      const newDailyRisk = Math.random() * 1.5 + 1.5;
-      
-      setRiskScore(newRiskScore);
-      setOverallRisk(newOverallRisk);
-      setCurrentDrawdown(newDrawdown);
-      setOpenPositions(newOpenPositions);
-      setDailyRisk(newDailyRisk);
-      setLastUpdate(new Date());
-      
-      // Generate laws status
-      setLawsStatus([
-        {
-          lawId: 1,
-          name: 'Capital Preservation',
-          status: 'compliant',
-          currentValue: 0.5,
-          threshold: 2.0,
-          action: 'Continue monitoring position sizes'
-        },
-        {
-          lawId: 2,
-          name: 'Target 70-80% Win Rate',
-          status: Math.random() > 0.2 ? 'compliant' : 'warning',
-          currentValue: 72 + Math.random() * 15,
-          threshold: 70,
-          action: 'Win rate tracking on target'
-        },
-        {
-          lawId: 3,
-          name: 'Drawdown Management',
-          status: 'compliant',
-          currentValue: newDrawdown,
-          threshold: 15.0,
-          action: 'Drawdown well within limits'
-        },
-        {
-          lawId: 5,
-          name: 'AI Final Decision',
-          status: 'compliant',
-          currentValue: 100,
-          threshold: 100,
-          action: 'AI maintains full control over trade decisions'
-        },
-        {
-          lawId: 9,
-          name: 'Do Not Overtrade',
-          status: 'compliant',
-          currentValue: newOpenPositions,
-          threshold: 5,
-          action: 'Position count optimal'
-        }
-      ]);
-      
+    // Make a real API call to get risk data
+    try {
+      backendAPI.getRiskAnalysis(user?.id)
+        .then(response => {
+          setRiskScore(response.riskScore);
+          setOverallRisk(response.overallRisk);
+          setCurrentDrawdown(response.currentDrawdown);
+          setOpenPositions(response.openPositions);
+          setDailyRisk(response.dailyRisk);
+          setLastUpdate(new Date());
+          setLawsStatus(response.pipnosisLawsStatus);
+          setIsLoading(false);
+        })
+        .catch(error => {
+          console.error('Failed to load risk data:', error);
+          setIsLoading(false);
+        });
+    } catch (error) {
+      console.error('Error loading risk data:', error);
       setIsLoading(false);
-    }, 500);
+    }
   };
 
   const getStatusColor = (status: string) => {
