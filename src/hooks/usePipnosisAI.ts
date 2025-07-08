@@ -52,8 +52,6 @@ export const usePipnosisAI = () => {
       try {
         // Check if OpenAI is properly initialized
         const status = openAIService.getStatus();
-          accountBalance: profile?.account_balance || 10000,
-          riskProfile: profile?.risk_profile || 'auto' as 'low' | 'medium' | 'high' | 'auto',
         if (status.initialized && !status.fallbackMode) {
           console.log('🤖 Attempting to use OpenAI for prompt analysis');
           const openAIResult = await openAIService.interpretPrompt(prompt, profile?.account_balance || 10000, marketData);
