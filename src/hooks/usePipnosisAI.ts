@@ -163,7 +163,7 @@ export const usePipnosisAI = () => {
     } finally {
       setIsProcessing(false);
     }
-  }, [profile]);
+  }, [profile, user?.id]);
   
   /**
    * Execute a trading strategy
@@ -201,7 +201,7 @@ export const usePipnosisAI = () => {
     } finally {
       setIsProcessing(false);
     }
-  }, []);
+  }, [user?.id]);
   
   // Force a reconnection to OpenAI
   const reconnectOpenAI = useCallback(async (): Promise<boolean> => {
@@ -225,4 +225,4 @@ export const usePipnosisAI = () => {
     openAIStatus,
     reconnectOpenAI
   };
-}, [profile, user?.id]);
+};
