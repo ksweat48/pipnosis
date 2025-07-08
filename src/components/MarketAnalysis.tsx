@@ -40,6 +40,11 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
     refetch();
   };
 
+  // Handle refresh button click
+  const handleRefresh = () => {
+    refetch();
+  };
+
   const getSignalColor = (signal: string) => {
     switch (signal) {
       case 'buy': return 'text-green-400 bg-green-500/20 border-green-500/30';
@@ -58,7 +63,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   };
 
   // Ensure marketData is always an array before processing
-  const safeMarketData = Array.isArray(marketData) ? marketData : [];
+  const safeMarketData = marketData && Array.isArray(marketData) ? marketData : [];
   
   // Tier 1 pairs (first 7) - always shown in "show less" mode
   const tier1Pairs = safeMarketData.slice(0, 7);
@@ -74,9 +79,14 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
       <div className="p-4 sm:p-6 border-b border-slate-700">
         <div className="flex flex-col space-y-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
-            <BarChart3 className="h-5 w-5 text-blue-400" />
+            <BarChart3 className="h-5 w-5 text-blue-400" /> 
             <span>Live Market Analysis</span>
-            <button onClick={handleRefresh} className="p-1 text-slate-400 hover:text-white transition-colors">{isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}</button>
+            <button 
+              onClick={handleRefresh} 
+              className="p-1 text-slate-400 hover:text-white transition-colors"
+            >
+              {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            </button>
             {isLoading && <RefreshCw className="h-4 w-4 text-blue-400 animate-spin" />}
           </h3>
           
@@ -260,7 +270,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
                 {hasTier2Pairs && (
                   <div className="flex justify-center pt-4 mt-4">
                     <button
-                      onClick={() => setShowAll(!showAll)}
+                      onClick={() => setShowAll(!showAll)} 
                       className="flex items-center space-x-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors text-sm"
                     >
                       <span>
@@ -287,7 +297,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
           <div className="flex items-center space-x-2">
             <div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-yellow-400 animate-pulse' : error ? 'bg-red-400' : 'bg-green-400'}`}></div>
             <span>
-              {analysisMode === 'api' 
+              {analysisMode === 'api'
                 ? isLoading 
                   ? 'Fetching live data...' 
                   : error 
