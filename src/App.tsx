@@ -318,14 +318,15 @@ const Dashboard: React.FC = () => {
             <TradingLaws />
           </div>
         </div>
-</main>
+      </main>
 
-<MT5ConnectionModal
-  isOpen={showMT5Modal}
-  onClose={() => setShowMT5Modal(false)}
-/>
-</div>
-); // 👈 This was missing: Close the App's return block
+      <MT5ConnectionModal
+        isOpen={showMT5Modal}
+        onClose={() => setShowMT5Modal(false)}
+      />
+    </div>
+  );
+}
 
 function AppContent() {
   if (isEmailConfirmation) {
