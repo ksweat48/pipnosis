@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { SettingsModal } from './SettingsModal';
 import { MT5ConnectionStatus } from './MT5ConnectionStatus';
 import { AuthModal } from './auth/AuthModal';
+import { DisclaimerModal } from './DisclaimerModal';
 import { BackendStatus } from './BackendStatus';
 import { DatabaseStatus } from './DatabaseStatus';
 import { MT5ConnectionModal } from './MT5ConnectionModal';
@@ -13,11 +14,11 @@ export const Header: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMT5ModalOpen, setIsMT5ModalOpen] = useState(false);
-  const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
   const navigate = useNavigate();
   const { user, profile, signOut, loading, databaseConnected } = useAuth();
 
@@ -478,6 +479,11 @@ export const Header: React.FC = () => {
       <MT5ConnectionModal
         isOpen={isMT5ModalOpen}
         onClose={() => setIsMT5ModalOpen(false)}
+      />
+      
+      <DisclaimerModal 
+        isOpen={isDisclaimerOpen} 
+        onClose={() => setIsDisclaimerOpen(false)} 
       />
     </>
   );
