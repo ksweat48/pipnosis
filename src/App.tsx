@@ -11,7 +11,6 @@ import { TradingKPIs } from './components/TradingKPIs';
 import { TradingLaws } from './components/TradingLaws';
 import { RiskManagementEngine } from './components/RiskManagementEngine';
 import { MT5Dashboard } from './components/MT5Dashboard';
-import { WebContainerNotice } from './components/WebContainerNotice';
 import { UserProfile } from './components/UserProfile';
 import { AuthModal } from './components/auth/AuthModal';
 import { MT5ConnectionModal } from './components/MT5ConnectionModal';
@@ -483,8 +482,7 @@ function AppContent() {
       <Route 
         path="/" 
         element={user ? <Dashboard /> : <WelcomeScreen />} 
-      />
-      <Route path="/mt5-connection-modal" element={<MT5ConnectionModal isOpen={true} onClose={() => {}} />} />
+      /> 
     </Routes>
   );
 }

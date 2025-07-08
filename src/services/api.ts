@@ -141,6 +141,7 @@ class PipnosisAPI {
       });
       return response.data;
     } catch (error) {
+      }
   }
   static async testConnection(): Promise<boolean> {
     try {
