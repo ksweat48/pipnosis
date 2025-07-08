@@ -128,7 +128,6 @@ const WelcomeScreen = () => {
         initialMode={authMode}
       />
     </div>
-  );
 };
 
 // Dashboard Component
@@ -146,7 +145,7 @@ const Dashboard: React.FC = () => {
   // API Hooks
   const { analyzePrompt, isAnalyzing, error: analysisError } = useBackendPromptAnalysis();
   const { executeTrade: backendExecuteTrade, isExecuting: isBackendExecuting } = useBackendTradeExecution();
-  const { executeTrade, isExecuting: isMT5Executing, error: mt5Error } = useTradeExecution();
+  const { generateJournalEntry, explainDecision } = useOpenAI();
   
   // Pipnosis AI Brain Hook
   const { processPrompt, executeStrategy, isProcessing, error: aiError } = usePipnosisAI();
@@ -159,8 +158,8 @@ const Dashboard: React.FC = () => {
   const accountBalance = profile?.account_balance || 10000;
   
   // Combined execution state
-  const isExecuting = isBackendExecuting || isProcessing || isMT5Executing;
-  const error = analysisError || aiError || mt5Error;
+  const isExecuting = isBackendExecuting || isProcessing;
+  const error = analysisError || aiError;
 
   // Auto-scroll to strategy options when they're available
   useEffect(() => {
@@ -252,21 +251,14 @@ const Dashboard: React.FC = () => {
 
   const handleStrategySelect = async (option: StrategyOption) => {
     try {
+      console.log('🚀 Executing strategy:', option);
       
       // Extract symbol and action from tradeType if not provided directly
       const symbol = option.symbol || option.tradeType.split(' ')[0];
       const action = option.action || (option.tradeType.includes('BUY') ? 'buy' : 'sell');
       
-      // Execute trade via MT5 WebSocket client
-      const result = await executeTrade({
-        symbol,
-        action: action as 'buy' | 'sell',
-        volume: option.lotSize,
-        price: parseFloat(option.entry),
-        stopLoss: parseFloat(option.stopLoss),
-        takeProfit: parseFloat(option.takeProfit),
-        comment: `Pipnosis AI: ${option.name}`
-      });
+      // Execute strategy via Pipnosis AI Brain
+      const result = await executeStrategy(option);
 
       // Update trade count in localStorage
       updateTradeCount(result.success);
