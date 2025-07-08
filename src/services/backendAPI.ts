@@ -156,14 +156,11 @@ export class BackendAPIService {
     endpoint: string, 
     options: RequestInit = {}
   ): Promise<T> {
-    // Check if we're in WebContainer/Bolt environment
-    const isWebContainer = window.location.hostname.includes('webcontainer') || 
-                           window.location.hostname.includes('bolt.new') ||
-                           window.location.hostname.includes('stackblitz') ||
-                           window.location.hostname.includes('local-credentialless');
+    // Check for WebContainer environment is now handled in a single place
+    const isWebContainerEnv = this.isWebContainerEnvironment();
     
     // In WebContainer, immediately throw an error to use fallback data
-    if (isWebContainer) {
+    if (isWebContainerEnv) {
       console.log('🔄 WebContainer environment detected - using fallback data');
       throw new Error('WebContainer environment - network requests limited');
     }
@@ -259,11 +256,8 @@ export class BackendAPIService {
   // Market Analysis with enhanced fallback
   async getMarketAnalysis(symbols?: string[]): Promise<MarketAnalysisResponse> {
     try {
-      // Check if we're in WebContainer/Bolt environment
-      const isWebContainerEnv = window.location.hostname.includes('webcontainer') || 
-                           window.location.hostname.includes('bolt.new') ||
-                           window.location.hostname.includes('stackblitz') ||
-                           window.location.hostname.includes('local-credentialless');
+      // Use helper method to check for WebContainer environment
+      const isWebContainerEnv = this.isWebContainerEnvironment();
       
       // In WebContainer, immediately use fallback data
       if (isWebContainerEnv) {
