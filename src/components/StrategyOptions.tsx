@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { TrendingUp, Shield, Zap, DollarSign, Target, AlertTriangle, Loader, CheckCircle, RefreshCw, MessageCircle } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface StrategyOption {
   id: string;
@@ -32,6 +33,7 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
   const [executedStrategies, setExecutedStrategies] = useState<Set<string>>(new Set());
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const { user } = useAuth();
 
   const getRiskIcon = (risk: string) => {
     switch (risk) {
@@ -121,7 +123,19 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
     window.dispatchEvent(event);
   };
 
-  if (options.length === 0) return null;
+  if (options.length === 0) {
+    if (!user) {
+      return (
+        <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 text-center">
+          <TrendingUp className="h-12 w-12 text-blue-400 mx-auto mb-4 opacity-50" />
+          <h3 className="text-lg font-semibold text-white mb-2">AI Strategy Recommendations</h3>
+          <p className="text-slate-400 mb-4">Sign in to generate AI trading strategies</p>
+          <p className="text-sm text-slate-500">Pipnosis AI will analyze market conditions and generate personalized trading strategies based on your goals</p>
+        </div>
+      );
+    }
+    return null;
+  }
 
   return (
     <div className="space-y-4">

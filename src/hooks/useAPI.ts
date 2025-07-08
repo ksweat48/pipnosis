@@ -37,28 +37,54 @@ export const useBackendConnection = () => {
 // Hook for market data
 export const useMarketData = (refreshInterval: number = 5000) => {
   const [marketData, setMarketData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const { user } = useAuth();
 
   const fetchMarketData = useCallback(async () => {
     try {
+      setIsLoading(true);
       setError(null);
-      const data = await pipnosisAPI.getMarketData();
-      setMarketData(data);
+      
+      // Use the correct API method for market analysis
+      const data = await backendAPI.getMarketAnalysis();
+      
+      if (data && data.symbols) {
+        const formattedData: MarketDataPoint[] = data.symbols.map(symbol => ({
+          symbol: symbol.symbol,
+          price: symbol.bid && symbol.ask ? (symbol.bid + symbol.ask) / 2 : 1.1425,
+          change: symbol.change,
+          changePercent: symbol.changePercent,
+          trend: symbol.trend === 'bullish' ? 'up' : symbol.trend === 'bearish' ? 'down' : 'sideways',
+          signal: symbol.signals.includes('Buy Signal') ? 'buy' : 
+                 symbol.signals.includes('Sell Signal') ? 'sell' : 'hold'
+        }));
+        
+        setMarketData(formattedData);
+      } else {
+        const fallbackData = await pipnosisAPI.getMarketData();
+        setMarketData(fallbackData);
+      }
       setLastUpdated(new Date());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch market data');
+      console.error('Failed to fetch market data:', err);
+      try {
+        // Fallback to original API if backend fails
+        const fallbackData = await pipnosisAPI.getMarketData();
+        setMarketData(fallbackData);
+        setLastUpdated(new Date());
+      } catch (fallbackErr) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch market data');
+      }
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
-  useEffect(() => {
-    fetchMarketData();
-    const interval = setInterval(fetchMarketData, refreshInterval);
+    const interval = setInterval(fetchMarketData, user ? 10000 : refreshInterval);
     return () => clearInterval(interval);
-  }, [fetchMarketData, refreshInterval]);
+  }, [fetchMarketData, refreshInterval, user]);
 
   return {
     marketData,

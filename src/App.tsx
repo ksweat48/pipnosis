@@ -23,94 +23,13 @@ import { usePipnosisAI } from './hooks/usePipnosisAI';
 import { useTradeExecution } from './hooks/useTradeExecution';
 import { useDatabaseStats } from './hooks/useDatabase';
 
-// Define proper types for the components
-interface Notification {
-  id: string;
-  type: 'success' | 'warning' | 'info' | 'error';
-  title: string;
-  message: string;
-  timestamp: string;
-  read: boolean;
-}
-
-interface StrategyOption {
-  id: string;
-  name: string;
-  risk: 'low' | 'medium' | 'high';
-  tradeType: string;
-  entry: string;
-  stopLoss: string;
-  takeProfit: string;
-  lotSize: number;
-  estimatedGain: number;
-  feasible: boolean;
-  reasoning: string;
-  symbol?: string;
-  action?: string;
-  confidence?: number;
-  pipnosisLawsCompliance?: string[];
-}
-
-interface JournalEntry {
-  id: string;
-  timestamp: string;
-  type: 'entry' | 'modification' | 'exit' | 'update' | 'pause' | 'goal-met';
-  title: string;
-  message: string;
-  tradeId?: string;
-  symbol?: string;
-  pnl?: number;
-  confidence?: 'high' | 'medium' | 'low';
-  userReaction?: 'thumbs-up' | 'explain-more' | null;
-}
-
-// Welcome Screen for unauthenticated users
-const WelcomeScreen: React.FC = () => {
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
-
-  const handleAuthClick = (mode: 'signin' | 'signup') => {
-    setAuthMode(mode);
-    setShowAuthModal(true);
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-900">
-      <Header />
-      
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-8 sm:py-12">
-        <div className="text-center mb-12">
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-6">
-            Welcome to{' '}
-            <span className="bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent">
-              Pipnosis AI
-            </span>
-          </h1>
-          <p className="text-lg sm:text-xl text-slate-300 mb-8 max-w-3xl mx-auto">
-            Experience the future of forex trading with AI-powered strategies, advanced risk management, 
-            and real-time market analysis. Sign in to access your personalized trading dashboard.
-          </p>
-          
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <button
-              onClick={() => handleAuthClick('signup')}
-              className="px-8 py-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-semibold text-lg hover:from-blue-600 hover:to-blue-700 transition-all transform hover:scale-105 shadow-lg"
-            >
-              Create Free Account
-            </button>
-            <button
-              onClick={() => handleAuthClick('signin')}
-              className="px-8 py-4 bg-slate-800 border-2 border-blue-500 text-blue-400 rounded-xl font-semibold text-lg hover:bg-blue-500 hover:text-white transition-all"
-            >
-              Sign In
-            </button>
           </div>
         </div>
 
         {/* Live Market Preview */}
         <div className="bg-slate-800 rounded-xl border border-slate-700 p-6">
-          <h3 className="text-xl font-semibold text-white mb-4">Live Market Preview</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
             <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
               <h4 className="text-white font-medium mb-2">Live Market Data</h4>
               <div className="space-y-2">
@@ -130,9 +49,9 @@ const WelcomeScreen: React.FC = () => {
             </div>
             
             <div className="bg-slate-900 rounded-lg p-4 border border-slate-600">
-              <h4 className="text-white font-medium mb-2">Risk Management</h4>
-              <div className="space-y-2">
-                <div className="p-2 bg-green-500/20 border border-green-500/30 rounded text-green-400 text-sm">
+              trades={[]}
+              todayPnL={0}
+              weeklyPnL={0}
                   Low Risk: 2% per trade
                 </div>
                 <div className="p-2 bg-yellow-500/20 border border-yellow-500/30 rounded text-yellow-400 text-sm">

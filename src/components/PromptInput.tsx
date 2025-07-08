@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Send, Mic, Zap, AlertCircle } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface PromptInputProps {
   onSubmit: (prompt: string) => void;
@@ -9,6 +10,7 @@ interface PromptInputProps {
 
 export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, error }) => {
   const [prompt, setPrompt] = useState('');
+  const { user } = useAuth();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,53 +53,62 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, e
       )}
       
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="relative">
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Enter your trading command... e.g., 'Make me $300 this week with low risk'"
-            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 sm:px-4 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none h-20 sm:h-24 text-sm sm:text-base"
-            disabled={isLoading}
-          />
-          <div className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 flex space-x-2">
-            <button
-              type="button"
-              className="p-1.5 sm:p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+        {user ? (
+          <div className="relative">
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Enter your trading command... e.g., 'Make me $300 this week with low risk'"
+              className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 sm:px-4 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none h-20 sm:h-24 text-sm sm:text-base"
               disabled={isLoading}
-              title="Voice input (coming soon)"
-            >
-              <Mic className="h-3 w-3 sm:h-4 sm:w-4" />
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading || !prompt.trim()}
-              className="p-1.5 sm:p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isLoading ? (
-                <div className="h-3 w-3 sm:h-4 sm:w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <Send className="h-3 w-3 sm:h-4 sm:w-4" />
-              )}
-            </button>
+            />
+            <div className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 flex space-x-2">
+              <button
+                type="button"
+                className="p-1.5 sm:p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                disabled={isLoading}
+                title="Voice input (coming soon)"
+              >
+                <Mic className="h-3 w-3 sm:h-4 sm:w-4" />
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading || !prompt.trim()}
+                className="p-1.5 sm:p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isLoading ? (
+                  <div className="h-3 w-3 sm:h-4 sm:w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Send className="h-3 w-3 sm:h-4 sm:w-4" />
+                )}
+              </button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg text-center">
+            <p className="text-blue-300 text-sm font-medium">Sign in to use the AI Prompt Console</p>
+            <p className="text-blue-200 text-xs mt-1">Create an account or sign in to start trading with AI</p>
+          </div>
+        )}
       </form>
 
-      <div className="mt-4">
-        <p className="text-sm text-slate-400 mb-2">Quick Prompts:</p>
-        <div className="flex flex-wrap gap-2">
-          {suggestedPrompts.map((suggestion, index) => (
-            <button
-              key={index}
-              onClick={() => setPrompt(suggestion)}
-              className="text-xs bg-slate-700 text-slate-300 px-2 py-1 sm:px-3 rounded-full hover:bg-slate-600 transition-colors"
-              disabled={isLoading}
-            >
-              {suggestion}
-            </button>
-          ))}
+      {user && (
+        <div className="mt-4">
+          <p className="text-sm text-slate-400 mb-2">Quick Prompts:</p>
+          <div className="flex flex-wrap gap-2">
+            {suggestedPrompts.map((suggestion, index) => (
+              <button
+                key={index}
+                onClick={() => setPrompt(suggestion)}
+                className="text-xs bg-slate-700 text-slate-300 px-2 py-1 sm:px-3 rounded-full hover:bg-slate-600 transition-colors"
+                disabled={isLoading}
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
         <div className="flex items-start space-x-2">

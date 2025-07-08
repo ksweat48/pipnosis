@@ -6,6 +6,7 @@ import { isValidUUID } from '../lib/supabase';
 export const useDatabaseStats = () => {
   const { user, profile, databaseConnected } = useAuth();
   const [stats, setStats] = useState({
+    openPositions: 0,
     totalPrompts: 0,
     totalTrades: 0,
     totalJournalEntries: 0,
@@ -172,6 +173,7 @@ export const useDatabaseStats = () => {
         const calculatedWinRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 75.0;        
         
         setStats({
+          openPositions: openPositionsCount,
           totalPrompts: Math.max(3, Math.round(totalTrades * 0.8)),
           totalTrades: totalTrades,
           totalJournalEntries: Math.max(5, Math.round(totalTrades * 1.5)),
@@ -185,6 +187,7 @@ export const useDatabaseStats = () => {
         const openPositionsCount = mt5Positions.length;
         
         setStats({
+          openPositions: openPositionsCount,
           totalPrompts: openPositionsCount,
           totalTrades: openPositionsCount,
           totalJournalEntries: openPositionsCount > 0 ? openPositionsCount * 2 : 0,
@@ -218,6 +221,7 @@ export const useDatabaseStats = () => {
       }
       
       setStats({
+        openPositions: 0,
         totalPrompts: 0,
         totalTrades: 0,
         totalJournalEntries: 0,

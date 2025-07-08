@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Bell, CheckCircle, AlertCircle, Info, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Notification {
   id: string;
@@ -24,6 +25,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   isCollapsible = false
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(true); // Default to collapsed
+  const { user } = useAuth();
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -78,7 +80,11 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
           {notifications.length === 0 ? (
             <div className="p-4 sm:p-6 text-center text-slate-400">
               <Bell className="h-8 w-8 sm:h-12 sm:w-12 mx-auto mb-3 opacity-50" />
-              <p className="text-sm sm:text-base">No notifications yet</p>
+              {user ? (
+                <p className="text-sm sm:text-base">No notifications yet</p>
+              ) : (
+                <p className="text-sm sm:text-base">Sign in to receive notifications</p>
+              )}
             </div>
           ) : (
             <div className="divide-y divide-slate-700">

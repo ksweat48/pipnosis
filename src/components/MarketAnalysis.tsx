@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, Camera, Upload, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { backendAPI } from '../services/backendAPI';
 import { useAuth } from '../contexts/AuthContext';
+import { useMarketData } from '../hooks/useAPI';
 
 interface MarketDataPoint {
   symbol: string;
@@ -24,98 +25,8 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   onScreenshotUpload
 }) => {
   const { user } = useAuth();
-  const [marketData, setMarketData] = useState<MarketDataPoint[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const { marketData, isLoading, error, lastUpdated, refetch } = useMarketData();
   const [showAll, setShowAll] = useState(false);
-
-  const fetchRealMarketData = async () => {
-    try {
-      setIsLoading(true);
-      if (error) setError(null);
-      
-      // Use the correct API method for market analysis
-      const data = await backendAPI.getMarketAnalysis();
-      
-      if (data && data.symbols) {
-        const formattedData: MarketDataPoint[] = data.symbols.map(symbol => ({
-          symbol: symbol.symbol,
-          price: symbol.bid && symbol.ask ? (symbol.bid + symbol.ask) / 2 : 1.1425,
-          change: symbol.change,
-          changePercent: symbol.changePercent,
-          trend: symbol.trend === 'bullish' ? 'up' : symbol.trend === 'bearish' ? 'down' : 'sideways',
-          signal: symbol.signals.includes('Buy Signal') ? 'buy' : 
-                 symbol.signals.includes('Sell Signal') ? 'sell' : 'hold'
-        }));
-        
-        setMarketData(formattedData);
-        setLastUpdate(new Date());
-      } else {
-        setMarketData(generateMarketData());
-        setLastUpdate(new Date());
-      }
-    } catch (err) {
-      console.error('Failed to fetch market data:', err);
-      setError('Failed to fetch market data. Using fallback data.');
-      setMarketData(generateMarketData());
-      setLastUpdate(new Date());
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const generateMarketData = (): MarketDataPoint[] => {
-    const pairs = [
-      { symbol: 'EURUSD', basePrice: 1.1425 },
-      { symbol: 'GBPUSD', basePrice: 1.2735 },
-      { symbol: 'USDJPY', basePrice: 149.85 },
-      { symbol: 'USDCHF', basePrice: 0.8945 },
-      { symbol: 'AUDUSD', basePrice: 0.6785 },
-      { symbol: 'USDCAD', basePrice: 1.3625 },
-      { symbol: 'NZDUSD', basePrice: 0.6245 }
-    ];
-
-    return pairs.map(({ symbol, basePrice }) => {
-      const isJPY = symbol.includes('JPY');
-      const priceVariation = isJPY 
-        ? (Math.random() - 0.5) * 2.0 
-        : (Math.random() - 0.5) * 0.02;
-      const changeVariation = isJPY 
-        ? (Math.random() - 0.5) * 1.0 
-        : (Math.random() - 0.5) * 0.01;
-
-      return {
-        symbol,
-        price: basePrice + priceVariation,
-        change: changeVariation,
-        changePercent: (changeVariation / basePrice) * 100,
-        trend: Math.random() > 0.5 ? 'up' : 'down',
-        signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] as 'buy' | 'sell' | 'hold'
-      };
-    });
-  };
-
-  useEffect(() => {
-    const fetchData = () => {
-      if (user) {
-        fetchRealMarketData();
-      } else {
-        setIsLoading(true);
-        setTimeout(() => {
-          setMarketData(generateMarketData());
-          setLastUpdate(new Date());
-          setIsLoading(false);
-        }, 1000);
-      }
-    };
-
-    fetchData();
-    
-    const interval = setInterval(fetchData, user ? 10000 : 5000);
-    
-    return () => clearInterval(interval);
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getSignalColor = (signal: string) => {
     switch (signal) {
@@ -282,7 +193,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
               error ? 'bg-red-400' : 'bg-green-400'
             }`}></div>
             <span>
-              {analysisMode === 'api' 
+              {lastUpdated && `Updated: ${lastUpdated.toLocaleTimeString()}`}
                 ? isLoading 
                   ? 'Fetching live data...' 
                   : error 

@@ -1,5 +1,7 @@
 import React from 'react';
 import { Activity, DollarSign, TrendingUp, TrendingDown, Clock, BarChart3 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { useDatabaseStats } from '../hooks/useDatabase';
 
 interface Trade {
   id: string;
@@ -28,6 +30,9 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
   weeklyPnL,
   totalBalance
 }) => {
+  const { user } = useAuth();
+  const { stats } = useDatabaseStats();
+  
   const openTrades = trades.filter(trade => trade.status === 'open');
 
   return (
@@ -39,7 +44,7 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
             <div className="mb-2 sm:mb-0">
               <p className="text-slate-400 text-xs sm:text-sm">Today's P&L</p>
               <p className={`text-lg sm:text-2xl font-bold ${todayPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {todayPnL >= 0 ? '+' : ''}${todayPnL.toFixed(2)}
+                {todayPnL >= 0 ? '+' : ''}${(user ? stats.totalPnL / 5 : 0).toFixed(2)}
               </p>
             </div>
             <div className={`p-2 sm:p-3 rounded-lg self-end sm:self-auto ${todayPnL >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
@@ -57,7 +62,7 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
             <div className="mb-2 sm:mb-0">
               <p className="text-slate-400 text-xs sm:text-sm">Weekly P&L</p>
               <p className={`text-lg sm:text-2xl font-bold ${weeklyPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {weeklyPnL >= 0 ? '+' : ''}${weeklyPnL.toFixed(2)}
+                {weeklyPnL >= 0 ? '+' : ''}${(user ? stats.totalPnL : 0).toFixed(2)}
               </p>
             </div>
             <div className="p-2 sm:p-3 bg-blue-500/20 rounded-lg self-end sm:self-auto">
@@ -70,7 +75,7 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
             <div className="mb-2 sm:mb-0">
               <p className="text-slate-400 text-xs sm:text-sm">Open Trades</p>
-              <p className="text-lg sm:text-2xl font-bold text-white">{openTrades.length}</p>
+              <p className="text-lg sm:text-2xl font-bold text-white">{user ? stats.openPositions || 0 : 0}</p>
             </div>
             <div className="p-2 sm:p-3 bg-blue-500/20 rounded-lg self-end sm:self-auto">
               <Activity className="h-4 w-4 sm:h-6 sm:w-6 text-blue-400" />
@@ -82,7 +87,7 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
             <div className="mb-2 sm:mb-0">
               <p className="text-slate-400 text-xs sm:text-sm">Balance</p>
-              <p className="text-lg sm:text-2xl font-bold text-white">${totalBalance.toLocaleString()}</p>
+              <p className="text-lg sm:text-2xl font-bold text-white">${(user ? stats.accountValue : 0).toLocaleString()}</p>
             </div>
             <div className="p-2 sm:p-3 bg-purple-500/20 rounded-lg self-end sm:self-auto">
               <DollarSign className="h-4 w-4 sm:h-6 sm:w-6 text-purple-400" />

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, AlertTriangle, TrendingDown, Activity, Settings, RefreshCw, Zap, Lock, Unlock, ChevronDown, ChevronUp } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface RiskEngineProps {
   isVisible?: boolean;
@@ -31,6 +32,7 @@ export const RiskManagementEngine: React.FC<RiskEngineProps> = ({
   const [openPositions, setOpenPositions] = useState(1);
   const [dailyRisk, setDailyRisk] = useState(2.5);
   const [lawsStatus, setLawsStatus] = useState<RiskStatus[]>([]);
+  const { user } = useAuth();
 
   // Initialize risk data
   useEffect(() => {
@@ -196,75 +198,86 @@ export const RiskManagementEngine: React.FC<RiskEngineProps> = ({
       {isVisible && (
         <div className="p-4 sm:p-6 space-y-6">
           {/* Control Buttons */}
-          <div className="flex items-center justify-end space-x-2">
-            <button
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              className={`p-2 rounded-lg transition-colors ${
-                autoRefresh 
-                  ? 'text-blue-400 hover:bg-blue-500/20' 
-                  : 'text-slate-400 hover:bg-slate-700'
-              }`}
-              title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh'}
-            >
-              {autoRefresh ? (
-                <RefreshCw className="h-4 w-4" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-            </button>
-            
-            <button
-              onClick={() => setIsEngineActive(!isEngineActive)}
-              className={`p-2 rounded-lg transition-colors ${
-                isEngineActive 
-                  ? 'text-green-400 hover:bg-green-500/20' 
-                  : 'text-red-400 hover:bg-red-500/20'
-              }`}
-              title={isEngineActive ? 'Disable Risk Engine' : 'Enable Risk Engine'}
-            >
-              {isEngineActive ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
-            </button>
-            
-            <button
-              onClick={loadRiskData}
-              disabled={isLoading}
-              className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50"
-              title="Refresh risk analysis"
-            >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-            </button>
-            
-            <button className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors">
-              <Settings className="h-4 w-4" />
-            </button>
-          </div>
+          {user && (
+            <div className="flex items-center justify-end space-x-2">
+              <button
+                onClick={() => setAutoRefresh(!autoRefresh)}
+                className={`p-2 rounded-lg transition-colors ${
+                  autoRefresh 
+                    ? 'text-blue-400 hover:bg-blue-500/20' 
+                    : 'text-slate-400 hover:bg-slate-700'
+                }`}
+                title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh'}
+              >
+                {autoRefresh ? (
+                  <RefreshCw className="h-4 w-4" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+              </button>
+              
+              <button
+                onClick={() => setIsEngineActive(!isEngineActive)}
+                className={`p-2 rounded-lg transition-colors ${
+                  isEngineActive 
+                    ? 'text-green-400 hover:bg-green-500/20' 
+                    : 'text-red-400 hover:bg-red-500/20'
+                }`}
+                title={isEngineActive ? 'Disable Risk Engine' : 'Enable Risk Engine'}
+              >
+                {isEngineActive ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+              </button>
+              
+              <button
+                onClick={loadRiskData}
+                disabled={isLoading}
+                className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50"
+                title="Refresh risk analysis"
+              >
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              </button>
+              
+              <button className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors">
+                <Settings className="h-4 w-4" />
+              </button>
+            </div>
+          )}
 
           {/* Engine Status */}
-          <div className={`p-4 rounded-lg border ${
-            isEngineActive 
-              ? 'bg-green-500/10 border-green-500/30' 
-              : 'bg-red-500/10 border-red-500/30'
-          }`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <Zap className={`h-5 w-5 ${isEngineActive ? 'text-green-400' : 'text-red-400'}`} />
-                <div>
-                  <h4 className={`font-medium ${isEngineActive ? 'text-green-300' : 'text-red-300'}`}>
-                    Risk Engine {isEngineActive ? 'Active' : 'Disabled'}
-                  </h4>
-                  <p className={`text-sm ${isEngineActive ? 'text-green-200' : 'text-red-200'}`}>
-                    {isEngineActive 
-                      ? 'Monitoring all trades and enforcing Pipnosis Laws in real-time'
-                      : 'Risk monitoring is disabled - trades may not be protected by Pipnosis Laws'
-                    }
-                  </p>
+          {user ? (
+            <div className={`p-4 rounded-lg border ${
+              isEngineActive 
+                ? 'bg-green-500/10 border-green-500/30' 
+                : 'bg-red-500/10 border-red-500/30'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <Zap className={`h-5 w-5 ${isEngineActive ? 'text-green-400' : 'text-red-400'}`} />
+                  <div>
+                    <h4 className={`font-medium ${isEngineActive ? 'text-green-300' : 'text-red-300'}`}>
+                      Risk Engine {isEngineActive ? 'Active' : 'Disabled'}
+                    </h4>
+                    <p className={`text-sm ${isEngineActive ? 'text-green-200' : 'text-red-200'}`}>
+                      {isEngineActive 
+                        ? 'Monitoring all trades and enforcing Pipnosis Laws in real-time'
+                        : 'Risk monitoring is disabled - trades may not be protected by Pipnosis Laws'
+                      }
+                    </p>
+                  </div>
+                </div>
+                <div className="text-sm text-slate-400">
+                  Last update: {lastUpdate.toLocaleTimeString()}
                 </div>
               </div>
-              <div className="text-sm text-slate-400">
-                Last update: {lastUpdate.toLocaleTimeString()}
-              </div>
             </div>
-          </div>
+          ) : (
+            <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg text-center">
+              <Shield className="h-12 w-12 text-blue-400 mx-auto mb-4 opacity-50" />
+              <h4 className="text-white font-semibold mb-2">Risk Management Engine</h4>
+              <p className="text-slate-400 mb-4">Sign in to access the risk management engine</p>
+              <p className="text-sm text-slate-500">The risk engine enforces Pipnosis Laws to protect your capital and ensure safe trading</p>
+            </div>
+          )}
 
           {/* Risk Metrics Overview */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

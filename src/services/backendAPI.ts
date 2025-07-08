@@ -516,10 +516,9 @@ export class BackendAPIService {
   private getMockMarketAnalysis(symbols?: string[]): MarketAnalysisResponse {
     const defaultSymbols = symbols || ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD'];
     const currentTime = new Date();
-    
-    const marketSentiments = ['bullish', 'bearish', 'neutral'] as const;
-    const volatilities = ['low', 'medium', 'high'] as const;
-    const trends = ['bullish', 'bearish', 'sideways'] as const;
+    const marketSentiments: ('bullish' | 'bearish' | 'neutral')[] = ['bullish', 'bearish', 'neutral'];
+    const volatilities: ('low' | 'medium' | 'high')[] = ['low', 'medium', 'high'];
+    const trends: ('bullish' | 'bearish' | 'sideways')[] = ['bullish', 'bearish', 'sideways'];
     
     return {
       symbols: defaultSymbols.map(symbol => {

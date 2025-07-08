@@ -6,7 +6,11 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useDatabaseStats } from '../hooks/useDatabase';
 
-export const TradingKPIs: React.FC = () => {
+interface TradingKPIsProps {
+  className?: string;
+}
+
+export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const { user } = useAuth();
   const { stats, isLoading, refreshStats } = useDatabaseStats();
@@ -147,7 +151,7 @@ export const TradingKPIs: React.FC = () => {
   const totalTrades = tradeCounts.totalTrades || stats.totalTrades || 0;
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700">
+    <div className={`bg-slate-800 rounded-xl border border-slate-700 ${className}`}>
       <div className="p-4 sm:p-6 border-b border-slate-700">
         <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
@@ -177,18 +181,26 @@ export const TradingKPIs: React.FC = () => {
       <div className="p-4 sm:p-6">
         {/* Summary Stats - Always visible */}
         <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 p-3 sm:p-4 bg-slate-900 rounded-lg border border-slate-600">
-          <div className="text-center">
-            <div className="text-lg sm:text-2xl font-bold text-green-400">{profitableTrades}</div>
-            <div className="text-xs text-slate-400">Winning Trades</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg sm:text-2xl font-bold text-red-400">{losingTrades}</div>
-            <div className="text-xs text-slate-400">Losing Trades</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg sm:text-2xl font-bold text-blue-400">{totalTrades}</div>
-            <div className="text-xs text-slate-400">Total Trades</div>
-          </div>
+          {user ? (
+            <>
+              <div className="text-center">
+                <div className="text-lg sm:text-2xl font-bold text-green-400">{profitableTrades}</div>
+                <div className="text-xs text-slate-400">Winning Trades</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg sm:text-2xl font-bold text-red-400">{losingTrades}</div>
+                <div className="text-xs text-slate-400">Losing Trades</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg sm:text-2xl font-bold text-blue-400">{totalTrades}</div>
+                <div className="text-xs text-slate-400">Total Trades</div>
+              </div>
+            </>
+          ) : (
+            <div className="col-span-3 text-center py-2">
+              <p className="text-slate-400">Sign in to view your trading statistics</p>
+            </div>
+          )}
         </div>
 
         {/* No Data State */}

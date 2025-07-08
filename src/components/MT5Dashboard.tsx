@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Server, Activity, DollarSign, TrendingUp, TrendingDown, Settings, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { mt5Client } from '../services/mt5WebSocketClient';
+import { useAuth } from '../contexts/AuthContext';
 import { WebContainerNotice } from './WebContainerNotice';
 
 interface MT5DashboardProps {
@@ -29,6 +30,7 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
   const [mt5AccountData, setMt5AccountData] = useState<any>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
 
   // Function to refresh MT5 data manually
   const refreshData = () => {
@@ -302,42 +304,55 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
               <div className="p-6 bg-red-500/10 border border-red-500/30 rounded-lg">
                 <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
                 <h4 className="text-white font-semibold mb-2">MT5 Not Connected</h4>
-                <p className="text-slate-400 mb-2">
-                  Connect your MetaTrader 5 account to see live trading data, account balance, and open positions.
-                </p>
-                {error && (
-                  <p className="text-red-400 text-sm mb-4">
-                    {error}
-                  </p>
-                )}
-                <div className="flex space-x-3">
-                <button 
-                  onClick={() => {
-                    try {
-                      const event = new CustomEvent('openMT5Modal');
-                      window.dispatchEvent(event);
-                    } catch (error) {
-                      console.error('Error opening MT5 modal:', error);
-                      setError('Failed to open MT5 connection modal. Please try again.');
-                    }
-                  }}
-                  className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex-1">
-                  Connect MT5 Account
-                </button>
-                <button 
-                  onClick={connectToMT5}
-                  disabled={isRefreshing}
-                  className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-1">
-                  {isRefreshing ? (
-                    <div className="flex items-center justify-center space-x-2">
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                      <span>Connecting...</span>
+                {user ? (
+                  <>
+                    <p className="text-slate-400 mb-2">
+                      Connect your MetaTrader 5 account to see live trading data, account balance, and open positions.
+                    </p>
+                    {error && (
+                      <p className="text-red-400 text-sm mb-4">
+                        {error}
+                      </p>
+                    )}
+                    <div className="flex space-x-3">
+                      <button 
+                        onClick={() => {
+                          try {
+                            const event = new CustomEvent('openMT5Modal');
+                            window.dispatchEvent(event);
+                          } catch (error) {
+                            console.error('Error opening MT5 modal:', error);
+                            setError('Failed to open MT5 connection modal. Please try again.');
+                          }
+                        }}
+                        className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex-1">
+                        Connect MT5 Account
+                      </button>
+                      <button 
+                        onClick={connectToMT5}
+                        disabled={isRefreshing}
+                        className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-1">
+                        {isRefreshing ? (
+                          <div className="flex items-center justify-center space-x-2">
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                            <span>Connecting...</span>
+                          </div>
+                        ) : (
+                          'Retry Connection'
+                        )}
+                      </button>
                     </div>
-                  ) : (
-                    'Retry Connection'
-                  )}
-                </button>
-                </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-slate-400 mb-2">
+                      Sign in to connect your MetaTrader 5 account and access live trading features.
+                    </p>
+                    <p className="text-slate-500 text-sm">
+                      MT5 integration allows you to execute trades directly from Pipnosis AI.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           ) : (
