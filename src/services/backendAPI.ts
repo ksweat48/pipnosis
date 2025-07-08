@@ -196,8 +196,6 @@ export class BackendAPIService {
       
     } catch (error: any) {
       this.isOnline = false;
-      // Enable fallback mode after first failure
-      this.fallbackMode = true;
       console.log(`API request failed: ${error.message || 'Unknown error'}`);
       throw error;
     }
@@ -213,7 +211,8 @@ export class BackendAPIService {
       
       return response;
     } catch (error) {
-      return this.getMockPromptAnalysis(request);
+      console.error('Failed to analyze prompt:', error);
+      throw error;
     }
   }
 
@@ -227,7 +226,8 @@ export class BackendAPIService {
       
       return response;
     } catch (error) {
-      return this.getMockTradeExecution(request);
+      console.error('Failed to execute trade:', error);
+      throw error;
     }
   }
 
@@ -239,7 +239,8 @@ export class BackendAPIService {
       
       return response;
     } catch (error) {
-      return this.getMockRiskAnalysis();
+      console.error('Failed to get risk analysis:', error);
+      throw error;
     }
   }
 
@@ -252,7 +253,8 @@ export class BackendAPIService {
       
       return response;
     } catch (error) {
-      return this.getMockMarketAnalysis(symbols);
+      console.error('Failed to get market analysis:', error);
+      throw error;
     }
   }
 
@@ -263,7 +265,8 @@ export class BackendAPIService {
       const params = userId ? `?user_id=${userId}` : '';
       return await this.makeRequest(`/account-info${params}`);
     } catch (error) {
-      return this.getMockAccountInfo();
+      console.error('Failed to get account info:', error);
+      throw error;
     }
   }
 
@@ -312,7 +315,6 @@ export class BackendAPIService {
       this.isOnline = false;
       this.lastHealthCheck = new Date();
       console.log('Health check failed, using demo mode');
-      this.fallbackMode = true;
       return { 
         status: 'demo', 
         timestamp: new Date().toISOString(),
@@ -338,240 +340,6 @@ export class BackendAPIService {
     return this.fallbackMode;
   }
 
-  // Enhanced mock data methods for better demo experience
-  private getMockPromptAnalysis(request: PromptAnalysisRequest): PromptAnalysisResponse {
-    // Simulate processing delay
-    const strategies = [
-      {
-        id: 'strategy-low-risk',
-        name: 'Conservative Swing Trade',
-        risk: 'low' as const,
-        symbol: 'EURUSD',
-        action: 'buy' as const,
-        entry: 1.1410,
-        stopLoss: 1.1360,
-        takeProfit: 1.1510,
-        lotSize: Math.min(0.5, request.accountBalance / 20000), // Dynamic lot sizing
-        estimatedGain: Math.floor(request.accountBalance * 0.025), // 2.5% of account
-        confidence: 85,
-        reasoning: 'Strong uptrend with bullish momentum. Multiple timeframe confirmation on H1 and D1. Following Pipnosis Law #1 (Capital Preservation) with 2% risk per trade. RSI shows healthy pullback with room for upside.',
-        feasible: true,
-        pipnosisLawsCompliance: ['Law #1: Capital Preservation', 'Law #6: High Quality Entry', 'Law #3: Drawdown Management']
-      },
-      {
-        id: 'strategy-medium-risk',
-        name: 'Balanced Growth Trade',
-        risk: 'medium' as const,
-        symbol: 'GBPUSD',
-        action: 'buy' as const,
-        entry: 1.2735,
-        stopLoss: 1.2685,
-        takeProfit: 1.2835,
-        lotSize: Math.min(1.0, request.accountBalance / 15000),
-        estimatedGain: Math.floor(request.accountBalance * 0.049), // 4.9% of account
-        confidence: 78,
-        reasoning: 'Balanced approach with good risk-reward ratio. Following trend continuation pattern. Complies with Law #5 (AI Final Decision) and Law #2 (Target 70-80% Win Rate). MACD showing bullish divergence.',
-        feasible: request.accountBalance >= 5000,
-        pipnosisLawsCompliance: ['Law #5: AI Final Decision', 'Law #2: Target 70-80% Win Rate', 'Law #7: Cut Losses Early']
-      },
-      {
-        id: 'strategy-high-risk',
-        name: 'Aggressive Breakout',
-        risk: 'high' as const,
-        symbol: 'USDJPY',
-        action: 'sell' as const,
-        entry: 149.85,
-        stopLoss: 150.35,
-        takeProfit: 148.85,
-        lotSize: Math.min(1.5, request.accountBalance / 10000),
-        estimatedGain: Math.floor(request.accountBalance * 0.089), // 8.9% of account
-        confidence: 65,
-        reasoning: 'High-reward breakout opportunity with strong resistance rejection. Higher risk but significant profit potential. AI maintains final decision authority per Law #5. Volume spike confirms momentum.',
-        feasible: request.accountBalance >= 10000 && request.riskProfile !== 'low',
-        pipnosisLawsCompliance: ['Law #5: AI Final Decision', 'Law #4: Never Chase Unrealistic Goals', 'Law #1: Capital Preservation']
-      }
-    ];
-
-    // Filter strategies based on account balance and risk profile
-    let feasibleStrategies = strategies.filter(s => s.feasible);
-    
-    // Filter by risk profile
-    if (request.riskProfile === 'low') {
-      feasibleStrategies = feasibleStrategies.filter(s => s.risk === 'low');
-    } else if (request.riskProfile === 'medium') {
-      feasibleStrategies = feasibleStrategies.filter(s => s.risk === 'low' || s.risk === 'medium');
-    }
-
-    // Ensure at least one strategy
-    if (feasibleStrategies.length === 0) {
-      feasibleStrategies = [strategies[0]]; // Always include low-risk strategy
-    }
-
-    return {
-      success: true,
-      strategies: feasibleStrategies,
-      marketAnalysis: `Current market conditions show ${request.riskProfile === 'high' ? 'volatile but profitable' : 'stable bullish'} momentum across major pairs. USD strength is moderate with EUR showing resilience. Technical indicators support upward movement with proper risk management. Market volatility: ${Math.random() > 0.5 ? 'Low' : 'Medium'}.`,
-      riskAssessment: `${request.riskProfile === 'auto' ? 'Auto-detected medium' : request.riskProfile.charAt(0).toUpperCase() + request.riskProfile.slice(1)} risk environment. All strategies comply with Pipnosis Immutable Laws. Position sizing calculated to preserve capital while targeting ${request.tradingGoal || 'weekly'} goals. Maximum risk per trade: 2% (Law #1).`,
-      confidence: feasibleStrategies.length >= 2 ? 'high' : 'medium',
-      aiRecommendation: `Execute ${feasibleStrategies[0]?.risk || 'low'}-risk strategy first to test market conditions. Monitor for any changes in sentiment or volatility. Account balance of $${request.accountBalance.toLocaleString()} allows for ${feasibleStrategies.length > 1 ? 'multiple strategy options' : 'conservative positioning'}. Consider scaling up after successful execution.`,
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  private getMockTradeExecution(request: TradeExecutionRequest): TradeExecutionResponse {
-    const success = true; // Always succeed in mock mode
-    const executionPrice = request.price || 1.1410;
-    const slippage = 0; // No slippage in mock mode
-    
-    return {
-      success,
-      tradeId: `TRD-${Date.now()}`,
-      mt5Ticket: success ? Math.floor(Math.random() * 1000000) + 100000 : undefined,
-      executionPrice: executionPrice + slippage,
-      timestamp: new Date().toISOString(),
-      message: success 
-        ? `✅ Trade executed successfully - ${request.symbol} ${request.action.toUpperCase()} ${request.volume} lots at ${(executionPrice + slippage).toFixed(5)}`
-        : '❌ Trade execution failed - Market conditions changed or insufficient margin',
-      estimatedPnL: success ? request.volume * 100 : 0, // Fixed P&L for predictability
-      riskAmount: request.riskAmount,
-      error: success ? undefined : 'Execution failure - retry available'
-    };
-  }
-
-  private getMockRiskAnalysis(): RiskAnalysisResponse {
-    const currentTime = new Date();
-    const riskScore = Math.floor(Math.random() * 25) + 5; // 5-30 range (lower is better)
-    const overallRisk = riskScore < 12 ? 'low' : riskScore < 20 ? 'medium' : 'high';
-    
-    return {
-      overallRisk,
-      riskScore,
-      currentDrawdown: Math.random() * 3, // 0-3%
-      maxDrawdown: 20,
-      openPositions: Math.floor(Math.random() * 3) + 1, // 1-3 positions
-      dailyRisk: Math.random() * 1.5, // 0-1.5%
-      weeklyRisk: Math.random() * 6 + 2, // 2-8%
-      correlatedPositions: Math.floor(Math.random() * 2), // 0-1
-      pipnosisLawsStatus: [
-        {
-          lawId: 1,
-          name: 'Capital Preservation',
-          status: 'compliant',
-          currentValue: 0.5,
-          threshold: 2.0,
-          action: 'Continue monitoring position sizes'
-        },
-        {
-          lawId: 2,
-          name: 'Target 70-80% Win Rate',
-          status: Math.random() > 0.2 ? 'compliant' : 'warning',
-          currentValue: 72 + Math.random() * 15,
-          threshold: 70,
-          action: 'Win rate tracking on target'
-        },
-        {
-          lawId: 3,
-          name: 'Drawdown Management',
-          status: 'compliant',
-          currentValue: 0.1,
-          threshold: 15.0,
-          action: 'Drawdown well within limits'
-        },
-        {
-          lawId: 5,
-          name: 'AI Final Decision',
-          status: 'compliant',
-          currentValue: 100,
-          threshold: 100,
-          action: 'AI maintains full control over trade decisions'
-        },
-        {
-          lawId: 9,
-          name: 'Do Not Overtrade',
-          status: 'compliant',
-          currentValue: 1,
-          threshold: 5,
-          action: 'Position count optimal'
-        }
-      ],
-      recommendations: [
-        'Current risk levels are well within safe parameters',
-        'Consider scaling position sizes based on market volatility',
-        'Monitor correlation if adding new positions in same currency',
-        'Maintain current conservative risk management approach',
-        'All Pipnosis Laws are being followed correctly'
-      ],
-      timestamp: currentTime.toISOString()
-    };
-  }
-
-  private getMockMarketAnalysis(symbols?: string[]): MarketAnalysisResponse {
-    const defaultSymbols = symbols || ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD'];
-    const currentTime = new Date();
-    const marketSentiments: ('bullish' | 'bearish' | 'neutral')[] = ['bullish', 'bearish', 'neutral'];
-    const volatilities: ('low' | 'medium' | 'high')[] = ['low', 'medium', 'high'];
-    const trends: ('bullish' | 'bearish' | 'sideways')[] = ['bullish', 'bearish', 'sideways'];
-    
-    return {
-      symbols: defaultSymbols.map(symbol => {
-        const isJPY = symbol.includes('JPY');
-        const basePrice = isJPY ? 149.85 : symbol === 'GBPUSD' ? 1.2735 : symbol === 'AUDUSD' ? 0.6785 : 1.1410;
-        const variation = isJPY ? 2.0 : 0.02;
-        const change = (Math.random() - 0.5) * variation;
-        
-        return {
-          symbol,
-          bid: basePrice + change - (isJPY ? 0.01 : 0.0001),
-          ask: basePrice + change + (isJPY ? 0.01 : 0.0001),
-          spread: isJPY ? 0.02 : 0.0002,
-          change,
-          changePercent: (change / basePrice) * 100,
-          volume: Math.floor(Math.random() * 1000000) + 500000,
-          trend: trends[Math.floor(Math.random() * trends.length)],
-          strength: Math.floor(Math.random() * 40) + 60, // 60-100 strength
-          signals: [
-            Math.random() > 0.5 ? 'Buy Signal' : 'Sell Signal',
-            'RSI Oversold', 
-            'MACD Bullish Cross', 
-            'Support Level Hold', 
-            'Trend Continuation', 
-            'Volume Spike', 
-            'Fibonacci Retracement',
-            'Moving Average Cross', 
-            'Breakout Confirmed'
-          ].slice(0, Math.floor(Math.random() * 3) + 2),
-          timeframe: 'H1'
-        };
-      }),
-      marketSentiment: marketSentiments[Math.floor(Math.random() * marketSentiments.length)],
-      volatility: volatilities[Math.floor(Math.random() * volatilities.length)],
-      newsImpact: volatilities[Math.floor(Math.random() * volatilities.length)],
-      tradingRecommendation: 'Favorable conditions for trend-following strategies with proper risk management. Monitor for any sudden volatility spikes during news releases. Current market structure supports both scalping and swing trading approaches. Pipnosis Laws enforcement ensures safe trading.',
-      timestamp: currentTime.toISOString()
-    };
-  }
-
-  private getMockAccountInfo() {
-    const balance = 50000 + (Math.random() - 0.5) * 2000; // Slight variation
-    const equity = balance + (Math.random() - 0.5) * 1000;
-    const margin = Math.random() * 3000 + 1000;
-    
-    return {
-      balance: Math.round(balance * 100) / 100,
-      equity: Math.round(equity * 100) / 100,
-      margin: Math.round(margin * 100) / 100,
-      freeMargin: Math.round((equity - margin) * 100) / 100,
-      marginLevel: Math.round((equity / margin) * 10000) / 100,
-      server: 'Pipnosis-Demo-Server',
-      account: '12345678',
-      currency: 'USD',
-      leverage: 100,
-      name: 'Demo Account',
-      company: 'Pipnosis Demo',
-      lastUpdate: new Date().toISOString(),
-      connectionStatus: 'Demo Mode - All features available'
-    };
-  }
 }
 
 export const backendAPI = new BackendAPIService();

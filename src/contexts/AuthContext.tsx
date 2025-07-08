@@ -159,32 +159,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Helper function to create mock user session
   const createMockUserSession = (email: string, fullName: string, accountBalance = 10000) => {
-    const mockUser = {
-      id: `test-${email.split('@')[0]}-${Date.now()}`,
-      email,
-      user_metadata: { full_name: fullName },
-      app_metadata: {},
-      created_at: new Date().toISOString(),
-      email_confirmed_at: new Date().toISOString()
-    };
-
-    const mockProfile: UserProfile = {
-      id: mockUser.id,
-      email: mockUser.email,
-      full_name: fullName,
-      plan_type: email === 'admin@pipnosis.com' ? 'premium' : 'free',
-      account_balance: accountBalance,
-      risk_profile: 'auto',
-      trading_preferences: {
-        dataMode: 'api',
-        riskProfile: 'auto',
-        tradingGoal: 'weekly-income'
-      },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-
-    return { mockUser: mockUser as User, mockProfile };
+    // This function is no longer used as we're removing mock data
+    return { mockUser: null, mockProfile: null };
   };
 
   // Helper function to clear all auth state
@@ -463,59 +439,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (createError) {
           console.error('❌ Failed to create user profile:', createError);
           
-          if (isProduction) {
-            console.log('🚀 Creating production fallback profile');
-            const fallbackProfile: UserProfile = {
-              id: userId,
-              email: user?.email || 'user@pipnosis.com',
-              full_name: user?.user_metadata?.full_name || 'User',
-              plan_type: 'free',
-              account_balance: 10000.00,
-              risk_profile: 'auto',
-              trading_preferences: {
-                dataMode: 'api',
-                riskProfile: 'auto',
-                tradingGoal: 'weekly-income'
-              },
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            };
-            setProfile(fallbackProfile);
-            setDatabaseConnected(true);
-            setDbConnectionConfirmed(true);
-            localStorage.setItem('pipnosis_db_confirmed', Date.now().toString());
-          } else {
-            setProfile(null);
-          }
+          setProfile(null);
+          throw createError;
         }
       }
     } catch (error) {
       console.error('❌ Error loading user profile:', error);
       
-      if (isProduction && user) {
-        console.log('🚀 Creating production fallback profile due to error');
-        const fallbackProfile: UserProfile = {
-          id: user.id,
-          email: user.email || 'user@pipnosis.com',
-          full_name: user.user_metadata?.full_name || 'User',
-          plan_type: 'free',
-          account_balance: 10000.00,
-          risk_profile: 'auto',
-          trading_preferences: {
-            dataMode: 'api',
-            riskProfile: 'auto',
-            tradingGoal: 'weekly-income'
-          },
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        setProfile(fallbackProfile);
-        setDatabaseConnected(true);
-        setDbConnectionConfirmed(true);
-        localStorage.setItem('pipnosis_db_confirmed', Date.now().toString());
-      } else {
-        setProfile(null);
-      }
+      setProfile(null);
+      throw error;
     }
   };
 
@@ -586,42 +518,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(true);
       console.log('🔑 Attempting signin for:', email);
       
-      if (email === 'admin@pipnosis.com' && password === 'admin123') {
-        console.log('✅ Test admin login successful');
-        
-        const { mockUser, mockProfile } = createMockUserSession(email, 'Admin User', 50000);
-        
-        localStorage.setItem('pipnosis_test_user', JSON.stringify(mockUser));
-        
-        setUser(mockUser);
-        setProfile(mockProfile);
-        setIsTestUser(true);
-        setDatabaseConnected(true);
-        setDbConnectionConfirmed(true);
-        setLoading(false);
-        
-        console.log('✅ Mock admin session created');
-        return { user: mockUser, error: null };
-      }
-      
-      if (email === 'demo@pipnosis.com' && password === 'demo123') {
-        console.log('✅ Demo user login successful');
-        
-        const { mockUser, mockProfile } = createMockUserSession(email, 'Demo User', 10000);
-        
-        localStorage.setItem('pipnosis_test_user', JSON.stringify(mockUser));
-        
-        setUser(mockUser);
-        setProfile(mockProfile);
-        setIsTestUser(true);
-        setDatabaseConnected(true);
-        setDbConnectionConfirmed(true);
-        setLoading(false);
-        
-        console.log('✅ Mock demo session created');
-        return { user: mockUser, error: null };
-      }
-      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -652,15 +548,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // CRITICAL FIX: Don't set loading during sign out to prevent UI blocking
       // setLoading(true); // REMOVED
-      
-      const hadTestUser = localStorage.getItem('pipnosis_test_user');
-      localStorage.removeItem('pipnosis_test_user');
-      
-      if (hadTestUser || isTestUser) {
-        console.log('✅ Test user signed out');
-        clearAuthState();
-        return { error: null };
-      }
       
       console.log('🔐 Signing out from Supabase...');
       const { error } = await supabase.auth.signOut();

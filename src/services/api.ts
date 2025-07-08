@@ -14,7 +14,7 @@ const getApiBaseUrl = () => {
   
   // Production: Use Railway backend URL
   if (isProduction) {
-    return 'http://localhost:3001/api'; // Use local API even in production mode
+    return 'https://pipnosis-production.up.railway.app/api';
   }
   
   // For Bolt WebContainer, use the current origin with port 3001
@@ -65,48 +65,10 @@ apiClient.interceptors.response.use(
 
 // Enhanced fallback data for when backend is unavailable
 const getFallbackMarketData = () => {
-  console.log('📊 Using fallback market data (backend unavailable)');
+  console.error('📊 Backend unavailable - unable to fetch market data');
   
-  // Generate basic market data for common pairs
-  return [
-    { symbol: 'EURUSD', price: 1.1425, change: 0.0010, changePercent: 0.09, trend: 'up', signal: 'buy' },
-    { symbol: 'GBPUSD', price: 1.2735, change: -0.0005, changePercent: -0.04, trend: 'down', signal: 'sell' },
-    { symbol: 'USDJPY', price: 149.85, change: 0.25, changePercent: 0.17, trend: 'up', signal: 'buy' },
-    { symbol: 'USDCHF', price: 0.8945, change: -0.0015, changePercent: -0.17, trend: 'down', signal: 'sell' },
-    { symbol: 'AUDUSD', price: 0.6785, change: 0.0008, changePercent: 0.12, trend: 'up', signal: 'hold' },
-    { symbol: 'USDCAD', price: 1.3625, change: 0.0012, changePercent: 0.09, trend: 'up', signal: 'buy' },
-    { symbol: 'NZDUSD', price: 0.6245, change: -0.0007, changePercent: -0.11, trend: 'down', signal: 'sell' }
-  ];
-};
-
-// API Service Class
-export class PipnosisAPI {
-  // Health Check
-  static async healthCheck(): Promise<{ status: string; timestamp: string; version: string }> {
-    try {
-      const response = await apiClient.get('/health');
-      return response.data;
-    } catch (error) {
-      console.warn('⚠️ Backend health check failed:', error);
-      throw new Error('Backend server is not responding');
-    }
-  }
-
-  // Enhanced Market Data with tiered pairs support
-  static async getMarketData(symbols?: string[]): Promise<any[]> {
-    try {
-      const params = symbols ? { symbols: symbols.join(',') } : {};
-      const response = await apiClient.get('/market-data', { params });
-      return response.data;
-    } catch (error) {
-      console.warn('⚠️ Failed to fetch market data from backend:', error);
-      return getFallbackMarketData();
-    }
-  }
-
-  // Enhanced AI Prompt Analysis with user settings support
-  static async analyzePrompt(
-    prompt: string,
+  // Return empty array instead of mock data
+  return [];
     accountBalance: number,
     marketData?: any[],
     userSettings?: any
@@ -120,57 +82,8 @@ export class PipnosisAPI {
       });
       return response.data;
     } catch (error) {
-      console.warn('⚠️ Failed to analyze prompt via backend:', error);
-      
-      // Enhanced mock analysis with multiple risk levels
-      return {
-        strategies: [
-          {
-            id: '1',
-            name: 'Conservative Capital Protection',
-            risk: 'low',
-            tradeType: 'EURUSD Swing (H4-D1)',
-            entry: 1.1410,
-            stopLoss: 1.1380,
-            takeProfit: 1.1470,
-            lotSize: 0.3,
-            estimatedGain: 180,
-            feasible: true,
-            reasoning: 'Conservative approach following Law #1 (Capital Preservation) with 1.5% account risk. Multiple technical confirmations per Law #6.'
-          },
-          {
-            id: '2',
-            name: 'Balanced Growth Strategy',
-            risk: 'medium',
-            tradeType: 'GBPUSD Swing (H1-H4)',
-            entry: 1.2735,
-            stopLoss: 1.2685,
-            takeProfit: 1.2835,
-            lotSize: 0.7,
-            estimatedGain: 350,
-            feasible: true,
-            reasoning: 'Balanced approach per Law #5 (AI Final Decision) with 4% account risk. Maintains Law #2 target win rate.'
-          },
-          {
-            id: '3',
-            name: 'Aggressive Opportunity Capture',
-            risk: 'high',
-            tradeType: 'USDJPY Breakout (M15-H1)',
-            entry: 149.85,
-            stopLoss: 149.35,
-            takeProfit: 150.85,
-            lotSize: 1.2,
-            estimatedGain: 600,
-            feasible: true,
-            reasoning: 'Higher risk approach still governed by Law #1 (Capital Preservation) with 8% max risk. Law #6 requires breakout confirmation.'
-          }
-        ],
-        summary: 'Fallback analysis generated (backend unavailable). Strategies across all risk levels with proper Pipnosis Law compliance.',
-        confidence: 'medium',
-        riskAssessment: 'Using fallback data due to backend connectivity issues. All strategies follow Pipnosis Immutable Laws.',
-        pairsAnalyzed: 10,
-        tierInfo: 'Analyzed Tier 1 (7 pairs) + Tier 2 (3 pairs) - Fallback Mode'
-      };
+      console.error('❌ Failed to analyze prompt via backend:', error);
+      throw error;
     }
   }
 
@@ -182,19 +95,8 @@ export class PipnosisAPI {
       });
       return response.data;
     } catch (error) {
-      console.warn('⚠️ Failed to execute trade via backend:', error);
-      
-      // Return mock execution result
-      return {
-        success: true,
-        tradeId: `FALLBACK-${Date.now()}`,
-        symbol: strategy.tradeType.split(' ')[0],
-        entry: strategy.entry,
-        lotSize: strategy.lotSize,
-        timestamp: new Date().toISOString(),
-        message: 'Mock trade execution (backend unavailable)',
-        error: 'Backend connection failed - this is a simulated trade'
-      };
+      console.error('❌ Failed to execute trade via backend:', error);
+      throw error;
     }
   }
 
@@ -204,12 +106,8 @@ export class PipnosisAPI {
       const response = await apiClient.get('/mt5-status');
       return response.data;
     } catch (error) {
-      console.warn('⚠️ Failed to get MT5 status:', error);
-      return {
-        connected: false,
-        status: 'error',
-        message: 'Unable to check MT5 connection status (backend unavailable)'
-      };
+      console.error('❌ Failed to get MT5 status:', error);
+      throw error;
     }
   }
 
@@ -219,15 +117,8 @@ export class PipnosisAPI {
       const response = await apiClient.post('/waitlist', data);
       return response.data;
     } catch (error) {
-      console.warn('⚠️ Failed to join waitlist via backend:', error);
-      
-      // For waitlist, we should still try to show success to user
-      // In production, this might queue the request for later
-      return {
-        success: true,
-        message: 'Added to local waitlist (backend unavailable)',
-        plan: data.plan
-      };
+      console.error('❌ Failed to join waitlist via backend:', error);
+      throw error;
     }
   }
 

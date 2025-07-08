@@ -184,8 +184,8 @@ export const useDatabaseStats = () => {
   const updateTradeCount = useCallback((success: boolean = true) => {
     if (!user) return;
     
-    // Refresh stats after a short delay to allow database to update
-    setTimeout(loadStats, 1000);
+    // Immediately refresh stats
+    loadStats();
   }, [user, loadStats]);
 
   return {

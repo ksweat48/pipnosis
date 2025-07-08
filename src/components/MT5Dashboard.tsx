@@ -100,39 +100,13 @@ export const MT5Dashboard: React.FC<MT5DashboardProps> = ({
     }
     
     try {
-      // Simulate connection for demo purposes
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Set connected status in localStorage
-      localStorage.setItem('pipnosis_mt5_connected', 'true');
+      // Attempt to connect to MT5 bridge
+      const result = await mt5Client.connect();
+      if (!result) {
+        throw new Error('Failed to connect to MT5 bridge');
+      }
       
-      // Get bridge host from localStorage or environment
-      const bridgeHost = localStorage.getItem('pipnosis_mt5_bridge_host') || 
-                         import.meta.env.VITE_MT5_BRIDGE_HOST || 
-                         'localhost';
-      
-      const bridgePort = localStorage.getItem('pipnosis_mt5_bridge_port') || 
-                         import.meta.env.VITE_MT5_BRIDGE_PORT || 
-                         '8765';
-      
-      // Create mock account data
-      const mockAccountData = {
-        login: '5037742044',
-        server: 'MetaQuotes-Demo',
-        bridgeHost: bridgeHost,
-        bridgePort: '8765',
-        balance: 9999.30,
-        equity: 9999.30,
-        margin: 0,
-        freeMargin: 9999.30,
-        marginLevel: 0,
-        openPositions: [],
-        lastUpdate: new Date().toISOString()
-      };
-      
-      localStorage.setItem('pipnosis_mt5_account', JSON.stringify(mockAccountData));
-      
-      console.log('✅ Connected to MT5 bridge');
+      console.log('✅ Connected to MT5 bridge successfully');
       refreshData();
     } catch (error) {
       console.error('Error connecting to MT5:', error);

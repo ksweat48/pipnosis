@@ -153,8 +153,8 @@ export class OpenAIService {
     try {
       // Check if API key is available and valid
       if (!this.apiKeyConfigured || this.fallbackMode) {
-        console.warn('OpenAI API key not configured or using fallback mode. Using mock data.');
-        return this.getMockAnalysis();
+        console.error('OpenAI API key not configured or using fallback mode.');
+        throw new Error('OpenAI API key not configured properly');
       }
 
       const systemPrompt = `You are Pipnosis, an expert AI forex trading assistant that STRICTLY follows the Pipnosis Immutable Laws of Trading.
@@ -224,17 +224,17 @@ IMPORTANT:
         // Ensure the response has the correct structure
         if (!analysis.strategies || !Array.isArray(analysis.strategies)) {
           console.warn('Invalid response structure from OpenAI, using mock data');
-          return this.getMockAnalysis();
+          throw new Error('Invalid response structure from OpenAI');
         }
         return analysis;
       } catch (parseError) {
         console.error('Failed to parse OpenAI response as JSON:', content);
-        return this.getMockAnalysis();
+        throw new Error('Failed to parse OpenAI response');
       }
 
     } catch (error) {
       console.error('OpenAI API error:', error);
-      return this.getMockAnalysis();
+      throw error;
     }
   }
 
@@ -246,7 +246,7 @@ IMPORTANT:
     try {
       // Check if API key is available and valid
       if (!this.apiKeyConfigured || this.fallbackMode) {
-        return this.getMockJournalEntry(type, tradeData);
+        throw new Error('OpenAI API key not configured properly');
       }
 
       const systemPrompt = `You are Pipnosis AI, writing a trade journal entry that follows the Pipnosis Immutable Laws of Trading.
@@ -279,7 +279,7 @@ Return a JSON object with this structure:
 
       const content = response.choices[0]?.message?.content;
       if (!content) {
-        return this.getMockJournalEntry(type, tradeData);
+        throw new Error('No response from OpenAI');
       }
 
       try {
@@ -296,12 +296,12 @@ Return a JSON object with this structure:
           pnl: tradeData.pnl
         };
       } catch (parseError) {
-        return this.getMockJournalEntry(type, tradeData);
+        throw new Error('Failed to parse journal entry response');
       }
 
     } catch (error) {
       console.error('OpenAI journal generation error:', error);
-      return this.getMockJournalEntry(type, tradeData);
+      throw error;
     }
   }
 
@@ -309,7 +309,7 @@ Return a JSON object with this structure:
     try {
       // Check if API key is available and valid
       if (!this.apiKeyConfigured || this.fallbackMode) {
-        return this.getMockFeasibilityAssessment();
+        throw new Error('OpenAI API key not configured properly');
       }
 
       const systemPrompt = `You are Pipnosis, analyzing trading goal feasibility according to the Pipnosis Immutable Laws of Trading.
@@ -342,18 +342,18 @@ Return a JSON object with:
 
       const content = response.choices[0]?.message?.content;
       if (!content) {
-        return this.getMockFeasibilityAssessment();
+        throw new Error('No response from OpenAI');
       }
 
       try {
         return JSON.parse(content);
       } catch (parseError) {
-        return this.getMockFeasibilityAssessment();
+        throw new Error('Failed to parse feasibility assessment response');
       }
 
     } catch (error) {
       console.error('OpenAI feasibility assessment error:', error);
-      return this.getMockFeasibilityAssessment();
+      throw error;
     }
   }
 
@@ -361,7 +361,7 @@ Return a JSON object with:
     try {
       // Check if API key is available and valid
       if (!this.apiKeyConfigured || this.fallbackMode) {
-        return this.getMockExplanation(decision);
+        throw new Error('OpenAI API key not configured properly');
       }
 
       const systemPrompt = `You are Pipnosis AI, explaining trading decisions in simple terms while referencing the Pipnosis Immutable Laws of Trading.
@@ -385,96 +385,17 @@ Always reference which Immutable Laws guided the decision-making process.`;
       });
 
       const content = response.choices[0]?.message?.content;
-      return content || this.getMockExplanation(decision);
+      if (!content) {
+        throw new Error('No response from OpenAI');
+      }
+      return content;
 
     } catch (error) {
       console.error('OpenAI explanation error:', error);
-      return this.getMockExplanation(decision);
+      throw error;
     }
   }
 
-  private getMockAnalysis(): MarketAnalysis {
-    return {
-      strategies: [
-        {
-          id: '1',
-          name: 'Conservative Swing',
-          risk: 'low',
-          tradeType: 'EURUSD Swing (H1-D1)',
-          entry: 1.1410,
-          stopLoss: 1.1360,
-          takeProfit: 1.1510,
-          lotSize: 0.5,
-          estimatedGain: 210,
-          feasible: true,
-          reasoning: 'Strong uptrend continuation with bullish engulfing pattern. Following Pipnosis Law #1 (Capital Preservation) with 2% risk, Law #6 (High Quality Entry) with multiple confirmations, and Law #2 targeting 75% win rate. R:R 2:1 with strong support levels.'
-        },
-        {
-          id: '2',
-          name: 'Balanced Growth',
-          risk: 'medium',
-          tradeType: 'EURUSD Swing (H1-D1)',
-          entry: 1.1410,
-          stopLoss: 1.1360,
-          takeProfit: 1.1510,
-          lotSize: 1.0,
-          estimatedGain: 490,
-          feasible: true,
-          reasoning: 'Same setup with increased position size per Law #5 (AI Final Decision). Maintains Law #3 (Drawdown Management) while targeting weekly goal. Law #10 (Consistency Over Speed) ensures sustainable approach.'
-        }
-      ],
-      summary: 'Market shows bullish momentum on EURUSD with strong technical indicators supporting upward movement. All strategies comply with Pipnosis Immutable Laws.',
-      confidence: 'high',
-      riskAssessment: 'Moderate risk with proper position sizing following Law #1 (Capital Preservation) and Law #3 (Drawdown Management). Stop-loss management per Law #7.'
-    };
-  }
-
-  private getMockJournalEntry(type: string, tradeData: any): JournalEntry {
-    const entries = {
-      entry: {
-        title: 'New Trade Position Opened',
-        message: 'Entered position following Pipnosis Law #6 (High Quality Entry Conditions) with multiple technical confirmations. Law #1 (Capital Preservation) guided position sizing to 2% risk. Risk is controlled with proper stop loss per Law #7.',
-        confidence: 'high' as const
-      },
-      exit: {
-        title: 'Trade Position Closed',
-        message: 'Closed position following Law #7 (Cut Losses Early, Let Winners Run) to secure profits and manage risk. Law #10 (Consistency Over Speed) guided the exit timing for sustainable results.',
-        confidence: 'medium' as const
-      },
-      modification: {
-        title: 'Position Updated',
-        message: 'Adjusted trade parameters following Law #5 (AI Final Decision-Maker) based on evolving market conditions. Law #3 (Drawdown Management) ensures risk-reward optimization.',
-        confidence: 'high' as const
-      }
-    };
-
-    const template = entries[type as keyof typeof entries] || entries.entry;
-
-    return {
-      id: Date.now().toString(),
-      timestamp: new Date().toISOString(),
-      type: type as any,
-      title: template.title,
-      message: template.message,
-      confidence: template.confidence,
-      tradeId: tradeData.tradeId,
-      symbol: tradeData.symbol,
-      pnl: tradeData.pnl
-    };
-  }
-
-  private getMockFeasibilityAssessment() {
-    return {
-      feasible: true,
-      reasoning: 'Goal appears achievable following Pipnosis Law #4 (Never Chase Unrealistic Goals) with proper risk management and Law #10 (Consistency Over Speed) for sustainable execution.',
-      recommendations: 'Focus on Law #1 (Capital Preservation) and Law #3 (Drawdown Management) while maintaining disciplined trading approach per Law #9 (Do Not Overtrade).',
-      timeframe: '3-6 months with consistent performance following all Pipnosis Immutable Laws'
-    };
-  }
-
-  private getMockExplanation(decision: string): string {
-    return `This decision was made following the Pipnosis Immutable Laws of Trading. Law #1 (Capital Preservation) guided position sizing, Law #6 (High Quality Entry Conditions) ensured multiple technical confirmations, and Law #3 (Drawdown Management) maintained acceptable risk levels. The strategy aims to balance potential returns with Law #7 (Cut Losses Early, Let Winners Run) while maintaining Law #2's target of 70-80% win rate through disciplined execution.`;
-  }
 }
 
 export const openAIService = new OpenAIService();

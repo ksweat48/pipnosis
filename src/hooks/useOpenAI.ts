@@ -36,7 +36,7 @@ export const useOpenAI = () => {
       const errorMessage = err instanceof Error ? err.message : 'Failed to analyze prompt';
       setError(errorMessage);
       console.error('❌ OpenAI analysis error:', err);
-      return null;
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -88,7 +88,7 @@ export const useOpenAI = () => {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to assess feasibility';
       setError(errorMessage);
-      return null;
+      throw err;
     } finally {
       setIsLoading(false);
     }

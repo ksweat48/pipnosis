@@ -27,7 +27,7 @@ export const useBackendConnection = () => {
       }
       setLastChecked(new Date());
       
-      console.log('🔄 Using demo mode - all features available');
+      console.log('🔄 Backend connection status:', isConnected ? 'connected' : 'disconnected');
     } catch (error) {
       setIsConnected(false);
       setLastChecked(new Date());
@@ -94,12 +94,10 @@ export const useBackendPromptAnalysis = () => {
       
       return response;
     } catch (err) {
-      if (!backendAPI.isFallbackMode()) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to analyze prompt';
-        setError(errorMessage);
-        console.error('❌ Prompt analysis error:', err);
-      }
-      return null;
+      const errorMessage = err instanceof Error ? err.message : 'Failed to analyze prompt';
+      setError(errorMessage);
+      console.error('❌ Prompt analysis error:', err);
+      throw err;
     } finally {
       setIsAnalyzing(false);
     }
@@ -135,12 +133,10 @@ export const useBackendTradeExecution = () => {
       
       return response;
     } catch (err) {
-      if (!backendAPI.isFallbackMode()) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to execute trade';
-        setError(errorMessage);
-        console.error('❌ Trade execution error:', err);
-      }
-      return null;
+      const errorMessage = err instanceof Error ? err.message : 'Failed to execute trade';
+      setError(errorMessage);
+      console.error('❌ Trade execution error:', err);
+      throw err;
     } finally {
       setIsExecuting(false);
     }
