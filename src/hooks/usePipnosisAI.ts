@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { pipnosisAI } from '../services/pipnosisAIBrain';
 import { useAuth } from '../contexts/AuthContext';
-import { openAIService } from '../services/openai';
+import { openAIService } from '../services/openai'; 
+import { backendAPI } from '../services/backendAPI';
 
 /**
  * Hook for using the Pipnosis AI Brain
@@ -51,8 +52,8 @@ export const usePipnosisAI = () => {
       try {
         // Check if OpenAI is properly initialized
         const status = openAIService.getStatus();
-        setOpenAIStatus(status);
-        
+          accountBalance: profile?.account_balance || 10000,
+          riskProfile: profile?.risk_profile || 'auto' as 'low' | 'medium' | 'high' | 'auto',
         if (status.initialized && !status.fallbackMode) {
           console.log('🤖 Attempting to use OpenAI for prompt analysis');
           const openAIResult = await openAIService.interpretPrompt(prompt, profile?.account_balance || 10000, marketData);
@@ -163,7 +164,7 @@ export const usePipnosisAI = () => {
     } finally {
       setIsProcessing(false);
     }
-  }, [profile, user?.id]);
+  }, [profile, user]);
   
   /**
    * Execute a trading strategy
