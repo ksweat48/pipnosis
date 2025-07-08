@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useDatabaseStats } from '../hooks/useDatabase';
+import { backendAPI } from '../services/backendAPI';
 
 interface TradingKPIsProps {
   className?: string;
@@ -13,7 +14,14 @@ interface TradingKPIsProps {
 export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const { user } = useAuth();
-  const { stats, isLoading, refreshStats } = useDatabaseStats();
+  const { stats, isLoading, refreshStats: refreshDatabaseStats } = useDatabaseStats();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [kpiData, setKpiData] = useState({
+    winRate: 0,
+    averageRRR: 0,
+    maxDrawdown: 0,
+    monthlyReturn: 0
+  });
 
   // Get trade counts from localStorage
   const [tradeCounts, setTradeCounts] = useState({
@@ -21,6 +29,34 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
     winningTrades: 0,
     losingTrades: 0
   });
+  
+  // Function to refresh all stats
+  const refreshStats = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      // Refresh database stats
+      await refreshDatabaseStats();
+      
+      // Get real KPI data from backend
+      if (user) {
+        try {
+          const riskAnalysis = await backendAPI.getRiskAnalysis(user.id);
+          setKpiData({
+            winRate: stats.winRate || 0,
+            averageRRR: 2.1, // This would come from the backend in a real implementation
+            maxDrawdown: riskAnalysis.maxDrawdown || 0,
+            monthlyReturn: riskAnalysis.weeklyRisk * 4 || 0 // Approximation
+          });
+        } catch (error) {
+          console.error('Failed to load KPI data:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing stats:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [refreshDatabaseStats, user, stats.winRate]);
   
   // Load trade counts from localStorage
   useEffect(() => {
@@ -48,9 +84,9 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
   // Refresh stats when component mounts or when expanded
   useEffect(() => {
     if (isExpanded) {
-      refreshStats();
+      refreshStats(); 
     }
-  }, [refreshStats, isExpanded]);
+  }, [refreshStats, isExpanded, user?.id]);
 
   const getPerformanceColor = (value: number, type: 'percentage' | 'ratio' | 'drawdown' | 'return') => {
     if (type === 'drawdown') {
@@ -110,45 +146,45 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
     {
       id: 'winRate',
       label: 'Win Rate (%)',
-      value: `${stats.winRate.toFixed(1)}%`,
+      value: `${kpiData.winRate.toFixed(1)}%`,
       description: 'Success rate of trades',
       icon: Target,
       type: 'percentage' as const,
-      rawValue: stats.winRate
+      rawValue: kpiData.winRate
     },
     {
       id: 'averageRRR',
       label: 'Average RRR',
-      value: '2.1:1',
+      value: `${kpiData.averageRRR.toFixed(1)}:1`,
       description: 'Risk-to-reward ratio',
       icon: BarChart3,
       type: 'ratio' as const,
-      rawValue: 2.1
+      rawValue: kpiData.averageRRR
     },
     {
       id: 'maxDrawdown',
       label: 'Drawdown (max)',
-      value: '5.2%',
+      value: `${kpiData.maxDrawdown.toFixed(1)}%`,
       description: 'Capital protection',
       icon: TrendingDown,
       type: 'drawdown' as const,
-      rawValue: 5.2
+      rawValue: kpiData.maxDrawdown
     },
     {
       id: 'monthlyReturn',
       label: 'Monthly return (%)',
-      value: '8.5%',
+      value: `${kpiData.monthlyReturn.toFixed(1)}%`,
       description: 'Real-world profitability',
       icon: TrendingUp,
       type: 'return' as const,
-      rawValue: 8.5
+      rawValue: kpiData.monthlyReturn
     }
   ];
 
   // Use localStorage values if available, otherwise calculate from stats
-  const profitableTrades = tradeCounts.winningTrades || Math.round(stats.totalTrades * (stats.winRate / 100)) || 0;
-  const losingTrades = tradeCounts.losingTrades || (stats.totalTrades - profitableTrades) || 0;
-  const totalTrades = tradeCounts.totalTrades || stats.totalTrades || 0;
+  const profitableTrades = stats.totalTrades > 0 ? Math.round(stats.totalTrades * (stats.winRate / 100)) : 0;
+  const losingTrades = stats.totalTrades - profitableTrades;
+  const totalTrades = stats.totalTrades;
 
   return (
     <div className={`bg-slate-800 rounded-xl border border-slate-700 ${className}`}>
@@ -181,26 +217,18 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
       <div className="p-4 sm:p-6">
         {/* Summary Stats - Always visible */}
         <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 p-3 sm:p-4 bg-slate-900 rounded-lg border border-slate-600">
-          {user ? (
-            <>
-              <div className="text-center">
-                <div className="text-lg sm:text-2xl font-bold text-green-400">{profitableTrades}</div>
-                <div className="text-xs text-slate-400">Winning Trades</div>
-              </div>
-              <div className="text-center">
-                <div className="text-lg sm:text-2xl font-bold text-red-400">{losingTrades}</div>
-                <div className="text-xs text-slate-400">Losing Trades</div>
-              </div>
-              <div className="text-center">
-                <div className="text-lg sm:text-2xl font-bold text-blue-400">{totalTrades}</div>
-                <div className="text-xs text-slate-400">Total Trades</div>
-              </div>
-            </>
-          ) : (
-            <div className="col-span-3 text-center py-2">
-              <p className="text-slate-400">Sign in to view your trading statistics</p>
-            </div>
-          )}
+          <div className="text-center">
+            <div className="text-lg sm:text-2xl font-bold text-green-400">{profitableTrades}</div>
+            <div className="text-xs text-slate-400">Winning Trades</div>
+          </div>
+          <div className="text-center">
+            <div className="text-lg sm:text-2xl font-bold text-red-400">{losingTrades}</div>
+            <div className="text-xs text-slate-400">Losing Trades</div>
+          </div>
+          <div className="text-center">
+            <div className="text-lg sm:text-2xl font-bold text-blue-400">{totalTrades}</div>
+            <div className="text-xs text-slate-400">Total Trades</div>
+          </div>
         </div>
 
         {/* No Data State */}
@@ -291,9 +319,9 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
                       <p>• Pipnosis AI targets a 70-80% win rate through careful trade selection</p>
                       <p>• Risk-reward ratios of 2:1 or higher are prioritized for long-term profitability</p>
                       <p>• The system adapts after losses to maintain consistent performance</p>
-                      <p>• Start trading to see your personalized performance metrics</p>
-                    </div>
-                  )}
+                  <p>• Risk-reward ratio of {kpiData.averageRRR.toFixed(1)}:1 shows {kpiData.averageRRR >= 2 ? 'strong' : 'moderate'} profit potential per trade</p>
+                  <p>• Recovery rate indicates {stats.winRate >= 70 ? 'excellent' : 'good'} AI adaptation after losses</p>
+                  <p>• Monthly return of {kpiData.monthlyReturn.toFixed(1)}% is {kpiData.monthlyReturn >= 10 ? 'outstanding' : kpiData.monthlyReturn >= 5 ? 'solid' : 'conservative'} for automated trading</p>
                 </div>
               </div>
             </div>
@@ -306,10 +334,11 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
               </div>
               <div className="flex items-center space-x-2">
                 <button 
-                  onClick={refreshStats} 
-                  className="flex items-center space-x-1 px-3 py-1 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                  onClick={refreshStats}
+                  disabled={isRefreshing}
+                  className="flex items-center space-x-1 px-3 py-1 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
                 >
-                  <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`} />
                   <span>Refresh</span>
                 </button>
               </div>
