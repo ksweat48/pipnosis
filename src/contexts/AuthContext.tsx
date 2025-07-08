@@ -2,8 +2,11 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { 
   supabase, 
-  createUserProfile, getUserProfile, UserProfile,
-  subscribeToUserData, checkDatabaseHealth, isValidUUID
+  createUserProfile, 
+  getUserProfile, 
+  UserProfile,
+  subscribeToUserData,
+  checkDatabaseHealth
 } from '../lib/supabase';
 
 interface AuthContextType {
@@ -251,8 +254,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // CRITICAL FIX: Enhanced session initialization with better timeout handling
   useEffect(() => {
     let mounted = true;
-    let initializationTimeout: NodeJS.Timeout | null = null;
-    let sessionCheckTimeout: NodeJS.Timeout | null = null;
+    let initializationTimeoutId: NodeJS.Timeout | null = null;
+    let sessionCheckTimeoutId: NodeJS.Timeout | null = null;
 
     // Check for test user session first
     const checkTestUser = () => {
@@ -294,7 +297,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Shorter timeout for production to prevent hanging
         const sessionTimeout = isProduction ? 8000 : 12000; 
         
-        initializationTimeout = setTimeout(() => {
+        initializationTimeoutId = setTimeout(() => {
           if (mounted && loading && !authInitialized) {
             console.warn('⚠️ Session check timeout, setting loading to false');
             setLoading(false);
@@ -303,7 +306,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }, sessionTimeout);
         
         // Add session-specific timeout
-        sessionCheckTimeout = setTimeout(() => {
+        sessionCheckTimeoutId = setTimeout(() => {
           if (mounted) {
             if (loading && !authInitialized) {
               console.warn('Session check taking too long, forcing completion');
@@ -315,14 +318,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         const { data: { session }, error } = await supabase.auth.getSession();
         
-        if (initializationTimeout) {
-          clearTimeout(initializationTimeout);
-          initializationTimeout = null;
+        if (initializationTimeoutId) {
+          clearTimeout(initializationTimeoutId);
+          initializationTimeoutId = null;
         }
         
-        if (sessionCheckTimeout) {
-          clearTimeout(sessionCheckTimeout);
-          sessionCheckTimeout = null;
+        if (sessionCheckTimeoutId) {
+          clearTimeout(sessionCheckTimeoutId);
+          sessionCheckTimeoutId = null;
         }
         
         if (error) {
@@ -438,13 +441,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       mounted = false;
-      if (initializationTimeout) {
-        clearTimeout(initializationTimeout);
-        initializationTimeout = null;
+      if (initializationTimeoutId) {
+        clearTimeout(initializationTimeoutId);
+        initializationTimeoutId = null;
       }
-      if (sessionCheckTimeout) {
-        clearTimeout(sessionCheckTimeout);
-        sessionCheckTimeout = null;
+      if (sessionCheckTimeoutId) {
+        clearTimeout(sessionCheckTimeoutId);
+        sessionCheckTimeoutId = null;
       }
       subscription.unsubscribe();
     };
