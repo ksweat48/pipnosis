@@ -443,6 +443,7 @@ const Dashboard: React.FC = () => {
         onClose={() => setShowMT5Modal(false)}
       />
     </div>
+  )
   );
 };
 
