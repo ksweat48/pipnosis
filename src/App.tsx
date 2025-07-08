@@ -11,11 +11,11 @@ import { TradingKPIs } from './components/TradingKPIs';
 import { TradingLaws } from './components/TradingLaws';
 import { RiskManagementEngine } from './components/RiskManagementEngine';
 import { MT5Dashboard } from './components/MT5Dashboard';
+import { WebContainerNotice } from './components/WebContainerNotice';
 import { LandingPage } from './components/LandingPage';
 import { UserProfile } from './components/UserProfile';
 import { AuthModal } from './components/auth/AuthModal';
 import { MT5ConnectionModal } from './components/MT5ConnectionModal';
-import { WebContainerNotice } from './components/WebContainerNotice';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useBackendPromptAnalysis, useBackendTradeExecution } from './hooks/useBackendAPI';
 import { useOpenAI } from './hooks/useOpenAI'; 
@@ -371,18 +371,7 @@ const Dashboard: React.FC = () => {
       <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8 space-y-4 sm:space-y-8">
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-8">
           <div className="xl:col-span-2 space-y-4 sm:space-y-6">
-            {window.location.hostname.includes('webcontainer-api.io') || 
-             window.location.hostname.includes('local-credentialless') ||
-             window.location.hostname.includes('bolt.new') ||
-             window.location.hostname.includes('stackblitz') ? (
-              <WebContainerNotice />
-            ) : null}
-            
-            {window.location.hostname.includes('webcontainer-api.io') || 
-             window.location.hostname.includes('local-credentialless') ||
-             window.location.hostname.includes('bolt.new') ? (
-              <WebContainerNotice />
-            ) : null}
+            <WebContainerNotice />
             
             <NotificationCenter
               notifications={notifications}
