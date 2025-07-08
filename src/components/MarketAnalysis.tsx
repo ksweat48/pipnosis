@@ -371,7 +371,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
               }
             </span>
           </div>
-          {analysisMode === 'api' && !isLoading && !error && safeMarketData.length > 0 && lastUpdated && (
+          {analysisMode === 'api' && !isLoading && !error && safeMarketData.length > 0 && lastUpdate && (
             <span>Updated: {lastUpdate?.toLocaleTimeString()}</span>
           )}
         </div>
