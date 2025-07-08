@@ -10,7 +10,7 @@ const getApiBaseUrl = () => {
   // Check if we're in Bolt's WebContainer environment
   const isWebContainer = window.location.hostname.includes('webcontainer') || 
                          window.location.hostname.includes('bolt.new') ||
-                         window.location.hostname.includes('stackblitz');
+                         window.location.hostname.includes('stackblitz').
   
   // Production: Use Railway backend URL
   if (isProduction) {

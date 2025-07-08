@@ -118,8 +118,7 @@ export class BackendAPIService {
     // Always use fallback mode in WebContainer/Bolt environment
     const isWebContainer = window.location.hostname.includes('webcontainer') || 
                            window.location.hostname.includes('bolt.new') ||
-                           window.location.hostname.includes('stackblitz') || 
-                           window.location.hostname.includes('local-credentialless');
+                           window.location.hostname.includes('stackblitz');
     
     // For WebContainer, immediately enable fallback mode
     if (isWebContainer) {
