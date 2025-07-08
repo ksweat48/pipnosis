@@ -72,7 +72,7 @@ export const useOpenAI = () => {
       console.error('❌ Journal entry generation error:', err);
       return null;
     }
-  }, []);
+  }, [user]);
 
   const assessFeasibility = useCallback(async (
     goal: string,
@@ -114,4 +114,4 @@ export const useOpenAI = () => {
     assessFeasibility,
     explainDecision
   };
-}, [user]);
+};
