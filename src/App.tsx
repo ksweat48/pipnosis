@@ -20,7 +20,6 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useBackendPromptAnalysis, useBackendTradeExecution } from './hooks/useBackendAPI';
 import { useOpenAI } from './hooks/useOpenAI'; 
 import { usePipnosisAI } from './hooks/usePipnosisAI';
-import { usePipnosisAI } from './hooks/usePipnosisAI';
 import { useTradeExecution } from './hooks/useTradeExecution';
 import { useDatabaseStats } from './hooks/useDatabase';
 

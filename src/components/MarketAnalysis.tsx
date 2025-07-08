@@ -4,13 +4,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { backendAPI } from '../services/backendAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { backendAPI } from '../services/backendAPI';
+  analysisMode: 'api' | 'screenshot';
 
 interface MarketAnalysisProps {
   onModeChange: (mode: 'api' | 'screenshot') => void;
   onScreenshotUpload: (files: FileList) => void;
 }
 
-const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
+export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   analysisMode,
   onModeChange,
   onScreenshotUpload
@@ -104,10 +105,6 @@ const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   }, [user]);
 
   const { user } = useAuth();
-  const [marketData, setMarketData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Function to fetch market data
   const fetchMarketData = async () => {
@@ -454,8 +451,4 @@ const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
           )}
         </div>
       </div>
-    </div>
-  );
 };
-
-export default MarketAnalysis;
