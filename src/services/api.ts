@@ -3,14 +3,10 @@ import axios from 'axios';
 // API Configuration - Enhanced for production deployment
 const getApiBaseUrl = () => {
   // Check if we're in production (pipnosis.com)
-  const isProduction = window.location.hostname === 'pipnosis.com' || 
-                      window.location.hostname === 'www.pipnosis.com' ||
-                      window.location.hostname.includes('netlify.app');
+  const isProduction = isProductionEnvironment();
   
   // Check if we're in Bolt's WebContainer environment
-  const isWebContainer = window.location.hostname.includes('webcontainer') || 
-                         window.location.hostname.includes('bolt.new') ||
-                         window.location.hostname.includes('stackblitz');
+  const isWebContainer = isWebContainerEnvironment();
   
   // Production: Use Railway backend URL
   if (isProduction) {
@@ -29,14 +25,10 @@ const getApiBaseUrl = () => {
 };
 
 const API_BASE_URL = getApiBaseUrl();
-
-// Create axios instance with default config
-const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 30000, // 30 seconds for AI analysis
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  environment: import.meta.env.MODE, 
+  hostname: window.location.hostname, 
+  isProduction: isProductionEnvironment(),
+  isWebContainer: isWebContainerEnvironment()
 });
 
 // Request interceptor for logging
@@ -186,3 +178,16 @@ class PipnosisAPI {
 
 // Export default instance
 export const pipnosisAPI = PipnosisAPI;
+
+// Helper functions for environment detection
+export function isWebContainerEnvironment(): boolean {
+  return window.location.hostname.includes('webcontainer') || 
+         window.location.hostname.includes('bolt.new') ||
+         window.location.hostname.includes('stackblitz');
+}
+
+export function isProductionEnvironment(): boolean {
+  return window.location.hostname === 'pipnosis.com' || 
+         window.location.hostname === 'www.pipnosis.com' ||
+         window.location.hostname.includes('netlify.app');
+}

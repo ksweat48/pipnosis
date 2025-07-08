@@ -54,7 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // CRITICAL FIX: Enhanced database connection check with better persistence and timeout handling
   useEffect(() => {
     let mounted = true;
-    let checkTimeout: NodeJS.Timeout;
+    let checkTimeout: any;
 
     const checkDB = async () => { 
       // CRITICAL FIX: If user is logged in and we've already confirmed DB connection, 
@@ -177,8 +177,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // CRITICAL FIX: Enhanced session initialization with better timeout handling
   useEffect(() => {
     let mounted = true;
-    let initializationTimeoutId: NodeJS.Timeout | null = null;
-    let sessionCheckTimeoutId: NodeJS.Timeout | null = null;
+    let initializationTimeoutId: any = null;
+    let sessionCheckTimeoutId: any = null;
 
     // Check for test user session first
     const checkTestUser = () => {

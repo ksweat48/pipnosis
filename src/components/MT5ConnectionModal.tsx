@@ -141,10 +141,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
   const handleDownloadConnector = () => {
     // Simulate download process
     setConnectorStatus('installing');
-    
-    // In a real implementation, this would trigger the actual download
-    console.log('Downloading Pipnosis Connector...');
-    
+        
     // Simulate installation progress
     setTimeout(() => {
       setConnectorStatus('installed');
@@ -155,7 +152,7 @@ export const MT5ConnectionModal: React.FC<MT5ConnectionModalProps> = ({ isOpen, 
   const handleTestConnection = async () => {
     setConnectionStatus('connecting');
     setError(null);
-    
+
     try {
       // Configure the MT5 client with the provided host and port
       mt5Client.configure(credentials.bridgeHost, parseInt(credentials.bridgePort, 10));

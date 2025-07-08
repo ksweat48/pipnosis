@@ -448,6 +448,14 @@ export class BackendAPIService {
   isFallbackMode(): boolean {
     return this.fallbackMode;
   }
+  
+  // Helper method to check if we're in WebContainer environment
+  private isWebContainerEnvironment(): boolean {
+    return window.location.hostname.includes('webcontainer') || 
+           window.location.hostname.includes('bolt.new') ||
+           window.location.hostname.includes('stackblitz') ||
+           window.location.hostname.includes('local-credentialless');
+  }
 
 }
 

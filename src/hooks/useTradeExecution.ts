@@ -53,10 +53,11 @@ export const useTradeExecution = () => {
         console.warn('⚠️ MT5 not connected, attempting to connect to MT5 bridge...');
         
         // Check if we're in WebContainer environment
-        if (window.location.hostname.includes('webcontainer-api.io') || 
-            window.location.hostname.includes('local-credentialless') ||
-            window.location.hostname.includes('bolt.new') ||
-            window.location.hostname.includes('stackblitz')) {
+        const isWebContainer = window.location.hostname.includes('webcontainer') || 
+                              window.location.hostname.includes('bolt.new') ||
+                              window.location.hostname.includes('stackblitz');
+        
+        if (isWebContainer) {
           throw new Error('MT5 connection is not available in this preview environment. Please run the application locally to connect to MT5.');
         }
         

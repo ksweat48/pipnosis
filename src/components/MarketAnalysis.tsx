@@ -22,10 +22,10 @@ interface MarketAnalysisProps {
 
 export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   analysisMode,
-  onModeChange,
+  onModeChange, 
   onScreenshotUpload,
-  isLoading: propIsLoading,
-  error: propError
+  isLoading,
+  error
 }) => {
   const { user } = useAuth();
   const { marketData, isLoading, error, lastUpdated, refetch } = useMarketData();
