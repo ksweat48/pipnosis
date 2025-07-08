@@ -12,7 +12,7 @@ This error occurs when the MT5 terminal doesn't respond to the order request. He
 1. Open your MT5 terminal
 2. Right-click in the Market Watch panel
 3. Select "Show All" to display all available symbols
-4. Find USDCAD and make sure it's checked
+4. Find the symbol you want to trade (e.g., GBPUSD) and make sure it's checked
 5. Alternatively, run the symbol selection fix script:
    ```
    python python/fix_mt5_symbol_selection.py
@@ -48,7 +48,7 @@ This error occurs when the MT5 terminal doesn't respond to the order request. He
 1. Check if the market is open for the symbol you're trying to trade
 2. Run the symbol checker to verify:
    ```
-   python python/check_mt5_symbol.py USDCAD
+   python python/check_mt5_symbol.py GBPUSD
    ```
 3. Try trading during market hours for that symbol
 
@@ -64,7 +64,7 @@ This error occurs when the MT5 terminal doesn't respond to the order request. He
 ## Quick Fix Script
 
 For convenience, you can run the `fix_mt5_trading_issues.bat` script which will:
-1. Check the USDCAD symbol configuration
+1. Check the symbol configuration
 2. Fix symbol selection issues
 3. Fix filling mode issues
 
@@ -77,7 +77,7 @@ fix_mt5_trading_issues.bat
 To manually verify that a symbol is properly configured for trading:
 
 ```
-python python/check_mt5_symbol.py USDCAD
+python python/check_mt5_symbol.py GBPUSD
 ```
 
 This will check:
@@ -103,6 +103,6 @@ If you're still experiencing issues after trying these solutions:
 
 1. Check the MT5 bridge logs for specific error messages
 2. Verify your MT5 account has sufficient balance and margin
-3. Try a different symbol (e.g., EURUSD instead of USDCAD)
+3. Try a different symbol (e.g., EURUSD instead of GBPUSD)
 4. Make sure your MT5 terminal is up to date
 5. Check if your broker has any trading restrictions

@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, ExternalLink, Server } from 'lucide-react';
+import { AlertTriangle, ExternalLink } from 'lucide-react';
 
 interface WebContainerNoticeProps {
   onClose?: () => void;
@@ -25,7 +25,6 @@ export const WebContainerNotice: React.FC<WebContainerNoticeProps> = ({ onClose 
           </p>
           <div className="mt-3 space-y-2">
             <div className="flex items-center space-x-2 text-sm text-blue-300">
-              <Server className="h-4 w-4" />
               <span>Using fallback data for demonstration purposes</span>
             </div>
             <p className="text-xs text-blue-200">
