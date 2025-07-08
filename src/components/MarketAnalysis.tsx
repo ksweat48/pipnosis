@@ -88,15 +88,19 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
             >
               Screenshots
             </button>
-                {analysisMode === 'api' ? 
-                  isLoading ? 'Fetching live data...' : 
-                  error ? 'Using fallback data' : 
-                  'Live market data' : 
-                  'Screenshot mode'}
+          </div>
+        </div>
+
+        {analysisMode === 'api' ? (
+          <div>
+            <div className="text-sm text-slate-400 mt-2">
+              {isLoading ? 'Fetching live data...' : 
+               error ? 'Using fallback data' : 
+               'Live market data'}
               <p className="text-red-300 text-xs mt-1">{error}</p>
             </div>
           </div>
-        )}
+        ) : null}
 
         {analysisMode === 'screenshot' ? (
           <div className="p-4 sm:p-6 border-2 border-dashed border-slate-600 rounded-lg text-center">
@@ -257,7 +261,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
                       )}
                     </button>
                   </div>
-            {analysisMode === 'api' && !isLoading && !error && safeMarketData.length > 0 && (
+                )}
               </>
             )}
           </div>
@@ -287,4 +291,4 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
       </div>
     </div>
   );
-}
+};
