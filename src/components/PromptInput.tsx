@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Send, Mic, Zap, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { saveTradingPrompt } from '../lib/supabase';
 
 interface PromptInputProps {
   onSubmit: (prompt: string) => void;
@@ -10,11 +11,26 @@ interface PromptInputProps {
 
 export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, error }) => {
   const [prompt, setPrompt] = useState('');
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (prompt.trim() && !isLoading) {
+      // Save prompt to database if user is logged in
+      if (user) {
+        try {
+          await saveTradingPrompt({
+            user_id: user.id,
+            prompt_text: prompt.trim(),
+            account_balance: profile?.account_balance || 10000,
+            status: 'analyzing'
+          });
+          console.log('✅ Prompt saved to database');
+        } catch (error) {
+          console.error('❌ Failed to save prompt to database:', error);
+        }
+      }
+      
       onSubmit(prompt.trim());
       setPrompt('');
     }

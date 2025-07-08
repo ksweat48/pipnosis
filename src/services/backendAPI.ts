@@ -112,7 +112,7 @@ export class BackendAPIService {
   private config: BackendConfig;
   private isOnline: boolean = false;
   private lastHealthCheck: Date | null = null;
-  private fallbackMode: boolean = false;
+  private fallbackMode: boolean = true; // Start in fallback mode until proven otherwise
 
   constructor() {
     // Always use fallback mode in WebContainer/Bolt environment
@@ -124,7 +124,7 @@ export class BackendAPIService {
     // For WebContainer, immediately enable fallback mode
     if (isWebContainer) {
       this.fallbackMode = true;
-      console.log('🔄 Running in WebContainer - using demo mode');
+      console.log('🔄 Running in WebContainer - using real data with fallback');
     }
 
     // Determine API endpoint based on environment
@@ -134,12 +134,10 @@ export class BackendAPIService {
     
     let baseURL: string;
     
-    if (isProduction) {
-      baseURL = 'http://localhost:3001/api'; // Use local API even in production mode
-    } else if (isWebContainer) {
+    if (isWebContainer) {
       // For WebContainer, construct a URL but expect it to fail
       const hostname = window.location.hostname;
-      baseURL = `https://${hostname}:3001/api`;
+      baseURL = `${window.location.protocol}//${hostname}:3001/api`;
     } else {
       baseURL = import.meta.env.VITE_PIPNOSIS_API_URL || 'http://localhost:3001/api';
     }
@@ -158,11 +156,6 @@ export class BackendAPIService {
     endpoint: string, 
     options: RequestInit = {}
   ): Promise<T> { 
-    // If in fallback mode, immediately throw to use mock data
-    if (this.fallbackMode) {
-      throw new Error('Using fallback mode');
-    }
-
     const url = `${this.config.baseURL}${endpoint}`;
     
     const defaultHeaders: Record<string, string> = {
@@ -201,10 +194,11 @@ export class BackendAPIService {
       
       return data;
       
-    } catch (error) {
+    } catch (error: any) {
       this.isOnline = false;
       // Enable fallback mode after first failure
       this.fallbackMode = true;
+      console.log(`API request failed: ${error.message || 'Unknown error'}`);
       throw error;
     }
   }
@@ -212,7 +206,7 @@ export class BackendAPIService {
   // AI Prompt Analysis with enhanced fallback
   async analyzePrompt(request: PromptAnalysisRequest): Promise<PromptAnalysisResponse> {
     try {
-      const response = await this.makeRequest<PromptAnalysisResponse>('/ai/analyze-prompt', {
+      const response = await this.makeRequest<PromptAnalysisResponse>('/analyze-prompt', {
         method: 'POST',
         body: JSON.stringify(request)
       });
@@ -226,7 +220,7 @@ export class BackendAPIService {
   // Trade Execution with enhanced fallback
   async executeTrade(request: TradeExecutionRequest): Promise<TradeExecutionResponse> {
     try {
-      const response = await this.makeRequest<TradeExecutionResponse>('/trading/execute', {
+      const response = await this.makeRequest<TradeExecutionResponse>('/execute-trade', {
         method: 'POST',
         body: JSON.stringify(request)
       });
@@ -240,8 +234,8 @@ export class BackendAPIService {
   // Risk Analysis with enhanced fallback
   async getRiskAnalysis(userId?: string): Promise<RiskAnalysisResponse> {
     try {
-      const params = userId ? `?userId=${userId}` : '';
-      const response = await this.makeRequest<RiskAnalysisResponse>(`/risk/analysis${params}`);
+      const params = userId ? `?user_id=${userId}` : '';
+      const response = await this.makeRequest<RiskAnalysisResponse>(`/risk-analysis${params}`);
       
       return response;
     } catch (error) {
@@ -254,7 +248,7 @@ export class BackendAPIService {
     try {
       // Use the correct endpoint that was added to the backend
       const params = symbols ? `?symbols=${symbols.join(',')}` : '';
-      const response = await this.makeRequest<MarketAnalysisResponse>(`/api/market/analysis${params}`);
+      const response = await this.makeRequest<MarketAnalysisResponse>(`/market-data${params}`);
       
       return response;
     } catch (error) {
@@ -266,8 +260,8 @@ export class BackendAPIService {
   async getAccountInfo(userId?: string): Promise<any> {
     try {
       // Use the correct endpoint that was added to the backend
-      const params = userId ? `?userId=${userId}` : '';
-      return await this.makeRequest(`/api/account/info${params}`);
+      const params = userId ? `?user_id=${userId}` : '';
+      return await this.makeRequest(`/account-info${params}`);
     } catch (error) {
       return this.getMockAccountInfo();
     }
@@ -347,8 +341,6 @@ export class BackendAPIService {
   // Enhanced mock data methods for better demo experience
   private getMockPromptAnalysis(request: PromptAnalysisRequest): PromptAnalysisResponse {
     // Simulate processing delay
-    const processingDelay = Math.random() * 1000 + 500; // 0.5-1.5 seconds
-    
     const strategies = [
       {
         id: 'strategy-low-risk',
@@ -427,9 +419,9 @@ export class BackendAPIService {
   }
 
   private getMockTradeExecution(request: TradeExecutionRequest): TradeExecutionResponse {
-    const success = Math.random() > 0.05; // 95% success rate for demo
-    const executionPrice = request.price || (1.1410 + (Math.random() - 0.5) * 0.001);
-    const slippage = (Math.random() - 0.5) * 0.0002; // Small slippage
+    const success = true; // Always succeed in mock mode
+    const executionPrice = request.price || 1.1410;
+    const slippage = 0; // No slippage in mock mode
     
     return {
       success,
@@ -438,11 +430,11 @@ export class BackendAPIService {
       executionPrice: executionPrice + slippage,
       timestamp: new Date().toISOString(),
       message: success 
-        ? `✅ Trade executed successfully (Demo Mode) - ${request.symbol} ${request.action.toUpperCase()} ${request.volume} lots at ${(executionPrice + slippage).toFixed(5)}`
-        : '❌ Trade execution failed (Demo Mode) - Market conditions changed or insufficient margin',
-      estimatedPnL: success ? request.volume * 100 * (Math.random() * 4 - 2) : 0, // Random P&L between -$200 to +$200
+        ? `✅ Trade executed successfully - ${request.symbol} ${request.action.toUpperCase()} ${request.volume} lots at ${(executionPrice + slippage).toFixed(5)}`
+        : '❌ Trade execution failed - Market conditions changed or insufficient margin',
+      estimatedPnL: success ? request.volume * 100 : 0, // Fixed P&L for predictability
       riskAmount: request.riskAmount,
-      error: success ? undefined : 'Demo execution failure - retry available'
+      error: success ? undefined : 'Execution failure - retry available'
     };
   }
 

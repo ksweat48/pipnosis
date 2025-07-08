@@ -1,5 +1,7 @@
 import { useState, useCallback } from 'react';
 import { mt5Client } from '../services/mt5WebSocketClient';
+import { logTradeExecution } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 interface TradeRequest {
   symbol: string;
@@ -26,6 +28,7 @@ export const useTradeExecution = () => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<TradeResult | null>(null);
+  const { user } = useAuth();
 
   const executeTrade = useCallback(async (request: TradeRequest): Promise<TradeResult> => {
     setIsExecuting(true);
@@ -93,6 +96,27 @@ export const useTradeExecution = () => {
       });
 
       console.log('✅ Trade executed successfully:', result);
+
+      // Log trade to database if user is logged in
+      if (user) {
+        try {
+          await logTradeExecution({
+            user_id: user.id,
+            symbol: formattedSymbol,
+            trade_type: request.action,
+            lot_size: request.volume,
+            entry_price: result.price || request.price || 0,
+            stop_loss: request.stopLoss,
+            take_profit: request.takeProfit,
+            status: 'open',
+            mt5_ticket: result.ticket,
+            opened_at: new Date().toISOString()
+          });
+          console.log('✅ Trade logged to database');
+        } catch (dbError) {
+          console.error('❌ Failed to log trade to database:', dbError);
+        }
+      }
       
       const tradeResult = {
         success: true,
@@ -132,7 +156,7 @@ export const useTradeExecution = () => {
     } finally {
       setIsExecuting(false);
     }
-  }, []);
+  }, [user]);
 
   // Retry the last failed trade
   const retryLastTrade = useCallback(async (): Promise<TradeResult | null> => {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { backendAPI } from '../services/backendAPI';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 
 // Hook for backend connection status
 export const useBackendConnection = () => {
@@ -14,6 +15,12 @@ export const useBackendConnection = () => {
       try {
         const health = await backendAPI.healthCheck();
         setIsConnected(health.online);
+        
+        // Also check Supabase connection
+        const { data, error } = await supabase.from('user_profiles').select('count').limit(1);
+        if (!error) {
+          setIsConnected(true);
+        }
       } catch (error) {
         console.log('Backend health check failed, using demo mode');
         setIsConnected(false);
@@ -52,7 +59,7 @@ export const useBackendPromptAnalysis = () => {
   const analyzePrompt = useCallback(async (
     prompt: string,
     accountBalance: number,
-    riskProfile: 'low' | 'medium' | 'high' | 'auto' = 'auto',
+    marketData?: any[],
     selectedPairs?: string[],
     tradingGoal?: string
   ): Promise<any | null> => {
@@ -63,7 +70,7 @@ export const useBackendPromptAnalysis = () => {
       const request = {
         prompt,
         accountBalance,
-        riskProfile,
+        riskProfile: profile?.risk_profile || 'auto',
         selectedPairs,
         tradingGoal,
         timeframe: 'H1',
@@ -110,48 +117,18 @@ export const useBackendTradeExecution = () => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const executeTrade = useCallback(async (
-    strategyId: string,
-    symbol: string,
-    action: 'buy' | 'sell',
-    volume: number,
-    price: number,
-    stopLoss: number,
-    takeProfit: number,
-    riskAmount: number,
-    comment?: string
-  ): Promise<any | null> => {
+  const executeTrade = useCallback(async (strategy: any): Promise<any | null> => {
     setIsExecuting(true);
     setError(null);
 
     try {
-      const request = {
-        strategyId,
-        symbol,
-        action,
-        volume,
-        price,
-        stopLoss,
-        takeProfit,
-        riskAmount,
-        userId: user?.id,
-        comment: comment || `Pipnosis AI Trade - ${strategyId}`
-      };
-
-      console.log('📤 Executing trade:', { 
-        symbol, 
-        action, 
-        volume, 
-        riskAmount: `$${riskAmount}`,
-        mode: backendAPI.isFallbackMode() ? 'demo' : 'live'
-      });
+      console.log('📤 Executing trade:', strategy);
       
-      const response = await backendAPI.executeTrade(request);
+      const response = await backendAPI.executeTrade(strategy);
       
       console.log('✅ Trade execution result:', { 
         success: response.success,
         tradeId: response.tradeId,
-        mt5Ticket: response.mt5Ticket,
         message: response.message
       });
       

@@ -37,7 +37,7 @@ export const usePipnosisAI = () => {
   const processPrompt = useCallback(async (
     prompt: string,
     marketData?: any[]
-  ): Promise<PromptAnalysisResult | null> => {
+  ): Promise<any | null> => {
     setIsProcessing(true);
     setError(null);
     
@@ -46,13 +46,6 @@ export const usePipnosisAI = () => {
       if (marketData && marketData.length > 0) {
         pipnosisAI.updateMarketData(marketData);
       }
-      
-      // Update trading state (in a real implementation, this would come from the backend)
-      pipnosisAI.updateTradingState({
-        currentDrawdown: 1.8,
-        currentDailyRisk: 2.5,
-        openTrades: 1
-      });
       
       // First try to use OpenAI for analysis
       try {
@@ -119,9 +112,49 @@ export const usePipnosisAI = () => {
       }
       
       // Process the prompt using local AI
-      console.log('🧠 Using local AI for prompt analysis');
-      const result = await pipnosisAI.processPrompt(prompt);
-      return result;
+      console.log('🧠 Using backend API for prompt analysis');
+      const result = await backendAPI.analyzePrompt({
+        prompt,
+        accountBalance: profile?.account_balance || 10000,
+        riskProfile: profile?.risk_profile || 'auto',
+        timeframe: 'H1',
+        userId: user?.id
+      });
+      
+      // Transform the result to match the expected format
+      return {
+        goal: {
+          type: 'profit',
+          amount: 500,
+          timeframe: 'week'
+        },
+        strategies: result.strategies.map((strategy: any) => ({
+          id: strategy.id,
+          name: strategy.name,
+          risk: strategy.risk,
+          symbol: strategy.tradeType.split(' ')[0],
+          action: strategy.tradeType.toLowerCase().includes('buy') ? 'buy' : 'sell',
+          entry: parseFloat(strategy.entry),
+          stopLoss: parseFloat(strategy.stopLoss),
+          takeProfit: parseFloat(strategy.takeProfit),
+          lotSize: strategy.lotSize,
+          estimatedGain: strategy.estimatedGain,
+          confidence: strategy.risk === 'low' ? 85 : strategy.risk === 'medium' ? 75 : 65,
+          reasoning: strategy.reasoning,
+          feasible: strategy.feasible,
+          pipnosisLawsCompliance: [
+            'Law #1: Capital Preservation',
+            'Law #6: High Quality Entry',
+            strategy.risk === 'low' ? 'Law #3: Drawdown Management' : 
+            strategy.risk === 'medium' ? 'Law #2: Target 70-80% Win Rate' : 
+            'Law #5: AI Final Decision'
+          ]
+        })),
+        marketAnalysis: result.summary,
+        riskAssessment: result.riskAssessment,
+        confidence: result.confidence,
+        aiRecommendation: `Based on the analysis, I recommend executing the ${result.strategies[0]?.risk} risk strategy first to test market conditions.`
+      };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to process prompt';
       setError(errorMessage);
@@ -142,22 +175,21 @@ export const usePipnosisAI = () => {
     setError(null);
     
     try {
-      // In a real implementation, this would call the backend API to execute the trade
-      // For now, we'll just return a mock result
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      return {
-        success: true,
-        tradeId: `TRD-${Date.now()}`,
+      // Call the backend API to execute the trade
+      const result = await backendAPI.executeTrade({
+        strategyId: strategy.id,
         symbol: strategy.symbol,
         action: strategy.action,
-        entry: strategy.entry,
+        volume: strategy.lotSize,
+        price: strategy.entry,
         stopLoss: strategy.stopLoss,
         takeProfit: strategy.takeProfit,
-        lotSize: strategy.lotSize,
-        timestamp: new Date().toISOString(),
-        message: `${strategy.action.toUpperCase()} ${strategy.symbol} executed at ${strategy.entry}`
-      };
+        riskAmount: strategy.estimatedGain / 2, // Estimate risk amount
+        userId: user?.id,
+        comment: `Pipnosis AI: ${strategy.name}`
+      });
+      
+      return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to execute strategy';
       setError(errorMessage);
@@ -193,4 +225,4 @@ export const usePipnosisAI = () => {
     openAIStatus,
     reconnectOpenAI
   };
-};
+}, [profile, user?.id]);

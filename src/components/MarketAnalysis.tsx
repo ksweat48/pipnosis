@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, Camera, Upload, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { backendAPI } from '../services/backendAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { backendAPI } from '../services/backendAPI';
 
@@ -23,6 +24,10 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   onModeChange,
   onScreenshotUpload
 }) => {
+  const [marketData, setMarketData] = useState<MarketDataPoint[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const { user } = useAuth();
   const [marketData, setMarketData] = useState<MarketDataPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -113,6 +118,85 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
     
     return () => clearInterval(interval);
   }, [user]);
+
+  // Function to fetch market data
+  React.useEffect(() => {
+    const fetchMarketData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        
+        // Use the correct API method for market analysis
+        const data = await backendAPI.getMarketAnalysis();
+        
+        if (data && data.symbols) {
+          const formattedData: MarketDataPoint[] = data.symbols.map(symbol => ({
+            symbol: symbol.symbol,
+            price: symbol.bid && symbol.ask ? (symbol.bid + symbol.ask) / 2 : 1.1425,
+            change: symbol.change,
+            changePercent: symbol.changePercent,
+            trend: symbol.trend === 'bullish' ? 'up' : symbol.trend === 'bearish' ? 'down' : 'sideways',
+            signal: symbol.signals.includes('Buy Signal') ? 'buy' : 
+                   symbol.signals.includes('Sell Signal') ? 'sell' : 'hold'
+          }));
+          
+          setMarketData(formattedData);
+        } else {
+          // Generate fallback data
+          const fallbackData = generateMarketData();
+          setMarketData(fallbackData);
+        }
+        setLastUpdate(new Date());
+      } catch (err) {
+        console.error('Failed to fetch market data:', err);
+        setError('Failed to fetch market data. Using fallback data.');
+        
+        // Generate fallback data
+        const fallbackData = generateMarketData();
+        setMarketData(fallbackData);
+        setLastUpdate(new Date());
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchMarketData();
+    const interval = setInterval(fetchMarketData, 30000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // Function to generate fallback market data
+  const generateMarketData = (): MarketDataPoint[] => {
+    const pairs = [
+      { symbol: 'EURUSD', basePrice: 1.1425 },
+      { symbol: 'GBPUSD', basePrice: 1.2735 },
+      { symbol: 'USDJPY', basePrice: 149.85 },
+      { symbol: 'USDCHF', basePrice: 0.8945 },
+      { symbol: 'AUDUSD', basePrice: 0.6785 },
+      { symbol: 'USDCAD', basePrice: 1.3625 },
+      { symbol: 'NZDUSD', basePrice: 0.6245 }
+    ];
+
+    return pairs.map(({ symbol, basePrice }) => {
+      const isJPY = symbol.includes('JPY');
+      const priceVariation = isJPY 
+        ? (Math.random() - 0.5) * 2.0 
+        : (Math.random() - 0.5) * 0.02;
+      const changeVariation = isJPY 
+        ? (Math.random() - 0.5) * 1.0 
+        : (Math.random() - 0.5) * 0.01;
+
+      return {
+        symbol,
+        price: basePrice + priceVariation,
+        change: changeVariation,
+        changePercent: (changeVariation / basePrice) * 100,
+        trend: Math.random() > 0.5 ? 'up' : 'down',
+        signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] as 'buy' | 'sell' | 'hold'
+      };
+    });
+  };
 
   const getSignalColor = (signal: string) => {
     switch (signal) {
