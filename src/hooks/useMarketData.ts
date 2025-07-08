@@ -26,6 +26,22 @@ export const useMarketData = (refreshInterval: number = 5000) => {
       
       console.log('🔄 Fetching market data...');
       
+      // Check if we're in WebContainer/Bolt environment
+      const isWebContainer = window.location.hostname.includes('webcontainer') || 
+                           window.location.hostname.includes('bolt.new') ||
+                           window.location.hostname.includes('stackblitz') ||
+                           window.location.hostname.includes('local-credentialless');
+      
+      // In WebContainer, immediately use fallback data
+      if (isWebContainer) {
+        console.log('🔄 WebContainer environment detected - using fallback data');
+        const generatedData = generateFallbackData();
+        setMarketData(generatedData);
+        setLastUpdated(new Date());
+        setIsLoading(false);
+        return;
+      }
+      
       try {
         // First try the backend API
         const data = await backendAPI.getMarketAnalysis().catch(error => {

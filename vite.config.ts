@@ -58,7 +58,7 @@ export default defineConfig({
   },
   server: {
     // CRITICAL: Proper host configuration for Bolt preview
-    host: '0.0.0.0', // Allow external connections
+    host: 'localhost', // Changed from 0.0.0.0 to localhost
     port: 5173,
     strictPort: false, // Allow port fallback
     // Ensure proper CORS for Bolt preview
@@ -72,12 +72,12 @@ export default defineConfig({
     // CRITICAL: Enable HMR for external access
     hmr: {
       port: 5173,
-      host: '0.0.0.0'
+      host: 'localhost' // Changed from 0.0.0.0 to localhost
     }
   },
   // Preview configuration for production builds
   preview: {
-    host: '0.0.0.0',
+    host: 'localhost',
     port: 4173,
     strictPort: false,
     cors: true,

@@ -168,6 +168,18 @@ export class BackendAPIService {
       throw new Error('WebContainer environment - network requests limited');
     }
     
+    // Check if we're in WebContainer/Bolt environment
+    const isWebContainer = window.location.hostname.includes('webcontainer') || 
+                           window.location.hostname.includes('bolt.new') ||
+                           window.location.hostname.includes('stackblitz') ||
+                           window.location.hostname.includes('local-credentialless');
+    
+    // In WebContainer, immediately throw an error to use fallback data
+    if (isWebContainer) {
+      console.log('🔄 WebContainer environment detected - using fallback data');
+      throw new Error('WebContainer environment - network requests limited');
+    }
+    
     const url = `${this.config.baseURL}${endpoint}`;
     
     const defaultHeaders: Record<string, string> = {
@@ -259,6 +271,18 @@ export class BackendAPIService {
   // Market Analysis with enhanced fallback
   async getMarketAnalysis(symbols?: string[]): Promise<MarketAnalysisResponse> {
     try {
+      // Check if we're in WebContainer/Bolt environment
+      const isWebContainer = window.location.hostname.includes('webcontainer') || 
+                           window.location.hostname.includes('bolt.new') ||
+                           window.location.hostname.includes('stackblitz') ||
+                           window.location.hostname.includes('local-credentialless');
+      
+      // In WebContainer, immediately use fallback data
+      if (isWebContainer) {
+        console.log('🔄 WebContainer environment detected - using fallback data');
+        return this.getMockMarketAnalysis(symbols);
+      }
+      
       // Check if we're in WebContainer/Bolt environment
       const isWebContainer = window.location.hostname.includes('webcontainer') || 
                            window.location.hostname.includes('bolt.new') ||
