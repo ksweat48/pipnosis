@@ -12,14 +12,54 @@ import { TradingLaws } from './components/TradingLaws';
 import { MT5Dashboard } from './components/MT5Dashboard';
 import { WebContainerNotice } from './components/WebContainerNotice';
 import { MT5ConnectionModal } from './components/MT5ConnectionModal';
+import { RiskManagementEngine } from './components/RiskManagementEngine';
+import { UserProfile } from './components/UserProfile';
 import { useBackendPromptAnalysis, useBackendTradeExecution } from './hooks/useBackendAPI';
 import { useOpenAI } from './hooks/useOpenAI'; 
 import { usePipnosisAI } from './hooks/usePipnosisAI';
 import { useMarketData } from './hooks/useMarketData';
 
+// Types
+interface StrategyOption {
+  id: string;
+  name: string;
+  risk: string;
+  tradeType: string;
+  entry: string;
+  stopLoss: string;
+  takeProfit: string;
+  lotSize: number;
+  estimatedGain: string;
+  feasible: boolean;
+  reasoning: string;
+  symbol: string;
+  action: string;
+  confidence: string;
+  pipnosisLawsCompliance?: any;
+}
 
-// Dashboard Component
-const Dashboard: React.FC = () => {
+interface Notification {
+  id: string;
+  type: 'info' | 'success' | 'error' | 'warning';
+  title: string;
+  message: string;
+  timestamp: string;
+  read: boolean;
+}
+
+interface JournalEntry {
+  id: string;
+  timestamp: string;
+  type: 'trade_entry' | 'trade_exit' | 'market_update' | 'ai_decision' | 'modification' | 'update';
+  title: string;
+  message: string;
+  tradeId?: string;
+  symbol?: string;
+  confidence: 'high' | 'medium' | 'low';
+  userReaction: 'thumbs-up' | 'explain-more' | null;
+}
+
+const App: React.FC = () => {
   const [strategyOptions, setStrategyOptions] = useState<StrategyOption[]>([]);
   const [analysisMode, setAnalysisMode] = useState<'api' | 'screenshot'>('api');
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -326,14 +366,6 @@ const Dashboard: React.FC = () => {
       />
     </div>
   );
-}
+};
 
-function AppContent() {
-  if (isEmailConfirmation) {
-    console.log('📧 Email confirmation detected in URL');
-    // Clear the URL parameters
-  }
-}
-
-// ✅ export at the top level, outside any block
 export default App;
