@@ -40,11 +40,6 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
     refetch();
   };
 
-  // Handle refresh button click
-  const handleRefresh = () => {
-    refetch();
-  };
-
   const getSignalColor = (signal: string) => {
     switch (signal) {
       case 'buy': return 'text-green-400 bg-green-500/20 border-green-500/30';
@@ -80,9 +75,9 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
         <div className="flex flex-col space-y-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
             <BarChart3 className="h-5 w-5 text-blue-400" /> 
-            <span>Live Market Analysis</span>
+            <span>Market Analysis</span>
             <button 
-              onClick={handleRefresh} 
+              onClick={refetch} 
               className="p-1 text-slate-400 hover:text-white transition-colors"
             >
               {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
