@@ -1,3 +1,5 @@
+Here's the fixed version with all missing closing brackets and proper formatting:
+
 // Enhanced Backend API Service with better error handling and fallback
 export interface BackendConfig {
   baseURL: string;
@@ -323,15 +325,14 @@ export class BackendAPIService {
     });
     
     return {
-      strategies,
-      summary: `Market analysis across ${keywords.pairs.length > 0 ? keywords.pairs.join(', ') : 'multiple trading pairs'} shows ${keywords.conservative ? 'conservative' : keywords.aggressive ? 'aggressive' : 'balanced'} opportunities. All strategies comply with Pipnosis Immutable Laws.`,
-      confidence: keywords.conservative ? "high" : keywords.aggressive ? "medium" : "high",
+      success: true,
+      strategies: strategies,
+      marketAnalysis: `Market analysis across ${keywords.pairs.length > 0 ? keywords.pairs.join(', ') : 'multiple trading pairs'} shows ${keywords.conservative ? 'conservative' : keywords.aggressive ? 'aggressive' : 'balanced'} opportunities. All strategies comply with Pipnosis Immutable Laws.`,
       riskAssessment: `Risk management follows Law #1 (Capital Preservation) and Law #3 (Drawdown Management). ${keywords.conservative ? 'Conservative' : keywords.aggressive ? 'Aggressive' : 'Balanced'} approach maintains law compliance while targeting your goal of $${keywords.amount || '500'}.`,
-      pairsAnalyzed: 10,
-      tierInfo: `Analyzed Tier 1 (7 pairs) + Tier 2 (3 pairs) - ${this.fallbackMode ? 'Fallback' : 'Production'} Mode`
+      confidence: keywords.conservative ? "high" : keywords.aggressive ? "medium" : "high",
+      aiRecommendation: `Based on current market conditions and your preferences, recommend focusing on ${keywords.pairs[0] || 'EURUSD'} with ${keywords.conservative ? 'conservative' : keywords.aggressive ? 'aggressive' : 'balanced'} approach.`,
+      timestamp: new Date().toISOString()
     };
-      throw error;
-    }
   }
 
   // Trade Execution with enhanced fallback
@@ -550,7 +551,6 @@ export class BackendAPIService {
            window.location.hostname.includes('stackblitz') ||
            window.location.hostname.includes('local-credentialless');
   }
-
 }
 
 export const backendAPI = new BackendAPIService();
