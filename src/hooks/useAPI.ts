@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { pipnosisAPI } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 // Hook for backend connection status
 export const useBackendConnection = () => {
