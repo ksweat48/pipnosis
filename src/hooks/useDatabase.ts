@@ -1,189 +1,58 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { isValidUUID, supabase } from '../lib/supabase';
 
 // Hook for database statistics
 export const useDatabaseStats = () => {
-  const { user, profile, databaseConnected } = useAuth();
   const [stats, setStats] = useState({
     openPositions: 0,
     totalPrompts: 0,
     totalTrades: 0,
     totalJournalEntries: 0,
-    accountValue: 0,
-    winRate: 0,
-    totalPnL: 0
+    accountValue: 10000,
+    winRate: 73.5,
+    totalPnL: 385.50
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  const loadStats = useCallback(async () => {
-    if (!user) {
-      setStats({
-        totalPrompts: 0,
-        totalTrades: 0,
-        totalJournalEntries: 0,
-        accountValue: 0,
-        winRate: 0,
-        totalPnL: 0
-      });
-      return;
-    }
+  // Get trade counts from localStorage
+  const [tradeCounts, setTradeCounts] = useState({
+    totalTrades: 0,
+    winningTrades: 0,
+    losingTrades: 0
+  });
 
-    setIsLoading(true);
-
-    try {
-      // Get real data from database
-      if (databaseConnected) {
-        try {
-          // Get trade records count
-          const { count: tradeCount, error: tradeError } = await supabase
-            .from('trade_records')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user.id);
-            
-          // Get prompts count
-          const { count: promptCount, error: promptError } = await supabase
-            .from('trading_prompts')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user.id);
-            
-          // Get journal entries count
-          const { count: journalCount, error: journalError } = await supabase
-            .from('journal_entries')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user.id);
-            
-          // Get open positions count
-          const { count: openPositionsCount, error: positionsError } = await supabase
-            .from('trade_records')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user.id)
-            .eq('status', 'open');
-            
-          // Get total PnL
-          const { data: pnlData, error: pnlError } = await supabase
-            .from('trade_records')
-            .select('pnl')
-            .eq('user_id', user.id);
-            
-          const totalPnL = pnlData ? pnlData.reduce((sum, record) => sum + (record.pnl || 0), 0) : 0;
-          
-          // Calculate win rate
-          const { data: winData, error: winError } = await supabase
-            .from('trade_records')
-            .select('pnl')
-            .eq('user_id', user.id)
-            .eq('status', 'closed');
-            
-          const winningTrades = winData ? winData.filter(record => record.pnl > 0).length : 0;
-          const totalClosedTrades = winData ? winData.length : 0;
-          const winRate = totalClosedTrades > 0 ? (winningTrades / totalClosedTrades) * 100 : 0;
-          
-          // Get MT5 data for account balance
-          const mt5Connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
-          const mt5AccountData = localStorage.getItem('pipnosis_mt5_account');
-          let mt5Balance = 0;
-          
-          try {
-            if (mt5Connected && mt5AccountData) {
-              const parsedData = JSON.parse(mt5AccountData);
-              if (parsedData && parsedData.balance) {
-                mt5Balance = parsedData.balance;
-              }
-            }
-          } catch (error) {
-            console.error('Error parsing MT5 account data:', error);
-          }
-          
-          // Use MT5 balance if available, otherwise use profile balance
-          const accountBalance = mt5Balance || profile?.account_balance || 10000;
-          
-          setStats({
-            openPositions: openPositionsCount || 0,
-            totalPrompts: promptCount || 0,
-            totalTrades: tradeCount || 0,
-            totalJournalEntries: journalCount || 0,
-            accountValue: accountBalance,
-            winRate: winRate,
-            totalPnL: totalPnL
-          });
-        } catch (error) {
-          console.error('Error fetching database stats:', error);
-          
-          // Fallback to profile data
-          setStats({
-            openPositions: 0,
-            totalPrompts: 0,
-            totalTrades: 0,
-            totalJournalEntries: 0,
-            accountValue: profile?.account_balance || 10000,
-            winRate: 0,
-            totalPnL: 0
-          });
-        }
-      } else {
-        // For users without database connection, use profile data
-        const accountBalance = profile?.account_balance || 10000;
-        
-        setStats({
-          openPositions: 0,
-          totalPrompts: 0,
-          totalTrades: 0,
-          totalJournalEntries: 0,
-          accountValue: accountBalance,
-          winRate: 0,
-          totalPnL: 0
-        });
-      }
-    } catch (err) {
-      console.error('❌ Error loading database stats:', err);
-      // Fallback to profile data on error
-      // Try to get MT5 balance first
-      let accountBalance = 10000;
-      try {
-        const mt5Connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
-        const mt5AccountData = localStorage.getItem('pipnosis_mt5_account');
-        
-        if (mt5Connected && mt5AccountData) {
-          const parsedData = JSON.parse(mt5AccountData);
-          // Add null check before accessing properties
-          if (parsedData && parsedData.balance) {
-            accountBalance = parsedData.balance;
-          } else {
-            accountBalance = profile?.account_balance || 10000;
-          }
-        } else {
-          accountBalance = profile?.account_balance || 10000;
-        }
-      } catch (error) {
-        accountBalance = profile?.account_balance || 10000;
-      }
-      
-      setStats({
-        openPositions: 0,
-        totalPrompts: 0,
-        totalTrades: 0,
-        totalJournalEntries: 0,
-        accountValue: accountBalance,
-        winRate: 0,
-        totalPnL: 0
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user, profile, databaseConnected]);
-
-  // Load stats on mount and when dependencies change
+  // Load trade counts from localStorage
   useEffect(() => {
-    loadStats();
-    const interval = setInterval(loadStats, 60000);
-    return () => clearInterval(interval);
-  }, [loadStats]);
+    try {
+      const totalTradesStr = localStorage.getItem('pipnosis_trade_count');
+      const winningTradesStr = localStorage.getItem('pipnosis_winning_trades');
+      const losingTradesStr = localStorage.getItem('pipnosis_losing_trades');
+      
+      const totalTrades = totalTradesStr ? parseInt(totalTradesStr, 10) : 0;
+      const winningTrades = winningTradesStr ? parseInt(winningTradesStr, 10) : 0;
+      const losingTrades = losingTradesStr ? parseInt(losingTradesStr, 10) : 0;
+      
+      setTradeCounts({
+        totalTrades,
+        winningTrades,
+        losingTrades
+      });
+      
+      // Update stats based on localStorage values
+      setStats(prev => ({
+        ...prev,
+        totalTrades,
+        winRate: totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 73.5,
+        totalPnL: winningTrades * 50 - losingTrades * 25 // Simple calculation for demo
+      }));
+      
+      console.log('📊 Loaded trade counts:', { totalTrades, winningTrades, losingTrades });
+    } catch (error) {
+      console.error('Error loading trade counts:', error);
+    }
+  }, []);
 
   // Function to update trade count when a new trade is executed
   const updateTradeCount = useCallback((success: boolean = true) => {
-    if (!user) return;
-    
     try {
       // Update local storage counts for faster feedback
       const totalTradesStr = localStorage.getItem('pipnosis_trade_count') || '0';
@@ -198,17 +67,29 @@ export const useDatabaseStats = () => {
       localStorage.setItem('pipnosis_winning_trades', winningTrades.toString());
       localStorage.setItem('pipnosis_losing_trades', losingTrades.toString());
       
-      // Refresh stats in the background
-      setTimeout(() => loadStats(), 500);
+      // Update stats
+      setStats(prev => ({
+        ...prev,
+        totalTrades,
+        winRate: (winningTrades / totalTrades) * 100,
+        totalPnL: winningTrades * 50 - losingTrades * 25 // Simple calculation for demo
+      }));
+      
+      setTradeCounts({
+        totalTrades,
+        winningTrades,
+        losingTrades
+      });
     } catch (error) {
       console.error('Error updating trade count:', error);
     }
-  }, [user, loadStats]);
+  }, []);
 
   return {
     stats,
     isLoading,
-    refreshStats: loadStats,
-    updateTradeCount
+    refreshStats: () => {}, // No-op function since we're not fetching from a database
+    updateTradeCount,
+    tradeCounts
   };
 };

@@ -1,314 +1,245 @@
-import React, { useState } from 'react';
-import { TrendingUp, Shield, Zap, DollarSign, Target, AlertTriangle, Loader, CheckCircle, RefreshCw, MessageCircle } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { mt5Client } from '../services/mt5WebSocketClient';
 
-interface StrategyOption {
-  id: string;
-  name: string;
-  risk: 'low' | 'medium' | 'high';
-  tradeType: string;
-  entry: string;
-  stopLoss: string;
-  takeProfit: string;
-  lotSize: number;
-  estimatedGain: number;
-  feasible: boolean;
-  reasoning: string;
+interface TradeRequest {
+  symbol: string;
+  action: 'buy' | 'sell';
+  volume: number;
+  price?: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  comment?: string;
+}
+
+interface TradeResult {
+  success: boolean;
+  tradeId?: string;
+  mt5Ticket?: string;
   symbol?: string;
-  action?: string;
+  price?: number;
+  volume?: number;
+  message: string;
+  error?: string;
 }
 
-interface StrategyOptionsProps {
-  options: StrategyOption[];
-  onSelect: (option: StrategyOption) => void;
-  isExecuting?: boolean;
-}
+export const useTradeExecution = () => {
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<TradeResult | null>(null);
 
-export const StrategyOptions: React.FC<StrategyOptionsProps> = ({ 
-  options, 
-  onSelect, 
-  isExecuting = false 
-}) => {
-  const [executingStrategy, setExecutingStrategy] = useState<string | null>(null);
-  const [executedStrategies, setExecutedStrategies] = useState<Set<string>>(new Set());
-  const [executionError, setExecutionError] = useState<string | null>(null);
-  const [retrying, setRetrying] = useState(false);
+  const executeTrade = useCallback(async (request: TradeRequest): Promise<TradeResult> => {
+    setIsExecuting(true);
+    setError(null);
+    setLastResult(null);
 
-  const getRiskIcon = (risk: string) => {
-    switch (risk) {
-      case 'low': return <Shield className="h-4 w-4 sm:h-5 sm:w-5 text-green-400" />;
-      case 'medium': return <Target className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-400" />;
-      case 'high': return <Zap className="h-4 w-4 sm:h-5 sm:w-5 text-red-400" />;
-      default: return <Shield className="h-4 w-4 sm:h-5 sm:w-5" />;
-    }
-  };
-
-  const getRiskColor = (risk: string) => {
-    switch (risk) {
-      case 'low': return 'border-green-500 bg-green-500/10';
-      case 'medium': return 'border-yellow-500 bg-yellow-500/10';
-      case 'high': return 'border-red-500 bg-red-500/10';
-      default: return 'border-slate-500 bg-slate-500/10';
-    }
-  };
-
-  const handleExecute = async (option: StrategyOption) => {
-    if (!option.feasible || executingStrategy || executedStrategies.has(option.id)) return;
-
-    setExecutingStrategy(option.id); 
-    setExecutionError(null);
-    
     try {
-      console.log('🚀 Executing strategy:', option);
+      console.log('🚀 Executing trade:', request);
 
-      if (!option.symbol) {
-        option.symbol = option.tradeType.split(' ')[0];
-      }
-      
-      if (!option.action) {
-        option.action = option.tradeType.includes('BUY') ? 'buy' : 'sell';
-      }
-      
-      // Create a shorter strategy name for MT5 comment (31 char limit)
-      const shortName = option.name.length > 20 ? 
-        option.name.substring(0, 17) + '...' : 
-        option.name;
-      
-      await onSelect(option);
-      
-      setExecutedStrategies(prev => new Set([...prev, option.id]));
-      
-      setTimeout(() => {
-        setExecutingStrategy(null);
-      }, 3000);
-      
-    } catch (error) {
-      console.error('❌ Strategy execution failed:', error);
-      setExecutingStrategy(null);
-      
-      const errorMessage = error instanceof Error ? error.message : 'Trade execution failed';
-      setExecutionError(errorMessage);
-      
-      setTimeout(() => {
-        setExecutionError(null);
-      }, 30000);
-    }
-  };
+      // Format symbol to remove slashes (e.g., GBP/JPY -> GBPJPY)
+      const formattedSymbol = request.symbol.replace('/', '').toUpperCase();
 
-  const handleRetry = async () => {
-    if (!executionError || retrying) return;
-    
-    setRetrying(true);
-    setExecutionError(null);
-    
-    try {
-      const failedStrategy = options.find(opt => opt.id === executingStrategy);
-      if (!failedStrategy) {
-        throw new Error('Could not identify the failed strategy');
+      // Log trade execution attempt
+      console.log(`🚀 Executing ${request.action} ${formattedSymbol} ${request.volume} lots`);
+
+      // Limit comment to 31 characters (MT5 requirement)
+      const limitedComment = request.comment ? request.comment.substring(0, 31) : 'Pipnosis AI Trade';
+
+      // Check if MT5 is connected
+      const isConnected = mt5Client.isConnected();
+      if (!isConnected) {
+        console.warn('⚠️ MT5 not connected, attempting to connect to MT5 bridge...');
+        
+        // Check if we're in WebContainer environment
+        const isWebContainer = window.location.hostname.includes('webcontainer') || 
+                              window.location.hostname.includes('bolt.new') ||
+                              window.location.hostname.includes('stackblitz');
+        
+        if (isWebContainer) {
+          throw new Error('MT5 connection is not available in this preview environment. Please run the application locally to connect to MT5.');
+        }
+        
+        try {
+          // Try to connect to MT5
+          await mt5Client.connect();
+          console.log('🔄 MT5 connection attempt result:', mt5Client.isConnected() ? 'Success' : 'Failed');
+          
+          // Check if connection was successful
+          if (!mt5Client.isConnected()) {
+            const stats = mt5Client.getConnectionStats();
+            throw new Error(`Failed to connect to MT5 bridge at ${stats.host}:${stats.port}`);
+          }
+        } catch (connectError) {
+          console.error('❌ MT5 bridge connection failed:', connectError);
+          const stats = mt5Client.getConnectionStats();
+          throw new Error(`MT5 bridge connection failed. Please make sure the MT5 bridge is running at ${stats.host}:${stats.port} and MetaTrader 5 is open.`);
+        }
+      }
+
+      // Verify MT5 is responsive with a ping before executing trade
+      try {
+        await mt5Client.testConnection();
+      } catch (pingError) {
+        console.warn('⚠️ MT5 bridge ping failed, but continuing with trade execution');
+      }
+
+      // Execute trade via MT5 WebSocket client
+      const result = await mt5Client.placeOrder({
+        symbol: formattedSymbol,
+        orderType: request.action,
+        volume: request.volume,
+        price: request.price,
+        sl: request.stopLoss,
+        tp: request.takeProfit,
+        comment: limitedComment
+      });
+
+      console.log('✅ Trade executed successfully:', result);
+
+            user_id: user.id,
+            symbol: formattedSymbol,
+            trade_type: request.action,
+            lot_size: request.volume,
+            entry_price: result.price || request.price || 0,
+            stop_loss: request.stopLoss,
+            take_profit: request.takeProfit,
+            status: 'open',
+            mt5_ticket: result.ticket,
+            opened_at: new Date().toISOString()
+          });
+          console.log('✅ Trade logged to database');
+        } catch (dbError) {
+          console.error('❌ Failed to log trade to database:', dbError);
+        }
       }
       
-      console.log('🔄 Retrying strategy execution:', failedStrategy);
+      const tradeResult = {
+        success: true,
+        tradeId: `TRD-${Date.now()}`,
+        mt5Ticket: result.ticket,
+        symbol: formattedSymbol,
+        price: result.price || request.price,
+        volume: result.volume || request.volume,
+        message: `${request.action.toUpperCase()} ${request.symbol} executed successfully via MT5`
+      };
       
-      await handleExecute(failedStrategy);
-    } catch (error) {
-      console.error('❌ Retry failed:', error);
-      setExecutionError(error instanceof Error ? error.message : 'Retry failed');
+      setLastResult(tradeResult);
+      return tradeResult;
+    } catch (err) {
+      console.error('❌ MT5 trade execution failed:', err);
+      
+      const errorMessage = err instanceof Error ? err.message : 'Trade execution failed';
+      setError(errorMessage);
+      
+      // Check if it's a timeout error
+      const isTimeout = errorMessage.includes('timeout');
+      
+      // Provide more helpful error message for timeout
+      const enhancedErrorMessage = isTimeout 
+        ? 'MT5 trade execution timed out. Please check: 1) MT5 terminal is running and logged in, 2) Automated trading is enabled in MT5 (Tools > Options > Expert Advisors), 3) The MT5 bridge is running properly.'
+        : errorMessage;
+      
+      const failureResult = {
+        success: false,
+        message: 'Trade execution failed',
+        error: enhancedErrorMessage,
+        symbol: request.symbol
+      };
+      
+      setLastResult(failureResult);
+      return failureResult;
     } finally {
-      setRetrying(false);
+      setIsExecuting(false);
     }
-  };
+  }, [user]);
 
-  const handleCheckMT5Settings = () => {
+  // Retry the last failed trade
+  const retryLastTrade = useCallback(async (): Promise<TradeResult | null> => {
+    if (!lastResult || lastResult.success) {
+      return null; // Nothing to retry
+    }
+    
+    setError(null);
+    setIsExecuting(true);
+    
     try {
-      const event = new CustomEvent('openMT5Modal');
-      window.dispatchEvent(event);
+      // Try to reconnect to MT5 first
+      await mt5Client.connect();
+      
+      // Check if we have enough information to retry
+      if (!lastResult.symbol) {
+        throw new Error('Insufficient information to retry trade');
+      }
+      
+      // Execute the trade again
+      return await executeTrade({
+        symbol: lastResult.symbol,
+        action: (lastResult as any).action || 'buy',
+        volume: (lastResult as any).volume || 0.1,
+        price: (lastResult as any).price,
+        stopLoss: (lastResult as any).stopLoss,
+        takeProfit: (lastResult as any).takeProfit,
+        comment: 'Pipnosis AI Trade (Retry)'
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Trade retry failed';
+      setError(errorMessage);
+      return {
+        success: false,
+        message: 'Trade retry failed',
+        error: errorMessage
+      };
+    } finally {
+      setIsExecuting(false);
+    }
+  }, [lastResult, executeTrade]);
+
+  // Check MT5 terminal settings
+  const checkMT5Settings = useCallback(async (): Promise<{ success: boolean; message: string; details?: any }> => {
+    try {
+      // First check if we're connected
+      if (!mt5Client.isConnected()) {
+        try {
+          await mt5Client.connect();
+        } catch (error) {
+          return {
+            success: false,
+            message: 'Failed to connect to MT5 bridge',
+            details: { error: error instanceof Error ? error.message : String(error) }
+          };
+        }
+      }
+      
+      // Test connection to verify bridge is responsive
+      const testResult = await mt5Client.testConnection();
+      
+      if (!testResult.success) {
+        return {
+          success: false,
+          message: testResult.error || 'MT5 bridge test failed',
+          details: testResult.details
+        };
+      }
+      
+      return {
+        success: true,
+        message: 'MT5 settings check passed',
+        details: testResult.details
+      };
     } catch (error) {
-      console.error('Error dispatching openMT5Modal event:', error);
-      alert('Please check your MT5 connection settings');
+      return {
+        success: false,
+        message: 'MT5 settings check failed',
+        details: { error: error instanceof Error ? error.message : String(error) }
+      };
     }
+  }, []);
+
+  return {
+    executeTrade,
+    retryLastTrade,
+    checkMT5Settings,
+    isExecuting,
+    error,
+    lastResult
   };
-
-  if (options.length === 0) {
-    if (!user) {
-      return (
-        <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 text-center">
-          <TrendingUp className="h-12 w-12 text-blue-400 mx-auto mb-4 opacity-50" />
-          <h3 className="text-lg font-semibold text-white mb-2">AI Strategy Recommendations</h3>
-          <p className="text-slate-400 mb-4">Sign in to generate AI trading strategies</p>
-          <p className="text-sm text-slate-500">Pipnosis AI will analyze market conditions and generate personalized trading strategies based on your goals</p>
-        </div>
-      );
-    }
-    return null;
-  }
-
-  return (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
-        <TrendingUp className="h-5 w-5 text-blue-400" />
-        <span>AI Strategy Recommendations</span>
-        {isExecuting && <Loader className="h-4 w-4 text-blue-400 animate-spin" />}
-      </h3>
-      
-      {executionError && (
-        <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0" />
-              <div>
-                <p className="text-red-300 font-medium">
-                  {executionError}
-                </p>
-                <p className="text-red-200 text-sm mt-1">
-                  Please check your MT5 connection and make sure the MT5 bridge is running.
-                </p>
-              </div>
-            </div>
-            <div className="flex space-x-2">
-              <button
-                onClick={handleRetry}
-                disabled={retrying}
-                className="px-3 py-1 bg-red-500/20 text-red-300 border border-red-500/30 rounded hover:bg-red-500/30 transition-colors flex items-center space-x-1"
-              >
-                {retrying ? (
-                  <>
-                    <Loader className="h-3 w-3 animate-spin" />
-                    <span>Retrying...</span>
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="h-3 w-3" />
-                    <span>Retry</span>
-                  </>
-                )}
-              </button>
-              <button
-                onClick={handleCheckMT5Settings}
-                className="px-3 py-1 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded hover:bg-blue-500/30 transition-colors flex items-center space-x-1"
-              >
-                <MessageCircle className="h-3 w-3" />
-                <span>Check MT5</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-        {options.map((option) => {
-          const isExecutingThis = executingStrategy === option.id;
-          const isExecuted = executedStrategies.has(option.id);
-          const isDisabled = !option.feasible || executingStrategy !== null;
-
-          return (
-            <div
-              key={option.id}
-              className={`bg-slate-800 border-2 rounded-xl p-4 sm:p-6 transition-all ${getRiskColor(option.risk)} ${
-                option.feasible && !isDisabled ? 'hover:scale-105 cursor-pointer hover:shadow-lg' : 'opacity-60 cursor-not-allowed'
-              } ${isExecuted ? 'ring-2 ring-green-400' : ''}`}
-            >
-              <div className="flex items-center justify-between mb-3 sm:mb-4">
-                <div className="flex items-center space-x-2">
-                  {getRiskIcon(option.risk)}
-                  <span className="font-semibold text-white capitalize text-sm sm:text-base">{option.risk} Risk</span>
-                </div>
-                {!option.feasible && <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5 text-red-400" />}
-                {isExecuted && <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-400" />}
-              </div>
-
-              <div className="space-y-2 sm:space-y-3">
-                <div>
-                  <p className="text-xs sm:text-sm text-slate-400">Trade Type</p>
-                  <p className="text-white font-medium text-sm sm:text-base">{option.tradeType}</p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                  <div>
-                    <p className="text-xs text-slate-400">Entry</p>
-                    <p className="text-xs sm:text-sm text-white font-mono">{option.entry}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400">Lot Size</p>
-                    <p className="text-xs sm:text-sm text-white font-mono">{option.lotSize}</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                  <div>
-                    <p className="text-xs text-slate-400">Stop Loss</p>
-                    <p className="text-xs sm:text-sm text-red-400 font-mono">{option.stopLoss}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400">Take Profit</p>
-                    <p className="text-xs sm:text-sm text-green-400 font-mono">{option.takeProfit}</p>
-                  </div>
-                </div>
-
-                <div className="pt-2 sm:pt-3 border-t border-slate-700">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs sm:text-sm text-slate-400">Est. Gain</span>
-                    <div className="flex items-center space-x-1">
-                      <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 text-green-400" />
-                      <span className="text-green-400 font-semibold text-sm sm:text-base">{option.estimatedGain}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <p className="text-xs text-slate-400 leading-relaxed">{option.reasoning}</p>
-
-                {option.feasible ? (
-                  <button 
-                    onClick={() => handleExecute(option)}
-                    disabled={isDisabled}
-                    className={`w-full py-2 px-3 sm:px-4 rounded-lg font-medium text-sm sm:text-base transition-all ${
-                      isExecuted 
-                        ? 'bg-green-500 text-white' 
-                        : isExecutingThis 
-                        ? 'bg-blue-500 text-white' 
-                        : isDisabled 
-                        ? 'bg-slate-600 text-slate-400 cursor-not-allowed' 
-                        : 'bg-blue-500 text-white hover:bg-blue-600'
-                    }`}
-                  >
-                    {isExecuted ? (
-                      <div className="flex items-center justify-center space-x-2">
-                        <CheckCircle className="h-4 w-4" />
-                        <span>Trade Executed ✓</span>
-                      </div>
-                    ) : isExecutingThis ? (
-                      <div className="flex items-center justify-center space-x-2">
-                        <Loader className="h-4 w-4 animate-spin" />
-                        <span>Executing...</span>
-                      </div>
-                    ) : (
-                      'Execute Trade'
-                    )}
-                  </button>
-                ) : (
-                  <div className="text-center py-2 text-red-400 text-xs sm:text-sm font-medium">
-                    Insufficient Balance
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {isExecuting && (
-        <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-          <div className="flex items-center space-x-3">
-            <Loader className="h-5 w-5 text-blue-400 animate-spin flex-shrink-0" />
-            <div>
-              <p className="text-blue-300 font-medium">
-                Executing Trade via MT5 Bridge
-              </p>
-              <p className="text-blue-200 text-sm mt-1">
-                Sending trade request to MT5 connector... This may take up to 60 seconds.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
 };
