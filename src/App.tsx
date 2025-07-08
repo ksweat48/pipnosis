@@ -334,4 +334,5 @@ function AppContent() {
   }
 }
 
+// ✅ export at the top level, outside any block
 export default App;
