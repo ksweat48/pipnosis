@@ -160,14 +160,7 @@ const Dashboard: React.FC = () => {
   const accountBalance = profile?.account_balance || 10000;
   
   // Combined execution state
-  
-  // Pipnosis AI Brain Hook
-  const { processPrompt, executeStrategy, isProcessing, error: aiError } = usePipnosisAI();
   const isExecuting = isBackendExecuting || isProcessing || isMT5Executing;
-  const error = analysisError || aiError || mt5Error;
-  
-  // Combined execution state
-  const isExecuting = isMT5Executing || isProcessing;
   const error = analysisError || aiError || mt5Error;
 
   // Auto-scroll to strategy options when they're available
@@ -426,6 +419,8 @@ const Dashboard: React.FC = () => {
               analysisMode={analysisMode}
               onModeChange={setAnalysisMode}
               onScreenshotUpload={handleScreenshotUpload}
+            />
+            
             {/* Risk Management Dashboard */}
             <RiskManagementEngine 
               isVisible={showRiskDashboard}
