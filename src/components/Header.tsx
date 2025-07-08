@@ -5,6 +5,7 @@ import { SettingsModal } from './SettingsModal';
 import { MT5ConnectionStatus } from './MT5ConnectionStatus';
 import { AuthModal } from './auth/AuthModal';
 import { DisclaimerModal } from './DisclaimerModal';
+import { WebContainerNotice } from './WebContainerNotice';
 import { BackendStatus } from './BackendStatus';
 import { DatabaseStatus } from './DatabaseStatus';
 import { MT5ConnectionModal } from './MT5ConnectionModal';

@@ -531,9 +531,50 @@ app.post('/api/waitlist', async (req, res) => {
       }
     }
     
+    const response = {
+      success: true,
+      message: 'Successfully processed request',
+    };
+    
+    console.log('📧 Response:', response);
+    res.json(response);
   }
-}
-)
+});
+
+// Market analysis endpoint - Simplified for token reduction
+app.get('/api/market/analysis', (req, res) => {
+  try {
+    console.log('📊 Market analysis requested');
+    
+    // Generate minimal market data
+    const symbols = ['EURUSD', 'GBPUSD', 'USDJPY'].map(symbol => ({
+      symbol,
+      bid: 1.0 + Math.random() * 0.1,
+      ask: 1.0 + Math.random() * 0.1 + 0.0002,
+      spread: 0.0004,
+      change: (Math.random() - 0.5) * 0.01,
+      changePercent: (Math.random() - 0.5) * 1,
+      volume: Math.floor(Math.random() * 1000000),
+      trend: Math.random() > 0.5 ? 'bullish' : 'bearish',
+      strength: Math.floor(Math.random() * 100),
+      signals: ['Buy Signal'],
+      timeframe: 'H1'
+    }));
+    
+    res.json({
+      symbols,
+      marketSentiment: 'neutral',
+      volatility: 'medium',
+      newsImpact: 'low',
+      tradingRecommendation: 'Use proper risk management',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Market analysis error:', error);
+    res.status(500).json({ error: 'Failed to fetch market analysis' });
+  }
+});
+
 // Real-time market data WebSocket info
 app.get('/api/websocket-info', (req, res) => {
   res.json({
@@ -588,6 +629,7 @@ app.use((req, res) => {
       'GET /api/market-data', 
       'POST /api/analyze-prompt',
       'POST /api/execute-trade',
+      'GET /api/mt5-status',
       'GET /api/debug/routes',
       'GET /api/debug/cors'
     ]
