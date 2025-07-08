@@ -26,7 +26,6 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   const { user } = useAuth();
   const { marketData, isLoading, error, lastUpdated, refetch } = useMarketData();
   const [showAll, setShowAll] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
 
   const getSignalColor = (signal: string) => {
     switch (signal) {
