@@ -19,7 +19,6 @@ import { MT5ConnectionModal } from './components/MT5ConnectionModal';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useBackendPromptAnalysis, useBackendTradeExecution } from './hooks/useBackendAPI';
 import { useOpenAI } from './hooks/useOpenAI'; 
-import { usePipnosisAI } from './hooks/usePipnosisAI';
 import { useTradeExecution } from './hooks/useTradeExecution';
 import { useDatabaseStats } from './hooks/useDatabase';
 
@@ -144,15 +143,15 @@ const Dashboard: React.FC = () => {
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
   
   // API Hooks
-  const { analyzePrompt, isAnalyzing, error: analysisError } = useBackendPromptAnalysis();
-  const { executeTrade: backendExecuteTrade, isExecuting: isBackendExecuting } = useBackendTradeExecution();
+  const { analyzePrompt, isAnalyzing, error: analysisError } = usePromptAnalysis();
+  const { executeTrade: backendExecuteTrade, isExecuting: isBackendExecuting } = useTradeExecution();
   const { generateJournalEntry, explainDecision } = useOpenAI();
   
   // Pipnosis AI Brain Hook
   const { processPrompt, executeStrategy, isProcessing, error: aiError } = usePipnosisAI();
   
   // MT5 Trade Execution Hook
-  const { executeTrade, isExecuting: isMT5Executing, error: mt5Error } = useTradeExecution();
+  const { executeTrade: mt5ExecuteTrade, isExecuting: isMT5Executing, error: mt5Error } = useTradeExecution();
 
   const { profile, user, databaseConnected } = useAuth();
   const { updateTradeCount } = useDatabaseStats();
