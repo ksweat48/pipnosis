@@ -545,6 +545,83 @@ app.post('/api/waitlist', async (req, res) => {
   }
 });
 
+// Market analysis endpoint - Added to fix 404 error
+app.get('/api/market/analysis', async (req, res) => {
+  try {
+    console.log('📊 Market analysis requested');
+    
+    // Use the same fallback data as the market-data endpoint
+    const fallbackMarketData = [
+      { symbol: 'EURUSD', price: 1.1425 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
+      { symbol: 'GBPUSD', price: 1.2735 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
+      { symbol: 'USDJPY', price: 149.85 + (Math.random() - 0.5) * 2.0, change: (Math.random() - 0.5) * 1.0, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
+      { symbol: 'USDCHF', price: 0.8945 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
+      { symbol: 'AUDUSD', price: 0.6785 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
+      { symbol: 'USDCAD', price: 1.3625 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
+      { symbol: 'NZDUSD', price: 0.6245 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
+      { symbol: 'EURJPY', price: 171.25 + (Math.random() - 0.5) * 2.0, change: (Math.random() - 0.5) * 1.0, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
+      { symbol: 'GBPJPY', price: 190.85 + (Math.random() - 0.5) * 2.0, change: (Math.random() - 0.5) * 1.0, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
+      { symbol: 'XAUUSD', price: 2045.50 + (Math.random() - 0.5) * 20, change: (Math.random() - 0.5) * 10, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] }
+    ];
+
+    // Format the response to match the expected structure
+    const response = {
+      symbols: fallbackMarketData.map(item => ({
+        symbol: item.symbol,
+        bid: item.price - 0.0002,
+        ask: item.price + 0.0002,
+        spread: 0.0004,
+        change: item.change,
+        changePercent: item.changePercent,
+        volume: Math.floor(Math.random() * 1000000) + 500000,
+        trend: item.trend === 'up' ? 'bullish' : item.trend === 'down' ? 'bearish' : 'sideways',
+        strength: Math.floor(Math.random() * 40) + 60, // 60-100 strength
+        signals: [item.signal === 'buy' ? 'Buy Signal' : item.signal === 'sell' ? 'Sell Signal' : 'Neutral'],
+        timeframe: 'H1'
+      })),
+      marketSentiment: ['bullish', 'bearish', 'neutral'][Math.floor(Math.random() * 3)],
+      volatility: ['low', 'medium', 'high'][Math.floor(Math.random() * 3)],
+      newsImpact: ['low', 'medium', 'high'][Math.floor(Math.random() * 3)],
+      tradingRecommendation: 'Favorable conditions for trend-following strategies with proper risk management.',
+      timestamp: new Date().toISOString()
+    };
+    
+    res.json(response);
+  } catch (error) {
+    console.error('Market analysis error:', error);
+    res.status(500).json({ error: 'Failed to fetch market analysis' });
+  }
+});
+
+// Account info endpoint - Added to fix 404 error
+app.get('/api/account/info', async (req, res) => {
+  try {
+    console.log('👤 Account info requested');
+    
+    // Mock account info
+    const accountInfo = {
+      balance: 10000 + (Math.random() - 0.5) * 2000,
+      equity: 10000 + (Math.random() - 0.5) * 1000,
+      margin: Math.random() * 3000 + 1000,
+      freeMargin: 8000 + (Math.random() - 0.5) * 1000,
+      marginLevel: 500 + (Math.random() - 0.5) * 100,
+      server: 'Pipnosis-Demo-Server',
+      account: '12345678',
+      currency: 'USD',
+      leverage: 100,
+      name: 'Demo Account',
+      company: 'Pipnosis Demo',
+      lastUpdate: new Date().toISOString(),
+      connectionStatus: 'Demo Mode - All features available'
+    };
+    
+    res.json(accountInfo);
+  } catch (error) {
+    console.error('Account info error:', error);
+    res.status(500).json({ error: 'Failed to fetch account info' });
+  }
+});
+
 // Real-time market data WebSocket info
 app.get('/api/websocket-info', (req, res) => {
   res.json({

@@ -23,11 +23,14 @@ export const WebContainerNotice: React.FC<WebContainerNoticeProps> = ({ onClose 
             You're viewing Pipnosis in a preview environment where MT5 connection is not available. 
             WebSocket connections to external services are restricted in this environment.
           </p>
-          <div className="mt-3">
+          <div className="mt-3 space-y-2">
             <div className="flex items-center space-x-2 text-sm text-blue-300">
               <Server className="h-4 w-4" />
               <span>To connect to MT5, run the application locally on your computer</span>
             </div>
+            <p className="text-xs text-blue-200">
+              The MT5 bridge requires direct access to your MetaTrader 5 terminal, which is not possible in this preview environment.
+            </p>
           </div>
         </div>
         {onClose && (
