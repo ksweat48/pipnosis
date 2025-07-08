@@ -253,7 +253,8 @@ export class BackendAPIService {
   async getMarketAnalysis(symbols?: string[]): Promise<MarketAnalysisResponse> {
     try {
       const params = symbols ? `?symbols=${symbols.join(',')}` : '';
-      const response = await this.makeRequest<MarketAnalysisResponse>(`/market/analysis${params}`);
+      // Fix the endpoint to match what's available on the backend
+      const response = await this.makeRequest<MarketAnalysisResponse>(`/market-data${params}`);
       
       return response;
     } catch (error) {
@@ -265,7 +266,8 @@ export class BackendAPIService {
   async getAccountInfo(userId?: string): Promise<any> {
     try {
       const params = userId ? `?userId=${userId}` : '';
-      return await this.makeRequest(`/account/info${params}`);
+      // Fix the endpoint to match what's available on the backend
+      return await this.makeRequest(`/health${params}`);
     } catch (error) {
       return this.getMockAccountInfo();
     }

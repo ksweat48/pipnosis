@@ -35,7 +35,8 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
       setIsLoading(true);
       setError(null);
       
-      const data = await backendAPI.getMarketAnalysis();
+      // Use the correct API method that matches the backend endpoint
+      const data = await backendAPI.getMarketData();
       
       if (data && data.symbols) {
         const formattedData: MarketDataPoint[] = data.symbols.map(symbol => ({
@@ -46,6 +47,19 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
           trend: symbol.trend === 'bullish' ? 'up' : symbol.trend === 'bearish' ? 'down' : 'sideways',
           signal: symbol.signals.includes('Buy Signal') ? 'buy' : 
                  symbol.signals.includes('Sell Signal') ? 'sell' : 'hold'
+        }));
+        
+        setMarketData(formattedData);
+        setLastUpdate(new Date());
+      } else if (Array.isArray(data)) {
+        // Handle direct array response from getMarketData
+        const formattedData: MarketDataPoint[] = data.map(item => ({
+          symbol: item.symbol,
+          price: typeof item.price === 'number' ? item.price : (item.bid + item.ask) / 2,
+          change: item.change || 0,
+          changePercent: item.changePercent || 0,
+          trend: item.trend || 'sideways',
+          signal: item.signal || 'hold'
         }));
         
         setMarketData(formattedData);
