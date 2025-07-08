@@ -11,7 +11,6 @@ import { TradingKPIs } from './components/TradingKPIs';
 import { TradingLaws } from './components/TradingLaws';
 import { RiskManagementEngine } from './components/RiskManagementEngine';
 import { MT5Dashboard } from './components/MT5Dashboard';
-import { WebContainerNotice } from './components/WebContainerNotice';
 import { LandingPage } from './components/LandingPage';
 import { UserProfile } from './components/UserProfile';
 import { AuthModal } from './components/auth/AuthModal';
@@ -378,8 +377,6 @@ const Dashboard: React.FC = () => {
               onMarkAsRead={handleMarkAsRead}
               onDismiss={handleDismissNotification}
               isCollapsible={true}
-            />
-            
             <PromptInput 
               onSubmit={handlePromptSubmit} 
               isLoading={isProcessing}

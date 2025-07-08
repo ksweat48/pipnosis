@@ -256,21 +256,6 @@ export class BackendAPIService {
   // Market Analysis with enhanced fallback
   async getMarketAnalysis(symbols?: string[]): Promise<MarketAnalysisResponse> {
     try {
-      // Use helper method to check for WebContainer environment
-      const isWebContainerEnv = this.isWebContainerEnvironment();
-      
-      // In WebContainer, immediately use fallback data
-      if (isWebContainerEnv) {
-        console.log('🔄 WebContainer environment detected - using fallback data');
-        return this.getMockMarketAnalysis(symbols);
-      }
-      
-      // Reuse the variable we already defined above
-      if (isWebContainerEnv) {
-        console.log('🔄 WebContainer environment detected - using fallback data');
-        return this.getMockMarketAnalysis(symbols);
-      }
-      
       console.log('🔄 Fetching market analysis from backend API...');
       
       // First try the market-data endpoint

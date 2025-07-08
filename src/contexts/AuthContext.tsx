@@ -54,7 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // CRITICAL FIX: Enhanced database connection check with better persistence and timeout handling
   useEffect(() => {
     let mounted = true;
-    let checkTimeout: any;
+    let checkTimeout: number | undefined;
 
     const checkDB = async () => { 
       // CRITICAL FIX: If user is logged in and we've already confirmed DB connection, 
@@ -64,7 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const now = Date.now();
         const oneHour = 60 * 60 * 1000;
         
-        if (lastConfirmed && (now - parseInt(lastConfirmed)) < oneHour) {
+        if (lastConfirmed && (now - parseInt(lastConfirmed, 10)) < oneHour) {
           console.log('✅ Database connection confirmed recently - maintaining online status');
           setDatabaseConnected(true);
           return;
@@ -103,7 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 const now = Date.now();
                 const oneHour = 60 * 60 * 1000;
                 
-                if (!lastShown || (now - parseInt(lastShown)) > oneHour) {
+                if (!lastShown || (now - parseInt(lastShown, 10)) > oneHour) {
                   setTimeout(() => {
                     if (mounted) {
                       setShowDatabaseSetup(true);

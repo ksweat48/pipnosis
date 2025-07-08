@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, Camera, Upload, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
 
 interface MarketDataPoint {
   symbol: string;
@@ -23,22 +22,16 @@ interface MarketAnalysisProps {
 }
 
 export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
-  analysisMode,
-  marketData,
-  onModeChange, 
-  onScreenshotUpload,
-  isLoading,
-  error,
-  lastUpdated,
-  refetch
+  analysisMode = 'api',
+  marketData = [],
+  onModeChange = () => {},
+  onScreenshotUpload = () => {},
+  isLoading = false,
+  error = null,
+  lastUpdated = null,
+  refetch = () => {}
 }) => {
-  const { user } = useAuth();
   const [showAll, setShowAll] = useState(false);
-
-  // Handle refresh button click
-  const handleRefresh = () => {
-    refetch();
-  };
 
   const getSignalColor = (signal: string) => {
     switch (signal) {
@@ -76,8 +69,8 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
           <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
             <BarChart3 className="h-5 w-5 text-blue-400" /> 
             <span>Market Analysis</span>
-            <button 
-              onClick={refetch} 
+            <button
+              onClick={() => refetch()}
               className="p-1 text-slate-400 hover:text-white transition-colors"
             >
               {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -292,16 +285,11 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
           <div className="flex items-center space-x-2">
             <div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-yellow-400 animate-pulse' : error ? 'bg-red-400' : 'bg-green-400'}`}></div>
             <span>
-              {analysisMode === 'api'
-                ? isLoading 
-                  ? 'Fetching live data...' 
-                  : error 
-                  ? 'Using fallback data' 
-                  : user
-                  ? 'Live market data'
-                  : 'Demo market data'
-                : 'Screenshot mode'
-              }
+              {analysisMode === 'api' 
+                ? isLoading ? 'Fetching live data...' 
+                : error ? 'Using fallback data' 
+                : 'Live market data'
+                : 'Screenshot mode'}
             </span>
           </div>
           {analysisMode === 'api' && !isLoading && !error && safeMarketData.length > 0 && lastUpdated && (

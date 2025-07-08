@@ -205,7 +205,7 @@ export class MT5WebSocketClient {
   private attemptConnection(wsUrl: string): Promise<boolean> {
     return new Promise((resolve, reject) => {
       try {
-        console.log(`Attempting WebSocket connection to ${wsUrl}`); 
+        console.log(`Attempting WebSocket connection to ${wsUrl}`);
         
         // Close any existing connection
         if (this.ws) {
@@ -214,10 +214,12 @@ export class MT5WebSocketClient {
         }
         
         // Check if we're in WebContainer environment
-        if (window.location.hostname.includes('webcontainer-api.io') || 
-            window.location.hostname.includes('local-credentialless') ||
-            window.location.hostname.includes('bolt.new') || 
-            window.location.hostname.includes('stackblitz')) {
+        const isWebContainer = window.location.hostname.includes('webcontainer') || 
+                              window.location.hostname.includes('local-credentialless') ||
+                              window.location.hostname.includes('bolt.new') || 
+                              window.location.hostname.includes('stackblitz');
+        
+        if (isWebContainer) {
           console.log('WebContainer environment detected - WebSockets not supported');
           reject(new Error('WebSockets not supported in this preview environment'));
           return;

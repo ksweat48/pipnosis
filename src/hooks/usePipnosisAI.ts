@@ -38,16 +38,11 @@ export const usePipnosisAI = () => {
   const processPrompt = useCallback(async (
     prompt: string,
     marketData?: any[]
-  ): Promise<any | null> => {
+  ): Promise<any> => {
     setIsProcessing(true);
     setError(null);
     
     try {
-      // Update market data if provided
-      if (marketData && marketData.length > 0) {
-        pipnosisAI.updateMarketData(marketData);
-      }
-      
       // Process the prompt using local AI
       console.log('🧠 Using backend API for prompt analysis');
       const result = await backendAPI.analyzePrompt({
@@ -96,7 +91,15 @@ export const usePipnosisAI = () => {
       const errorMessage = err instanceof Error ? err.message : 'Failed to process prompt';
       setError(errorMessage);
       console.error('❌ Pipnosis AI error:', err);
-      return null;
+      // Return a minimal fallback response instead of null
+      return {
+        goal: { type: 'profit', amount: 500, timeframe: 'week' },
+        strategies: [],
+        marketAnalysis: 'Analysis failed. Please try again.',
+        riskAssessment: 'Unable to assess risk at this time.',
+        confidence: 'low',
+        aiRecommendation: 'Please try again with a different prompt.'
+      };
     } finally {
       setIsProcessing(false);
     }

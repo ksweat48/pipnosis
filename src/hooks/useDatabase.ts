@@ -184,8 +184,25 @@ export const useDatabaseStats = () => {
   const updateTradeCount = useCallback((success: boolean = true) => {
     if (!user) return;
     
-    // Immediately refresh stats
-    loadStats();
+    try {
+      // Update local storage counts for faster feedback
+      const totalTradesStr = localStorage.getItem('pipnosis_trade_count') || '0';
+      const winningTradesStr = localStorage.getItem('pipnosis_winning_trades') || '0';
+      const losingTradesStr = localStorage.getItem('pipnosis_losing_trades') || '0';
+      
+      const totalTrades = parseInt(totalTradesStr, 10) + 1;
+      const winningTrades = parseInt(winningTradesStr, 10) + (success ? 1 : 0);
+      const losingTrades = parseInt(losingTradesStr, 10) + (success ? 0 : 1);
+      
+      localStorage.setItem('pipnosis_trade_count', totalTrades.toString());
+      localStorage.setItem('pipnosis_winning_trades', winningTrades.toString());
+      localStorage.setItem('pipnosis_losing_trades', losingTrades.toString());
+      
+      // Refresh stats in the background
+      setTimeout(() => loadStats(), 500);
+    } catch (error) {
+      console.error('Error updating trade count:', error);
+    }
   }, [user, loadStats]);
 
   return {
