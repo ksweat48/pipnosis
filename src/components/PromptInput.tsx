@@ -95,10 +95,6 @@ export const useTradeExecution = () => {
 
       console.log('✅ Trade executed successfully:', result);
 
-      if (result.success) {
-        try {
-          // Log trade to database
-          await db.collection('trades').add({
             user_id: user.id,
             symbol: formattedSymbol,
             trade_type: request.action,

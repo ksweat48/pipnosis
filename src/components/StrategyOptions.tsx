@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react';
 import { mt5Client } from '../services/mt5WebSocketClient';
-
 interface TradeRequest {
   symbol: string;
   action: 'buy' | 'sell';
@@ -27,7 +26,6 @@ export const useTradeExecution = () => {
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<TradeResult | null>(null);
 
-  const executeTrade = useCallback(async (request: TradeRequest): Promise<TradeResult> => {
     setIsExecuting(true);
     setError(null);
     setLastResult(null);
@@ -95,13 +93,8 @@ export const useTradeExecution = () => {
 
       console.log('✅ Trade executed successfully:', result);
 
+      // Log trade to local database
       if (result.success) {
-        try {
-          // Log trade to database
-          await db.trades.create({
-            user_id: user.id,
-            symbol: formattedSymbol,
-            trade_type: request.action,
             lot_size: request.volume,
             entry_price: result.price || request.price || 0,
             stop_loss: request.stopLoss,
@@ -154,7 +147,7 @@ export const useTradeExecution = () => {
     } finally {
       setIsExecuting(false);
     }
-  }, [user]);
+  }, []);
 
   // Retry the last failed trade
   const retryLastTrade = useCallback(async (): Promise<TradeResult | null> => {
