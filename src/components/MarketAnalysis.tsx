@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, Camera, Upload, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useMarketData } from '../hooks/useMarketData';
 
 interface MarketDataPoint {
   symbol: string;
@@ -14,21 +13,26 @@ interface MarketDataPoint {
 
 interface MarketAnalysisProps {
   analysisMode: 'api' | 'screenshot';
+  marketData: MarketDataPoint[];
   onModeChange: (mode: 'api' | 'screenshot') => void;
   onScreenshotUpload: (files: FileList) => void;
   isLoading: boolean;
   error: string | null;
+  lastUpdated: Date | null;
+  refetch: () => void;
 }
 
 export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   analysisMode,
+  marketData,
   onModeChange, 
   onScreenshotUpload,
   isLoading,
-  error
+  error,
+  lastUpdated,
+  refetch
 }) => {
   const { user } = useAuth();
-  const { marketData, isLoading, error, lastUpdated, refetch } = useMarketData();
   const [showAll, setShowAll] = useState(false);
 
   // Handle refresh button click

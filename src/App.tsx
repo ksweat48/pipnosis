@@ -152,7 +152,7 @@ const Dashboard: React.FC = () => {
   const { profile, user, databaseConnected } = useAuth();
   const { updateTradeCount } = useDatabaseStats();
   const accountBalance = profile?.account_balance || 10000;
-  const { isLoading: marketLoading, error: marketError } = useMarketData();
+  const { marketData, isLoading: marketLoading, error: marketError, lastUpdated, refetch } = useMarketData();
   
   // Combined execution state
   const isExecuting = isProcessing;
