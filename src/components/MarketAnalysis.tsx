@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, Camera, Upload, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useMarketData } from '../hooks/useMarketData';
-import { useState } from 'react';
 
 interface MarketDataPoint {
   symbol: string;
@@ -17,12 +16,16 @@ interface MarketAnalysisProps {
   analysisMode: 'api' | 'screenshot';
   onModeChange: (mode: 'api' | 'screenshot') => void;
   onScreenshotUpload: (files: FileList) => void;
+  isLoading: propIsLoading,
+  error: propError
 }
 
 export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   analysisMode,
   onModeChange,
   onScreenshotUpload,
+  isLoading: propIsLoading,
+  error: propError
 }) => {
   const { user } = useAuth();
   const { marketData, isLoading, error, lastUpdated, refetch } = useMarketData();
