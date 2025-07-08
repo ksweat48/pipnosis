@@ -1,4 +1,4 @@
-Here's the fixed version with all missing closing brackets and proper formatting:
+// Here's the fixed version with all missing closing brackets and proper formatting:
 
 // Enhanced Backend API Service with better error handling and fallback
 export interface BackendConfig {
