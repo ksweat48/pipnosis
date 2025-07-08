@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { TrendingUp, Shield, Zap, DollarSign, Target, AlertTriangle, Loader, CheckCircle, RefreshCw, MessageCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { updateTradingPrompt } from '../lib/supabase';
+import { updateTradingPrompt, supabase } from '../lib/supabase';
 
 interface StrategyOption {
   id: string;
@@ -57,7 +57,7 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
   const handleExecute = async (option: StrategyOption) => {
     if (!option.feasible || executingStrategy || executedStrategies.has(option.id)) return;
 
-    setExecutingStrategy(option.id);
+    setExecutingStrategy(option.id); 
     setExecutionError(null);
     
     try {

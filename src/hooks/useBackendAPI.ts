@@ -54,7 +54,8 @@ export const useBackendConnection = () => {
 export const useBackendPromptAnalysis = () => {
   const { user } = useAuth();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null); 
+  const { profile } = useAuth();
 
   const analyzePrompt = useCallback(async (
     prompt: string,
@@ -70,7 +71,7 @@ export const useBackendPromptAnalysis = () => {
       const request = {
         prompt,
         accountBalance,
-        riskProfile: profile?.risk_profile || 'auto',
+        riskProfile: profile?.risk_profile || 'auto' as 'low' | 'medium' | 'high' | 'auto',
         selectedPairs,
         tradingGoal,
         timeframe: 'H1',
@@ -79,7 +80,7 @@ export const useBackendPromptAnalysis = () => {
 
       console.log('🤖 Processing AI prompt:', { 
         prompt: prompt.substring(0, 50) + '...', 
-        riskProfile, 
+        riskProfile: profile?.risk_profile || 'auto', 
         accountBalance: `$${accountBalance.toLocaleString()}` 
       });
       
@@ -102,7 +103,7 @@ export const useBackendPromptAnalysis = () => {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [user?.id]);
+  }, [user, profile]);
 
   return {
     analyzePrompt,
