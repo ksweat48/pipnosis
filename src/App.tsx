@@ -128,6 +128,7 @@ const WelcomeScreen = () => {
         initialMode={authMode}
       />
     </div>
+  );
 };
 
 // Dashboard Component
