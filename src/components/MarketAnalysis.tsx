@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, Camera, Upload, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { backendAPI } from '../services/backendAPI';
+import { useMarketData } from '../hooks/useMarketData';
 
 interface MarketDataPoint {
   symbol: string;
@@ -21,96 +21,12 @@ interface MarketAnalysisProps {
 export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
   analysisMode,
   onModeChange,
-  onScreenshotUpload
+  onScreenshotUpload,
 }) => {
   const { user } = useAuth();
-  const [marketData, setMarketData] = useState<MarketDataPoint[]>([]);
+  const { marketData, isLoading, error, lastUpdated, refetch } = useMarketData();
   const [showAll, setShowAll] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-
-  // Function to generate fallback market data
-  const generateMarketData = () => {
-    const pairs = [
-      { symbol: 'EURUSD', basePrice: 1.1425 },
-      { symbol: 'GBPUSD', basePrice: 1.2735 },
-      { symbol: 'USDJPY', basePrice: 149.85 },
-      { symbol: 'USDCHF', basePrice: 0.8945 },
-      { symbol: 'AUDUSD', basePrice: 0.6785 },
-      { symbol: 'USDCAD', basePrice: 1.3625 },
-      { symbol: 'NZDUSD', basePrice: 0.6245 }
-    ];
-
-    return pairs.map(({ symbol, basePrice }) => {
-      const isJPY = symbol.includes('JPY');
-      const priceVariation = isJPY 
-        ? (Math.random() - 0.5) * 2.0 
-        : (Math.random() - 0.5) * 0.02;
-      const changeVariation = isJPY 
-        ? (Math.random() - 0.5) * 1.0 
-        : (Math.random() - 0.5) * 0.01;
-
-      return {
-        symbol,
-        price: basePrice + priceVariation,
-        change: changeVariation,
-        changePercent: (changeVariation / basePrice) * 100,
-        trend: Math.random() > 0.5 ? 'up' : 'down',
-        signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)]
-      };
-    });
-  };
-
-  // Function to fetch market data
-  const fetchMarketData = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      // Use the correct API method for market analysis
-      const data = await backendAPI.getMarketAnalysis();
-      
-      if (data && data.symbols) {
-        const formattedData = data.symbols.map(symbol => ({
-          symbol: symbol.symbol,
-          price: symbol.bid && symbol.ask ? (symbol.bid + symbol.ask) / 2 : 1.1425,
-          change: symbol.change,
-          changePercent: symbol.changePercent,
-          trend: symbol.trend === 'bullish' ? 'up' : symbol.trend === 'bearish' ? 'down' : 'sideways',
-          signal: symbol.signals.includes('Buy Signal') ? 'buy' : 
-                 symbol.signals.includes('Sell Signal') ? 'sell' : 'hold'
-        }));
-        
-        setMarketData(formattedData);
-      } else {
-        const fallbackData = generateMarketData();
-        setMarketData(fallbackData);
-      }
-      setLastUpdated(new Date());
-    } catch (err) {
-      console.error('Failed to fetch market data:', err);
-      setError('Failed to fetch market data. Using fallback data.');
-      
-      // Generate fallback data
-      const fallbackData = generateMarketData();
-      setMarketData(fallbackData);
-      setLastUpdated(new Date());
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Fetch market data on component mount and periodically
-  React.useEffect(() => {
-    fetchMarketData();
-    
-    const interval = setInterval(() => {
-      fetchMarketData();
-    }, user ? 10000 : 5000);
-    
-    return () => clearInterval(interval);
-  }, [user]);
 
   const getSignalColor = (signal: string) => {
     switch (signal) {
@@ -172,16 +88,11 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
             >
               Screenshots
             </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="p-4 sm:p-6">
-        {error && (
-          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start space-x-2">
-            <AlertCircle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-red-400 text-sm font-medium">Market Data Error</p>
+                {analysisMode === 'api' ? 
+                  isLoading ? 'Fetching live data...' : 
+                  error ? 'Using fallback data' : 
+                  'Live market data' : 
+                  'Screenshot mode'}
               <p className="text-red-300 text-xs mt-1">{error}</p>
             </div>
           </div>
@@ -346,7 +257,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({
                       )}
                     </button>
                   </div>
-                )}
+            {analysisMode === 'api' && !isLoading && !error && safeMarketData.length > 0 && (
               </>
             )}
           </div>
