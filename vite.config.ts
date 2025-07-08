@@ -72,7 +72,8 @@ export default defineConfig({
     // CRITICAL: Enable HMR for external access
     hmr: {
       port: 5173,
-      host: 'localhost' // Changed from 0.0.0.0 to localhost
+      host: 'localhost', // Changed from 0.0.0.0 to localhost
+      overlay: false // Disable the error overlay
     }
   },
   // Preview configuration for production builds
