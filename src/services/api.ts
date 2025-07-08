@@ -69,6 +69,34 @@ const getFallbackMarketData = () => {
   
   // Return empty array instead of mock data
   return [];
+};
+
+class PipnosisAPI {
+  // Health Check with fallback
+  static async healthCheck(): Promise<any> {
+    try {
+      const response = await apiClient.get('/health');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Failed to check health via backend:', error);
+      throw error;
+    }
+  }
+
+  // Market Data with fallback
+  static async getMarketData(): Promise<any[]> {
+    try {
+      const response = await apiClient.get('/market-data');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Failed to fetch market data via backend:', error);
+      return getFallbackMarketData();
+    }
+  }
+
+  // Prompt Analysis with fallback
+  static async analyzePrompt(
+    prompt: string,
     accountBalance: number,
     marketData?: any[],
     userSettings?: any
