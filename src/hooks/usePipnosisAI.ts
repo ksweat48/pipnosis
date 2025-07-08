@@ -36,48 +36,6 @@ export const usePipnosisAI = () => {
    * Process a user prompt and generate trading strategies
    */
   const processPrompt = useCallback(
-  async (prompt: string, marketData?: any[]): Promise<any> => {
-    setIsProcessing(true);
-    setError(null);  // ✅ Moved inside the callback
-    
-    try {
-      // Process the prompt using backend API
-      console.log('🧠 Using backend API for prompt analysis:', prompt);
-      
-      // Add randomization to ensure different results for different prompts
-      const randomSeed = Date.now() + prompt.length;
-      
-      const result = await backendAPI.analyzePrompt({
-        prompt,
-        accountBalance: profile?.account_balance || 10000,
-        riskProfile: profile?.risk_profile || 'auto',
-        timeframe: 'H1',
-        userId: user?.id,
-        // Add the prompt text to the request to ensure it's used
-        promptText: prompt
-      });
-      
-      console.log('✅ Received analysis result:', result);
-      
-      // If we got a real result from the API, return it
-      if (result && result.strategies && result.strategies.length > 0) {
-        return transformApiResult(result, prompt, randomSeed);
-      }
-      
-      // If we didn't get a real result, generate a more dynamic mock result
-      return generateDynamicMockResult(prompt, randomSeed);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to process prompt';
-      setError(errorMessage);
-      console.error('❌ Pipnosis AI error:', err);
-      
-      // Generate a dynamic fallback response based on the prompt
-      return generateDynamicMockResult(prompt, Date.now());
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [profile, user]);
-  const processPrompt = useCallback(
     async (prompt: string, marketData?: any[]): Promise<any> => {
       setIsProcessing(true);
       setError(null);
