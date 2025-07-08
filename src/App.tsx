@@ -15,6 +15,7 @@ import { LandingPage } from './components/LandingPage';
 import { UserProfile } from './components/UserProfile';
 import { AuthModal } from './components/auth/AuthModal';
 import { MT5ConnectionModal } from './components/MT5ConnectionModal';
+import { WebContainerNotice } from './components/WebContainerNotice';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useBackendPromptAnalysis, useBackendTradeExecution } from './hooks/useBackendAPI';
 import { useOpenAI } from './hooks/useOpenAI'; 
