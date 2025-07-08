@@ -408,6 +408,8 @@ const Dashboard: React.FC = () => {
               error={marketError}
               onModeChange={setAnalysisMode}
               onScreenshotUpload={handleScreenshotUpload}
+            />
+            
             {/* Risk Management Dashboard */}
             <RiskManagementEngine 
               isVisible={showRiskDashboard}
