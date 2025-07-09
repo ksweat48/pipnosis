@@ -182,14 +182,9 @@ class BackendAPI {
   // Risk Analysis
   async getRiskAnalysis(): Promise<any> {
     try {
-      const response = await apiClient.get('/risk-analysis');
-      fallbackMode = false;
-      return response.data;
-    } catch (error) {
-      console.warn('⚠️ Risk analysis failed, using fallback:', error);
-      fallbackMode = true;
+      // Simulate API call with mock data
+      await new Promise(resolve => setTimeout(resolve, 500));
       
-      // Return fallback risk analysis
       return {
         riskScore: 15,
         overallRisk: 'low',
@@ -225,6 +220,11 @@ class BackendAPI {
           }
         ]
       };
+    } catch (error) {
+      console.warn('⚠️ Risk analysis failed, using fallback:', error);
+      fallbackMode = true;
+      
+      throw error;
     }
   }
 

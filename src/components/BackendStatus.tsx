@@ -1,6 +1,6 @@
 import React from 'react';
 import { Wifi, WifiOff, RefreshCw, Server, AlertCircle, CheckCircle } from 'lucide-react';
-import { useBackendConnection } from '../hooks/useAPI';
+import { useBackendConnection } from '../hooks/useBackendConnection';
 
 interface BackendStatusProps {
   showDetails?: boolean;
