@@ -36,29 +36,8 @@ export const usePipnosisAI = () => {
       setError(null);
       
       try {
-        // Process the prompt using backend API
-        console.log('🧠 Using backend API for prompt analysis:', prompt);
-        
-        // Add randomization to ensure different results for different prompts
+        // Generate a dynamic mock result based on the prompt
         const randomSeed = Date.now() + prompt.length;
-        
-        const result = await backendAPI.analyzePrompt({
-          prompt,
-          accountBalance: 10000,
-          riskProfile: 'auto',
-          timeframe: 'H1',
-          // Add the prompt text to the request to ensure it's used
-          promptText: prompt
-        });
-        
-        console.log('✅ Received analysis result:', result);
-        
-        // If we got a real result from the API, return it
-        if (result && result.strategies && result.strategies.length > 0) {
-          return transformApiResult(result, prompt, randomSeed);
-        }
-        
-        // If we didn't get a real result, generate a more dynamic mock result
         return generateDynamicMockResult(prompt, randomSeed);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to process prompt';
@@ -265,20 +244,35 @@ export const usePipnosisAI = () => {
     setError(null);
     
     try {
-      // Call the backend API to execute the trade
-      const result = await backendAPI.executeTrade({
-        strategyId: strategy.id,
-        symbol: strategy.symbol,
-        action: strategy.action,
-        volume: strategy.lotSize,
-        price: strategy.entry,
-        stopLoss: strategy.stopLoss,
-        takeProfit: strategy.takeProfit,
-        riskAmount: strategy.estimatedGain / 2, // Estimate risk amount
-        comment: `Pipnosis AI: ${strategy.name}`
-      });
+      // Simulate a successful trade execution
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
-      return result;
+      // Update local storage for trade tracking
+      try {
+        // Get current counts
+        const totalTradesStr = localStorage.getItem('pipnosis_trade_count') || '0';
+        const winningTradesStr = localStorage.getItem('pipnosis_winning_trades') || '0';
+        
+        const totalTrades = parseInt(totalTradesStr, 10) + 1;
+        const winningTrades = parseInt(winningTradesStr, 10) + 1; // Assume winning for now
+        
+        localStorage.setItem('pipnosis_trade_count', totalTrades.toString());
+        localStorage.setItem('pipnosis_winning_trades', winningTrades.toString());
+        
+        console.log('✅ Trade logged to local storage');
+      } catch (storageError) {
+        console.error('❌ Failed to log trade to local storage:', storageError);
+      }
+      
+      return {
+        success: true,
+        tradeId: `MOCK-${Date.now()}`,
+        symbol: strategy.symbol,
+        entry: strategy.entry,
+        lotSize: strategy.lotSize,
+        timestamp: new Date().toISOString(),
+        message: `${strategy.action.toUpperCase()} ${strategy.symbol} executed successfully (mock)`
+      };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to execute strategy';
       setError(errorMessage);

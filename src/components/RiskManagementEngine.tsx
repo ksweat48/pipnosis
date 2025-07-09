@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Shield, AlertTriangle, TrendingDown, Activity, Settings, RefreshCw, Zap, Lock, Unlock, ChevronDown, ChevronUp } from 'lucide-react';
-import { backendAPI } from '../services/backendAPI';
 
 interface RiskEngineProps {
   isVisible?: boolean;
@@ -48,27 +47,17 @@ export const RiskManagementEngine: React.FC<RiskEngineProps> = ({
     
     setIsLoading(true);
     
-    // Make a real API call to get risk data
-    try {
-      backendAPI.getRiskAnalysis()
-        .then(response => {
-          setRiskScore(response.riskScore);
-          setOverallRisk(response.overallRisk);
-          setCurrentDrawdown(response.currentDrawdown);
-          setOpenPositions(response.openPositions);
-          setDailyRisk(response.dailyRisk);
-          setLastUpdate(new Date());
-          setLawsStatus(response.pipnosisLawsStatus);
-          setIsLoading(false);
-        })
-        .catch(error => {
-          console.error('Failed to load risk data:', error);
-          setIsLoading(false);
-        });
-    } catch (error) {
-      console.error('Error loading risk data:', error);
+    // Simulate loading data
+    setTimeout(() => {
+      setRiskScore(15);
+      setOverallRisk('low');
+      setCurrentDrawdown(1.8);
+      setOpenPositions(1);
+      setDailyRisk(2.5);
+      setLastUpdate(new Date());
+      setLawsStatus([]);
       setIsLoading(false);
-    }
+    }, 500);
   };
 
   const getStatusColor = (status: string) => {
