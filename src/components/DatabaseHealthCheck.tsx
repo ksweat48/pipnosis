@@ -1,1 +1,0 @@
-// This file has been removed as it was used for checking Supabase database health
