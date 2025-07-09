@@ -17,6 +17,7 @@ import { useBackendPromptAnalysis } from './hooks/useBackendAPI';
 import { useOpenAI } from './hooks/useOpenAI'; 
 import { usePipnosisAI } from './hooks/usePipnosisAI';
 import { useMarketData } from './hooks/useMarketData';
+import { LandingPage } from './components/LandingPage';
 
 // Types
 interface StrategyOption {
@@ -58,7 +59,7 @@ interface JournalEntry {
   userReaction: 'thumbs-up' | 'explain-more' | null;
 }
 
-const App: React.FC = () => {
+const Dashboard: React.FC = () => {
   const [strategyOptions, setStrategyOptions] = useState<StrategyOption[]>([]);
   const [analysisMode, setAnalysisMode] = useState<'api' | 'screenshot'>('api');
   const [notifications, setNotifications] = useState<Notification[]>([]);
