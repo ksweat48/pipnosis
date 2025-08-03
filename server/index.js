@@ -53,7 +53,7 @@ console.log('- NODE_ENV:', process.env.NODE_ENV || 'development (default)');
 
 // Import services AFTER environment variables are loaded
 console.log('\n📦 Loading services...');
-let mt5Service, aiService;
+let mt5Service, aiService, supabase, createUserProfile, logTradeExecution, logTradingPrompt, saveJournalEntry;
 
 try {
   const mt5Module = await import('./services/mt5Service.js');
@@ -70,6 +70,24 @@ try {
     broadcastMarketData: () => {},
     shutdown: () => {}
   };
+}
+
+try {
+  const supabaseModule = await import('./lib/supabase.js');
+  supabase = supabaseModule.supabase;
+  createUserProfile = supabaseModule.createUserProfile;
+  logTradeExecution = supabaseModule.logTradeExecution;
+  logTradingPrompt = supabaseModule.logTradingPrompt;
+  saveJournalEntry = supabaseModule.saveJournalEntry;
+  console.log('✅ Supabase loaded');
+} catch (error) {
+  console.warn('⚠️ Supabase failed to load:', error.message);
+  // Create mock Supabase functions
+  supabase = null;
+  createUserProfile = async () => ({ data: null, error: new Error('Database not configured') });
+  logTradeExecution = async () => ({ data: null, error: new Error('Database not configured') });
+  logTradingPrompt = async () => ({ data: null, error: new Error('Database not configured') });
+  saveJournalEntry = async () => ({ data: null, error: new Error('Database not configured') });
 }
 
 try {
@@ -217,6 +235,7 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     version: '2.0.0',
     services: {
+      supabase: supabase ? 'connected' : 'not_configured',
       mt5: mt5Service && mt5Service.getConnectionStatus ? 
            (mt5Service.getConnectionStatus().connected ? 'connected' : 'disconnected') : 'unavailable',
       ai: aiService && aiService.isInitialized ? 'connected' : 'mock'
@@ -264,16 +283,72 @@ app.get('/api/market-data', async (req, res) => {
       try {
         marketData = await mt5Service.getMarketData();
         if (!marketData || marketData.length === 0) {
+          marketData = fallbackMarketData;
         }
+      } catch (error) {
+        console.warn('MT5 market data failed, using fallback:', error.message);
+        marketData = fallbackMarketData;
       }
     }
+
+    res.json(marketData);
+  } catch (error) {
+    console.error('Market data error:', error);
+    res.status(500).json({ error: 'Failed to fetch market data' });
+  }
+});
+
+// AI prompt analysis endpoint
+app.post('/api/analyze-prompt', async (req, res) => {
+  try {
+    const { prompt, accountBalance, marketData, userId, userProfile } = req.body;
+    
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    console.log(`🧠 Analyzing prompt: "${prompt}" for user: ${userId || 'anonymous'}`);
+    
+    // Log prompt to database if user is logged in
+    if (userId && logTradingPrompt) {
+      try {
+        await logTradingPrompt(userId, {
+          prompt,
+          accountBalance,
+          marketData,
+          strategies: [], // Will be updated after analysis
+          confidence: 'pending'
+        });
+      } catch (dbError) {
+        console.warn('⚠️ Failed to log prompt to database:', dbError.message);
+      }
+    }
+    
+    let analysis;
+    
     if (aiService && aiService.analyzePrompt) {
       try {
         analysis = await aiService.analyzePrompt(
           prompt, 
-        )
+          accountBalance, 
+          marketData
+        );
+      } catch (aiError) {
+        console.warn('AI analysis failed, using fallback:', aiError.message);
+        analysis = getFallbackAnalysis();
       }
+    } else {
+      analysis = getFallbackAnalysis();
     }
+
+    console.log('🧠 Analysis result:', { 
+      strategiesCount: analysis.strategies?.length || 0, 
+      confidence: analysis.confidence 
+    });
+    
+    res.json(analysis);
+  } catch (error) {
+    console.error('Prompt analysis error:', error);
     res.status(500).json({ error: 'Failed to analyze prompt' });
   }
 });
@@ -333,7 +408,7 @@ function getFallbackAnalysis() {
 // Trade execution endpoint
 app.post('/api/execute-trade', async (req, res) => {
   try {
-    const { strategy, userId } = req.body;
+    const { strategy, userId, userProfile } = req.body;
     
     if (!strategy) {
       return res.status(400).json({ error: 'Strategy is required' });
@@ -363,6 +438,27 @@ app.post('/api/execute-trade', async (req, res) => {
       }
     } else {
       result = getMockTradeResult(tradeRequest);
+    }
+
+    // Log trade to database if user is logged in
+    if (userId && logTradeExecution) {
+      try {
+        await logTradeExecution(userId, {
+          symbol: result.symbol,
+          action: tradeRequest.action,
+          lotSize: result.volume,
+          entry: result.price,
+          stopLoss: strategy.stopLoss,
+          takeProfit: strategy.takeProfit,
+          success: result.success,
+          tradeId: result.ticket,
+          strategyName: strategy.name,
+          risk: strategy.risk,
+          estimatedGain: strategy.estimatedGain
+        });
+      } catch (dbError) {
+        console.warn('⚠️ Failed to log trade to database:', dbError.message);
+      }
     }
 
     const response = {
@@ -433,6 +529,9 @@ app.post('/api/waitlist', async (req, res) => {
     
     console.log('📧 Response:', response);
     res.json(response);
+  } catch (error) {
+    console.error('Waitlist signup error:', error);
+    res.status(500).json({ error: 'Failed to process waitlist signup' });
   }
 });
 
