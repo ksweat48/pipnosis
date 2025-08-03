@@ -111,43 +111,43 @@ export const TradingLaws: React.FC = () => {
   const visibleLaws = isExpanded ? laws : laws.slice(0, 1);
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700">
-      <div className="p-4 sm:p-6 border-b border-slate-700 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-        <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-          <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
+    <div className="glass-card">
+      <div className="p-6 border-b border-white/10 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-xl font-bold text-white flex items-center space-x-3">
             <Gavel className="h-5 w-5 text-amber-400 flex-shrink-0" />
             <span>📜 Pipnosis Immutable Laws of Trading</span>
           </h3>
-          <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:space-y-0 sm:space-x-4">
-            <div className="text-sm text-amber-400 font-medium">
+          <div className="flex items-center space-x-4">
+            <div className="text-sm text-amber-400 font-bold">
               AI Laws of Risk & Success
             </div>
-            <button className="p-2 text-slate-400 hover:text-white transition-colors">
+            <button className="p-2 text-white/60 hover:text-white transition-colors">
               {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
             </button>
           </div>
         </div>
       </div>
 
-      <div className="p-4 sm:p-6">
-        <div className="space-y-3 sm:space-y-4">
+      <div className="p-6">
+        <div className="space-y-6">
           {visibleLaws.map((law) => {
             const IconComponent = law.icon;
             return (
               <div
                 key={law.id}
-                className={`border-l-4 rounded-lg p-4 transition-all hover:shadow-lg ${getCategoryColor(law.category)}`}
+                className={`border-l-4 rounded-2xl p-6 transition-all duration-200 hover:shadow-lg ${getCategoryColor(law.category)}`}
               >
-                <div className="flex items-start space-x-3">
-                  <div className={`p-2 rounded-lg bg-slate-900 flex-shrink-0 ${getCategoryIcon(law.category)}`}>
+                <div className="flex items-start space-x-4">
+                  <div className={`p-3 rounded-2xl bg-white/10 backdrop-blur-sm flex-shrink-0 ${getCategoryIcon(law.category)}`}>
                     <IconComponent className="h-5 w-5" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between mb-2">
-                      <h4 className="text-white font-semibold text-sm sm:text-base">
+                      <h4 className="text-white font-bold text-lg">
                         {law.id}. {law.title}
                       </h4>
-                      <span className={`px-2 py-1 rounded text-xs font-medium capitalize flex-shrink-0 ml-2 ${
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold capitalize flex-shrink-0 ml-4 ${
                         law.category === 'capital' ? 'bg-green-500/20 text-green-400' :
                         law.category === 'performance' ? 'bg-blue-500/20 text-blue-400' :
                         law.category === 'risk' ? 'bg-yellow-500/20 text-yellow-400' :
@@ -157,7 +157,7 @@ export const TradingLaws: React.FC = () => {
                         {law.category}
                       </span>
                     </div>
-                    <p className="text-slate-300 text-sm leading-relaxed">
+                    <p className="text-white/80 leading-relaxed font-medium">
                       {law.description}
                     </p>
                   </div>
@@ -169,8 +169,8 @@ export const TradingLaws: React.FC = () => {
 
         {/* Show summary when collapsed */}
         {!isExpanded && (
-          <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-            <p className="text-amber-200 text-sm text-center">
+          <div className="mt-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
+            <p className="text-amber-200 text-center font-medium">
               <strong>Law #1 is the foundation.</strong> Click to see the complete set of 10 immutable trading principles.
             </p>
           </div>
@@ -178,7 +178,7 @@ export const TradingLaws: React.FC = () => {
 
         {/* Category Legend - Only show when expanded */}
         {isExpanded && (
-          <div className="mt-4 flex flex-wrap gap-2 justify-center">
+          <div className="mt-6 flex flex-wrap gap-3 justify-center">
             {[
               { category: 'capital', label: 'Capital Protection', color: 'bg-green-500/20 text-green-400' },
               { category: 'performance', label: 'Performance', color: 'bg-emerald-500/20 text-emerald-400' },
@@ -186,7 +186,7 @@ export const TradingLaws: React.FC = () => {
               { category: 'execution', label: 'Execution', color: 'bg-purple-500/20 text-purple-400' },
               { category: 'discipline', label: 'Discipline', color: 'bg-red-500/20 text-red-400' }
             ].map((item) => (
-              <span key={item.category} className={`px-2 py-1 rounded text-xs font-medium ${item.color}`}>
+              <span key={item.category} className={`px-4 py-2 rounded-full text-sm font-bold ${item.color}`}>
                 {item.label}
               </span>
             ))}

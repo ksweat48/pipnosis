@@ -204,7 +204,7 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-900">
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
       <Header 
         onOpenAuth={() => setShowAuthModal(true)}
         onOpenProfile={() => setShowUserProfile(true)}
@@ -212,46 +212,67 @@ const Dashboard: React.FC = () => {
         profile={profile}
       />
       
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        <div className="space-y-8 mb-12">
-          <div className="text-center space-y-6">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+        {/* Hero Section */}
+        <div className="text-center mb-16">
+          <div className="space-y-6">
+            <div className="inline-flex items-center space-x-3 px-6 py-3 glass-card">
+              <div className="w-8 h-8 rounded-lg overflow-hidden">
+                <img 
+                  src="/Pipnosis icon.png" 
+                  alt="Pipnosis Logo" 
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <span className="text-emerald-400 font-medium">AI Trading Assistant</span>
+            </div>
+            
             <div className="space-y-4">
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold bg-gradient-to-r from-emerald-400 via-green-500 to-lime-400 bg-clip-text text-transparent">
+              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold bg-gradient-to-r from-emerald-400 via-green-500 to-lime-400 bg-clip-text text-transparent leading-tight">
                 Pipnosis AI Trading
               </h1>
-              <p className="text-xl sm:text-2xl text-slate-300 max-w-3xl mx-auto leading-relaxed">
-                Tell me your trading goal and I'll handle the rest
+              <p className="text-xl sm:text-2xl text-white/80 max-w-2xl mx-auto leading-relaxed font-light">
+                Tell me your goal. I'll handle the trading.
               </p>
             </div>
           </div>
-          
-          <div className="max-w-6xl mx-auto">
+        </div>
+        
+        {/* Main Trading Interface */}
+        <div className="space-y-12">
+          {/* Market Chart Section */}
+          <div className="glass-card p-8">
             <MarketChart
               symbol={selectedSymbol}
               onSymbolChange={handleSymbolChange}
               tradeLines={activeTradeLines}
-              className="shadow-2xl"
             />
-            
-            <div className="mt-8">
-              <PromptInput 
-                onSubmit={handlePromptSubmit} 
-                isLoading={isAnalyzing}
-                error={aiError}
-              />
-            </div>
           </div>
           
+          {/* Prompt Input Section */}
+          <div className="glass-card p-8">
+            <PromptInput 
+              onSubmit={handlePromptSubmit} 
+              isLoading={isAnalyzing}
+              error={aiError}
+            />
+          </div>
+          
+          {/* AI Analysis Loading State */}
           {isAnalyzing && (
-            <div className="max-w-4xl mx-auto bg-gradient-to-r from-emerald-500/10 to-green-500/10 border border-emerald-500/30 rounded-2xl p-8 text-center backdrop-blur-sm">
-              <div className="animate-spin h-8 w-8 border-4 border-emerald-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-              <h3 className="text-xl font-semibold text-white mb-2">Pipnosis AI Analyzing...</h3>
-              <p className="text-slate-300">Evaluating market conditions and generating optimal trading strategies</p>
-              <p className="text-sm text-slate-400 mt-2">This may take 10-30 seconds</p>
+            <div className="glass-card p-12 text-center">
+              <div className="relative">
+                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-green-500/20 rounded-full blur-xl"></div>
+                <div className="relative animate-spin h-12 w-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full mx-auto mb-6"></div>
+              </div>
+              <h3 className="text-2xl font-semibold text-white mb-3">AI Analyzing Market Conditions</h3>
+              <p className="text-white/70 text-lg">Generating optimal trading strategies...</p>
+              <p className="text-white/50 text-sm mt-3">This may take 10-30 seconds</p>
             </div>
           )}
           
-          <div ref={strategyOptionsRef} className="max-w-6xl mx-auto">
+          {/* Strategy Options */}
+          <div ref={strategyOptionsRef}>
             <StrategyOptions 
               options={strategyOptions} 
               onSelect={handleStrategySelect}
@@ -260,8 +281,9 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
         
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8">
-          <div className="xl:col-span-2 space-y-4 sm:space-y-6">
+        {/* Dashboard Grid */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 mt-16">
+          <div className="xl:col-span-2 space-y-8">
             <WebContainerNotice />
             
             <NotificationCenter
@@ -280,7 +302,7 @@ const Dashboard: React.FC = () => {
             <TradingKPIs />
           </div>
           
-          <div className="space-y-4 sm:space-y-6">
+          <div className="space-y-8">
             <TradeJournal onReaction={handleJournalReaction} />
             <TradingLaws />
           </div>
@@ -305,18 +327,21 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-20 h-20 rounded-xl overflow-hidden mx-auto mb-6 ring-4 ring-blue-500/20">
+          <div className="w-24 h-24 rounded-2xl overflow-hidden mx-auto mb-8 ring-4 ring-emerald-500/20">
             <img 
               src="/Pipnosis icon.png" 
               alt="Pipnosis Logo" 
               className="w-full h-full object-cover"
             />
           </div>
-          <div className="animate-spin h-10 w-10 border-4 border-emerald-500 border-t-transparent rounded-full mx-auto mb-6"></div>
-          <h2 className="text-2xl font-bold text-white mb-2">Loading Pipnosis</h2>
-          <p className="text-slate-400">Initializing AI Trading Assistant...</p>
+          <div className="relative mb-8">
+            <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-green-500/20 rounded-full blur-xl"></div>
+            <div className="relative animate-spin h-12 w-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full mx-auto"></div>
+          </div>
+          <h2 className="text-3xl font-bold text-white mb-3">Loading Pipnosis</h2>
+          <p className="text-white/60 text-lg">Initializing AI Trading Assistant...</p>
         </div>
       </div>
     );

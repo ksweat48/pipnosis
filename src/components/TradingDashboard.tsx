@@ -33,61 +33,69 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
   const calculatedWeeklyPnL = weeklyTrades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="space-y-8">
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <div className="bg-slate-800 rounded-xl p-3 sm:p-6 border border-slate-700">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-            <div className="mb-2 sm:mb-0">
-              <p className="text-slate-400 text-xs sm:text-sm">Today's P&L</p>
-              <p className={`text-lg sm:text-2xl font-bold ${calculatedTodayPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="glass-card p-6">
+          <div className="flex flex-col space-y-4">
+            <div className="flex items-center justify-between">
+              <div className={`p-3 rounded-2xl ${calculatedTodayPnL >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+                {calculatedTodayPnL >= 0 ? (
+                  <TrendingUp className="h-6 w-6 text-green-400" />
+                ) : (
+                  <TrendingDown className="h-6 w-6 text-red-400" />
+                )}
+              </div>
+            </div>
+            <div>
+              <p className="text-white/60 text-sm font-semibold uppercase tracking-wide">Today's P&L</p>
+              <p className={`text-3xl font-bold ${calculatedTodayPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {calculatedTodayPnL >= 0 ? '+' : ''}${calculatedTodayPnL.toFixed(2)}
               </p>
             </div>
-            <div className={`p-2 sm:p-3 rounded-lg self-end sm:self-auto ${calculatedTodayPnL >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-              {calculatedTodayPnL >= 0 ? (
-                <TrendingUp className="h-4 w-4 sm:h-6 sm:w-6 text-green-400" />
-              ) : (
-                <TrendingDown className="h-4 w-4 sm:h-6 sm:w-6 text-red-400" />
-              )}
-            </div>
           </div>
         </div>
 
-        <div className="bg-slate-800 rounded-xl p-3 sm:p-6 border border-slate-700">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-            <div className="mb-2 sm:mb-0">
-              <p className="text-slate-400 text-xs sm:text-sm">Weekly P&L</p>
-              <p className={`text-lg sm:text-2xl font-bold ${calculatedWeeklyPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+        <div className="glass-card p-6">
+          <div className="flex flex-col space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="p-3 bg-blue-500/20 rounded-2xl">
+                <BarChart3 className="h-6 w-6 text-blue-400" />
+              </div>
+            </div>
+            <div>
+              <p className="text-white/60 text-sm font-semibold uppercase tracking-wide">Weekly P&L</p>
+              <p className={`text-3xl font-bold ${calculatedWeeklyPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {calculatedWeeklyPnL >= 0 ? '+' : ''}${calculatedWeeklyPnL.toFixed(2)}
               </p>
             </div>
-            <div className="p-2 sm:p-3 bg-blue-500/20 rounded-lg self-end sm:self-auto">
-              <BarChart3 className="h-4 w-4 sm:h-6 sm:w-6 text-blue-400" />
+          </div>
+        </div>
+
+        <div className="glass-card p-6">
+          <div className="flex flex-col space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="p-3 bg-blue-500/20 rounded-2xl">
+                <Activity className="h-6 w-6 text-blue-400" />
+              </div>
+            </div>
+            <div>
+              <p className="text-white/60 text-sm font-semibold uppercase tracking-wide">Open Trades</p>
+              <p className="text-3xl font-bold text-white">{activeTrades.length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-slate-800 rounded-xl p-3 sm:p-6 border border-slate-700">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-            <div className="mb-2 sm:mb-0">
-              <p className="text-slate-400 text-xs sm:text-sm">Open Trades</p>
-              <p className="text-lg sm:text-2xl font-bold text-white">{activeTrades.length}</p>
+        <div className="glass-card p-6">
+          <div className="flex flex-col space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="p-3 bg-purple-500/20 rounded-2xl">
+                <DollarSign className="h-6 w-6 text-purple-400" />
+              </div>
             </div>
-            <div className="p-2 sm:p-3 bg-blue-500/20 rounded-lg self-end sm:self-auto">
-              <Activity className="h-4 w-4 sm:h-6 sm:w-6 text-blue-400" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-slate-800 rounded-xl p-3 sm:p-6 border border-slate-700">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-            <div className="mb-2 sm:mb-0">
-              <p className="text-slate-400 text-xs sm:text-sm">Balance</p>
-              <p className="text-lg sm:text-2xl font-bold text-white">${(totalBalance || 0).toLocaleString()}</p>
-            </div>
-            <div className="p-2 sm:p-3 bg-purple-500/20 rounded-lg self-end sm:self-auto">
-              <DollarSign className="h-4 w-4 sm:h-6 sm:w-6 text-purple-400" />
+            <div>
+              <p className="text-white/60 text-sm font-semibold uppercase tracking-wide">Balance</p>
+              <p className="text-3xl font-bold text-white">${(totalBalance || 0).toLocaleString()}</p>
             </div>
           </div>
         </div>
@@ -95,19 +103,21 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
 
       {/* Open Trades */}
       {activeTrades.length > 0 && (
-        <div className="bg-slate-800 rounded-xl border border-slate-700">
-          <div className="p-4 sm:p-6 border-b border-slate-700">
-            <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
-              <Activity className="h-5 w-5 text-blue-400" />
+        <div className="glass-card">
+          <div className="p-6 border-b border-white/10">
+            <h3 className="text-xl font-bold text-white flex items-center space-x-3">
+              <div className="p-2 bg-blue-500/20 rounded-xl">
+                <Activity className="h-5 w-5 text-blue-400" />
+              </div>
               <span>Open Positions</span>
-              {tradesLoading && <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>}
+              {tradesLoading && <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>}
             </h3>
           </div>
           
           {/* Mobile Card View */}
           <div className="block sm:hidden">
             {activeTrades.map((trade) => (
-              <div key={trade.id} className="p-4 border-b border-slate-700 last:border-b-0">
+              <div key={trade.id} className="p-6 border-b border-white/10 last:border-b-0">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center space-x-2">
                     <h4 className="text-white font-medium">{trade.symbol}</h4>
@@ -191,13 +201,13 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
 
       {/* No Active Trades State */}
       {!tradesLoading && activeTrades.length === 0 && user && (
-        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 text-center">
-          <Activity className="h-12 w-12 text-slate-400 mx-auto mb-4 opacity-50" />
-          <h3 className="text-white font-semibold mb-2">No Active Trades</h3>
-          <p className="text-slate-400 text-sm">
+        <div className="glass-card p-8 text-center">
+          <Activity className="h-16 w-16 text-white/30 mx-auto mb-6" />
+          <h3 className="text-white font-bold text-xl mb-3">No Active Trades</h3>
+          <p className="text-white/60 font-medium">
             Use the AI Prompt Console above to generate and execute your first trade.
           </p>
-          <p className="text-slate-500 text-xs mt-2">
+          <p className="text-white/40 text-sm mt-3 font-medium">
             Remember: Maximum 2 trades per session (Immutable Law #9)
           </p>
         </div>

@@ -63,67 +63,67 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
   };
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700">
-      <div className="p-4 sm:p-6 border-b border-slate-700">
-        <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-          <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
+    <div className="glass-card">
+      <div className="p-6 border-b border-white/10">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xl font-bold text-white flex items-center space-x-3">
             <BookOpen className="h-5 w-5 text-emerald-400" />
             <span>Pipnosis Trade Journal</span>
-            {isLoading && <div className="animate-spin h-4 w-4 border-2 border-emerald-500 border-t-transparent rounded-full"></div>}
+            {isLoading && <div className="animate-spin h-5 w-5 border-2 border-emerald-500 border-t-transparent rounded-full"></div>}
           </h3>
-          <div className="text-sm text-slate-400">
+          <div className="text-sm text-white/60 font-medium">
             AI Decision Feed
           </div>
         </div>
       </div>
 
-      <div className="max-h-80 sm:max-h-96 overflow-y-auto">
+      <div className="max-h-96 overflow-y-auto">
         {isLoading ? (
-          <div className="p-4 sm:p-6 text-center text-slate-400">
-            <div className="animate-spin h-8 w-8 border-2 border-emerald-500 border-t-transparent rounded-full mx-auto mb-3"></div>
-            <p className="text-sm sm:text-base">Loading journal entries...</p>
+          <div className="p-8 text-center">
+            <div className="animate-spin h-12 w-12 border-2 border-emerald-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p className="text-white/60 font-medium">Loading journal entries...</p>
           </div>
         ) : error ? (
-          <div className="p-4 sm:p-6 text-center text-slate-400">
-            <AlertCircle className="h-8 w-8 sm:h-12 sm:w-12 mx-auto mb-3 text-red-400" />
-            <p className="text-sm sm:text-base text-red-400">Error loading journal entries</p>
+          <div className="p-8 text-center">
+            <AlertCircle className="h-16 w-16 mx-auto mb-4 text-red-400" />
+            <p className="text-red-400 font-medium">Error loading journal entries</p>
             <button 
               onClick={refetch}
-              className="mt-2 text-xs text-red-300 hover:text-red-200 underline"
+              className="mt-3 text-sm text-red-300 hover:text-red-200 underline font-medium"
             >
               Try again
             </button>
           </div>
         ) : entries.length === 0 ? (
-          <div className="p-4 sm:p-6 text-center text-slate-400">
-            <BookOpen className="h-8 w-8 sm:h-12 sm:w-12 mx-auto mb-3 opacity-50" />
-            <p className="text-sm sm:text-base">No trading activity yet</p>
-            <p className="text-xs sm:text-sm">AI decisions will appear here in real-time</p>
+          <div className="p-8 text-center">
+            <BookOpen className="h-16 w-16 text-white/20 mx-auto mb-4" />
+            <p className="text-white/60 font-semibold">No trading activity yet</p>
+            <p className="text-white/40 text-sm mt-2 font-medium">AI decisions will appear here in real-time</p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-700">
+          <div className="divide-y divide-white/10">
             {entries.map((entry) => {
               const tag = getEntryTag(entry.entry_type);
               const isExpanded = expandedEntry === entry.id;
               
               return (
-                <div key={entry.id} className="p-3 sm:p-4 hover:bg-slate-900/50 transition-colors">
+                <div key={entry.id} className="p-6 hover:bg-white/5 transition-all duration-200">
                   <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
+                    <div className="flex items-center space-x-4 min-w-0 flex-1">
                       {getEntryIcon(entry.entry_type)}
                       <div className="min-w-0 flex-1">
-                        <h4 className="font-medium text-white text-sm sm:text-base truncate">{entry.title}</h4>
-                        <div className="flex flex-wrap items-center gap-1 sm:gap-2 mt-1">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${tag.color}`}>
+                        <h4 className="font-bold text-white text-lg truncate">{entry.title}</h4>
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${tag.color}`}>
                             {tag.text}
                           </span>
                           {entry.metadata?.symbol && (
-                            <span className="text-xs text-slate-400 font-mono">
+                            <span className="text-sm text-white/60 font-mono font-bold">
                               {entry.metadata.symbol}
                             </span>
                           )}
                           {entry.metadata?.pnl !== undefined && (
-                            <span className={`text-xs font-semibold ${
+                            <span className={`text-sm font-bold ${
                               entry.metadata.pnl >= 0 ? 'text-green-400' : 'text-red-400'
                             }`}>
                               {entry.metadata.pnl >= 0 ? '+' : ''}${entry.metadata.pnl.toFixed(2)}
@@ -133,55 +133,54 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
                       </div>
                     </div>
                     
-                    <div className="flex items-center space-x-1 text-xs text-slate-400 flex-shrink-0 ml-2">
+                    <div className="flex items-center space-x-2 text-sm text-white/40 flex-shrink-0 ml-4 font-medium">
                       <Clock className="h-3 w-3" />
-                      <span className="hidden sm:inline">{formatTime(entry.created_at)}</span>
-                      <span className="sm:hidden">{formatTime(entry.created_at).split(' ')[0]}</span>
+                      <span>{formatTime(entry.created_at)}</span>
                     </div>
                   </div>
 
-                  <div className="ml-5 sm:ml-7">
-                    <p className="text-slate-300 text-sm leading-relaxed mb-2 sm:mb-3">
+                  <div className="ml-9">
+                    <p className="text-white/80 leading-relaxed mb-4 font-medium">
                       {entry.content}
                     </p>
 
                     {entry.confidence_level && (
-                      <div className="mb-2 sm:mb-3">
+                      <div className="mb-4">
                         {getConfidenceIndicator(entry.confidence_level)}
                       </div>
                     )}
 
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-1 sm:space-x-2">
+                      <div className="flex items-center space-x-3">
                         <button
                           onClick={() => onReaction(entry.id, 'thumbs-up')}
-                          className={`p-1 sm:p-1.5 rounded-lg transition-colors ${
+                          className={`p-2 rounded-xl transition-all duration-200 ${
                             entry.metadata?.userReaction === 'thumbs-up'
                               ? 'bg-green-500/20 text-green-400'
-                              : 'text-slate-400 hover:text-green-400 hover:bg-green-500/10'
+                              : 'text-white/40 hover:text-green-400 hover:bg-green-500/10'
                           }`}
                           title="Good decision"
                         >
-                          <ThumbsUp className="h-3 w-3" />
+                          <ThumbsUp className="h-4 w-4" />
                         </button>
                         
                         <button
                           onClick={() => onReaction(entry.id, 'explain-more')}
-                          className={`p-1 sm:p-1.5 rounded-lg transition-colors ${
+                          className={`p-2 rounded-xl transition-all duration-200 ${
                             entry.metadata?.userReaction === 'explain-more'
                               ? 'bg-emerald-500/20 text-emerald-400'
-                              : 'text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10'
+                              : 'text-white/40 hover:text-emerald-400 hover:bg-emerald-500/10'
                           }`}
                           title="Explain more"
                         >
-                          <RotateCcw className="h-3 w-3" />
+                          <RotateCcw className="h-4 w-4" />
                         </button>
                       </div>
 
                       {entry.trade_id && (
                         <button
                           onClick={() => setExpandedEntry(isExpanded ? null : entry.id)}
-                          className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
+                          className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors font-medium"
                         >
                           {isExpanded ? 'Less' : 'More'}
                         </button>
@@ -189,8 +188,8 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
                     </div>
 
                     {isExpanded && entry.trade_id && (
-                      <div className="mt-3 p-2 sm:p-3 bg-slate-900 rounded-lg border border-slate-600">
-                        <div className="text-xs text-slate-400 space-y-1">
+                      <div className="mt-4 p-4 bg-white/5 rounded-2xl border border-white/10">
+                        <div className="text-sm text-white/60 space-y-2 font-medium">
                           <div>Trade ID: <span className="text-slate-300 font-mono">{entry.trade_id}</span></div>
                           <div>Decision Time: <span className="text-slate-300">{new Date(entry.created_at).toLocaleString()}</span></div>
                           <div>AI Analysis: <span className="text-slate-300">Based on technical indicators, market sentiment, and risk parameters</span></div>

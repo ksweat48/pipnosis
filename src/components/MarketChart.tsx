@@ -42,79 +42,89 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const currentPrice = generateMockPrice(symbol);
 
   return (
-    <div className={`bg-slate-800 rounded-xl border border-slate-700 ${className}`}>
-      <div className="p-4 sm:p-6 border-b border-slate-700">
+    <div className={`${className}`}>
+      <div className="flex items-center justify-between mb-8">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="p-2 bg-emerald-500/20 rounded-lg">
+            <div className="p-3 bg-gradient-to-r from-emerald-500/20 to-green-500/20 rounded-xl">
               <BarChart3 className="h-5 w-5 text-emerald-400" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-white">Live Market Chart</h3>
-              <p className="text-sm text-slate-400">Real-time price action</p>
+              <h3 className="text-xl font-bold text-white">Live Market Chart</h3>
+              <p className="text-sm text-white/60 font-medium">Real-time price action</p>
             </div>
-            {isLoading && <RefreshCw className="h-4 w-4 text-emerald-400 animate-spin" />}
+            {isLoading && <RefreshCw className="h-5 w-5 text-emerald-400 animate-spin" />}
           </div>
+        </div>
+        
+        <div className="flex items-center space-x-4">
+          <select
+            value={symbol}
+            onChange={(e) => onSymbolChange(e.target.value)}
+            className="bg-white/5 backdrop-blur-sm border border-white/20 rounded-xl px-4 py-3 text-white font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+          >
+            {availablePairs.map(pair => (
+              <option key={pair} value={pair} className="bg-slate-900">{pair}</option>
+            ))}
+          </select>
           
-          <div className="flex items-center space-x-3">
-            <select
-              value={symbol}
-              onChange={(e) => onSymbolChange(e.target.value)}
-              className="bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              {availablePairs.map(pair => (
-                <option key={pair} value={pair}>{pair}</option>
-              ))}
-            </select>
-            
-            <div className="text-xs text-slate-400 text-right">
-              <div>M15 Timeframe</div>
-              <div>{lastUpdate ? lastUpdate.toLocaleTimeString() : 'Loading...'}</div>
-            </div>
+          <div className="text-right">
+            <div className="text-xs text-white/50 font-medium">M15 Timeframe</div>
+            <div className="text-xs text-white/40">{lastUpdate ? lastUpdate.toLocaleTimeString() : 'Loading...'}</div>
           </div>
         </div>
       </div>
-
-      <div className="relative bg-slate-900 h-96 flex items-center justify-center">
+      <div className="relative bg-gradient-to-br from-slate-900/50 to-slate-800/50 backdrop-blur-sm rounded-2xl border border-white/10 h-96 flex items-center justify-center overflow-hidden">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/5 to-green-500/5"></div>
+        <div className="absolute inset-0" style={{
+          backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0)',
+          backgroundSize: '20px 20px'
+        }}></div>
+        
         {isLoading ? (
-          <div className="text-center">
-            <RefreshCw className="h-8 w-8 text-emerald-400 animate-spin mx-auto mb-2" />
-            <p className="text-slate-400 text-sm">Loading {symbol} chart...</p>
+          <div className="text-center relative z-10">
+            <div className="relative mb-6">
+              <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-green-500/20 rounded-full blur-xl"></div>
+              <RefreshCw className="relative h-12 w-12 text-emerald-400 animate-spin mx-auto" />
+            </div>
+            <p className="text-white/70 text-lg font-medium">Loading {symbol} chart...</p>
           </div>
+
         ) : (
-          <div className="text-center">
-            <div className="text-4xl font-bold text-white mb-2">
+          <div className="text-center relative z-10">
+            <div className="text-6xl font-bold text-white mb-4 tracking-tight">
               {currentPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
             </div>
-            <div className="text-slate-400 mb-4">{symbol} Current Price</div>
-            <div className="w-full max-w-md h-32 bg-gradient-to-r from-emerald-500/20 to-green-500/20 rounded-lg flex items-center justify-center">
-              <BarChart3 className="h-16 w-16 text-emerald-400 opacity-50" />
+            <div className="text-white/60 mb-8 text-lg font-medium">{symbol} Current Price</div>
+            <div className="w-full max-w-lg h-40 bg-gradient-to-r from-emerald-500/10 to-green-500/10 rounded-2xl flex items-center justify-center border border-emerald-500/20">
+              <BarChart3 className="h-20 w-20 text-emerald-400/50" />
             </div>
           </div>
         )}
       </div>
 
       {tradeLines && Object.keys(tradeLines).length > 0 && (
-        <div className="p-4 sm:p-6 border-t border-slate-700 bg-slate-900/50">
-          <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-            <h4 className="text-sm font-medium text-white">AI Trade Levels</h4>
-            <div className="flex flex-wrap items-center gap-4 text-xs">
+        <div className="mt-8 p-6 bg-gradient-to-r from-slate-900/30 to-slate-800/30 backdrop-blur-sm rounded-2xl border border-white/10">
+          <div className="flex flex-col space-y-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+            <h4 className="text-lg font-bold text-white">AI Trade Levels</h4>
+            <div className="flex flex-wrap items-center gap-6 text-sm">
               {tradeLines.entry && (
                 <div className="flex items-center space-x-1">
-                  <div className="w-4 h-0.5 bg-emerald-500 rounded"></div>
-                  <span className="text-emerald-300 font-medium">Entry: {tradeLines.entry.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+                  <div className="w-6 h-1 bg-emerald-500 rounded-full"></div>
+                  <span className="text-emerald-300 font-semibold">Entry: {tradeLines.entry.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
                 </div>
               )}
               {tradeLines.stopLoss && (
                 <div className="flex items-center space-x-1">
-                  <div className="w-4 h-0.5 bg-red-500 rounded"></div>
-                  <span className="text-red-300 font-medium">SL: {tradeLines.stopLoss.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+                  <div className="w-6 h-1 bg-red-500 rounded-full"></div>
+                  <span className="text-red-300 font-semibold">SL: {tradeLines.stopLoss.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
                 </div>
               )}
               {tradeLines.takeProfit && (
                 <div className="flex items-center space-x-1">
-                  <div className="w-4 h-0.5 bg-green-500 rounded"></div>
-                  <span className="text-green-300 font-medium">TP: {tradeLines.takeProfit.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+                  <div className="w-6 h-1 bg-green-500 rounded-full"></div>
+                  <span className="text-green-300 font-semibold">TP: {tradeLines.takeProfit.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
                 </div>
               )}
             </div>
