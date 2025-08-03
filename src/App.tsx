@@ -24,16 +24,16 @@ interface StrategyOption {
   id: string;
   name: string;
   risk: string;
-  tradeType: string;
+  symbol: string;
+  action: string;
   entry: string;
   stopLoss: string;
   takeProfit: string;
   lotSize: number;
   estimatedGain: string;
+  riskRewardRatio?: number;
   feasible: boolean;
   reasoning: string;
-  symbol: string;
-  action: string;
   confidence: string;
   pipnosisLawsCompliance?: any;
 }
@@ -313,7 +313,7 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       <Header 
         onOpenAuth={() => setShowAuthModal(true)}
         onOpenProfile={() => setShowUserProfile(true)}
@@ -321,43 +321,52 @@ const Dashboard: React.FC = () => {
         profile={profile}
       />
       
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8">
-        {/* Hero Section */}
-        <div className="space-y-6 mb-8">
-          {/* Prompt Input */}
-          <div className="text-center">
-            <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">
-              AI Trading Assistant
-            </h1>
-            <p className="text-slate-400 mb-6">
-              Tell Pipnosis your trading goal and let AI handle the rest
-            </p>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        {/* Hero Section - Redesigned Layout */}
+        <div className="space-y-8 mb-12">
+          {/* Hero Header */}
+          <div className="text-center space-y-6">
+            <div className="space-y-4">
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold bg-gradient-to-r from-blue-400 via-purple-500 to-emerald-400 bg-clip-text text-transparent">
+                Pipnosis AI Trading
+              </h1>
+              <p className="text-xl sm:text-2xl text-slate-300 max-w-3xl mx-auto leading-relaxed">
+                Tell me your trading goal and I'll handle the rest
+              </p>
+            </div>
             
-            <PromptInput 
-              onSubmit={handlePromptSubmit} 
-              isLoading={isProcessing}
-              error={error}
+            {/* Prompt Input - Hero Placement */}
+            <div className="max-w-4xl mx-auto">
+              <PromptInput 
+                onSubmit={handlePromptSubmit} 
+                isLoading={isProcessing}
+                error={error}
+              />
+            </div>
+          </div>
+          
+          {/* Live Market Chart - Hero Middle */}
+          <div className="max-w-6xl mx-auto">
+            <MarketChart
+              symbol={selectedSymbol}
+              onSymbolChange={handleSymbolChange}
+              tradeLines={activeTradeLines}
+              className="shadow-2xl"
             />
           </div>
           
-          {/* Live Market Chart */}
-          <MarketChart
-            symbol={selectedSymbol}
-            onSymbolChange={handleSymbolChange}
-            tradeLines={activeTradeLines}
-          />
-          
           {/* AI Processing State */}
           {isProcessing && (
-            <div className="bg-slate-800 rounded-xl p-6 sm:p-8 text-center border border-slate-700">
-              <div className="animate-spin h-6 w-6 sm:h-8 sm:w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-              <p className="text-slate-400 text-sm sm:text-base">Pipnosis AI is analyzing market conditions and generating strategies...</p>
-              <p className="text-xs text-slate-500 mt-2">This may take 10-30 seconds</p>
+            <div className="max-w-4xl mx-auto bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-2xl p-8 text-center backdrop-blur-sm">
+              <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+              <h3 className="text-xl font-semibold text-white mb-2">Pipnosis AI Analyzing...</h3>
+              <p className="text-slate-300">Evaluating market conditions and generating optimal trading strategies</p>
+              <p className="text-sm text-slate-400 mt-2">This may take 10-30 seconds</p>
             </div>
           )}
           
-          {/* Strategy Options */}
-          <div ref={strategyOptionsRef}>
+          {/* Strategy Options - Hero Bottom */}
+          <div ref={strategyOptionsRef} className="max-w-6xl mx-auto">
             <StrategyOptions 
               options={strategyOptions} 
               onSelect={handleStrategySelect}
@@ -366,8 +375,8 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
         
-        {/* Dashboard Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-8">
+        {/* Dashboard Grid - Below Hero */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8">
           <div className="xl:col-span-2 space-y-4 sm:space-y-6">
             <WebContainerNotice />
             
@@ -417,17 +426,18 @@ export default function App() {
   // Show loading screen while auth is initializing
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 rounded-lg overflow-hidden mx-auto mb-4">
+          <div className="w-20 h-20 rounded-xl overflow-hidden mx-auto mb-6 ring-4 ring-blue-500/20">
             <img 
               src="/Pipnosis icon.png" 
               alt="Pipnosis Logo" 
               className="w-full h-full object-cover"
             />
           </div>
-          <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p className="text-slate-400">Loading Pipnosis...</p>
+          <div className="animate-spin h-10 w-10 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-6"></div>
+          <h2 className="text-2xl font-bold text-white mb-2">Loading Pipnosis</h2>
+          <p className="text-slate-400">Initializing AI Trading Assistant...</p>
         </div>
       </div>
     );

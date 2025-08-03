@@ -43,6 +43,14 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
     }
   };
 
+  const getNotificationBg = (type: string) => {
+    switch (type) {
+      case 'success': return 'bg-green-500/5';
+      case 'warning': return 'bg-yellow-500/5';
+      case 'error': return 'bg-red-500/5';
+      default: return 'bg-blue-500/5';
+    }
+  };
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
@@ -50,10 +58,12 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       <div className="p-4 sm:p-6 border-b border-slate-700">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
-            <Bell className="h-5 w-5 text-blue-400" />
+            <div className="p-2 bg-blue-500/20 rounded-lg">
+              <Bell className="h-5 w-5 text-blue-400" />
+            </div>
             <span>Notifications</span>
             {unreadCount > 0 && (
-              <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+              <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full animate-pulse">
                 {unreadCount}
               </span>
             )}
@@ -61,7 +71,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
           {isCollapsible && (
             <button
               onClick={() => setIsCollapsed(!isCollapsed)}
-              className="p-1 text-slate-400 hover:text-white transition-colors"
+              className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
             >
               {isCollapsed ? (
                 <ChevronDown className="h-5 w-5" />
@@ -79,14 +89,15 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
             <div className="p-4 sm:p-6 text-center text-slate-400">
               <Bell className="h-8 w-8 sm:h-12 sm:w-12 mx-auto mb-3 opacity-50" />
               <p className="text-sm sm:text-base">No notifications yet</p>
+              <p className="text-xs sm:text-sm">AI guidance will appear here when you have active trades</p>
             </div>
           ) : (
             <div className="divide-y divide-slate-700">
               {notifications.map((notification) => (
                 <div
                   key={notification.id}
-                  className={`p-3 sm:p-4 border-l-4 ${getNotificationBorder(notification.type)} ${
-                    !notification.read ? 'bg-slate-900/50' : ''
+                  className={`p-3 sm:p-4 border-l-4 ${getNotificationBorder(notification.type)} ${getNotificationBg(notification.type)} ${
+                    !notification.read ? 'bg-slate-900/30' : ''
                   }`}
                 >
                   <div className="flex items-start justify-between">
@@ -115,6 +126,11 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                       >
                         <X className="h-3 w-3 sm:h-4 sm:w-4" />
                       </button>
+                      {notification.type === 'info' && notification.title.includes('AI Guidance') && (
+                        <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs text-blue-300">
+                          🤖 AI Trade Assistant recommendation based on 5-minute market reassessment
+                        </div>
+                      )}
                       {notification.type === 'info' && notification.title.includes('AI Guidance') && (
                         <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs text-blue-300">
                           🤖 AI Trade Assistant recommendation based on 5-minute market reassessment

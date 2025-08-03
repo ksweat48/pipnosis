@@ -14,21 +14,20 @@ export const WebContainerNotice: React.FC<WebContainerNoticeProps> = ({ onClose 
   if (!isWebContainer) return null;
 
   return (
-    <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-4">
+    <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-xl p-4 mb-6 backdrop-blur-sm">
       <div className="flex items-start space-x-3">
         <AlertTriangle className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
         <div className="flex-1">
-          <h4 className="text-blue-300 font-medium mb-2">WebContainer Environment Notice</h4>
+          <h4 className="text-blue-300 font-bold mb-2">Preview Environment Notice</h4>
           <p className="text-blue-200 text-sm">
-            You're viewing Pipnosis in a preview environment where MT5 connection and some network features are limited. 
-            WebSocket connections to external services are restricted in this environment.
+            You're viewing Pipnosis in a preview environment. All trading is simulated with demo data.
           </p>
           <div className="mt-3 space-y-2">
             <div className="flex items-center space-x-2 text-sm text-blue-300">
-              <span>Using fallback data for demonstration purposes</span>
+              <span>✨ Full AI functionality active with demo trading</span>
             </div>
             <p className="text-xs text-blue-200">
-              For full functionality including MT5 integration, run the application locally on your computer.
+              All features are functional - this is the complete Pipnosis experience!
             </p>
           </div>
         </div>

@@ -40,10 +40,8 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
-  const availablePairs = [
-    'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 
-    'AUDUSD', 'USDCAD', 'NZDUSD', 'XAUUSD'
-  ];
+  // Top 3 pairs as per Immutable Laws
+  const availablePairs = ['EURUSD', 'GBPUSD', 'XAUUSD'];
 
   // Initialize chart
   useEffect(() => {
@@ -51,7 +49,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
     const chart = createChart(chartContainerRef.current, {
       width: chartContainerRef.current.clientWidth,
-      height: 400,
+      height: 500,
       layout: {
         background: { type: ColorType.Solid, color: '#0f172a' },
         textColor: '#94a3b8',
@@ -65,11 +63,16 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       },
       rightPriceScale: {
         borderColor: '#334155',
+        scaleMargins: {
+          top: 0.1,
+          bottom: 0.2,
+        },
       },
       timeScale: {
         borderColor: '#334155',
         timeVisible: true,
         secondsVisible: false,
+        rightOffset: 12,
       },
     });
 
@@ -81,6 +84,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       borderUpColor: '#10b981',
       wickDownColor: '#ef4444',
       wickUpColor: '#10b981',
+      priceLineVisible: false,
     });
 
     // Create volume series
@@ -126,14 +130,15 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     const isJPY = symbol.includes('JPY');
     const isGold = symbol === 'XAUUSD';
     
-    let basePrice = isGold ? 2045 : isJPY ? 149.85 : 1.1425;
+    let basePrice = symbol === 'XAUUSD' ? 2045 : 
+                   symbol === 'GBPUSD' ? 1.2735 : 1.1425; // EURUSD default
     
-    // Generate 100 candles (about 4 hours of M15 data)
-    for (let i = 99; i >= 0; i--) {
+    // Generate 200 candles (about 8 hours of M15 data for better chart)
+    for (let i = 199; i >= 0; i--) {
       const time = new Date(now.getTime() - i * 15 * 60 * 1000); // 15-minute intervals
       
       // Generate realistic price movement
-      const volatility = isGold ? 5 : isJPY ? 0.5 : 0.002;
+      const volatility = isGold ? 8 : symbol === 'GBPUSD' ? 0.003 : 0.002;
       const change = (Math.random() - 0.5) * volatility;
       
       const open = basePrice;
@@ -144,10 +149,10 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       
       data.push({
         time: time.toISOString().split('T')[0] + ' ' + time.toTimeString().split(' ')[0].substring(0, 5),
-        open: parseFloat(open.toFixed(isJPY ? 2 : isGold ? 2 : 5)),
-        high: parseFloat(high.toFixed(isJPY ? 2 : isGold ? 2 : 5)),
-        low: parseFloat(low.toFixed(isJPY ? 2 : isGold ? 2 : 5)),
-        close: parseFloat(close.toFixed(isJPY ? 2 : isGold ? 2 : 5)),
+        open: parseFloat(open.toFixed(isGold ? 2 : 5)),
+        high: parseFloat(high.toFixed(isGold ? 2 : 5)),
+        low: parseFloat(low.toFixed(isGold ? 2 : 5)),
+        close: parseFloat(close.toFixed(isGold ? 2 : 5)),
         volume
       });
       
@@ -216,6 +221,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
         lineWidth: 2,
         lineStyle: LineStyle.Solid,
         title: 'Entry',
+        priceLineVisible: false,
       });
       
       const now = new Date();
@@ -234,6 +240,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
         lineWidth: 2,
         lineStyle: LineStyle.Dashed,
         title: 'Stop Loss',
+        priceLineVisible: false,
       });
       
       const now = new Date();
@@ -252,6 +259,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
         lineWidth: 2,
         lineStyle: LineStyle.Dashed,
         title: 'Take Profit',
+        priceLineVisible: false,
       });
       
       const now = new Date();
@@ -289,11 +297,16 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   return (
     <div className={`bg-slate-800 rounded-xl border border-slate-700 ${className}`}>
       {/* Chart Header */}
-      <div className="p-4 border-b border-slate-700">
+      <div className="p-4 sm:p-6 border-b border-slate-700 bg-gradient-to-r from-slate-800 to-slate-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <BarChart3 className="h-5 w-5 text-blue-400" />
-            <h3 className="text-lg font-semibold text-white">Live Market Chart</h3>
+            <div className="p-2 bg-blue-500/20 rounded-lg">
+              <BarChart3 className="h-5 w-5 text-blue-400" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-white">Live Market Chart</h3>
+              <p className="text-sm text-slate-400">Real-time price action with AI trade levels</p>
+            </div>
             {isLoading && <RefreshCw className="h-4 w-4 text-blue-400 animate-spin" />}
           </div>
           
@@ -302,15 +315,16 @@ export const MarketChart: React.FC<MarketChartProps> = ({
             <select
               value={symbol}
               onChange={(e) => onSymbolChange(e.target.value)}
-              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               {availablePairs.map(pair => (
                 <option key={pair} value={pair}>{pair}</option>
               ))}
             </select>
             
-            <div className="text-xs text-slate-400">
-              M15 • {lastUpdate ? `Updated ${lastUpdate.toLocaleTimeString()}` : 'Loading...'}
+            <div className="text-xs text-slate-400 text-right">
+              <div>M15 Timeframe</div>
+              <div>{lastUpdate ? `${lastUpdate.toLocaleTimeString()}` : 'Loading...'}</div>
             </div>
           </div>
         </div>
@@ -338,33 +352,33 @@ export const MarketChart: React.FC<MarketChartProps> = ({
         
         <div 
           ref={chartContainerRef} 
-          className="w-full h-96"
-          style={{ minHeight: '400px' }}
+          className="w-full"
+          style={{ height: '500px' }}
         />
       </div>
 
       {/* Trade Lines Legend */}
       {tradeLines && (Object.keys(tradeLines).length > 0) && (
-        <div className="p-4 border-t border-slate-700">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-medium text-white mb-2">Active Trade Levels</h4>
-            <div className="flex items-center space-x-4 text-xs">
+        <div className="p-4 sm:p-6 border-t border-slate-700 bg-slate-900/50">
+          <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+            <h4 className="text-sm font-medium text-white">AI Trade Levels</h4>
+            <div className="flex flex-wrap items-center gap-4 text-xs">
               {tradeLines.entry && (
                 <div className="flex items-center space-x-1">
-                  <div className="w-3 h-0.5 bg-blue-500"></div>
-                  <span className="text-slate-400">Entry: {tradeLines.entry.toFixed(symbol.includes('JPY') ? 2 : 5)}</span>
+                  <div className="w-4 h-0.5 bg-blue-500 rounded"></div>
+                  <span className="text-blue-300 font-medium">Entry: {tradeLines.entry.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
                 </div>
               )}
               {tradeLines.stopLoss && (
                 <div className="flex items-center space-x-1">
-                  <div className="w-3 h-0.5 bg-red-500 border-dashed"></div>
-                  <span className="text-slate-400">SL: {tradeLines.stopLoss.toFixed(symbol.includes('JPY') ? 2 : 5)}</span>
+                  <div className="w-4 h-0.5 bg-red-500 rounded border-dashed"></div>
+                  <span className="text-red-300 font-medium">SL: {tradeLines.stopLoss.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
                 </div>
               )}
               {tradeLines.takeProfit && (
                 <div className="flex items-center space-x-1">
-                  <div className="w-3 h-0.5 bg-green-500 border-dashed"></div>
-                  <span className="text-slate-400">TP: {tradeLines.takeProfit.toFixed(symbol.includes('JPY') ? 2 : 5)}</span>
+                  <div className="w-4 h-0.5 bg-green-500 rounded border-dashed"></div>
+                  <span className="text-green-300 font-medium">TP: {tradeLines.takeProfit.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
                 </div>
               )}
             </div>
