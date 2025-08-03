@@ -223,14 +223,6 @@ const Dashboard: React.FC = () => {
                 Tell me your trading goal and I'll handle the rest
               </p>
             </div>
-            
-            <div className="max-w-4xl mx-auto">
-              <PromptInput 
-                onSubmit={handlePromptSubmit} 
-                isLoading={isAnalyzing}
-                error={aiError}
-              />
-            </div>
           </div>
           
           <div className="max-w-6xl mx-auto">
@@ -240,6 +232,14 @@ const Dashboard: React.FC = () => {
               tradeLines={activeTradeLines}
               className="shadow-2xl"
             />
+            
+            <div className="max-w-4xl mx-auto mt-8">
+              <PromptInput 
+                onSubmit={handlePromptSubmit} 
+                isLoading={isAnalyzing}
+                error={aiError}
+              />
+            </div>
           </div>
           
           {isAnalyzing && (
