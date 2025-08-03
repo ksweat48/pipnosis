@@ -1,6 +1,6 @@
 import React from 'react';
 import { Activity, DollarSign, TrendingUp, TrendingDown, Clock, BarChart3 } from 'lucide-react';
-import { useActiveTrades, useTradeHistory } from '../hooks/useTradingData';
+import { useActiveTrades, useTradeHistory } from '../hooks/useAPI';
 import { useAuth } from '../contexts/AuthContext';
 
 interface TradingDashboardProps {
