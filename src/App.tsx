@@ -213,30 +213,32 @@ const Dashboard: React.FC = () => {
       />
       
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        {/* Hero Section */}
-        <div className="text-center mb-16">
-          <div className="space-y-6">
-            <div className="inline-flex items-center space-x-3 px-6 py-3 glass-card">
-              <div className="w-8 h-8 rounded-lg overflow-hidden">
-                <img 
-                  src="/Pipnosis icon.png" 
-                  alt="Pipnosis Logo" 
-                  className="w-full h-full object-cover"
-                />
+        {/* Hero Section - Only show when not logged in */}
+        {!user && (
+          <div className="text-center mb-16">
+            <div className="space-y-6">
+              <div className="inline-flex items-center space-x-3 px-6 py-3 glass-card">
+                <div className="w-8 h-8 rounded-lg overflow-hidden">
+                  <img 
+                    src="/Pipnosis icon.png" 
+                    alt="Pipnosis Logo" 
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <span className="text-emerald-400 font-medium">AI Trading Assistant</span>
               </div>
-              <span className="text-emerald-400 font-medium">AI Trading Assistant</span>
-            </div>
-            
-            <div className="space-y-4">
-              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold bg-gradient-to-r from-emerald-400 via-green-500 to-lime-400 bg-clip-text text-transparent leading-tight">
-                Pipnosis AI Trading
-              </h1>
-              <p className="text-xl sm:text-2xl text-white/80 max-w-2xl mx-auto leading-relaxed font-light">
-                Tell me your goal. I'll handle the trading.
-              </p>
+              
+              <div className="space-y-4">
+                <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold bg-gradient-to-r from-emerald-400 via-green-500 to-lime-400 bg-clip-text text-transparent leading-tight">
+                  Pipnosis AI Trading
+                </h1>
+                <p className="text-xl sm:text-2xl text-white/80 max-w-2xl mx-auto leading-relaxed font-light">
+                  Tell me your goal. I'll handle the trading.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
         
         {/* Main Trading Interface */}
         <div className="space-y-12">
