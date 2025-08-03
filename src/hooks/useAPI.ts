@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { pipnosisAPI } from '../services/api';
 
-// Hook for backend connection status
 export const useBackendConnection = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
@@ -26,15 +25,9 @@ export const useBackendConnection = () => {
     return () => clearInterval(interval);
   }, [checkConnection]);
 
-  return {
-    isConnected,
-    isChecking,
-    lastChecked,
-    checkConnection
-  };
+  return { isConnected, isChecking, lastChecked, checkConnection };
 };
 
-// Hook for market data
 export const useMarketData = (refreshInterval: number = 5000) => {
   const [marketData, setMarketData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -45,13 +38,10 @@ export const useMarketData = (refreshInterval: number = 5000) => {
     try {
       setIsLoading(true);
       setError(null);
-      
-      // Use the correct API method for market analysis
       const data = await pipnosisAPI.getMarketData();
       setMarketData(data);
       setLastUpdated(new Date());
     } catch (err) {
-      console.error('Failed to fetch market data:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch market data');
     } finally {
       setIsLoading(false);
@@ -64,16 +54,9 @@ export const useMarketData = (refreshInterval: number = 5000) => {
     return () => clearInterval(interval);
   }, [fetchMarketData, refreshInterval]);
 
-  return {
-    marketData,
-    isLoading,
-    error,
-    lastUpdated,
-    refetch: fetchMarketData
-  };
+  return { marketData, isLoading, error, lastUpdated, refetch: fetchMarketData };
 };
 
-// Hook for AI prompt analysis
 export const usePromptAnalysis = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,14 +81,9 @@ export const usePromptAnalysis = () => {
     }
   }, []);
 
-  return {
-    analyzePrompt,
-    isAnalyzing,
-    error
-  };
+  return { analyzePrompt, isAnalyzing, error };
 };
 
-// Hook for trade execution
 export const useTradeExecution = () => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,55 +101,11 @@ export const useTradeExecution = () => {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to execute trade';
       setError(errorMessage);
-      return {
-        success: false,
-        message: errorMessage
-      };
+      return { success: false, message: errorMessage };
     } finally {
       setIsExecuting(false);
     }
   }, []);
 
-  return {
-    executeTrade,
-    isExecuting,
-    error
-  };
-};
-
-// Hook for MT5 status
-export const useMT5Status = (refreshInterval: number = 10000) => {
-  const [status, setStatus] = useState<any>({
-    connected: false,
-    status: 'disconnected',
-    message: 'Checking connection...'
-  });
-  const [isLoading, setIsLoading] = useState(true);
-
-  const fetchStatus = useCallback(async () => {
-    try {
-      const mt5Status = await pipnosisAPI.getMT5Status();
-      setStatus(mt5Status);
-    } catch (error) {
-      setStatus({
-        connected: false,
-        status: 'error',
-        message: 'Failed to check MT5 status'
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchStatus();
-    const interval = setInterval(fetchStatus, refreshInterval);
-    return () => clearInterval(interval);
-  }, [fetchStatus, refreshInterval]);
-
-  return {
-    status,
-    isLoading,
-    refetch: fetchStatus
-  };
+  return { executeTrade, isExecuting, error };
 };

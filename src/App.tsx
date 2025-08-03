@@ -8,18 +8,14 @@ import { PromptInput } from './components/PromptInput';
 import { MarketChart } from './components/MarketChart';
 import { StrategyOptions } from './components/StrategyOptions';
 import { TradingDashboard } from './components/TradingDashboard';
-import { MarketAnalysis } from './components/MarketAnalysis';
 import { NotificationCenter } from './components/NotificationCenter';
 import { TradeJournal } from './components/TradeJournal';
 import { TradingKPIs } from './components/TradingKPIs';
 import { TradingLaws } from './components/TradingLaws';
 import { WebContainerNotice } from './components/WebContainerNotice';
-import { useOpenAI } from './hooks/useOpenAI'; 
-import { usePipnosisAI } from './hooks/usePipnosisAI';
-import { useMarketData } from './hooks/useMarketData';
 import { LandingPage } from './components/LandingPage';
+import { usePromptAnalysis, useTradeExecution, useMarketData } from './hooks/useAPI';
 
-// Types
 interface StrategyOption {
   id: string;
   name: string;
@@ -35,7 +31,6 @@ interface StrategyOption {
   feasible: boolean;
   reasoning: string;
   confidence: string;
-  pipnosisLawsCompliance?: any;
 }
 
 interface Notification {
@@ -50,7 +45,7 @@ interface Notification {
 interface JournalEntry {
   id: string;
   timestamp: string;
-  type: 'trade_entry' | 'trade_exit' | 'market_update' | 'ai_decision' | 'modification' | 'update';
+  type: 'trade_entry' | 'trade_exit' | 'market_update' | 'ai_decision' | 'modification';
   title: string;
   message: string;
   tradeId?: string;
@@ -75,20 +70,14 @@ const Dashboard: React.FC = () => {
   
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
 
-  const { generateJournalEntry, explainDecision } = useOpenAI();
-  const { processPrompt, executeStrategy, isProcessing, error: aiError } = usePipnosisAI();
+  const { analyzePrompt, isAnalyzing, error: aiError } = usePromptAnalysis();
+  const { executeTrade, isExecuting } = useTradeExecution();
   
   const accountBalance = profile?.account_balance || 10000;
-  const { marketData, isLoading: marketLoading, error: marketError, lastUpdated, refetch, fetchChartData } = useMarketData();
-  
-  // Combined execution state
-  const isExecuting = isProcessing;
-  const error = aiError;
+  const { marketData, isLoading: marketLoading, error: marketError, lastUpdated, refetch } = useMarketData();
 
-  // Auto-scroll to strategy options when they're available
   useEffect(() => {
     if (strategyOptions.length > 0 && strategyOptionsRef.current) {
-      // Small delay to ensure the content is rendered
       setTimeout(() => {
         strategyOptionsRef.current?.scrollIntoView({
           behavior: 'smooth',
@@ -100,17 +89,10 @@ const Dashboard: React.FC = () => {
 
   const handlePromptSubmit = async (prompt: string) => {
     try {
-      // Save prompt to database if user is logged in
-      if (user && profile) {
-        // This will be implemented when we add the trading helper functions
-        console.log('Saving prompt to database:', prompt);
-      }
-      
-      const analysis = await processPrompt(prompt);
+      const analysis = await analyzePrompt(prompt, accountBalance, marketData);
       
       if (analysis && analysis.strategies.length > 0) {
-        // Transform API strategies to match our component format
-        const transformedStrategies = analysis.strategies.map((strategy, index) => ({
+        const transformedStrategies = analysis.strategies.map((strategy: any, index: number) => ({
           id: strategy.id || `ai-${index}`,
           name: strategy.name,
           risk: strategy.risk,
@@ -124,13 +106,11 @@ const Dashboard: React.FC = () => {
           riskRewardRatio: strategy.riskRewardRatio,
           feasible: strategy.feasible,
           reasoning: strategy.reasoning,
-          confidence: strategy.confidence,
-          pipnosisLawsCompliance: strategy.pipnosisLawsCompliance
+          confidence: strategy.confidence
         }));
         
         setStrategyOptions(transformedStrategies);
 
-        // Update chart with trade lines from first strategy
         if (transformedStrategies.length > 0) {
           const firstStrategy = transformedStrategies[0];
           setActiveTradeLines({
@@ -139,31 +119,9 @@ const Dashboard: React.FC = () => {
             takeProfit: parseFloat(firstStrategy.takeProfit)
           });
           
-          // Update selected symbol to match the strategy
-          const strategySymbol = firstStrategy.symbol;
-          setSelectedSymbol(strategySymbol);
+          setSelectedSymbol(firstStrategy.symbol);
         }
 
-        // Generate AI journal entry for the analysis
-        const journalEntry = await generateJournalEntry('market_update', {
-          prompt,
-          strategies: transformedStrategies.length,
-          confidence: analysis.confidence,
-          marketAnalysis: analysis.marketAnalysis
-        });
-
-        if (journalEntry) {
-          setJournalEntries(prev => [
-            {
-              ...journalEntry,
-              id: Date.now().toString(),
-              userReaction: null
-            },
-            ...prev
-          ]);
-        }
-        
-        // Add notification for analysis
         const notification: Notification = {
           id: Date.now().toString(),
           type: 'info',
@@ -178,7 +136,6 @@ const Dashboard: React.FC = () => {
     } catch (err) {
       console.error('Failed to process prompt:', err);
       
-      // Add error notification
       const notification: Notification = {
         id: Date.now().toString(),
         type: 'error',
@@ -194,45 +151,10 @@ const Dashboard: React.FC = () => {
 
   const handleStrategySelect = async (option: StrategyOption) => {
     try {
-      // Save trade to database if user is logged in
-      if (user && profile) {
-        console.log('Saving trade to database:', option);
-      }
-      
       console.log('🚀 Executing strategy:', option);
       
-      // Extract symbol and action from tradeType if not provided directly
-      const symbol = option.symbol;
-      const action = option.action;
-      
-      // Execute strategy via Pipnosis AI Brain
-      const result = await executeStrategy(option);
+      const result = await executeTrade(option);
 
-      // Generate AI journal entry for strategy execution
-      const journalEntry = await generateJournalEntry('trade_entry', {
-        symbol,
-        action: 'entry',
-        price: parseFloat(option.entry),
-        strategy: option.name,
-        reasoning: option.reasoning,
-        tradeId: result.tradeId,
-        success: result.success
-      });
-
-      if (journalEntry) {
-        setJournalEntries(prev => [
-          {
-            ...journalEntry,
-            id: Date.now().toString(),
-            tradeId: result.tradeId || `TRD-${Date.now()}`,
-            symbol,
-            userReaction: null
-          },
-          ...prev
-        ]);
-      }
-
-      // Add notification for trade execution
       const notification: Notification = {
         id: Date.now().toString(),
         type: result.success ? 'success' : 'error',
@@ -247,7 +169,6 @@ const Dashboard: React.FC = () => {
     } catch (error) {
       console.error('Trade execution failed:', error);
       
-      // Add error notification
       const notification: Notification = {
         id: Date.now().toString(),
         type: 'error',
@@ -263,7 +184,6 @@ const Dashboard: React.FC = () => {
 
   const handleSymbolChange = (symbol: string) => {
     setSelectedSymbol(symbol);
-    // Clear trade lines when changing symbols
     setActiveTradeLines({});
   };
 
@@ -281,35 +201,6 @@ const Dashboard: React.FC = () => {
     setJournalEntries(prev => prev.map(entry => 
       entry.id === entryId ? { ...entry, userReaction: reaction } : entry
     ));
-    
-    if (reaction === 'explain-more') {
-      const entry = journalEntries.find(e => e.id === entryId);
-      if (entry) {
-        const explanation = await explainDecision(entry.title, {
-          message: entry.message,
-          symbol: entry.symbol,
-          type: entry.type
-        });
-
-        if (explanation) {
-          // Add detailed explanation as a new journal entry
-          setJournalEntries(prev => [
-            {
-              id: `${entryId}-explanation`,
-              timestamp: new Date().toISOString(),
-              type: 'update' as const,
-              title: 'Detailed Analysis',
-              message: explanation,
-              tradeId: entry.tradeId,
-              symbol: entry.symbol,
-              confidence: 'high' as const,
-              userReaction: null
-            },
-            ...prev
-          ]);
-        }
-      }
-    }
   };
 
   return (
@@ -322,9 +213,7 @@ const Dashboard: React.FC = () => {
       />
       
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {/* Hero Section - Redesigned Layout */}
         <div className="space-y-8 mb-12">
-          {/* Hero Header */}
           <div className="text-center space-y-6">
             <div className="space-y-4">
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold bg-gradient-to-r from-blue-400 via-purple-500 to-emerald-400 bg-clip-text text-transparent">
@@ -335,17 +224,15 @@ const Dashboard: React.FC = () => {
               </p>
             </div>
             
-            {/* Prompt Input - Hero Placement */}
             <div className="max-w-4xl mx-auto">
               <PromptInput 
                 onSubmit={handlePromptSubmit} 
-                isLoading={isProcessing}
-                error={error}
+                isLoading={isAnalyzing}
+                error={aiError}
               />
             </div>
           </div>
           
-          {/* Live Market Chart - Hero Middle */}
           <div className="max-w-6xl mx-auto">
             <MarketChart
               symbol={selectedSymbol}
@@ -355,8 +242,7 @@ const Dashboard: React.FC = () => {
             />
           </div>
           
-          {/* AI Processing State */}
-          {isProcessing && (
+          {isAnalyzing && (
             <div className="max-w-4xl mx-auto bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-2xl p-8 text-center backdrop-blur-sm">
               <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
               <h3 className="text-xl font-semibold text-white mb-2">Pipnosis AI Analyzing...</h3>
@@ -365,7 +251,6 @@ const Dashboard: React.FC = () => {
             </div>
           )}
           
-          {/* Strategy Options - Hero Bottom */}
           <div ref={strategyOptionsRef} className="max-w-6xl mx-auto">
             <StrategyOptions 
               options={strategyOptions} 
@@ -375,7 +260,6 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
         
-        {/* Dashboard Grid - Below Hero */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8">
           <div className="xl:col-span-2 space-y-4 sm:space-y-6">
             <WebContainerNotice />
@@ -397,15 +281,11 @@ const Dashboard: React.FC = () => {
           </div>
           
           <div className="space-y-4 sm:space-y-6">
-            <TradeJournal
-              onReaction={handleJournalReaction}
-            />
-            
+            <TradeJournal onReaction={handleJournalReaction} />
             <TradingLaws />
           </div>
         </div>
       </main>
-
 
       <AuthModal
         isOpen={showAuthModal}
@@ -423,7 +303,6 @@ const Dashboard: React.FC = () => {
 export default function App() {
   const { loading } = useAuth();
 
-  // Show loading screen while auth is initializing
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">

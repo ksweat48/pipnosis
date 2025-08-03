@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType } from 'lightweight-charts';
-import { TrendingUp, BarChart3, RefreshCw, Settings } from 'lucide-react';
+import { BarChart3, RefreshCw } from 'lucide-react';
 
 interface MarketChartProps {
   symbol: string;
@@ -13,363 +12,38 @@ interface MarketChartProps {
   className?: string;
 }
 
-interface CandlestickData {
-  time: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume?: number;
-}
-
 export const MarketChart: React.FC<MarketChartProps> = ({
   symbol,
   onSymbolChange,
   tradeLines,
   className = ""
 }) => {
-  const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<any>(null);
-  const candlestickSeriesRef = useRef<any>(null);
-  const volumeSeriesRef = useRef<any>(null);
-  const entryLineRef = useRef<any>(null);
-  const slLineRef = useRef<any>(null);
-  const tpLineRef = useRef<any>(null);
-  
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
-  // Top 3 pairs as per Immutable Laws
   const availablePairs = ['EURUSD', 'GBPUSD', 'XAUUSD'];
 
-  // Initialize chart
   useEffect(() => {
-    if (!chartContainerRef.current) return;
-
-    try {
-      const chart = createChart(chartContainerRef.current, {
-        width: chartContainerRef.current.clientWidth,
-        height: 500,
-        layout: {
-          background: { type: ColorType.Solid, color: '#0f172a' },
-          textColor: '#94a3b8',
-        },
-        grid: {
-          vertLines: { color: '#1e293b' },
-          horzLines: { color: '#1e293b' },
-        },
-        crosshair: {
-          mode: 1,
-        },
-        rightPriceScale: {
-          borderColor: '#334155',
-          scaleMargins: {
-            top: 0.1,
-            bottom: 0.2,
-          },
-        },
-        timeScale: {
-          borderColor: '#334155',
-          timeVisible: true,
-          secondsVisible: false,
-          rightOffset: 12,
-        },
-      });
-
-      // Create candlestick series with error handling
-      let candlestickSeries = null;
-      let volumeSeries = null;
-      
-      try {
-        candlestickSeries = chart.addCandlestickSeries({
-          upColor: '#10b981',
-          downColor: '#ef4444',
-          borderDownColor: '#ef4444',
-          borderUpColor: '#10b981',
-          wickDownColor: '#ef4444',
-          wickUpColor: '#10b981',
-          priceLineVisible: false,
-        });
-      } catch (candlestickError) {
-        console.error('Error creating candlestick series:', candlestickError);
-        setError('Chart initialization failed');
-        return;
-      }
-
-      try {
-        volumeSeries = chart.addHistogramSeries({
-          color: '#64748b',
-          priceFormat: {
-            type: 'volume',
-          },
-          priceScaleId: '',
-          scaleMargins: {
-            top: 0.8,
-            bottom: 0,
-          },
-        });
-      } catch (volumeError) {
-        console.warn('Volume series creation failed:', volumeError);
-        // Continue without volume series
-      }
-
-      chartRef.current = chart;
-      candlestickSeriesRef.current = candlestickSeries;
-      volumeSeriesRef.current = volumeSeries;
-    } catch (chartError) {
-      console.error('Chart creation failed:', chartError);
-      setError('Failed to initialize chart');
-      return;
-    }
-
-    // Handle resize
-    const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
-        try {
-          chartRef.current.applyOptions({
-            width: chartContainerRef.current.clientWidth,
-          });
-        } catch (resizeError) {
-          console.warn('Chart resize failed:', resizeError);
-        }
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (chartRef.current) {
-        try {
-          chartRef.current.remove();
-        } catch (removeError) {
-          console.warn('Chart removal failed:', removeError);
-        }
-      }
-    };
-  }, []);
-
-  // Generate mock OHLCV data for demonstration
-  const generateMockData = (symbol: string): CandlestickData[] => {
-    const data: CandlestickData[] = [];
-    const now = new Date();
-    const isJPY = symbol.includes('JPY');
-    const isGold = symbol === 'XAUUSD';
-    
-    let basePrice = symbol === 'XAUUSD' ? 2045 : 
-                   symbol === 'GBPUSD' ? 1.2735 : 1.1425; // EURUSD default
-    
-    // Generate 200 candles (about 8 hours of M15 data for better chart)
-    for (let i = 199; i >= 0; i--) {
-      const time = new Date(now.getTime() - i * 15 * 60 * 1000); // 15-minute intervals
-      
-      // Generate realistic price movement
-      const volatility = isGold ? 8 : symbol === 'GBPUSD' ? 0.003 : 0.002;
-      const change = (Math.random() - 0.5) * volatility;
-      
-      const open = basePrice;
-      const close = basePrice + change;
-      const high = Math.max(open, close) + Math.random() * volatility * 0.3;
-      const low = Math.min(open, close) - Math.random() * volatility * 0.3;
-      const volume = Math.floor(Math.random() * 1000) + 100;
-      
-      data.push({
-        time: time.toISOString().split('T')[0] + ' ' + time.toTimeString().split(' ')[0].substring(0, 5),
-        open: parseFloat(open.toFixed(isGold ? 2 : 5)),
-        high: parseFloat(high.toFixed(isGold ? 2 : 5)),
-        low: parseFloat(low.toFixed(isGold ? 2 : 5)),
-        close: parseFloat(close.toFixed(isGold ? 2 : 5)),
-        volume
-      });
-      
-      basePrice = close; // Next candle starts where this one ended
-    }
-    
-    return data;
-  };
-
-  // Load chart data
-  useEffect(() => {
-    if (!candlestickSeriesRef.current) return;
-
     setIsLoading(true);
-    setError(null);
-
-    try {
-      // Generate mock data for the selected symbol
-      const chartData = generateMockData(symbol);
-      
-      // Set candlestick data with error handling
-      try {
-        candlestickSeriesRef.current.setData(chartData);
-      } catch (dataError) {
-        console.error('Error setting candlestick data:', dataError);
-        setError('Failed to load chart data');
-        return;
-      }
-      
-      // Set volume data if volume series exists
-      if (volumeSeriesRef.current) {
-        try {
-          const volumeData = chartData.map(candle => ({
-            time: candle.time,
-            value: candle.volume || 0,
-            color: candle.close >= candle.open ? '#10b981' : '#ef4444'
-          }));
-          
-          volumeSeriesRef.current.setData(volumeData);
-        } catch (volumeError) {
-          console.warn('Error setting volume data:', volumeError);
-          // Continue without volume data
-        }
-      }
-      
+    setTimeout(() => {
+      setIsLoading(false);
       setLastUpdate(new Date());
-      setIsLoading(false);
-      
-      console.log(`📈 Chart loaded for ${symbol} with ${chartData.length} candles`);
-    } catch (err) {
-      console.error('Error loading chart data:', err);
-      setError('Failed to load chart data');
-      setIsLoading(false);
-    }
+    }, 1000);
   }, [symbol]);
 
-  // Update trade lines overlay
-  useEffect(() => {
-    if (!chartRef.current || !tradeLines) return;
+  const generateMockPrice = (symbol: string) => {
+    const basePrices = { 'EURUSD': 1.1425, 'GBPUSD': 1.2735, 'XAUUSD': 2045.50 };
+    const basePrice = basePrices[symbol as keyof typeof basePrices] || 1.1425;
+    const isGold = symbol === 'XAUUSD';
+    const variation = isGold ? (Math.random() - 0.5) * 20 : (Math.random() - 0.5) * 0.02;
+    return basePrice + variation;
+  };
 
-    try {
-      // Remove existing trade lines
-      if (entryLineRef.current) {
-        try {
-          chartRef.current.removeSeries(entryLineRef.current);
-        } catch (removeError) {
-          console.warn('Error removing entry line:', removeError);
-        }
-        entryLineRef.current = null;
-      }
-      if (slLineRef.current) {
-        try {
-          chartRef.current.removeSeries(slLineRef.current);
-        } catch (removeError) {
-          console.warn('Error removing SL line:', removeError);
-        }
-        slLineRef.current = null;
-      }
-      if (tpLineRef.current) {
-        try {
-          chartRef.current.removeSeries(tpLineRef.current);
-        } catch (removeError) {
-          console.warn('Error removing TP line:', removeError);
-        }
-        tpLineRef.current = null;
-      }
-
-      // Add entry line
-      if (tradeLines.entry) {
-        try {
-          const entryLine = chartRef.current.addLineSeries({
-            color: '#3b82f6',
-            lineWidth: 2,
-            lineStyle: 0, // Solid line
-            title: 'Entry',
-            priceLineVisible: false,
-          });
-          
-          const now = new Date();
-          entryLine.setData([
-            { time: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.entry },
-            { time: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.entry }
-          ]);
-          
-          entryLineRef.current = entryLine;
-        } catch (entryError) {
-          console.warn('Error adding entry line:', entryError);
-        }
-      }
-
-      // Add stop loss line
-      if (tradeLines.stopLoss) {
-        try {
-          const slLine = chartRef.current.addLineSeries({
-            color: '#ef4444',
-            lineWidth: 2,
-            lineStyle: 1, // Dashed line
-            title: 'Stop Loss',
-            priceLineVisible: false,
-          });
-          
-          const now = new Date();
-          slLine.setData([
-            { time: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.stopLoss },
-            { time: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.stopLoss }
-          ]);
-          
-          slLineRef.current = slLine;
-        } catch (slError) {
-          console.warn('Error adding stop loss line:', slError);
-        }
-      }
-
-      // Add take profit line
-      if (tradeLines.takeProfit) {
-        try {
-          const tpLine = chartRef.current.addLineSeries({
-            color: '#10b981',
-            lineWidth: 2,
-            lineStyle: 1, // Dashed line
-            title: 'Take Profit',
-            priceLineVisible: false,
-          });
-          
-          const now = new Date();
-          tpLine.setData([
-            { time: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.takeProfit },
-            { time: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.takeProfit }
-          ]);
-          
-          tpLineRef.current = tpLine;
-        } catch (tpError) {
-          console.warn('Error adding take profit line:', tpError);
-        }
-      }
-    } catch (overlayError) {
-      console.error('Error updating trade lines overlay:', overlayError);
-    }
-  }, [tradeLines]);
-
-  // Auto-refresh chart data every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!isLoading && candlestickSeriesRef.current) {
-        try {
-          // Add new candle to simulate real-time updates
-          const lastData = generateMockData(symbol).slice(-1)[0];
-          if (lastData) {
-            const now = new Date();
-            const newCandle = {
-              ...lastData,
-              time: now.toISOString().split('T')[0] + ' ' + now.toTimeString().split(' ')[0].substring(0, 5)
-            };
-            
-            candlestickSeriesRef.current.update(newCandle);
-            setLastUpdate(new Date());
-          }
-        } catch (updateError) {
-          console.warn('Error updating chart data:', updateError);
-        }
-      }
-    }, 30000); // Update every 30 seconds
-
-    return () => clearInterval(interval);
-  }, [symbol, isLoading]);
+  const currentPrice = generateMockPrice(symbol);
 
   return (
     <div className={`bg-slate-800 rounded-xl border border-slate-700 ${className}`}>
-      {/* Chart Header */}
-      <div className="p-4 sm:p-6 border-b border-slate-700 bg-gradient-to-r from-slate-800 to-slate-700">
+      <div className="p-4 sm:p-6 border-b border-slate-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-blue-500/20 rounded-lg">
@@ -377,17 +51,16 @@ export const MarketChart: React.FC<MarketChartProps> = ({
             </div>
             <div>
               <h3 className="text-lg font-semibold text-white">Live Market Chart</h3>
-              <p className="text-sm text-slate-400">Real-time price action with AI trade levels</p>
+              <p className="text-sm text-slate-400">Real-time price action</p>
             </div>
             {isLoading && <RefreshCw className="h-4 w-4 text-blue-400 animate-spin" />}
           </div>
           
           <div className="flex items-center space-x-3">
-            {/* Symbol Selector */}
             <select
               value={symbol}
               onChange={(e) => onSymbolChange(e.target.value)}
-              className="bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {availablePairs.map(pair => (
                 <option key={pair} value={pair}>{pair}</option>
@@ -396,41 +69,32 @@ export const MarketChart: React.FC<MarketChartProps> = ({
             
             <div className="text-xs text-slate-400 text-right">
               <div>M15 Timeframe</div>
-              <div>{lastUpdate ? `${lastUpdate.toLocaleTimeString()}` : 'Loading...'}</div>
+              <div>{lastUpdate ? lastUpdate.toLocaleTimeString() : 'Loading...'}</div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Chart Container */}
-      <div className="relative">
-        {isLoading && (
-          <div className="absolute inset-0 bg-slate-800/50 flex items-center justify-center z-10">
-            <div className="text-center">
-              <RefreshCw className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-2" />
-              <p className="text-slate-400 text-sm">Loading {symbol} chart...</p>
+      <div className="relative bg-slate-900 h-96 flex items-center justify-center">
+        {isLoading ? (
+          <div className="text-center">
+            <RefreshCw className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-2" />
+            <p className="text-slate-400 text-sm">Loading {symbol} chart...</p>
+          </div>
+        ) : (
+          <div className="text-center">
+            <div className="text-4xl font-bold text-white mb-2">
+              {currentPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
+            </div>
+            <div className="text-slate-400 mb-4">{symbol} Current Price</div>
+            <div className="w-full max-w-md h-32 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-lg flex items-center justify-center">
+              <BarChart3 className="h-16 w-16 text-blue-400 opacity-50" />
             </div>
           </div>
         )}
-        
-        {error && (
-          <div className="absolute inset-0 bg-slate-800/50 flex items-center justify-center z-10">
-            <div className="text-center">
-              <BarChart3 className="h-8 w-8 text-red-400 mx-auto mb-2" />
-              <p className="text-red-400 text-sm">{error}</p>
-            </div>
-          </div>
-        )}
-        
-        <div 
-          ref={chartContainerRef} 
-          className="w-full"
-          style={{ height: '500px' }}
-        />
       </div>
 
-      {/* Trade Lines Legend */}
-      {tradeLines && (Object.keys(tradeLines).length > 0) && (
+      {tradeLines && Object.keys(tradeLines).length > 0 && (
         <div className="p-4 sm:p-6 border-t border-slate-700 bg-slate-900/50">
           <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
             <h4 className="text-sm font-medium text-white">AI Trade Levels</h4>
@@ -443,13 +107,13 @@ export const MarketChart: React.FC<MarketChartProps> = ({
               )}
               {tradeLines.stopLoss && (
                 <div className="flex items-center space-x-1">
-                  <div className="w-4 h-0.5 bg-red-500 rounded border-dashed"></div>
+                  <div className="w-4 h-0.5 bg-red-500 rounded"></div>
                   <span className="text-red-300 font-medium">SL: {tradeLines.stopLoss.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
                 </div>
               )}
               {tradeLines.takeProfit && (
                 <div className="flex items-center space-x-1">
-                  <div className="w-4 h-0.5 bg-green-500 rounded border-dashed"></div>
+                  <div className="w-4 h-0.5 bg-green-500 rounded"></div>
                   <span className="text-green-300 font-medium">TP: {tradeLines.takeProfit.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
                 </div>
               )}
