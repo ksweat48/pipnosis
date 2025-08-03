@@ -12,10 +12,10 @@
     "dev:full": "concurrently \"npm run server\" \"npm run dev\""
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",
     "@supabase/supabase-js": "^2.53.0",
     "@types/uuid": "^10.0.0",
     "axios": "^1.6.0",
+    "lightweight-charts": "^5.0.8",
     "lucide-react": "^0.344.0",
     "node-fetch": "^2.7.0",
     "openai": "^4.20.1",

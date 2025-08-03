@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { pipnosisAPI } from '../services/api';
-import { backendAPI } from '../services/backendAPI';
 
 export interface MarketDataPoint {
   symbol: string;
@@ -11,8 +10,18 @@ export interface MarketDataPoint {
   signal: string;
 }
 
+export interface ChartData {
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
+}
+
 export const useMarketData = (refreshInterval: number = 5000) => {
   const [marketData, setMarketData] = useState<MarketDataPoint[]>([]);
+  const [chartData, setChartData] = useState<ChartData[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -22,64 +31,14 @@ export const useMarketData = (refreshInterval: number = 5000) => {
       setIsLoading(true);
       setError(null);
       
-      // Check if we're in WebContainer environment - simplified check
-      const isWebContainer = window.location.hostname.includes('webcontainer') || 
-                           window.location.hostname.includes('bolt.new') ||
-                           window.location.hostname.includes('stackblitz');
-      
-      // In WebContainer, immediately use fallback data
-      if (isWebContainer) {
-        console.log('🔄 WebContainer environment detected - using fallback data');
-        const generatedData = generateFallbackData();
-        setMarketData(generatedData);
-        setLastUpdated(new Date());
-        setIsLoading(false);
-        return;
-      }
-      
       console.log('🔄 Fetching market data...');
       try {
-        // First try the backend API
-        const data = await backendAPI.getMarketAnalysis().catch(error => {
-          console.warn('Backend API market analysis failed:', error);
-          throw error;
-        });
-        
-        if (data && data.symbols) {
-          const formattedData: MarketDataPoint[] = data.symbols.map(symbol => ({
-            symbol: symbol.symbol,
-            price: symbol.bid && symbol.ask ? (symbol.bid + symbol.ask) / 2 : 1.1425,
-            change: symbol.change,
-            changePercent: symbol.changePercent,
-            trend: symbol.trend === 'bullish' ? 'up' : symbol.trend === 'bearish' ? 'down' : 'sideways',
-            signal: symbol.signals.includes('Buy Signal') ? 'buy' : 
-                   symbol.signals.includes('Sell Signal') ? 'sell' : 'hold'
-          }));
-          
-          setMarketData(formattedData);
-          setLastUpdated(new Date());
-          setIsLoading(false);
-          console.log('✅ Market data fetched successfully from backend API');
-          return;
-        }
-      } catch (backendError) {
-        console.warn('Backend API failed, trying pipnosisAPI:', backendError);
-      }
-      
-      // Fallback to pipnosisAPI
-      try {
-        const fallbackData = await pipnosisAPI.getMarketData().catch(error => {
-          console.warn('PipnosisAPI market data failed:', error);
-          throw error;
-        });
-        
-        setMarketData(fallbackData);
-        console.log('✅ Market data fetched successfully from pipnosisAPI');
+        const data = await pipnosisAPI.getMarketData();
+        setMarketData(data);
+        console.log('✅ Market data fetched successfully');
         setLastUpdated(new Date());
-      } catch (fallbackError) {
-        console.error('Both APIs failed:', fallbackError);
-        setError('Failed to fetch market data from both APIs');
-        
+      } catch (error) {
+        console.warn('❌ Failed to fetch market data:', error);
         // Generate fallback data
         const generatedData = generateFallbackData();
         setMarketData(generatedData);
@@ -88,6 +47,20 @@ export const useMarketData = (refreshInterval: number = 5000) => {
       }
     } finally {
       setIsLoading(false);
+    }
+  }, []);
+
+  // Fetch chart data for a specific symbol
+  const fetchChartData = useCallback(async (symbol: string): Promise<ChartData[]> => {
+    try {
+      // In a real implementation, this would fetch OHLCV data from your backend
+      // For now, we'll generate mock data
+      const chartData = generateMockChartData(symbol);
+      setChartData(chartData);
+      return chartData;
+    } catch (error) {
+      console.error('Failed to fetch chart data:', error);
+      return [];
     }
   }, []);
 
@@ -124,6 +97,41 @@ export const useMarketData = (refreshInterval: number = 5000) => {
     });
   };
 
+  // Generate mock chart data
+  const generateMockChartData = (symbol: string): ChartData[] => {
+    const data: ChartData[] = [];
+    const now = new Date();
+    const isJPY = symbol.includes('JPY');
+    const isGold = symbol === 'XAUUSD';
+    
+    let basePrice = isGold ? 2045 : isJPY ? 149.85 : 1.1425;
+    
+    // Generate 100 candles
+    for (let i = 99; i >= 0; i--) {
+      const time = new Date(now.getTime() - i * 15 * 60 * 1000);
+      const volatility = isGold ? 5 : isJPY ? 0.5 : 0.002;
+      const change = (Math.random() - 0.5) * volatility;
+      
+      const open = basePrice;
+      const close = basePrice + change;
+      const high = Math.max(open, close) + Math.random() * volatility * 0.3;
+      const low = Math.min(open, close) - Math.random() * volatility * 0.3;
+      
+      data.push({
+        time: time.toISOString(),
+        open: parseFloat(open.toFixed(isJPY ? 2 : isGold ? 2 : 5)),
+        high: parseFloat(high.toFixed(isJPY ? 2 : isGold ? 2 : 5)),
+        low: parseFloat(low.toFixed(isJPY ? 2 : isGold ? 2 : 5)),
+        close: parseFloat(close.toFixed(isJPY ? 2 : isGold ? 2 : 5)),
+        volume: Math.floor(Math.random() * 1000) + 100
+      });
+      
+      basePrice = close;
+    }
+    
+    return data;
+  };
+
   useEffect(() => {
     fetchMarketData();
     const interval = setInterval(fetchMarketData, refreshInterval);
@@ -132,9 +140,11 @@ export const useMarketData = (refreshInterval: number = 5000) => {
 
   return {
     marketData,
+    chartData,
     isLoading,
     error,
     lastUpdated,
-    refetch: fetchMarketData
+    refetch: fetchMarketData,
+    fetchChartData
   };
 };

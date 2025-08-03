@@ -1,15 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Menu, X, ExternalLink, Zap, HelpCircle, User, LogIn } from 'lucide-react';
+import { Settings, Menu, X, ExternalLink, User, LogIn, DollarSign } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { SettingsModal } from './SettingsModal';
-import { MT5ConnectionStatus } from './MT5ConnectionStatus';
 import { DisclaimerModal } from './DisclaimerModal';
-import { WebContainerNotice } from './WebContainerNotice';
 import { BackendStatus } from './BackendStatus';
-import { MT5ConnectionModal } from './MT5ConnectionModal';
 
 interface HeaderProps {
-  onOpenMT5Modal: () => void;
   onOpenAuth: () => void;
   onOpenProfile: () => void;
   user: any;
@@ -17,75 +13,17 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
-  onOpenMT5Modal, 
   onOpenAuth, 
   onOpenProfile, 
   user, 
   profile 
 }) => {
+  const { signOut } = useAuth();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const [isMT5ModalOpen, setIsMT5ModalOpen] = useState(false);
 
-  // CRITICAL FIX: Check MT5 connection status from localStorage and auto-connect
-  const [mt5Connected, setMt5Connected] = useState(false);
-  const [mt5AccountData, setMt5AccountData] = useState<any>(null);
-
-  // Monitor MT5 connection status
-  useEffect(() => {
-    const checkMT5Status = () => {
-      try {
-        const connected = localStorage.getItem('pipnosis_mt5_connected') === 'true';
-        const accountData = localStorage.getItem('pipnosis_mt5_account');
-        
-        setMt5Connected(connected);
-        
-        if (connected && accountData) {
-          try {
-            setMt5AccountData(JSON.parse(accountData));
-          } catch (error) {
-            console.error('Error parsing MT5 account data:', error);
-            setMt5AccountData(null);
-          }
-        } else {
-          setMt5AccountData(null);
-        }
-      } catch (error) {
-        console.error('Error checking MT5 status:', error);
-        setMt5Connected(false);
-        setMt5AccountData(null);
-      }
-    };
-
-    // Check immediately
-    checkMT5Status();
-
-    // Set up interval to check every 2 seconds
-    const interval = setInterval(checkMT5Status, 2000);
-
-    // Listen for storage changes
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'pipnosis_mt5_connected' || e.key === 'pipnosis_mt5_account') {
-        checkMT5Status();
-      }
-    };
-
-    // Listen for custom MT5 modal open event
-    const handleOpenMT5Modal = () => {
-      onOpenMT5Modal();
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('openMT5Modal', handleOpenMT5Modal);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('openMT5Modal', handleOpenMT5Modal);
-    };
-  }, []);
 
   const handleDisclaimerClick = () => {
     setIsDisclaimerOpen(true);
@@ -93,27 +31,13 @@ export const Header: React.FC<HeaderProps> = ({
     setIsMobileMenuOpen(false);
   };
 
-  // CRITICAL FIX: Safe number formatting function
-  const safeToFixed = (value: any, digits: number = 2): string => {
-    if (typeof value === "number" && !isNaN(value)) {
-      return value.toFixed(digits);
-    }
-    return "0.00";
+  const handleSignOut = async () => {
+    await signOut();
+    setIsUserMenuOpen(false);
   };
 
-  // CRITICAL FIX: Get display balance from MT5 if connected, otherwise use profile balance
   const getDisplayBalance = () => {
-    // Use profile balance if user is logged in
-    const profileBalance = profile?.account_balance || 10000;
-    
-    // Use MT5 account balance if connected
-    if (mt5Connected && mt5AccountData) {
-      if (typeof mt5AccountData.balance === 'number') {
-        return `$${mt5AccountData.balance.toLocaleString()}`;
-      }
-    }
-    
-    return `$${profileBalance.toLocaleString()}`;
+    return `$${(profile?.account_balance || 10000).toLocaleString()}`;
   };
 
   return (
@@ -136,52 +60,22 @@ export const Header: React.FC<HeaderProps> = ({
           
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-4">
-            <div className="flex items-center space-x-3">
-              <MT5ConnectionStatus />
-              <BackendStatus />
-            </div>
+            <BackendStatus />
             
             <div className="text-right">
               <p className="text-sm text-slate-400">
-                {mt5Connected ? 'MT5 Balance' : user ? 'Demo Balance' : 'Account Balance'}
+                {user ? 'Demo Balance' : 'Account Balance'}
               </p>
-              <p className="text-lg font-semibold text-green-400">{getDisplayBalance()}</p>
-              {mt5Connected && (
-                <p className="text-xs text-green-400">Live MT5 Data</p>
-              )}
+              <p className="text-lg font-semibold text-green-400 flex items-center">
+                <DollarSign className="h-4 w-4 mr-1" />
+                {getDisplayBalance()}
+              </p>
               {user && !mt5Connected && (
                 <p className="text-xs text-blue-400">Demo Account</p>
               )}
             </div>
             
             <div className="flex items-center space-x-2">
-              {/* CRITICAL FIX: MT5 Connect Button with proper status colors */}
-              <button 
-                onClick={onOpenMT5Modal}
-                className={`flex items-center space-x-2 px-3 py-2 border rounded-lg transition-colors text-sm ${
-                  mt5Connected 
-                    ? 'bg-green-500/20 text-green-400 border-green-500/30 hover:bg-green-500/30' 
-                    : 'bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30'
-                }`}
-                title={mt5Connected ? 'MT5 Connected - Click to manage' : 'Connect to MetaTrader 5'}
-              >
-                <Zap className="h-4 w-4" />
-                <span className="hidden lg:inline whitespace-nowrap">
-                  {mt5Connected ? 'MT5 ✓' : 'MT5'}
-                </span>
-              </button>
-              
-              {/* MT5 Setup Guide */}
-              <a 
-                href="/PRODUCTION_MT5_SETUP.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                title="MT5 Setup Guide"
-              >
-                <HelpCircle className="h-5 w-5" />
-              </a>
-              
               <button 
                 onClick={() => setIsSettingsOpen(true)}
                 className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
@@ -191,16 +85,50 @@ export const Header: React.FC<HeaderProps> = ({
               
               {/* User Authentication Button */}
               {user ? (
-                <button 
-                  onClick={onOpenProfile}
-                  className="flex items-center space-x-2 px-3 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-500/30 transition-colors"
-                  title="User Profile"
-                >
-                  <User className="h-4 w-4" />
-                  <span className="hidden lg:inline">
-                    {profile?.full_name || user.email?.split('@')[0] || 'Profile'}
-                  </span>
-                </button>
+                <div className="relative">
+                  <button 
+                    onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                    className="flex items-center space-x-2 px-3 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-500/30 transition-colors"
+                    title="User Menu"
+                  >
+                    <User className="h-4 w-4" />
+                    <span className="hidden lg:inline">
+                      {profile?.full_name || user.email?.split('@')[0] || 'Profile'}
+                    </span>
+                  </button>
+                  
+                  {isUserMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-lg z-50">
+                      <div className="py-1">
+                        <button
+                          onClick={() => {
+                            onOpenProfile();
+                            setIsUserMenuOpen(false);
+                          }}
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+                        >
+                          <User className="h-4 w-4" />
+                          <span>Profile</span>
+                        </button>
+                        <button
+                          onClick={handleDisclaimerClick}
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-slate-300 hover:text-amber-400 hover:bg-slate-700 transition-colors"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                          <span>Disclaimer</span>
+                        </button>
+                        <div className="border-t border-slate-700 my-1"></div>
+                        <button
+                          onClick={handleSignOut}
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-red-300 hover:text-red-400 hover:bg-slate-700 transition-colors"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                          <span>Sign Out</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <button 
                   onClick={onOpenAuth}
@@ -216,28 +144,13 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Mobile Menu Button */}
           <div className="md:hidden flex items-center space-x-2">
-            <div className="flex items-center space-x-2">
-              <MT5ConnectionStatus />
-              <BackendStatus />
-            </div>
+            <BackendStatus />
             <div className="text-right mr-2">
               <p className="text-xs text-slate-400">
-                {mt5Connected ? 'MT5' : user ? 'Demo' : 'Balance'}
+                {user ? 'Demo' : 'Balance'}
               </p>
               <p className="text-sm font-semibold text-green-400">{getDisplayBalance()}</p>
             </div>
-            {/* CRITICAL FIX: Mobile MT5 Button with proper status colors */}
-            <button 
-              onClick={onOpenMT5Modal}
-              className={`p-2 border rounded-lg transition-colors ${
-                mt5Connected 
-                  ? 'bg-green-500/20 text-green-400 border-green-500/30 hover:bg-green-500/30' 
-                  : 'bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30'
-              }`}
-              title={mt5Connected ? 'MT5 Connected - Click to manage' : 'Connect to MetaTrader 5'}
-            >
-              <Zap className="h-4 w-4" />
-            </button>
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
@@ -251,34 +164,30 @@ export const Header: React.FC<HeaderProps> = ({
         {isMobileMenuOpen && (
           <div className="md:hidden mt-4 pt-4 border-t border-slate-700">
             <div className="space-y-2">
-              {/* CRITICAL FIX: Mobile MT5 Connect Button with proper status */}
-              <button 
-                onClick={() => {
-                  onOpenMT5Modal();
-                  setIsMobileMenuOpen(false);
-                }}
-                className={`w-full flex items-center space-x-3 p-3 border rounded-lg transition-colors ${
-                  mt5Connected 
-                    ? 'bg-green-500/20 text-green-400 border-green-500/30 hover:bg-green-500/30' 
-                    : 'bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30'
-                }`}
-              >
-                <Zap className="h-5 w-5" />
-                <span>{mt5Connected ? 'Manage MT5 Connection' : 'Connect MT5'}</span>
-              </button>
-              
               {/* Mobile User Auth Button */}
               {user ? (
-                <button 
-                  onClick={() => {
-                    onOpenProfile();
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className="w-full flex items-center space-x-3 p-3 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                >
-                  <User className="h-5 w-5" />
-                  <span>Profile</span>
-                </button>
+                <>
+                  <button 
+                    onClick={() => {
+                      onOpenProfile();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center space-x-3 p-3 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                  >
+                    <User className="h-5 w-5" />
+                    <span>Profile</span>
+                  </button>
+                  <button 
+                    onClick={() => {
+                      handleSignOut();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center space-x-3 p-3 text-red-300 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors"
+                  >
+                    <ExternalLink className="h-5 w-5" />
+                    <span>Sign Out</span>
+                  </button>
+                </>
               ) : (
                 <button 
                   onClick={() => {
@@ -292,7 +201,6 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               )}
               
-              <WebContainerNotice />
               <button 
                 onClick={handleDisclaimerClick}
                 className="w-full flex items-center space-x-3 p-3 text-slate-300 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors"
