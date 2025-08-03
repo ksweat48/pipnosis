@@ -227,3 +227,81 @@ export const useJournalEntries = (userId?: string, limit: number = 20) => {
 
   return { entries, isLoading, error, refetch: fetchEntries };
 };
+
+export const useTradeSessionManagement = () => {
+  const [isStarting, setIsStarting] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const startSession = useCallback(async (userId: string, symbol: string, accountBalance?: number) => {
+    setIsStarting(true);
+    setError(null);
+
+    try {
+      const result = await pipnosisAPI.startTradeSession(userId, symbol, accountBalance);
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to start trade session';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setIsStarting(false);
+    }
+  }, []);
+
+  const closeSession = useCallback(async (sessionId: string, reason?: string) => {
+    setIsClosing(true);
+    setError(null);
+
+    try {
+      const result = await pipnosisAPI.closeTradeSession(sessionId, reason);
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to close trade session';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setIsClosing(false);
+    }
+  }, []);
+
+  return { startSession, closeSession, isStarting, isClosing, error };
+};
+
+export const useAdminDashboard = () => {
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchDashboardData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const [todayActivity, activeUsers, costTracker, usageTrends] = await Promise.all([
+        pipnosisAPI.getAdminTodayActivity(),
+        pipnosisAPI.getAdminActiveUsers(),
+        pipnosisAPI.getAdminCostTracker(),
+        pipnosisAPI.getAdminUsageTrends(7)
+      ]);
+
+      setData({
+        todayActivity,
+        activeUsers,
+        costTracker,
+        usageTrends
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch dashboard data';
+      setError(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  return { data, isLoading, error, refetch: fetchDashboardData };
+};
