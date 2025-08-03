@@ -6,6 +6,8 @@ import { dirname, join } from 'path';
 import { existsSync } from 'fs';
 import cron from 'node-cron';
 import { tradeMonitoringService } from './services/tradeMonitoringService.js';
+import { estimateMetaApiCost, calculateDailyCostProjection, calculateMonthlyCostProjection, getCostBreakdown } from './utils/costCalculator.js';
+import { createTradeSession, updateTradeSession, getTradeSession, getUserTradeSessions, getAdminDashboardData, getActiveUserStats } from './lib/supabase.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -764,6 +766,263 @@ app.get('/api/debug/cors', (req, res) => {
     headers: req.headers,
     corsEnabled: true
   });
+});
+
+// Trade Sessions Management Endpoints
+
+// Start a new trade session
+app.post('/api/trade-sessions/start', async (req, res) => {
+  try {
+    const { userId, symbol, metaApiAccountId } = req.body;
+    
+    if (!userId || !symbol) {
+      return res.status(400).json({ error: 'userId and symbol are required' });
+    }
+
+    console.log(`🚀 Starting trade session for user ${userId}, symbol: ${symbol}`);
+    
+    const sessionData = {
+      user_id: userId,
+      symbol: symbol.toUpperCase(),
+      status: 'active',
+      start_time: new Date().toISOString(),
+      metaapi_account_id: metaApiAccountId,
+      session_metadata: {
+        started_via: 'ai_prompt',
+        initial_balance: req.body.accountBalance || 10000
+      }
+    };
+
+    const { data: session, error } = await createTradeSession(sessionData);
+    
+    if (error) {
+      console.error('❌ Failed to create trade session:', error);
+      return res.status(500).json({ error: 'Failed to start trade session' });
+    }
+
+    console.log(`✅ Trade session started: ${session.id}`);
+    res.json({
+      success: true,
+      sessionId: session.id,
+      startTime: session.start_time,
+      symbol: session.symbol
+    });
+  } catch (error) {
+    console.error('❌ Trade session start error:', error);
+    res.status(500).json({ error: 'Failed to start trade session' });
+  }
+});
+
+// Close a trade session
+app.post('/api/trade-sessions/close', async (req, res) => {
+  try {
+    const { sessionId, reason } = req.body;
+    
+    if (!sessionId) {
+      return res.status(400).json({ error: 'sessionId is required' });
+    }
+
+    console.log(`🔚 Closing trade session: ${sessionId}`);
+    
+    // Get the session to calculate duration
+    const { data: session, error: fetchError } = await getTradeSession(sessionId);
+    
+    if (fetchError || !session) {
+      console.error('❌ Failed to fetch trade session:', fetchError);
+      return res.status(404).json({ error: 'Trade session not found' });
+    }
+
+    // Calculate duration and cost
+    const endTime = new Date();
+    const startTime = new Date(session.start_time);
+    const durationMinutes = Math.round((endTime.getTime() - startTime.getTime()) / (1000 * 60));
+    const estimatedCost = estimateMetaApiCost(durationMinutes);
+
+    // Update the session
+    const updates = {
+      end_time: endTime.toISOString(),
+      status: 'closed',
+      duration_minutes: durationMinutes,
+      estimated_cost: estimatedCost,
+      session_metadata: {
+        ...session.session_metadata,
+        close_reason: reason || 'manual_close',
+        closed_at: endTime.toISOString()
+      }
+    };
+
+    const { data: updatedSession, error: updateError } = await updateTradeSession(sessionId, updates);
+    
+    if (updateError) {
+      console.error('❌ Failed to update trade session:', updateError);
+      return res.status(500).json({ error: 'Failed to close trade session' });
+    }
+
+    console.log(`✅ Trade session closed: ${sessionId}, Duration: ${durationMinutes}min, Cost: $${estimatedCost}`);
+    res.json({
+      success: true,
+      sessionId: updatedSession.id,
+      duration: durationMinutes,
+      estimatedCost: estimatedCost,
+      endTime: updatedSession.end_time
+    });
+  } catch (error) {
+    console.error('❌ Trade session close error:', error);
+    res.status(500).json({ error: 'Failed to close trade session' });
+  }
+});
+
+// Get user's trade sessions
+app.get('/api/trade-sessions/user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const limit = parseInt(req.query.limit) || 50;
+    
+    console.log(`📊 Fetching trade sessions for user: ${userId}`);
+    
+    const { data: sessions, error } = await getUserTradeSessions(userId, limit);
+    
+    if (error) {
+      console.error('❌ Failed to fetch user trade sessions:', error);
+      return res.status(500).json({ error: 'Failed to fetch trade sessions' });
+    }
+
+    res.json(sessions || []);
+  } catch (error) {
+    console.error('❌ User trade sessions error:', error);
+    res.status(500).json({ error: 'Failed to fetch trade sessions' });
+  }
+});
+
+// Admin Dashboard Endpoints
+
+// Today's activity
+app.get('/api/admin/dashboard/today-activity', async (req, res) => {
+  try {
+    console.log('📊 Admin: Fetching today\'s activity');
+    
+    const dashboardData = await getAdminDashboardData();
+    const todayActivity = dashboardData.todayActivity;
+    
+    const openedToday = todayActivity.length;
+    const closedToday = todayActivity.filter(s => s.status === 'closed').length;
+    const activeSessions = dashboardData.activeSessions.length;
+    
+    // Calculate averages for closed sessions
+    const closedSessions = todayActivity.filter(s => s.status === 'closed' && s.duration_minutes);
+    const avgDuration = closedSessions.length > 0 
+      ? Math.round(closedSessions.reduce((sum, s) => sum + s.duration_minutes, 0) / closedSessions.length)
+      : 0;
+    const avgCost = closedSessions.length > 0
+      ? parseFloat((closedSessions.reduce((sum, s) => sum + (s.estimated_cost || 0), 0) / closedSessions.length).toFixed(4))
+      : 0;
+
+    res.json({
+      tradesOpened: openedToday,
+      tradesClosed: closedToday,
+      activeSessions: activeSessions,
+      avgDuration: avgDuration,
+      avgCost: avgCost,
+      totalCostToday: parseFloat(todayActivity.reduce((sum, s) => sum + (s.estimated_cost || 0), 0).toFixed(4))
+    });
+  } catch (error) {
+    console.error('❌ Admin today activity error:', error);
+    res.status(500).json({ error: 'Failed to fetch today\'s activity' });
+  }
+});
+
+// Active users stats
+app.get('/api/admin/dashboard/active-users', async (req, res) => {
+  try {
+    console.log('👥 Admin: Fetching active users stats');
+    
+    const userStats = await getActiveUserStats();
+    const dashboardData = await getAdminDashboardData();
+    
+    res.json({
+      activeUsersToday: userStats.activeUsersToday,
+      mostActiveUser: userStats.mostActiveUser,
+      openSessions: dashboardData.activeSessions.length,
+      totalUsers: dashboardData.totalUsers
+    });
+  } catch (error) {
+    console.error('❌ Admin active users error:', error);
+    res.status(500).json({ error: 'Failed to fetch active users stats' });
+  }
+});
+
+// Cost tracker
+app.get('/api/admin/dashboard/cost-tracker', async (req, res) => {
+  try {
+    console.log('💰 Admin: Fetching cost tracker data');
+    
+    const dashboardData = await getAdminDashboardData();
+    const costBreakdown = getCostBreakdown(dashboardData.weeklyData);
+    
+    // Calculate daily and monthly projections
+    const dailyProjection = calculateDailyCostProjection(costBreakdown.averageDuration, costBreakdown.totalSessions / 7);
+    const monthlyProjection = calculateMonthlyCostProjection(dailyProjection);
+    
+    res.json({
+      dailyEstimatedTotal: parseFloat(dashboardData.todayActivity.reduce((sum, s) => sum + (s.estimated_cost || 0), 0).toFixed(4)),
+      monthlyProjectedCost: monthlyProjection,
+      avgCostPerTrade: costBreakdown.averageCostPerSession,
+      totalCostLast7Days: costBreakdown.totalCost,
+      costBreakdownPerUser: Object.values(costBreakdown.userBreakdown)
+    });
+  } catch (error) {
+    console.error('❌ Admin cost tracker error:', error);
+    res.status(500).json({ error: 'Failed to fetch cost tracker data' });
+  }
+});
+
+// Usage trends
+app.get('/api/admin/dashboard/usage-trends', async (req, res) => {
+  try {
+    console.log('📈 Admin: Fetching usage trends');
+    
+    const days = parseInt(req.query.days) || 7;
+    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    
+    const { data: trendsData, error } = await supabase
+      .from('trade_sessions')
+      .select('*')
+      .gte('start_time', startDate.toISOString())
+      .order('start_time', { ascending: true });
+    
+    if (error) throw error;
+
+    // Group by day
+    const dailyStats = {};
+    
+    (trendsData || []).forEach(session => {
+      const day = session.start_time.split('T')[0];
+      if (!dailyStats[day]) {
+        dailyStats[day] = {
+          date: day,
+          sessions: 0,
+          totalCost: 0,
+          avgDuration: 0,
+          totalDuration: 0
+        };
+      }
+      
+      dailyStats[day].sessions += 1;
+      dailyStats[day].totalCost += session.estimated_cost || 0;
+      dailyStats[day].totalDuration += session.duration_minutes || 0;
+    });
+
+    // Calculate averages
+    Object.values(dailyStats).forEach(day => {
+      day.avgDuration = day.sessions > 0 ? Math.round(day.totalDuration / day.sessions) : 0;
+      day.totalCost = parseFloat(day.totalCost.toFixed(4));
+    });
+
+    res.json(Object.values(dailyStats));
+  } catch (error) {
+    console.error('❌ Admin usage trends error:', error);
+    res.status(500).json({ error: 'Failed to fetch usage trends' });
+  }
 });
 
 // Error handling middleware
