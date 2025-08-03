@@ -195,16 +195,17 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 </>
               ) : (
-                {(profile?.role === 'admin' || profile?.plan_type === 'admin') && (
-                  <a
-                    href="/admin/dashboard"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className="w-full flex items-center space-x-3 p-3 text-purple-300 hover:text-purple-200 hover:bg-slate-800 rounded-xl transition-colors"
-                  >
-                    <BarChart3 className="h-5 w-5" />
-                    <span>Admin Dashboard</span>
-                  </a>
-                )}
+                <>
+                  {(profile?.role === 'admin' || profile?.plan_type === 'admin') && (
+                    <a
+                      href="/admin/dashboard"
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className="w-full flex items-center space-x-3 p-3 text-purple-300 hover:text-purple-200 hover:bg-slate-800 rounded-xl transition-colors"
+                    >
+                      <BarChart3 className="h-5 w-5" />
+                      <span>Admin Dashboard</span>
+                    </a>
+                  )}
                 <button 
                   onClick={() => {
                     onOpenAuth();
@@ -215,6 +216,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <LogIn className="h-5 w-5" />
                   <span>Sign In</span>
                 </button>
+                </>
               )}
               
               <button 
