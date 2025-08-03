@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BookOpen, Clock, TrendingUp, TrendingDown, AlertCircle, Pause, Target, ThumbsUp, RotateCcw, MessageCircle } from 'lucide-react';
-import { useJournalEntries } from '../hooks/useTradingData';
+import { useJournalEntries } from '../hooks/useAPI';
 import { useAuth } from '../contexts/AuthContext';
 
 interface TradeJournalProps {

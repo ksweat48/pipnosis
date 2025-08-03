@@ -3,7 +3,7 @@ import {
   BarChart3, TrendingUp, TrendingDown, Target, CheckCircle, Activity, 
   Calendar, ChevronDown, ChevronUp, RefreshCw
 } from 'lucide-react';
-import { useTradingKPIs } from '../hooks/useTradingData';
+import { useTradingKPIs } from '../hooks/useAPI';
 import { useAuth } from '../contexts/AuthContext';
 
 interface TradingKPIsProps {
