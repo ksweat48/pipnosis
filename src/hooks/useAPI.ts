@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { pipnosisAPI } from '../services/api';
+import { getUserKPIs, getActiveTrades, getTradeHistory, getJournalEntries } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export const useBackendConnection = () => {
   const [isConnected, setIsConnected] = useState(false);
@@ -114,21 +116,31 @@ export const useTradingKPIs = (userId?: string) => {
   const [kpis, setKpis] = useState<any>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const actualUserId = userId || user?.id;
 
   const fetchKPIs = useCallback(async () => {
-    if (!userId) return;
+    if (!actualUserId) {
+      setIsLoading(false);
+      return;
+    }
     
     try {
       setIsLoading(true);
       setError(null);
-      const data = await pipnosisAPI.getUserKPIs(userId);
-      setKpis(data);
+      const { data, error: kpisError } = await getUserKPIs(actualUserId);
+      
+      if (kpisError) {
+        setError(kpisError.message);
+      } else {
+        setKpis(data);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch KPIs');
     } finally {
       setIsLoading(false);
     }
-  }, [userId]);
+  }, [actualUserId]);
 
   useEffect(() => {
     fetchKPIs();
@@ -141,21 +153,34 @@ export const useActiveTrades = (userId?: string) => {
   const [trades, setTrades] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const actualUserId = userId || user?.id;
 
   const fetchTrades = useCallback(async () => {
-    if (!userId) return;
+    if (!actualUserId) {
+      setTrades([]);
+      setIsLoading(false);
+      return;
+    }
     
     try {
       setIsLoading(true);
       setError(null);
-      const data = await pipnosisAPI.getActiveTrades(userId);
-      setTrades(data);
+      const { data, error: tradesError } = await getActiveTrades(actualUserId);
+      
+      if (tradesError) {
+        setError(tradesError.message);
+        setTrades([]);
+      } else {
+        setTrades(data || []);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch active trades');
+      setTrades([]);
     } finally {
       setIsLoading(false);
     }
-  }, [userId]);
+  }, [actualUserId]);
 
   useEffect(() => {
     fetchTrades();
@@ -168,9 +193,11 @@ export const useTradeHistory = (userId?: string, limit: number = 50) => {
   const [trades, setTrades] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const actualUserId = userId || user?.id;
 
   const fetchTradeHistory = useCallback(async () => {
-    if (!userId) {
+    if (!actualUserId) {
       setTrades([]);
       setIsLoading(false);
       return;
@@ -179,15 +206,21 @@ export const useTradeHistory = (userId?: string, limit: number = 50) => {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await pipnosisAPI.getTradeHistory(userId, limit);
-      setTrades(data);
+      const { data, error: historyError } = await getTradeHistory(actualUserId, limit);
+      
+      if (historyError) {
+        setError(historyError.message);
+        setTrades([]);
+      } else {
+        setTrades(data || []);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch trade history');
       setTrades([]);
     } finally {
       setIsLoading(false);
     }
-  }, [userId, limit]);
+  }, [actualUserId, limit]);
 
   useEffect(() => {
     fetchTradeHistory();
@@ -200,9 +233,11 @@ export const useJournalEntries = (userId?: string, limit: number = 20) => {
   const [entries, setEntries] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const actualUserId = userId || user?.id;
 
   const fetchEntries = useCallback(async () => {
-    if (!userId) {
+    if (!actualUserId) {
       setEntries([]);
       setIsLoading(false);
       return;
@@ -211,15 +246,21 @@ export const useJournalEntries = (userId?: string, limit: number = 20) => {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await pipnosisAPI.getJournalEntries(userId, limit);
-      setEntries(data);
+      const { data, error: entriesError } = await getJournalEntries(actualUserId, limit);
+      
+      if (entriesError) {
+        setError(entriesError.message);
+        setEntries([]);
+      } else {
+        setEntries(data || []);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch journal entries');
       setEntries([]);
     } finally {
       setIsLoading(false);
     }
-  }, [userId, limit]);
+  }, [actualUserId, limit]);
 
   useEffect(() => {
     fetchEntries();
