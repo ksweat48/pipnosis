@@ -216,7 +216,7 @@ const Dashboard: React.FC = () => {
         <div className="space-y-8 mb-12">
           <div className="text-center space-y-6">
             <div className="space-y-4">
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white">
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold bg-gradient-to-r from-emerald-400 via-green-500 to-lime-400 bg-clip-text text-transparent">
                 Pipnosis AI Trading
               </h1>
               <p className="text-xl sm:text-2xl text-slate-300 max-w-3xl mx-auto leading-relaxed">
