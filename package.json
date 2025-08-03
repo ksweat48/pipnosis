@@ -12,6 +12,8 @@
     "dev:full": "concurrently \"npm run server\" \"npm run dev\""
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "@supabase/supabase-js": "^2.53.0",
     "@types/uuid": "^10.0.0",
     "axios": "^1.6.0",
     "lucide-react": "^0.344.0",

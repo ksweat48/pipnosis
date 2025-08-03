@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './contexts/AuthContext';
+import { AuthModal } from './components/Auth/AuthModal';
+import { UserProfile } from './components/UserProfile';
 import { Header } from './components/Header';
 import { PromptInput } from './components/PromptInput';
 import { StrategyOptions } from './components/StrategyOptions';
@@ -60,6 +63,7 @@ interface JournalEntry {
 }
 
 const Dashboard: React.FC = () => {
+  const { user, profile, loading } = useAuth();
   const [strategyOptions, setStrategyOptions] = useState<StrategyOption[]>([]);
   const [analysisMode, setAnalysisMode] = useState<'api' | 'screenshot'>('api');
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -67,13 +71,15 @@ const Dashboard: React.FC = () => {
   const [showRiskDashboard, setShowRiskDashboard] = useState(false); // Default closed
   const [showMT5Dashboard, setShowMT5Dashboard] = useState(true); // Default open
   const [showMT5Modal, setShowMT5Modal] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showUserProfile, setShowUserProfile] = useState(false);
   
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
 
   const { generateJournalEntry, explainDecision } = useOpenAI();
   const { processPrompt, executeStrategy, isProcessing, error: aiError } = usePipnosisAI();
   
-  const accountBalance = 10000;
+  const accountBalance = profile?.account_balance || 10000;
   const { marketData, isLoading: marketLoading, error: marketError, lastUpdated, refetch } = useMarketData();
   
   // Combined execution state
@@ -95,6 +101,12 @@ const Dashboard: React.FC = () => {
 
   const handlePromptSubmit = async (prompt: string) => {
     try {
+      // Save prompt to database if user is logged in
+      if (user && profile) {
+        // This will be implemented when we add the trading helper functions
+        console.log('Saving prompt to database:', prompt);
+      }
+      
       const analysis = await processPrompt(prompt);
       
       if (analysis && analysis.strategies.length > 0) {
@@ -169,6 +181,11 @@ const Dashboard: React.FC = () => {
 
   const handleStrategySelect = async (option: StrategyOption) => {
     try {
+      // Save trade to database if user is logged in
+      if (user && profile) {
+        console.log('Saving trade to database:', option);
+      }
+      
       console.log('🚀 Executing strategy:', option);
       
       // Extract symbol and action from tradeType if not provided directly
@@ -283,7 +300,13 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-900">
-      <Header onOpenMT5Modal={() => setShowMT5Modal(true)} />
+      <Header 
+        onOpenMT5Modal={() => setShowMT5Modal(true)}
+        onOpenAuth={() => setShowAuthModal(true)}
+        onOpenProfile={() => setShowUserProfile(true)}
+        user={user}
+        profile={profile}
+      />
       
       <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8 space-y-4 sm:space-y-8">
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-8">
@@ -358,11 +381,41 @@ const Dashboard: React.FC = () => {
         isOpen={showMT5Modal}
         onClose={() => setShowMT5Modal(false)}
       />
+
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+      />
+
+      <UserProfile
+        isOpen={showUserProfile}
+        onClose={() => setShowUserProfile(false)}
+      />
     </div>
   );
 };
 
 export default function App() {
+  const { loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 rounded-lg overflow-hidden mx-auto mb-4">
+            <img 
+              src="/Pipnosis icon.png" 
+              alt="Pipnosis Logo" 
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-slate-400">Loading Pipnosis...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Routes>
       <Route path="/" element={<Dashboard />} />
