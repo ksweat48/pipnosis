@@ -379,7 +379,6 @@ const Dashboard: React.FC = () => {
             />
             
             <TradingDashboard
-              trades={[]} // Will be populated from Supabase
               todayPnL={0}
               weeklyPnL={0}
               totalBalance={accountBalance}
@@ -390,7 +389,6 @@ const Dashboard: React.FC = () => {
           
           <div className="space-y-4 sm:space-y-6">
             <TradeJournal
-              entries={journalEntries}
               onReaction={handleJournalReaction}
             />
             

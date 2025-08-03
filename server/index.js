@@ -540,6 +540,123 @@ function getMockTradeResult(tradeRequest) {
   };
 }
 
+// User KPIs endpoint
+app.get('/api/user/kpis', async (req, res) => {
+  try {
+    // Extract user ID from auth header (simplified for demo)
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization required' });
+    }
+
+    // For demo purposes, extract user ID from a simple token
+    // In production, you'd validate the JWT token properly
+    const userId = req.headers['x-user-id'] || 'demo-user';
+
+    console.log(`📊 KPIs requested for user: ${userId}`);
+
+    if (getUserKPIs) {
+      const { data: kpis, error } = await getUserKPIs(userId);
+      
+      if (error) {
+        console.error('Error fetching KPIs:', error);
+        return res.status(500).json({ error: 'Failed to fetch KPIs' });
+      }
+
+      res.json(kpis);
+    } else {
+      // Fallback mock KPIs
+      res.json({
+        totalTrades: 0,
+        winningTrades: 0,
+        losingTrades: 0,
+        winRate: 0,
+        totalPnL: 0,
+        averageRRR: 0,
+        maxDrawdown: 0,
+        openTrades: 0
+      });
+    }
+  } catch (error) {
+    console.error('KPIs endpoint error:', error);
+    res.status(500).json({ error: 'Failed to fetch KPIs' });
+  }
+});
+
+// User active trades endpoint
+app.get('/api/user/active-trades', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] || 'demo-user';
+    console.log(`📈 Active trades requested for user: ${userId}`);
+
+    if (getActiveTrades) {
+      const { data: trades, error } = await getActiveTrades(userId);
+      
+      if (error) {
+        console.error('Error fetching active trades:', error);
+        return res.status(500).json({ error: 'Failed to fetch active trades' });
+      }
+
+      res.json(trades);
+    } else {
+      res.json([]);
+    }
+  } catch (error) {
+    console.error('Active trades endpoint error:', error);
+    res.status(500).json({ error: 'Failed to fetch active trades' });
+  }
+});
+
+// User trade history endpoint
+app.get('/api/user/trade-history', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] || 'demo-user';
+    const limit = parseInt(req.query.limit) || 50;
+    console.log(`📜 Trade history requested for user: ${userId}, limit: ${limit}`);
+
+    if (getTradeHistory) {
+      const { data: trades, error } = await getTradeHistory(userId, limit);
+      
+      if (error) {
+        console.error('Error fetching trade history:', error);
+        return res.status(500).json({ error: 'Failed to fetch trade history' });
+      }
+
+      res.json(trades);
+    } else {
+      res.json([]);
+    }
+  } catch (error) {
+    console.error('Trade history endpoint error:', error);
+    res.status(500).json({ error: 'Failed to fetch trade history' });
+  }
+});
+
+// User journal entries endpoint
+app.get('/api/user/journal-entries', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] || 'demo-user';
+    const limit = parseInt(req.query.limit) || 20;
+    console.log(`📔 Journal entries requested for user: ${userId}, limit: ${limit}`);
+
+    if (getJournalEntries) {
+      const { data: entries, error } = await getJournalEntries(userId, limit);
+      
+      if (error) {
+        console.error('Error fetching journal entries:', error);
+        return res.status(500).json({ error: 'Failed to fetch journal entries' });
+      }
+
+      res.json(entries);
+    } else {
+      res.json([]);
+    }
+  } catch (error) {
+    console.error('Journal entries endpoint error:', error);
+    res.status(500).json({ error: 'Failed to fetch journal entries' });
+  }
+});
+
 // MT5 connection status
 app.get('/api/mt5-status', (req, res) => {
   let status;

@@ -3,79 +3,17 @@ import {
   BarChart3, TrendingUp, TrendingDown, Target, CheckCircle, Activity, 
   Calendar, ChevronDown, ChevronUp, RefreshCw
 } from 'lucide-react';
+import { useTradingKPIs } from '../hooks/useTradingData';
+import { useAuth } from '../contexts/AuthContext';
 
 interface TradingKPIsProps {
   className?: string;
 }
 
 export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
+  const { user } = useAuth();
+  const { kpis, isLoading, error, refetch } = useTradingKPIs();
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [kpiData, setKpiData] = useState({
-    winRate: 73.5,
-    averageRRR: 2.1,
-    maxDrawdown: 8.2,
-    monthlyReturn: 12.8
-  });
-
-  // Get trade counts from localStorage
-  const [tradeCounts, setTradeCounts] = useState({
-    totalTrades: 0,
-    winningTrades: 0,
-    losingTrades: 0
-  });
-  
-  // Function to refresh all stats
-  const refreshStats = useCallback(async () => {
-    setIsRefreshing(true);
-    try {
-      // Simulate loading data
-      setTimeout(() => {
-        setKpiData({
-          winRate: 73.5,
-          averageRRR: 2.1,
-          maxDrawdown: 8.2,
-          monthlyReturn: 12.8
-        });
-        setIsRefreshing(false);
-      }, 500);
-    } catch (error) {
-      console.error('Error refreshing stats:', error);
-      setIsRefreshing(false);
-    } finally {
-      // Handled in the timeout
-    }
-  }, []);
-  
-  // Load trade counts from localStorage
-  useEffect(() => {
-    try {
-      const totalTradesStr = localStorage.getItem('pipnosis_trade_count');
-      const winningTradesStr = localStorage.getItem('pipnosis_winning_trades');
-      const losingTradesStr = localStorage.getItem('pipnosis_losing_trades');
-      
-      const totalTrades = totalTradesStr ? parseInt(totalTradesStr, 10) : 0;
-      const winningTrades = winningTradesStr ? parseInt(winningTradesStr, 10) : 0;
-      const losingTrades = losingTradesStr ? parseInt(losingTradesStr, 10) : 0;
-      
-      setTradeCounts({
-        totalTrades,
-        winningTrades,
-        losingTrades
-      });
-      
-      console.log('📊 Loaded trade counts:', { totalTrades, winningTrades, losingTrades });
-    } catch (error) {
-      console.error('Error loading trade counts:', error);
-    }
-  }, [isExpanded]);
-
-  // Refresh stats when component mounts or when expanded
-  useEffect(() => {
-    if (isExpanded) {
-      refreshStats(); 
-    }
-  }, [refreshStats, isExpanded]);
 
   const getPerformanceColor = (value: number, type: 'percentage' | 'ratio' | 'drawdown' | 'return') => {
     if (type === 'drawdown') {
@@ -135,45 +73,45 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
     {
       id: 'winRate',
       label: 'Win Rate (%)',
-      value: `${kpiData.winRate.toFixed(1)}%`,
+      value: `${(kpis?.winRate || 0).toFixed(1)}%`,
       description: 'Success rate of trades',
       icon: Target,
       type: 'percentage' as const,
-      rawValue: kpiData.winRate
+      rawValue: kpis?.winRate || 0
     },
     {
       id: 'averageRRR',
       label: 'Average RRR',
-      value: `${kpiData.averageRRR.toFixed(1)}:1`,
+      value: `${(kpis?.averageRRR || 0).toFixed(1)}:1`,
       description: 'Risk-to-reward ratio',
       icon: BarChart3,
       type: 'ratio' as const,
-      rawValue: kpiData.averageRRR
+      rawValue: kpis?.averageRRR || 0
     },
     {
       id: 'maxDrawdown',
       label: 'Drawdown (max)',
-      value: `${kpiData.maxDrawdown.toFixed(1)}%`,
+      value: `${(kpis?.maxDrawdown || 0).toFixed(1)}%`,
       description: 'Capital protection',
       icon: TrendingDown,
       type: 'drawdown' as const,
-      rawValue: kpiData.maxDrawdown
+      rawValue: kpis?.maxDrawdown || 0
     },
     {
-      id: 'monthlyReturn',
-      label: 'Monthly return (%)',
-      value: `${kpiData.monthlyReturn.toFixed(1)}%`,
-      description: 'Real-world profitability',
+      id: 'totalPnL',
+      label: 'Total P&L',
+      value: `${(kpis?.totalPnL || 0) >= 0 ? '+' : ''}$${(kpis?.totalPnL || 0).toFixed(2)}`,
+      description: 'All-time profit/loss',
       icon: TrendingUp,
       type: 'return' as const,
-      rawValue: kpiData.monthlyReturn
+      rawValue: kpis?.totalPnL || 0
     }
   ];
 
-  // Use localStorage values if available, otherwise calculate from stats
-  const profitableTrades = tradeCounts.winningTrades;
-  const losingTrades = tradeCounts.losingTrades;
-  const totalTrades = tradeCounts.totalTrades;
+  // Use Supabase data
+  const profitableTrades = kpis?.winningTrades || 0;
+  const losingTrades = kpis?.losingTrades || 0;
+  const totalTrades = kpis?.totalTrades || 0;
 
   return (
     <div className={`bg-slate-800 rounded-xl border border-slate-700 ${className}`}>
@@ -221,7 +159,7 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
         </div>
 
         {/* No Data State */}
-        {stats.totalTrades === 0 && !isExpanded && (
+        {totalTrades === 0 && !isExpanded && (
           <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
             <div className="flex items-start space-x-3">
               <BarChart3 className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
@@ -234,11 +172,13 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
                 </p>
                 {user && (
                   <p className="text-blue-200 text-sm mt-2">
-                    Your account balance: ${stats.accountValue.toLocaleString()}
-                    <p>• AI Trade Assistant will monitor your trades and provide real-time guidance</p>
-                    <p>• Maximum 2 trades per session following Immutable Law #9 (Do Not Overtrade)</p>
+                    Your demo balance: ${user.user_metadata?.account_balance?.toLocaleString() || '10,000'}
                   </p>
                 )}
+                <div className="mt-3 space-y-1 text-xs text-blue-200">
+                    <p>• AI Trade Assistant will monitor your trades and provide real-time guidance</p>
+                    <p>• Maximum 2 trades per session following Immutable Law #9 (Do Not Overtrade)</p>
+                </div>
               </div>
             </div>
           </div>
@@ -287,8 +227,6 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
                         {kpi.description}
                       </p>
                     </div>
-                    <p>• AI Trade Assistant provides guidance every 5 minutes on active positions</p>
-                    <p>• Session limits (max 2 trades/day) ensure disciplined trading per Immutable Law #9</p>
                   </div>
                 </div>
               ))}
@@ -300,21 +238,21 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
                 <BarChart3 className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
                 <div>
                   <h4 className="text-blue-300 font-medium mb-2">AI Performance Insights</h4>
-                  {stats.totalTrades > 0 ? (
+                  {totalTrades > 0 ? (
                     <div className="space-y-1 text-sm text-blue-200">
-                      <p>• Your {stats.winRate.toFixed(1)}% win rate is {stats.winRate >= 70 ? 'excellent' : stats.winRate >= 50 ? 'good' : 'needs improvement'} for AI trading</p>
+                      <p>• Your {(kpis?.winRate || 0).toFixed(1)}% win rate is {(kpis?.winRate || 0) >= 70 ? 'excellent' : (kpis?.winRate || 0) >= 50 ? 'good' : 'needs improvement'} for AI trading</p>
                       <p>• Risk-reward ratio of 2.1:1 shows strong profit potential per trade</p>
                       <p>• 80.0% recovery rate indicates excellent AI adaptation after losses</p>
                       <p>• Monthly return of 8.5% is outstanding for automated trading</p>
+                      <p>• AI Trade Assistant provides guidance every 5 minutes on active positions</p>
                     </div>
                   ) : (
                     <div className="space-y-1 text-sm text-blue-200">
                       <p>• Pipnosis AI targets a 70-80% win rate through careful trade selection</p>
                       <p>• Risk-reward ratios of 2:1 or higher are prioritized for long-term profitability</p>
                       <p>• The system adapts after losses to maintain consistent performance</p>
-                      <p>• Risk-reward ratio of {kpiData.averageRRR.toFixed(1)}:1 shows {kpiData.averageRRR >= 2 ? 'strong' : 'moderate'} profit potential per trade</p>
-                      <p>• Recovery rate indicates {stats.winRate >= 70 ? 'excellent' : 'good'} AI adaptation after losses</p>
-                      <p>• Monthly return of {kpiData.monthlyReturn.toFixed(1)}% is {kpiData.monthlyReturn >= 10 ? 'outstanding' : kpiData.monthlyReturn >= 5 ? 'solid' : 'conservative'} for automated trading</p>
+                      <p>• AI Trade Assistant monitors trades every 5 minutes following Immutable Law #10</p>
+                      <p>• Session limits (max 2 trades/day) ensure disciplined trading per Immutable Law #9</p>
                     </div>
                   )}
                 </div>
@@ -329,16 +267,29 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
               </div>
               <div className="flex items-center space-x-2">
                 <button 
-                  onClick={refreshStats}
-                  disabled={isRefreshing}
+                  onClick={refetch}
+                  disabled={isLoading}
                   className="flex items-center space-x-1 px-3 py-1 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
                 >
-                  <RefreshCw className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
                   <span>Refresh</span>
                 </button>
               </div>
             </div>
           </>
+        )}
+
+        {/* Error State */}
+        {error && (
+          <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <p className="text-red-400 text-sm">Error loading KPIs: {error}</p>
+            <button 
+              onClick={refetch}
+              className="mt-2 text-xs text-red-300 hover:text-red-200 underline"
+            >
+              Try again
+            </button>
+          </div>
         )}
       </div>
     </div>
