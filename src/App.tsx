@@ -14,6 +14,7 @@ import { TradingKPIs } from './components/TradingKPIs';
 import { TradingLaws } from './components/TradingLaws';
 import { WebContainerNotice } from './components/WebContainerNotice';
 import { LandingPage } from './components/LandingPage';
+import { AdminDashboard } from './pages/AdminDashboard';
 import { usePromptAnalysis, useTradeExecution, useMarketData } from './hooks/useAPI';
 
 interface StrategyOption {
@@ -67,6 +68,7 @@ const Dashboard: React.FC = () => {
     stopLoss?: number;
     takeProfit?: number;
   }>({});
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
 
@@ -153,6 +155,31 @@ const Dashboard: React.FC = () => {
     try {
       console.log('🚀 Executing strategy:', option);
       
+      // Start trade session for cost tracking
+      let sessionId = null;
+      if (user?.id) {
+        try {
+          const sessionResponse = await fetch('/api/trade-sessions/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: user.id,
+              symbol: option.symbol,
+              accountBalance: accountBalance
+            })
+          });
+          
+          if (sessionResponse.ok) {
+            const sessionData = await sessionResponse.json();
+            sessionId = sessionData.sessionId;
+            setCurrentSessionId(sessionId);
+            console.log('✅ Trade session started:', sessionId);
+          }
+        } catch (sessionError) {
+          console.warn('⚠️ Failed to start trade session:', sessionError);
+        }
+      }
+      
       const result = await executeTrade(option);
 
       const notification: Notification = {
@@ -165,6 +192,42 @@ const Dashboard: React.FC = () => {
       };
 
       setNotifications(prev => [notification, ...prev]);
+      
+      // Simulate trade duration and close session after 2 hours (for demo)
+      if (sessionId && result.success) {
+        setTimeout(async () => {
+          try {
+            const closeResponse = await fetch('/api/trade-sessions/close', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sessionId: sessionId,
+                reason: 'trade_completed'
+              })
+            });
+            
+            if (closeResponse.ok) {
+              const closeData = await closeResponse.json();
+              console.log('✅ Trade session closed:', closeData);
+              setCurrentSessionId(null);
+              
+              // Add cost notification
+              const costNotification: Notification = {
+                id: Date.now().toString(),
+                type: 'info',
+                title: 'Trade Session Completed',
+                message: `Session duration: ${closeData.duration}min, Estimated cost: $${closeData.estimatedCost}`,
+                timestamp: 'Just now',
+                read: false
+              };
+              
+              setNotifications(prev => [costNotification, ...prev]);
+            }
+          } catch (closeError) {
+            console.warn('⚠️ Failed to close trade session:', closeError);
+          }
+        }, 2 * 60 * 60 * 1000); // 2 hours in milliseconds
+      }
 
     } catch (error) {
       console.error('Trade execution failed:', error);
@@ -354,6 +417,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/waitlist" element={<LandingPage />} />
+        <Route path="/admin/dashboard" element={<AdminDashboard />} />
       </Routes>
     </div>
   );

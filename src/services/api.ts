@@ -178,6 +178,85 @@ class PipnosisAPI {
       return [];
     }
   }
+
+  // Trade Session Management
+  static async startTradeSession(userId: string, symbol: string, accountBalance?: number): Promise<any> {
+    try {
+      const response = await apiClient.post('/trade-sessions/start', {
+        userId,
+        symbol,
+        accountBalance
+      });
+      return response.data;
+    } catch (error) {
+      console.error('❌ Failed to start trade session:', error);
+      throw error;
+    }
+  }
+
+  static async closeTradeSession(sessionId: string, reason?: string): Promise<any> {
+    try {
+      const response = await apiClient.post('/trade-sessions/close', {
+        sessionId,
+        reason
+      });
+      return response.data;
+    } catch (error) {
+      console.error('❌ Failed to close trade session:', error);
+      throw error;
+    }
+  }
+
+  static async getUserTradeSessions(userId: string, limit: number = 50): Promise<any[]> {
+    try {
+      const response = await apiClient.get(`/trade-sessions/user/${userId}?limit=${limit}`);
+      return Array.isArray(response.data) ? response.data : [];
+    } catch (error) {
+      console.warn('⚠️ Failed to fetch user trade sessions:', error);
+      return [];
+    }
+  }
+
+  // Admin Dashboard APIs
+  static async getAdminTodayActivity(): Promise<any> {
+    try {
+      const response = await apiClient.get('/admin/dashboard/today-activity');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Failed to fetch today activity:', error);
+      throw error;
+    }
+  }
+
+  static async getAdminActiveUsers(): Promise<any> {
+    try {
+      const response = await apiClient.get('/admin/dashboard/active-users');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Failed to fetch active users:', error);
+      throw error;
+    }
+  }
+
+  static async getAdminCostTracker(): Promise<any> {
+    try {
+      const response = await apiClient.get('/admin/dashboard/cost-tracker');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Failed to fetch cost tracker:', error);
+      throw error;
+    }
+  }
+
+  static async getAdminUsageTrends(days: number = 7): Promise<any[]> {
+    try {
+      const response = await apiClient.get(`/admin/dashboard/usage-trends?days=${days}`);
+      return Array.isArray(response.data) ? response.data : [];
+    } catch (error) {
+      console.error('❌ Failed to fetch usage trends:', error);
+      return [];
+    }
+  }
 }
 
 export const pipnosisAPI = PipnosisAPI;

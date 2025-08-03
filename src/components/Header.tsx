@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Menu, X, ExternalLink, User, LogIn, DollarSign } from 'lucide-react';
+import { Settings, Menu, X, ExternalLink, User, LogIn, DollarSign, BarChart3 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { SettingsModal } from './SettingsModal';
 import { DisclaimerModal } from './DisclaimerModal';
@@ -107,6 +107,16 @@ export const Header: React.FC<HeaderProps> = ({
                           <User className="h-4 w-4" />
                           <span>Profile</span>
                         </button>
+                        {(profile?.role === 'admin' || profile?.plan_type === 'admin') && (
+                          <a
+                            href="/admin/dashboard"
+                            onClick={() => setIsUserMenuOpen(false)}
+                            className="w-full flex items-center space-x-3 px-4 py-3 text-purple-300 hover:text-purple-200 hover:bg-white/10 transition-all duration-200"
+                          >
+                            <BarChart3 className="h-4 w-4" />
+                            <span>Admin Dashboard</span>
+                          </a>
+                        )}
                         <button
                           onClick={handleDisclaimerClick}
                           className="w-full flex items-center space-x-3 px-4 py-3 text-white/70 hover:text-amber-400 hover:bg-white/10 transition-all duration-200"
@@ -185,6 +195,16 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 </>
               ) : (
+                {(profile?.role === 'admin' || profile?.plan_type === 'admin') && (
+                  <a
+                    href="/admin/dashboard"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="w-full flex items-center space-x-3 p-3 text-purple-300 hover:text-purple-200 hover:bg-slate-800 rounded-xl transition-colors"
+                  >
+                    <BarChart3 className="h-5 w-5" />
+                    <span>Admin Dashboard</span>
+                  </a>
+                )}
                 <button 
                   onClick={() => {
                     onOpenAuth();
