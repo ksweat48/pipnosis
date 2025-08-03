@@ -97,7 +97,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-700 flex-shrink-0">
           <div className="flex items-center space-x-3">
-            <Settings className="h-6 w-6 text-blue-400" />
+            <Settings className="h-6 w-6 text-emerald-400" />
             <h2 className="text-xl font-semibold text-white">Trading Options & Preferences</h2>
           </div>
           <button
@@ -121,14 +121,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <div 
                 className={`p-6 rounded-xl border-2 cursor-pointer transition-all ${
                   isApiMode 
-                    ? 'border-blue-500 bg-blue-500/10' 
+                    ? 'border-emerald-500 bg-emerald-500/10' 
                     : 'border-slate-600 bg-slate-900 hover:border-slate-500'
                 }`}
                 onClick={() => handleSettingChange('dataMode', 'api')}
               >
                 <div className="flex items-center space-x-3 mb-3">
                   <div className={`w-4 h-4 rounded-full border-2 ${
-                    isApiMode ? 'border-blue-500 bg-blue-500' : 'border-slate-400'
+                    isApiMode ? 'border-emerald-500 bg-emerald-500' : 'border-slate-400'
                   }`}>
                     {isApiMode && <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>}
                   </div>
@@ -146,14 +146,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <div 
                 className={`p-6 rounded-xl border-2 cursor-pointer transition-all ${
                   isSnapshotMode 
-                    ? 'border-blue-500 bg-blue-500/10' 
+                    ? 'border-emerald-500 bg-emerald-500/10' 
                     : 'border-slate-600 bg-slate-900 hover:border-slate-500'
                 }`}
                 onClick={() => handleSettingChange('dataMode', 'snapshot')}
               >
                 <div className="flex items-center space-x-3 mb-3">
                   <div className={`w-4 h-4 rounded-full border-2 ${
-                    isSnapshotMode ? 'border-blue-500 bg-blue-500' : 'border-slate-400'
+                    isSnapshotMode ? 'border-emerald-500 bg-emerald-500' : 'border-slate-400'
                   }`}>
                     {isSnapshotMode && <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>}
                   </div>
@@ -173,7 +173,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           {isApiMode && (
             <div className="space-y-6">
               <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
-                <TrendingUp className="h-5 w-5 text-blue-400" />
+                <TrendingUp className="h-5 w-5 text-emerald-400" />
                 <span>Trading Pairs Selection</span>
               </h3>
               
@@ -186,10 +186,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       value="ai-choose"
                       checked={settings.pairSelectionMode === 'ai-choose'}
                       onChange={(e) => handleSettingChange('pairSelectionMode', e.target.value)}
-                      className="text-blue-500 focus:ring-blue-500"
+                      className="text-emerald-500 focus:ring-emerald-500"
                     />
                     <span className="text-white">Let AI choose the best pairs to execute your prompt</span>
-                    <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">Recommended</span>
+                    <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded">Recommended</span>
                   </label>
                 </div>
                 
@@ -201,7 +201,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       value="manual"
                       checked={settings.pairSelectionMode === 'manual'}
                       onChange={(e) => handleSettingChange('pairSelectionMode', e.target.value)}
-                      className="text-blue-500 focus:ring-blue-500"
+                      className="text-emerald-500 focus:ring-emerald-500"
                     />
                     <span className="text-white">I want to choose my 3 trading pairs</span>
                   </label>
@@ -221,7 +221,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         onChange={(e) => handleSettingChange('expandedScan', e.target.checked)}
                         className="sr-only peer"
                       />
-                      <div className="w-11 h-6 bg-slate-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                      <div className="w-11 h-6 bg-slate-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
                     </label>
                   </div>
                   
@@ -243,12 +243,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                           {settings.selectedPairs.map(pair => (
                             <span 
                               key={pair}
-                              className="bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full text-sm flex items-center space-x-2"
+                              className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-sm flex items-center space-x-2"
                             >
                               <span>{pair}</span>
                               <button
                                 onClick={() => handlePairToggle(pair)}
-                                className="text-blue-300 hover:text-white"
+                                className="text-emerald-300 hover:text-white"
                               >
                                 <X className="h-3 w-3" />
                               </button>
@@ -273,7 +273,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                               disabled={!canSelect}
                               className={`px-3 py-2 text-sm rounded-lg border transition-all ${
                                 isSelected
-                                  ? 'border-blue-500 bg-blue-500/20 text-blue-400'
+                                  ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
                                   : canSelect
                                   ? 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500 hover:bg-slate-700'
                                   : 'border-slate-700 bg-slate-800/50 text-slate-500 cursor-not-allowed'
@@ -302,7 +302,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                               disabled={!canSelect}
                               className={`px-3 py-2 text-sm rounded-lg border transition-all ${
                                 isSelected
-                                  ? 'border-blue-500 bg-blue-500/20 text-blue-400'
+                                  ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
                                   : canSelect
                                   ? 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500 hover:bg-slate-700'
                                   : 'border-slate-700 bg-slate-800/50 text-slate-500 cursor-not-allowed'
@@ -328,8 +328,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 )}
 
                 {settings.pairSelectionMode === 'ai-choose' && (
-                  <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                    <p className="text-sm text-blue-300 flex items-center space-x-2">
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                    <p className="text-sm text-emerald-300 flex items-center space-x-2">
                       <CheckCircle className="h-4 w-4" />
                       <span>
                         AI will analyze Tier 1 pairs by default{settings.expandedScan ? ' + Tier 2 pairs' : ''} and select the most profitable opportunities based on your trading goal and risk profile.
@@ -349,7 +349,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <select
                 value={settings.tradingGoal}
                 onChange={(e) => handleSettingChange('tradingGoal', e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
                 <option value="grow-account">Grow Account (long-term compounding)</option>
                 <option value="weekly-income">Weekly Income (e.g., "Make $500/week")</option>
@@ -366,7 +366,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <select
                 value={settings.riskProfile}
                 onChange={(e) => handleSettingChange('riskProfile', e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
                 <option value="auto-detect">Auto-Detect (AI decides based on balance and goal)</option>
                 <option value="low-risk">Low Risk (1–2% exposure)</option>
@@ -377,15 +377,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </div>
 
           {/* Enhanced Recommendation */}
-          <div className="p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-lg">
+          <div className="p-4 bg-gradient-to-r from-emerald-500/10 to-green-500/10 border border-emerald-500/30 rounded-lg">
             <div className="flex items-start space-x-3">
-              <Info className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
+              <Info className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
               <div>
                 <h4 className="text-white font-semibold mb-2">Enhanced Pipnosis Features</h4>
                 <p className="text-sm text-slate-300 mb-2">
                   Pipnosis now supports tiered pair analysis and always generates Low, Medium, and High risk strategies unless you specify otherwise.
                 </p>
-                <ul className="text-sm text-blue-300 space-y-1">
+                <ul className="text-sm text-emerald-300 space-y-1">
                   <li>👉 <strong>Tier 1:</strong> 7 most liquid pairs (always analyzed)</li>
                   <li>👉 <strong>Tier 2:</strong> 7 volatile/exotic pairs (optional)</li>
                   <li>👉 <strong>Multi-Risk:</strong> Get all risk levels in one analysis</li>
@@ -409,7 +409,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 console.log('Settings saved:', settings);
                 onClose();
               }}
-              className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium"
+              className="px-6 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors font-medium"
             >
               Save Preferences
             </button>
