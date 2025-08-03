@@ -109,3 +109,57 @@ export const useTradeExecution = () => {
 
   return { executeTrade, isExecuting, error };
 };
+
+export const useTradingKPIs = (userId?: string) => {
+  const [kpis, setKpis] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchKPIs = useCallback(async () => {
+    if (!userId) return;
+    
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await pipnosisAPI.getUserKPIs(userId);
+      setKpis(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch KPIs');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    fetchKPIs();
+  }, [fetchKPIs]);
+
+  return { kpis, isLoading, error, refetch: fetchKPIs };
+};
+
+export const useActiveTrades = (userId?: string) => {
+  const [trades, setTrades] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTrades = useCallback(async () => {
+    if (!userId) return;
+    
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await pipnosisAPI.getActiveTrades(userId);
+      setTrades(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch active trades');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    fetchTrades();
+  }, [fetchTrades]);
+
+  return { trades, isLoading, error, refetch: fetchTrades };
+};

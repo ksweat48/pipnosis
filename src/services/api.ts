@@ -131,6 +131,43 @@ class PipnosisAPI {
       return false;
     }
   }
+
+  static async getUserKPIs(userId: string): Promise<any> {
+    try {
+      const response = await apiClient.get(`/users/${userId}/kpis`);
+      return response.data;
+    } catch (error) {
+      console.warn('⚠️ Failed to fetch user KPIs from backend:', error);
+      return {
+        totalTrades: 0,
+        winRate: 0,
+        totalPnL: 0,
+        avgWin: 0,
+        avgLoss: 0,
+        profitFactor: 0
+      };
+    }
+  }
+
+  static async getActiveTrades(userId: string): Promise<any[]> {
+    try {
+      const response = await apiClient.get(`/users/${userId}/trades/active`);
+      return response.data;
+    } catch (error) {
+      console.warn('⚠️ Failed to fetch active trades from backend:', error);
+      return [];
+    }
+  }
+
+  static async getTradeHistory(userId: string): Promise<any[]> {
+    try {
+      const response = await apiClient.get(`/users/${userId}/trades/history`);
+      return response.data;
+    } catch (error) {
+      console.warn('⚠️ Failed to fetch trade history from backend:', error);
+      return [];
+    }
+  }
 }
 
 export const pipnosisAPI = PipnosisAPI;
