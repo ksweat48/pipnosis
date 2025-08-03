@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Settings, LogOut, DollarSign, Shield, TrendingUp, Edit3, Save, X } from 'lucide-react';
+import { User, Settings, LogOut, DollarSign, Shield, TrendingUp, Edit3, Save, X, Loader } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface UserProfileProps {
