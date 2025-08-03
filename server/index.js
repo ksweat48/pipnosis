@@ -51,6 +51,7 @@ if (!envLoaded) {
 // Verify critical environment variables
 console.log('\n🔑 Environment Variable Status:');
 console.log('- OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? `${process.env.OPENAI_API_KEY.substring(0, 10)}...` : '❌ MISSING');
+console.log('- METAAPI_TOKEN:', process.env.METAAPI_TOKEN ? `${process.env.METAAPI_TOKEN.substring(0, 10)}...` : '❌ MISSING');
 console.log('- PORT:', process.env.PORT || '3001 (default)');
 console.log('- NODE_ENV:', process.env.NODE_ENV || 'development (default)');
 
@@ -184,9 +185,11 @@ async function initializeServices() {
   try {
     // Initialize MT5 service
     if (mt5Service && mt5Service.initializeBridge) {
-      const mt5Initialized = await mt5Service.initializeBridge();
+      const metaApiToken = process.env.METAAPI_TOKEN;
+      const mt5Initialized = await mt5Service.initializeBridge(metaApiToken);
       if (mt5Initialized) {
-        console.log('✅ MT5 Service initialized');
+        const status = mt5Service.getConnectionStatus();
+        console.log(`✅ MT5 Service initialized via ${status.connectionType}`);
       } else {
         console.warn('⚠️ MT5 Service failed to initialize - using mock data');
       }
