@@ -16,18 +16,18 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
 }) => {
   const { user } = useAuth();
   const { trades: activeTrades, isLoading: tradesLoading } = useActiveTrades();
-  const { trades: tradeHistory } = useTradeHistory(10);
+  const { trades: tradeHistory } = useTradeHistory(user?.id, 10);
 
   // Calculate today's P&L from trade history
   const today = new Date().toDateString();
-  const todayTrades = tradeHistory.filter(trade => 
+  const todayTrades = (tradeHistory || []).filter(trade => 
     trade.closed_at && new Date(trade.closed_at).toDateString() === today
   );
   const calculatedTodayPnL = todayTrades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
 
   // Calculate weekly P&L
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const weeklyTrades = tradeHistory.filter(trade => 
+  const weeklyTrades = (tradeHistory || []).filter(trade => 
     trade.closed_at && new Date(trade.closed_at) >= weekAgo
   );
   const calculatedWeeklyPnL = weeklyTrades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
@@ -84,7 +84,7 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
             <div className="mb-2 sm:mb-0">
               <p className="text-slate-400 text-xs sm:text-sm">Balance</p>
-              <p className="text-lg sm:text-2xl font-bold text-white">${(user ? stats.accountValue : 0).toLocaleString()}</p>
+              <p className="text-lg sm:text-2xl font-bold text-white">${(totalBalance || 0).toLocaleString()}</p>
             </div>
             <div className="p-2 sm:p-3 bg-purple-500/20 rounded-lg self-end sm:self-auto">
               <DollarSign className="h-4 w-4 sm:h-6 sm:w-6 text-purple-400" />
