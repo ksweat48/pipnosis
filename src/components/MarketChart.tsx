@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineStyle, ColorType } from 'lightweight-charts';
+import { createChart, ColorType } from 'lightweight-charts';
 import { TrendingUp, BarChart3, RefreshCw, Settings } from 'lucide-react';
 
 interface MarketChartProps {
@@ -29,12 +29,12 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   className = ""
 }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const entryLineRef = useRef<ISeriesApi<'Line'> | null>(null);
-  const slLineRef = useRef<ISeriesApi<'Line'> | null>(null);
-  const tpLineRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const chartRef = useRef<any>(null);
+  const candlestickSeriesRef = useRef<any>(null);
+  const volumeSeriesRef = useRef<any>(null);
+  const entryLineRef = useRef<any>(null);
+  const slLineRef = useRef<any>(null);
+  const tpLineRef = useRef<any>(null);
   
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,69 +47,92 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: 500,
-      layout: {
-        background: { type: ColorType.Solid, color: '#0f172a' },
-        textColor: '#94a3b8',
-      },
-      grid: {
-        vertLines: { color: '#1e293b' },
-        horzLines: { color: '#1e293b' },
-      },
-      crosshair: {
-        mode: 1,
-      },
-      rightPriceScale: {
-        borderColor: '#334155',
-        scaleMargins: {
-          top: 0.1,
-          bottom: 0.2,
+    try {
+      const chart = createChart(chartContainerRef.current, {
+        width: chartContainerRef.current.clientWidth,
+        height: 500,
+        layout: {
+          background: { type: ColorType.Solid, color: '#0f172a' },
+          textColor: '#94a3b8',
         },
-      },
-      timeScale: {
-        borderColor: '#334155',
-        timeVisible: true,
-        secondsVisible: false,
-        rightOffset: 12,
-      },
-    });
+        grid: {
+          vertLines: { color: '#1e293b' },
+          horzLines: { color: '#1e293b' },
+        },
+        crosshair: {
+          mode: 1,
+        },
+        rightPriceScale: {
+          borderColor: '#334155',
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.2,
+          },
+        },
+        timeScale: {
+          borderColor: '#334155',
+          timeVisible: true,
+          secondsVisible: false,
+          rightOffset: 12,
+        },
+      });
 
-    // Create candlestick series
-    const candlestickSeries = chart.addCandlestickSeries({
-      upColor: '#10b981',
-      downColor: '#ef4444',
-      borderDownColor: '#ef4444',
-      borderUpColor: '#10b981',
-      wickDownColor: '#ef4444',
-      wickUpColor: '#10b981',
-      priceLineVisible: false,
-    });
+      // Create candlestick series with error handling
+      let candlestickSeries = null;
+      let volumeSeries = null;
+      
+      try {
+        candlestickSeries = chart.addCandlestickSeries({
+          upColor: '#10b981',
+          downColor: '#ef4444',
+          borderDownColor: '#ef4444',
+          borderUpColor: '#10b981',
+          wickDownColor: '#ef4444',
+          wickUpColor: '#10b981',
+          priceLineVisible: false,
+        });
+      } catch (candlestickError) {
+        console.error('Error creating candlestick series:', candlestickError);
+        setError('Chart initialization failed');
+        return;
+      }
 
-    // Create volume series
-    const volumeSeries = chart.addHistogramSeries({
-      color: '#64748b',
-      priceFormat: {
-        type: 'volume',
-      },
-      priceScaleId: '',
-      scaleMargins: {
-        top: 0.8,
-        bottom: 0,
-      },
-    });
+      try {
+        volumeSeries = chart.addHistogramSeries({
+          color: '#64748b',
+          priceFormat: {
+            type: 'volume',
+          },
+          priceScaleId: '',
+          scaleMargins: {
+            top: 0.8,
+            bottom: 0,
+          },
+        });
+      } catch (volumeError) {
+        console.warn('Volume series creation failed:', volumeError);
+        // Continue without volume series
+      }
 
-    chartRef.current = chart;
-    candlestickSeriesRef.current = candlestickSeries;
-    volumeSeriesRef.current = volumeSeries;
+      chartRef.current = chart;
+      candlestickSeriesRef.current = candlestickSeries;
+      volumeSeriesRef.current = volumeSeries;
+    } catch (chartError) {
+      console.error('Chart creation failed:', chartError);
+      setError('Failed to initialize chart');
+      return;
+    }
 
     // Handle resize
     const handleResize = () => {
-      if (chartContainerRef.current && chart) {
-        chart.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-        });
+      if (chartContainerRef.current && chartRef.current) {
+        try {
+          chartRef.current.applyOptions({
+            width: chartContainerRef.current.clientWidth,
+          });
+        } catch (resizeError) {
+          console.warn('Chart resize failed:', resizeError);
+        }
       }
     };
 
@@ -117,8 +140,12 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      if (chart) {
-        chart.remove();
+      if (chartRef.current) {
+        try {
+          chartRef.current.remove();
+        } catch (removeError) {
+          console.warn('Chart removal failed:', removeError);
+        }
       }
     };
   }, []);
@@ -164,7 +191,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
   // Load chart data
   useEffect(() => {
-    if (!candlestickSeriesRef.current || !volumeSeriesRef.current) return;
+    if (!candlestickSeriesRef.current) return;
 
     setIsLoading(true);
     setError(null);
@@ -173,17 +200,30 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       // Generate mock data for the selected symbol
       const chartData = generateMockData(symbol);
       
-      // Set candlestick data
-      candlestickSeriesRef.current.setData(chartData);
+      // Set candlestick data with error handling
+      try {
+        candlestickSeriesRef.current.setData(chartData);
+      } catch (dataError) {
+        console.error('Error setting candlestick data:', dataError);
+        setError('Failed to load chart data');
+        return;
+      }
       
-      // Set volume data
-      const volumeData = chartData.map(candle => ({
-        time: candle.time,
-        value: candle.volume || 0,
-        color: candle.close >= candle.open ? '#10b981' : '#ef4444'
-      }));
-      
-      volumeSeriesRef.current.setData(volumeData);
+      // Set volume data if volume series exists
+      if (volumeSeriesRef.current) {
+        try {
+          const volumeData = chartData.map(candle => ({
+            time: candle.time,
+            value: candle.volume || 0,
+            color: candle.close >= candle.open ? '#10b981' : '#ef4444'
+          }));
+          
+          volumeSeriesRef.current.setData(volumeData);
+        } catch (volumeError) {
+          console.warn('Error setting volume data:', volumeError);
+          // Continue without volume data
+        }
+      }
       
       setLastUpdate(new Date());
       setIsLoading(false);
@@ -200,75 +240,103 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   useEffect(() => {
     if (!chartRef.current || !tradeLines) return;
 
-    // Remove existing trade lines
-    if (entryLineRef.current) {
-      chartRef.current.removeSeries(entryLineRef.current);
-      entryLineRef.current = null;
-    }
-    if (slLineRef.current) {
-      chartRef.current.removeSeries(slLineRef.current);
-      slLineRef.current = null;
-    }
-    if (tpLineRef.current) {
-      chartRef.current.removeSeries(tpLineRef.current);
-      tpLineRef.current = null;
-    }
+    try {
+      // Remove existing trade lines
+      if (entryLineRef.current) {
+        try {
+          chartRef.current.removeSeries(entryLineRef.current);
+        } catch (removeError) {
+          console.warn('Error removing entry line:', removeError);
+        }
+        entryLineRef.current = null;
+      }
+      if (slLineRef.current) {
+        try {
+          chartRef.current.removeSeries(slLineRef.current);
+        } catch (removeError) {
+          console.warn('Error removing SL line:', removeError);
+        }
+        slLineRef.current = null;
+      }
+      if (tpLineRef.current) {
+        try {
+          chartRef.current.removeSeries(tpLineRef.current);
+        } catch (removeError) {
+          console.warn('Error removing TP line:', removeError);
+        }
+        tpLineRef.current = null;
+      }
 
-    // Add entry line
-    if (tradeLines.entry) {
-      const entryLine = chartRef.current.addLineSeries({
-        color: '#3b82f6',
-        lineWidth: 2,
-        lineStyle: LineStyle.Solid,
-        title: 'Entry',
-        priceLineVisible: false,
-      });
-      
-      const now = new Date();
-      entryLine.setData([
-        { time: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.entry },
-        { time: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.entry }
-      ]);
-      
-      entryLineRef.current = entryLine;
-    }
+      // Add entry line
+      if (tradeLines.entry) {
+        try {
+          const entryLine = chartRef.current.addLineSeries({
+            color: '#3b82f6',
+            lineWidth: 2,
+            lineStyle: 0, // Solid line
+            title: 'Entry',
+            priceLineVisible: false,
+          });
+          
+          const now = new Date();
+          entryLine.setData([
+            { time: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.entry },
+            { time: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.entry }
+          ]);
+          
+          entryLineRef.current = entryLine;
+        } catch (entryError) {
+          console.warn('Error adding entry line:', entryError);
+        }
+      }
 
-    // Add stop loss line
-    if (tradeLines.stopLoss) {
-      const slLine = chartRef.current.addLineSeries({
-        color: '#ef4444',
-        lineWidth: 2,
-        lineStyle: LineStyle.Dashed,
-        title: 'Stop Loss',
-        priceLineVisible: false,
-      });
-      
-      const now = new Date();
-      slLine.setData([
-        { time: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.stopLoss },
-        { time: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.stopLoss }
-      ]);
-      
-      slLineRef.current = slLine;
-    }
+      // Add stop loss line
+      if (tradeLines.stopLoss) {
+        try {
+          const slLine = chartRef.current.addLineSeries({
+            color: '#ef4444',
+            lineWidth: 2,
+            lineStyle: 1, // Dashed line
+            title: 'Stop Loss',
+            priceLineVisible: false,
+          });
+          
+          const now = new Date();
+          slLine.setData([
+            { time: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.stopLoss },
+            { time: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.stopLoss }
+          ]);
+          
+          slLineRef.current = slLine;
+        } catch (slError) {
+          console.warn('Error adding stop loss line:', slError);
+        }
+      }
 
-    // Add take profit line
-    if (tradeLines.takeProfit) {
-      const tpLine = chartRef.current.addLineSeries({
-        color: '#10b981',
-        lineWidth: 2,
-        lineStyle: LineStyle.Dashed,
-        title: 'Take Profit',
-        priceLineVisible: false,
-      });
-      
-      const now = new Date();
-      tpLine.setData([
-        { time: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.takeProfit },
-        { time: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.takeProfit }
-      ]);
-      
-      tpLineRef.current = tpLine;
+      // Add take profit line
+      if (tradeLines.takeProfit) {
+        try {
+          const tpLine = chartRef.current.addLineSeries({
+            color: '#10b981',
+            lineWidth: 2,
+            lineStyle: 1, // Dashed line
+            title: 'Take Profit',
+            priceLineVisible: false,
+          });
+          
+          const now = new Date();
+          tpLine.setData([
+            { time: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.takeProfit },
+            { time: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: tradeLines.takeProfit }
+          ]);
+          
+          tpLineRef.current = tpLine;
+        } catch (tpError) {
+          console.warn('Error adding take profit line:', tpError);
+        }
+      }
+    } catch (overlayError) {
+      console.error('Error updating trade lines overlay:', overlayError);
     }
   }, [tradeLines]);
 
@@ -276,17 +344,21 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   useEffect(() => {
     const interval = setInterval(() => {
       if (!isLoading && candlestickSeriesRef.current) {
-        // Add new candle to simulate real-time updates
-        const lastData = generateMockData(symbol).slice(-1)[0];
-        if (lastData) {
-          const now = new Date();
-          const newCandle = {
-            ...lastData,
-            time: now.toISOString().split('T')[0] + ' ' + now.toTimeString().split(' ')[0].substring(0, 5)
-          };
-          
-          candlestickSeriesRef.current.update(newCandle);
-          setLastUpdate(new Date());
+        try {
+          // Add new candle to simulate real-time updates
+          const lastData = generateMockData(symbol).slice(-1)[0];
+          if (lastData) {
+            const now = new Date();
+            const newCandle = {
+              ...lastData,
+              time: now.toISOString().split('T')[0] + ' ' + now.toTimeString().split(' ')[0].substring(0, 5)
+            };
+            
+            candlestickSeriesRef.current.update(newCandle);
+            setLastUpdate(new Date());
+          }
+        } catch (updateError) {
+          console.warn('Error updating chart data:', updateError);
         }
       }
     }, 30000); // Update every 30 seconds
