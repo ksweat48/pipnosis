@@ -195,3 +195,35 @@ export const useTradeHistory = (userId?: string, limit: number = 50) => {
 
   return { trades, isLoading, error, refetch: fetchTradeHistory };
 };
+
+export const useJournalEntries = (userId?: string, limit: number = 20) => {
+  const [entries, setEntries] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchEntries = useCallback(async () => {
+    if (!userId) {
+      setEntries([]);
+      setIsLoading(false);
+      return;
+    }
+    
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await pipnosisAPI.getJournalEntries(userId, limit);
+      setEntries(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch journal entries');
+      setEntries([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId, limit]);
+
+  useEffect(() => {
+    fetchEntries();
+  }, [fetchEntries]);
+
+  return { entries, isLoading, error, refetch: fetchEntries };
+};

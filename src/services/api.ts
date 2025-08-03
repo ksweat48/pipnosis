@@ -168,6 +168,16 @@ class PipnosisAPI {
       return [];
     }
   }
+
+  static async getJournalEntries(userId: string, limit: number = 20): Promise<any[]> {
+    try {
+      const response = await apiClient.get(`/users/${userId}/journal?limit=${limit}`);
+      return response.data;
+    } catch (error) {
+      console.warn('⚠️ Failed to fetch journal entries from backend:', error);
+      return [];
+    }
+  }
 }
 
 export const pipnosisAPI = PipnosisAPI;
