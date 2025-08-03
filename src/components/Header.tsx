@@ -3,7 +3,6 @@ import { Settings, Menu, X, ExternalLink, User, LogIn, DollarSign } from 'lucide
 import { useAuth } from '../contexts/AuthContext';
 import { SettingsModal } from './SettingsModal';
 import { DisclaimerModal } from './DisclaimerModal';
-import { BackendStatus } from './BackendStatus';
 
 interface HeaderProps {
   onOpenAuth: () => void;
@@ -60,8 +59,6 @@ export const Header: React.FC<HeaderProps> = ({
           
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-4">
-            <BackendStatus />
-            
             <div className="text-right bg-slate-800/50 rounded-lg px-4 py-2 border border-slate-600">
               <p className="text-sm text-slate-400">
                 {user ? 'Demo Balance' : 'Account Balance'}
@@ -70,7 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <DollarSign className="h-4 w-4 mr-1" />
                 {getDisplayBalance()}
               </p>
-              {user && !mt5Connected && (
+              {user && (
                 <p className="text-xs text-blue-400">Demo Account</p>
               )}
             </div>
@@ -144,7 +141,6 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Mobile Menu Button */}
           <div className="md:hidden flex items-center space-x-2">
-            <BackendStatus />
             <div className="text-right mr-2 bg-slate-800/50 rounded-lg px-3 py-1">
               <p className="text-xs text-slate-400">
                 {user ? 'Demo' : 'Balance'}
