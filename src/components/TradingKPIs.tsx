@@ -118,9 +118,9 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
       <div className="p-4 sm:p-6 border-b border-slate-700">
         <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
-            <BarChart3 className="h-5 w-5 text-blue-400 flex-shrink-0" />
+            <BarChart3 className="h-5 w-5 text-emerald-400 flex-shrink-0" />
             <span>AI Performance</span>
-            {isLoading && <RefreshCw className="h-4 w-4 text-blue-400 animate-spin" />}
+            {isLoading && <RefreshCw className="h-4 w-4 text-emerald-400 animate-spin" />}
           </h3>
           <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:space-y-0 sm:space-x-4">
             <div className="text-sm text-slate-400">
@@ -128,7 +128,7 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
             </div>
             <button
               onClick={() => setIsExpanded(!isExpanded)}
-              className="flex items-center justify-center space-x-1 text-blue-400 hover:text-blue-300 transition-colors text-sm bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-lg"
+              className="flex items-center justify-center space-x-1 text-emerald-400 hover:text-emerald-300 transition-colors text-sm bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-lg"
             >
               <span>{isExpanded ? 'Show Less' : 'Show All'}</span>
               {isExpanded ? (
@@ -153,29 +153,29 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
             <div className="text-xs text-slate-400">Losing Trades</div>
           </div>
           <div className="text-center">
-            <div className="text-lg sm:text-2xl font-bold text-blue-400">{totalTrades}</div>
+            <div className="text-lg sm:text-2xl font-bold text-emerald-400">{totalTrades}</div>
             <div className="text-xs text-slate-400">Total Trades</div>
           </div>
         </div>
 
         {/* No Data State */}
         {totalTrades === 0 && !isExpanded && (
-          <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+          <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
             <div className="flex items-start space-x-3">
-              <BarChart3 className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
+              <BarChart3 className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
               <div>
-                <h4 className="text-blue-300 font-medium mb-2">No Trading Data Yet</h4>
-                <p className="text-blue-200 text-sm">
+                <h4 className="text-emerald-300 font-medium mb-2">No Trading Data Yet</h4>
+                <p className="text-emerald-200 text-sm">
                   {user ? 
                     "You haven't executed any trades yet. Use the AI Prompt Console to generate and execute your first trading strategy." :
                     "Sign in to track your trading performance and see AI-powered analytics."}
                 </p>
                 {user && (
-                  <p className="text-blue-200 text-sm mt-2">
+                  <p className="text-emerald-200 text-sm mt-2">
                     Your demo balance: ${user.user_metadata?.account_balance?.toLocaleString() || '10,000'}
                   </p>
                 )}
-                <div className="mt-3 space-y-1 text-xs text-blue-200">
+                <div className="mt-3 space-y-1 text-xs text-emerald-200">
                     <p>• AI Trade Assistant will monitor your trades and provide real-time guidance</p>
                     <p>• Maximum 2 trades per session following Immutable Law #9 (Do Not Overtrade)</p>
                 </div>
@@ -233,13 +233,13 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
             </div>
 
             {/* Performance Insights */}
-            <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+            <div className="mt-6 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
               <div className="flex items-start space-x-3">
-                <BarChart3 className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
+                <BarChart3 className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
                 <div>
-                  <h4 className="text-blue-300 font-medium mb-2">AI Performance Insights</h4>
+                  <h4 className="text-emerald-300 font-medium mb-2">AI Performance Insights</h4>
                   {totalTrades > 0 ? (
-                    <div className="space-y-1 text-sm text-blue-200">
+                    <div className="space-y-1 text-sm text-emerald-200">
                       <p>• Your {(kpis?.winRate || 0).toFixed(1)}% win rate is {(kpis?.winRate || 0) >= 70 ? 'excellent' : (kpis?.winRate || 0) >= 50 ? 'good' : 'needs improvement'} for AI trading</p>
                       <p>• Risk-reward ratio of 2.1:1 shows strong profit potential per trade</p>
                       <p>• 80.0% recovery rate indicates excellent AI adaptation after losses</p>
@@ -247,7 +247,7 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
                       <p>• AI Trade Assistant provides guidance every 5 minutes on active positions</p>
                     </div>
                   ) : (
-                    <div className="space-y-1 text-sm text-blue-200">
+                    <div className="space-y-1 text-sm text-emerald-200">
                       <p>• Pipnosis AI targets a 70-80% win rate through careful trade selection</p>
                       <p>• Risk-reward ratios of 2:1 or higher are prioritized for long-term profitability</p>
                       <p>• The system adapts after losses to maintain consistent performance</p>
@@ -269,7 +269,7 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
                 <button 
                   onClick={refetch}
                   disabled={isLoading}
-                  className="flex items-center space-x-1 px-3 py-1 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
+                  className="flex items-center space-x-1 px-3 py-1 text-xs bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-50"
                 >
                   <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
                   <span>Refresh</span>

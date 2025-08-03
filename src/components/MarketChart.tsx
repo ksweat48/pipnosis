@@ -46,21 +46,21 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       <div className="p-4 sm:p-6 border-b border-slate-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="p-2 bg-blue-500/20 rounded-lg">
-              <BarChart3 className="h-5 w-5 text-blue-400" />
+            <div className="p-2 bg-emerald-500/20 rounded-lg">
+              <BarChart3 className="h-5 w-5 text-emerald-400" />
             </div>
             <div>
               <h3 className="text-lg font-semibold text-white">Live Market Chart</h3>
               <p className="text-sm text-slate-400">Real-time price action</p>
             </div>
-            {isLoading && <RefreshCw className="h-4 w-4 text-blue-400 animate-spin" />}
+            {isLoading && <RefreshCw className="h-4 w-4 text-emerald-400 animate-spin" />}
           </div>
           
           <div className="flex items-center space-x-3">
             <select
               value={symbol}
               onChange={(e) => onSymbolChange(e.target.value)}
-              className="bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"
             >
               {availablePairs.map(pair => (
                 <option key={pair} value={pair}>{pair}</option>
@@ -78,7 +78,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       <div className="relative bg-slate-900 h-96 flex items-center justify-center">
         {isLoading ? (
           <div className="text-center">
-            <RefreshCw className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-2" />
+            <RefreshCw className="h-8 w-8 text-emerald-400 animate-spin mx-auto mb-2" />
             <p className="text-slate-400 text-sm">Loading {symbol} chart...</p>
           </div>
         ) : (
@@ -87,8 +87,8 @@ export const MarketChart: React.FC<MarketChartProps> = ({
               {currentPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
             </div>
             <div className="text-slate-400 mb-4">{symbol} Current Price</div>
-            <div className="w-full max-w-md h-32 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-lg flex items-center justify-center">
-              <BarChart3 className="h-16 w-16 text-blue-400 opacity-50" />
+            <div className="w-full max-w-md h-32 bg-gradient-to-r from-emerald-500/20 to-green-500/20 rounded-lg flex items-center justify-center">
+              <BarChart3 className="h-16 w-16 text-emerald-400 opacity-50" />
             </div>
           </div>
         )}
@@ -101,8 +101,8 @@ export const MarketChart: React.FC<MarketChartProps> = ({
             <div className="flex flex-wrap items-center gap-4 text-xs">
               {tradeLines.entry && (
                 <div className="flex items-center space-x-1">
-                  <div className="w-4 h-0.5 bg-blue-500 rounded"></div>
-                  <span className="text-blue-300 font-medium">Entry: {tradeLines.entry.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+                  <div className="w-4 h-0.5 bg-emerald-500 rounded"></div>
+                  <span className="text-emerald-300 font-medium">Entry: {tradeLines.entry.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
                 </div>
               )}
               {tradeLines.stopLoss && (

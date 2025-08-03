@@ -204,7 +204,7 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-900">
       <Header 
         onOpenAuth={() => setShowAuthModal(true)}
         onOpenProfile={() => setShowUserProfile(true)}
@@ -216,7 +216,7 @@ const Dashboard: React.FC = () => {
         <div className="space-y-8 mb-12">
           <div className="text-center space-y-6">
             <div className="space-y-4">
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold bg-gradient-to-r from-blue-400 via-purple-500 to-emerald-400 bg-clip-text text-transparent">
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold bg-gradient-to-r from-emerald-400 via-green-500 to-lime-400 bg-clip-text text-transparent">
                 Pipnosis AI Trading
               </h1>
               <p className="text-xl sm:text-2xl text-slate-300 max-w-3xl mx-auto leading-relaxed">
@@ -243,8 +243,8 @@ const Dashboard: React.FC = () => {
           </div>
           
           {isAnalyzing && (
-            <div className="max-w-4xl mx-auto bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-2xl p-8 text-center backdrop-blur-sm">
-              <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <div className="max-w-4xl mx-auto bg-gradient-to-r from-emerald-500/10 to-green-500/10 border border-emerald-500/30 rounded-2xl p-8 text-center backdrop-blur-sm">
+              <div className="animate-spin h-8 w-8 border-4 border-emerald-500 border-t-transparent rounded-full mx-auto mb-4"></div>
               <h3 className="text-xl font-semibold text-white mb-2">Pipnosis AI Analyzing...</h3>
               <p className="text-slate-300">Evaluating market conditions and generating optimal trading strategies</p>
               <p className="text-sm text-slate-400 mt-2">This may take 10-30 seconds</p>
@@ -314,7 +314,7 @@ export default function App() {
               className="w-full h-full object-cover"
             />
           </div>
-          <div className="animate-spin h-10 w-10 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-6"></div>
+          <div className="animate-spin h-10 w-10 border-4 border-emerald-500 border-t-transparent rounded-full mx-auto mb-6"></div>
           <h2 className="text-2xl font-bold text-white mb-2">Loading Pipnosis</h2>
           <p className="text-slate-400">Initializing AI Trading Assistant...</p>
         </div>

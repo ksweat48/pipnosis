@@ -14,7 +14,7 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
 
   const getEntryIcon = (entryType: string) => {
     switch (entryType) {
-      case 'trade_entry': return <TrendingUp className="h-4 w-4 text-blue-400" />;
+      case 'trade_entry': return <TrendingUp className="h-4 w-4 text-emerald-400" />;
       case 'trade_exit': return <TrendingDown className="h-4 w-4 text-green-400" />;
       case 'market_update': return <MessageCircle className="h-4 w-4 text-slate-400" />;
       case 'ai_decision': return <Target className="h-4 w-4 text-purple-400" />;
@@ -25,7 +25,7 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
 
   const getEntryTag = (entryType: string) => {
     switch (entryType) {
-      case 'trade_entry': return { text: 'New Trade', color: 'bg-blue-500/20 text-blue-400' };
+      case 'trade_entry': return { text: 'New Trade', color: 'bg-emerald-500/20 text-emerald-400' };
       case 'trade_exit': return { text: 'Trade Closed', color: 'bg-green-500/20 text-green-400' };
       case 'market_update': return { text: 'Market Update', color: 'bg-slate-500/20 text-slate-400' };
       case 'ai_decision': return { text: 'AI Guidance', color: 'bg-purple-500/20 text-purple-400' };
@@ -67,9 +67,9 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
       <div className="p-4 sm:p-6 border-b border-slate-700">
         <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
-            <BookOpen className="h-5 w-5 text-blue-400" />
+            <BookOpen className="h-5 w-5 text-emerald-400" />
             <span>Pipnosis Trade Journal</span>
-            {isLoading && <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>}
+            {isLoading && <div className="animate-spin h-4 w-4 border-2 border-emerald-500 border-t-transparent rounded-full"></div>}
           </h3>
           <div className="text-sm text-slate-400">
             AI Decision Feed
@@ -80,7 +80,7 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
       <div className="max-h-80 sm:max-h-96 overflow-y-auto">
         {isLoading ? (
           <div className="p-4 sm:p-6 text-center text-slate-400">
-            <div className="animate-spin h-8 w-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-3"></div>
+            <div className="animate-spin h-8 w-8 border-2 border-emerald-500 border-t-transparent rounded-full mx-auto mb-3"></div>
             <p className="text-sm sm:text-base">Loading journal entries...</p>
           </div>
         ) : error ? (
@@ -169,8 +169,8 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
                           onClick={() => onReaction(entry.id, 'explain-more')}
                           className={`p-1 sm:p-1.5 rounded-lg transition-colors ${
                             entry.metadata?.userReaction === 'explain-more'
-                              ? 'bg-blue-500/20 text-blue-400'
-                              : 'text-slate-400 hover:text-blue-400 hover:bg-blue-500/10'
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : 'text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10'
                           }`}
                           title="Explain more"
                         >
@@ -181,7 +181,7 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
                       {entry.trade_id && (
                         <button
                           onClick={() => setExpandedEntry(isExpanded ? null : entry.id)}
-                          className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                          className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
                         >
                           {isExpanded ? 'Less' : 'More'}
                         </button>

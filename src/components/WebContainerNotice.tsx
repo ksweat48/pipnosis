@@ -14,9 +14,9 @@ export const WebContainerNotice: React.FC<WebContainerNoticeProps> = ({ onClose 
   if (!isWebContainer) return null;
 
   return (
-    <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-xl p-4 mb-6 backdrop-blur-sm">
+    <div className="bg-gradient-to-r from-emerald-500/10 to-green-500/10 border border-emerald-500/30 rounded-xl p-4 mb-6 backdrop-blur-sm">
       <div className="flex items-start space-x-3">
-        <AlertTriangle className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
+        <AlertTriangle className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
         <div className="flex-1">
           <h4 className="text-blue-300 font-bold mb-2">Preview Environment Notice</h4>
           <p className="text-blue-200 text-sm">
@@ -34,7 +34,7 @@ export const WebContainerNotice: React.FC<WebContainerNoticeProps> = ({ onClose 
         {onClose && (
           <button 
             onClick={onClose}
-            className="text-blue-400 hover:text-blue-300 p-1"
+            className="text-emerald-400 hover:text-emerald-300 p-1"
           >
             <ExternalLink className="h-4 w-4" />
           </button>

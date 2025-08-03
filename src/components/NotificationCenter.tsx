@@ -30,7 +30,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       case 'success': return <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-400" />;
       case 'warning': return <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-400" />;
       case 'error': return <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 text-red-400" />;
-      default: return <Info className="h-4 w-4 sm:h-5 sm:w-5 text-blue-400" />;
+      default: return <Info className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-400" />;
     }
   };
 
@@ -39,7 +39,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       case 'success': return 'border-l-green-400';
       case 'warning': return 'border-l-yellow-400';
       case 'error': return 'border-l-red-400';
-      default: return 'border-l-blue-400';
+      default: return 'border-l-emerald-400';
     }
   };
 
@@ -48,7 +48,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       case 'success': return 'bg-green-500/5';
       case 'warning': return 'bg-yellow-500/5';
       case 'error': return 'bg-red-500/5';
-      default: return 'bg-blue-500/5';
+      default: return 'bg-emerald-500/5';
     }
   };
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -58,8 +58,8 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       <div className="p-4 sm:p-6 border-b border-slate-700">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
-            <div className="p-2 bg-blue-500/20 rounded-lg">
-              <Bell className="h-5 w-5 text-blue-400" />
+            <div className="p-2 bg-emerald-500/20 rounded-lg">
+              <Bell className="h-5 w-5 text-emerald-400" />
             </div>
             <span>Notifications</span>
             {unreadCount > 0 && (
@@ -115,7 +115,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                       {!notification.read && (
                         <button
                           onClick={() => onMarkAsRead(notification.id)}
-                          className="text-blue-400 hover:text-blue-300 text-xs whitespace-nowrap"
+                          className="text-emerald-400 hover:text-emerald-300 text-xs whitespace-nowrap"
                         >
                           Mark read
                         </button>
@@ -127,7 +127,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                         <X className="h-3 w-3 sm:h-4 sm:w-4" />
                       </button>
                       {notification.type === 'info' && notification.title.includes('AI Guidance') && (
-                        <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs text-blue-300">
+                        <div className="mt-2 p-2 bg-emerald-500/10 border border-emerald-500/30 rounded text-xs text-emerald-300">
                           🤖 AI Trade Assistant recommendation based on 5-minute market reassessment
                         </div>
                       )}

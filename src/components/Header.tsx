@@ -52,7 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
               />
             </div>
             <div className="min-w-0">
-              <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent truncate">Pipnosis</h1>
+              <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-emerald-400 to-green-500 bg-clip-text text-transparent truncate">Pipnosis</h1>
               <p className="text-xs sm:text-sm text-slate-400 truncate">AI Trading Assistant</p>
             </div>
           </div>
@@ -85,7 +85,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="relative">
                   <button 
                     onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                    className="flex items-center space-x-2 px-4 py-3 bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-blue-400 border border-blue-500/30 rounded-xl hover:from-blue-500/30 hover:to-purple-500/30 transition-all"
+                    className="flex items-center space-x-2 px-4 py-3 bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl hover:from-emerald-500/30 hover:to-green-500/30 transition-all"
                     title="User Menu"
                   >
                     <User className="h-4 w-4" />
@@ -129,7 +129,7 @@ export const Header: React.FC<HeaderProps> = ({
               ) : (
                 <button 
                   onClick={onOpenAuth}
-                  className="flex items-center space-x-2 px-4 py-3 bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-400 border border-green-500/30 rounded-xl hover:from-green-500/30 hover:to-emerald-500/30 transition-all"
+                  className="flex items-center space-x-2 px-4 py-3 bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl hover:from-emerald-500/30 hover:to-green-500/30 transition-all"
                   title="Sign In"
                 >
                   <LogIn className="h-4 w-4" />
@@ -190,7 +190,7 @@ export const Header: React.FC<HeaderProps> = ({
                     onOpenAuth();
                     setIsMobileMenuOpen(false);
                   }}
-                  className="w-full flex items-center space-x-3 p-3 bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-400 hover:from-green-500/30 hover:to-emerald-500/30 rounded-xl transition-all"
+                  className="w-full flex items-center space-x-3 p-3 bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-400 hover:from-emerald-500/30 hover:to-green-500/30 rounded-xl transition-all"
                 >
                   <LogIn className="h-5 w-5" />
                   <span>Sign In</span>

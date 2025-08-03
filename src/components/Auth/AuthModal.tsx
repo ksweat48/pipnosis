@@ -180,7 +180,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white py-3 px-4 rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 text-white py-3 px-4 rounded-lg hover:from-emerald-600 hover:to-emerald-700 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isLoading ? (
                 <div className="flex items-center justify-center space-x-2">
@@ -199,7 +199,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               {mode === 'login' ? "Don't have an account?" : "Already have an account?"}
               <button
                 onClick={() => handleModeSwitch(mode === 'login' ? 'signup' : 'login')}
-                className="text-blue-400 hover:text-blue-300 ml-1 font-medium"
+                className="text-emerald-400 hover:text-emerald-300 ml-1 font-medium"
               >
                 {mode === 'login' ? 'Sign up' : 'Sign in'}
               </button>
@@ -208,12 +208,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           {/* Demo Account Notice */}
           {mode === 'signup' && (
-            <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+            <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
               <div className="flex items-start space-x-2">
-                <CheckCircle className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                <CheckCircle className="h-4 w-4 text-emerald-400 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="text-blue-300 text-sm font-medium">Demo Trading Account</p>
-                  <p className="text-blue-200 text-xs mt-1">
+                  <p className="text-emerald-300 text-sm font-medium">Demo Trading Account</p>
+                  <p className="text-emerald-200 text-xs mt-1">
                     You'll start with a $10,000 demo balance to practice AI trading strategies risk-free.
                   </p>
                 </div>

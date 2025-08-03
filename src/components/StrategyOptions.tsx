@@ -50,7 +50,7 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
     <div className="space-y-6">
       <div className="text-center">
         <h3 className="text-2xl sm:text-3xl font-bold text-white mb-2 flex items-center justify-center space-x-3">
-          <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg">
+          <div className="p-2 bg-gradient-to-r from-emerald-500 to-green-600 rounded-lg">
             <TrendingUp className="h-6 w-6 text-white" />
           </div>
           <span>AI Strategy Recommendations</span>
@@ -136,7 +136,7 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
                   className={`w-full py-3 px-4 rounded-xl font-bold text-base transition-all shadow-lg ${
                     isExecuting 
                       ? 'bg-slate-600 text-slate-400 cursor-not-allowed' 
-                      : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 hover:shadow-xl'
+                      : 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 hover:shadow-xl'
                   }`}
                   disabled={isExecuting}
                 >
@@ -160,12 +160,12 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
       </div>
 
       {isExecuting && (
-        <div className="p-6 bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-2xl backdrop-blur-sm">
+        <div className="p-6 bg-gradient-to-r from-emerald-500/10 to-green-500/10 border border-emerald-500/30 rounded-2xl backdrop-blur-sm">
           <div className="flex items-center space-x-3">
-            <Loader className="h-5 w-5 text-blue-400 animate-spin flex-shrink-0" />
+            <Loader className="h-5 w-5 text-emerald-400 animate-spin flex-shrink-0" />
             <div>
-              <p className="text-blue-300 font-bold text-lg">Executing Trade via AI Assistant</p>
-              <p className="text-blue-200 text-sm mt-1">
+              <p className="text-emerald-300 font-bold text-lg">Executing Trade via AI Assistant</p>
+              <p className="text-emerald-200 text-sm mt-1">
                 Processing trade execution and logging to your account... This may take a few seconds.
               </p>
             </div>

@@ -88,7 +88,7 @@ export const TradingLaws: React.FC = () => {
   const getCategoryColor = (category: string) => {
     switch (category) {
       case 'capital': return 'border-l-green-500 bg-green-500/5';
-      case 'performance': return 'border-l-blue-500 bg-blue-500/5';
+      case 'performance': return 'border-l-emerald-500 bg-emerald-500/5';
       case 'risk': return 'border-l-yellow-500 bg-yellow-500/5';
       case 'execution': return 'border-l-purple-500 bg-purple-500/5';
       case 'discipline': return 'border-l-red-500 bg-red-500/5';
@@ -99,7 +99,7 @@ export const TradingLaws: React.FC = () => {
   const getCategoryIcon = (category: string) => {
     switch (category) {
       case 'capital': return 'text-green-400';
-      case 'performance': return 'text-blue-400';
+      case 'performance': return 'text-emerald-400';
       case 'risk': return 'text-yellow-400';
       case 'execution': return 'text-purple-400';
       case 'discipline': return 'text-red-400';
@@ -181,7 +181,7 @@ export const TradingLaws: React.FC = () => {
           <div className="mt-4 flex flex-wrap gap-2 justify-center">
             {[
               { category: 'capital', label: 'Capital Protection', color: 'bg-green-500/20 text-green-400' },
-              { category: 'performance', label: 'Performance', color: 'bg-blue-500/20 text-blue-400' },
+              { category: 'performance', label: 'Performance', color: 'bg-emerald-500/20 text-emerald-400' },
               { category: 'risk', label: 'Risk Management', color: 'bg-yellow-500/20 text-yellow-400' },
               { category: 'execution', label: 'Execution', color: 'bg-purple-500/20 text-purple-400' },
               { category: 'discipline', label: 'Discipline', color: 'bg-red-500/20 text-red-400' }
