@@ -272,7 +272,7 @@ ${PIPNOSIS_LAWS}
       estimatedGain: 280,
       riskRewardRatio: 2.0,
       feasible: true,
-      reasoning: `Balanced ${selectedPair} ${mediumRiskEntry > basePrice ? 'buy' : 'sell'} per Law #5 (AI Final Decision) with 4% account risk. Law #7 (Cut Losses Early) guides stop placement. Law #9 ensures no overlapping trades on same pair. 2:1 RRR maintained.`
+      reasoning: \`Balanced ${selectedPair} ${mediumRiskEntry > basePrice ? 'buy' : 'sell'} per Law #5 (AI Final Decision) with 4% account risk. Law #7 (Cut Losses Early) guides stop placement. Law #9 ensures no overlapping trades on same pair. 2:1 RRR maintained.`
     });
   }
 
@@ -283,11 +283,11 @@ ${PIPNOSIS_LAWS}
         content: 'Entered position following Pipnosis Law #6 (High Quality Entry Conditions) with multiple technical confirmations. Law #1 (Capital Preservation) guided position sizing to 2% risk.',
         confidence_level: 'high'
       },
-      summary: `${selectedPair} analysis shows clear trading opportunities. AI selected this pair based on current market conditions and signal strength. Both strategies comply with Pipnosis Immutable Laws.`,
+      summary: \`${selectedPair} analysis shows clear trading opportunities. AI selected this pair based on current market conditions and signal strength. Both strategies comply with Pipnosis Immutable Laws.`,
         title: 'Trade Position Closed',
-      riskAssessment: `Risk management follows Law #1 (Capital Preservation) and Law #3 (Drawdown Management). Maximum 2 trades per session per Law #9. Both strategies maintain minimum RRR requirements.`,
+      riskAssessment: \`Risk management follows Law #1 (Capital Preservation) and Law #3 (Drawdown Management). Maximum 2 trades per session per Law #9. Both strategies maintain minimum RRR requirements.`,
       selectedPair: selectedPair,
-      sessionInfo: `Session limits: Max 2 trades, no overlapping trades on ${selectedPair}, 5-minute reassessment rules apply`
+      sessionInfo: \`Session limits: Max 2 trades, no overlapping trades on ${selectedPair}, 5-minute reassessment rules apply`
     };
 
     return entries[eventType] || entries.trade_entry;
@@ -295,3 +295,6 @@ ${PIPNOSIS_LAWS}
 }
 
 export const aiService = new AIService();
+    }
+  }
+}
