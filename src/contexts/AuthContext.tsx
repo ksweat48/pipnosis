@@ -114,10 +114,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       };
 
+      // Check if profile already exists first
+      const { data: existingProfile, error: checkError } = await profiles.get(userId);
+      
+      if (existingProfile) {
+        console.log('Profile already exists, using existing profile');
+        setProfile(existingProfile);
+        return;
+      }
+      
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('Error checking existing profile:', checkError);
+        return;
+      }
+      
+      // Create new profile only if it doesn't exist
       const { data, error } = await profiles.create(userId, defaultProfile);
       
       if (error) {
-        console.error('Error creating default profile:', error);
+        if (error.code === '23505') {
+          // Profile already exists, try to fetch it
+          console.log('Profile exists, fetching existing profile');
+          await loadUserProfile(userId);
+        } else {
+          console.error('Error creating default profile:', error);
+        }
       } else {
         setProfile(data);
         console.log('Default profile created successfully');
