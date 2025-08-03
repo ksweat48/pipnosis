@@ -29,16 +29,6 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, e
 
   return (
     <div className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-2xl p-6 sm:p-8 border border-slate-600 shadow-2xl backdrop-blur-sm">
-      <div className="flex items-center justify-center space-x-3 mb-6">
-        <div className="p-2 bg-gradient-to-r from-emerald-500 to-green-600 rounded-lg">
-          <Zap className="h-6 w-6 text-white" />
-        </div>
-        <div>
-          <h2 className="text-xl font-bold text-white">AI Prompt Console</h2>
-          <p className="text-sm text-slate-400">Powered by GPT-4 • Connected</p>
-        </div>
-      </div>
-      
       {error && (
         <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start space-x-2">
           <AlertCircle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
