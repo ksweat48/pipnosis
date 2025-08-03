@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
 import cron from 'node-cron';
+import { tradeMonitoringService } from './services/tradeMonitoringService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -192,6 +193,13 @@ async function initializeServices() {
     // AI service initializes itself
     console.log('✅ AI Service ready');
 
+    // Start trade monitoring service
+    if (supabase && supabase.from) {
+      tradeMonitoringService.start();
+      console.log('✅ Trade Monitoring Service started');
+    } else {
+      console.warn('⚠️ Trade Monitoring Service not started - Supabase not available');
+    }
   } catch (error) {
     console.error('❌ Service initialization error:', error);
   }
@@ -416,6 +424,17 @@ app.post('/api/execute-trade', async (req, res) => {
 
     console.log(`⚡ Executing trade: ${strategy.tradeType} for user: ${userId || 'anonymous'}`);
 
+    // Check session limits before executing
+    if (userId && aiService && aiService.checkSessionLimits) {
+      const sessionCheck = await aiService.checkSessionLimits(userId);
+      if (!sessionCheck.canTrade) {
+        return res.status(400).json({
+          success: false,
+          error: 'Session limit reached',
+          message: sessionCheck.reason
+        });
+      }
+    }
     // Execute trade via MT5 service
     const tradeRequest = {
       action: strategy.tradeType.toLowerCase().includes('buy') ? 'buy' : 'sell',
@@ -440,6 +459,32 @@ app.post('/api/execute-trade', async (req, res) => {
       result = getMockTradeResult(tradeRequest);
     }
 
+    // Log trade to database with enhanced details
+    if (userId && logTradeExecution) {
+      try {
+        await logTradeExecution({
+          user_id: userId,
+          symbol: result.symbol,
+          trade_type: tradeRequest.action,
+          lot_size: result.volume,
+          entry_price: result.price,
+          stop_loss: strategy.stopLoss,
+          take_profit: strategy.takeProfit,
+          status: result.success ? 'open' : 'failed',
+          mt5_ticket: result.ticket,
+          trade_metadata: {
+            strategy_name: strategy.name,
+            risk_level: strategy.risk,
+            estimated_gain: strategy.estimatedGain,
+            session_id: uuidv4()
+          },
+          opened_at: new Date().toISOString()
+        });
+        console.log('✅ Trade logged to database');
+      } catch (dbError) {
+        console.warn('⚠️ Failed to log trade to database:', dbError.message);
+      }
+    }
     // Log trade to database if user is logged in
     if (userId && logTradeExecution) {
       try {
@@ -633,6 +678,7 @@ app.use((req, res) => {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n🛑 Shutting down Pipnosis Backend...');
+  tradeMonitoringService.stop();
   if (mt5Service && mt5Service.shutdown) {
     mt5Service.shutdown();
   }
@@ -641,6 +687,7 @@ process.on('SIGINT', () => {
 
 process.on('SIGTERM', () => {
   console.log('\n🛑 SIGTERM received, shutting down gracefully...');
+  tradeMonitoringService.stop();
   if (mt5Service && mt5Service.shutdown) {
     mt5Service.shutdown();
   }
@@ -661,6 +708,7 @@ app.listen(PORT, '0.0.0.0', async () => {
   
   console.log('\n✅ Pipnosis Backend Ready!');
   console.log('🔥 Production Architecture: Express.js + Supabase + AI');
+  console.log('🤖 AI Trade Assistant: Monitoring active trades every 5 minutes');
   console.log('\n📋 Available API Endpoints:');
   console.log('- GET  /api/health');
   console.log('- GET  /api/market-data');

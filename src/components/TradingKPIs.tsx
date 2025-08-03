@@ -235,6 +235,8 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
                 {user && (
                   <p className="text-blue-200 text-sm mt-2">
                     Your account balance: ${stats.accountValue.toLocaleString()}
+                    <p>• AI Trade Assistant will monitor your trades and provide real-time guidance</p>
+                    <p>• Maximum 2 trades per session following Immutable Law #9 (Do Not Overtrade)</p>
                   </p>
                 )}
               </div>
@@ -285,6 +287,8 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
                         {kpi.description}
                       </p>
                     </div>
+                    <p>• AI Trade Assistant provides guidance every 5 minutes on active positions</p>
+                    <p>• Session limits (max 2 trades/day) ensure disciplined trading per Immutable Law #9</p>
                   </div>
                 </div>
               ))}

@@ -97,6 +97,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                         <p className="text-xs sm:text-sm text-slate-400 mt-1 leading-relaxed">{notification.message}</p>
                         <p className="text-xs text-slate-500 mt-1 sm:mt-2">{notification.timestamp}</p>
                       </div>
+            <p className="text-xs sm:text-sm">AI guidance will appear here when you have active trades</p>
                     </div>
                     
                     <div className="flex flex-col sm:flex-row items-end sm:items-center space-y-1 sm:space-y-0 sm:space-x-2 ml-2">
@@ -114,6 +115,11 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                       >
                         <X className="h-3 w-3 sm:h-4 sm:w-4" />
                       </button>
+                      {notification.type === 'info' && notification.title.includes('AI Guidance') && (
+                        <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs text-blue-300">
+                          🤖 AI Trade Assistant recommendation based on 5-minute market reassessment
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
