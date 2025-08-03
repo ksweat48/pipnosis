@@ -114,16 +114,16 @@ const Dashboard: React.FC = () => {
           id: strategy.id || `ai-${index}`,
           name: strategy.name,
           risk: strategy.risk,
-          tradeType: `${strategy.symbol} ${strategy.action.toUpperCase()}`,
+          symbol: strategy.symbol,
+          action: strategy.action,
           entry: strategy.entry.toFixed(strategy.symbol.includes('JPY') ? 2 : 5),
           stopLoss: strategy.stopLoss.toFixed(strategy.symbol.includes('JPY') ? 2 : 5),
           takeProfit: strategy.takeProfit.toFixed(strategy.symbol.includes('JPY') ? 2 : 5),
           lotSize: strategy.lotSize,
           estimatedGain: strategy.estimatedGain,
+          riskRewardRatio: strategy.riskRewardRatio,
           feasible: strategy.feasible,
           reasoning: strategy.reasoning,
-          symbol: strategy.symbol,
-          action: strategy.action,
           confidence: strategy.confidence,
           pipnosisLawsCompliance: strategy.pipnosisLawsCompliance
         }));
@@ -140,7 +140,7 @@ const Dashboard: React.FC = () => {
           });
           
           // Update selected symbol to match the strategy
-          const strategySymbol = firstStrategy.symbol || firstStrategy.tradeType.split(' ')[0];
+          const strategySymbol = firstStrategy.symbol;
           setSelectedSymbol(strategySymbol);
         }
 
@@ -202,8 +202,8 @@ const Dashboard: React.FC = () => {
       console.log('🚀 Executing strategy:', option);
       
       // Extract symbol and action from tradeType if not provided directly
-      const symbol = option.symbol || option.tradeType.split(' ')[0];
-      const action = option.action || (option.tradeType.includes('BUY') ? 'buy' : 'sell');
+      const symbol = option.symbol;
+      const action = option.action;
       
       // Execute strategy via Pipnosis AI Brain
       const result = await executeStrategy(option);

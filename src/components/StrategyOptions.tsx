@@ -74,7 +74,9 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
             <div className="space-y-2 sm:space-y-3">
               <div>
                 <p className="text-xs sm:text-sm text-slate-400">Trade Type</p>
-                <p className="text-white font-medium text-sm sm:text-base">{option.tradeType}</p>
+                <p className="text-white font-medium text-sm sm:text-base">
+                  {option.symbol} {option.action.toUpperCase()}
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-2 sm:gap-3">
@@ -98,6 +100,17 @@ export const StrategyOptions: React.FC<StrategyOptionsProps> = ({
                   <p className="text-xs sm:text-sm text-green-400 font-mono">{option.takeProfit}</p>
                 </div>
               </div>
+
+              {option.riskRewardRatio && (
+                <div className="pt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400">Risk:Reward</span>
+                    <span className="text-blue-400 font-semibold text-xs">
+                      1:{option.riskRewardRatio.toFixed(1)}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="pt-2 sm:pt-3 border-t border-slate-700">
                 <div className="flex items-center justify-between">

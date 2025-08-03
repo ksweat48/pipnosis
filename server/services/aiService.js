@@ -43,7 +43,7 @@ try {
 
 // Pipnosis Trading Laws (embedded in AI logic)
 const PIPNOSIS_LAWS = `
-PIPNOSIS IMMUTABLE LAWS OF TRADING:
+PIPNOSIS IMMUTABLE LAWS OF TRADING (10 Core Rules):
 
 1. Capital Preservation Above All - Never risk the entire account balance on any single trade or series of trades.
 2. Target 70–80% Win Rate Over Time - Trades should be selected and filtered to statistically strive for a 70%–80% win rate.
@@ -53,8 +53,18 @@ PIPNOSIS IMMUTABLE LAWS OF TRADING:
 6. Trades Must Have High Quality Entry Conditions - Each trade must meet multiple technical confirmations.
 7. Cut Losses Early, Let Winners Run - Favor intelligent trailing stops and time-based exits.
 8. No Trading During High-Risk Events - Avoid trading before/during major economic news unless explicitly enabled.
-9. Do Not Overtrade - Obey trade frequency limits based on account size and user risk tier.
-10. Prioritize Consistency Over Speed - Fulfill part of prompt rather than overextend and risk loss.
+9. Do Not Overtrade - Max 2 trades per session, no overlapping trades on same pair.
+10. Prioritize Consistency Over Speed - Follow 5-minute reassessment rules strictly, use demo equity for all calculations.
+
+ADDITIONAL SESSION RULES:
+- Max 2 trades per session (Law #9)
+- Risk per trade must stay under 5% of demo balance
+- No trades after 2 consecutive losses
+- No overlapping trades on the same pair
+- Only trade top 3 selected pairs: EURUSD, GBPUSD, XAUUSD
+- TP/SL must maintain minimum 1:1 RRR
+- Do not re-enter after SL hit without new analysis
+- Always explain the reason behind each trade
 
 These laws are IMMUTABLE and override any user request that would violate them.
 `;
@@ -220,51 +230,50 @@ Return a JSON object with this exact structure:
 
 ${PIPNOSIS_LAWS}
 
-Write in a conversational, confident tone that explains trading decisions clearly while referencing which Pipnosis Laws guided the decision.
-Keep it concise but informative. Use everyday trader language.
+  getMockAnalysis(selectedPair = 'EURUSD', specifiedRiskLevel = null) {
+    // Generate base prices for calculations
+    const basePrices = {
+    // Generate LOW RISK strategy (2% account risk)
+    const lowRiskEntry = basePrice + (Math.random() > 0.5 ? 1 : -1) * priceStep * (isGold ? 5 : 10);
+    const lowRiskSL = lowRiskEntry + (lowRiskEntry > basePrice ? -1 : 1) * priceStep * (isGold ? 15 : 30);
+    const lowRiskTP = lowRiskEntry + (lowRiskEntry > basePrice ? 1 : -1) * priceStep * (isGold ? 25 : 45);
+    
+    strategies.push({
+      id: '1',
+      name: 'Conservative Capital Protection',
+      risk: 'low',
+      symbol: selectedPair,
+      action: lowRiskEntry > basePrice ? 'buy' : 'sell',
+      entry: parseFloat(lowRiskEntry.toFixed(isGold ? 2 : 5)),
+      stopLoss: parseFloat(lowRiskSL.toFixed(isGold ? 2 : 5)),
+      takeProfit: parseFloat(lowRiskTP.toFixed(isGold ? 2 : 5)),
+      lotSize: 0.2,
+      estimatedGain: 120,
+      riskRewardRatio: 1.5,
+      feasible: true,
+      reasoning: `Conservative ${selectedPair} ${lowRiskEntry > basePrice ? 'buy' : 'sell'} following Law #1 (Capital Preservation) with 2% account risk. Law #6 (High Quality Entry) ensures multiple confirmations. Law #9 limits to 2 trades per session. Minimum 1.5:1 RRR maintained.`
+    });
 
-ALWAYS reference specific Pipnosis Laws that influenced the decision.
-
-Return a JSON object with this structure:
-{
-  "title": "Brief title for the entry",
-  "content": "Detailed explanation of the decision including which Pipnosis Laws were applied",
-  "confidence_level": "high|medium|low"
-}`;
-
-      const userPrompt = `Write a journal entry for a ${eventType} event with this data: ${JSON.stringify(tradeData)}`;
-
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.8,
-        max_tokens: 300
-      });
-
-      const content = response.choices[0]?.message?.content;
-      if (!content) {
-        return this.getMockJournalEntry(eventType, tradeData);
-      }
-
-      const parsed = JSON.parse(content);
-      
-      return {
-        id: Date.now().toString(),
-        timestamp: new Date().toISOString(),
-        type: eventType,
-        title: parsed.title,
-        content: parsed.content,
-        confidence_level: parsed.confidence_level,
-        tradeId: tradeData.tradeId,
-        symbol: tradeData.symbol
-      };
-    } catch (error) {
-      console.error('❌ Failed to generate journal entry:', error);
-      return this.getMockJournalEntry(eventType, tradeData);
-    }
+    // Generate MEDIUM RISK strategy (4% account risk)
+    const mediumRiskEntry = basePrice + (Math.random() > 0.5 ? 1 : -1) * priceStep * (isGold ? 8 : 15);
+    const mediumRiskSL = mediumRiskEntry + (mediumRiskEntry > basePrice ? -1 : 1) * priceStep * (isGold ? 20 : 40);
+    const mediumRiskTP = mediumRiskEntry + (mediumRiskEntry > basePrice ? 1 : -1) * priceStep * (isGold ? 40 : 80);
+    
+    strategies.push({
+      id: '2',
+      name: 'Balanced Growth Strategy',
+      risk: 'medium',
+      symbol: selectedPair,
+      action: mediumRiskEntry > basePrice ? 'buy' : 'sell',
+      entry: parseFloat(mediumRiskEntry.toFixed(isGold ? 2 : 5)),
+      stopLoss: parseFloat(mediumRiskSL.toFixed(isGold ? 2 : 5)),
+      takeProfit: parseFloat(mediumRiskTP.toFixed(isGold ? 2 : 5)),
+      lotSize: 0.4,
+      estimatedGain: 280,
+      riskRewardRatio: 2.0,
+      feasible: true,
+      reasoning: `Balanced ${selectedPair} ${mediumRiskEntry > basePrice ? 'buy' : 'sell'} per Law #5 (AI Final Decision) with 4% account risk. Law #7 (Cut Losses Early) guides stop placement. Law #9 ensures no overlapping trades on same pair. 2:1 RRR maintained.`
+    });
   }
 
   getMockJournalEntry(eventType, tradeData) {
@@ -274,11 +283,11 @@ Return a JSON object with this structure:
         content: 'Entered position following Pipnosis Law #6 (High Quality Entry Conditions) with multiple technical confirmations. Law #1 (Capital Preservation) guided position sizing to 2% risk.',
         confidence_level: 'high'
       },
-      trade_exit: {
+      summary: `${selectedPair} analysis shows clear trading opportunities. AI selected this pair based on current market conditions and signal strength. Both strategies comply with Pipnosis Immutable Laws.`,
         title: 'Trade Position Closed',
-        content: 'Closed position following Law #7 (Cut Losses Early, Let Winners Run) to secure profits and manage risk. Law #10 (Consistency Over Speed) guided the exit timing.',
-        confidence_level: 'medium'
-      }
+      riskAssessment: `Risk management follows Law #1 (Capital Preservation) and Law #3 (Drawdown Management). Maximum 2 trades per session per Law #9. Both strategies maintain minimum RRR requirements.`,
+      selectedPair: selectedPair,
+      sessionInfo: `Session limits: Max 2 trades, no overlapping trades on ${selectedPair}, 5-minute reassessment rules apply`
     };
 
     return entries[eventType] || entries.trade_entry;

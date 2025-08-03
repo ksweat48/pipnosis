@@ -20,11 +20,11 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, e
 
   const suggestedPrompts = [
     "Make me $100 today",
-    "Earn $500 this week with low risk",
+    "Earn $200 this week with low risk", 
     "Find the best EURUSD opportunity",
-    "Generate a safe swing trade",
-    "Make 3% profit on XAUUSD",
-    "What's the best trade right now?"
+    "Generate a safe XAUUSD trade",
+    "Make 2% profit on GBPUSD",
+    "What's the safest trade right now?"
   ];
 
   return (

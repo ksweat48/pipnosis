@@ -72,14 +72,14 @@ export const TradingLaws: React.FC = () => {
     {
       id: 9,
       title: "Do Not Overtrade",
-      description: "Even if multiple trade opportunities exist, Pipnosis must obey trade frequency limits based on account size and user risk tier (e.g., 1–5 open trades max).",
+      description: "Maximum 2 trades per session. No overlapping trades on the same pair. Obey trade frequency limits to prevent overexposure and maintain disciplined trading.",
       icon: Zap,
       category: 'discipline'
     },
     {
       id: 10,
       title: "Prioritize Consistency Over Speed",
-      description: "If fulfilling a prompt would violate risk control rules, Pipnosis should fulfill part of the prompt (e.g., 50–70% of profit goal) rather than overextend and risk a loss.",
+      description: "Follow 5-minute reassessment rules strictly. Use demo equity for all calculations. Always explain the reason behind each trade. Fulfill part of prompt rather than overextend and risk loss.",
       icon: Scale,
       category: 'discipline'
     }
