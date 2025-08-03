@@ -163,3 +163,35 @@ export const useActiveTrades = (userId?: string) => {
 
   return { trades, isLoading, error, refetch: fetchTrades };
 };
+
+export const useTradeHistory = (userId?: string, limit: number = 50) => {
+  const [trades, setTrades] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTradeHistory = useCallback(async () => {
+    if (!userId) {
+      setTrades([]);
+      setIsLoading(false);
+      return;
+    }
+    
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await pipnosisAPI.getTradeHistory(userId, limit);
+      setTrades(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch trade history');
+      setTrades([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId, limit]);
+
+  useEffect(() => {
+    fetchTradeHistory();
+  }, [fetchTradeHistory]);
+
+  return { trades, isLoading, error, refetch: fetchTradeHistory };
+};
