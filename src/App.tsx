@@ -233,7 +233,7 @@ const Dashboard: React.FC = () => {
               className="shadow-2xl"
             />
             
-            <div className="max-w-4xl mx-auto mt-8">
+            <div className="mt-8">
               <PromptInput 
                 onSubmit={handlePromptSubmit} 
                 isLoading={isAnalyzing}
