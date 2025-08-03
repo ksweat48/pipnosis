@@ -152,7 +152,7 @@ class PipnosisAPI {
   static async getActiveTrades(userId: string): Promise<any[]> {
     try {
       const response = await apiClient.get(`/users/${userId}/trades/active`);
-      return response.data;
+      return Array.isArray(response.data) ? response.data : [];
     } catch (error) {
       console.warn('⚠️ Failed to fetch active trades from backend:', error);
       return [];
@@ -162,7 +162,7 @@ class PipnosisAPI {
   static async getTradeHistory(userId: string): Promise<any[]> {
     try {
       const response = await apiClient.get(`/users/${userId}/trades/history`);
-      return response.data;
+      return Array.isArray(response.data) ? response.data : [];
     } catch (error) {
       console.warn('⚠️ Failed to fetch trade history from backend:', error);
       return [];
@@ -172,7 +172,7 @@ class PipnosisAPI {
   static async getJournalEntries(userId: string, limit: number = 20): Promise<any[]> {
     try {
       const response = await apiClient.get(`/users/${userId}/journal?limit=${limit}`);
-      return response.data;
+      return Array.isArray(response.data) ? response.data : [];
     } catch (error) {
       console.warn('⚠️ Failed to fetch journal entries from backend:', error);
       return [];

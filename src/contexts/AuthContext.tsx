@@ -136,9 +136,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { error };
       }
 
-      // If signup successful and user is confirmed, create profile
+      // If signup successful and user is confirmed, load or create profile
       if (data.user && !error) {
-        await createDefaultProfile(data.user.id);
+        await loadUserProfile(data.user.id);
       }
 
       return { error: null };
