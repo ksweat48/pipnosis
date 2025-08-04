@@ -113,19 +113,19 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
   return (
     <div className={`glass-card ${className}`}>
       <div className="p-6 border-b border-white/10">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <h3 className="text-xl font-bold text-white flex items-center space-x-3">
             <BarChart3 className="h-5 w-5 text-emerald-400 flex-shrink-0" />
             <span>AI Performance</span>
             {isLoading && <RefreshCw className="h-5 w-5 text-emerald-400 animate-spin" />}
           </h3>
-          <div className="flex items-center space-x-4">
-            <div className="text-sm text-white/60 font-medium">
+          <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:space-y-0 sm:space-x-4">
+            <div className="text-xs sm:text-sm text-white/60 font-medium">
               {totalTrades} total trades
             </div>
             <button
               onClick={() => setIsExpanded(!isExpanded)}
-              className="flex items-center space-x-2 text-emerald-400 hover:text-emerald-300 transition-all duration-200 text-sm glass-button px-4 py-2"
+              className="flex items-center space-x-2 text-emerald-400 hover:text-emerald-300 transition-all duration-200 text-xs sm:text-sm glass-button px-3 py-2 sm:px-4 self-start sm:self-auto"
             >
               <span>{isExpanded ? 'Show Less' : 'Show All'}</span>
               {isExpanded ? (
