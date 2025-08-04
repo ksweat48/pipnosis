@@ -197,8 +197,8 @@ async function initializeServices() {
 
     // Start trade monitoring service
     if (supabase && supabase.from) {
-      tradeMonitoringService.start();
-      console.log('✅ Trade Monitoring Service started');
+      // tradeMonitoringService.start();
+      console.log('⏸️ Trade Monitoring Service paused for development');
     } else {
       console.warn('⚠️ Trade Monitoring Service not started - Supabase not available');
     }
