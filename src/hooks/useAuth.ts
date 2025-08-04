@@ -1,6 +1,22 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
 import { User, Session, AuthError } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+
+// Mock Supabase client for demo mode
+const mockSupabase = {
+  auth: {
+    getSession: () => Promise.resolve({ data: { session: null } }),
+    onAuthStateChange: (callback: any) => {
+      // Mock auth state change listener
+      return { data: { subscription: { unsubscribe: () => {} } } };
+    },
+    signInWithPassword: (credentials: any) => Promise.resolve({ error: null }),
+    signUp: (credentials: any) => Promise.resolve({ error: null }),
+    signOut: () => Promise.resolve({ error: null })
+  }
+};
+
+// Use mock client for demo mode
+const supabase = mockSupabase;
 
 interface AuthContextType {
   user: User | null;
