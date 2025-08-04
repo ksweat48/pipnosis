@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
+import { useAuth } from './hooks/useAuth';
 import { Header } from './components/Header';
+import { ProtectedRoute } from './components/ProtectedRoute';
 import { PromptInput } from './components/PromptInput';
 import { MarketChart } from './components/MarketChart';
 import { StrategyOptions } from './components/StrategyOptions';
@@ -12,6 +14,7 @@ import { TradingLaws } from './components/TradingLaws';
 import { WebContainerNotice } from './components/WebContainerNotice';
 import { LandingPage } from './components/LandingPage';
 import { AdminDashboard } from './pages/AdminDashboard';
+import { AuthPage } from './pages/AuthPage';
 import { usePromptAnalysis, useTradeExecution, useMarketData } from './hooks/useAPI';
 
 interface StrategyOption {
@@ -292,9 +295,18 @@ export default function App() {
   return (
     <div>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/auth" element={<AuthPage />} />
+        <Route path="/" element={
+          <ProtectedRoute>
+            <Dashboard />
+          </ProtectedRoute>
+        } />
         <Route path="/waitlist" element={<LandingPage />} />
-        <Route path="/admin/dashboard" element={<AdminDashboard />} />
+        <Route path="/admin/dashboard" element={
+          <ProtectedRoute>
+            <AdminDashboard />
+          </ProtectedRoute>
+        } />
       </Routes>
     </div>
   );

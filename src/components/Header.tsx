@@ -1,15 +1,22 @@
 import React, { useState } from 'react';
-import { Settings, Menu, X, ExternalLink, DollarSign } from 'lucide-react';
+import { Settings, Menu, X, ExternalLink, DollarSign, LogOut, User } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 import { SettingsModal } from './SettingsModal';
 import { DisclaimerModal } from './DisclaimerModal';
 
 export const Header: React.FC = () => {
+  const { user, signOut } = useAuth();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const handleDisclaimerClick = () => {
     setIsDisclaimerOpen(true);
+    setIsMobileMenuOpen(false);
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
     setIsMobileMenuOpen(false);
   };
 
@@ -37,6 +44,19 @@ export const Header: React.FC = () => {
           
           {/* Desktop Navigation */}
           <div className="hidden lg:flex items-center space-x-4">
+            {/* User Info */}
+            <div className="flex items-center space-x-3 text-right">
+              <div className="p-2 bg-emerald-500/20 rounded-xl">
+                <User className="h-5 w-5 text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-xs text-white/60 font-medium">Signed in as</p>
+                <p className="text-sm font-bold text-white truncate max-w-32">
+                  {user?.email}
+                </p>
+              </div>
+            </div>
+            
             <div className="text-right glass-card px-4 py-2">
               <p className="text-xs text-white/60 font-medium">Demo Balance</p>
               <p className="text-xl font-bold text-emerald-400 flex items-center justify-end">
@@ -52,6 +72,13 @@ export const Header: React.FC = () => {
                 className="p-3 text-white/60 hover:text-white glass-button transition-all duration-200"
               >
                 <Settings className="h-5 w-5" />
+              </button>
+              <button 
+                onClick={handleSignOut}
+                className="p-3 text-white/60 hover:text-red-400 glass-button transition-all duration-200"
+                title="Sign Out"
+              >
+                <LogOut className="h-5 w-5" />
               </button>
             </div>
           </div>
@@ -77,6 +104,21 @@ export const Header: React.FC = () => {
         {/* Mobile Menu Dropdown */}
         {isMobileMenuOpen && (
           <div className="lg:hidden mt-4 pt-4 border-t border-white/10">
+            {/* Mobile User Info */}
+            <div className="mb-4 p-3 glass-card">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-emerald-500/20 rounded-xl">
+                  <User className="h-5 w-5 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="text-xs text-white/60 font-medium">Signed in as</p>
+                  <p className="text-sm font-bold text-white truncate">
+                    {user?.email}
+                  </p>
+                </div>
+              </div>
+            </div>
+            
             <div className="space-y-2">
               <button 
                 onClick={handleDisclaimerClick}
@@ -94,6 +136,13 @@ export const Header: React.FC = () => {
               >
                 <Settings className="h-5 w-5" />
                 <span>Settings</span>
+              </button>
+              <button 
+                onClick={handleSignOut}
+                className="w-full flex items-center space-x-3 p-3 text-white/70 hover:text-red-400 glass-button transition-all duration-200"
+              >
+                <LogOut className="h-5 w-5" />
+                <span>Sign Out</span>
               </button>
             </div>
           </div>
