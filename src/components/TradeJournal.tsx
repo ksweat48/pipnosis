@@ -120,7 +120,7 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
                               {entry.metadata.symbol}
                             </span>
                           )}
-                          {entry.metadata?.pnl !== undefined && (
+                          {entry.metadata?.pnl != null && (
                             <span className={`text-sm font-bold ${
                               entry.metadata.pnl >= 0 ? 'text-green-400' : 'text-red-400'
                             }`}>
@@ -196,7 +196,7 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
                           )}
                           {entry.metadata?.unrealizedPnL && (
                             <div>Unrealized P&L: <span className={`font-mono ${entry.metadata.unrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              {entry.metadata.unrealizedPnL >= 0 ? '+' : ''}${entry.metadata.unrealizedPnL.toFixed(2)}
+                              {entry.metadata.unrealizedPnL >= 0 ? '+' : ''}${entry.metadata.unrealizedPnL != null ? entry.metadata.unrealizedPnL.toFixed(2) : '0.00'}
                             </span></div>
                           )}
                         </div>
