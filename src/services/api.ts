@@ -1,58 +1,5 @@
-import axios from 'axios';
-
-const getApiBaseUrl = () => {
-  const isProduction = window.location.hostname === 'pipnosis.com' || 
-                      window.location.hostname === 'www.pipnosis.com' ||
-                      window.location.hostname.includes('netlify.app');
-  
-  const isWebContainer = window.location.hostname.includes('webcontainer') || 
-                         window.location.hostname.includes('bolt.new') ||
-                         window.location.hostname.includes('stackblitz');
-  
-  if (isProduction) {
-    return 'https://pipnosis-production.up.railway.app/api';
-  }
-  
-  if (isWebContainer) {
-    const protocol = window.location.protocol;
-    const hostname = window.location.hostname;
-    return `${protocol}//${hostname}:3001/api`;
-  }
-  
-  return import.meta.env.VITE_PIPNOSIS_API_URL || 'http://localhost:3001/api';
-};
-
-const API_BASE_URL = getApiBaseUrl();
-
-const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 30000,
-  headers: { 'Content-Type': 'application/json' },
-});
-
-apiClient.interceptors.request.use(
-  (config) => {
-    console.log(`🔄 API Request: ${config.method?.toUpperCase()} ${config.url}`);
-    return config;
-  },
-  (error) => {
-    console.error('❌ API Request Error:', error);
-    return Promise.reject(error);
-  }
-);
-
-apiClient.interceptors.response.use(
-  (response) => {
-    console.log(`✅ API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`);
-    return response;
-  },
-  (error) => {
-    console.error('❌ API Response Error:', error.response?.data || error.message);
-    return Promise.reject(error);
-  }
-);
-
-const getFallbackMarketData = () => {
+// Mock market data for frontend-only mode
+const getMockMarketData = () => {
   return [
     { symbol: 'EURUSD', price: 1.1425 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
     { symbol: 'GBPUSD', price: 1.2735 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
@@ -67,24 +14,53 @@ const getFallbackMarketData = () => {
   ];
 };
 
-class PipnosisAPI {
-  static async healthCheck(): Promise<any> {
-    try {
-      const response = await apiClient.get('/health');
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
-  }
+// Mock AI analysis for frontend-only mode
+const getMockAnalysis = () => {
+  return {
+    strategies: [
+      {
+        id: '1',
+        name: 'Conservative Capital Protection',
+        risk: 'low',
+        symbol: 'EURUSD',
+        action: 'buy',
+        entry: 1.1410,
+        stopLoss: 1.1380,
+        takeProfit: 1.1470,
+        lotSize: 0.3,
+        estimatedGain: 180,
+        riskRewardRatio: 2.0,
+        feasible: true,
+        reasoning: 'Conservative approach following Pipnosis Law #1 (Capital Preservation) with 2% account risk. Multiple technical confirmations ensure high-quality entry per Law #6.',
+        confidence: 'high'
+      },
+      {
+        id: '2',
+        name: 'Balanced Growth Strategy',
+        risk: 'medium',
+        symbol: 'GBPUSD',
+        action: 'sell',
+        entry: 1.2735,
+        stopLoss: 1.2785,
+        takeProfit: 1.2635,
+        lotSize: 0.5,
+        estimatedGain: 350,
+        riskRewardRatio: 2.0,
+        feasible: true,
+        reasoning: 'Balanced approach per Law #5 (AI Final Decision) with 4% account risk. Maintains target win rate while optimizing for growth.',
+        confidence: 'high'
+      }
+    ],
+    summary: 'Market analysis shows clear opportunities across multiple pairs. All strategies comply with Pipnosis Immutable Laws.',
+    confidence: 'high',
+    riskAssessment: 'Risk management follows Law #1 (Capital Preservation) and Law #3 (Drawdown Management).'
+  };
+};
 
+class PipnosisAPI {
   static async getMarketData(): Promise<any[]> {
-    try {
-      const response = await apiClient.get('/market-data');
-      return response.data;
-    } catch (error) {
-      console.warn('⚠️ Failed to fetch market data from backend:', error);
-      return getFallbackMarketData();
-    }
+    // Return mock data for frontend-only mode
+    return getMockMarketData();
   }
 
   static async analyzePrompt(
@@ -92,171 +68,32 @@ class PipnosisAPI {
     accountBalance: number,
     marketData?: any[]
   ): Promise<any> {
-    try {
-      const response = await apiClient.post('/analyze-prompt', {
-        prompt,
-        accountBalance,
-        marketData
-      });
-      return response.data;
-    } catch (error) {
-      console.error('❌ Failed to analyze prompt via backend:', error);
-      throw error;
-    }
+    // Simulate AI analysis delay
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    return getMockAnalysis();
   }
 
   static async executeTrade(strategy: any): Promise<any> {
-    try {
-      const response = await apiClient.post('/execute-trade', { strategy });
-      return response.data;
-    } catch (error) {
-      console.warn('⚠️ Failed to execute trade via backend:', error);
-      return {
-        success: true,
-        tradeId: `FALLBACK-${Date.now()}`,
-        symbol: strategy.tradeType?.split(' ')[0] || 'EURUSD',
-        entry: strategy.entry,
-        lotSize: strategy.lotSize,
-        timestamp: new Date().toISOString(),
-        message: 'Mock trade execution (backend unavailable)'
-      };
-    }
+    // Simulate trade execution delay
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    return {
+      success: true,
+      tradeId: `DEMO-${Date.now()}`,
+      symbol: strategy.symbol || 'EURUSD',
+      entry: strategy.entry,
+      lotSize: strategy.lotSize,
+      timestamp: new Date().toISOString(),
+      message: 'Demo trade executed successfully'
+    };
   }
 
   static async testConnection(): Promise<boolean> {
-    try {
-      await this.healthCheck();
-      return true;
-    } catch (error) {
-      return false;
-    }
+    // Always return true for frontend-only mode
+    return true;
   }
 
-  static async getUserKPIs(userId: string): Promise<any> {
-    try {
-      const response = await apiClient.get(`/users/${userId}/kpis`);
-      return response.data;
-    } catch (error) {
-      console.warn('⚠️ Failed to fetch user KPIs from backend:', error);
-      return {
-        totalTrades: 0,
-        winRate: 0,
-        totalPnL: 0,
-        avgWin: 0,
-        avgLoss: 0,
-        profitFactor: 0
-      };
-    }
-  }
-
-  static async getActiveTrades(userId: string): Promise<any[]> {
-    try {
-      const response = await apiClient.get(`/users/${userId}/trades/active`);
-      return Array.isArray(response.data) ? response.data : [];
-    } catch (error) {
-      console.warn('⚠️ Failed to fetch active trades from backend:', error);
-      return [];
-    }
-  }
-
-  static async getTradeHistory(userId: string): Promise<any[]> {
-    try {
-      const response = await apiClient.get(`/users/${userId}/trades/history`);
-      return Array.isArray(response.data) ? response.data : [];
-    } catch (error) {
-      console.warn('⚠️ Failed to fetch trade history from backend:', error);
-      return [];
-    }
-  }
-
-  static async getJournalEntries(userId: string, limit: number = 20): Promise<any[]> {
-    try {
-      const response = await apiClient.get(`/users/${userId}/journal?limit=${limit}`);
-      return Array.isArray(response.data) ? response.data : [];
-    } catch (error) {
-      console.warn('⚠️ Failed to fetch journal entries from backend:', error);
-      return [];
-    }
-  }
-
-  // Trade Session Management
-  static async startTradeSession(userId: string, symbol: string, accountBalance?: number): Promise<any> {
-    try {
-      const response = await apiClient.post('/trade-sessions/start', {
-        userId,
-        symbol,
-        accountBalance
-      });
-      return response.data;
-    } catch (error) {
-      console.error('❌ Failed to start trade session:', error);
-      throw error;
-    }
-  }
-
-  static async closeTradeSession(sessionId: string, reason?: string): Promise<any> {
-    try {
-      const response = await apiClient.post('/trade-sessions/close', {
-        sessionId,
-        reason
-      });
-      return response.data;
-    } catch (error) {
-      console.error('❌ Failed to close trade session:', error);
-      throw error;
-    }
-  }
-
-  static async getUserTradeSessions(userId: string, limit: number = 50): Promise<any[]> {
-    try {
-      const response = await apiClient.get(`/trade-sessions/user/${userId}?limit=${limit}`);
-      return Array.isArray(response.data) ? response.data : [];
-    } catch (error) {
-      console.warn('⚠️ Failed to fetch user trade sessions:', error);
-      return [];
-    }
-  }
-
-  // Admin Dashboard APIs
-  static async getAdminTodayActivity(): Promise<any> {
-    try {
-      const response = await apiClient.get('/admin/dashboard/today-activity');
-      return response.data;
-    } catch (error) {
-      console.error('❌ Failed to fetch today activity:', error);
-      throw error;
-    }
-  }
-
-  static async getAdminActiveUsers(): Promise<any> {
-    try {
-      const response = await apiClient.get('/admin/dashboard/active-users');
-      return response.data;
-    } catch (error) {
-      console.error('❌ Failed to fetch active users:', error);
-      throw error;
-    }
-  }
-
-  static async getAdminCostTracker(): Promise<any> {
-    try {
-      const response = await apiClient.get('/admin/dashboard/cost-tracker');
-      return response.data;
-    } catch (error) {
-      console.error('❌ Failed to fetch cost tracker:', error);
-      throw error;
-    }
-  }
-
-  static async getAdminUsageTrends(days: number = 7): Promise<any[]> {
-    try {
-      const response = await apiClient.get(`/admin/dashboard/usage-trends?days=${days}`);
-      return Array.isArray(response.data) ? response.data : [];
-    } catch (error) {
-      console.error('❌ Failed to fetch usage trends:', error);
-      return [];
-    }
-  }
+  // Removed all backend API calls - now using frontend-only mode
 }
 
 export const pipnosisAPI = PipnosisAPI;

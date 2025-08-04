@@ -3,33 +3,6 @@ import { pipnosisAPI } from '../services/api';
 import { getUserKPIs, getActiveTrades, getTradeHistory, getJournalEntries } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 
-export const useBackendConnection = () => {
-  const [isConnected, setIsConnected] = useState(false);
-  const [isChecking, setIsChecking] = useState(true);
-  const [lastChecked, setLastChecked] = useState<Date | null>(null);
-
-  const checkConnection = useCallback(async () => {
-    setIsChecking(true);
-    try {
-      const connected = await pipnosisAPI.testConnection();
-      setIsConnected(connected);
-      setLastChecked(new Date());
-    } catch (error) {
-      setIsConnected(false);
-    } finally {
-      setIsChecking(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    checkConnection();
-    const interval = setInterval(checkConnection, 30000);
-    return () => clearInterval(interval);
-  }, [checkConnection]);
-
-  return { isConnected, isChecking, lastChecked, checkConnection };
-};
-
 export const useMarketData = (refreshInterval: number = 5000) => {
   const [marketData, setMarketData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -44,7 +17,7 @@ export const useMarketData = (refreshInterval: number = 5000) => {
       setMarketData(data);
       setLastUpdated(new Date());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch market data');
+      setError('Market data temporarily unavailable');
     } finally {
       setIsLoading(false);
     }
@@ -96,12 +69,9 @@ export const useTradeExecution = () => {
 
     try {
       const result = await pipnosisAPI.executeTrade(strategy);
-      if (!result.success && result.error) {
-        setError(result.error);
-      }
       return result;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to execute trade';
+      const errorMessage = 'Trade execution temporarily unavailable';
       setError(errorMessage);
       return { success: false, message: errorMessage };
     } finally {
@@ -267,82 +237,4 @@ export const useJournalEntries = (userId?: string, limit: number = 20) => {
   }, [fetchEntries]);
 
   return { entries, isLoading, error, refetch: fetchEntries };
-};
-
-export const useTradeSessionManagement = () => {
-  const [isStarting, setIsStarting] = useState(false);
-  const [isClosing, setIsClosing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const startSession = useCallback(async (userId: string, symbol: string, accountBalance?: number) => {
-    setIsStarting(true);
-    setError(null);
-
-    try {
-      const result = await pipnosisAPI.startTradeSession(userId, symbol, accountBalance);
-      return result;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to start trade session';
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setIsStarting(false);
-    }
-  }, []);
-
-  const closeSession = useCallback(async (sessionId: string, reason?: string) => {
-    setIsClosing(true);
-    setError(null);
-
-    try {
-      const result = await pipnosisAPI.closeTradeSession(sessionId, reason);
-      return result;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to close trade session';
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setIsClosing(false);
-    }
-  }, []);
-
-  return { startSession, closeSession, isStarting, isClosing, error };
-};
-
-export const useAdminDashboard = () => {
-  const [data, setData] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchDashboardData = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const [todayActivity, activeUsers, costTracker, usageTrends] = await Promise.all([
-        pipnosisAPI.getAdminTodayActivity(),
-        pipnosisAPI.getAdminActiveUsers(),
-        pipnosisAPI.getAdminCostTracker(),
-        pipnosisAPI.getAdminUsageTrends(7)
-      ]);
-
-      setData({
-        todayActivity,
-        activeUsers,
-        costTracker,
-        usageTrends
-      });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch dashboard data';
-      setError(errorMessage);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
-
-  return { data, isLoading, error, refetch: fetchDashboardData };
 };

@@ -1,13 +1,10 @@
 [build]
   publish = "dist"
   command = "npm run build"
-  ignore = "echo 'Skipping Python dependencies for local development' || true"
 
 [build.environment]
   NODE_VERSION = "18"
-  # Local development environment variables
   VITE_DEV_MODE = "true"
-  # Skip TypeScript checks for faster builds
   SKIP_PREFLIGHT_CHECK = "true"
 
 [[redirects]]
