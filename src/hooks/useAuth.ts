@@ -25,9 +25,16 @@ const mockSupabase = {
     },
     signUp: (credentials: any) => {
       // Mock sign-up behavior - always succeeds but requires email confirmation
+      const mockUser = {
+        email: credentials.email,
+        user_metadata: {
+          full_name: credentials.fullName || ''
+        }
+      };
+      
       return Promise.resolve({ 
-        data: { user: null }, 
-        error: { message: 'Demo Mode: Account created! In production, check your email for confirmation.' } 
+        data: { user: mockUser }, 
+        error: { message: `Demo Mode: Account created for ${credentials.fullName || credentials.email}! In production, check your email for confirmation.` } 
       });
     },
     signOut: () => Promise.resolve({ error: null })
@@ -42,7 +49,7 @@ interface AuthContextType {
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  signUp: (email: string, password: string, fullName?: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<{ error: AuthError | null }>;
 }
 
@@ -89,10 +96,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { error };
   };
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, fullName?: string) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
+      fullName,
     });
     return { error };
   };

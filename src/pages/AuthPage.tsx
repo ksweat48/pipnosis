@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Mail, Lock, Eye, EyeOff, AlertCircle, Loader } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, AlertCircle, Loader, User } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
 export const AuthPage: React.FC = () => {
   const { user, signIn, signUp, loading: authLoading } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -24,7 +25,7 @@ export const AuthPage: React.FC = () => {
 
     try {
       const { error } = isSignUp 
-        ? await signUp(email, password)
+        ? await signUp(email, password, fullName)
         : await signIn(email, password);
 
       if (error) {
@@ -82,6 +83,26 @@ export const AuthPage: React.FC = () => {
         {/* Auth Form */}
         <div className="glass-card p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Full Name Field - Only for Sign Up */}
+            {isSignUp && (
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Full Name
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-white/40" />
+                  <input
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    className="w-full bg-white/5 border border-white/20 rounded-xl pl-12 pr-4 py-3 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                    placeholder="Enter your full name"
+                    required
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Email Field */}
             <div>
               <label className="block text-sm font-medium text-white mb-2">
@@ -157,6 +178,7 @@ export const AuthPage: React.FC = () => {
               onClick={() => {
                 setIsSignUp(!isSignUp);
                 setError(null);
+                setFullName('');
               }}
               className="text-emerald-400 hover:text-emerald-300 text-sm font-medium"
             >
