@@ -1,48 +1,6 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
 import { User, Session, AuthError } from '@supabase/supabase-js';
-
-// Mock Supabase client for demo mode
-const mockSupabase = {
-  auth: {
-    getSession: () => Promise.resolve({ data: { session: null } }),
-    onAuthStateChange: (callback: any) => {
-      // Mock auth state change listener
-      return { data: { subscription: { unsubscribe: () => {} } } };
-    },
-    signInWithPassword: (credentials: any) => {
-      // Mock sign-in behavior - only allow demo credentials
-      if (credentials.email === 'demo@pipnosis.com' && credentials.password === 'demo123') {
-        return Promise.resolve({ 
-          data: { user: { email: credentials.email } }, 
-          error: null 
-        });
-      } else {
-        return Promise.resolve({ 
-          data: { user: null }, 
-          error: { message: 'Invalid login credentials. Try demo@pipnosis.com / demo123' } 
-        });
-      }
-    },
-    signUp: (credentials: any) => {
-      // Mock sign-up behavior - always succeeds but requires email confirmation
-      const mockUser = {
-        email: credentials.email,
-        user_metadata: {
-          full_name: credentials.fullName || ''
-        }
-      };
-      
-      return Promise.resolve({ 
-        data: { user: mockUser }, 
-        error: { message: `Demo Mode: Account created for ${credentials.fullName || credentials.email}! In production, check your email for confirmation.` } 
-      });
-    },
-    signOut: () => Promise.resolve({ error: null })
-  }
-};
-
-// Use mock client for demo mode
-const supabase = mockSupabase;
+import { supabase } from '@/lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -89,7 +47,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
@@ -97,10 +55,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signUp = async (email: string, password: string, fullName?: string) => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      fullName,
+      options: {
+        data: {
+          full_name: fullName || '',
+        }
+      }
     });
     return { error };
   };

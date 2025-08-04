@@ -189,13 +189,6 @@ export const AuthPage: React.FC = () => {
             </button>
           </div>
         </div>
-
-        {/* Demo Notice */}
-        <div className="mt-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-          <p className="text-emerald-300 text-sm text-center">
-            <strong>Demo Mode:</strong> Use demo@pipnosis.com / demo123 to sign in, or create any account to see the sign-up flow
-          </p>
-        </div>
       </div>
     </div>
   );
