@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Settings, Menu, X, ExternalLink, DollarSign, LogOut, User } from 'lucide-react';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '@/hooks/useAuth';
 import { SettingsModal } from './SettingsModal';
 import { DisclaimerModal } from './DisclaimerModal';
 

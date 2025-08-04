@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
-import { useAuth } from './hooks/useAuth';
+import { useAuth } from '@/hooks/useAuth';
 import { Header } from './components/Header';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { PromptInput } from './components/PromptInput';
