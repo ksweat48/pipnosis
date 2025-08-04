@@ -1,7 +1,6 @@
 import React from 'react';
 import { Activity, DollarSign, TrendingUp, TrendingDown, Clock, BarChart3 } from 'lucide-react';
 import { useActiveTrades, useTradeHistory } from '../hooks/useAPI';
-import { useAuth } from '../contexts/AuthContext';
 
 interface TradingDashboardProps {
   todayPnL: number;
@@ -14,9 +13,8 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
   weeklyPnL,
   totalBalance
 }) => {
-  const { user } = useAuth();
   const { trades: activeTrades, isLoading: tradesLoading } = useActiveTrades();
-  const { trades: tradeHistory } = useTradeHistory(user?.id, 10);
+  const { trades: tradeHistory } = useTradeHistory();
 
   // Calculate today's P&L from trade history
   const today = new Date().toDateString();
@@ -94,7 +92,7 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
               </div>
             </div>
             <div>
-              <p className="text-white/60 text-sm font-semibold uppercase tracking-wide">Balance</p>
+              <p className="text-white/60 text-sm font-semibold uppercase tracking-wide">Demo Balance</p>
               <p className="text-3xl font-bold text-white">${(totalBalance || 0).toLocaleString()}</p>
             </div>
           </div>
@@ -109,7 +107,7 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
               <div className="p-2 bg-blue-500/20 rounded-xl">
                 <Activity className="h-5 w-5 text-blue-400" />
               </div>
-              <span>Open Positions</span>
+              <span>Demo Positions</span>
               {tradesLoading && <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>}
             </h3>
           </div>
@@ -200,15 +198,15 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
       )}
 
       {/* No Active Trades State */}
-      {!tradesLoading && activeTrades.length === 0 && user && (
+      {!tradesLoading && activeTrades.length === 0 && (
         <div className="glass-card p-8 text-center">
           <Activity className="h-16 w-16 text-white/30 mx-auto mb-6" />
-          <h3 className="text-white font-bold text-xl mb-3">No Active Trades</h3>
+          <h3 className="text-white font-bold text-xl mb-3">No Active Demo Trades</h3>
           <p className="text-white/60 font-medium">
-            Use the AI Prompt Console above to generate and execute your first trade.
+            Use the AI Prompt Console above to generate and execute your first demo trade.
           </p>
           <p className="text-white/40 text-sm mt-3 font-medium">
-            Remember: Maximum 2 trades per session (Immutable Law #9)
+            Demo mode: Maximum 2 trades per session (Immutable Law #9)
           </p>
         </div>
       )}

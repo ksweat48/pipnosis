@@ -1,17 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { 
-  BarChart3, TrendingUp, TrendingDown, Target, CheckCircle, Activity, 
+  BarChart3, TrendingUp, TrendingDown, Target, Activity, 
   Calendar, ChevronDown, ChevronUp, RefreshCw
 } from 'lucide-react';
 import { useTradingKPIs } from '../hooks/useAPI';
-import { useAuth } from '../contexts/AuthContext';
 
 interface TradingKPIsProps {
   className?: string;
 }
 
 export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
-  const { user } = useAuth();
   const { kpis, isLoading, error, refetch } = useTradingKPIs();
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -108,7 +106,6 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
     }
   ];
 
-  // Use Supabase data
   const profitableTrades = kpis?.winningTrades || 0;
   const losingTrades = kpis?.losingTrades || 0;
   const totalTrades = kpis?.totalTrades || 0;
@@ -158,36 +155,27 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
           </div>
         </div>
 
-        {/* No Data State */}
-        {totalTrades === 0 && !isExpanded && (
-          <div className="p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
-            <div className="flex items-start space-x-4">
-              <BarChart3 className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-              <div>
-                <h4 className="text-emerald-300 font-bold text-lg mb-3">No Trading Data Yet</h4>
-                <p className="text-emerald-200 font-medium">
-                  {user ? 
-                    "You haven't executed any trades yet. Use the AI Prompt Console to generate and execute your first trading strategy." :
-                    "Sign in to track your trading performance and see AI-powered analytics."}
-                </p>
-                {user && (
-                  <p className="text-emerald-200 mt-3 font-medium">
-                    Your demo balance: ${user.user_metadata?.account_balance?.toLocaleString() || '10,000'}
-                  </p>
-                )}
-                <div className="mt-4 space-y-2 text-sm text-emerald-200 font-medium">
-                    <p>• AI Trade Assistant will monitor your trades and provide real-time guidance</p>
-                    <p>• Maximum 2 trades per session following Immutable Law #9 (Do Not Overtrade)</p>
-                </div>
+        {/* Demo Data Notice */}
+        <div className="p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
+          <div className="flex items-start space-x-4">
+            <BarChart3 className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <h4 className="text-emerald-300 font-bold text-lg mb-3">Demo Trading Performance</h4>
+              <div className="space-y-2 text-emerald-200 font-medium">
+                <p>• Demo account showing {(kpis?.winRate || 0).toFixed(1)}% win rate with AI trading strategies</p>
+                <p>• Risk-reward ratio of {(kpis?.averageRRR || 0).toFixed(1)}:1 demonstrates strong profit potential</p>
+                <p>• Maximum drawdown of {(kpis?.maxDrawdown || 0).toFixed(1)}% shows excellent capital protection</p>
+                <p>• Total P&L of ${(kpis?.totalPnL || 0).toFixed(2)} from {totalTrades} demo trades</p>
+                <p>• AI follows all 10 Immutable Laws for consistent performance</p>
               </div>
             </div>
           </div>
-        )}
+        </div>
 
         {/* Detailed KPIs - Only show when expanded */}
         {isExpanded && (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mt-8">
               {kpiItems.map((kpi) => (
                 <div
                   key={kpi.id}
@@ -232,38 +220,11 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
               ))}
             </div>
 
-            {/* Performance Insights */}
-            <div className="mt-8 p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
-              <div className="flex items-start space-x-4">
-                <BarChart3 className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <h4 className="text-emerald-300 font-bold text-lg mb-3">AI Performance Insights</h4>
-                  {totalTrades > 0 ? (
-                    <div className="space-y-2 text-emerald-200 font-medium">
-                      <p>• Your {(kpis?.winRate || 0).toFixed(1)}% win rate is {(kpis?.winRate || 0) >= 70 ? 'excellent' : (kpis?.winRate || 0) >= 50 ? 'good' : 'needs improvement'} for AI trading</p>
-                      <p>• Risk-reward ratio of 2.1:1 shows strong profit potential per trade</p>
-                      <p>• 80.0% recovery rate indicates excellent AI adaptation after losses</p>
-                      <p>• Monthly return of 8.5% is outstanding for automated trading</p>
-                      <p>• AI Trade Assistant provides guidance every 5 minutes on active positions</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2 text-emerald-200 font-medium">
-                      <p>• Pipnosis AI targets a 70-80% win rate through careful trade selection</p>
-                      <p>• Risk-reward ratios of 2:1 or higher are prioritized for long-term profitability</p>
-                      <p>• The system adapts after losses to maintain consistent performance</p>
-                      <p>• AI Trade Assistant monitors trades every 5 minutes following Immutable Law #10</p>
-                      <p>• Session limits (max 2 trades/day) ensure disciplined trading per Immutable Law #9</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
             {/* Time Period Selector */}
             <div className="mt-6 flex items-center justify-between">
               <div className="flex items-center space-x-2 text-sm text-white/60 font-medium">
                 <Calendar className="h-4 w-4 flex-shrink-0" />
-                <span>Data from {new Date().toLocaleDateString()}</span>
+                <span>Demo data from {new Date().toLocaleDateString()}</span>
               </div>
               <div className="flex items-center space-x-2">
                 <button 

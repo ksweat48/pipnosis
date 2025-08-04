@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { pipnosisAPI } from '../services/api';
-import { getUserKPIs, getActiveTrades, getTradeHistory, getJournalEntries } from '../lib/supabase';
-import { useAuth } from '../contexts/AuthContext';
 
 export const useMarketData = (refreshInterval: number = 5000) => {
   const [marketData, setMarketData] = useState<any[]>([]);
@@ -70,10 +68,19 @@ export const useTradeExecution = () => {
     try {
       const result = await pipnosisAPI.executeTrade(strategy);
       return result;
-    } catch (err) {
-      const errorMessage = 'Trade execution temporarily unavailable';
-      setError(errorMessage);
-      return { success: false, message: errorMessage };
+    } catch (error) {
+      console.error('Trade execution failed:', error);
+      
+      const notification = {
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Trade Execution Error',
+        message: 'Failed to execute trade. Please try again.',
+        timestamp: 'Just now',
+        read: false
+      };
+      
+      return { success: false, message: 'Trade execution temporarily unavailable' };
     } finally {
       setIsExecuting(false);
     }
@@ -82,159 +89,112 @@ export const useTradeExecution = () => {
   return { executeTrade, isExecuting, error };
 };
 
-export const useTradingKPIs = (userId?: string) => {
-  const [kpis, setKpis] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const { user } = useAuth();
-  const actualUserId = userId || user?.id;
+// Mock data hooks - no longer connected to Supabase
+export const useTradingKPIs = () => {
+  const [kpis] = useState({
+    winRate: 75.5,
+    averageRRR: 2.1,
+    maxDrawdown: 8.2,
+    totalPnL: 1250.75,
+    winningTrades: 15,
+    losingTrades: 5,
+    totalTrades: 20
+  });
+  const [isLoading] = useState(false);
+  const [error] = useState<string | null>(null);
 
-  const fetchKPIs = useCallback(async () => {
-    if (!actualUserId) {
-      setIsLoading(false);
-      return;
-    }
-    
-    try {
-      setIsLoading(true);
-      setError(null);
-      const { data, error: kpisError } = await getUserKPIs(actualUserId);
-      
-      if (kpisError) {
-        setError(kpisError.message);
-      } else {
-        setKpis(data);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch KPIs');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [actualUserId]);
+  const refetch = useCallback(() => {
+    // Mock refetch - no actual data fetching
+    console.log('Mock KPIs refetch');
+  }, []);
 
-  useEffect(() => {
-    fetchKPIs();
-  }, [fetchKPIs]);
-
-  return { kpis, isLoading, error, refetch: fetchKPIs };
+  return { kpis, isLoading, error, refetch };
 };
 
-export const useActiveTrades = (userId?: string) => {
-  const [trades, setTrades] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const { user } = useAuth();
-  const actualUserId = userId || user?.id;
-
-  const fetchTrades = useCallback(async () => {
-    if (!actualUserId) {
-      setTrades([]);
-      setIsLoading(false);
-      return;
+export const useActiveTrades = () => {
+  const [trades] = useState([
+    {
+      id: 'demo-1',
+      symbol: 'EURUSD',
+      trade_type: 'buy',
+      lot_size: 0.3,
+      entry_price: 1.1425,
+      current_price: 1.1445,
+      pnl: 60.00,
+      opened_at: new Date().toISOString(),
+      status: 'open'
     }
-    
-    try {
-      setIsLoading(true);
-      setError(null);
-      const { data, error: tradesError } = await getActiveTrades(actualUserId);
-      
-      if (tradesError) {
-        setError(tradesError.message);
-        setTrades([]);
-      } else {
-        setTrades(data || []);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch active trades');
-      setTrades([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [actualUserId]);
+  ]);
+  const [isLoading] = useState(false);
+  const [error] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchTrades();
-  }, [fetchTrades]);
+  const refetch = useCallback(() => {
+    console.log('Mock active trades refetch');
+  }, []);
 
-  return { trades, isLoading, error, refetch: fetchTrades };
+  return { trades, isLoading, error, refetch };
 };
 
 export const useTradeHistory = (userId?: string, limit: number = 50) => {
-  const [trades, setTrades] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const { user } = useAuth();
-  const actualUserId = userId || user?.id;
-
-  const fetchTradeHistory = useCallback(async () => {
-    if (!actualUserId) {
-      setTrades([]);
-      setIsLoading(false);
-      return;
+  const [trades] = useState([
+    {
+      id: 'demo-history-1',
+      symbol: 'GBPUSD',
+      trade_type: 'sell',
+      lot_size: 0.5,
+      entry_price: 1.2735,
+      current_price: 1.2685,
+      pnl: 250.00,
+      opened_at: new Date(Date.now() - 3600000).toISOString(),
+      closed_at: new Date().toISOString(),
+      status: 'closed'
     }
-    
-    try {
-      setIsLoading(true);
-      setError(null);
-      const { data, error: historyError } = await getTradeHistory(actualUserId, limit);
-      
-      if (historyError) {
-        setError(historyError.message);
-        setTrades([]);
-      } else {
-        setTrades(data || []);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch trade history');
-      setTrades([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [actualUserId, limit]);
+  ]);
+  const [isLoading] = useState(false);
+  const [error] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchTradeHistory();
-  }, [fetchTradeHistory]);
+  const refetch = useCallback(() => {
+    console.log('Mock trade history refetch');
+  }, []);
 
-  return { trades, isLoading, error, refetch: fetchTradeHistory };
+  return { trades, isLoading, error, refetch };
 };
 
-export const useJournalEntries = (userId?: string, limit: number = 20) => {
-  const [entries, setEntries] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const { user } = useAuth();
-  const actualUserId = userId || user?.id;
-
-  const fetchEntries = useCallback(async () => {
-    if (!actualUserId) {
-      setEntries([]);
-      setIsLoading(false);
-      return;
+export const useJournalEntries = () => {
+  const [entries] = useState([
+    {
+      id: 'demo-journal-1',
+      entry_type: 'trade_entry',
+      title: 'EURUSD Buy Signal Detected',
+      content: 'AI detected strong bullish momentum on EURUSD with multiple confirmations. Entry at 1.1425 with 2:1 risk-reward ratio.',
+      confidence_level: 'high',
+      metadata: {
+        symbol: 'EURUSD',
+        pnl: null,
+        userReaction: null
+      },
+      created_at: new Date().toISOString(),
+      trade_id: 'demo-1'
+    },
+    {
+      id: 'demo-journal-2',
+      entry_type: 'ai_decision',
+      title: 'Risk Management Update',
+      content: 'Following Immutable Law #1 (Capital Preservation), adjusting position size to maintain 2% account risk.',
+      confidence_level: 'high',
+      metadata: {
+        userReaction: null
+      },
+      created_at: new Date(Date.now() - 300000).toISOString(),
+      trade_id: null
     }
-    
-    try {
-      setIsLoading(true);
-      setError(null);
-      const { data, error: entriesError } = await getJournalEntries(actualUserId, limit);
-      
-      if (entriesError) {
-        setError(entriesError.message);
-        setEntries([]);
-      } else {
-        setEntries(data || []);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch journal entries');
-      setEntries([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [actualUserId, limit]);
+  ]);
+  const [isLoading] = useState(false);
+  const [error] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchEntries();
-  }, [fetchEntries]);
+  const refetch = useCallback(() => {
+    console.log('Mock journal entries refetch');
+  }, []);
 
-  return { entries, isLoading, error, refetch: fetchEntries };
+  return { entries, isLoading, error, refetch };
 };

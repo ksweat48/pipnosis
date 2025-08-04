@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
-import { BookOpen, Clock, TrendingUp, TrendingDown, AlertCircle, Pause, Target, ThumbsUp, RotateCcw, MessageCircle } from 'lucide-react';
+import { BookOpen, Clock, TrendingUp, TrendingDown, AlertCircle, Target, ThumbsUp, RotateCcw, MessageCircle } from 'lucide-react';
 import { useJournalEntries } from '../hooks/useAPI';
-import { useAuth } from '../contexts/AuthContext';
 
 interface TradeJournalProps {
   onReaction: (entryId: string, reaction: 'thumbs-up' | 'explain-more') => void;
 }
 
 export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
-  const { user } = useAuth();
   const { entries, isLoading, error, refetch } = useJournalEntries();
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
 
@@ -97,8 +95,8 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
         ) : entries.length === 0 ? (
           <div className="p-8 text-center">
             <BookOpen className="h-16 w-16 text-white/20 mx-auto mb-4" />
-            <p className="text-white/60 font-semibold">No trading activity yet</p>
-            <p className="text-white/40 text-sm mt-2 font-medium">AI decisions will appear here in real-time</p>
+            <p className="text-white/60 font-semibold">Demo Trading Journal</p>
+            <p className="text-white/40 text-sm mt-2 font-medium">AI decisions will appear here during live trading</p>
           </div>
         ) : (
           <div className="divide-y divide-white/10">
