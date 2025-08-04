@@ -9,8 +9,27 @@ const mockSupabase = {
       // Mock auth state change listener
       return { data: { subscription: { unsubscribe: () => {} } } };
     },
-    signInWithPassword: (credentials: any) => Promise.resolve({ error: null }),
-    signUp: (credentials: any) => Promise.resolve({ error: null }),
+    signInWithPassword: (credentials: any) => {
+      // Mock sign-in behavior - only allow demo credentials
+      if (credentials.email === 'demo@pipnosis.com' && credentials.password === 'demo123') {
+        return Promise.resolve({ 
+          data: { user: { email: credentials.email } }, 
+          error: null 
+        });
+      } else {
+        return Promise.resolve({ 
+          data: { user: null }, 
+          error: { message: 'Invalid login credentials. Try demo@pipnosis.com / demo123' } 
+        });
+      }
+    },
+    signUp: (credentials: any) => {
+      // Mock sign-up behavior - always succeeds but requires email confirmation
+      return Promise.resolve({ 
+        data: { user: null }, 
+        error: { message: 'Demo Mode: Account created! In production, check your email for confirmation.' } 
+      });
+    },
     signOut: () => Promise.resolve({ error: null })
   }
 };
