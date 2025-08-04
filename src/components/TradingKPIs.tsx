@@ -140,28 +140,28 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
 
       <div className="p-6">
         {/* Summary Stats - Always visible */}
-        <div className="grid grid-cols-3 gap-6 mb-8 p-6 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10">
+        <div className="grid grid-cols-3 gap-3 sm:gap-6 mb-6 sm:mb-8 p-4 sm:p-6 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10">
           <div className="text-center">
-            <div className="text-3xl font-bold text-green-400">{profitableTrades}</div>
-            <div className="text-sm text-white/60 font-semibold uppercase tracking-wide">Winning Trades</div>
+            <div className="text-xl sm:text-2xl lg:text-3xl font-bold text-green-400">{profitableTrades}</div>
+            <div className="text-xs sm:text-sm text-white/60 font-semibold uppercase tracking-wide">Winning</div>
           </div>
           <div className="text-center">
-            <div className="text-3xl font-bold text-red-400">{losingTrades}</div>
-            <div className="text-sm text-white/60 font-semibold uppercase tracking-wide">Losing Trades</div>
+            <div className="text-xl sm:text-2xl lg:text-3xl font-bold text-red-400">{losingTrades}</div>
+            <div className="text-xs sm:text-sm text-white/60 font-semibold uppercase tracking-wide">Losing</div>
           </div>
           <div className="text-center">
-            <div className="text-3xl font-bold text-emerald-400">{totalTrades}</div>
-            <div className="text-sm text-white/60 font-semibold uppercase tracking-wide">Total Trades</div>
+            <div className="text-xl sm:text-2xl lg:text-3xl font-bold text-emerald-400">{totalTrades}</div>
+            <div className="text-xs sm:text-sm text-white/60 font-semibold uppercase tracking-wide">Total</div>
           </div>
         </div>
 
         {/* Demo Data Notice */}
-        <div className="p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
+        <div className="p-4 sm:p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
           <div className="flex items-start space-x-4">
             <BarChart3 className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
             <div>
-              <h4 className="text-emerald-300 font-bold text-lg mb-3">Demo Trading Performance</h4>
-              <div className="space-y-2 text-emerald-200 font-medium">
+              <h4 className="text-emerald-300 font-bold text-base sm:text-lg mb-3">Demo Trading Performance</h4>
+              <div className="space-y-2 text-emerald-200 font-medium text-sm sm:text-base">
                 <p>• Demo account showing {(kpis?.winRate || 0).toFixed(1)}% win rate with AI trading strategies</p>
                 <p>• Risk-reward ratio of {(kpis?.averageRRR || 0).toFixed(1)}:1 demonstrates strong profit potential</p>
                 <p>• Maximum drawdown of {(kpis?.maxDrawdown || 0).toFixed(1)}% shows excellent capital protection</p>
@@ -175,21 +175,21 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
         {/* Detailed KPIs - Only show when expanded */}
         {isExpanded && (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mt-8">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6 mt-6 sm:mt-8">
               {kpiItems.map((kpi) => (
                 <div
                   key={kpi.id}
-                  className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10 hover:border-white/20 transition-all duration-200"
+                  className="bg-white/5 backdrop-blur-sm rounded-2xl p-3 sm:p-4 lg:p-6 border border-white/10 hover:border-white/20 transition-all duration-200"
                 >
                   <div className="flex flex-col space-y-4">
                     <div className="flex items-center space-x-3">
                       <kpi.icon className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                      <h4 className="text-white font-bold truncate">
+                      <h4 className="text-white font-bold truncate text-sm sm:text-base">
                         {kpi.label}
                       </h4>
                     </div>
                     
-                    <div className={`text-3xl font-bold ${getPerformanceColor(kpi.rawValue, kpi.type)} text-center`}>
+                    <div className={`text-lg sm:text-xl lg:text-2xl xl:text-3xl font-bold ${getPerformanceColor(kpi.rawValue, kpi.type)} text-center`}>
                       {kpi.value}
                     </div>
                     
@@ -211,7 +211,7 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
                     </div>
                     
                     <div className="flex items-center justify-between">
-                      <p className="text-sm text-white/50 flex-1 font-medium">
+                      <p className="text-xs sm:text-sm text-white/50 flex-1 font-medium">
                         {kpi.description}
                       </p>
                     </div>

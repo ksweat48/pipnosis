@@ -62,14 +62,15 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
 
   return (
     <div className="glass-card">
-      <div className="p-6 border-b border-white/10">
+      <div className="p-4 sm:p-6 border-b border-white/10">
         <div className="flex items-center justify-between">
-          <h3 className="text-xl font-bold text-white flex items-center space-x-3">
+          <h3 className="text-lg sm:text-xl font-bold text-white flex items-center space-x-2 sm:space-x-3">
             <BookOpen className="h-5 w-5 text-emerald-400" />
-            <span>Pipnosis Trade Journal</span>
+            <span className="hidden sm:inline">Pipnosis Trade Journal</span>
+            <span className="sm:hidden">Trade Journal</span>
             {isLoading && <div className="animate-spin h-5 w-5 border-2 border-emerald-500 border-t-transparent rounded-full"></div>}
           </h3>
-          <div className="text-sm text-white/60 font-medium">
+          <div className="text-xs sm:text-sm text-white/60 font-medium">
             AI Decision Feed
           </div>
         </div>
@@ -77,26 +78,26 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
 
       <div className="max-h-96 overflow-y-auto">
         {isLoading ? (
-          <div className="p-8 text-center">
-            <div className="animate-spin h-12 w-12 border-2 border-emerald-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-            <p className="text-white/60 font-medium">Loading journal entries...</p>
+          <div className="p-6 sm:p-8 text-center">
+            <div className="animate-spin h-8 w-8 sm:h-12 sm:w-12 border-2 border-emerald-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p className="text-white/60 font-medium text-sm sm:text-base">Loading journal entries...</p>
           </div>
         ) : error ? (
-          <div className="p-8 text-center">
-            <AlertCircle className="h-16 w-16 mx-auto mb-4 text-red-400" />
-            <p className="text-red-400 font-medium">Error loading journal entries</p>
+          <div className="p-6 sm:p-8 text-center">
+            <AlertCircle className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-4 text-red-400" />
+            <p className="text-red-400 font-medium text-sm sm:text-base">Error loading journal entries</p>
             <button 
               onClick={refetch}
-              className="mt-3 text-sm text-red-300 hover:text-red-200 underline font-medium"
+              className="mt-3 text-xs sm:text-sm text-red-300 hover:text-red-200 underline font-medium"
             >
               Try again
             </button>
           </div>
         ) : entries.length === 0 ? (
-          <div className="p-8 text-center">
-            <BookOpen className="h-16 w-16 text-white/20 mx-auto mb-4" />
-            <p className="text-white/60 font-semibold">Demo Trading Journal</p>
-            <p className="text-white/40 text-sm mt-2 font-medium">AI decisions will appear here during live trading</p>
+          <div className="p-6 sm:p-8 text-center">
+            <BookOpen className="h-12 w-12 sm:h-16 sm:w-16 text-white/20 mx-auto mb-4" />
+            <p className="text-white/60 font-semibold text-sm sm:text-base">Demo Trading Journal</p>
+            <p className="text-white/40 text-xs sm:text-sm mt-2 font-medium">AI decisions will appear here during live trading</p>
           </div>
         ) : (
           <div className="divide-y divide-white/10">
@@ -105,12 +106,12 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
               const isExpanded = expandedEntry === entry.id;
               
               return (
-                <div key={entry.id} className="p-6 hover:bg-white/5 transition-all duration-200">
+                <div key={entry.id} className="p-4 sm:p-6 hover:bg-white/5 transition-all duration-200">
                   <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center space-x-4 min-w-0 flex-1">
+                    <div className="flex items-center space-x-3 sm:space-x-4 min-w-0 flex-1">
                       {getEntryIcon(entry.entry_type)}
                       <div className="min-w-0 flex-1">
-                        <h4 className="font-bold text-white text-lg truncate">{entry.title}</h4>
+                        <h4 className="font-bold text-white text-sm sm:text-base lg:text-lg truncate">{entry.title}</h4>
                         <div className="flex flex-wrap items-center gap-2 mt-2">
                           <span className={`px-3 py-1 rounded-full text-xs font-bold ${tag.color}`}>
                             {tag.text}
@@ -131,14 +132,14 @@ export const TradeJournal: React.FC<TradeJournalProps> = ({ onReaction }) => {
                       </div>
                     </div>
                     
-                    <div className="flex items-center space-x-2 text-sm text-white/40 flex-shrink-0 ml-4 font-medium">
+                    <div className="flex items-center space-x-1 sm:space-x-2 text-xs sm:text-sm text-white/40 flex-shrink-0 ml-2 sm:ml-4 font-medium">
                       <Clock className="h-3 w-3" />
                       <span>{formatTime(entry.created_at)}</span>
                     </div>
                   </div>
 
-                  <div className="ml-9">
-                    <p className="text-white/80 leading-relaxed mb-4 font-medium">
+                  <div className="ml-6 sm:ml-9">
+                    <p className="text-white/80 leading-relaxed mb-4 font-medium text-sm sm:text-base">
                       {entry.content}
                     </p>
 

@@ -190,24 +190,24 @@ const Dashboard: React.FC = () => {
       
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
         {/* Hero Section */}
-        <div className="text-center mb-16">
+        <div className="text-center mb-8 sm:mb-12 lg:mb-16">
           <div className="space-y-6">
-            <div className="inline-flex items-center space-x-3 px-6 py-3 glass-card">
-              <div className="w-8 h-8 rounded-lg overflow-hidden">
+            <div className="inline-flex items-center space-x-2 sm:space-x-3 px-4 sm:px-6 py-2 sm:py-3 glass-card">
+              <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg overflow-hidden">
                 <img 
                   src="/Pipnosis icon.png" 
                   alt="Pipnosis Logo" 
                   className="w-full h-full object-cover"
                 />
               </div>
-              <span className="text-emerald-400 font-medium">AI Trading Assistant</span>
+              <span className="text-sm sm:text-base text-emerald-400 font-medium">AI Trading Assistant</span>
             </div>
             
             <div className="space-y-4">
-              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold bg-gradient-to-r from-emerald-400 via-green-500 to-lime-400 bg-clip-text text-transparent leading-tight">
+              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold bg-gradient-to-r from-emerald-400 via-green-500 to-lime-400 bg-clip-text text-transparent leading-tight px-4">
                 Pipnosis AI Trading
               </h1>
-              <p className="text-xl sm:text-2xl text-white/80 max-w-2xl mx-auto leading-relaxed font-light">
+              <p className="text-lg sm:text-xl lg:text-2xl text-white/80 max-w-2xl mx-auto leading-relaxed font-light px-4">
                 Tell me your goal. I'll handle the trading.
               </p>
             </div>
@@ -215,9 +215,9 @@ const Dashboard: React.FC = () => {
         </div>
         
         {/* Main Trading Interface */}
-        <div className="space-y-12">
+        <div className="space-y-6 sm:space-y-8 lg:space-y-12">
           {/* Market Chart Section */}
-          <div className="glass-card p-8">
+          <div className="glass-card p-4 sm:p-6 lg:p-8">
             <MarketChart
               symbol={selectedSymbol}
               onSymbolChange={handleSymbolChange}
@@ -226,7 +226,7 @@ const Dashboard: React.FC = () => {
           </div>
           
           {/* Prompt Input Section */}
-          <div className="glass-card p-8">
+          <div className="glass-card p-4 sm:p-6 lg:p-8">
             <PromptInput 
               onSubmit={handlePromptSubmit} 
               isLoading={isAnalyzing}
@@ -236,14 +236,14 @@ const Dashboard: React.FC = () => {
           
           {/* AI Analysis Loading State */}
           {isAnalyzing && (
-            <div className="glass-card p-12 text-center">
+            <div className="glass-card p-6 sm:p-8 lg:p-12 text-center">
               <div className="relative">
                 <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-green-500/20 rounded-full blur-xl"></div>
-                <div className="relative animate-spin h-12 w-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full mx-auto mb-6"></div>
+                <div className="relative animate-spin h-8 w-8 sm:h-12 sm:w-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full mx-auto mb-4 sm:mb-6"></div>
               </div>
-              <h3 className="text-2xl font-semibold text-white mb-3">AI Analyzing Market Conditions</h3>
-              <p className="text-white/70 text-lg">Generating optimal trading strategies...</p>
-              <p className="text-white/50 text-sm mt-3">This may take 10-30 seconds</p>
+              <h3 className="text-lg sm:text-xl lg:text-2xl font-semibold text-white mb-2 sm:mb-3">AI Analyzing Market Conditions</h3>
+              <p className="text-white/70 text-base sm:text-lg">Generating optimal trading strategies...</p>
+              <p className="text-white/50 text-sm mt-2 sm:mt-3">This may take 10-30 seconds</p>
             </div>
           )}
           
@@ -258,8 +258,8 @@ const Dashboard: React.FC = () => {
         </div>
         
         {/* Dashboard Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 mt-16">
-          <div className="xl:col-span-2 space-y-8">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8 mt-8 sm:mt-12 lg:mt-16">
+          <div className="xl:col-span-2 space-y-6 sm:space-y-8">
             <WebContainerNotice />
             
             <NotificationCenter
@@ -278,7 +278,7 @@ const Dashboard: React.FC = () => {
             <TradingKPIs />
           </div>
           
-          <div className="space-y-8">
+          <div className="space-y-6 sm:space-y-8">
             <TradeJournal onReaction={handleJournalReaction} />
             <TradingLaws />
           </div>

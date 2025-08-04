@@ -55,15 +55,15 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
 
   return (
     <div className="glass-card">
-      <div className="p-6 border-b border-white/10">
+      <div className="p-4 sm:p-6 border-b border-white/10">
         <div className="flex items-center justify-between">
-          <h3 className="text-xl font-bold text-white flex items-center space-x-3">
-            <div className="p-3 bg-emerald-500/20 rounded-xl">
+          <h3 className="text-lg sm:text-xl font-bold text-white flex items-center space-x-2 sm:space-x-3">
+            <div className="p-2 sm:p-3 bg-emerald-500/20 rounded-xl">
               <Bell className="h-5 w-5 text-emerald-400" />
             </div>
             <span>Notifications</span>
             {unreadCount > 0 && (
-              <span className="bg-red-500 text-white text-xs px-3 py-1 rounded-full animate-pulse font-bold">
+              <span className="bg-red-500 text-white text-xs px-2 sm:px-3 py-1 rounded-full animate-pulse font-bold">
                 {unreadCount}
               </span>
             )}
@@ -71,7 +71,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
           {isCollapsible && (
             <button
               onClick={() => setIsCollapsed(!isCollapsed)}
-              className="p-2 text-white/60 hover:text-white glass-button transition-all duration-200"
+              className="p-2 text-white/60 hover:text-white glass-button transition-all duration-200 flex-shrink-0"
             >
               {isCollapsed ? (
                 <ChevronDown className="h-5 w-5" />
@@ -86,35 +86,35 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       {!isCollapsed && (
         <div className="max-h-96 overflow-y-auto">
           {notifications.length === 0 ? (
-            <div className="p-8 text-center">
-              <Bell className="h-16 w-16 text-white/20 mx-auto mb-4" />
-              <p className="text-white/60 font-semibold">No notifications yet</p>
-              <p className="text-white/40 text-sm mt-2 font-medium">AI guidance will appear here when you have active trades</p>
+            <div className="p-6 sm:p-8 text-center">
+              <Bell className="h-12 w-12 sm:h-16 sm:w-16 text-white/20 mx-auto mb-4" />
+              <p className="text-white/60 font-semibold text-sm sm:text-base">No notifications yet</p>
+              <p className="text-white/40 text-xs sm:text-sm mt-2 font-medium">AI guidance will appear here when you have active trades</p>
             </div>
           ) : (
             <div className="divide-y divide-white/10">
               {notifications.map((notification) => (
                 <div
                   key={notification.id}
-                  className={`p-6 border-l-4 ${getNotificationBorder(notification.type)} ${getNotificationBg(notification.type)} ${
+                  className={`p-4 sm:p-6 border-l-4 ${getNotificationBorder(notification.type)} ${getNotificationBg(notification.type)} ${
                     !notification.read ? 'bg-white/5' : ''
                   }`}
                 >
                   <div className="flex items-start justify-between">
-                    <div className="flex items-start space-x-4 flex-1 min-w-0">
+                    <div className="flex items-start space-x-3 sm:space-x-4 flex-1 min-w-0">
                       {getNotificationIcon(notification.type)}
                       <div className="flex-1 min-w-0">
-                        <h4 className="font-bold text-white text-lg">{notification.title}</h4>
-                        <p className="text-white/70 mt-2 leading-relaxed font-medium">{notification.message}</p>
-                        <p className="text-white/40 text-sm mt-3 font-medium">{notification.timestamp}</p>
+                        <h4 className="font-bold text-white text-base sm:text-lg">{notification.title}</h4>
+                        <p className="text-white/70 mt-2 leading-relaxed font-medium text-sm sm:text-base">{notification.message}</p>
+                        <p className="text-white/40 text-xs sm:text-sm mt-2 sm:mt-3 font-medium">{notification.timestamp}</p>
                       </div>
                     </div>
                     
-                    <div className="flex flex-col items-end space-y-2 ml-4">
+                    <div className="flex flex-col items-end space-y-2 ml-2 sm:ml-4 flex-shrink-0">
                       {!notification.read && (
                         <button
                           onClick={() => onMarkAsRead(notification.id)}
-                          className="text-emerald-400 hover:text-emerald-300 text-sm font-medium whitespace-nowrap"
+                          className="text-emerald-400 hover:text-emerald-300 text-xs sm:text-sm font-medium whitespace-nowrap"
                         >
                           Mark read
                         </button>

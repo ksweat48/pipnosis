@@ -33,67 +33,67 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
   return (
     <div className="space-y-8">
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="glass-card p-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
+        <div className="glass-card p-3 sm:p-4 lg:p-6">
           <div className="flex flex-col space-y-4">
             <div className="flex items-center justify-between">
-              <div className={`p-3 rounded-2xl ${calculatedTodayPnL >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+              <div className={`p-2 sm:p-3 rounded-2xl ${calculatedTodayPnL >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
                 {calculatedTodayPnL >= 0 ? (
-                  <TrendingUp className="h-6 w-6 text-green-400" />
+                  <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 text-green-400" />
                 ) : (
-                  <TrendingDown className="h-6 w-6 text-red-400" />
+                  <TrendingDown className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 text-red-400" />
                 )}
               </div>
             </div>
             <div>
-              <p className="text-white/60 text-sm font-semibold uppercase tracking-wide">Today's P&L</p>
-              <p className={`text-3xl font-bold ${calculatedTodayPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              <p className="text-white/60 text-xs sm:text-sm font-semibold uppercase tracking-wide">Today's P&L</p>
+              <p className={`text-lg sm:text-xl lg:text-2xl xl:text-3xl font-bold ${calculatedTodayPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {calculatedTodayPnL >= 0 ? '+' : ''}${calculatedTodayPnL.toFixed(2)}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="glass-card p-6">
+        <div className="glass-card p-3 sm:p-4 lg:p-6">
           <div className="flex flex-col space-y-4">
             <div className="flex items-center justify-between">
-              <div className="p-3 bg-blue-500/20 rounded-2xl">
-                <BarChart3 className="h-6 w-6 text-blue-400" />
+              <div className="p-2 sm:p-3 bg-blue-500/20 rounded-2xl">
+                <BarChart3 className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 text-blue-400" />
               </div>
             </div>
             <div>
-              <p className="text-white/60 text-sm font-semibold uppercase tracking-wide">Weekly P&L</p>
-              <p className={`text-3xl font-bold ${calculatedWeeklyPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              <p className="text-white/60 text-xs sm:text-sm font-semibold uppercase tracking-wide">Weekly P&L</p>
+              <p className={`text-lg sm:text-xl lg:text-2xl xl:text-3xl font-bold ${calculatedWeeklyPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {calculatedWeeklyPnL >= 0 ? '+' : ''}${calculatedWeeklyPnL.toFixed(2)}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="glass-card p-6">
+        <div className="glass-card p-3 sm:p-4 lg:p-6">
           <div className="flex flex-col space-y-4">
             <div className="flex items-center justify-between">
-              <div className="p-3 bg-blue-500/20 rounded-2xl">
-                <Activity className="h-6 w-6 text-blue-400" />
+              <div className="p-2 sm:p-3 bg-blue-500/20 rounded-2xl">
+                <Activity className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 text-blue-400" />
               </div>
             </div>
             <div>
-              <p className="text-white/60 text-sm font-semibold uppercase tracking-wide">Open Trades</p>
-              <p className="text-3xl font-bold text-white">{activeTrades.length}</p>
+              <p className="text-white/60 text-xs sm:text-sm font-semibold uppercase tracking-wide">Open Trades</p>
+              <p className="text-lg sm:text-xl lg:text-2xl xl:text-3xl font-bold text-white">{activeTrades.length}</p>
             </div>
           </div>
         </div>
 
-        <div className="glass-card p-6">
+        <div className="glass-card p-3 sm:p-4 lg:p-6">
           <div className="flex flex-col space-y-4">
             <div className="flex items-center justify-between">
-              <div className="p-3 bg-purple-500/20 rounded-2xl">
-                <DollarSign className="h-6 w-6 text-purple-400" />
+              <div className="p-2 sm:p-3 bg-purple-500/20 rounded-2xl">
+                <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 text-purple-400" />
               </div>
             </div>
             <div>
-              <p className="text-white/60 text-sm font-semibold uppercase tracking-wide">Demo Balance</p>
-              <p className="text-3xl font-bold text-white">${(totalBalance || 0).toLocaleString()}</p>
+              <p className="text-white/60 text-xs sm:text-sm font-semibold uppercase tracking-wide">Demo Balance</p>
+              <p className="text-lg sm:text-xl lg:text-2xl xl:text-3xl font-bold text-white">${(totalBalance || 0).toLocaleString()}</p>
             </div>
           </div>
         </div>
