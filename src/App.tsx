@@ -296,11 +296,7 @@ export default function App() {
     <div>
       <Routes>
         <Route path="/auth" element={<AuthPage />} />
-        <Route path="/" element={
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        } />
+        <Route path="/" element={<Dashboard />} />
         <Route path="/waitlist" element={<LandingPage />} />
         <Route path="/admin/dashboard" element={
           <ProtectedRoute>
