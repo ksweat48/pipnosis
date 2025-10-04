@@ -3,12 +3,21 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from '@/hooks/useAuth';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { testSupabaseConnection, testDatabaseQuery } from '@/lib/test-connection';
 import App from './App.tsx';
 import './index.css';
 
 console.log('Application initializing...');
 console.log('Supabase URL:', import.meta.env.VITE_SUPABASE_URL);
 console.log('Supabase Key present:', !!import.meta.env.VITE_SUPABASE_ANON_KEY);
+
+testSupabaseConnection().then(result => {
+  console.log('Connection test result:', result);
+});
+
+testDatabaseQuery().then(result => {
+  console.log('Database query test result:', result);
+});
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
