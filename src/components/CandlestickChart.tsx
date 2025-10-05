@@ -21,6 +21,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const priceLinesRef = useRef<any[]>([]);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
@@ -101,10 +102,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   useEffect(() => {
     if (!isReady || !chartRef.current || !candlestickSeriesRef.current) return;
 
-    candlestickSeriesRef.current.setMarkers([]);
+    priceLinesRef.current.forEach(line => {
+      candlestickSeriesRef.current?.removePriceLine(line);
+    });
+    priceLinesRef.current = [];
 
     if (tradeLines?.entry) {
-      candlestickSeriesRef.current.createPriceLine({
+      const entryLine = candlestickSeriesRef.current.createPriceLine({
         price: tradeLines.entry,
         color: '#10b981',
         lineWidth: 2,
@@ -112,10 +116,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         axisLabelVisible: true,
         title: 'Entry',
       });
+      priceLinesRef.current.push(entryLine);
     }
 
     if (tradeLines?.stopLoss) {
-      candlestickSeriesRef.current.createPriceLine({
+      const stopLossLine = candlestickSeriesRef.current.createPriceLine({
         price: tradeLines.stopLoss,
         color: '#ef4444',
         lineWidth: 2,
@@ -123,10 +128,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         axisLabelVisible: true,
         title: 'Stop Loss',
       });
+      priceLinesRef.current.push(stopLossLine);
     }
 
     if (tradeLines?.takeProfit) {
-      candlestickSeriesRef.current.createPriceLine({
+      const takeProfitLine = candlestickSeriesRef.current.createPriceLine({
         price: tradeLines.takeProfit,
         color: '#22c55e',
         lineWidth: 2,
@@ -134,6 +140,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         axisLabelVisible: true,
         title: 'Take Profit',
       });
+      priceLinesRef.current.push(takeProfitLine);
     }
   }, [tradeLines, isReady]);
 
