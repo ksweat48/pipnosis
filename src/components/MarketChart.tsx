@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { BarChart3, RefreshCw } from 'lucide-react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { BarChart3, RefreshCw, Wifi, WifiOff, Database } from 'lucide-react';
 import { CandlestickChart } from './CandlestickChart';
 import { CandlestickData, Time } from 'lightweight-charts';
+import { marketDataService, MarketDataListener } from '../services/market-data';
+import { Timeframe, CandleData } from '../services/metaapi';
 
 interface MarketChartProps {
   symbol: string;
@@ -14,6 +16,16 @@ interface MarketChartProps {
   className?: string;
 }
 
+const TIMEFRAMES: { value: Timeframe; label: string }[] = [
+  { value: 'M1', label: '1 Min' },
+  { value: 'M5', label: '5 Min' },
+  { value: 'M15', label: '15 Min' },
+  { value: 'M30', label: '30 Min' },
+  { value: 'H1', label: '1 Hour' },
+  { value: 'H4', label: '4 Hour' },
+  { value: 'D1', label: 'Daily' },
+];
+
 export const MarketChart: React.FC<MarketChartProps> = ({
   symbol,
   onSymbolChange,
@@ -21,92 +33,117 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   className = ""
 }) => {
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [candleData, setCandleData] = useState<CandlestickData<Time>[]>([]);
+  const [timeframe, setTimeframe] = useState<Timeframe>('M15');
+  const [isConnected, setIsConnected] = useState(false);
+  const [dataSource, setDataSource] = useState<'live' | 'cache' | 'none'>('none');
+  const listenerRef = useRef<MarketDataListener | null>(null);
 
   const availablePairs = ['EURUSD', 'GBPUSD', 'XAUUSD'];
 
-  const generateCandlestickData = (symbol: string): CandlestickData<Time>[] => {
-    const basePrices: Record<string, number> = {
-      'EURUSD': 1.1425,
-      'GBPUSD': 1.2735,
-      'XAUUSD': 2045.50
-    };
-    const basePrice = basePrices[symbol] || 1.1425;
-    const isGold = symbol === 'XAUUSD';
-    const volatility = isGold ? 5 : 0.001;
+  const loadHistoricalData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
 
-    const data: CandlestickData<Time>[] = [];
-    const now = Date.now();
-    const fifteenMinutes = 15 * 60 * 1000;
+    try {
+      const candles = await marketDataService.getHistoricalData(symbol, timeframe, 500);
 
-    let currentPrice = basePrice;
+      if (candles.length === 0) {
+        setError('No market data available');
+        setDataSource('none');
+        return;
+      }
 
-    for (let i = 100; i >= 0; i--) {
-      const timestamp = Math.floor((now - (i * fifteenMinutes)) / 1000) as Time;
-
-      const open = currentPrice;
-      const direction = Math.random() > 0.5 ? 1 : -1;
-      const change = (Math.random() * volatility) * direction;
-      const close = open + change;
-      const high = Math.max(open, close) + (Math.random() * volatility * 0.5);
-      const low = Math.min(open, close) - (Math.random() * volatility * 0.5);
-
-      data.push({
-        time: timestamp,
-        open,
-        high,
-        low,
-        close
-      });
-
-      currentPrice = close;
+      const chartData = marketDataService.convertToCandlestickData(candles);
+      setCandleData(chartData);
+      setLastUpdate(new Date());
+      setDataSource('cache');
+      setIsConnected(marketDataService.isConnected());
+    } catch (err) {
+      console.error('Failed to load historical data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load market data');
+      setDataSource('none');
+    } finally {
+      setIsLoading(false);
     }
+  }, [symbol, timeframe]);
 
-    return data;
-  };
+  const subscribeToLiveData = useCallback(() => {
+    const listener: MarketDataListener = {
+      onCandleUpdate: (candle: CandleData) => {
+        if (candle.symbol === symbol && candle.timeframe === timeframe) {
+          const chartCandle: CandlestickData<Time> = {
+            time: Math.floor(candle.time.getTime() / 1000) as Time,
+            open: candle.open,
+            high: candle.high,
+            low: candle.low,
+            close: candle.close
+          };
+
+          setCandleData(prev => {
+            const existing = prev.findIndex(c => c.time === chartCandle.time);
+            if (existing >= 0) {
+              const updated = [...prev];
+              updated[existing] = chartCandle;
+              return updated;
+            }
+            return [...prev, chartCandle].slice(-500);
+          });
+          setLastUpdate(new Date());
+          setDataSource('live');
+        }
+      },
+      onError: (error: Error) => {
+        console.error('Live data error:', error);
+        setError(error.message);
+        setIsConnected(false);
+      }
+    };
+
+    listenerRef.current = listener;
+    marketDataService.subscribeToSymbol(symbol, timeframe, listener).catch(err => {
+      console.error('Failed to subscribe:', err);
+      setError('Failed to connect to live data feed');
+    });
+  }, [symbol, timeframe]);
 
   useEffect(() => {
-    setIsLoading(true);
+    const initializeService = async () => {
+      try {
+        await marketDataService.initialize();
+        setIsConnected(true);
+      } catch (err) {
+        console.warn('MetaApi not available, using cached data only:', err);
+        setIsConnected(false);
+      }
+    };
 
-    setTimeout(() => {
-      const newData = generateCandlestickData(symbol);
-      setCandleData(newData);
-      setIsLoading(false);
-      setLastUpdate(new Date());
-    }, 500);
+    initializeService();
 
-    const interval = setInterval(() => {
-      setCandleData(prev => {
-        if (prev.length === 0) return prev;
+    return () => {
+      if (listenerRef.current) {
+        marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
+      }
+    };
+  }, []);
 
-        const lastCandle = prev[prev.length - 1];
-        const isGold = symbol === 'XAUUSD';
-        const volatility = isGold ? 5 : 0.001;
+  useEffect(() => {
+    loadHistoricalData();
+  }, [loadHistoricalData]);
 
-        const now = Math.floor(Date.now() / 1000) as Time;
-        const direction = Math.random() > 0.5 ? 1 : -1;
-        const change = (Math.random() * volatility) * direction;
-        const close = lastCandle.close + change;
-        const open = lastCandle.close;
-        const high = Math.max(open, close) + (Math.random() * volatility * 0.3);
-        const low = Math.min(open, close) - (Math.random() * volatility * 0.3);
+  useEffect(() => {
+    if (isConnected) {
+      subscribeToLiveData();
+    }
 
-        const newCandle: CandlestickData<Time> = {
-          time: now,
-          open,
-          high,
-          low,
-          close
-        };
-
-        return [...prev.slice(-100), newCandle];
-      });
-      setLastUpdate(new Date());
-    }, 15000);
-
-    return () => clearInterval(interval);
-  }, [symbol]);
+    return () => {
+      if (listenerRef.current) {
+        marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
+      }
+    };
+  }, [symbol, timeframe, isConnected, subscribeToLiveData]);
 
   const currentPrice = candleData.length > 0 ? candleData[candleData.length - 1].close : 0;
 
@@ -135,12 +172,38 @@ export const MarketChart: React.FC<MarketChartProps> = ({
             ))}
           </select>
 
+          <select
+            value={timeframe}
+            onChange={(e) => setTimeframe(e.target.value as Timeframe)}
+            className="bg-white/5 backdrop-blur-sm border border-white/20 rounded-xl px-3 py-2 sm:px-4 sm:py-3 text-sm sm:text-base text-white font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+          >
+            {TIMEFRAMES.map(tf => (
+              <option key={tf.value} value={tf.value} className="bg-slate-900">{tf.label}</option>
+            ))}
+          </select>
+
           <div className="text-right">
-            <div className="text-xs sm:text-sm text-white/50 font-medium">M15</div>
+            <div className="flex items-center space-x-1">
+              {isConnected ? (
+                <Wifi className="h-3 w-3 text-emerald-400" />
+              ) : (
+                <WifiOff className="h-3 w-3 text-red-400" />
+              )}
+              {dataSource === 'cache' && <Database className="h-3 w-3 text-blue-400" />}
+              <span className="text-xs sm:text-sm text-white/50 font-medium">
+                {dataSource === 'live' ? 'Live' : dataSource === 'cache' ? 'Cached' : 'Offline'}
+              </span>
+            </div>
             <div className="text-xs text-white/40">{lastUpdate ? lastUpdate.toLocaleTimeString([], {timeStyle: 'short'}) : 'Loading...'}</div>
           </div>
         </div>
       </div>
+
+      {error && (
+        <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
+          <p className="text-red-400 text-sm">{error}</p>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="relative bg-gradient-to-br from-slate-900/50 to-slate-800/50 backdrop-blur-sm rounded-2xl border border-white/10 h-64 sm:h-80 lg:h-96 flex items-center justify-center overflow-hidden">
@@ -149,10 +212,11 @@ export const MarketChart: React.FC<MarketChartProps> = ({
               <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-green-500/20 rounded-full blur-xl"></div>
               <RefreshCw className="relative h-8 w-8 sm:h-12 sm:w-12 text-emerald-400 animate-spin mx-auto" />
             </div>
-            <p className="text-white/70 text-base sm:text-lg font-medium">Loading {symbol} chart...</p>
+            <p className="text-white/70 text-base sm:text-lg font-medium">Loading {symbol} {timeframe} chart...</p>
+            <p className="text-white/50 text-sm mt-2">Connecting to MetaApi...</p>
           </div>
         </div>
-      ) : (
+      ) : candleData.length > 0 ? (
         <div className="space-y-4">
           <div className="text-center">
             <div className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">
@@ -166,6 +230,14 @@ export const MarketChart: React.FC<MarketChartProps> = ({
             tradeLines={tradeLines}
             height={384}
           />
+        </div>
+      ) : (
+        <div className="relative bg-gradient-to-br from-slate-900/50 to-slate-800/50 backdrop-blur-sm rounded-2xl border border-white/10 h-64 sm:h-80 lg:h-96 flex items-center justify-center">
+          <div className="text-center">
+            <Database className="h-12 w-12 text-white/30 mx-auto mb-4" />
+            <p className="text-white/70 text-lg font-medium">No market data available</p>
+            <p className="text-white/50 text-sm mt-2">Please configure MetaApi credentials</p>
+          </div>
         </div>
       )}
 
