@@ -112,15 +112,18 @@ class MetaApiService {
   ): Promise<CandleData[]> {
     await this.ensureInitialized();
 
+    if (!this.account) {
+      throw new Error('MetaApi account not initialized');
+    }
+
     try {
-      const endTime = new Date();
       const calculatedStartTime = startTime || this.calculateStartTime(timeframe, limit);
 
-      const candles = await this.connection.getHistoricalCandles(
+      const candles = await this.account.getHistoricalCandles(
         symbol,
         timeframe,
         calculatedStartTime,
-        endTime
+        limit
       );
 
       return candles.map((candle: any) => ({
