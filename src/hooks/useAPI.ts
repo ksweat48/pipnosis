@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { pipnosisAPI } from '../services/api';
+import { simulatedTradingService } from '../services/simulated-trading';
+import { supabase } from '@/lib/supabase';
 
 export const useMarketData = (refreshInterval: number = 5000) => {
   const [marketData, setMarketData] = useState<any[]>([]);
@@ -111,90 +113,126 @@ export const useTradingKPIs = () => {
   return { kpis, isLoading, error, refetch };
 };
 
-export const useActiveTrades = () => {
-  const [trades] = useState([
-    {
-      id: 'demo-1',
-      symbol: 'EURUSD',
-      trade_type: 'buy',
-      lot_size: 0.3,
-      entry_price: 1.1425,
-      current_price: 1.1445,
-      pnl: 60.00,
-      opened_at: new Date().toISOString(),
-      status: 'open'
+export const useActiveTrades = (userId?: string) => {
+  const [trades, setTrades] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTrades = useCallback(async () => {
+    if (!userId) {
+      setTrades([]);
+      return;
     }
-  ]);
-  const [isLoading] = useState(false);
-  const [error] = useState<string | null>(null);
 
-  const refetch = useCallback(() => {
-    console.log('Mock active trades refetch');
-  }, []);
+    setIsLoading(true);
+    setError(null);
 
-  return { trades, isLoading, error, refetch };
+    try {
+      const positions = await simulatedTradingService.getOpenPositions(userId);
+      setTrades(positions.map(p => ({
+        id: p.id,
+        symbol: p.symbol,
+        trade_type: p.tradeType,
+        lot_size: p.lotSize,
+        entry_price: p.entryPrice,
+        current_price: p.currentPrice || p.entryPrice,
+        pnl: p.pnl,
+        opened_at: p.openedAt,
+        status: p.status
+      })));
+    } catch (err) {
+      console.error('Failed to fetch active trades:', err);
+      setError('Failed to load active trades');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    fetchTrades();
+  }, [fetchTrades]);
+
+  return { trades, isLoading, error, refetch: fetchTrades };
 };
 
 export const useTradeHistory = (userId?: string, limit: number = 50) => {
-  const [trades] = useState([
-    {
-      id: 'demo-history-1',
-      symbol: 'GBPUSD',
-      trade_type: 'sell',
-      lot_size: 0.5,
-      entry_price: 1.2735,
-      current_price: 1.2685,
-      pnl: 250.00,
-      opened_at: new Date(Date.now() - 3600000).toISOString(),
-      closed_at: new Date().toISOString(),
-      status: 'closed'
+  const [trades, setTrades] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchHistory = useCallback(async () => {
+    if (!userId) {
+      setTrades([]);
+      return;
     }
-  ]);
-  const [isLoading] = useState(false);
-  const [error] = useState<string | null>(null);
 
-  const refetch = useCallback(() => {
-    console.log('Mock trade history refetch');
-  }, []);
+    setIsLoading(true);
+    setError(null);
 
-  return { trades, isLoading, error, refetch };
+    try {
+      const history = await simulatedTradingService.getTradeHistory(userId, limit);
+      setTrades(history.map(t => ({
+        id: t.id,
+        symbol: t.symbol,
+        trade_type: t.tradeType,
+        lot_size: t.lotSize,
+        entry_price: t.entryPrice,
+        current_price: t.currentPrice || t.entryPrice,
+        pnl: t.pnl,
+        opened_at: t.openedAt,
+        closed_at: t.closedAt,
+        status: t.status
+      })));
+    } catch (err) {
+      console.error('Failed to fetch trade history:', err);
+      setError('Failed to load trade history');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId, limit]);
+
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
+
+  return { trades, isLoading, error, refetch: fetchHistory };
 };
 
-export const useJournalEntries = () => {
-  const [entries] = useState([
-    {
-      id: 'demo-journal-1',
-      entry_type: 'trade_entry',
-      title: 'EURUSD Buy Signal Detected',
-      content: 'AI detected strong bullish momentum on EURUSD with multiple confirmations. Entry at 1.1425 with 2:1 risk-reward ratio.',
-      confidence_level: 'high',
-      metadata: {
-        symbol: 'EURUSD',
-        pnl: null,
-        userReaction: null
-      },
-      created_at: new Date().toISOString(),
-      trade_id: 'demo-1'
-    },
-    {
-      id: 'demo-journal-2',
-      entry_type: 'ai_decision',
-      title: 'Risk Management Update',
-      content: 'Following Immutable Law #1 (Capital Preservation), adjusting position size to maintain 2% account risk.',
-      confidence_level: 'high',
-      metadata: {
-        userReaction: null
-      },
-      created_at: new Date(Date.now() - 300000).toISOString(),
-      trade_id: null
+export const useJournalEntries = (userId?: string, limit: number = 20) => {
+  const [entries, setEntries] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchEntries = useCallback(async () => {
+    if (!userId) {
+      setEntries([]);
+      return;
     }
-  ]);
-  const [isLoading] = useState(false);
-  const [error] = useState<string | null>(null);
 
-  const refetch = useCallback(() => {
-    console.log('Mock journal entries refetch');
-  }, []);
+    setIsLoading(true);
+    setError(null);
 
-  return { entries, isLoading, error, refetch };
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('journal_entries')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (fetchError) throw fetchError;
+      setEntries(data || []);
+    } catch (err) {
+      console.error('Failed to fetch journal entries:', err);
+      setError('Failed to load journal entries');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId, limit]);
+
+  useEffect(() => {
+    fetchEntries();
+  }, [fetchEntries]);
+
+  return { entries, isLoading, error, refetch: fetchEntries };
 };

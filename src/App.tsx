@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useUserBalance } from '@/hooks/useUserBalance';
 import { Header } from './components/Header';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { PromptInput } from './components/PromptInput';
@@ -15,7 +16,10 @@ import { WebContainerNotice } from './components/WebContainerNotice';
 import { LandingPage } from './components/LandingPage';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AuthPage } from './pages/AuthPage';
-import { usePromptAnalysis, useTradeExecution, useMarketData } from './hooks/useAPI';
+import { ActivePositions } from './components/ActivePositions';
+import { TradeConfirmationModal } from './components/TradeConfirmationModal';
+import { usePromptAnalysis, useMarketData } from './hooks/useAPI';
+import { simulatedTradingService } from './services/simulated-trading';
 
 interface StrategyOption {
   id: string;
@@ -44,6 +48,7 @@ interface Notification {
 }
 
 const Dashboard: React.FC = () => {
+  const { user } = useAuth();
   const [strategyOptions, setStrategyOptions] = useState<StrategyOption[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState('EURUSD');
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -52,13 +57,14 @@ const Dashboard: React.FC = () => {
     stopLoss?: number;
     takeProfit?: number;
   }>({});
-  
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [selectedStrategy, setSelectedStrategy] = useState<StrategyOption | null>(null);
+  const [isExecuting, setIsExecuting] = useState(false);
+
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
 
   const { analyzePrompt, isAnalyzing, error: aiError } = usePromptAnalysis();
-  const { executeTrade, isExecuting } = useTradeExecution();
-  
-  const accountBalance = 10000; // Static demo balance
+  const { balance: accountBalance, totalPnL, openPositionsCount, refreshBalance, refreshPositions } = useUserBalance(user?.id || null);
   const { marketData, isLoading: marketLoading, error: marketError, lastUpdated, refetch } = useMarketData();
 
   useEffect(() => {
@@ -134,16 +140,35 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handleStrategySelect = async (option: StrategyOption) => {
+  const handleStrategySelect = (option: StrategyOption) => {
+    setSelectedStrategy(option);
+    setConfirmModalOpen(true);
+  };
+
+  const handleConfirmTrade = async () => {
+    if (!selectedStrategy || !user?.id) return;
+
+    setIsExecuting(true);
+    setConfirmModalOpen(false);
+
     try {
-      console.log('🚀 Executing strategy:', option);
-      
-      const result = await executeTrade(option);
+      const result = await simulatedTradingService.executeTrade(
+        {
+          symbol: selectedStrategy.symbol,
+          action: selectedStrategy.action as 'buy' | 'sell',
+          lotSize: selectedStrategy.lotSize,
+          entry: parseFloat(selectedStrategy.entry),
+          stopLoss: parseFloat(selectedStrategy.stopLoss),
+          takeProfit: parseFloat(selectedStrategy.takeProfit),
+          strategy: selectedStrategy
+        },
+        user.id
+      );
 
       const notification: Notification = {
         id: Date.now().toString(),
         type: result.success ? 'success' : 'error',
-        title: result.success ? 'Trade Executed' : 'Trade Failed',
+        title: result.success ? 'Demo Trade Executed' : 'Trade Failed',
         message: result.message,
         timestamp: 'Just now',
         read: false
@@ -151,9 +176,13 @@ const Dashboard: React.FC = () => {
 
       setNotifications(prev => [notification, ...prev]);
 
+      if (result.success) {
+        refreshBalance();
+        refreshPositions();
+      }
     } catch (error) {
       console.error('Trade execution failed:', error);
-      
+
       const notification: Notification = {
         id: Date.now().toString(),
         type: 'error',
@@ -162,8 +191,11 @@ const Dashboard: React.FC = () => {
         timestamp: 'Just now',
         read: false
       };
-      
+
       setNotifications(prev => [notification, ...prev]);
+    } finally {
+      setIsExecuting(false);
+      setSelectedStrategy(null);
     }
   };
 
@@ -264,28 +296,43 @@ const Dashboard: React.FC = () => {
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8 mt-8 sm:mt-12 lg:mt-16">
           <div className="xl:col-span-2 space-y-6 sm:space-y-8">
             <WebContainerNotice />
-            
+
+            <ActivePositions />
+
             <NotificationCenter
               notifications={notifications}
               onMarkAsRead={handleMarkAsRead}
               onDismiss={handleDismissNotification}
               isCollapsible={true}
             />
-            
+
             <TradingDashboard
-              todayPnL={0}
-              weeklyPnL={0}
+              todayPnL={totalPnL}
+              weeklyPnL={totalPnL}
               totalBalance={accountBalance}
             />
-            
+
             <TradingKPIs />
           </div>
-          
+
           <div className="space-y-6 sm:space-y-8">
             <TradeJournal onReaction={handleJournalReaction} />
             <TradingLaws />
           </div>
         </div>
+
+        {selectedStrategy && (
+          <TradeConfirmationModal
+            isOpen={confirmModalOpen}
+            onClose={() => {
+              setConfirmModalOpen(false);
+              setSelectedStrategy(null);
+            }}
+            onConfirm={handleConfirmTrade}
+            strategy={selectedStrategy}
+            accountBalance={accountBalance}
+          />
+        )}
       </main>
     </div>
   );

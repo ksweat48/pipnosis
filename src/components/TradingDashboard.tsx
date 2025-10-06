@@ -1,6 +1,7 @@
 import React from 'react';
 import { Activity, DollarSign, TrendingUp, TrendingDown, Clock, BarChart3 } from 'lucide-react';
 import { useActiveTrades, useTradeHistory } from '../hooks/useAPI';
+import { useAuth } from '../hooks/useAuth';
 
 interface TradingDashboardProps {
   todayPnL: number;
@@ -13,8 +14,9 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
   weeklyPnL,
   totalBalance
 }) => {
-  const { trades: activeTrades, isLoading: tradesLoading } = useActiveTrades();
-  const { trades: tradeHistory } = useTradeHistory();
+  const { user } = useAuth();
+  const { trades: activeTrades, isLoading: tradesLoading } = useActiveTrades(user?.id);
+  const { trades: tradeHistory } = useTradeHistory(user?.id);
 
   // Calculate today's P&L from trade history
   const today = new Date().toDateString();
