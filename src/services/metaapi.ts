@@ -29,6 +29,8 @@ class MetaApiService {
   private account: MetatraderAccount | null = null;
   private connection: any = null;
   private isInitialized = false;
+  private isInitializing = false;
+  private initializationError: Error | null = null;
   private token: string;
   private accountId: string;
 
@@ -42,30 +44,63 @@ class MetaApiService {
       return;
     }
 
-    if (!this.token || !this.accountId) {
-      throw new Error('MetaApi credentials not configured. Please set VITE_METAAPI_TOKEN and VITE_METAAPI_ACCOUNT_ID in .env file');
+    if (this.isInitializing) {
+      while (this.isInitializing) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      if (this.isInitialized) {
+        return;
+      }
+      if (this.initializationError) {
+        throw this.initializationError;
+      }
     }
 
+    if (!this.token || !this.accountId) {
+      const error = new Error('MetaApi credentials not configured. Please set VITE_METAAPI_TOKEN and VITE_METAAPI_ACCOUNT_ID in .env file');
+      this.initializationError = error;
+      throw error;
+    }
+
+    this.isInitializing = true;
+
     try {
+      console.log('Initializing MetaApi connection...');
       this.api = new MetaApi(this.token);
       this.account = await this.api.metatraderAccountApi.getAccount(this.accountId);
 
+      console.log(`Account state: ${this.account.state}`);
       const deployedStates = ['DEPLOYED', 'DEPLOYING'];
       if (!deployedStates.includes(this.account.state)) {
+        console.log('Deploying account...');
         await this.account.deploy();
       }
 
+      console.log('Waiting for account deployment...');
       await this.account.waitDeployed();
 
-      this.connection = this.account.getRPCConnection();
+      console.log('Getting streaming connection...');
+      this.connection = this.account.getStreamingConnection();
       await this.connection.connect();
       await this.connection.waitSynchronized();
 
       this.isInitialized = true;
-      console.log('MetaApi initialized successfully');
+      this.isInitializing = false;
+      this.initializationError = null;
+      console.log('MetaApi initialized successfully with streaming connection');
     } catch (error) {
+      this.isInitializing = false;
+      this.initializationError = error as Error;
       console.error('Failed to initialize MetaApi:', error);
-      throw new Error('Failed to connect to MetaApi. Please check your credentials and account status.');
+
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('ERR_NETWORK') || errorMessage.includes('CSP')) {
+        throw new Error('Network connection blocked. Please check Content Security Policy settings.');
+      } else if (errorMessage.includes('Unauthorized') || errorMessage.includes('401')) {
+        throw new Error('Invalid MetaApi credentials. Please check your token and account ID.');
+      } else {
+        throw new Error('Failed to connect to MetaApi. Please check your credentials and account status.');
+      }
     }
   }
 
@@ -116,7 +151,17 @@ class MetaApiService {
   ): Promise<void> {
     await this.ensureInitialized();
 
+    if (!this.connection) {
+      throw new Error('Connection not established');
+    }
+
     try {
+      if (typeof this.connection.subscribeToMarketData !== 'function') {
+        console.error('Connection object:', this.connection);
+        throw new Error('Invalid connection type: subscribeToMarketData method not available. Ensure streaming connection is used.');
+      }
+
+      console.log(`Subscribing to market data for ${symbol}...`);
       await this.connection.subscribeToMarketData(symbol);
 
       if (listener.onCandleUpdate) {
@@ -161,7 +206,7 @@ class MetaApiService {
         });
       }
 
-      console.log(`Subscribed to market data for ${symbol}`);
+      console.log(`Successfully subscribed to market data for ${symbol}`);
     } catch (error) {
       console.error(`Failed to subscribe to market data for ${symbol}:`, error);
       throw error;
@@ -202,6 +247,8 @@ class MetaApiService {
         await this.connection.close();
         this.connection = null;
         this.isInitialized = false;
+        this.isInitializing = false;
+        this.initializationError = null;
         console.log('MetaApi disconnected');
       } catch (error) {
         console.error('Error disconnecting MetaApi:', error);

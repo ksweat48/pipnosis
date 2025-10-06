@@ -35,8 +35,8 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
-    # Simplified CSP for local development
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: blob:; connect-src 'self' http://localhost:* ws://localhost:* wss://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://127.0.0.1:* https://xhunxrzwwaejancoquwd.supabase.co wss://xhunxrzwwaejancoquwd.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; child-src 'self' blob:;"
+    # CSP with MetaApi domains included
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: blob:; connect-src 'self' http://localhost:* ws://localhost:* wss://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://127.0.0.1:* https://xhunxrzwwaejancoquwd.supabase.co wss://xhunxrzwwaejancoquwd.supabase.co https://*.agiliumtrade.agiliumtrade.ai wss://*.agiliumtrade.agiliumtrade.ai https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai https://mt-client-api.agiliumtrade.agiliumtrade.ai; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; child-src 'self' blob:;"
 
 [[headers]]
   for = "/*"

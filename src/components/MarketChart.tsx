@@ -114,9 +114,20 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       try {
         await marketDataService.initialize();
         setIsConnected(true);
+        setError(null);
       } catch (err) {
         console.warn('MetaApi not available, using cached data only:', err);
         setIsConnected(false);
+        const errorMsg = err instanceof Error ? err.message : 'Failed to connect to MetaApi';
+        if (errorMsg.includes('credentials not configured')) {
+          setError('MetaApi credentials not configured. Using cached data only.');
+        } else if (errorMsg.includes('CSP') || errorMsg.includes('Network connection blocked')) {
+          setError('Connection blocked by security policy. Please check configuration.');
+        } else if (errorMsg.includes('Invalid') || errorMsg.includes('credentials')) {
+          setError('Invalid MetaApi credentials. Please verify your token and account ID.');
+        } else {
+          setError('Live data unavailable. Showing cached data.');
+        }
       }
     };
 
