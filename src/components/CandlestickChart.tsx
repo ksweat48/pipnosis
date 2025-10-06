@@ -24,6 +24,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const priceLinesRef = useRef<any[]>([]);
   const [isReady, setIsReady] = useState(false);
   const lastDataLengthRef = useRef(0);
+  const isInitialLoadRef = useRef(true);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -97,12 +98,20 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                        JSON.stringify(data[data.length - 1]) !== JSON.stringify(lastDataLengthRef.current);
 
     if (hasNewData) {
-      candlestickSeriesRef.current.setData(data);
-      lastDataLengthRef.current = data.length;
+      const isNewCandle = data.length > lastDataLengthRef.current;
 
-      if (chartRef.current) {
-        chartRef.current.timeScale().fitContent();
+      if (isNewCandle && lastDataLengthRef.current > 0) {
+        candlestickSeriesRef.current.update(data[data.length - 1]);
+      } else {
+        candlestickSeriesRef.current.setData(data);
+
+        if (chartRef.current && isInitialLoadRef.current) {
+          chartRef.current.timeScale().fitContent();
+          isInitialLoadRef.current = false;
+        }
       }
+
+      lastDataLengthRef.current = data.length;
     }
   }, [data, isReady]);
 
