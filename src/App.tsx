@@ -16,6 +16,7 @@ import { WebContainerNotice } from './components/WebContainerNotice';
 import { LandingPage } from './components/LandingPage';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AuthPage } from './pages/AuthPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { ActivePositions } from './components/ActivePositions';
 import { TradeConfirmationModal } from './components/TradeConfirmationModal';
 import { usePromptAnalysis, useMarketData } from './hooks/useAPI';
@@ -343,6 +344,7 @@ export default function App() {
     <div>
       <Routes>
         <Route path="/auth" element={<AuthPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/" element={<Dashboard />} />
         <Route path="/waitlist" element={<LandingPage />} />
         <Route path="/admin/dashboard" element={

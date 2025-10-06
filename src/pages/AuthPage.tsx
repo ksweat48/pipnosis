@@ -4,14 +4,16 @@ import { Mail, Lock, Eye, EyeOff, AlertCircle, Loader, User } from 'lucide-react
 import { useAuth } from '@/hooks/useAuth';
 
 export const AuthPage: React.FC = () => {
-  const { user, signIn, signUp, loading: authLoading } = useAuth();
+  const { user, signIn, signUp, resetPassword, loading: authLoading } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Redirect if already authenticated
   if (user && !authLoading) {
@@ -22,17 +24,28 @@ export const AuthPage: React.FC = () => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setSuccessMessage(null);
 
     try {
-      const { error } = isSignUp 
-        ? await signUp(email, password, fullName)
-        : await signIn(email, password);
+      if (isForgotPassword) {
+        const { error } = await resetPassword(email);
+        if (error) {
+          setError(error.message);
+        } else {
+          setSuccessMessage('Password reset link sent! Check your email.');
+          setTimeout(() => {
+            setIsForgotPassword(false);
+            setSuccessMessage(null);
+          }, 3000);
+        }
+      } else {
+        const { error } = isSignUp
+          ? await signUp(email, password, fullName)
+          : await signIn(email, password);
 
-      if (error) {
-        setError(error.message);
-      } else if (isSignUp) {
-        // For sign-up, the error message already contains the appropriate demo message
-        // No need to set additional error message here
+        if (error) {
+          setError(error.message);
+        }
       }
     } catch (err) {
       setError('An unexpected error occurred');
@@ -70,12 +83,14 @@ export const AuthPage: React.FC = () => {
             </h1>
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">
-            {isSignUp ? 'Create Account' : 'Welcome Back'}
+            {isForgotPassword ? 'Reset Password' : isSignUp ? 'Create Account' : 'Welcome Back'}
           </h2>
           <p className="text-white/60">
-            {isSignUp 
-              ? 'Start your AI trading journey' 
-              : 'Sign in to your trading account'
+            {isForgotPassword
+              ? 'Enter your email to receive a password reset link'
+              : isSignUp
+                ? 'Start your AI trading journey'
+                : 'Sign in to your trading account'
             }
           </p>
         </div>
@@ -84,7 +99,7 @@ export const AuthPage: React.FC = () => {
         <div className="glass-card p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Full Name Field - Only for Sign Up */}
-            {isSignUp && (
+            {isSignUp && !isForgotPassword && (
               <div>
                 <label className="block text-sm font-medium text-white mb-2">
                   Full Name
@@ -121,7 +136,8 @@ export const AuthPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Password Field */}
+            {/* Password Field - Hide for Forgot Password */}
+            {!isForgotPassword && (
             <div>
               <label className="block text-sm font-medium text-white mb-2">
                 Password
@@ -146,6 +162,15 @@ export const AuthPage: React.FC = () => {
                 </button>
               </div>
             </div>
+            )}
+
+            {/* Success Message */}
+            {successMessage && (
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start space-x-3">
+                <AlertCircle className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
+                <p className="text-emerald-300 text-sm">{successMessage}</p>
+              </div>
+            )}
 
             {/* Error Message */}
             {error && (
@@ -164,27 +189,61 @@ export const AuthPage: React.FC = () => {
               {loading ? (
                 <div className="flex items-center justify-center space-x-2">
                   <Loader className="h-5 w-5 animate-spin" />
-                  <span>{isSignUp ? 'Creating Account...' : 'Signing In...'}</span>
+                  <span>
+                    {isForgotPassword
+                      ? 'Sending Reset Link...'
+                      : isSignUp
+                        ? 'Creating Account...'
+                        : 'Signing In...'
+                    }
+                  </span>
                 </div>
               ) : (
-                <span>{isSignUp ? 'Create Account' : 'Sign In'}</span>
+                <span>
+                  {isForgotPassword
+                    ? 'Send Reset Link'
+                    : isSignUp
+                      ? 'Create Account'
+                      : 'Sign In'
+                  }
+                </span>
               )}
             </button>
           </form>
 
-          {/* Toggle Sign Up/Sign In */}
-          <div className="mt-6 text-center">
+          {/* Toggle Sign Up/Sign In/Forgot Password */}
+          <div className="mt-6 text-center space-y-3">
+            {!isForgotPassword && !isSignUp && (
+              <button
+                onClick={() => {
+                  setIsForgotPassword(true);
+                  setError(null);
+                  setSuccessMessage(null);
+                }}
+                className="text-emerald-400 hover:text-emerald-300 text-sm font-medium block w-full"
+              >
+                Forgot your password?
+              </button>
+            )}
+
             <button
               onClick={() => {
-                setIsSignUp(!isSignUp);
+                if (isForgotPassword) {
+                  setIsForgotPassword(false);
+                } else {
+                  setIsSignUp(!isSignUp);
+                }
                 setError(null);
+                setSuccessMessage(null);
                 setFullName('');
               }}
               className="text-emerald-400 hover:text-emerald-300 text-sm font-medium"
             >
-              {isSignUp 
-                ? 'Already have an account? Sign in' 
-                : "Don't have an account? Sign up"
+              {isForgotPassword
+                ? 'Back to sign in'
+                : isSignUp
+                  ? 'Already have an account? Sign in'
+                  : "Don't have an account? Sign up"
               }
             </button>
           </div>
