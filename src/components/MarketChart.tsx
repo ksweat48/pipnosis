@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { BarChart3, RefreshCw, Wifi, WifiOff, Database } from 'lucide-react';
 import { CandlestickChart } from './CandlestickChart';
 import { CandlestickData, Time } from 'lightweight-charts';
-import { marketDataService, MarketDataListener } from '../services/market-data';
+import { marketDataService, MarketDataListener, TickData } from '../services/market-data';
 import { Timeframe, CandleData } from '../services/metaapi';
 
 interface MarketChartProps {
@@ -39,7 +39,13 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const [timeframe, setTimeframe] = useState<Timeframe>('M15');
   const [isConnected, setIsConnected] = useState(false);
   const [dataSource, setDataSource] = useState<'live' | 'cache' | 'none'>('none');
+  const [currentPrice, setCurrentPrice] = useState<number>(0);
+  const [bidAskSpread, setBidAskSpread] = useState<number>(0);
+  const [isLiveUpdating, setIsLiveUpdating] = useState(false);
+  const [chartKey, setChartKey] = useState(0);
   const listenerRef = useRef<MarketDataListener | null>(null);
+  const lastTickTimeRef = useRef<number>(0);
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const availablePairs = ['EURUSD', 'GBPUSD', 'XAUUSD'];
 
@@ -91,14 +97,51 @@ export const MarketChart: React.FC<MarketChartProps> = ({
             }
             return [...prev, chartCandle].slice(-500);
           });
+          setCurrentPrice(candle.close);
           setLastUpdate(new Date());
           setDataSource('live');
+          setIsLiveUpdating(true);
+        }
+      },
+      onTick: (tick: TickData) => {
+        if (tick.symbol === symbol) {
+          const now = Date.now();
+          if (now - lastTickTimeRef.current > 100) {
+            const midPrice = (tick.bid + tick.ask) / 2;
+            const spread = tick.ask - tick.bid;
+            setCurrentPrice(midPrice);
+            setBidAskSpread(spread);
+            setLastUpdate(new Date());
+            setIsLiveUpdating(true);
+            lastTickTimeRef.current = now;
+
+            setCandleData(prev => {
+              if (prev.length === 0) return prev;
+              const updated = [...prev];
+              const lastCandle = updated[updated.length - 1];
+              updated[updated.length - 1] = {
+                ...lastCandle,
+                close: midPrice,
+                high: Math.max(lastCandle.high, midPrice),
+                low: Math.min(lastCandle.low, midPrice)
+              };
+              return updated;
+            });
+
+            if (updateTimeoutRef.current) {
+              clearTimeout(updateTimeoutRef.current);
+            }
+            updateTimeoutRef.current = setTimeout(() => {
+              setChartKey(prev => prev + 1);
+            }, 500);
+          }
         }
       },
       onError: (error: Error) => {
         console.error('Live data error:', error);
         setError(error.message);
         setIsConnected(false);
+        setIsLiveUpdating(false);
       }
     };
 
@@ -137,6 +180,9 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       if (listenerRef.current) {
         marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
       }
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -156,7 +202,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     };
   }, [symbol, timeframe, isConnected, subscribeToLiveData]);
 
-  const currentPrice = candleData.length > 0 ? candleData[candleData.length - 1].close : 0;
+  const displayPrice = currentPrice || (candleData.length > 0 ? candleData[candleData.length - 1].close : 0);
 
   return (
     <div className={`${className}`}>
@@ -194,18 +240,28 @@ export const MarketChart: React.FC<MarketChartProps> = ({
           </select>
 
           <div className="text-right">
-            <div className="flex items-center space-x-1">
+            <div className="flex items-center space-x-2">
               {isConnected ? (
-                <Wifi className="h-3 w-3 text-emerald-400" />
+                <div className="flex items-center space-x-1">
+                  <Wifi className="h-3 w-3 text-emerald-400" />
+                  {isLiveUpdating && (
+                    <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                  )}
+                </div>
               ) : (
                 <WifiOff className="h-3 w-3 text-red-400" />
               )}
               {dataSource === 'cache' && <Database className="h-3 w-3 text-blue-400" />}
               <span className="text-xs sm:text-sm text-white/50 font-medium">
-                {dataSource === 'live' ? 'Live' : dataSource === 'cache' ? 'Cached' : 'Offline'}
+                {isLiveUpdating ? '🟢 Live Streaming' : dataSource === 'live' ? 'Live' : dataSource === 'cache' ? 'Cached' : 'Offline'}
               </span>
             </div>
-            <div className="text-xs text-white/40">{lastUpdate ? lastUpdate.toLocaleTimeString([], {timeStyle: 'short'}) : 'Loading...'}</div>
+            <div className="text-xs text-white/40">
+              {lastUpdate ? lastUpdate.toLocaleTimeString([], {timeStyle: 'medium'}) : 'Loading...'}
+              {bidAskSpread > 0 && (
+                <span className="ml-2">Spread: {bidAskSpread.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -230,12 +286,21 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       ) : candleData.length > 0 ? (
         <div className="space-y-4">
           <div className="text-center">
-            <div className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">
-              {currentPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
+            <div className="flex items-center justify-center space-x-3">
+              <div className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">
+                {displayPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
+              </div>
+              {isLiveUpdating && (
+                <div className="flex items-center space-x-1 text-emerald-400 text-sm">
+                  <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                  <span>LIVE</span>
+                </div>
+              )}
             </div>
             <div className="text-white/60 text-sm sm:text-base font-medium">{symbol} Current Price</div>
           </div>
           <CandlestickChart
+            key={`${symbol}-${timeframe}-${chartKey}`}
             symbol={symbol}
             data={candleData}
             tradeLines={tradeLines}

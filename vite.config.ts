@@ -25,7 +25,10 @@ export default defineConfig({
           ui: ['lucide-react'],
           supabase: ['@supabase/supabase-js'],
           metaapi: ['metaapi.cloud-sdk']
-        }
+        },
+        entryFileNames: `assets/[name]-[hash].js`,
+        chunkFileNames: `assets/[name]-[hash].js`,
+        assetFileNames: `assets/[name]-[hash].[ext]`
       }
     },
     // Increase chunk size warning limit
