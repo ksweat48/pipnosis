@@ -24,6 +24,8 @@ export interface TickData {
 
 export type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'W1' | 'MN1';
 
+type ApiTimeframe = '1m' | '2m' | '3m' | '4m' | '5m' | '6m' | '10m' | '12m' | '15m' | '20m' | '30m' | '1h' | '2h' | '3h' | '4h' | '6h' | '8h' | '12h' | '1d' | '1w' | '1mn';
+
 class MetaApiService {
   private api: MetaApi | null = null;
   private account: MetatraderAccount | null = null;
@@ -37,6 +39,36 @@ class MetaApiService {
   constructor() {
     this.token = import.meta.env.VITE_METAAPI_TOKEN || '';
     this.accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID || '';
+  }
+
+  private convertToApiTimeframe(timeframe: Timeframe): ApiTimeframe {
+    const conversionMap: Record<Timeframe, ApiTimeframe> = {
+      M1: '1m',
+      M5: '5m',
+      M15: '15m',
+      M30: '30m',
+      H1: '1h',
+      H4: '4h',
+      D1: '1d',
+      W1: '1w',
+      MN1: '1mn'
+    };
+    return conversionMap[timeframe];
+  }
+
+  private convertFromApiTimeframe(apiTimeframe: string): Timeframe {
+    const conversionMap: Record<string, Timeframe> = {
+      '1m': 'M1',
+      '5m': 'M5',
+      '15m': 'M15',
+      '30m': 'M30',
+      '1h': 'H1',
+      '4h': 'H4',
+      '1d': 'D1',
+      '1w': 'W1',
+      '1mn': 'MN1'
+    };
+    return conversionMap[apiTimeframe] || 'M15';
   }
 
   async initialize(): Promise<void> {
@@ -118,10 +150,13 @@ class MetaApiService {
 
     try {
       const calculatedStartTime = startTime || this.calculateStartTime(timeframe, limit);
+      const apiTimeframe = this.convertToApiTimeframe(timeframe);
+
+      console.log(`Fetching historical candles: ${symbol} ${timeframe} (API: ${apiTimeframe})`);
 
       const candles = await this.account.getHistoricalCandles(
         symbol,
-        timeframe,
+        apiTimeframe,
         calculatedStartTime,
         limit
       );
@@ -172,9 +207,13 @@ class MetaApiService {
           onCandlesUpdated: (instanceIndex: number, candles: any[]) => {
             candles.forEach(candle => {
               if (candle.symbol === symbol && listener.onCandleUpdate) {
+                const internalTimeframe = candle.timeframe ?
+                  this.convertFromApiTimeframe(candle.timeframe) :
+                  'M15';
+
                 listener.onCandleUpdate({
                   symbol: candle.symbol,
-                  timeframe: candle.timeframe,
+                  timeframe: internalTimeframe,
                   time: new Date(candle.time),
                   brokerTime: candle.brokerTime,
                   open: candle.open,
