@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Settings, Menu, X, ExternalLink, DollarSign, LogOut, User, LogIn } from 'lucide-react';
+import { Settings, Menu, X, ExternalLink, DollarSign, LogOut, User, LogIn, Shield } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { SettingsModal } from './SettingsModal';
 import { DisclaimerModal } from './DisclaimerModal';
 
 export const Header: React.FC = () => {
-  const { user, signOut } = useAuth();
+  const { user, signOut, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
@@ -76,13 +76,24 @@ export const Header: React.FC = () => {
                 </div>
                 
                 <div className="flex items-center space-x-2">
-                  <button 
+                  {isAdmin && (
+                    <button
+                      onClick={() => {
+                        navigate('/admin/dashboard');
+                      }}
+                      className="p-3 text-white/60 hover:text-emerald-400 glass-button transition-all duration-200"
+                      title="Admin Dashboard"
+                    >
+                      <Shield className="h-5 w-5" />
+                    </button>
+                  )}
+                  <button
                     onClick={() => setIsSettingsOpen(true)}
                     className="p-3 text-white/60 hover:text-white glass-button transition-all duration-200"
                   >
                     <Settings className="h-5 w-5" />
                   </button>
-                  <button 
+                  <button
                     onClick={handleSignOut}
                     className="p-3 text-white/60 hover:text-red-400 glass-button transition-all duration-200"
                     title="Sign Out"
@@ -152,14 +163,26 @@ export const Header: React.FC = () => {
                 </div>
                 
                 <div className="space-y-2">
-                  <button 
+                  {isAdmin && (
+                    <button
+                      onClick={() => {
+                        navigate('/admin/dashboard');
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className="w-full flex items-center space-x-3 p-3 text-white/70 hover:text-emerald-400 glass-button transition-all duration-200"
+                    >
+                      <Shield className="h-5 w-5" />
+                      <span>Admin Dashboard</span>
+                    </button>
+                  )}
+                  <button
                     onClick={handleDisclaimerClick}
                     className="w-full flex items-center space-x-3 p-3 text-white/70 hover:text-amber-400 glass-button transition-all duration-200"
                   >
                     <ExternalLink className="h-5 w-5" />
                     <span>Risk Disclaimer</span>
                   </button>
-                  <button 
+                  <button
                     onClick={() => {
                       setIsSettingsOpen(true);
                       setIsMobileMenuOpen(false);
@@ -169,7 +192,7 @@ export const Header: React.FC = () => {
                     <Settings className="h-5 w-5" />
                     <span>Settings</span>
                   </button>
-                  <button 
+                  <button
                     onClick={handleSignOut}
                     className="w-full flex items-center space-x-3 p-3 text-white/70 hover:text-red-400 glass-button transition-all duration-200"
                   >

@@ -14,6 +14,7 @@ import { TradingKPIs } from './components/TradingKPIs';
 import { TradingLaws } from './components/TradingLaws';
 import { WebContainerNotice } from './components/WebContainerNotice';
 import { LandingPage } from './components/LandingPage';
+import { PublicLandingPage } from './components/PublicLandingPage';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AuthPage } from './pages/AuthPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
@@ -339,20 +340,55 @@ const Dashboard: React.FC = () => {
   );
 };
 
-export default function App() {
+const AppRoutes: React.FC = () => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin h-12 w-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full mx-auto mb-4"></div>
+          <p className="text-white/70 text-lg">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <Routes>
-        <Route path="/auth" element={<AuthPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/waitlist" element={<LandingPage />} />
-        <Route path="/admin/dashboard" element={
+    <Routes>
+      <Route path="/auth" element={<AuthPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route
+        path="/"
+        element={
+          user ? (
+            <Dashboard />
+          ) : (
+            <PublicLandingPage />
+          )
+        }
+      />
+      <Route
+        path="/dashboard"
+        element={
           <ProtectedRoute>
+            <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route path="/waitlist" element={<LandingPage />} />
+      <Route
+        path="/admin/dashboard"
+        element={
+          <ProtectedRoute adminOnly={true}>
             <AdminDashboard />
           </ProtectedRoute>
-        } />
-      </Routes>
-    </div>
+        }
+      />
+    </Routes>
   );
+};
+
+export default function App() {
+  return <AppRoutes />;
 }
