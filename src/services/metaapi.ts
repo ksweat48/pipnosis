@@ -26,6 +26,11 @@ export type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'W1' 
 
 type ApiTimeframe = '1m' | '2m' | '3m' | '4m' | '5m' | '6m' | '10m' | '12m' | '15m' | '20m' | '30m' | '1h' | '2h' | '3h' | '4h' | '6h' | '8h' | '12h' | '1d' | '1w' | '1mn';
 
+interface MarketDataListener {
+  onCandleUpdate?: (candle: CandleData) => void;
+  onTick?: (tick: TickData) => void;
+}
+
 class MetaApiService {
   private api: MetaApi | null = null;
   private account: MetatraderAccount | null = null;
@@ -35,6 +40,8 @@ class MetaApiService {
   private initializationError: Error | null = null;
   private token: string;
   private accountId: string;
+  private synchronizationListeners: Map<string, MarketDataListener> = new Map();
+  private isListenerRegistered = false;
 
   constructor() {
     this.token = import.meta.env.VITE_METAAPI_TOKEN || '';
@@ -113,13 +120,16 @@ class MetaApiService {
 
       console.log('Getting streaming connection...');
       this.connection = this.account.getStreamingConnection();
+      console.log('Connecting to streaming endpoint...');
       await this.connection.connect();
+      console.log('Waiting for synchronization...');
       await this.connection.waitSynchronized();
 
       this.isInitialized = true;
       this.isInitializing = false;
       this.initializationError = null;
-      console.log('MetaApi initialized successfully with streaming connection');
+      console.log('✅ MetaApi initialized successfully with streaming connection');
+      console.log('Connection ready for live market data streaming');
     } catch (error) {
       this.isInitializing = false;
       this.initializationError = error as Error;
@@ -180,12 +190,116 @@ class MetaApiService {
     }
   }
 
+  private createCompleteSynchronizationListener() {
+    const self = this;
+    return {
+      async onConnected(instanceIndex: string, replicas: number) {
+        console.log(`[MetaApi] Connected to instance ${instanceIndex}, replicas: ${replicas}`);
+      },
+
+      async onHealthStatus(instanceIndex: string, status: any) {
+        console.log(`[MetaApi] Health status for ${instanceIndex}:`, status);
+      },
+
+      async onDisconnected(instanceIndex: string) {
+        console.log(`[MetaApi] Disconnected from instance ${instanceIndex}`);
+      },
+
+      async onBrokerConnectionStatusChanged(instanceIndex: string, connected: boolean) {
+        console.log(`[MetaApi] Broker connection status changed for ${instanceIndex}: ${connected}`);
+      },
+
+      async onSynchronizationStarted(instanceIndex: string) {
+        console.log(`[MetaApi] Synchronization started for ${instanceIndex}`);
+      },
+
+      async onAccountInformationUpdated(instanceIndex: string, accountInformation: any) {},
+
+      async onPositionsReplaced(instanceIndex: string, positions: any[]) {},
+
+      async onPositionsSynchronized(instanceIndex: string, synchronizationId: string) {},
+
+      async onPendingOrdersReplaced(instanceIndex: string, orders: any[]) {},
+
+      async onPendingOrdersSynchronized(instanceIndex: string, synchronizationId: string) {},
+
+      async onHistoryOrderAdded(instanceIndex: string, historyOrder: any) {},
+
+      async onDealAdded(instanceIndex: string, deal: any) {},
+
+      async onDealsSynchronized(instanceIndex: string, synchronizationId: string) {},
+
+      async onOrderUpdated(instanceIndex: string, order: any) {},
+
+      async onOrderCompleted(instanceIndex: string, orderId: string) {},
+
+      async onPositionUpdated(instanceIndex: string, position: any) {},
+
+      async onPositionRemoved(instanceIndex: string, positionId: string) {},
+
+      async onPendingOrderUpdated(instanceIndex: string, order: any) {},
+
+      async onPendingOrderCompleted(instanceIndex: string, orderId: string) {},
+
+      async onUpdate(instanceIndex: string, update: any) {},
+
+      async onCandlesUpdated(instanceIndex: string, candles: any[]) {
+        candles.forEach(candle => {
+          self.synchronizationListeners.forEach((listener, symbol) => {
+            if (candle.symbol === symbol && listener.onCandleUpdate) {
+              const internalTimeframe = candle.timeframe ?
+                self.convertFromApiTimeframe(candle.timeframe) :
+                'M15';
+
+              console.log(`📊 Candle update: ${symbol} ${internalTimeframe} @ ${candle.close}`);
+              listener.onCandleUpdate({
+                symbol: candle.symbol,
+                timeframe: internalTimeframe,
+                time: new Date(candle.time),
+                brokerTime: candle.brokerTime,
+                open: candle.open,
+                high: candle.high,
+                low: candle.low,
+                close: candle.close,
+                tickVolume: candle.tickVolume || 0,
+                spread: candle.spread || 0,
+                volume: candle.volume || 0
+              });
+            }
+          });
+        });
+      },
+
+      async onSymbolPricesUpdated(instanceIndex: string, prices: any[]) {
+        prices.forEach(price => {
+          self.synchronizationListeners.forEach((listener, symbol) => {
+            if (price.symbol === symbol && listener.onTick) {
+              console.log(`💹 Tick update: ${symbol} bid=${price.bid} ask=${price.ask}`);
+              listener.onTick({
+                symbol: price.symbol,
+                bid: price.bid,
+                ask: price.ask,
+                time: new Date(price.time),
+                brokerTime: price.brokerTime
+              });
+            }
+          });
+        });
+      },
+
+      async onSymbolSpecificationUpdated(instanceIndex: string, specifications: any[]) {},
+
+      async onSymbolSpecificationsUpdated(instanceIndex: string, specifications: any[], removedSymbols: string[]) {},
+
+      async onSymbolPriceUpdated(instanceIndex: string, price: any) {},
+
+      async onSubscriptionDowngraded(instanceIndex: string, symbol: string, updates: any[], unsubscriptions: any[]) {}
+    };
+  }
+
   async subscribeToMarketData(
     symbol: string,
-    listener: {
-      onCandleUpdate?: (candle: CandleData) => void;
-      onTick?: (tick: TickData) => void;
-    }
+    listener: MarketDataListener
   ): Promise<void> {
     await this.ensureInitialized();
 
@@ -199,56 +313,18 @@ class MetaApiService {
         throw new Error('Invalid connection type: subscribeToMarketData method not available. Ensure streaming connection is used.');
       }
 
+      if (!this.isListenerRegistered) {
+        const completeListener = this.createCompleteSynchronizationListener();
+        this.connection.addSynchronizationListener(completeListener);
+        this.isListenerRegistered = true;
+        console.log('[MetaApi] Complete synchronization listener registered');
+      }
+
+      this.synchronizationListeners.set(symbol, listener);
+
       console.log(`Subscribing to market data for ${symbol}...`);
       await this.connection.subscribeToMarketData(symbol);
-
-      if (listener.onCandleUpdate) {
-        this.connection.addSynchronizationListener({
-          onCandlesUpdated: (instanceIndex: number, candles: any[]) => {
-            candles.forEach(candle => {
-              if (candle.symbol === symbol && listener.onCandleUpdate) {
-                const internalTimeframe = candle.timeframe ?
-                  this.convertFromApiTimeframe(candle.timeframe) :
-                  'M15';
-
-                listener.onCandleUpdate({
-                  symbol: candle.symbol,
-                  timeframe: internalTimeframe,
-                  time: new Date(candle.time),
-                  brokerTime: candle.brokerTime,
-                  open: candle.open,
-                  high: candle.high,
-                  low: candle.low,
-                  close: candle.close,
-                  tickVolume: candle.tickVolume || 0,
-                  spread: candle.spread || 0,
-                  volume: candle.volume || 0
-                });
-              }
-            });
-          }
-        });
-      }
-
-      if (listener.onTick) {
-        this.connection.addSynchronizationListener({
-          onSymbolPricesUpdated: (instanceIndex: number, prices: any[]) => {
-            prices.forEach(price => {
-              if (price.symbol === symbol && listener.onTick) {
-                listener.onTick({
-                  symbol: price.symbol,
-                  bid: price.bid,
-                  ask: price.ask,
-                  time: new Date(price.time),
-                  brokerTime: price.brokerTime
-                });
-              }
-            });
-          }
-        });
-      }
-
-      console.log(`Successfully subscribed to market data for ${symbol}`);
+      console.log(`✅ Successfully subscribed to market data for ${symbol}`);
     } catch (error) {
       console.error(`Failed to subscribe to market data for ${symbol}:`, error);
       throw error;
@@ -261,6 +337,7 @@ class MetaApiService {
     }
 
     try {
+      this.synchronizationListeners.delete(symbol);
       await this.connection.unsubscribeFromMarketData(symbol);
       console.log(`Unsubscribed from market data for ${symbol}`);
     } catch (error) {
@@ -286,6 +363,8 @@ class MetaApiService {
   async disconnect(): Promise<void> {
     if (this.connection) {
       try {
+        this.synchronizationListeners.clear();
+        this.isListenerRegistered = false;
         await this.connection.close();
         this.connection = null;
         this.isInitialized = false;
