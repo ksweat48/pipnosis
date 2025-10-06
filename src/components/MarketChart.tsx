@@ -42,10 +42,8 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const [currentPrice, setCurrentPrice] = useState<number>(0);
   const [bidAskSpread, setBidAskSpread] = useState<number>(0);
   const [isLiveUpdating, setIsLiveUpdating] = useState(false);
-  const [chartKey, setChartKey] = useState(0);
   const listenerRef = useRef<MarketDataListener | null>(null);
   const lastTickTimeRef = useRef<number>(0);
-  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const availablePairs = ['EURUSD', 'GBPUSD', 'XAUUSD'];
 
@@ -127,13 +125,6 @@ export const MarketChart: React.FC<MarketChartProps> = ({
               };
               return updated;
             });
-
-            if (updateTimeoutRef.current) {
-              clearTimeout(updateTimeoutRef.current);
-            }
-            updateTimeoutRef.current = setTimeout(() => {
-              setChartKey(prev => prev + 1);
-            }, 500);
           }
         }
       },
@@ -179,9 +170,6 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     return () => {
       if (listenerRef.current) {
         marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
-      }
-      if (updateTimeoutRef.current) {
-        clearTimeout(updateTimeoutRef.current);
       }
     };
   }, []);
@@ -300,7 +288,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
             <div className="text-white/60 text-sm sm:text-base font-medium">{symbol} Current Price</div>
           </div>
           <CandlestickChart
-            key={`${symbol}-${timeframe}-${chartKey}`}
+            key={`${symbol}-${timeframe}`}
             symbol={symbol}
             data={candleData}
             tradeLines={tradeLines}

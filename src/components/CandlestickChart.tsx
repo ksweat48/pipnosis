@@ -59,6 +59,27 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         borderColor: 'rgba(255, 255, 255, 0.2)',
         timeVisible: true,
         secondsVisible: false,
+        rightOffset: 5,
+        barSpacing: 8,
+        minBarSpacing: 0.5,
+        fixLeftEdge: false,
+        fixRightEdge: false,
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: true,
+      },
+      handleScale: {
+        mouseWheel: true,
+        pinch: true,
+        axisPressedMouseMove: true,
+        axisDoubleClickReset: true,
+      },
+      kineticScroll: {
+        touch: true,
+        mouse: false,
       },
       height,
       width: chartContainerRef.current.clientWidth,
@@ -94,24 +115,21 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   useEffect(() => {
     if (!isReady || !candlestickSeriesRef.current || data.length === 0) return;
 
-    const hasNewData = data.length !== lastDataLengthRef.current ||
-                       JSON.stringify(data[data.length - 1]) !== JSON.stringify(lastDataLengthRef.current);
+    const isNewCandle = data.length > lastDataLengthRef.current;
+    const lastCandleChanged = data.length > 0 && lastDataLengthRef.current > 0 &&
+      JSON.stringify(data[data.length - 1]) !== JSON.stringify(candlestickSeriesRef.current.data?.()?.[data.length - 1]);
 
-    if (hasNewData) {
-      const isNewCandle = data.length > lastDataLengthRef.current;
-
-      if (isNewCandle && lastDataLengthRef.current > 0) {
-        candlestickSeriesRef.current.update(data[data.length - 1]);
-      } else {
-        candlestickSeriesRef.current.setData(data);
-
-        if (chartRef.current && isInitialLoadRef.current) {
-          chartRef.current.timeScale().fitContent();
-          isInitialLoadRef.current = false;
-        }
-      }
-
+    if (isNewCandle) {
+      candlestickSeriesRef.current.update(data[data.length - 1]);
       lastDataLengthRef.current = data.length;
+    } else if (lastCandleChanged || lastDataLengthRef.current === 0) {
+      candlestickSeriesRef.current.setData(data);
+      lastDataLengthRef.current = data.length;
+
+      if (chartRef.current && isInitialLoadRef.current) {
+        chartRef.current.timeScale().fitContent();
+        isInitialLoadRef.current = false;
+      }
     }
   }, [data, isReady]);
 
