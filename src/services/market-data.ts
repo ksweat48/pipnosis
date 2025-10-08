@@ -3,6 +3,7 @@ import { marketDataCache } from './market-data-cache';
 import { Time } from 'lightweight-charts';
 import { getCandleOpenTime, isNewCandlePeriod, calculateStartTime as utilCalculateStartTime } from './candle-utils';
 import { dataValidator } from './data-validator';
+import { mergeHistoricalAndLiveCandles, detectGaps } from './candle-merge';
 
 export interface MarketDataListener {
   onCandleUpdate?: (candle: CandleData) => void;
@@ -38,6 +39,9 @@ class MarketDataService {
     const startTime = utilCalculateStartTime(timeframe, limit, endTime);
     const oneDayAgo = new Date(endTime.getTime() - 24 * 60 * 60 * 1000);
 
+    let apiCandles: CandleData[] = [];
+    let shouldFetchApi = !this.isDemoMode;
+
     if (useCache) {
       const cachedCandles = await marketDataCache.getCachedCandles(
         symbol,
@@ -49,93 +53,86 @@ class MarketDataService {
       const recentCandles = cachedCandles.filter(c => c.time >= oneDayAgo);
       const hasRecentData = recentCandles.length > 0;
 
-      if (cachedCandles.length >= limit * 0.9 && hasRecentData) {
-        console.log(`✅ Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe} (${recentCandles.length} from last 24h)`);
-        const alignedCandles = cachedCandles.map(candle => ({
-          ...candle,
-          time: getCandleOpenTime(candle.time, timeframe)
-        }));
-        return alignedCandles;
+      if (cachedCandles.length >= limit * 0.9 && hasRecentData && !this.isDemoMode) {
+        shouldFetchApi = false;
+        apiCandles = cachedCandles;
+        console.log(`✅ Using ${cachedCandles.length} cached candles as base for ${symbol} ${timeframe}`);
+      } else if (this.isDemoMode && cachedCandles.length > 0) {
+        apiCandles = cachedCandles;
+        shouldFetchApi = false;
+        console.log(`💾 Demo mode: Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
       }
-
-      if (this.isDemoMode) {
-        if (cachedCandles.length > 0) {
-          console.log(`💾 Demo mode: Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
-          const alignedCandles = cachedCandles.map(candle => ({
-            ...candle,
-            time: getCandleOpenTime(candle.time, timeframe)
-          }));
-          return alignedCandles;
-        }
-        console.warn(`⚠️ Demo mode: No cached data available for ${symbol} ${timeframe}`);
-        return [];
-      }
-
-      console.log(`Cache insufficient or stale (${cachedCandles.length}/${limit}, recent: ${recentCandles.length}), fetching from MetaApi...`);
     }
 
-    if (this.isDemoMode) {
-      const cachedCandles = await marketDataCache.getCachedCandles(
-        symbol,
-        timeframe,
-        startTime,
-        endTime
-      );
-      if (cachedCandles.length > 0) {
-        console.log(`💾 Demo mode: Using ${cachedCandles.length} cached candles`);
-        const alignedCandles = cachedCandles.map(candle => ({
-          ...candle,
-          time: getCandleOpenTime(candle.time, timeframe)
-        }));
-        return alignedCandles;
+    if (shouldFetchApi && !this.isDemoMode) {
+      try {
+        const liveCandles = await metaApiService.getHistoricalCandles(
+          symbol,
+          timeframe,
+          startTime,
+          limit
+        );
+
+        const validationResult = dataValidator.validateCandleSequence(liveCandles, timeframe);
+        dataValidator.logValidationResults(validationResult, `${symbol} ${timeframe} API data`);
+
+        apiCandles = validationResult.isValid
+          ? liveCandles
+          : liveCandles.map(c => dataValidator.repairCandle(c));
+
+        if (apiCandles.length > 0 && useCache) {
+          await marketDataCache.saveCandles(apiCandles, true);
+        }
+
+        console.log(`📡 Fetched ${apiCandles.length} candles from MetaAPI for ${symbol} ${timeframe}`);
+      } catch (error) {
+        console.error('Error fetching from MetaAPI:', error);
+        const cachedCandles = await marketDataCache.getCachedCandles(
+          symbol,
+          timeframe,
+          startTime,
+          endTime
+        );
+        if (cachedCandles.length > 0) {
+          apiCandles = cachedCandles;
+          console.log(`⚠️ MetaApi error, using ${cachedCandles.length} cached candles`);
+        } else {
+          throw error;
+        }
       }
+    }
+
+    const recentLiveCandles = await marketDataCache.getRecentLiveCandles(
+      symbol,
+      timeframe,
+      24
+    );
+
+    const mergeResult = mergeHistoricalAndLiveCandles(
+      apiCandles,
+      recentLiveCandles,
+      timeframe
+    );
+
+    console.log(`🔀 Merge results for ${symbol} ${timeframe}:`, {
+      apiCandles: mergeResult.stats.apiCandles,
+      liveCandles: mergeResult.stats.dbCandles,
+      duplicatesRemoved: mergeResult.stats.duplicatesRemoved,
+      gapsFilled: mergeResult.stats.gapsFilled,
+      total: mergeResult.stats.totalCandles
+    });
+
+    const gaps = detectGaps(mergeResult.candles, timeframe);
+    if (gaps.length > 0) {
+      console.warn(`⚠️ Detected ${gaps.length} gap(s) in candle data:`, gaps);
+    }
+
+    if (mergeResult.candles.length === 0) {
+      console.warn(`⚠️ No data available for ${symbol} ${timeframe}`);
       return [];
     }
 
-    try {
-      const liveCandles = await metaApiService.getHistoricalCandles(
-        symbol,
-        timeframe,
-        startTime,
-        limit
-      );
-
-      const alignedCandles = liveCandles.map(candle => ({
-        ...candle,
-        time: getCandleOpenTime(candle.time, timeframe)
-      }));
-
-      const validationResult = dataValidator.validateCandleSequence(alignedCandles, timeframe);
-      dataValidator.logValidationResults(validationResult, `${symbol} ${timeframe} live data`);
-
-      const repairedCandles = validationResult.isValid
-        ? alignedCandles
-        : alignedCandles.map(c => dataValidator.repairCandle(c));
-
-      if (repairedCandles.length > 0 && useCache) {
-        await marketDataCache.saveCandles(repairedCandles);
-      }
-
-      return repairedCandles;
-    } catch (error) {
-      const cachedCandles = await marketDataCache.getCachedCandles(
-        symbol,
-        timeframe,
-        startTime,
-        endTime
-      );
-
-      if (cachedCandles.length > 0) {
-        console.log(`⚠️ MetaApi error, falling back to ${cachedCandles.length} cached candles`);
-        const alignedCandles = cachedCandles.map(candle => ({
-          ...candle,
-          time: getCandleOpenTime(candle.time, timeframe)
-        }));
-        return alignedCandles;
-      }
-
-      throw error;
-    }
+    return mergeResult.candles;
   }
 
   async subscribeToSymbol(

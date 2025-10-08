@@ -85,7 +85,8 @@ class CandleStateManager {
     if (!currentCandle || currentCandle.timestamp.getTime() !== candleOpenTime.getTime()) {
       if (currentCandle && !currentCandle.isComplete) {
         currentCandle.isComplete = true;
-        this.persistCandleImmediate(currentCandle);
+        console.log(`✅ Candle completed: ${symbol} ${timeframe} @ ${currentCandle.timestamp.toISOString()}`);
+        this.persistCandleAsComplete(currentCandle);
       }
 
       currentCandle = {
@@ -102,7 +103,7 @@ class CandleStateManager {
       };
 
       this.currentCandles.set(key, currentCandle);
-      console.log(`New candle started: ${symbol} ${timeframe} @ ${candleOpenTime.toISOString()}`);
+      console.log(`🆕 New candle started: ${symbol} ${timeframe} @ ${candleOpenTime.toISOString()}`);
     } else {
       currentCandle.high = Math.max(currentCandle.high, tickPrice);
       currentCandle.low = Math.min(currentCandle.low, tickPrice);
@@ -134,7 +135,7 @@ class CandleStateManager {
     };
 
     this.currentCandles.set(key, candleState);
-    this.persistCandleImmediate(candleState);
+    this.persistCandleAsComplete(candleState);
 
     return candleState;
   }
@@ -171,7 +172,9 @@ class CandleStateManager {
         volume: 0,
         spread: 0,
         broker_time: candle.timestamp.toISOString(),
-        data_source: candle.isComplete ? 'metaapi' : 'live_tick'
+        data_source: candle.isComplete ? 'live_tick_complete' : 'live_tick',
+        is_complete: candle.isComplete,
+        completed_at: candle.isComplete ? new Date().toISOString() : null
       };
 
       const { error } = await supabase
@@ -186,6 +189,47 @@ class CandleStateManager {
       }
     } catch (error) {
       console.error('Error in persistCandleImmediate:', error);
+    }
+  }
+
+  private async persistCandleAsComplete(candle: CandleState): Promise<void> {
+    if (!validateOHLC(candle.open, candle.high, candle.low, candle.close)) {
+      console.error('Invalid OHLC values, skipping complete persistence:', candle);
+      return;
+    }
+
+    try {
+      const row = {
+        symbol: candle.symbol,
+        timeframe: candle.timeframe,
+        timestamp: candle.timestamp.toISOString(),
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        tick_volume: candle.tickCount,
+        volume: 0,
+        spread: 0,
+        broker_time: candle.timestamp.toISOString(),
+        data_source: 'live_tick_complete',
+        is_complete: true,
+        completed_at: new Date().toISOString()
+      };
+
+      const { error } = await supabase
+        .from('market_data')
+        .upsert(row, {
+          onConflict: 'symbol,timeframe,timestamp',
+          ignoreDuplicates: false
+        });
+
+      if (error) {
+        console.error('Error persisting complete candle:', error);
+      } else {
+        console.log(`💾 Persisted complete candle: ${candle.symbol} ${candle.timeframe} @ ${candle.timestamp.toISOString()}`);
+      }
+    } catch (error) {
+      console.error('Error in persistCandleAsComplete:', error);
     }
   }
 

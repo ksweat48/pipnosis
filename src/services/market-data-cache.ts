@@ -15,6 +15,8 @@ interface MarketDataRow {
   spread: number;
   broker_time: string | null;
   data_source: string;
+  is_complete?: boolean;
+  completed_at?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -57,7 +59,69 @@ class MarketDataCache {
     }
   }
 
-  async saveCandles(candles: CandleData[]): Promise<void> {
+  async getRecentLiveCandles(
+    symbol: string,
+    timeframe: Timeframe,
+    hoursBack: number = 24
+  ): Promise<CandleData[]> {
+    try {
+      const startTime = new Date(Date.now() - hoursBack * 60 * 60 * 1000);
+      const endTime = new Date();
+
+      const { data, error } = await supabase
+        .from('market_data')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('timeframe', timeframe)
+        .gte('timestamp', startTime.toISOString())
+        .lte('timestamp', endTime.toISOString())
+        .in('data_source', ['live_tick', 'live_tick_complete'])
+        .order('timestamp', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching recent live candles:', error);
+        return [];
+      }
+
+      const candles = (data || []).map(row => this.rowToCandleData(row));
+      console.log(`📊 Retrieved ${candles.length} recent live candles for ${symbol} ${timeframe}`);
+      return candles;
+    } catch (error) {
+      console.error('Error in getRecentLiveCandles:', error);
+      return [];
+    }
+  }
+
+  async getCompleteCandles(
+    symbol: string,
+    timeframe: Timeframe,
+    startTime: Date,
+    endTime: Date
+  ): Promise<CandleData[]> {
+    try {
+      const { data, error } = await supabase
+        .from('market_data')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('timeframe', timeframe)
+        .eq('is_complete', true)
+        .gte('timestamp', startTime.toISOString())
+        .lte('timestamp', endTime.toISOString())
+        .order('timestamp', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching complete candles:', error);
+        return [];
+      }
+
+      return (data || []).map(row => this.rowToCandleData(row));
+    } catch (error) {
+      console.error('Error in getCompleteCandles:', error);
+      return [];
+    }
+  }
+
+  async saveCandles(candles: CandleData[], isComplete: boolean = true): Promise<void> {
     if (candles.length === 0) return;
 
     try {
@@ -73,7 +137,9 @@ class MarketDataCache {
         tick_volume: candle.tickVolume || 0,
         spread: candle.spread || 0,
         broker_time: candle.brokerTime || null,
-        data_source: 'metaapi'
+        data_source: 'metaapi',
+        is_complete: isComplete,
+        completed_at: isComplete ? new Date().toISOString() : null
       }));
 
       const { error } = await supabase
@@ -86,7 +152,7 @@ class MarketDataCache {
       if (error) {
         console.error('Error saving candles to cache:', error);
       } else {
-        console.log(`Saved ${candles.length} candles to cache for ${candles[0].symbol} ${candles[0].timeframe}`);
+        console.log(`💾 Saved ${candles.length} candles to cache for ${candles[0].symbol} ${candles[0].timeframe}`);
       }
     } catch (error) {
       console.error('Error in saveCandles:', error);
