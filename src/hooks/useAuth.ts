@@ -30,7 +30,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  const checkAdminStatus = async (userId: string) => {
+  const checkAdminStatus = async (userId: string, retryCount = 0): Promise<boolean> => {
     try {
       const { data, error } = await supabase
         .from('user_profiles')
@@ -40,12 +40,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         console.error('Error checking admin status:', error);
+
+        if (retryCount < 2 && (error.message.includes('tected in policy') || error.message.includes('recursion'))) {
+          console.log(`Retrying admin status check (attempt ${retryCount + 1}/2)...`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+          return checkAdminStatus(userId, retryCount + 1);
+        }
+
         return false;
       }
 
       return data?.is_admin || false;
     } catch (error) {
       console.error('Error checking admin status:', error);
+
+      if (retryCount < 2) {
+        console.log(`Retrying admin status check after exception (attempt ${retryCount + 1}/2)...`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+        return checkAdminStatus(userId, retryCount + 1);
+      }
+
       return false;
     }
   };
@@ -67,8 +81,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             const adminStatus = await checkAdminStatus(session.user.id);
             setIsAdmin(adminStatus);
+
+            if (adminStatus) {
+              console.log('Admin status verified for user:', session.user.email);
+            }
           } catch (adminError) {
-            console.error('Error checking admin status:', adminError);
+            console.error('Failed to verify admin status after retries:', adminError);
             setIsAdmin(false);
           }
         } else {

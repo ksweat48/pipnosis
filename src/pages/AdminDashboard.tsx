@@ -96,55 +96,74 @@ export const AdminDashboard: React.FC = () => {
   };
 
   const loadPlatformStats = async () => {
-    const { data, error } = await supabase
-      .from('platform_statistics')
-      .select('*')
-      .maybeSingle();
+    try {
+      const { data, error } = await supabase
+        .from('platform_statistics')
+        .select('*')
+        .maybeSingle();
 
-    if (error) {
-      console.error('Error loading platform stats:', error);
-    } else {
-      setPlatformStats(data);
+      if (error) {
+        console.error('Error loading platform stats:', error);
+        if (error.message.includes('tected in policy') || error.message.includes('recursion')) {
+          console.warn('RLS policy error detected. The database migration may need time to propagate.');
+        }
+      } else {
+        setPlatformStats(data);
+      }
+    } catch (err) {
+      console.error('Exception loading platform stats:', err);
     }
   };
 
   const loadUserSummaries = async () => {
-    const { data, error } = await supabase
-      .from('user_trading_summary')
-      .select('*')
-      .order('total_pnl', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('user_trading_summary')
+        .select('*')
+        .order('total_pnl', { ascending: false });
 
-    if (error) {
-      console.error('Error loading user summaries:', error);
-    } else {
-      setUserSummaries(data || []);
+      if (error) {
+        console.error('Error loading user summaries:', error);
+      } else {
+        setUserSummaries(data || []);
+      }
+    } catch (err) {
+      console.error('Exception loading user summaries:', err);
     }
   };
 
   const loadAIPerformance = async () => {
-    const { data, error } = await supabase
-      .from('ai_performance_metrics')
-      .select('*')
-      .order('ai_confidence', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('ai_performance_metrics')
+        .select('*')
+        .order('ai_confidence', { ascending: false });
 
-    if (error) {
-      console.error('Error loading AI performance:', error);
-    } else {
-      setAIPerformance(data || []);
+      if (error) {
+        console.error('Error loading AI performance:', error);
+      } else {
+        setAIPerformance(data || []);
+      }
+    } catch (err) {
+      console.error('Exception loading AI performance:', err);
     }
   };
 
   const loadSymbolStats = async () => {
-    const { data, error } = await supabase
-      .from('trading_by_symbol')
-      .select('*')
-      .order('total_trades', { ascending: false })
-      .limit(10);
+    try {
+      const { data, error } = await supabase
+        .from('trading_by_symbol')
+        .select('*')
+        .order('total_trades', { ascending: false })
+        .limit(10);
 
-    if (error) {
-      console.error('Error loading symbol stats:', error);
-    } else {
-      setSymbolStats(data || []);
+      if (error) {
+        console.error('Error loading symbol stats:', error);
+      } else {
+        setSymbolStats(data || []);
+      }
+    } catch (err) {
+      console.error('Exception loading symbol stats:', err);
     }
   };
 
