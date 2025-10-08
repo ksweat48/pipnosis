@@ -107,24 +107,55 @@ class MetaApiService {
     try {
       console.log('Initializing MetaApi connection...');
       this.api = new MetaApi(this.token);
-      this.account = await this.api.metatraderAccountApi.getAccount(this.accountId);
+
+      try {
+        this.account = await this.api.metatraderAccountApi.getAccount(this.accountId);
+      } catch (apiError) {
+        const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
+        console.error('Failed to get MetaApi account:', errorMessage);
+        throw new Error('Invalid MetaApi account ID or credentials. Please verify your configuration.');
+      }
 
       console.log(`Account state: ${this.account.state}`);
       const deployedStates = ['DEPLOYED', 'DEPLOYING'];
       if (!deployedStates.includes(this.account.state)) {
         console.log('Deploying account...');
-        await this.account.deploy();
+        try {
+          await this.account.deploy();
+        } catch (deployError) {
+          console.warn('Account deployment failed, attempting to continue:', deployError);
+        }
       }
 
       console.log('Waiting for account deployment...');
-      await this.account.waitDeployed();
+      try {
+        await this.account.waitDeployed();
+      } catch (waitError) {
+        console.warn('Wait for deployment timeout, attempting to continue:', waitError);
+      }
 
       console.log('Getting streaming connection...');
       this.connection = this.account.getStreamingConnection();
+
+      if (!this.connection) {
+        throw new Error('Failed to get streaming connection from MetaApi account');
+      }
+
       console.log('Connecting to streaming endpoint...');
-      await this.connection.connect();
+      try {
+        await this.connection.connect();
+      } catch (connectError) {
+        const errorMessage = connectError instanceof Error ? connectError.message : 'Unknown error';
+        console.error('Connection error:', errorMessage);
+        throw new Error('Failed to connect to MetaApi streaming endpoint. Please check your network connection.');
+      }
+
       console.log('Waiting for synchronization...');
-      await this.connection.waitSynchronized();
+      try {
+        await this.connection.waitSynchronized();
+      } catch (syncError) {
+        console.warn('Synchronization wait timeout, continuing with partial sync:', syncError);
+      }
 
       this.isInitialized = true;
       this.isInitializing = false;
@@ -137,12 +168,14 @@ class MetaApiService {
       console.error('Failed to initialize MetaApi:', error);
 
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (errorMessage.includes('ERR_NETWORK') || errorMessage.includes('CSP')) {
-        throw new Error('Network connection blocked. Please check Content Security Policy settings.');
-      } else if (errorMessage.includes('Unauthorized') || errorMessage.includes('401')) {
-        throw new Error('Invalid MetaApi credentials. Please check your token and account ID.');
+      if (errorMessage.includes('ERR_NETWORK') || errorMessage.includes('CSP') || errorMessage.includes('ERR_QUIC')) {
+        throw new Error('Network connection blocked. MetaApi requires WebSocket connectivity. Please check your network and firewall settings.');
+      } else if (errorMessage.includes('Unauthorized') || errorMessage.includes('401') || errorMessage.includes('Invalid MetaApi')) {
+        throw new Error('Invalid MetaApi credentials. Please check your token and account ID in environment variables.');
+      } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+        throw new Error('Connection timeout. MetaApi servers may be temporarily unavailable.');
       } else {
-        throw new Error('Failed to connect to MetaApi. Please check your credentials and account status.');
+        throw error;
       }
     }
   }

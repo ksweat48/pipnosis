@@ -74,7 +74,8 @@ export default defineConfig({
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': '*'
+      'Access-Control-Allow-Headers': '*',
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.metaapi.cloud wss://*.metaapi.cloud https://api.openai.com; worker-src 'self' blob:;"
     },
     hmr: {
       overlay: true,
@@ -83,6 +84,15 @@ export default defineConfig({
     watch: {
       usePolling: false,
       interval: 100
+    },
+    proxy: {
+      '/metaapi': {
+        target: 'https://mt-client-api-v1.agiliumtrade.agiliumtrade.ai',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/metaapi/, ''),
+        ws: true,
+        secure: true
+      }
     }
   },
   // Preview configuration for production builds
