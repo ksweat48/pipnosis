@@ -44,7 +44,17 @@ export const AuthPage: React.FC = () => {
           : await signIn(email, password);
 
         if (error) {
-          setError(error.message);
+          let errorMessage = error.message;
+
+          if (errorMessage.includes('Invalid login credentials')) {
+            errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+          } else if (errorMessage.includes('Email not confirmed')) {
+            errorMessage = 'Please confirm your email address before signing in.';
+          } else if (errorMessage.includes('User not found')) {
+            errorMessage = 'No account found with this email address.';
+          }
+
+          setError(errorMessage);
         }
       }
     } catch (err) {
