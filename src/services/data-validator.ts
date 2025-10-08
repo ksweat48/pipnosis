@@ -126,40 +126,76 @@ export class DataValidator {
     return missingTimes;
   }
 
-  repairCandle(candle: CandleData): CandleData {
+  repairCandle(candle: CandleData, silent: boolean = true): CandleData {
     const repairedCandle = { ...candle };
+    const repairs: string[] = [];
 
     if (repairedCandle.high < repairedCandle.low) {
       [repairedCandle.high, repairedCandle.low] = [repairedCandle.low, repairedCandle.high];
+      repairs.push('Swapped high/low');
     }
 
+    const originalHigh = repairedCandle.high;
     repairedCandle.high = Math.max(
       repairedCandle.high,
       repairedCandle.open,
       repairedCandle.close,
       repairedCandle.low
     );
+    if (originalHigh !== repairedCandle.high) {
+      repairs.push(`Adjusted high from ${originalHigh} to ${repairedCandle.high}`);
+    }
 
+    const originalLow = repairedCandle.low;
     repairedCandle.low = Math.min(
       repairedCandle.low,
       repairedCandle.open,
       repairedCandle.close,
       repairedCandle.high
     );
+    if (originalLow !== repairedCandle.low) {
+      repairs.push(`Adjusted low from ${originalLow} to ${repairedCandle.low}`);
+    }
 
     if (repairedCandle.spread < 0) {
+      repairs.push(`Fixed negative spread: ${repairedCandle.spread} -> 0`);
       repairedCandle.spread = 0;
     }
 
     if (repairedCandle.tickVolume < 0) {
+      repairs.push(`Fixed negative tick volume: ${repairedCandle.tickVolume} -> 0`);
       repairedCandle.tickVolume = 0;
     }
 
     if (repairedCandle.volume < 0) {
+      repairs.push(`Fixed negative volume: ${repairedCandle.volume} -> 0`);
       repairedCandle.volume = 0;
     }
 
+    if (repairs.length > 0 && !silent) {
+      console.log(`🔧 Auto-repaired candle ${candle.symbol} ${candle.timeframe} @ ${candle.time.toISOString()}: ${repairs.join(', ')}`);
+    }
+
     return repairedCandle;
+  }
+
+  validateAndRepairCandleSequence(candles: CandleData[], timeframe: Timeframe, silent: boolean = true): CandleData[] {
+    const repairedCandles: CandleData[] = [];
+
+    for (const candle of candles) {
+      const validation = this.validateCandle(candle);
+      if (!validation.isValid) {
+        const repaired = this.repairCandle(candle, silent);
+        repairedCandles.push(repaired);
+        if (!silent) {
+          console.log(`🔧 Repaired invalid candle: ${validation.errors.join(', ')}`);
+        }
+      } else {
+        repairedCandles.push(candle);
+      }
+    }
+
+    return repairedCandles;
   }
 
   logValidationResults(result: ValidationResult, context: string): void {

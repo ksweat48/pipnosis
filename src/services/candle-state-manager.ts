@@ -153,7 +153,10 @@ class CandleStateManager {
     this.persistenceQueue.set(key, timeout);
   }
 
-  private async persistCandleImmediate(candle: CandleState): Promise<void> {
+  private async persistCandleImmediate(candle: CandleState, retryCount: number = 0): Promise<void> {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 1000;
+
     if (!validateOHLC(candle.open, candle.high, candle.low, candle.close)) {
       console.error('Invalid OHLC values, skipping persistence:', candle);
       return;
@@ -177,7 +180,7 @@ class CandleStateManager {
         completed_at: candle.isComplete ? new Date().toISOString() : null
       };
 
-      const { error } = await supabase
+      const { error, status, statusText } = await supabase
         .from('market_data')
         .upsert(row, {
           onConflict: 'symbol,timeframe,timestamp',
@@ -185,14 +188,64 @@ class CandleStateManager {
         });
 
       if (error) {
-        console.error('Error persisting candle:', error);
+        console.error(`❌ Error persisting candle (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, {
+          error: error.message,
+          code: error.code,
+          details: error.details,
+          status,
+          statusText,
+          symbol: candle.symbol,
+          timeframe: candle.timeframe,
+          timestamp: candle.timestamp.toISOString()
+        });
+
+        if (retryCount < MAX_RETRIES) {
+          const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return this.persistCandleImmediate(candle, retryCount + 1);
+        } else {
+          console.error(`❌ Failed to persist candle after ${MAX_RETRIES + 1} attempts`);
+          if (typeof window !== 'undefined' && window.dispatchEvent) {
+            window.dispatchEvent(new CustomEvent('pipnosis:data-persistence-error', {
+              detail: {
+                type: 'candle_persist_failed',
+                error: error.message,
+                symbol: candle.symbol,
+                timeframe: candle.timeframe,
+                attempts: MAX_RETRIES + 1
+              }
+            }));
+          }
+        }
       }
     } catch (error) {
-      console.error('Error in persistCandleImmediate:', error);
+      console.error(`❌ Exception in persistCandleImmediate (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, error);
+
+      if (retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.persistCandleImmediate(candle, retryCount + 1);
+      } else {
+        console.error(`❌ Failed to persist candle after ${MAX_RETRIES + 1} attempts due to exception`);
+        if (typeof window !== 'undefined' && window.dispatchEvent) {
+          window.dispatchEvent(new CustomEvent('pipnosis:data-persistence-error', {
+            detail: {
+              type: 'candle_persist_exception',
+              error: error instanceof Error ? error.message : 'Unknown error',
+              symbol: candle.symbol,
+              timeframe: candle.timeframe,
+              attempts: MAX_RETRIES + 1
+            }
+          }));
+        }
+      }
     }
   }
 
-  private async persistCandleAsComplete(candle: CandleState): Promise<void> {
+  private async persistCandleAsComplete(candle: CandleState, retryCount: number = 0): Promise<void> {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 1000;
+
     if (!validateOHLC(candle.open, candle.high, candle.low, candle.close)) {
       console.error('Invalid OHLC values, skipping complete persistence:', candle);
       return;
@@ -216,7 +269,7 @@ class CandleStateManager {
         completed_at: new Date().toISOString()
       };
 
-      const { error } = await supabase
+      const { error, status, statusText } = await supabase
         .from('market_data')
         .upsert(row, {
           onConflict: 'symbol,timeframe,timestamp',
@@ -224,12 +277,63 @@ class CandleStateManager {
         });
 
       if (error) {
-        console.error('Error persisting complete candle:', error);
+        console.error(`❌ Error persisting complete candle (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, {
+          error: error.message,
+          code: error.code,
+          details: error.details,
+          status,
+          statusText,
+          symbol: candle.symbol,
+          timeframe: candle.timeframe,
+          timestamp: candle.timestamp.toISOString()
+        });
+
+        if (retryCount < MAX_RETRIES) {
+          const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return this.persistCandleAsComplete(candle, retryCount + 1);
+        } else {
+          console.error(`❌ Failed to persist complete candle after ${MAX_RETRIES + 1} attempts`);
+          if (typeof window !== 'undefined' && window.dispatchEvent) {
+            window.dispatchEvent(new CustomEvent('pipnosis:data-persistence-error', {
+              detail: {
+                type: 'complete_candle_persist_failed',
+                error: error.message,
+                symbol: candle.symbol,
+                timeframe: candle.timeframe,
+                attempts: MAX_RETRIES + 1
+              }
+            }));
+          }
+        }
       } else {
-        console.log(`💾 Persisted complete candle: ${candle.symbol} ${candle.timeframe} @ ${candle.timestamp.toISOString()}`);
+        if (retryCount > 0) {
+          console.log(`✅ Persisted complete candle after ${retryCount + 1} attempts: ${candle.symbol} ${candle.timeframe} @ ${candle.timestamp.toISOString()}`);
+        } else {
+          console.log(`💾 Persisted complete candle: ${candle.symbol} ${candle.timeframe} @ ${candle.timestamp.toISOString()}`);
+        }
       }
     } catch (error) {
-      console.error('Error in persistCandleAsComplete:', error);
+      console.error(`❌ Exception in persistCandleAsComplete (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, error);
+
+      if (retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.persistCandleAsComplete(candle, retryCount + 1);
+      } else {
+        console.error(`❌ Failed to persist complete candle after ${MAX_RETRIES + 1} attempts due to exception`);
+        if (typeof window !== 'undefined' && window.dispatchEvent) {
+          window.dispatchEvent(new CustomEvent('pipnosis:data-persistence-error', {
+            detail: {
+              type: 'complete_candle_persist_exception',
+              error: error instanceof Error ? error.message : 'Unknown error',
+              symbol: candle.symbol,
+              timeframe: candle.timeframe,
+              attempts: MAX_RETRIES + 1
+            }
+          }));
+        }
+      }
     }
   }
 

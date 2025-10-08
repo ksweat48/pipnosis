@@ -1,5 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { CandleData, Timeframe } from './metaapi';
+import { dataValidator } from './data-validator';
+import { dbHealthMonitor } from './db-health-monitor';
 
 interface MarketDataRow {
   id?: string;
@@ -121,11 +123,16 @@ class MarketDataCache {
     }
   }
 
-  async saveCandles(candles: CandleData[], isComplete: boolean = true): Promise<void> {
+  async saveCandles(candles: CandleData[], isComplete: boolean = true, retryCount: number = 0): Promise<void> {
     if (candles.length === 0) return;
 
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 1000;
+
+    const repairedCandles = dataValidator.validateAndRepairCandleSequence(candles, candles[0].timeframe as Timeframe, true);
+
     try {
-      const rows: MarketDataRow[] = candles.map(candle => ({
+      const rows: MarketDataRow[] = repairedCandles.map(candle => ({
         symbol: candle.symbol,
         timeframe: candle.timeframe,
         timestamp: candle.time.toISOString(),
@@ -142,7 +149,7 @@ class MarketDataCache {
         completed_at: isComplete ? new Date().toISOString() : null
       }));
 
-      const { error } = await supabase
+      const { error, status, statusText } = await supabase
         .from('market_data')
         .upsert(rows, {
           onConflict: 'symbol,timeframe,timestamp',
@@ -150,12 +157,70 @@ class MarketDataCache {
         });
 
       if (error) {
-        console.error('Error saving candles to cache:', error);
+        dbHealthMonitor.recordExternalWriteFailure(error.message);
+
+        console.error(`❌ Error saving candles to cache (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, {
+          error: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          status,
+          statusText,
+          symbol: candles[0]?.symbol,
+          timeframe: candles[0]?.timeframe,
+          count: candles.length
+        });
+
+        if (retryCount < MAX_RETRIES) {
+          const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+          console.log(`⏳ Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return this.saveCandles(candles, isComplete, retryCount + 1);
+        } else {
+          console.error(`❌ Failed to save candles after ${MAX_RETRIES + 1} attempts. Data persistence failed.`);
+          if (typeof window !== 'undefined' && window.dispatchEvent) {
+            window.dispatchEvent(new CustomEvent('pipnosis:data-persistence-error', {
+              detail: {
+                type: 'market_data_save_failed',
+                error: error.message,
+                symbol: candles[0]?.symbol,
+                timeframe: candles[0]?.timeframe,
+                attempts: MAX_RETRIES + 1
+              }
+            }));
+          }
+        }
       } else {
-        console.log(`💾 Saved ${candles.length} candles to cache for ${candles[0].symbol} ${candles[0].timeframe}`);
+        dbHealthMonitor.recordExternalWriteSuccess();
+
+        if (retryCount > 0) {
+          console.log(`✅ Saved ${candles.length} candles after ${retryCount + 1} attempts for ${candles[0].symbol} ${candles[0].timeframe}`);
+        } else {
+          console.log(`💾 Saved ${candles.length} candles to cache for ${candles[0].symbol} ${candles[0].timeframe}`);
+        }
       }
     } catch (error) {
-      console.error('Error in saveCandles:', error);
+      console.error(`❌ Exception in saveCandles (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, error);
+
+      if (retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+        console.log(`⏳ Retrying after exception in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.saveCandles(candles, isComplete, retryCount + 1);
+      } else {
+        console.error(`❌ Failed to save candles after ${MAX_RETRIES + 1} attempts due to exception.`);
+        if (typeof window !== 'undefined' && window.dispatchEvent) {
+          window.dispatchEvent(new CustomEvent('pipnosis:data-persistence-error', {
+            detail: {
+              type: 'market_data_save_exception',
+              error: error instanceof Error ? error.message : 'Unknown error',
+              symbol: candles[0]?.symbol,
+              timeframe: candles[0]?.timeframe,
+              attempts: MAX_RETRIES + 1
+            }
+          }));
+        }
+      }
     }
   }
 

@@ -4,6 +4,8 @@ import { Time } from 'lightweight-charts';
 import { getCandleOpenTime, isNewCandlePeriod, calculateStartTime as utilCalculateStartTime } from './candle-utils';
 import { dataValidator } from './data-validator';
 import { mergeHistoricalAndLiveCandles, detectGaps } from './candle-merge';
+import { dbHealthMonitor } from './db-health-monitor';
+import { dataQualityMonitor } from './data-quality-monitor';
 
 export interface MarketDataListener {
   onCandleUpdate?: (candle: CandleData) => void;
@@ -163,6 +165,8 @@ class MarketDataService {
 
     this.activeSubscriptions.get(key)!.add(listener);
 
+    dataQualityMonitor.initializeSymbol(symbol, timeframe);
+
     if (this.activeSubscriptions.get(key)!.size === 1) {
       try {
         await metaApiService.subscribeToMarketData(symbol, {
@@ -259,7 +263,10 @@ class MarketDataService {
       await metaApiService.initialize();
       this.isInitialized = true;
       this.isDemoMode = false;
+
+      dbHealthMonitor.startMonitoring();
       console.log('✅ Market data service initialized successfully');
+      console.log('🔍 Database health monitoring active');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
@@ -271,6 +278,7 @@ class MarketDataService {
         this.isDemoMode = true;
       }
 
+      dbHealthMonitor.startMonitoring();
       throw error;
     }
   }
@@ -282,6 +290,7 @@ class MarketDataService {
   async disconnect(): Promise<void> {
     this.activeSubscriptions.clear();
     this.reconnectAttempts.clear();
+    dbHealthMonitor.stopMonitoring();
     await metaApiService.disconnect();
   }
 
@@ -303,6 +312,8 @@ class MarketDataService {
 
   private handleTickUpdate(key: string, tick: TickData): void {
     const listeners = this.activeSubscriptions.get(key);
+
+    dataQualityMonitor.recordTick(tick);
 
     if (listeners) {
       listeners.forEach(listener => {

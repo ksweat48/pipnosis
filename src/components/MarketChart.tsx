@@ -3,6 +3,7 @@ import { BarChart3, RefreshCw, Wifi, WifiOff, Database } from 'lucide-react';
 import { CandlestickChart } from './CandlestickChart';
 import { AIAnalysisPanel } from './AIAnalysisPanel';
 import { ChartSettings } from './ChartSettings';
+import { DataHealthIndicator } from './DataHealthIndicator';
 import { CandlestickData, Time, HistogramData } from 'lightweight-charts';
 import { marketDataService, MarketDataListener, TickData } from '../services/market-data';
 import { Timeframe, CandleData } from '../services/metaapi';
@@ -438,6 +439,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
                 <span className="ml-1 text-white/60">{lastUpdate ? lastUpdate.toLocaleTimeString([], {timeStyle: 'medium'}) : 'Loading...'}</span>
               </div>
             </div>
+            <DataHealthIndicator />
             <ChartSettings preferences={preferences} onUpdate={updatePreferences} />
           </div>
         </div>
