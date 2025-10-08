@@ -72,7 +72,18 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         },
       },
       rightPriceScale: {
-        borderColor: 'rgba(255, 255, 255, 0.2)',
+        borderColor: 'rgba(255, 255, 255, 0.3)',
+        visible: true,
+        alignLabels: true,
+        scaleMargins: {
+          top: 0.1,
+          bottom: 0.1,
+        },
+        borderVisible: true,
+        autoScale: true,
+        mode: 0,
+        invertScale: false,
+        drawTicks: true,
       },
       timeScale: {
         borderColor: 'rgba(255, 255, 255, 0.2)',
@@ -110,6 +121,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const upColor = preferences?.candlestick_up_color || '#10b981';
     const downColor = preferences?.candlestick_down_color || '#ef4444';
 
+    const precision = symbol === 'XAUUSD' ? 2 : 5;
+    const minMove = symbol === 'XAUUSD' ? 0.01 : 0.00001;
+
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: upColor,
       downColor: downColor,
@@ -118,6 +132,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       wickUpColor: upColor,
       wickDownColor: downColor,
       priceScaleId: 'right',
+      priceFormat: {
+        type: 'price',
+        precision: precision,
+        minMove: minMove,
+      },
     });
 
     const volumeSeries = chart.addSeries(HistogramSeries, {

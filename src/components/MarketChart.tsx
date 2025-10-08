@@ -377,26 +377,13 @@ export const MarketChart: React.FC<MarketChartProps> = ({
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
-            <div className="flex items-center gap-6 text-sm">
-              <div>
-                <span className="text-white/50 text-xs">O</span>
-                <span className="text-white ml-1 font-mono">{openPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-white/50 text-xs font-medium mb-1">Current Price</p>
+                <p className={`text-2xl sm:text-3xl font-bold font-mono ${priceChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {displayPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
+                </p>
               </div>
-              <div>
-                <span className="text-white/50 text-xs">H</span>
-                <span className="text-white ml-1 font-mono">{highPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
-              </div>
-              <div>
-                <span className="text-white/50 text-xs">L</span>
-                <span className="text-white ml-1 font-mono">{lowPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
-              </div>
-              <div>
-                <span className="text-white/50 text-xs">C</span>
-                <span className="text-white ml-1 font-mono">{displayPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
               <div className="text-right">
                 <div className={`text-lg font-bold ${priceChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
