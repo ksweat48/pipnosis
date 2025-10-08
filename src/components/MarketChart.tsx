@@ -104,8 +104,9 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       setIsConnected(marketDataService.isConnected());
 
       const currentCandle = candleStateManager.getCurrentCandle(symbol, timeframe);
-      if (currentCandle && !currentCandle.isComplete) {
-        const lastHistoricalTime = candles[candles.length - 1]?.time.getTime() || 0;
+      if (currentCandle && !currentCandle.isComplete && candles.length > 0) {
+        const lastHistoricalCandle = candles[candles.length - 1];
+        const lastHistoricalTime = lastHistoricalCandle ? lastHistoricalCandle.time.getTime() : 0;
         const currentCandleTime = currentCandle.timestamp.getTime();
 
         if (currentCandleTime > lastHistoricalTime) {
