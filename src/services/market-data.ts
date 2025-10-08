@@ -125,6 +125,21 @@ class MarketDataService {
     const gaps = detectGaps(mergeResult.candles, timeframe);
     if (gaps.length > 0) {
       console.warn(`⚠️ Detected ${gaps.length} gap(s) in candle data:`, gaps);
+
+      const tradingDayGaps = gaps.filter(g => g.isTradingDayGap);
+      if (tradingDayGaps.length > 0 && !this.isDemoMode) {
+        console.log(`🔍 Attempting to fill ${tradingDayGaps.length} trading day gap(s)...`);
+        const gapFilledCandles = await this.fetchMissingGapData(
+          symbol,
+          timeframe,
+          tradingDayGaps,
+          mergeResult.candles
+        );
+        if (gapFilledCandles.length > mergeResult.candles.length) {
+          console.log(`✅ Filled gaps: ${gapFilledCandles.length - mergeResult.candles.length} new candles added`);
+          return gapFilledCandles;
+        }
+      }
     }
 
     if (mergeResult.candles.length === 0) {
@@ -288,6 +303,62 @@ class MarketDataService {
         }
       });
     }
+  }
+
+  private async fetchMissingGapData(
+    symbol: string,
+    timeframe: Timeframe,
+    gaps: Array<{ start: Date; end: Date; missingTradingDays: Date[] }>,
+    existingCandles: CandleData[]
+  ): Promise<CandleData[]> {
+    const candleMap = new Map<number, CandleData>();
+
+    for (const candle of existingCandles) {
+      candleMap.set(candle.time.getTime(), candle);
+    }
+
+    for (const gap of gaps) {
+      if (gap.missingTradingDays.length === 0) continue;
+
+      try {
+        console.log(`Fetching gap data for ${symbol} from ${gap.start.toISOString()} to ${gap.end.toISOString()}`);
+
+        const gapStartTime = new Date(gap.start);
+        gapStartTime.setHours(0, 0, 0, 0);
+
+        const gapEndTime = new Date(gap.end);
+        gapEndTime.setHours(23, 59, 59, 999);
+
+        const gapCandles = await metaApiService.getHistoricalCandles(
+          symbol,
+          timeframe,
+          gapStartTime,
+          1000
+        );
+
+        const relevantGapCandles = gapCandles.filter(
+          c => c.time >= gap.start && c.time <= gap.end
+        );
+
+        for (const candle of relevantGapCandles) {
+          const normalizedTime = candle.time.getTime();
+          if (!candleMap.has(normalizedTime)) {
+            candleMap.set(normalizedTime, candle);
+          }
+        }
+
+        if (relevantGapCandles.length > 0) {
+          await marketDataCache.saveCandles(relevantGapCandles, true);
+          console.log(`✅ Filled gap with ${relevantGapCandles.length} candles`);
+        } else {
+          console.warn(`⚠️ No data available for gap period`);
+        }
+      } catch (error) {
+        console.error(`Failed to fetch gap data:`, error);
+      }
+    }
+
+    return Array.from(candleMap.values()).sort((a, b) => a.time.getTime() - b.time.getTime());
   }
 
   private async handleReconnect(

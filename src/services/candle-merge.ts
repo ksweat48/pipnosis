@@ -1,5 +1,14 @@
 import { CandleData, Timeframe } from './metaapi';
 import { getCandleOpenTime } from './candle-utils';
+import { marketHoursService } from './market-hours';
+
+export interface GapInfo {
+  start: Date;
+  end: Date;
+  isWeekend: boolean;
+  isTradingDayGap: boolean;
+  missingTradingDays: Date[];
+}
 
 export interface MergedCandleResult {
   candles: CandleData[];
@@ -70,10 +79,10 @@ export function mergeHistoricalAndLiveCandles(
 export function detectGaps(
   candles: CandleData[],
   timeframe: Timeframe
-): Array<{ start: Date; end: Date }> {
+): GapInfo[] {
   if (candles.length < 2) return [];
 
-  const gaps: Array<{ start: Date; end: Date }> = [];
+  const gaps: GapInfo[] = [];
   const timeframeMinutes = getTimeframeMinutes(timeframe);
   const expectedIntervalMs = timeframeMinutes * 60 * 1000;
 
@@ -83,9 +92,18 @@ export function detectGaps(
     const actualInterval = currTime - prevTime;
 
     if (actualInterval > expectedIntervalMs * 1.5) {
+      const gapStart = new Date(prevTime + expectedIntervalMs);
+      const gapEnd = new Date(currTime);
+
+      const missingTradingDays = marketHoursService.getTradingDaysBetween(gapStart, gapEnd);
+      const isWeekendOnly = missingTradingDays.length === 0;
+
       gaps.push({
-        start: new Date(prevTime + expectedIntervalMs),
-        end: new Date(currTime)
+        start: gapStart,
+        end: gapEnd,
+        isWeekend: isWeekendOnly,
+        isTradingDayGap: missingTradingDays.length > 0,
+        missingTradingDays
       });
     }
   }
