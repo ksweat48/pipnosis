@@ -1,11 +1,16 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { BarChart3, RefreshCw, Wifi, WifiOff, Database } from 'lucide-react';
 import { CandlestickChart } from './CandlestickChart';
-import { CandlestickData, Time } from 'lightweight-charts';
+import { AIAnalysisPanel } from './AIAnalysisPanel';
+import { ChartSettings } from './ChartSettings';
+import { CandlestickData, Time, HistogramData } from 'lightweight-charts';
 import { marketDataService, MarketDataListener, TickData } from '../services/market-data';
 import { Timeframe, CandleData } from '../services/metaapi';
 import { getCandleOpenTime, isNewCandlePeriod } from '../services/candle-utils';
 import { candleStateManager } from '../services/candle-state-manager';
+import { AIAnalysisData } from '../types/ai-analysis';
+import { generateSampleAIAnalysis } from '../utils/sample-ai-analysis';
+import { useChartPreferences } from '../hooks/useChartPreferences';
 
 interface MarketChartProps {
   symbol: string;
@@ -18,14 +23,14 @@ interface MarketChartProps {
   className?: string;
 }
 
-const TIMEFRAMES: { value: Timeframe; label: string }[] = [
-  { value: 'M1', label: '1 Min' },
-  { value: 'M5', label: '5 Min' },
-  { value: 'M15', label: '15 Min' },
-  { value: 'M30', label: '30 Min' },
-  { value: 'H1', label: '1 Hour' },
-  { value: 'H4', label: '4 Hour' },
-  { value: 'D1', label: 'Daily' },
+const TIMEFRAMES: { value: Timeframe; label: string; shortLabel: string }[] = [
+  { value: 'M1', label: '1 Min', shortLabel: '1m' },
+  { value: 'M5', label: '5 Min', shortLabel: '5m' },
+  { value: 'M15', label: '15 Min', shortLabel: '15m' },
+  { value: 'M30', label: '30 Min', shortLabel: '30m' },
+  { value: 'H1', label: '1 Hour', shortLabel: '1h' },
+  { value: 'H4', label: '4 Hour', shortLabel: '4h' },
+  { value: 'D1', label: 'Daily', shortLabel: '1D' },
 ];
 
 export const MarketChart: React.FC<MarketChartProps> = ({
@@ -38,6 +43,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [candleData, setCandleData] = useState<CandlestickData<Time>[]>([]);
+  const [volumeData, setVolumeData] = useState<HistogramData<Time>[]>([]);
   const [timeframe, setTimeframe] = useState<Timeframe>('M15');
   const [isConnected, setIsConnected] = useState(false);
   const [dataSource, setDataSource] = useState<'live' | 'cache' | 'none'>('none');
@@ -47,6 +53,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const listenerRef = useRef<MarketDataListener | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const pendingUpdateRef = useRef<CandlestickData<Time> | null>(null);
+  const pendingVolumeUpdateRef = useRef<HistogramData<Time> | null>(null);
   const lastRenderTimeRef = useRef<number>(0);
   const isUserInteractingRef = useRef<boolean>(false);
   const updateIntervalRef = useRef<number | null>(null);
@@ -55,7 +62,9 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
   const applyPendingUpdate = useCallback(() => {
     const pendingUpdate = pendingUpdateRef.current;
+    const pendingVolume = pendingVolumeUpdateRef.current;
     pendingUpdateRef.current = null;
+    pendingVolumeUpdateRef.current = null;
 
     if (pendingUpdate && pendingUpdate.time !== undefined && pendingUpdate.time !== null) {
       setCandleData(prev => {
@@ -76,6 +85,30 @@ export const MarketChart: React.FC<MarketChartProps> = ({
         } else {
           const updated = [...prev];
           updated[updated.length - 1] = pendingUpdate;
+          return updated;
+        }
+      });
+    }
+
+    if (pendingVolume && pendingVolume.time !== undefined && pendingVolume.time !== null) {
+      setVolumeData(prev => {
+        if (prev.length === 0) {
+          return [pendingVolume];
+        }
+
+        const lastVolume = prev[prev.length - 1];
+        if (!lastVolume || lastVolume.time === undefined || lastVolume.time === null) {
+          return [pendingVolume];
+        }
+
+        const pendingTime = pendingVolume.time as number;
+        const lastTime = lastVolume.time as number;
+
+        if (pendingTime > lastTime) {
+          return [...prev, pendingVolume].slice(-500);
+        } else {
+          const updated = [...prev];
+          updated[updated.length - 1] = pendingVolume;
           return updated;
         }
       });
@@ -107,7 +140,9 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       }
 
       const chartData = marketDataService.convertToCandlestickData(candles);
+      const volumeChartData = marketDataService.convertToVolumeData(candles);
       setCandleData(chartData);
+      setVolumeData(volumeChartData);
       setLastUpdate(new Date());
       setDataSource('cache');
       setIsConnected(marketDataService.isConnected());
@@ -126,7 +161,13 @@ export const MarketChart: React.FC<MarketChartProps> = ({
             low: currentCandle.low,
             close: currentCandle.close
           };
+          const liveVolume: HistogramData<Time> = {
+            time: Math.floor(currentCandle.timestamp.getTime() / 1000) as Time,
+            value: 0,
+            color: currentCandle.close >= currentCandle.open ? '#10b98180' : '#ef444480'
+          };
           setCandleData(prev => [...prev, liveCandle]);
+          setVolumeData(prev => [...prev, liveVolume]);
           console.log('Restored incomplete candle from state manager');
         }
       }
@@ -153,7 +194,14 @@ export const MarketChart: React.FC<MarketChartProps> = ({
             close: candleState.close
           };
 
+          const chartVolume: HistogramData<Time> = {
+            time: Math.floor(candleState.timestamp.getTime() / 1000) as Time,
+            value: candle.volume,
+            color: candleState.close >= candleState.open ? '#10b98180' : '#ef444480'
+          };
+
           pendingUpdateRef.current = chartCandle;
+          pendingVolumeUpdateRef.current = chartVolume;
           scheduleRender();
 
           setCurrentPrice(candle.close);
@@ -271,65 +319,126 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   }, [symbol, timeframe, isConnected, subscribeToLiveData]);
 
   const displayPrice = currentPrice || (candleData.length > 0 ? candleData[candleData.length - 1].close : 0);
+  const [openPrice, setOpenPrice] = useState<number>(0);
+  const [highPrice, setHighPrice] = useState<number>(0);
+  const [lowPrice, setLowPrice] = useState<number>(0);
+  const [priceChange, setPriceChange] = useState<number>(0);
+  const [priceChangePercent, setPriceChangePercent] = useState<number>(0);
+  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisData | undefined>(undefined);
+  const { preferences, updatePreferences } = useChartPreferences();
+
+  useEffect(() => {
+    if (candleData.length > 0) {
+      const latestCandle = candleData[candleData.length - 1];
+      const firstCandle = candleData[0];
+      setOpenPrice(latestCandle.open);
+      setHighPrice(latestCandle.high);
+      setLowPrice(latestCandle.low);
+      const change = displayPrice - firstCandle.open;
+      const changePercent = (change / firstCandle.open) * 100;
+      setPriceChange(change);
+      setPriceChangePercent(changePercent);
+
+      const analysis = generateSampleAIAnalysis(displayPrice, highPrice, lowPrice, symbol);
+      setAiAnalysis(analysis);
+    }
+  }, [candleData, displayPrice, highPrice, lowPrice, symbol]);
 
   return (
     <div className={`${className}`}>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8 space-y-4 sm:space-y-0">
-        <div className="flex items-center space-x-3">
-          <div className="p-2 sm:p-3 bg-gradient-to-r from-emerald-500/20 to-green-500/20 rounded-xl">
-              <BarChart3 className="h-5 w-5 text-emerald-400" />
+      <div className="glass-card p-4 sm:p-6 mb-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex items-center justify-between lg:justify-start">
+            <div className="flex items-center space-x-3">
+              <select
+                value={symbol}
+                onChange={(e) => onSymbolChange(e.target.value)}
+                className="bg-white/5 backdrop-blur-sm border border-white/20 rounded-lg px-3 py-2 text-base sm:text-lg text-white font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              >
+                {availablePairs.map(pair => (
+                  <option key={pair} value={pair} className="bg-slate-900">{pair}</option>
+                ))}
+              </select>
+              <div className="flex items-center space-x-2">
+                {isConnected ? (
+                  <div className="flex items-center space-x-1">
+                    <Wifi className="h-4 w-4 text-emerald-400" />
+                    {isLiveUpdating && (
+                      <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                    )}
+                  </div>
+                ) : (
+                  <WifiOff className="h-4 w-4 text-red-400" />
+                )}
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg sm:text-xl font-bold text-white">Live Market Chart</h3>
-              <p className="text-xs sm:text-sm text-white/60 font-medium">Real-time price action</p>
+            {isLoading && <RefreshCw className="h-5 w-5 text-emerald-400 animate-spin ml-3" />}
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
+            <div className="flex items-center gap-6 text-sm">
+              <div>
+                <span className="text-white/50 text-xs">O</span>
+                <span className="text-white ml-1 font-mono">{openPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+              </div>
+              <div>
+                <span className="text-white/50 text-xs">H</span>
+                <span className="text-white ml-1 font-mono">{highPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+              </div>
+              <div>
+                <span className="text-white/50 text-xs">L</span>
+                <span className="text-white ml-1 font-mono">{lowPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+              </div>
+              <div>
+                <span className="text-white/50 text-xs">C</span>
+                <span className="text-white ml-1 font-mono">{displayPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+              </div>
             </div>
-            {isLoading && <RefreshCw className="h-5 w-5 text-emerald-400 animate-spin" />}
+
+            <div className="flex items-center gap-2">
+              <div className="text-right">
+                <div className={`text-lg font-bold ${priceChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
+                </div>
+                <div className={`text-sm ${priceChangePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {priceChangePercent >= 0 ? '+' : ''}{priceChangePercent.toFixed(2)}%
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center justify-between sm:justify-end space-x-3 sm:space-x-4">
-          <select
-            value={symbol}
-            onChange={(e) => onSymbolChange(e.target.value)}
-            className="bg-white/5 backdrop-blur-sm border border-white/20 rounded-xl px-3 py-2 sm:px-4 sm:py-3 text-sm sm:text-base text-white font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-          >
-            {availablePairs.map(pair => (
-              <option key={pair} value={pair} className="bg-slate-900">{pair}</option>
-            ))}
-          </select>
-
-          <select
-            value={timeframe}
-            onChange={(e) => setTimeframe(e.target.value as Timeframe)}
-            className="bg-white/5 backdrop-blur-sm border border-white/20 rounded-xl px-3 py-2 sm:px-4 sm:py-3 text-sm sm:text-base text-white font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-          >
+        <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/10">
+          <div className="flex flex-wrap items-center gap-2">
             {TIMEFRAMES.map(tf => (
-              <option key={tf.value} value={tf.value} className="bg-slate-900">{tf.label}</option>
+              <button
+                key={tf.value}
+                onClick={() => setTimeframe(tf.value)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                  timeframe === tf.value
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50'
+                    : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white border border-white/10'
+                }`}
+              >
+                {tf.shortLabel}
+              </button>
             ))}
-          </select>
+          </div>
 
-          <div className="text-right">
-            <div className="flex items-center space-x-2">
-              {isConnected ? (
-                <div className="flex items-center space-x-1">
-                  <Wifi className="h-3 w-3 text-emerald-400" />
-                  {isLiveUpdating && (
-                    <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
-                  )}
-                </div>
-              ) : (
-                <WifiOff className="h-3 w-3 text-red-400" />
-              )}
-              {dataSource === 'cache' && <Database className="h-3 w-3 text-blue-400" />}
-              <span className="text-xs sm:text-sm text-white/50 font-medium">
-                {isLiveUpdating ? '🟢 Live Streaming' : dataSource === 'live' ? 'Live' : dataSource === 'cache' ? 'Cached' : 'Offline'}
-              </span>
-            </div>
-            <div className="text-xs text-white/40">
-              {lastUpdate ? lastUpdate.toLocaleTimeString([], {timeStyle: 'medium'}) : 'Loading...'}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 text-xs text-white/50">
               {bidAskSpread > 0 && (
-                <span className="ml-2">Spread: {bidAskSpread.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+                <div>
+                  <span className="text-white/40">Spread:</span>
+                  <span className="ml-1 text-white/60">{bidAskSpread.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+                </div>
               )}
+              <div>
+                <span className="text-white/40">Updated:</span>
+                <span className="ml-1 text-white/60">{lastUpdate ? lastUpdate.toLocaleTimeString([], {timeStyle: 'medium'}) : 'Loading...'}</span>
+              </div>
             </div>
+            <ChartSettings preferences={preferences} onUpdate={updatePreferences} />
           </div>
         </div>
       </div>
@@ -353,27 +462,17 @@ export const MarketChart: React.FC<MarketChartProps> = ({
         </div>
       ) : candleData.length > 0 ? (
         <div className="space-y-4">
-          <div className="text-center">
-            <div className="flex items-center justify-center space-x-3">
-              <div className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">
-                {displayPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
-              </div>
-              {isLiveUpdating && (
-                <div className="flex items-center space-x-1 text-emerald-400 text-sm">
-                  <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
-                  <span>LIVE</span>
-                </div>
-              )}
-            </div>
-            <div className="text-white/60 text-sm sm:text-base font-medium">{symbol} Current Price</div>
-          </div>
           <CandlestickChart
             key={`${symbol}-${timeframe}`}
             symbol={symbol}
             data={candleData}
+            volumeData={preferences.show_volume ? volumeData : undefined}
+            aiAnalysis={preferences.show_ai_analysis ? aiAnalysis : undefined}
             tradeLines={tradeLines}
-            height={384}
+            height={500}
+            preferences={preferences}
           />
+          {preferences.show_ai_analysis && <AIAnalysisPanel analysis={aiAnalysis} symbol={symbol} />}
         </div>
       ) : (
         <div className="relative bg-gradient-to-br from-slate-900/50 to-slate-800/50 backdrop-blur-sm rounded-2xl border border-white/10 h-64 sm:h-80 lg:h-96 flex items-center justify-center">

@@ -232,6 +232,14 @@ class MarketDataService {
     }));
   }
 
+  convertToVolumeData(candles: CandleData[]): { time: Time; value: number; color: string }[] {
+    return candles.map(candle => ({
+      time: Math.floor(candle.time.getTime() / 1000) as Time,
+      value: candle.volume,
+      color: candle.close >= candle.open ? '#10b98180' : '#ef444480'
+    }));
+  }
+
   async getCacheStats(symbol: string, timeframe: Timeframe) {
     return await marketDataCache.getCacheStats(symbol, timeframe);
   }
