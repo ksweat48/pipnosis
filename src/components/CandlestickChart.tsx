@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeries, HistogramData, LineData } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeries, HistogramSeries, LineSeries, HistogramData, LineData } from 'lightweight-charts';
 import { AIAnalysisData } from '../types/ai-analysis';
 import { ChartPreferences } from '../hooks/useChartPreferences';
 
@@ -120,7 +120,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       priceScaleId: 'right',
     });
 
-    const volumeSeries = chart.addHistogramSeries({
+    const volumeSeries = chart.addSeries(HistogramSeries, {
       color: '#26a69a',
       priceFormat: {
         type: 'volume',
@@ -135,7 +135,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       },
     });
 
-    const vwapSeries = chart.addLineSeries({
+    const vwapSeries = chart.addSeries(LineSeries, {
       color: '#fbbf24',
       lineWidth: 2,
       lineStyle: 2,
