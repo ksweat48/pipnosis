@@ -42,6 +42,7 @@ class MetaApiService {
   private accountId: string;
   private synchronizationListeners: Map<string, MarketDataListener> = new Map();
   private isListenerRegistered = false;
+  private isDemoMode = false;
 
   constructor() {
     this.token = import.meta.env.VITE_METAAPI_TOKEN || '';
@@ -98,7 +99,8 @@ class MetaApiService {
     if (!this.token || !this.accountId) {
       const error = new Error('MetaApi credentials not configured. App running in demo mode. Configure VITE_METAAPI_TOKEN and VITE_METAAPI_ACCOUNT_ID for live trading.');
       this.initializationError = error;
-      console.warn('⚠️ MetaApi not configured - running in demo mode');
+      this.isDemoMode = true;
+      console.warn('⚠️ MetaApi not configured - running in demo mode with cached data only');
       throw error;
     }
 
@@ -106,12 +108,15 @@ class MetaApiService {
 
     try {
       console.log('Initializing MetaApi connection...');
-      this.api = new MetaApi(this.token);
+      this.api = new MetaApi(this.token, { enableLatencyMonitor: false });
 
       try {
         this.account = await this.api.metatraderAccountApi.getAccount(this.accountId);
       } catch (apiError) {
         const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
+        if (errorMessage.includes('ERR_NETWORK') || errorMessage.includes('Failed to fetch')) {
+          throw new Error('Network connection failed. Unable to reach MetaApi servers. Check your internet connection or firewall settings.');
+        }
         console.error('Failed to get MetaApi account:', errorMessage);
         throw new Error('Invalid MetaApi account ID or credentials. Please verify your configuration.');
       }
@@ -186,6 +191,9 @@ class MetaApiService {
     startTime?: Date,
     limit: number = 500
   ): Promise<CandleData[]> {
+    if (this.isDemoMode || this.initializationError) {
+      throw this.initializationError || new Error('MetaApi not available in demo mode');
+    }
     await this.ensureInitialized();
 
     if (!this.account) {
@@ -342,6 +350,9 @@ class MetaApiService {
     symbol: string,
     listener: MarketDataListener
   ): Promise<void> {
+    if (this.isDemoMode || this.initializationError) {
+      throw this.initializationError || new Error('MetaApi not available in demo mode');
+    }
     await this.ensureInitialized();
 
     if (!this.connection) {
@@ -387,6 +398,9 @@ class MetaApiService {
   }
 
   async getSymbolPrice(symbol: string): Promise<{ bid: number; ask: number }> {
+    if (this.isDemoMode || this.initializationError) {
+      throw this.initializationError || new Error('MetaApi not available in demo mode');
+    }
     await this.ensureInitialized();
 
     try {

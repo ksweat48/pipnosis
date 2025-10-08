@@ -23,6 +23,9 @@ class MarketDataService {
   private activeSubscriptions: Map<string, Set<MarketDataListener>> = new Map();
   private reconnectAttempts: Map<string, number> = new Map();
   private maxReconnectAttempts = 5;
+  private isInitialized = false;
+  private initializationAttempted = false;
+  private isDemoMode = false;
 
   async getHistoricalData(
     symbol: string,
@@ -30,30 +33,53 @@ class MarketDataService {
     limit: number = 500,
     useCache: boolean = true
   ): Promise<CandleData[]> {
-    try {
-      const endTime = new Date();
-      const startTime = utilCalculateStartTime(timeframe, limit, endTime);
-      const oneDayAgo = new Date(endTime.getTime() - 24 * 60 * 60 * 1000);
+    const endTime = new Date();
+    const startTime = utilCalculateStartTime(timeframe, limit, endTime);
+    const oneDayAgo = new Date(endTime.getTime() - 24 * 60 * 60 * 1000);
 
-      if (useCache) {
-        const cachedCandles = await marketDataCache.getCachedCandles(
-          symbol,
-          timeframe,
-          startTime,
-          endTime
-        );
+    if (useCache) {
+      const cachedCandles = await marketDataCache.getCachedCandles(
+        symbol,
+        timeframe,
+        startTime,
+        endTime
+      );
 
-        const recentCandles = cachedCandles.filter(c => c.time >= oneDayAgo);
-        const hasRecentData = recentCandles.length > 0;
+      const recentCandles = cachedCandles.filter(c => c.time >= oneDayAgo);
+      const hasRecentData = recentCandles.length > 0;
 
-        if (cachedCandles.length >= limit * 0.9 && hasRecentData) {
-          console.log(`Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe} (${recentCandles.length} from last 24h)`);
-          return cachedCandles;
-        }
-
-        console.log(`Cache insufficient or stale (${cachedCandles.length}/${limit}, recent: ${recentCandles.length}), fetching from MetaApi...`);
+      if (cachedCandles.length >= limit * 0.9 && hasRecentData) {
+        console.log(`✅ Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe} (${recentCandles.length} from last 24h)`);
+        return cachedCandles;
       }
 
+      if (this.isDemoMode) {
+        if (cachedCandles.length > 0) {
+          console.log(`💾 Demo mode: Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
+          return cachedCandles;
+        }
+        console.warn(`⚠️ Demo mode: No cached data available for ${symbol} ${timeframe}`);
+        return [];
+      }
+
+      console.log(`Cache insufficient or stale (${cachedCandles.length}/${limit}, recent: ${recentCandles.length}), fetching from MetaApi...`);
+    }
+
+    if (this.isDemoMode) {
+      const cachedCandles = await marketDataCache.getCachedCandles(
+        symbol,
+        timeframe,
+        startTime,
+        endTime
+      );
+      if (cachedCandles.length > 0) {
+        console.log(`💾 Demo mode: Using ${cachedCandles.length} cached candles`);
+        return cachedCandles;
+      }
+      return [];
+    }
+
+    try {
       const liveCandles = await metaApiService.getHistoricalCandles(
         symbol,
         timeframe,
@@ -67,17 +93,15 @@ class MarketDataService {
 
       return liveCandles;
     } catch (error) {
-      console.error(`Error fetching historical data for ${symbol} ${timeframe}:`, error);
-
       const cachedCandles = await marketDataCache.getCachedCandles(
         symbol,
         timeframe,
-        utilCalculateStartTime(timeframe, limit, new Date()),
-        new Date()
+        startTime,
+        endTime
       );
 
       if (cachedCandles.length > 0) {
-        console.log(`Falling back to ${cachedCandles.length} cached candles`);
+        console.log(`⚠️ MetaApi error, falling back to ${cachedCandles.length} cached candles`);
         return cachedCandles;
       }
 
@@ -172,11 +196,32 @@ class MarketDataService {
   }
 
   async initialize(): Promise<void> {
+    if (this.isInitialized) {
+      return;
+    }
+
+    if (this.initializationAttempted) {
+      return;
+    }
+
+    this.initializationAttempted = true;
+
     try {
       await metaApiService.initialize();
-      console.log('Market data service initialized');
+      this.isInitialized = true;
+      this.isDemoMode = false;
+      console.log('✅ Market data service initialized successfully');
     } catch (error) {
-      console.error('Failed to initialize market data service:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+      if (errorMessage.includes('not configured') || errorMessage.includes('demo mode')) {
+        this.isDemoMode = true;
+        console.warn('⚠️ Running in demo mode with cached data only');
+      } else {
+        console.error('❌ Failed to initialize MetaApi:', errorMessage);
+        this.isDemoMode = true;
+      }
+
       throw error;
     }
   }
