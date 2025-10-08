@@ -56,18 +56,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error) {
           console.error('Error getting session:', error);
+          if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+            console.warn('Network error during auth initialization. App will continue without authentication.');
+          }
         }
         setSession(session);
         setUser(session?.user ?? null);
 
         if (session?.user) {
-          const adminStatus = await checkAdminStatus(session.user.id);
-          setIsAdmin(adminStatus);
+          try {
+            const adminStatus = await checkAdminStatus(session.user.id);
+            setIsAdmin(adminStatus);
+          } catch (adminError) {
+            console.error('Error checking admin status:', adminError);
+            setIsAdmin(false);
+          }
         } else {
           setIsAdmin(false);
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
+        setSession(null);
+        setUser(null);
+        setIsAdmin(false);
       } finally {
         setLoading(false);
       }

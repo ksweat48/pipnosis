@@ -20,6 +20,7 @@ import { AuthPage } from './pages/AuthPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { ActivePositions } from './components/ActivePositions';
 import { TradeConfirmationModal } from './components/TradeConfirmationModal';
+import { ConfigurationStatus } from './components/ConfigurationStatus';
 import { usePromptAnalysis, useMarketData } from './hooks/useAPI';
 import { simulatedTradingService } from './services/simulated-trading';
 
@@ -253,6 +254,9 @@ const Dashboard: React.FC = () => {
         
         {/* Main Trading Interface */}
         <div className="space-y-6 sm:space-y-8 lg:space-y-12">
+          {/* Configuration Status */}
+          <ConfigurationStatus />
+
           {/* Market Chart Section */}
           <div className="glass-card p-4 sm:p-6 lg:p-8">
             <MarketChart

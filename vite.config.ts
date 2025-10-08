@@ -67,23 +67,22 @@ export default defineConfig({
     },
   },
   server: {
-    // CRITICAL: Proper host configuration for Bolt preview
-    host: 'localhost', // Changed from 0.0.0.0 to localhost
+    host: true,
     port: 5173,
-    strictPort: false, // Allow port fallback
-    // Ensure proper CORS for Bolt preview
+    strictPort: false,
     cors: true,
-    // Add headers for Bolt compatibility
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': '*'
     },
-    // CRITICAL: Enable HMR for external access
     hmr: {
-      port: 5173,
-      host: 'localhost', // Changed from 0.0.0.0 to localhost
-      overlay: false // Disable the error overlay
+      overlay: true,
+      clientPort: 5173
+    },
+    watch: {
+      usePolling: false,
+      interval: 100
     }
   },
   // Preview configuration for production builds

@@ -96,8 +96,9 @@ class MetaApiService {
     }
 
     if (!this.token || !this.accountId) {
-      const error = new Error('MetaApi credentials not configured. Please set VITE_METAAPI_TOKEN and VITE_METAAPI_ACCOUNT_ID in .env file');
+      const error = new Error('MetaApi credentials not configured. App running in demo mode. Configure VITE_METAAPI_TOKEN and VITE_METAAPI_ACCOUNT_ID for live trading.');
       this.initializationError = error;
+      console.warn('⚠️ MetaApi not configured - running in demo mode');
       throw error;
     }
 
