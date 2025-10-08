@@ -57,26 +57,32 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     animationFrameRef.current = requestAnimationFrame((timestamp) => {
       animationFrameRef.current = null;
 
-      if (pendingUpdateRef.current) {
+      const pendingUpdate = pendingUpdateRef.current;
+      pendingUpdateRef.current = null;
+
+      if (pendingUpdate && pendingUpdate.time !== undefined && pendingUpdate.time !== null) {
         setCandleData(prev => {
           if (prev.length === 0) {
-            return [pendingUpdateRef.current!];
+            return [pendingUpdate];
           }
 
           const lastCandle = prev[prev.length - 1];
-          const pendingTime = pendingUpdateRef.current!.time as number;
+          if (!lastCandle || lastCandle.time === undefined || lastCandle.time === null) {
+            return [pendingUpdate];
+          }
+
+          const pendingTime = pendingUpdate.time as number;
           const lastTime = lastCandle.time as number;
 
           if (pendingTime > lastTime) {
-            return [...prev, pendingUpdateRef.current!].slice(-500);
+            return [...prev, pendingUpdate].slice(-500);
           } else {
             const updated = [...prev];
-            updated[updated.length - 1] = pendingUpdateRef.current!;
+            updated[updated.length - 1] = pendingUpdate;
             return updated;
           }
         });
 
-        pendingUpdateRef.current = null;
         lastRenderTimeRef.current = timestamp;
       }
     });
