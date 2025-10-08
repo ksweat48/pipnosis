@@ -48,45 +48,48 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const animationFrameRef = useRef<number | null>(null);
   const pendingUpdateRef = useRef<CandlestickData<Time> | null>(null);
   const lastRenderTimeRef = useRef<number>(0);
+  const isUserInteractingRef = useRef<boolean>(false);
+  const updateIntervalRef = useRef<number | null>(null);
 
   const availablePairs = ['EURUSD', 'GBPUSD', 'XAUUSD'];
+
+  const applyPendingUpdate = useCallback(() => {
+    const pendingUpdate = pendingUpdateRef.current;
+    pendingUpdateRef.current = null;
+
+    if (pendingUpdate && pendingUpdate.time !== undefined && pendingUpdate.time !== null) {
+      setCandleData(prev => {
+        if (prev.length === 0) {
+          return [pendingUpdate];
+        }
+
+        const lastCandle = prev[prev.length - 1];
+        if (!lastCandle || lastCandle.time === undefined || lastCandle.time === null) {
+          return [pendingUpdate];
+        }
+
+        const pendingTime = pendingUpdate.time as number;
+        const lastTime = lastCandle.time as number;
+
+        if (pendingTime > lastTime) {
+          return [...prev, pendingUpdate].slice(-500);
+        } else {
+          const updated = [...prev];
+          updated[updated.length - 1] = pendingUpdate;
+          return updated;
+        }
+      });
+    }
+  }, []);
 
   const scheduleRender = useCallback(() => {
     if (animationFrameRef.current) return;
 
-    animationFrameRef.current = requestAnimationFrame((timestamp) => {
+    animationFrameRef.current = requestAnimationFrame(() => {
       animationFrameRef.current = null;
-
-      const pendingUpdate = pendingUpdateRef.current;
-      pendingUpdateRef.current = null;
-
-      if (pendingUpdate && pendingUpdate.time !== undefined && pendingUpdate.time !== null) {
-        setCandleData(prev => {
-          if (prev.length === 0) {
-            return [pendingUpdate];
-          }
-
-          const lastCandle = prev[prev.length - 1];
-          if (!lastCandle || lastCandle.time === undefined || lastCandle.time === null) {
-            return [pendingUpdate];
-          }
-
-          const pendingTime = pendingUpdate.time as number;
-          const lastTime = lastCandle.time as number;
-
-          if (pendingTime > lastTime) {
-            return [...prev, pendingUpdate].slice(-500);
-          } else {
-            const updated = [...prev];
-            updated[updated.length - 1] = pendingUpdate;
-            return updated;
-          }
-        });
-
-        lastRenderTimeRef.current = timestamp;
-      }
+      applyPendingUpdate();
     });
-  }, []);
+  }, [applyPendingUpdate]);
 
   const loadHistoricalData = useCallback(async () => {
     setIsLoading(true);
@@ -200,7 +203,17 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       console.error('Failed to subscribe:', err);
       setError('Failed to connect to live data feed');
     });
-  }, [symbol, timeframe]);
+
+    if (updateIntervalRef.current) {
+      clearInterval(updateIntervalRef.current);
+    }
+
+    updateIntervalRef.current = window.setInterval(() => {
+      if (pendingUpdateRef.current) {
+        applyPendingUpdate();
+      }
+    }, 100);
+  }, [symbol, timeframe, scheduleRender, applyPendingUpdate]);
 
   useEffect(() => {
     const initializeService = async () => {
@@ -230,6 +243,9 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current);
+      }
       candleStateManager.flushAll();
     };
   }, []);
@@ -247,8 +263,9 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       if (listenerRef.current) {
         marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
       }
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current);
+        updateIntervalRef.current = null;
       }
     };
   }, [symbol, timeframe, isConnected, subscribeToLiveData]);
