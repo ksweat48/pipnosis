@@ -315,41 +315,65 @@ class SupabaseDataService {
   }
 
   subscribeToActiveTrades(userId: string, callback: (trades: TradeRecord[]) => void) {
-    return supabase
-      .channel(`trades:${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'trade_records',
-          filter: `user_id=eq.${userId}`
-        },
-        async () => {
-          const trades = await this.getActiveTrades(userId);
-          callback(trades);
+    try {
+      const channel = supabase
+        .channel(`trades:${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'trade_records',
+            filter: `user_id=eq.${userId}`
+          },
+          async () => {
+            const trades = await this.getActiveTrades(userId);
+            callback(trades);
+          }
+        );
+
+      channel.subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn(`Realtime subscription issue for trades: ${status}`);
         }
-      )
-      .subscribe();
+      });
+
+      return channel;
+    } catch (error) {
+      console.error('Failed to subscribe to active trades:', error);
+      return null;
+    }
   }
 
   subscribeToJournalEntries(userId: string, callback: (entries: JournalEntry[]) => void) {
-    return supabase
-      .channel(`journal:${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'journal_entries',
-          filter: `user_id=eq.${userId}`
-        },
-        async () => {
-          const entries = await this.getJournalEntries(userId);
-          callback(entries);
+    try {
+      const channel = supabase
+        .channel(`journal:${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'journal_entries',
+            filter: `user_id=eq.${userId}`
+          },
+          async () => {
+            const entries = await this.getJournalEntries(userId);
+            callback(entries);
+          }
+        );
+
+      channel.subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn(`Realtime subscription issue for journal: ${status}`);
         }
-      )
-      .subscribe();
+      });
+
+      return channel;
+    } catch (error) {
+      console.error('Failed to subscribe to journal entries:', error);
+      return null;
+    }
   }
 }
 

@@ -17,38 +17,55 @@ export function useUserBalance(userId: string | null) {
     fetchBalance();
     fetchOpenPositions();
 
-    const channel = supabase
-      .channel('balance_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'user_profiles',
-          filter: `id=eq.${userId}`
-        },
-        (payload) => {
-          if (payload.new && 'account_balance' in payload.new) {
-            setBalance(parseFloat(payload.new.account_balance as string));
+    let channel: any = null;
+
+    try {
+      channel = supabase
+        .channel('balance_changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'user_profiles',
+            filter: `id=eq.${userId}`
+          },
+          (payload) => {
+            if (payload.new && 'account_balance' in payload.new) {
+              setBalance(parseFloat(payload.new.account_balance as string));
+            }
           }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'trade_records',
+            filter: `user_id=eq.${userId}`
+          },
+          () => {
+            fetchOpenPositions();
+          }
+        );
+
+      channel.subscribe((status: string) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn(`Balance realtime subscription issue: ${status}`);
         }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'trade_records',
-          filter: `user_id=eq.${userId}`
-        },
-        () => {
-          fetchOpenPositions();
-        }
-      )
-      .subscribe();
+      });
+    } catch (error) {
+      console.warn('Failed to setup realtime subscription for balance:', error);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        try {
+          supabase.removeChannel(channel);
+        } catch (error) {
+          console.warn('Error removing channel:', error);
+        }
+      }
     };
   }, [userId]);
 
