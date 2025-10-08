@@ -1,12 +1,15 @@
 import { metaApiService, CandleData, Timeframe, TickData } from './metaapi';
 import { marketDataCache } from './market-data-cache';
 import { Time } from 'lightweight-charts';
+import { getCandleOpenTime, isNewCandlePeriod, calculateStartTime as utilCalculateStartTime } from './candle-utils';
 
 export interface MarketDataListener {
   onCandleUpdate?: (candle: CandleData) => void;
   onTick?: (tick: TickData) => void;
   onError?: (error: Error) => void;
 }
+
+export type { TickData } from './metaapi';
 
 export interface ChartCandleData {
   time: Time;
@@ -29,7 +32,8 @@ class MarketDataService {
   ): Promise<CandleData[]> {
     try {
       const endTime = new Date();
-      const startTime = this.calculateStartTime(timeframe, limit, endTime);
+      const startTime = utilCalculateStartTime(timeframe, limit, endTime);
+      const oneDayAgo = new Date(endTime.getTime() - 24 * 60 * 60 * 1000);
 
       if (useCache) {
         const cachedCandles = await marketDataCache.getCachedCandles(
@@ -39,12 +43,15 @@ class MarketDataService {
           endTime
         );
 
-        if (cachedCandles.length >= limit * 0.9) {
-          console.log(`Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
+        const recentCandles = cachedCandles.filter(c => c.time >= oneDayAgo);
+        const hasRecentData = recentCandles.length > 0;
+
+        if (cachedCandles.length >= limit * 0.9 && hasRecentData) {
+          console.log(`Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe} (${recentCandles.length} from last 24h)`);
           return cachedCandles;
         }
 
-        console.log(`Cache insufficient (${cachedCandles.length}/${limit}), fetching from MetaApi...`);
+        console.log(`Cache insufficient or stale (${cachedCandles.length}/${limit}, recent: ${recentCandles.length}), fetching from MetaApi...`);
       }
 
       const liveCandles = await metaApiService.getHistoricalCandles(
@@ -65,7 +72,7 @@ class MarketDataService {
       const cachedCandles = await marketDataCache.getCachedCandles(
         symbol,
         timeframe,
-        this.calculateStartTime(timeframe, limit, new Date()),
+        utilCalculateStartTime(timeframe, limit, new Date()),
         new Date()
       );
 
@@ -261,26 +268,6 @@ class MarketDataService {
     }
   }
 
-  private calculateStartTime(timeframe: Timeframe, limit: number, endTime: Date): Date {
-    const minutes = this.timeframeToMinutes(timeframe);
-    const totalMinutes = minutes * limit;
-    return new Date(endTime.getTime() - totalMinutes * 60 * 1000);
-  }
-
-  private timeframeToMinutes(timeframe: Timeframe): number {
-    const map: Record<Timeframe, number> = {
-      M1: 1,
-      M5: 5,
-      M15: 15,
-      M30: 30,
-      H1: 60,
-      H4: 240,
-      D1: 1440,
-      W1: 10080,
-      MN1: 43200
-    };
-    return map[timeframe] || 15;
-  }
 }
 
 export const marketDataService = new MarketDataService();

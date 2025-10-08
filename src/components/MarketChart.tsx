@@ -4,6 +4,7 @@ import { CandlestickChart } from './CandlestickChart';
 import { CandlestickData, Time } from 'lightweight-charts';
 import { marketDataService, MarketDataListener, TickData } from '../services/market-data';
 import { Timeframe, CandleData } from '../services/metaapi';
+import { getCandleOpenTime, isNewCandlePeriod } from '../services/candle-utils';
 
 interface MarketChartProps {
   symbol: string;
@@ -78,8 +79,9 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     const listener: MarketDataListener = {
       onCandleUpdate: (candle: CandleData) => {
         if (candle.symbol === symbol && candle.timeframe === timeframe) {
+          const candleOpenTime = getCandleOpenTime(candle.time, timeframe);
           const chartCandle: CandlestickData<Time> = {
-            time: Math.floor(candle.time.getTime() / 1000) as Time,
+            time: Math.floor(candleOpenTime.getTime() / 1000) as Time,
             open: candle.open,
             high: candle.high,
             low: candle.low,
@@ -87,13 +89,21 @@ export const MarketChart: React.FC<MarketChartProps> = ({
           };
 
           setCandleData(prev => {
-            const existing = prev.findIndex(c => c.time === chartCandle.time);
-            if (existing >= 0) {
+            if (prev.length === 0) {
+              return [chartCandle];
+            }
+
+            const lastCandle = prev[prev.length - 1];
+            const lastCandleTime = new Date(lastCandle.time as number * 1000);
+
+            if (isNewCandlePeriod(candle.time, lastCandleTime, timeframe)) {
+              console.log(`New candle period detected: ${candle.time.toISOString()}`);
+              return [...prev, chartCandle].slice(-500);
+            } else {
               const updated = [...prev];
-              updated[existing] = chartCandle;
+              updated[updated.length - 1] = chartCandle;
               return updated;
             }
-            return [...prev, chartCandle].slice(-500);
           });
           setCurrentPrice(candle.close);
           setLastUpdate(new Date());
@@ -115,15 +125,32 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
             setCandleData(prev => {
               if (prev.length === 0) return prev;
-              const updated = [...prev];
-              const lastCandle = updated[updated.length - 1];
-              updated[updated.length - 1] = {
-                ...lastCandle,
-                close: midPrice,
-                high: Math.max(lastCandle.high, midPrice),
-                low: Math.min(lastCandle.low, midPrice)
-              };
-              return updated;
+
+              const tickTime = tick.time;
+              const lastCandle = prev[prev.length - 1];
+              const lastCandleTime = new Date(lastCandle.time as number * 1000);
+
+              if (isNewCandlePeriod(tickTime, lastCandleTime, timeframe)) {
+                const newCandleOpenTime = getCandleOpenTime(tickTime, timeframe);
+                const newCandle: CandlestickData<Time> = {
+                  time: Math.floor(newCandleOpenTime.getTime() / 1000) as Time,
+                  open: midPrice,
+                  high: midPrice,
+                  low: midPrice,
+                  close: midPrice
+                };
+                console.log(`Creating new candle from tick at ${tickTime.toISOString()}`);
+                return [...prev, newCandle].slice(-500);
+              } else {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                  ...lastCandle,
+                  close: midPrice,
+                  high: Math.max(lastCandle.high, midPrice),
+                  low: Math.min(lastCandle.low, midPrice)
+                };
+                return updated;
+              }
             });
           }
         }

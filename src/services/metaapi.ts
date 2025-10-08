@@ -159,10 +159,12 @@ class MetaApiService {
     }
 
     try {
-      const calculatedStartTime = startTime || this.calculateStartTime(timeframe, limit);
+      const endTime = new Date();
+      const calculatedStartTime = startTime || this.calculateStartTime(timeframe, limit, endTime);
       const apiTimeframe = this.convertToApiTimeframe(timeframe);
 
       console.log(`Fetching historical candles: ${symbol} ${timeframe} (API: ${apiTimeframe})`);
+      console.log(`Time range: ${calculatedStartTime.toISOString()} to ${endTime.toISOString()}`);
 
       const candles = await this.account.getHistoricalCandles(
         symbol,
@@ -171,7 +173,7 @@ class MetaApiService {
         limit
       );
 
-      return candles.map((candle: any) => ({
+      const mappedCandles = candles.map((candle: any) => ({
         symbol,
         timeframe,
         time: new Date(candle.time),
@@ -184,6 +186,9 @@ class MetaApiService {
         spread: candle.spread || 0,
         volume: candle.volume || 0
       }));
+
+      console.log(`Received ${mappedCandles.length} candles, latest: ${mappedCandles.length > 0 ? mappedCandles[mappedCandles.length - 1].time.toISOString() : 'none'}`);
+      return mappedCandles;
     } catch (error) {
       console.error(`Failed to fetch historical candles for ${symbol} ${timeframe}:`, error);
       throw error;
@@ -387,11 +392,10 @@ class MetaApiService {
     }
   }
 
-  private calculateStartTime(timeframe: Timeframe, limit: number): Date {
-    const now = new Date();
+  private calculateStartTime(timeframe: Timeframe, limit: number, endTime: Date = new Date()): Date {
     const minutes = this.timeframeToMinutes(timeframe);
     const totalMinutes = minutes * limit;
-    return new Date(now.getTime() - totalMinutes * 60 * 1000);
+    return new Date(endTime.getTime() - totalMinutes * 60 * 1000);
   }
 
   private timeframeToMinutes(timeframe: Timeframe): number {

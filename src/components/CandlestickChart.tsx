@@ -115,21 +115,30 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   useEffect(() => {
     if (!isReady || !candlestickSeriesRef.current || data.length === 0) return;
 
-    const isNewCandle = data.length > lastDataLengthRef.current;
-    const lastCandleChanged = data.length > 0 && lastDataLengthRef.current > 0 &&
-      JSON.stringify(data[data.length - 1]) !== JSON.stringify(candlestickSeriesRef.current.data?.()?.[data.length - 1]);
+    const isStructureChange = data.length !== lastDataLengthRef.current;
+    const isInitialLoad = lastDataLengthRef.current === 0;
 
-    if (isNewCandle) {
-      candlestickSeriesRef.current.update(data[data.length - 1]);
-      lastDataLengthRef.current = data.length;
-    } else if (lastCandleChanged || lastDataLengthRef.current === 0) {
+    if (isInitialLoad) {
       candlestickSeriesRef.current.setData(data);
       lastDataLengthRef.current = data.length;
-
-      if (chartRef.current && isInitialLoadRef.current) {
+      if (chartRef.current) {
         chartRef.current.timeScale().fitContent();
         isInitialLoadRef.current = false;
       }
+      return;
+    }
+
+    if (isStructureChange) {
+      if (data.length > lastDataLengthRef.current) {
+        candlestickSeriesRef.current.update(data[data.length - 1]);
+        console.log(`Chart: Added new candle at ${new Date((data[data.length - 1].time as number) * 1000).toISOString()}`);
+      } else {
+        candlestickSeriesRef.current.setData(data);
+      }
+      lastDataLengthRef.current = data.length;
+    } else if (data.length > 0) {
+      const lastCandle = data[data.length - 1];
+      candlestickSeriesRef.current.update(lastCandle);
     }
   }, [data, isReady]);
 
