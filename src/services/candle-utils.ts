@@ -17,7 +17,7 @@ export function timeframeToMinutes(timeframe: Timeframe): number {
 
 export function getCandleOpenTime(timestamp: Date, timeframe: Timeframe): Date {
   const minutes = timeframeToMinutes(timeframe);
-  const time = new Date(timestamp);
+  const time = new Date(timestamp.getTime());
 
   if (timeframe === 'D1') {
     time.setUTCHours(0, 0, 0, 0);
@@ -72,4 +72,40 @@ export function calculateStartTime(timeframe: Timeframe, limit: number, endTime:
   const minutes = timeframeToMinutes(timeframe);
   const totalMinutes = minutes * limit;
   return new Date(endTime.getTime() - totalMinutes * 60 * 1000);
+}
+
+export function validateCandleSequence(
+  candles: Array<{ time: Date }>,
+  timeframe: Timeframe
+): boolean {
+  if (candles.length < 2) return true;
+
+  const intervalMs = timeframeToMinutes(timeframe) * 60 * 1000;
+
+  for (let i = 1; i < candles.length; i++) {
+    const prevTime = candles[i - 1].time.getTime();
+    const currTime = candles[i].time.getTime();
+    const diff = currTime - prevTime;
+
+    if (diff !== intervalMs && timeframe !== 'D1' && timeframe !== 'W1' && timeframe !== 'MN1') {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function validateOHLC(open: number, high: number, low: number, close: number): boolean {
+  if (high < low) return false;
+  if (high < open || high < close) return false;
+  if (low > open || low > close) return false;
+  if (open <= 0 || high <= 0 || low <= 0 || close <= 0) return false;
+  return true;
+}
+
+export function alignTimestampToCandleBoundary(
+  timestamp: Date,
+  timeframe: Timeframe
+): Date {
+  return getCandleOpenTime(timestamp, timeframe);
 }

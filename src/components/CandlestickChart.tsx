@@ -25,6 +25,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const [isReady, setIsReady] = useState(false);
   const lastDataLengthRef = useRef(0);
   const isInitialLoadRef = useRef(true);
+  const updateQueueRef = useRef<CandlestickData<Time>[]>([]);
+  const processingRef = useRef(false);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -108,6 +110,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      updateQueueRef.current = [];
+      processingRef.current = false;
       chart.remove();
     };
   }, [height]);
@@ -130,15 +134,26 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     if (isStructureChange) {
       if (data.length > lastDataLengthRef.current) {
-        candlestickSeriesRef.current.update(data[data.length - 1]);
-        console.log(`Chart: Added new candle at ${new Date((data[data.length - 1].time as number) * 1000).toISOString()}`);
+        const newCandles = data.slice(lastDataLengthRef.current);
+        newCandles.forEach(candle => {
+          candlestickSeriesRef.current?.update(candle);
+        });
+        console.log(`Chart: Added ${newCandles.length} new candle(s)`);
       } else {
         candlestickSeriesRef.current.setData(data);
       }
       lastDataLengthRef.current = data.length;
     } else if (data.length > 0) {
       const lastCandle = data[data.length - 1];
-      candlestickSeriesRef.current.update(lastCandle);
+      if (!processingRef.current) {
+        processingRef.current = true;
+        requestAnimationFrame(() => {
+          if (candlestickSeriesRef.current) {
+            candlestickSeriesRef.current.update(lastCandle);
+          }
+          processingRef.current = false;
+        });
+      }
     }
   }, [data, isReady]);
 

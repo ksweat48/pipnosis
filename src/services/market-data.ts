@@ -2,6 +2,7 @@ import { metaApiService, CandleData, Timeframe, TickData } from './metaapi';
 import { marketDataCache } from './market-data-cache';
 import { Time } from 'lightweight-charts';
 import { getCandleOpenTime, isNewCandlePeriod, calculateStartTime as utilCalculateStartTime } from './candle-utils';
+import { dataValidator } from './data-validator';
 
 export interface MarketDataListener {
   onCandleUpdate?: (candle: CandleData) => void;
@@ -50,13 +51,21 @@ class MarketDataService {
 
       if (cachedCandles.length >= limit * 0.9 && hasRecentData) {
         console.log(`✅ Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe} (${recentCandles.length} from last 24h)`);
-        return cachedCandles;
+        const alignedCandles = cachedCandles.map(candle => ({
+          ...candle,
+          time: getCandleOpenTime(candle.time, timeframe)
+        }));
+        return alignedCandles;
       }
 
       if (this.isDemoMode) {
         if (cachedCandles.length > 0) {
           console.log(`💾 Demo mode: Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
-          return cachedCandles;
+          const alignedCandles = cachedCandles.map(candle => ({
+            ...candle,
+            time: getCandleOpenTime(candle.time, timeframe)
+          }));
+          return alignedCandles;
         }
         console.warn(`⚠️ Demo mode: No cached data available for ${symbol} ${timeframe}`);
         return [];
@@ -74,7 +83,11 @@ class MarketDataService {
       );
       if (cachedCandles.length > 0) {
         console.log(`💾 Demo mode: Using ${cachedCandles.length} cached candles`);
-        return cachedCandles;
+        const alignedCandles = cachedCandles.map(candle => ({
+          ...candle,
+          time: getCandleOpenTime(candle.time, timeframe)
+        }));
+        return alignedCandles;
       }
       return [];
     }
@@ -87,11 +100,23 @@ class MarketDataService {
         limit
       );
 
-      if (liveCandles.length > 0 && useCache) {
-        await marketDataCache.saveCandles(liveCandles);
+      const alignedCandles = liveCandles.map(candle => ({
+        ...candle,
+        time: getCandleOpenTime(candle.time, timeframe)
+      }));
+
+      const validationResult = dataValidator.validateCandleSequence(alignedCandles, timeframe);
+      dataValidator.logValidationResults(validationResult, `${symbol} ${timeframe} live data`);
+
+      const repairedCandles = validationResult.isValid
+        ? alignedCandles
+        : alignedCandles.map(c => dataValidator.repairCandle(c));
+
+      if (repairedCandles.length > 0 && useCache) {
+        await marketDataCache.saveCandles(repairedCandles);
       }
 
-      return liveCandles;
+      return repairedCandles;
     } catch (error) {
       const cachedCandles = await marketDataCache.getCachedCandles(
         symbol,
@@ -102,7 +127,11 @@ class MarketDataService {
 
       if (cachedCandles.length > 0) {
         console.log(`⚠️ MetaApi error, falling back to ${cachedCandles.length} cached candles`);
-        return cachedCandles;
+        const alignedCandles = cachedCandles.map(candle => ({
+          ...candle,
+          time: getCandleOpenTime(candle.time, timeframe)
+        }));
+        return alignedCandles;
       }
 
       throw error;

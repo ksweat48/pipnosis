@@ -5,6 +5,7 @@ import { CandlestickData, Time } from 'lightweight-charts';
 import { marketDataService, MarketDataListener, TickData } from '../services/market-data';
 import { Timeframe, CandleData } from '../services/metaapi';
 import { getCandleOpenTime, isNewCandlePeriod } from '../services/candle-utils';
+import { candleStateManager } from '../services/candle-state-manager';
 
 interface MarketChartProps {
   symbol: string;
@@ -44,15 +45,50 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const [bidAskSpread, setBidAskSpread] = useState<number>(0);
   const [isLiveUpdating, setIsLiveUpdating] = useState(false);
   const listenerRef = useRef<MarketDataListener | null>(null);
-  const lastTickTimeRef = useRef<number>(0);
+  const animationFrameRef = useRef<number | null>(null);
+  const pendingUpdateRef = useRef<CandlestickData<Time> | null>(null);
+  const lastRenderTimeRef = useRef<number>(0);
 
   const availablePairs = ['EURUSD', 'GBPUSD', 'XAUUSD'];
+
+  const scheduleRender = useCallback(() => {
+    if (animationFrameRef.current) return;
+
+    animationFrameRef.current = requestAnimationFrame((timestamp) => {
+      animationFrameRef.current = null;
+
+      if (pendingUpdateRef.current) {
+        setCandleData(prev => {
+          if (prev.length === 0) {
+            return [pendingUpdateRef.current!];
+          }
+
+          const lastCandle = prev[prev.length - 1];
+          const pendingTime = pendingUpdateRef.current!.time as number;
+          const lastTime = lastCandle.time as number;
+
+          if (pendingTime > lastTime) {
+            return [...prev, pendingUpdateRef.current!].slice(-500);
+          } else {
+            const updated = [...prev];
+            updated[updated.length - 1] = pendingUpdateRef.current!;
+            return updated;
+          }
+        });
+
+        pendingUpdateRef.current = null;
+        lastRenderTimeRef.current = timestamp;
+      }
+    });
+  }, []);
 
   const loadHistoricalData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
+      await candleStateManager.initializeCandleState(symbol, timeframe);
+
       const candles = await marketDataService.getHistoricalData(symbol, timeframe, 500);
 
       if (candles.length === 0) {
@@ -66,6 +102,24 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       setLastUpdate(new Date());
       setDataSource('cache');
       setIsConnected(marketDataService.isConnected());
+
+      const currentCandle = candleStateManager.getCurrentCandle(symbol, timeframe);
+      if (currentCandle && !currentCandle.isComplete) {
+        const lastHistoricalTime = candles[candles.length - 1]?.time.getTime() || 0;
+        const currentCandleTime = currentCandle.timestamp.getTime();
+
+        if (currentCandleTime > lastHistoricalTime) {
+          const liveCandle: CandlestickData<Time> = {
+            time: Math.floor(currentCandle.timestamp.getTime() / 1000) as Time,
+            open: currentCandle.open,
+            high: currentCandle.high,
+            low: currentCandle.low,
+            close: currentCandle.close
+          };
+          setCandleData(prev => [...prev, liveCandle]);
+          console.log('Restored incomplete candle from state manager');
+        }
+      }
     } catch (err) {
       console.error('Failed to load historical data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load market data');
@@ -79,32 +133,19 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     const listener: MarketDataListener = {
       onCandleUpdate: (candle: CandleData) => {
         if (candle.symbol === symbol && candle.timeframe === timeframe) {
-          const candleOpenTime = getCandleOpenTime(candle.time, timeframe);
+          const candleState = candleStateManager.updateCandleWithCandleData(candle);
+
           const chartCandle: CandlestickData<Time> = {
-            time: Math.floor(candleOpenTime.getTime() / 1000) as Time,
-            open: candle.open,
-            high: candle.high,
-            low: candle.low,
-            close: candle.close
+            time: Math.floor(candleState.timestamp.getTime() / 1000) as Time,
+            open: candleState.open,
+            high: candleState.high,
+            low: candleState.low,
+            close: candleState.close
           };
 
-          setCandleData(prev => {
-            if (prev.length === 0) {
-              return [chartCandle];
-            }
+          pendingUpdateRef.current = chartCandle;
+          scheduleRender();
 
-            const lastCandle = prev[prev.length - 1];
-            const lastCandleTime = new Date(lastCandle.time as number * 1000);
-
-            if (isNewCandlePeriod(candle.time, lastCandleTime, timeframe)) {
-              console.log(`New candle period detected: ${candle.time.toISOString()}`);
-              return [...prev, chartCandle].slice(-500);
-            } else {
-              const updated = [...prev];
-              updated[updated.length - 1] = chartCandle;
-              return updated;
-            }
-          });
           setCurrentPrice(candle.close);
           setLastUpdate(new Date());
           setDataSource('live');
@@ -113,46 +154,30 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       },
       onTick: (tick: TickData) => {
         if (tick.symbol === symbol) {
-          const now = Date.now();
-          if (now - lastTickTimeRef.current > 100) {
-            const midPrice = (tick.bid + tick.ask) / 2;
-            const spread = tick.ask - tick.bid;
-            setCurrentPrice(midPrice);
-            setBidAskSpread(spread);
-            setLastUpdate(new Date());
-            setIsLiveUpdating(true);
-            lastTickTimeRef.current = now;
+          const midPrice = (tick.bid + tick.ask) / 2;
+          const spread = tick.ask - tick.bid;
+          setCurrentPrice(midPrice);
+          setBidAskSpread(spread);
+          setLastUpdate(new Date());
+          setIsLiveUpdating(true);
 
-            setCandleData(prev => {
-              if (prev.length === 0) return prev;
+          const candleState = candleStateManager.updateCandleWithTick(
+            symbol,
+            timeframe,
+            midPrice,
+            tick.time
+          );
 
-              const tickTime = tick.time;
-              const lastCandle = prev[prev.length - 1];
-              const lastCandleTime = new Date(lastCandle.time as number * 1000);
+          const chartCandle: CandlestickData<Time> = {
+            time: Math.floor(candleState.timestamp.getTime() / 1000) as Time,
+            open: candleState.open,
+            high: candleState.high,
+            low: candleState.low,
+            close: candleState.close
+          };
 
-              if (isNewCandlePeriod(tickTime, lastCandleTime, timeframe)) {
-                const newCandleOpenTime = getCandleOpenTime(tickTime, timeframe);
-                const newCandle: CandlestickData<Time> = {
-                  time: Math.floor(newCandleOpenTime.getTime() / 1000) as Time,
-                  open: midPrice,
-                  high: midPrice,
-                  low: midPrice,
-                  close: midPrice
-                };
-                console.log(`Creating new candle from tick at ${tickTime.toISOString()}`);
-                return [...prev, newCandle].slice(-500);
-              } else {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  ...lastCandle,
-                  close: midPrice,
-                  high: Math.max(lastCandle.high, midPrice),
-                  low: Math.min(lastCandle.low, midPrice)
-                };
-                return updated;
-              }
-            });
-          }
+          pendingUpdateRef.current = chartCandle;
+          scheduleRender();
         }
       },
       onError: (error: Error) => {
@@ -195,6 +220,10 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       if (listenerRef.current) {
         marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
       }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      candleStateManager.flushAll();
     };
   }, []);
 
@@ -210,6 +239,9 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     return () => {
       if (listenerRef.current) {
         marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
       }
     };
   }, [symbol, timeframe, isConnected, subscribeToLiveData]);
