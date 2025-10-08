@@ -231,6 +231,8 @@ class MetaApiService {
 
       async onHistoryOrderAdded(instanceIndex: string, historyOrder: any) {},
 
+      async onHistoryOrdersSynchronized(instanceIndex: string, synchronizationId: string) {},
+
       async onDealAdded(instanceIndex: string, deal: any) {},
 
       async onDealsSynchronized(instanceIndex: string, synchronizationId: string) {},
