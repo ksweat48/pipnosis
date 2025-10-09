@@ -12,7 +12,6 @@ import { NotificationCenter } from './components/NotificationCenter';
 import { TradeJournal } from './components/TradeJournal';
 import { TradingKPIs } from './components/TradingKPIs';
 import { TradingLaws } from './components/TradingLaws';
-import { WebContainerNotice } from './components/WebContainerNotice';
 import { LandingPage } from './components/LandingPage';
 import { PublicLandingPage } from './components/PublicLandingPage';
 import { AdminDashboard } from './pages/AdminDashboard';
@@ -227,33 +226,15 @@ const Dashboard: React.FC = () => {
       <Header />
       
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        {/* Hero Section */}
-        <div className="text-center mb-8 sm:mb-12 lg:mb-16">
-          <div className="space-y-6">
-            <div className="inline-flex items-center space-x-2 sm:space-x-3 px-4 sm:px-6 py-2 sm:py-3 glass-card">
-              <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg overflow-hidden">
-                <img 
-                  src="/Pipnosis icon.png" 
-                  alt="Pipnosis Logo" 
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <span className="text-sm sm:text-base text-emerald-400 font-medium">AI Trading Assistant</span>
-            </div>
-            
-            <div className="space-y-4">
-              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold bg-gradient-to-r from-emerald-400 via-green-500 to-lime-400 bg-clip-text text-transparent leading-tight px-4">
-                Pipnosis AI Trading
-              </h1>
-              <p className="text-lg sm:text-xl lg:text-2xl text-white/80 max-w-2xl mx-auto leading-relaxed font-light px-4">
-                Tell me your goal. I'll handle the trading.
-              </p>
-            </div>
-          </div>
-        </div>
-        
         {/* Main Trading Interface */}
         <div className="space-y-6 sm:space-y-8 lg:space-y-12">
+          {/* Notifications Section */}
+          <NotificationCenter
+            notifications={notifications}
+            onMarkAsRead={handleMarkAsRead}
+            onDismiss={handleDismissNotification}
+            isCollapsible={true}
+          />
           {/* Configuration Status */}
           <ConfigurationStatus />
 
@@ -301,16 +282,7 @@ const Dashboard: React.FC = () => {
         {/* Dashboard Grid */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8 mt-8 sm:mt-12 lg:mt-16">
           <div className="xl:col-span-2 space-y-6 sm:space-y-8">
-            <WebContainerNotice />
-
             <ActivePositions />
-
-            <NotificationCenter
-              notifications={notifications}
-              onMarkAsRead={handleMarkAsRead}
-              onDismiss={handleDismissNotification}
-              isCollapsible={true}
-            />
 
             <TradingDashboard
               todayPnL={totalPnL}
