@@ -261,22 +261,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     });
     aiPriceLinesRef.current = [];
 
-    if (aiAnalysis.supportResistanceLevels && aiAnalysis.supportResistanceLevels.length > 0) {
-      aiAnalysis.supportResistanceLevels.forEach(level => {
-        if (!candlestickSeriesRef.current) return;
-
-        const line = candlestickSeriesRef.current.createPriceLine({
-          price: level.price,
-          color: level.type === 'support' ? '#3b82f680' : '#ef444480',
-          lineWidth: 2,
-          lineStyle: 2,
-          axisLabelVisible: true,
-          title: `${level.type.toUpperCase()} (${Math.round(level.confidence * 100)}%)`,
-        });
-        aiPriceLinesRef.current.push(line);
-      });
-    }
-
     if (aiAnalysis.vwap && vwapSeriesRef.current && data.length > 0) {
       const vwapData: LineData<Time>[] = data.map(candle => ({
         time: candle.time,

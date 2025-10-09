@@ -1,8 +1,28 @@
-export interface SupportResistanceLevel {
-  price: number;
-  type: 'support' | 'resistance';
+export interface MarketSentiment {
+  bias: 'bullish' | 'bearish' | 'neutral';
   strength: number;
   confidence: number;
+  description: string;
+}
+
+export interface OverboughtOversold {
+  rsi: number;
+  status: 'overbought' | 'oversold' | 'neutral';
+  signal: string;
+}
+
+export interface VolumeAnalysis {
+  currentVolume: number;
+  averageVolume: number;
+  trend: 'increasing' | 'decreasing' | 'stable';
+  strength: number;
+  description: string;
+}
+
+export interface FearGreedIndex {
+  value: number;
+  level: 'extreme-fear' | 'fear' | 'neutral' | 'greed' | 'extreme-greed';
+  description: string;
 }
 
 export interface TrendLine {
@@ -23,13 +43,6 @@ export interface ChartPattern {
   confidence: number;
 }
 
-export interface MarketZone {
-  startPrice: number;
-  endPrice: number;
-  type: 'bullish' | 'bearish' | 'neutral';
-  confidence: number;
-}
-
 export interface SessionMarker {
   time: number;
   type: 'high' | 'low';
@@ -38,10 +51,12 @@ export interface SessionMarker {
 }
 
 export interface AIAnalysisData {
-  supportResistanceLevels?: SupportResistanceLevel[];
+  marketSentiment?: MarketSentiment;
+  overboughtOversold?: OverboughtOversold;
+  volumeAnalysis?: VolumeAnalysis;
+  fearGreedIndex?: FearGreedIndex;
   trendLines?: TrendLine[];
   patterns?: ChartPattern[];
-  zones?: MarketZone[];
   sessionMarkers?: SessionMarker[];
   vwap?: number;
   aiConfidence?: number;
