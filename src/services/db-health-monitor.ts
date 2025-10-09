@@ -290,17 +290,22 @@ class DatabaseHealthMonitor extends TinyEmitter {
     this.emit('health-update', this.metrics);
   }
 
-  recordExternalWriteFailure(error: string): void {
+  recordExternalWriteFailure(error: string | undefined): void {
     this.recordOperation(false);
     this.metrics.consecutiveFailures++;
-    this.metrics.lastError = error;
-    this.metrics.errorType = this.categorizeError(error, 0);
+    const errorMessage = error || 'Unknown error occurred';
+    this.metrics.lastError = errorMessage;
+    this.metrics.errorType = this.categorizeError(errorMessage, 0);
     this.metrics.errorRate = this.calculateErrorRate();
     this.metrics.status = this.determineHealthStatus();
     this.emit('health-update', this.metrics);
   }
 
-  private categorizeError(errorMessage: string, statusCode?: number): 'network' | 'permission' | 'not_found' | 'server' | 'unknown' {
+  private categorizeError(errorMessage: string | undefined | null, statusCode?: number): 'network' | 'permission' | 'not_found' | 'server' | 'unknown' {
+    if (!errorMessage || typeof errorMessage !== 'string') {
+      return 'unknown';
+    }
+
     const msg = errorMessage.toLowerCase();
 
     if (statusCode === 404 || msg.includes('not found') || msg.includes('does not exist') || msg.includes('relation') && msg.includes('does not exist')) {

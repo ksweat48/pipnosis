@@ -20,11 +20,15 @@ import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { ActivePositions } from './components/ActivePositions';
 import { TradeConfirmationModal } from './components/TradeConfirmationModal';
 import { ConfigurationStatus } from './components/ConfigurationStatus';
+import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
+import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { usePromptAnalysis, useMarketData } from './hooks/useAPI';
 import { simulatedTradingService } from './services/simulated-trading';
 import { logEnvironmentStatus } from './lib/env-validator';
 import { runDatabaseDiagnostics, logDiagnostics } from './lib/database-diagnostics';
 import { verifyDatabaseSetup } from './lib/migration-checker';
+import { connectionValidator } from './lib/connection-validator';
+import { dbHealthMonitor } from './services/db-health-monitor';
 
 interface StrategyOption {
   id: string;
@@ -369,9 +373,21 @@ const AppRoutes: React.FC = () => {
 };
 
 export default function App() {
+  const [dbValidated, setDbValidated] = useState(false);
+  const [showSetupWizard, setShowSetupWizard] = useState(false);
+
   useEffect(() => {
     const runStartupDiagnostics = async () => {
       logEnvironmentStatus();
+
+      console.log('Running database connection validation...');
+      const validationResult = await connectionValidator.validateConnection();
+
+      if (!validationResult.isValid) {
+        console.error('Database validation failed:', validationResult.errors);
+        setShowSetupWizard(true);
+        return;
+      }
 
       console.log('Running database diagnostics...');
       const diagnostics = await runDatabaseDiagnostics();
@@ -383,10 +399,33 @@ export default function App() {
         console.error('⚠️ CRITICAL: Database configuration issues detected. The application may not function correctly.');
         console.error('📖 Quick Fix: See PRODUCTION_DATABASE_SETUP.md for detailed migration instructions');
       }
+
+      dbHealthMonitor.startMonitoring();
+      setDbValidated(true);
     };
 
     runStartupDiagnostics();
+
+    return () => {
+      dbHealthMonitor.stopMonitoring();
+    };
   }, []);
 
-  return <AppRoutes />;
+  if (showSetupWizard) {
+    return (
+      <DatabaseSetupWizard
+        onComplete={() => {
+          setShowSetupWizard(false);
+          setDbValidated(true);
+          dbHealthMonitor.startMonitoring();
+        }}
+      />
+    );
+  }
+
+  return (
+    <DatabaseErrorBoundary>
+      <AppRoutes />
+    </DatabaseErrorBoundary>
+  );
 }

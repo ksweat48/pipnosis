@@ -188,9 +188,11 @@ class CandleStateManager {
         });
 
       if (error) {
+        const errorMessage = error?.message || error?.toString() || 'Unknown database error';
+
         if (retryCount === 0) {
           console.error(`❌ Error persisting candle (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, {
-            error: error.message,
+            error: errorMessage,
             code: error.code,
             details: error.details,
             status,
@@ -201,7 +203,7 @@ class CandleStateManager {
           });
         }
 
-        if (status === 404 && error.message?.includes('does not exist')) {
+        if (status === 404 && errorMessage.includes('does not exist')) {
           console.error('🚨 CRITICAL: market_data table does not exist. See PRODUCTION_DATABASE_SETUP.md');
           return;
         }
@@ -215,7 +217,7 @@ class CandleStateManager {
             window.dispatchEvent(new CustomEvent('pipnosis:data-persistence-error', {
               detail: {
                 type: 'candle_persist_failed',
-                error: error.message,
+                error: errorMessage,
                 symbol: candle.symbol,
                 timeframe: candle.timeframe,
                 attempts: MAX_RETRIES + 1

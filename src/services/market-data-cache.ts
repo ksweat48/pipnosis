@@ -157,7 +157,8 @@ class MarketDataCache {
         });
 
       if (error) {
-        dbHealthMonitor.recordExternalWriteFailure(error.message);
+        const errorMessage = error?.message || error?.toString() || 'Unknown database error';
+        dbHealthMonitor.recordExternalWriteFailure(errorMessage);
 
         console.error(`❌ Error saving candles to cache (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, {
           error: error.message,
