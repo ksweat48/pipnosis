@@ -30,10 +30,17 @@ export const supabase = createClient(
         'x-client-info': 'pipnosis-trading@1.0.0',
       },
       fetch: (url, options = {}) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+
         return fetch(url, {
           ...options,
-          signal: AbortSignal.timeout(30000),
+          signal: controller.signal,
+        }).then(response => {
+          clearTimeout(timeoutId);
+          return response;
         }).catch(err => {
+          clearTimeout(timeoutId);
           if (err.name === 'AbortError' || err.message.includes('Failed to fetch')) {
             console.warn('Network request failed, continuing gracefully:', url);
             return new Response(JSON.stringify({ error: 'Network error' }), {
