@@ -12,6 +12,8 @@ export interface DatabaseHealthMetrics {
   consecutiveFailures: number;
   errorRate: number;
   lastError: string | null;
+  errorCode: string | null;
+  errorType: 'network' | 'permission' | 'not_found' | 'server' | 'unknown' | null;
   checkedAt: Date;
 }
 
@@ -19,6 +21,8 @@ interface HealthCheckResult {
   success: boolean;
   latency: number;
   error?: string;
+  errorCode?: string;
+  errorType?: 'network' | 'permission' | 'not_found' | 'server' | 'unknown';
 }
 
 class DatabaseHealthMonitor extends TinyEmitter {
@@ -31,6 +35,8 @@ class DatabaseHealthMonitor extends TinyEmitter {
     consecutiveFailures: 0,
     errorRate: 0,
     lastError: null,
+    errorCode: null,
+    errorType: null,
     checkedAt: new Date()
   };
 
@@ -80,10 +86,15 @@ class DatabaseHealthMonitor extends TinyEmitter {
       this.metrics.connectivity = true;
       this.metrics.latency = (readResult.latency + writeResult.latency) / 2;
       this.metrics.lastError = null;
+      this.metrics.errorCode = null;
+      this.metrics.errorType = null;
     } else {
       this.metrics.consecutiveFailures++;
       this.metrics.connectivity = false;
-      this.metrics.lastError = readResult.error || writeResult.error || 'Unknown error';
+      const failedResult = !readResult.success ? readResult : writeResult;
+      this.metrics.lastError = failedResult.error || 'Unknown error';
+      this.metrics.errorCode = failedResult.errorCode || null;
+      this.metrics.errorType = failedResult.errorType || 'unknown';
     }
 
     this.metrics.errorRate = this.calculateErrorRate();
@@ -107,7 +118,7 @@ class DatabaseHealthMonitor extends TinyEmitter {
     const startTime = performance.now();
 
     try {
-      const { data, error } = await supabase
+      const { data, error, status, statusText } = await supabase
         .from('market_data')
         .select('id')
         .limit(1)
@@ -116,16 +127,37 @@ class DatabaseHealthMonitor extends TinyEmitter {
       const latency = performance.now() - startTime;
 
       if (error) {
-        console.error('Database read check failed:', error);
-        return { success: false, latency, error: error.message };
+        const errorType = this.categorizeError(error.message, status);
+        const errorCode = error.code || `HTTP_${status}`;
+        console.error('Database read check failed:', {
+          message: error.message,
+          code: errorCode,
+          status,
+          statusText,
+          type: errorType
+        });
+        return {
+          success: false,
+          latency,
+          error: error.message,
+          errorCode,
+          errorType
+        };
       }
 
       return { success: true, latency };
     } catch (error) {
       const latency = performance.now() - startTime;
       const message = error instanceof Error ? error.message : 'Unknown read error';
+      const errorType = this.categorizeError(message, 0);
       console.error('Database read check exception:', error);
-      return { success: false, latency, error: message };
+      return {
+        success: false,
+        latency,
+        error: message,
+        errorCode: 'EXCEPTION',
+        errorType
+      };
     }
   }
 
@@ -150,7 +182,7 @@ class DatabaseHealthMonitor extends TinyEmitter {
         completed_at: new Date().toISOString()
       };
 
-      const { error } = await supabase
+      const { error, status, statusText } = await supabase
         .from('market_data')
         .upsert(testRow, {
           onConflict: 'symbol,timeframe,timestamp',
@@ -160,8 +192,22 @@ class DatabaseHealthMonitor extends TinyEmitter {
       const latency = performance.now() - startTime;
 
       if (error) {
-        console.error('Database write check failed:', error);
-        return { success: false, latency, error: error.message };
+        const errorType = this.categorizeError(error.message, status);
+        const errorCode = error.code || `HTTP_${status}`;
+        console.error('Database write check failed:', {
+          message: error.message,
+          code: errorCode,
+          status,
+          statusText,
+          type: errorType
+        });
+        return {
+          success: false,
+          latency,
+          error: error.message,
+          errorCode,
+          errorType
+        };
       }
 
       await this.cleanupHealthCheck();
@@ -170,8 +216,15 @@ class DatabaseHealthMonitor extends TinyEmitter {
     } catch (error) {
       const latency = performance.now() - startTime;
       const message = error instanceof Error ? error.message : 'Unknown write error';
+      const errorType = this.categorizeError(message, 0);
       console.error('Database write check exception:', error);
-      return { success: false, latency, error: message };
+      return {
+        success: false,
+        latency,
+        error: message,
+        errorCode: 'EXCEPTION',
+        errorType
+      };
     }
   }
 
@@ -241,9 +294,54 @@ class DatabaseHealthMonitor extends TinyEmitter {
     this.recordOperation(false);
     this.metrics.consecutiveFailures++;
     this.metrics.lastError = error;
+    this.metrics.errorType = this.categorizeError(error, 0);
     this.metrics.errorRate = this.calculateErrorRate();
     this.metrics.status = this.determineHealthStatus();
     this.emit('health-update', this.metrics);
+  }
+
+  private categorizeError(errorMessage: string, statusCode?: number): 'network' | 'permission' | 'not_found' | 'server' | 'unknown' {
+    const msg = errorMessage.toLowerCase();
+
+    if (statusCode === 404 || msg.includes('not found') || msg.includes('does not exist') || msg.includes('relation') && msg.includes('does not exist')) {
+      return 'not_found';
+    }
+
+    if (statusCode === 403 || statusCode === 401 || msg.includes('permission') || msg.includes('unauthorized') || msg.includes('forbidden') || msg.includes('rls') || msg.includes('policy')) {
+      return 'permission';
+    }
+
+    if (msg.includes('network') || msg.includes('fetch') || msg.includes('timeout') || msg.includes('connection') || msg.includes('econnrefused') || msg.includes('cors')) {
+      return 'network';
+    }
+
+    if (statusCode && statusCode >= 500) {
+      return 'server';
+    }
+
+    return 'unknown';
+  }
+
+  getDetailedErrorMessage(): string {
+    if (!this.metrics.lastError) {
+      return 'No errors detected';
+    }
+
+    const errorType = this.metrics.errorType || 'unknown';
+    const errorCode = this.metrics.errorCode || 'UNKNOWN';
+
+    switch (errorType) {
+      case 'not_found':
+        return `Database table not found (${errorCode}). The market_data table may not exist in production. Please verify database migrations have been applied.`;
+      case 'permission':
+        return `Permission denied (${errorCode}). RLS policies may be blocking access. Verify that the anon key has proper permissions.`;
+      case 'network':
+        return `Network error (${errorCode}). Unable to reach database. Check your internet connection and Supabase URL configuration.`;
+      case 'server':
+        return `Server error (${errorCode}). Supabase database is experiencing issues. Please try again later.`;
+      default:
+        return `${this.metrics.lastError} (${errorCode})`;
+    }
   }
 }
 

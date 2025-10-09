@@ -22,6 +22,8 @@ import { TradeConfirmationModal } from './components/TradeConfirmationModal';
 import { ConfigurationStatus } from './components/ConfigurationStatus';
 import { usePromptAnalysis, useMarketData } from './hooks/useAPI';
 import { simulatedTradingService } from './services/simulated-trading';
+import { logEnvironmentStatus } from './lib/env-validator';
+import { runDatabaseDiagnostics, logDiagnostics } from './lib/database-diagnostics';
 
 interface StrategyOption {
   id: string;
@@ -366,5 +368,26 @@ const AppRoutes: React.FC = () => {
 };
 
 export default function App() {
+  useEffect(() => {
+    const runStartupDiagnostics = async () => {
+      logEnvironmentStatus();
+
+      console.log('Running database diagnostics...');
+      const diagnostics = await runDatabaseDiagnostics();
+      logDiagnostics(diagnostics);
+
+      if (diagnostics.errors.length > 0) {
+        console.error('⚠️ CRITICAL: Database configuration issues detected. The application may not function correctly.');
+        console.error('Please check the following:');
+        console.error('1. Verify VITE_SUPABASE_URL is set correctly in environment variables');
+        console.error('2. Verify VITE_SUPABASE_ANON_KEY is set correctly in environment variables');
+        console.error('3. Ensure the market_data table exists in your Supabase database');
+        console.error('4. Verify RLS policies allow anon access to market_data table');
+      }
+    };
+
+    runStartupDiagnostics();
+  }, []);
+
   return <AppRoutes />;
 }

@@ -126,8 +126,20 @@ export const DataHealthIndicator: React.FC = () => {
 
             {metrics.lastError && (
               <div className="mt-2 pt-2 border-t border-white/10">
-                <div className="text-white/60 mb-1">Last Error:</div>
-                <div className="text-red-400 text-xs break-words">{metrics.lastError}</div>
+                <div className="text-white/60 mb-1">Error Details:</div>
+                <div className="text-red-400 text-xs break-words">
+                  {dbHealthMonitor.getDetailedErrorMessage()}
+                </div>
+                {metrics.errorCode && (
+                  <div className="text-white/40 text-xs mt-2">
+                    Code: {metrics.errorCode}
+                  </div>
+                )}
+                {metrics.errorType && (
+                  <div className="text-white/40 text-xs mt-1 capitalize">
+                    Type: {metrics.errorType.replace('_', ' ')}
+                  </div>
+                )}
               </div>
             )}
           </div>
