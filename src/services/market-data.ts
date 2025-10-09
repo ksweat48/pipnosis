@@ -135,7 +135,7 @@ class MarketDataService {
       return [];
     }
 
-    return mergeResult.candles.slice(0, limit);
+    return mergeResult.candles.slice(-limit);
   }
 
   async subscribeToSymbol(
