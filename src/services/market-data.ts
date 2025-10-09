@@ -6,6 +6,8 @@ import { dataValidator } from './data-validator';
 import { mergeHistoricalAndLiveCandles, detectGaps } from './candle-merge';
 import { dbHealthMonitor } from './db-health-monitor';
 import { dataQualityMonitor } from './data-quality-monitor';
+import { multiTimeframeAggregator } from './multi-timeframe-aggregator';
+import { timeframeBackfillService } from './timeframe-backfill';
 
 export interface MarketDataListener {
   onCandleUpdate?: (candle: CandleData) => void;
@@ -30,6 +32,7 @@ class MarketDataService {
   private isInitialized = false;
   private initializationAttempted = false;
   private isDemoMode = false;
+  private symbolsInitialized: Set<string> = new Set();
 
   async getHistoricalData(
     symbol: string,
@@ -167,6 +170,18 @@ class MarketDataService {
 
     dataQualityMonitor.initializeSymbol(symbol, timeframe);
 
+    if (!this.symbolsInitialized.has(symbol)) {
+      await multiTimeframeAggregator.initialize(symbol);
+      this.symbolsInitialized.add(symbol);
+      console.log(`✅ Initialized multi-timeframe aggregation for ${symbol}`);
+
+      if (!this.isDemoMode) {
+        timeframeBackfillService.checkAndBackfillAllTimeframes(symbol).catch(err => {
+          console.warn('Background backfill check failed:', err);
+        });
+      }
+    }
+
     if (this.activeSubscriptions.get(key)!.size === 1) {
       try {
         await metaApiService.subscribeToMarketData(symbol, {
@@ -177,6 +192,7 @@ class MarketDataService {
           },
           onTick: (tick) => {
             this.handleTickUpdate(key, tick);
+            multiTimeframeAggregator.processTick(tick);
           }
         });
 
@@ -290,7 +306,10 @@ class MarketDataService {
   async disconnect(): Promise<void> {
     this.activeSubscriptions.clear();
     this.reconnectAttempts.clear();
+    this.symbolsInitialized.clear();
     dbHealthMonitor.stopMonitoring();
+    timeframeBackfillService.stop();
+    await multiTimeframeAggregator.stop();
     await metaApiService.disconnect();
   }
 
