@@ -155,23 +155,6 @@ export const TradingKPIs: React.FC<TradingKPIsProps> = ({ className = "" }) => {
           </div>
         </div>
 
-        {/* Demo Data Notice */}
-        <div className="p-4 sm:p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
-          <div className="flex items-start space-x-4">
-            <BarChart3 className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <h4 className="text-emerald-300 font-bold text-base sm:text-lg mb-3">Demo Trading Performance</h4>
-              <div className="space-y-2 text-emerald-200 font-medium text-sm sm:text-base">
-                <p>• Demo account showing {(kpis?.winRate || 0).toFixed(1)}% win rate with AI trading strategies</p>
-                <p>• Risk-reward ratio of {(kpis?.averageRRR || 0).toFixed(1)}:1 demonstrates strong profit potential</p>
-                <p>• Maximum drawdown of {(kpis?.maxDrawdown || 0).toFixed(1)}% shows excellent capital protection</p>
-                <p>• Total P&L of ${(kpis?.totalPnL || 0).toFixed(2)} from {totalTrades} demo trades</p>
-                <p>• AI follows all 10 Immutable Laws for consistent performance</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Detailed KPIs - Only show when expanded */}
         {isExpanded && (
           <>
