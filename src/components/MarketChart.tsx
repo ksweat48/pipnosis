@@ -51,6 +51,11 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const [currentPrice, setCurrentPrice] = useState<number>(0);
   const [bidAskSpread, setBidAskSpread] = useState<number>(0);
   const [isLiveUpdating, setIsLiveUpdating] = useState(false);
+  const [dataHealthStatus, setDataHealthStatus] = useState<{
+    completeness: number;
+    gaps: number;
+    isValidating: boolean;
+  }>({ completeness: 100, gaps: 0, isValidating: false });
   const listenerRef = useRef<MarketDataListener | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const pendingUpdateRef = useRef<CandlestickData<Time> | null>(null);
@@ -128,6 +133,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const loadHistoricalData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    setDataHealthStatus(prev => ({ ...prev, isValidating: true }));
 
     try {
       await candleStateManager.initializeCandleState(symbol, timeframe);
@@ -137,7 +143,21 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       if (candles.length === 0) {
         setError('No market data available');
         setDataSource('none');
+        setDataHealthStatus({ completeness: 0, gaps: 0, isValidating: false });
         return;
+      }
+
+      const validation = await marketDataService.validateDataCompleteness(symbol, timeframe, candles);
+      setDataHealthStatus({
+        completeness: validation.completeness,
+        gaps: validation.gaps,
+        isValidating: false
+      });
+
+      if (!validation.isComplete && validation.gaps > 0) {
+        console.warn(`\u26a0\ufe0f Data completeness: ${validation.completeness.toFixed(1)}%, ${validation.gaps} gap(s) detected for ${symbol} ${timeframe}`);
+      } else {
+        console.log(`\u2705 Data complete for ${symbol} ${timeframe}: ${validation.completeness.toFixed(1)}%`);
       }
 
       const chartData = marketDataService.convertToCandlestickData(candles);
@@ -425,6 +445,26 @@ export const MarketChart: React.FC<MarketChartProps> = ({
                 <span className="text-white/40">Updated:</span>
                 <span className="ml-1 text-white/60">{lastUpdate ? lastUpdate.toLocaleTimeString([], {timeStyle: 'medium'}) : 'Loading...'}</span>
               </div>
+              {dataHealthStatus.completeness > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-white/40">Data:</span>
+                  <span className={`ml-1 font-medium ${
+                    dataHealthStatus.completeness >= 98 ? 'text-green-400' :
+                    dataHealthStatus.completeness >= 90 ? 'text-yellow-400' :
+                    'text-red-400'
+                  }`}>
+                    {dataHealthStatus.completeness.toFixed(0)}%
+                  </span>
+                  {dataHealthStatus.gaps > 0 && (
+                    <span className="text-orange-400 text-xs">
+                      ({dataHealthStatus.gaps} gap{dataHealthStatus.gaps > 1 ? 's' : ''})
+                    </span>
+                  )}
+                  {dataHealthStatus.isValidating && (
+                    <RefreshCw className="h-3 w-3 text-blue-400 animate-spin" />
+                  )}
+                </div>
+              )}
             </div>
             <DataHealthIndicator />
             <ChartSettings preferences={preferences} onUpdate={updatePreferences} />

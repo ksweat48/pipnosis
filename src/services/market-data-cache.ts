@@ -360,6 +360,78 @@ class MarketDataCache {
     }
   }
 
+  async updateDataCompletenessStats(
+    symbol: string,
+    timeframe: Timeframe,
+    stats: {
+      totalCandles: number;
+      dateRangeStart?: Date;
+      dateRangeEnd?: Date;
+      gapsDetected: number;
+      lastValidated: Date;
+    }
+  ): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('market_data_completeness')
+        .upsert({
+          symbol,
+          timeframe,
+          total_candles: stats.totalCandles,
+          date_range_start: stats.dateRangeStart?.toISOString(),
+          date_range_end: stats.dateRangeEnd?.toISOString(),
+          gaps_detected: stats.gapsDetected,
+          last_validated: stats.lastValidated.toISOString(),
+          backfill_status: stats.gapsDetected > 0 ? 'pending' : 'complete'
+        }, {
+          onConflict: 'symbol,timeframe'
+        });
+
+      if (error) {
+        console.error('Error updating completeness stats:', error);
+      } else {
+        console.log(`📊 Updated completeness stats for ${symbol} ${timeframe}: ${stats.totalCandles} candles, ${stats.gapsDetected} gaps`);
+      }
+    } catch (error) {
+      console.error('Error in updateDataCompletenessStats:', error);
+    }
+  }
+
+  async getDataCompletenessStats(
+    symbol: string,
+    timeframe: Timeframe
+  ): Promise<{
+    totalCandles: number;
+    completenessPercentage: number;
+    gapsDetected: number;
+    lastValidated: Date | null;
+    backfillStatus: string;
+  } | null> {
+    try {
+      const { data, error } = await supabase
+        .from('market_data_completeness')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('timeframe', timeframe)
+        .maybeSingle();
+
+      if (error || !data) {
+        return null;
+      }
+
+      return {
+        totalCandles: data.total_candles || 0,
+        completenessPercentage: parseFloat(data.completeness_percentage) || 0,
+        gapsDetected: data.gaps_detected || 0,
+        lastValidated: data.last_validated ? new Date(data.last_validated) : null,
+        backfillStatus: data.backfill_status || 'unknown'
+      };
+    } catch (error) {
+      console.error('Error in getDataCompletenessStats:', error);
+      return null;
+    }
+  }
+
   private rowToCandleData(row: any): CandleData {
     return {
       symbol: row.symbol,

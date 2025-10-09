@@ -17,17 +17,46 @@ class TimeframeBackfillService {
   private backfillQueue: BackfillTask[] = [];
   private isProcessing = false;
   private processingInterval: NodeJS.Timeout | null = null;
+  private currentTimeframe: Timeframe | null = null;
+  private activeSymbol: string | null = null;
 
-  async checkAndBackfillAllTimeframes(symbol: string): Promise<void> {
+  async checkAndBackfillAllTimeframes(symbol: string, priorityTimeframe?: Timeframe): Promise<void> {
     const now = new Date();
     const lookbackDays = 7;
     const startDate = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
 
-    console.log(`🔍 Checking data completeness for ${symbol} across all timeframes`);
+    this.activeSymbol = symbol;
+    if (priorityTimeframe) {
+      this.currentTimeframe = priorityTimeframe;
+    }
+
+    console.log(`🔍 Checking data completeness for ${symbol} across all timeframes ${priorityTimeframe ? `(priority: ${priorityTimeframe})` : ''}`);
+
+    if (priorityTimeframe) {
+      await this.checkTimeframeCompleteness(symbol, priorityTimeframe, startDate, now, true);
+    }
 
     for (const timeframe of ALL_TIMEFRAMES) {
-      await this.checkTimeframeCompleteness(symbol, timeframe, startDate, now);
+      if (timeframe !== priorityTimeframe) {
+        await this.checkTimeframeCompleteness(symbol, timeframe, startDate, now, false);
+      }
     }
+
+    if (!this.isProcessing && this.backfillQueue.length > 0) {
+      this.startProcessing();
+    }
+  }
+
+  async checkAndBackfillTimeframe(symbol: string, timeframe: Timeframe): Promise<void> {
+    const now = new Date();
+    const lookbackDays = 7;
+    const startDate = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
+
+    this.activeSymbol = symbol;
+    this.currentTimeframe = timeframe;
+
+    console.log(`🔍 Checking data completeness for ${symbol} ${timeframe} (immediate check)`);
+    await this.checkTimeframeCompleteness(symbol, timeframe, startDate, now, true);
 
     if (!this.isProcessing && this.backfillQueue.length > 0) {
       this.startProcessing();
@@ -38,7 +67,8 @@ class TimeframeBackfillService {
     symbol: string,
     timeframe: Timeframe,
     startDate: Date,
-    endDate: Date
+    endDate: Date,
+    isPriority: boolean = false
   ): Promise<void> {
     try {
       const existingCandles = await marketDataCache.getCachedCandles(
@@ -52,9 +82,10 @@ class TimeframeBackfillService {
       const actualCandles = existingCandles.length;
       const completeness = actualCandles / expectedCandles;
 
-      console.log(`📊 ${symbol} ${timeframe}: ${actualCandles}/${expectedCandles} candles (${(completeness * 100).toFixed(1)}%)`);
+      const completenessThreshold = isPriority ? 0.98 : 0.95;
+      console.log(`📊 ${symbol} ${timeframe}: ${actualCandles}/${expectedCandles} candles (${(completeness * 100).toFixed(1)}%) ${isPriority ? '[PRIORITY]' : ''}`);
 
-      if (completeness < 0.95) {
+      if (completeness < completenessThreshold) {
         const gaps = this.detectGaps(existingCandles, timeframe, startDate, endDate);
 
         if (gaps.length > 0) {
@@ -181,7 +212,13 @@ class TimeframeBackfillService {
     };
 
     const recencyBonus = Math.max(0, 100 - ageHours);
-    return timeframePriority[timeframe] * 10 + recencyBonus;
+    let basePriority = timeframePriority[timeframe] * 10 + recencyBonus;
+
+    if (this.currentTimeframe === timeframe) {
+      basePriority += 1000;
+    }
+
+    return basePriority;
   }
 
   private addBackfillTask(task: BackfillTask): void {

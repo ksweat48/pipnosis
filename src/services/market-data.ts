@@ -58,10 +58,13 @@ class MarketDataService {
       const recentCandles = cachedCandles.filter(c => c.time >= oneDayAgo);
       const hasRecentData = recentCandles.length > 0;
 
-      if (cachedCandles.length >= limit * 0.9 && hasRecentData && !this.isDemoMode) {
+      const validationResult = dataValidator.validateCandleSequence(cachedCandles, timeframe);
+      const hasGaps = detectGaps(cachedCandles, timeframe).length > 0;
+
+      if (cachedCandles.length >= limit * 0.98 && hasRecentData && !this.isDemoMode && validationResult.isValid && !hasGaps) {
         shouldFetchApi = false;
         apiCandles = cachedCandles;
-        console.log(`✅ Using ${cachedCandles.length} cached candles as base for ${symbol} ${timeframe}`);
+        console.log(`✅ Using ${cachedCandles.length} cached candles (validated, no gaps) for ${symbol} ${timeframe}`);
       } else if (this.isDemoMode && cachedCandles.length > 0) {
         apiCandles = cachedCandles;
         shouldFetchApi = false;
@@ -129,11 +132,15 @@ class MarketDataService {
 
     const gaps = detectGaps(mergeResult.candles, timeframe);
     if (gaps.length > 0) {
-      console.warn(`⚠️ Detected ${gaps.length} gap(s) in candle data:`, gaps);
+      console.warn(`⚠️ Detected ${gaps.length} gap(s) in candle data for ${symbol} ${timeframe}:`, gaps.map(g => ({
+        start: g.start.toISOString(),
+        end: g.end.toISOString(),
+        tradingDays: g.missingTradingDays.length
+      })));
 
       const tradingDayGaps = gaps.filter(g => g.isTradingDayGap);
       if (tradingDayGaps.length > 0 && !this.isDemoMode) {
-        console.log(`🔍 Attempting to fill ${tradingDayGaps.length} trading day gap(s)...`);
+        console.log(`🔍 Attempting to fill ${tradingDayGaps.length} trading day gap(s) for ${symbol} ${timeframe}...`);
         const gapFilledCandles = await this.fetchMissingGapData(
           symbol,
           timeframe,
@@ -141,10 +148,27 @@ class MarketDataService {
           mergeResult.candles
         );
         if (gapFilledCandles.length > mergeResult.candles.length) {
-          console.log(`✅ Filled gaps: ${gapFilledCandles.length - mergeResult.candles.length} new candles added`);
+          console.log(`✅ Filled gaps: ${gapFilledCandles.length - mergeResult.candles.length} new candles added for ${symbol} ${timeframe}`);
+
+          await marketDataCache.updateDataCompletenessStats(symbol, timeframe, {
+            totalCandles: gapFilledCandles.length,
+            dateRangeStart: gapFilledCandles[0]?.time,
+            dateRangeEnd: gapFilledCandles[gapFilledCandles.length - 1]?.time,
+            gapsDetected: 0,
+            lastValidated: new Date()
+          });
+
           return gapFilledCandles;
         }
       }
+    } else {
+      await marketDataCache.updateDataCompletenessStats(symbol, timeframe, {
+        totalCandles: mergeResult.candles.length,
+        dateRangeStart: mergeResult.candles[0]?.time,
+        dateRangeEnd: mergeResult.candles[mergeResult.candles.length - 1]?.time,
+        gapsDetected: 0,
+        lastValidated: new Date()
+      });
     }
 
     if (mergeResult.candles.length === 0) {
@@ -176,10 +200,14 @@ class MarketDataService {
       console.log(`✅ Initialized multi-timeframe aggregation for ${symbol}`);
 
       if (!this.isDemoMode) {
-        timeframeBackfillService.checkAndBackfillAllTimeframes(symbol).catch(err => {
+        timeframeBackfillService.checkAndBackfillAllTimeframes(symbol, timeframe).catch(err => {
           console.warn('Background backfill check failed:', err);
         });
       }
+    } else if (!this.isDemoMode) {
+      timeframeBackfillService.checkAndBackfillTimeframe(symbol, timeframe).catch(err => {
+        console.warn('Timeframe backfill check failed:', err);
+      });
     }
 
     if (this.activeSubscriptions.get(key)!.size === 1) {
@@ -262,6 +290,54 @@ class MarketDataService {
 
   async getCacheStats(symbol: string, timeframe: Timeframe) {
     return await marketDataCache.getCacheStats(symbol, timeframe);
+  }
+
+  async getDataHealthStatus(symbol: string, timeframe: Timeframe) {
+    return await marketDataCache.getDataCompletenessStats(symbol, timeframe);
+  }
+
+  async validateDataCompleteness(
+    symbol: string,
+    timeframe: Timeframe,
+    candles: CandleData[]
+  ): Promise<{ isComplete: boolean; gaps: number; completeness: number }> {
+    const gaps = detectGaps(candles, timeframe);
+    const tradingDayGaps = gaps.filter(g => g.isTradingDayGap);
+
+    if (candles.length === 0) {
+      return { isComplete: false, gaps: 0, completeness: 0 };
+    }
+
+    const startTime = candles[0].time;
+    const endTime = candles[candles.length - 1].time;
+    const totalMinutes = (endTime.getTime() - startTime.getTime()) / (60 * 1000);
+
+    const timeframeMinutes = this.getTimeframeMinutes(timeframe);
+    const tradingDaysRatio = 5 / 7;
+    const expectedCandles = Math.floor((totalMinutes / timeframeMinutes) * tradingDaysRatio);
+
+    const completeness = expectedCandles > 0 ? (candles.length / expectedCandles) * 100 : 0;
+
+    return {
+      isComplete: tradingDayGaps.length === 0 && completeness >= 98,
+      gaps: tradingDayGaps.length,
+      completeness
+    };
+  }
+
+  private getTimeframeMinutes(timeframe: Timeframe): number {
+    const map: Record<Timeframe, number> = {
+      M1: 1,
+      M5: 5,
+      M15: 15,
+      M30: 30,
+      H1: 60,
+      H4: 240,
+      D1: 1440,
+      W1: 10080,
+      MN1: 43200
+    };
+    return map[timeframe] || 15;
   }
 
   async initialize(): Promise<void> {
