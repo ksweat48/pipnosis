@@ -50,20 +50,33 @@ class MarketDataService {
         limit
       );
 
-      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const recentCandles = cachedCandles.filter(c => c.time >= oneDayAgo);
-      const hasRecentData = recentCandles.length > 0;
+      if (cachedCandles.length > 0) {
+        const cacheValidation = this.validateCacheQuality(
+          cachedCandles,
+          timeframe,
+          limit
+        );
 
-      const validationResult = dataValidator.validateCandleSequence(cachedCandles, timeframe);
+        console.log(`📊 Cache validation for ${symbol} ${timeframe}:`, {
+          candleCount: `${cachedCandles.length}/${limit}`,
+          isFresh: cacheValidation.isFresh,
+          coversExpectedRange: cacheValidation.coversExpectedRange,
+          hasCriticalGaps: cacheValidation.hasCriticalGaps,
+          newestCandleAge: cacheValidation.newestCandleAge,
+          recommendation: cacheValidation.shouldUseCacheOnly ? 'USE CACHE' : 'FETCH FROM API'
+        });
 
-      if (cachedCandles.length >= limit * 0.98 && hasRecentData && !this.isDemoMode && validationResult.isValid) {
-        shouldFetchApi = false;
-        apiCandles = cachedCandles;
-        console.log(`✅ Using ${cachedCandles.length} cached candles (${((cachedCandles.length/limit)*100).toFixed(1)}% complete) for ${symbol} ${timeframe}`);
-      } else if (this.isDemoMode && cachedCandles.length > 0) {
-        apiCandles = cachedCandles;
-        shouldFetchApi = false;
-        console.log(`💾 Demo mode: Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
+        if (cacheValidation.shouldUseCacheOnly && !this.isDemoMode) {
+          shouldFetchApi = false;
+          apiCandles = cachedCandles;
+          console.log(`✅ Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
+        } else if (!cacheValidation.shouldUseCacheOnly && !this.isDemoMode) {
+          console.log(`🔄 Cache validation failed: ${cacheValidation.reason}`);
+        } else if (this.isDemoMode && cachedCandles.length > 0) {
+          apiCandles = cachedCandles;
+          shouldFetchApi = false;
+          console.log(`💾 Demo mode: Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
+        }
       }
     }
 
@@ -297,6 +310,112 @@ class MarketDataService {
       MN1: 43200
     };
     return map[timeframe] || 15;
+  }
+
+  private getCacheFreshnessThreshold(timeframe: Timeframe): number {
+    const thresholds: Record<Timeframe, number> = {
+      M1: 1 * 60 * 60 * 1000,
+      M5: 4 * 60 * 60 * 1000,
+      M15: 8 * 60 * 60 * 1000,
+      M30: 12 * 60 * 60 * 1000,
+      H1: 24 * 60 * 60 * 1000,
+      H4: 48 * 60 * 60 * 1000,
+      D1: 7 * 24 * 60 * 60 * 1000,
+      W1: 14 * 24 * 60 * 60 * 1000,
+      MN1: 30 * 24 * 60 * 60 * 1000
+    };
+    return thresholds[timeframe] || 8 * 60 * 60 * 1000;
+  }
+
+  private calculateExpectedStartDate(
+    timeframe: Timeframe,
+    limit: number,
+    endDate: Date = new Date()
+  ): Date {
+    const timeframeMinutes = this.getTimeframeMinutes(timeframe);
+    const tradingDaysRatio = 5 / 7;
+    const totalMinutes = timeframeMinutes * limit;
+    const adjustedMinutes = totalMinutes / tradingDaysRatio;
+    const bufferMultiplier = 1.2;
+
+    return new Date(endDate.getTime() - adjustedMinutes * 60 * 1000 * bufferMultiplier);
+  }
+
+  private validateCacheQuality(
+    cachedCandles: CandleData[],
+    timeframe: Timeframe,
+    limit: number
+  ): {
+    shouldUseCacheOnly: boolean;
+    isFresh: boolean;
+    coversExpectedRange: boolean;
+    hasCriticalGaps: boolean;
+    newestCandleAge: string;
+    reason?: string;
+  } {
+    if (cachedCandles.length === 0) {
+      return {
+        shouldUseCacheOnly: false,
+        isFresh: false,
+        coversExpectedRange: false,
+        hasCriticalGaps: false,
+        newestCandleAge: 'N/A',
+        reason: 'No cached candles available'
+      };
+    }
+
+    const now = new Date();
+    const newestCandle = cachedCandles[cachedCandles.length - 1];
+    const oldestCandle = cachedCandles[0];
+    const newestCandleAge = now.getTime() - newestCandle.time.getTime();
+    const freshnessThreshold = this.getCacheFreshnessThreshold(timeframe);
+    const isFresh = newestCandleAge <= freshnessThreshold;
+
+    const expectedStartDate = this.calculateExpectedStartDate(timeframe, limit, now);
+    const coversExpectedRange = oldestCandle.time <= expectedStartDate;
+
+    const gaps = detectGaps(cachedCandles, timeframe);
+    const tradingDayGaps = gaps.filter(g => g.isTradingDayGap);
+    const hasCriticalGaps = tradingDayGaps.length > 0;
+
+    const validationResult = dataValidator.validateCandleSequence(cachedCandles, timeframe);
+    const isSequenceValid = validationResult.isValid;
+
+    const candlesInExpectedRange = cachedCandles.filter(
+      c => c.time >= expectedStartDate && c.time <= now
+    ).length;
+    const hasMinimumCount = candlesInExpectedRange >= limit * 0.95;
+
+    const ageInHours = (newestCandleAge / (60 * 60 * 1000)).toFixed(1);
+
+    let reason: string | undefined;
+    let shouldUseCacheOnly = true;
+
+    if (!isFresh) {
+      reason = `Cache is stale (newest candle is ${ageInHours}h old, threshold: ${(freshnessThreshold / (60 * 60 * 1000)).toFixed(1)}h)`;
+      shouldUseCacheOnly = false;
+    } else if (!coversExpectedRange) {
+      reason = `Cache doesn't cover expected date range (oldest: ${oldestCandle.time.toISOString()}, expected: ${expectedStartDate.toISOString()})`;
+      shouldUseCacheOnly = false;
+    } else if (hasCriticalGaps) {
+      reason = `Cache has ${tradingDayGaps.length} gap(s) during trading days`;
+      shouldUseCacheOnly = false;
+    } else if (!isSequenceValid) {
+      reason = 'Cache has invalid candle sequence';
+      shouldUseCacheOnly = false;
+    } else if (!hasMinimumCount) {
+      reason = `Insufficient candles in expected range (${candlesInExpectedRange}/${limit})`;
+      shouldUseCacheOnly = false;
+    }
+
+    return {
+      shouldUseCacheOnly,
+      isFresh,
+      coversExpectedRange,
+      hasCriticalGaps,
+      newestCandleAge: `${ageInHours}h`,
+      reason
+    };
   }
 
   async initialize(): Promise<void> {
