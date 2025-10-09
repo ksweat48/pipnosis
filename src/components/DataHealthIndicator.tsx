@@ -130,6 +130,11 @@ export const DataHealthIndicator: React.FC = () => {
                 <div className="text-red-400 text-xs break-words">
                   {dbHealthMonitor.getDetailedErrorMessage()}
                 </div>
+                {dbHealthMonitor.getActionableMessage() && (
+                  <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs text-blue-300 break-words">
+                    {dbHealthMonitor.getActionableMessage()}
+                  </div>
+                )}
                 {metrics.errorCode && (
                   <div className="text-white/40 text-xs mt-2">
                     Code: {metrics.errorCode}

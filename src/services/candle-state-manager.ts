@@ -188,23 +188,29 @@ class CandleStateManager {
         });
 
       if (error) {
-        console.error(`❌ Error persisting candle (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, {
-          error: error.message,
-          code: error.code,
-          details: error.details,
-          status,
-          statusText,
-          symbol: candle.symbol,
-          timeframe: candle.timeframe,
-          timestamp: candle.timestamp.toISOString()
-        });
+        if (retryCount === 0) {
+          console.error(`❌ Error persisting candle (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, {
+            error: error.message,
+            code: error.code,
+            details: error.details,
+            status,
+            statusText,
+            symbol: candle.symbol,
+            timeframe: candle.timeframe,
+            timestamp: candle.timestamp.toISOString()
+          });
+        }
+
+        if (status === 404 && error.message?.includes('does not exist')) {
+          console.error('🚨 CRITICAL: market_data table does not exist. See PRODUCTION_DATABASE_SETUP.md');
+          return;
+        }
 
         if (retryCount < MAX_RETRIES) {
           const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
           await new Promise(resolve => setTimeout(resolve, delay));
           return this.persistCandleImmediate(candle, retryCount + 1);
         } else {
-          console.error(`❌ Failed to persist candle after ${MAX_RETRIES + 1} attempts`);
           if (typeof window !== 'undefined' && window.dispatchEvent) {
             window.dispatchEvent(new CustomEvent('pipnosis:data-persistence-error', {
               detail: {
@@ -219,14 +225,15 @@ class CandleStateManager {
         }
       }
     } catch (error) {
-      console.error(`❌ Exception in persistCandleImmediate (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, error);
+      if (retryCount === 0) {
+        console.error(`❌ Exception in persistCandleImmediate (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, error);
+      }
 
       if (retryCount < MAX_RETRIES) {
         const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
         await new Promise(resolve => setTimeout(resolve, delay));
         return this.persistCandleImmediate(candle, retryCount + 1);
       } else {
-        console.error(`❌ Failed to persist candle after ${MAX_RETRIES + 1} attempts due to exception`);
         if (typeof window !== 'undefined' && window.dispatchEvent) {
           window.dispatchEvent(new CustomEvent('pipnosis:data-persistence-error', {
             detail: {
@@ -277,23 +284,29 @@ class CandleStateManager {
         });
 
       if (error) {
-        console.error(`❌ Error persisting complete candle (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, {
-          error: error.message,
-          code: error.code,
-          details: error.details,
-          status,
-          statusText,
-          symbol: candle.symbol,
-          timeframe: candle.timeframe,
-          timestamp: candle.timestamp.toISOString()
-        });
+        if (retryCount === 0) {
+          console.error(`❌ Error persisting complete candle (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, {
+            error: error.message,
+            code: error.code,
+            details: error.details,
+            status,
+            statusText,
+            symbol: candle.symbol,
+            timeframe: candle.timeframe,
+            timestamp: candle.timestamp.toISOString()
+          });
+        }
+
+        if (status === 404 && error.message?.includes('does not exist')) {
+          console.error('🚨 CRITICAL: market_data table does not exist. See PRODUCTION_DATABASE_SETUP.md');
+          return;
+        }
 
         if (retryCount < MAX_RETRIES) {
           const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
           await new Promise(resolve => setTimeout(resolve, delay));
           return this.persistCandleAsComplete(candle, retryCount + 1);
         } else {
-          console.error(`❌ Failed to persist complete candle after ${MAX_RETRIES + 1} attempts`);
           if (typeof window !== 'undefined' && window.dispatchEvent) {
             window.dispatchEvent(new CustomEvent('pipnosis:data-persistence-error', {
               detail: {
@@ -309,19 +322,18 @@ class CandleStateManager {
       } else {
         if (retryCount > 0) {
           console.log(`✅ Persisted complete candle after ${retryCount + 1} attempts: ${candle.symbol} ${candle.timeframe} @ ${candle.timestamp.toISOString()}`);
-        } else {
-          console.log(`💾 Persisted complete candle: ${candle.symbol} ${candle.timeframe} @ ${candle.timestamp.toISOString()}`);
         }
       }
     } catch (error) {
-      console.error(`❌ Exception in persistCandleAsComplete (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, error);
+      if (retryCount === 0) {
+        console.error(`❌ Exception in persistCandleAsComplete (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, error);
+      }
 
       if (retryCount < MAX_RETRIES) {
         const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
         await new Promise(resolve => setTimeout(resolve, delay));
         return this.persistCandleAsComplete(candle, retryCount + 1);
       } else {
-        console.error(`❌ Failed to persist complete candle after ${MAX_RETRIES + 1} attempts due to exception`);
         if (typeof window !== 'undefined' && window.dispatchEvent) {
           window.dispatchEvent(new CustomEvent('pipnosis:data-persistence-error', {
             detail: {

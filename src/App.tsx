@@ -24,6 +24,7 @@ import { usePromptAnalysis, useMarketData } from './hooks/useAPI';
 import { simulatedTradingService } from './services/simulated-trading';
 import { logEnvironmentStatus } from './lib/env-validator';
 import { runDatabaseDiagnostics, logDiagnostics } from './lib/database-diagnostics';
+import { verifyDatabaseSetup } from './lib/migration-checker';
 
 interface StrategyOption {
   id: string;
@@ -376,13 +377,11 @@ export default function App() {
       const diagnostics = await runDatabaseDiagnostics();
       logDiagnostics(diagnostics);
 
+      await verifyDatabaseSetup();
+
       if (diagnostics.errors.length > 0) {
         console.error('⚠️ CRITICAL: Database configuration issues detected. The application may not function correctly.');
-        console.error('Please check the following:');
-        console.error('1. Verify VITE_SUPABASE_URL is set correctly in environment variables');
-        console.error('2. Verify VITE_SUPABASE_ANON_KEY is set correctly in environment variables');
-        console.error('3. Ensure the market_data table exists in your Supabase database');
-        console.error('4. Verify RLS policies allow anon access to market_data table');
+        console.error('📖 Quick Fix: See PRODUCTION_DATABASE_SETUP.md for detailed migration instructions');
       }
     };
 

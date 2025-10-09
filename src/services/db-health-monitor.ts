@@ -332,15 +332,36 @@ class DatabaseHealthMonitor extends TinyEmitter {
 
     switch (errorType) {
       case 'not_found':
-        return `Database table not found (${errorCode}). The market_data table may not exist in production. Please verify database migrations have been applied.`;
+        return `CRITICAL: Database table not found (${errorCode}). Run migrations in Supabase Dashboard → SQL Editor. See PRODUCTION_DATABASE_SETUP.md for detailed instructions.`;
       case 'permission':
-        return `Permission denied (${errorCode}). RLS policies may be blocking access. Verify that the anon key has proper permissions.`;
+        return `Permission denied (${errorCode}). RLS policies may be blocking access. Re-run migration 3 from PRODUCTION_DATABASE_SETUP.md to fix policies.`;
       case 'network':
-        return `Network error (${errorCode}). Unable to reach database. Check your internet connection and Supabase URL configuration.`;
+        return `Network error (${errorCode}). Unable to reach database. Check Supabase project status and internet connection.`;
       case 'server':
-        return `Server error (${errorCode}). Supabase database is experiencing issues. Please try again later.`;
+        return `Server error (${errorCode}). Supabase database is experiencing issues. Check Supabase status page.`;
       default:
         return `${this.metrics.lastError} (${errorCode})`;
+    }
+  }
+
+  getActionableMessage(): string {
+    if (!this.metrics.lastError) {
+      return '';
+    }
+
+    const errorType = this.metrics.errorType || 'unknown';
+
+    switch (errorType) {
+      case 'not_found':
+        return '🔧 Quick Fix: Open Supabase Dashboard → SQL Editor and run the migrations from PRODUCTION_DATABASE_SETUP.md';
+      case 'permission':
+        return '🔧 Quick Fix: Run migration 3 from PRODUCTION_DATABASE_SETUP.md to update RLS policies';
+      case 'network':
+        return '🔧 Quick Fix: Verify your Supabase project is active and you have internet connectivity';
+      case 'server':
+        return '⏳ Wait: Supabase is experiencing issues. Try again in a few minutes.';
+      default:
+        return '📖 See PRODUCTION_DATABASE_SETUP.md for troubleshooting steps';
     }
   }
 }
