@@ -21,9 +21,7 @@ class TimeframeBackfillService {
   private activeSymbol: string | null = null;
 
   async checkAndBackfillAllTimeframes(symbol: string, priorityTimeframe?: Timeframe): Promise<void> {
-    const now = new Date();
-    const lookbackDays = 7;
-    const startDate = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
+    const targetCandleCount = 500;
 
     this.activeSymbol = symbol;
     if (priorityTimeframe) {
@@ -33,12 +31,12 @@ class TimeframeBackfillService {
     console.log(`🔍 Checking data completeness for ${symbol} across all timeframes ${priorityTimeframe ? `(priority: ${priorityTimeframe})` : ''}`);
 
     if (priorityTimeframe) {
-      await this.checkTimeframeCompleteness(symbol, priorityTimeframe, startDate, now, true);
+      await this.checkTimeframeCompleteness(symbol, priorityTimeframe, targetCandleCount, true);
     }
 
     for (const timeframe of ALL_TIMEFRAMES) {
       if (timeframe !== priorityTimeframe) {
-        await this.checkTimeframeCompleteness(symbol, timeframe, startDate, now, false);
+        await this.checkTimeframeCompleteness(symbol, timeframe, targetCandleCount, false);
       }
     }
 
@@ -48,15 +46,13 @@ class TimeframeBackfillService {
   }
 
   async checkAndBackfillTimeframe(symbol: string, timeframe: Timeframe): Promise<void> {
-    const now = new Date();
-    const lookbackDays = 7;
-    const startDate = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
+    const targetCandleCount = 500;
 
     this.activeSymbol = symbol;
     this.currentTimeframe = timeframe;
 
     console.log(`🔍 Checking data completeness for ${symbol} ${timeframe} (immediate check)`);
-    await this.checkTimeframeCompleteness(symbol, timeframe, startDate, now, true);
+    await this.checkTimeframeCompleteness(symbol, timeframe, targetCandleCount, true);
 
     if (!this.isProcessing && this.backfillQueue.length > 0) {
       this.startProcessing();
@@ -66,118 +62,54 @@ class TimeframeBackfillService {
   private async checkTimeframeCompleteness(
     symbol: string,
     timeframe: Timeframe,
-    startDate: Date,
-    endDate: Date,
+    targetCandleCount: number = 500,
     isPriority: boolean = false
   ): Promise<void> {
     try {
       const existingCandles = await marketDataCache.getCachedCandles(
         symbol,
         timeframe,
-        startDate,
-        endDate
+        targetCandleCount
       );
 
-      const expectedCandles = this.calculateExpectedCandleCount(timeframe, startDate, endDate);
       const actualCandles = existingCandles.length;
-      const completeness = actualCandles / expectedCandles;
+      const completeness = actualCandles / targetCandleCount;
 
       const completenessThreshold = isPriority ? 0.98 : 0.95;
-      console.log(`📊 ${symbol} ${timeframe}: ${actualCandles}/${expectedCandles} candles (${(completeness * 100).toFixed(1)}%) ${isPriority ? '[PRIORITY]' : ''}`);
+      console.log(`📊 ${symbol} ${timeframe}: ${actualCandles}/${targetCandleCount} candles (${(completeness * 100).toFixed(1)}%) ${isPriority ? '[PRIORITY]' : ''}`);
 
       if (completeness < completenessThreshold) {
-        const gaps = this.detectGaps(existingCandles, timeframe, startDate, endDate);
+        console.log(`📥 Scheduling backfill for ${symbol} ${timeframe} (need ${targetCandleCount - actualCandles} more candles)`);
 
-        if (gaps.length > 0) {
-          console.log(`⚠️ Found ${gaps.length} gaps in ${symbol} ${timeframe}`);
+        const now = new Date();
+        const startDate = this.calculateStartDateForCandleCount(timeframe, targetCandleCount, now);
 
-          for (const gap of gaps) {
-            this.addBackfillTask({
-              symbol,
-              timeframe,
-              startDate: gap.start,
-              endDate: gap.end,
-              priority: this.calculatePriority(timeframe, gap.start)
-            });
-          }
-        } else if (actualCandles === 0) {
-          console.log(`📥 Scheduling full backfill for ${symbol} ${timeframe}`);
-          this.addBackfillTask({
-            symbol,
-            timeframe,
-            startDate,
-            endDate,
-            priority: this.calculatePriority(timeframe, startDate)
-          });
-        }
+        this.addBackfillTask({
+          symbol,
+          timeframe,
+          startDate,
+          endDate: now,
+          priority: this.calculatePriority(timeframe, startDate)
+        });
       } else {
-        console.log(`✅ ${symbol} ${timeframe} data is complete`);
+        console.log(`✅ ${symbol} ${timeframe} has ${actualCandles}/${targetCandleCount} candles (complete)`);
       }
     } catch (error) {
       console.error(`Error checking ${symbol} ${timeframe}:`, error);
     }
   }
 
-  private detectGaps(
-    candles: CandleData[],
+  private calculateStartDateForCandleCount(
     timeframe: Timeframe,
-    startDate: Date,
+    candleCount: number,
     endDate: Date
-  ): Array<{ start: Date; end: Date }> {
-    if (candles.length === 0) {
-      return [{ start: startDate, end: endDate }];
-    }
-
-    const gaps: Array<{ start: Date; end: Date }> = [];
-    const sortedCandles = candles.sort((a, b) => a.time.getTime() - b.time.getTime());
+  ): Date {
     const timeframeMinutes = this.getTimeframeMinutes(timeframe);
-    const expectedIntervalMs = timeframeMinutes * 60 * 1000;
+    const totalMinutes = timeframeMinutes * candleCount;
+    const tradingDaysRatio = 7 / 5;
+    const adjustedMinutes = totalMinutes * tradingDaysRatio;
 
-    if (sortedCandles[0].time.getTime() - startDate.getTime() > expectedIntervalMs * 2) {
-      gaps.push({
-        start: startDate,
-        end: new Date(sortedCandles[0].time.getTime() - expectedIntervalMs)
-      });
-    }
-
-    for (let i = 1; i < sortedCandles.length; i++) {
-      const prevTime = sortedCandles[i - 1].time.getTime();
-      const currTime = sortedCandles[i].time.getTime();
-      const actualInterval = currTime - prevTime;
-
-      if (actualInterval > expectedIntervalMs * 2) {
-        const gapStart = new Date(prevTime + expectedIntervalMs);
-        const gapEnd = new Date(currTime - expectedIntervalMs);
-
-        const tradingDays = marketHoursService.getTradingDaysBetween(gapStart, gapEnd);
-        if (tradingDays.length > 0) {
-          gaps.push({ start: gapStart, end: gapEnd });
-        }
-      }
-    }
-
-    const lastCandleTime = sortedCandles[sortedCandles.length - 1].time.getTime();
-    if (endDate.getTime() - lastCandleTime > expectedIntervalMs * 2) {
-      gaps.push({
-        start: new Date(lastCandleTime + expectedIntervalMs),
-        end: endDate
-      });
-    }
-
-    return gaps;
-  }
-
-  private calculateExpectedCandleCount(
-    timeframe: Timeframe,
-    startDate: Date,
-    endDate: Date
-  ): number {
-    const totalMinutes = (endDate.getTime() - startDate.getTime()) / (60 * 1000);
-    const timeframeMinutes = this.getTimeframeMinutes(timeframe);
-    const tradingDaysRatio = 5 / 7;
-    const tradingHoursRatio = 24 / 24;
-
-    return Math.floor((totalMinutes / timeframeMinutes) * tradingDaysRatio * tradingHoursRatio);
+    return new Date(endDate.getTime() - adjustedMinutes * 60 * 1000);
   }
 
   private getTimeframeMinutes(timeframe: Timeframe): number {
@@ -273,17 +205,11 @@ class TimeframeBackfillService {
 
   private async fetchAndStoreData(task: BackfillTask): Promise<void> {
     try {
-      const limit = Math.min(1000, this.calculateExpectedCandleCount(
-        task.timeframe,
-        task.startDate,
-        task.endDate
-      ));
-
       const candles = await metaApiService.getHistoricalCandles(
         task.symbol,
         task.timeframe,
         task.startDate,
-        limit
+        500
       );
 
       if (candles.length > 0) {

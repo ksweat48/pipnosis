@@ -36,8 +36,7 @@ class MarketDataCache {
   async getCachedCandles(
     symbol: string,
     timeframe: Timeframe,
-    startTime: Date,
-    endTime: Date
+    limit: number = 500
   ): Promise<CandleData[]> {
     try {
       const { data, error } = await supabase
@@ -45,16 +44,16 @@ class MarketDataCache {
         .select('*')
         .eq('symbol', symbol)
         .eq('timeframe', timeframe)
-        .gte('timestamp', startTime.toISOString())
-        .lte('timestamp', endTime.toISOString())
-        .order('timestamp', { ascending: true });
+        .order('timestamp', { ascending: false })
+        .limit(limit);
 
       if (error) {
         console.error('Error fetching cached candles:', error);
         return [];
       }
 
-      return (data || []).map(row => this.rowToCandleData(row));
+      const candles = (data || []).map(row => this.rowToCandleData(row));
+      return candles.reverse();
     } catch (error) {
       console.error('Error in getCachedCandles:', error);
       return [];
@@ -64,21 +63,17 @@ class MarketDataCache {
   async getRecentLiveCandles(
     symbol: string,
     timeframe: Timeframe,
-    hoursBack: number = 24
+    limit: number = 100
   ): Promise<CandleData[]> {
     try {
-      const startTime = new Date(Date.now() - hoursBack * 60 * 60 * 1000);
-      const endTime = new Date();
-
       const { data, error } = await supabase
         .from('market_data')
         .select('*')
         .eq('symbol', symbol)
         .eq('timeframe', timeframe)
-        .gte('timestamp', startTime.toISOString())
-        .lte('timestamp', endTime.toISOString())
         .in('data_source', ['live_tick', 'live_tick_complete'])
-        .order('timestamp', { ascending: true });
+        .order('timestamp', { ascending: false })
+        .limit(limit);
 
       if (error) {
         console.error('Error fetching recent live candles:', error);
@@ -87,7 +82,7 @@ class MarketDataCache {
 
       const candles = (data || []).map(row => this.rowToCandleData(row));
       console.log(`📊 Retrieved ${candles.length} recent live candles for ${symbol} ${timeframe}`);
-      return candles;
+      return candles.reverse();
     } catch (error) {
       console.error('Error in getRecentLiveCandles:', error);
       return [];
@@ -97,8 +92,7 @@ class MarketDataCache {
   async getCompleteCandles(
     symbol: string,
     timeframe: Timeframe,
-    startTime: Date,
-    endTime: Date
+    limit: number = 500
   ): Promise<CandleData[]> {
     try {
       const { data, error } = await supabase
@@ -107,16 +101,16 @@ class MarketDataCache {
         .eq('symbol', symbol)
         .eq('timeframe', timeframe)
         .eq('is_complete', true)
-        .gte('timestamp', startTime.toISOString())
-        .lte('timestamp', endTime.toISOString())
-        .order('timestamp', { ascending: true });
+        .order('timestamp', { ascending: false })
+        .limit(limit);
 
       if (error) {
         console.error('Error fetching complete candles:', error);
         return [];
       }
 
-      return (data || []).map(row => this.rowToCandleData(row));
+      const candles = (data || []).map(row => this.rowToCandleData(row));
+      return candles.reverse();
     } catch (error) {
       console.error('Error in getCompleteCandles:', error);
       return [];
@@ -199,6 +193,10 @@ class MarketDataCache {
         } else {
           console.log(`💾 Saved ${candles.length} candles to cache for ${candles[0].symbol} ${candles[0].timeframe}`);
         }
+
+        this.cleanupOldCandles(candles[0].symbol, candles[0].timeframe as Timeframe).catch(err => {
+          console.warn('Background cleanup warning:', err);
+        });
       }
     } catch (error) {
       console.error(`❌ Exception in saveCandles (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, error);
@@ -429,6 +427,39 @@ class MarketDataCache {
     } catch (error) {
       console.error('Error in getDataCompletenessStats:', error);
       return null;
+    }
+  }
+
+  async cleanupOldCandles(symbol: string, timeframe: Timeframe, keepCount: number = 500): Promise<void> {
+    try {
+      const { data, error } = await supabase.rpc('cleanup_old_candles', {
+        p_symbol: symbol,
+        p_timeframe: timeframe,
+        p_keep_count: keepCount
+      });
+
+      if (error) {
+        console.error('Error cleaning up old candles:', error);
+      } else if (data && data > 0) {
+        console.log(`🧹 Cleaned up ${data} old candles for ${symbol} ${timeframe}, keeping most recent ${keepCount}`);
+      }
+    } catch (error) {
+      console.error('Error in cleanupOldCandles:', error);
+    }
+  }
+
+  async updateCandleCountStats(symbol: string, timeframe: Timeframe): Promise<void> {
+    try {
+      const { error } = await supabase.rpc('update_candle_count_stats', {
+        p_symbol: symbol,
+        p_timeframe: timeframe
+      });
+
+      if (error) {
+        console.error('Error updating candle count stats:', error);
+      }
+    } catch (error) {
+      console.error('Error in updateCandleCountStats:', error);
     }
   }
 

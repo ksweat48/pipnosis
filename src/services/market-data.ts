@@ -40,10 +40,6 @@ class MarketDataService {
     limit: number = 500,
     useCache: boolean = true
   ): Promise<CandleData[]> {
-    const endTime = new Date();
-    const startTime = utilCalculateStartTime(timeframe, limit, endTime);
-    const oneDayAgo = new Date(endTime.getTime() - 24 * 60 * 60 * 1000);
-
     let apiCandles: CandleData[] = [];
     let shouldFetchApi = !this.isDemoMode;
 
@@ -51,20 +47,19 @@ class MarketDataService {
       const cachedCandles = await marketDataCache.getCachedCandles(
         symbol,
         timeframe,
-        startTime,
-        endTime
+        limit
       );
 
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const recentCandles = cachedCandles.filter(c => c.time >= oneDayAgo);
       const hasRecentData = recentCandles.length > 0;
 
       const validationResult = dataValidator.validateCandleSequence(cachedCandles, timeframe);
-      const hasGaps = detectGaps(cachedCandles, timeframe).length > 0;
 
-      if (cachedCandles.length >= limit * 0.98 && hasRecentData && !this.isDemoMode && validationResult.isValid && !hasGaps) {
+      if (cachedCandles.length >= limit * 0.98 && hasRecentData && !this.isDemoMode && validationResult.isValid) {
         shouldFetchApi = false;
         apiCandles = cachedCandles;
-        console.log(`✅ Using ${cachedCandles.length} cached candles (validated, no gaps) for ${symbol} ${timeframe}`);
+        console.log(`✅ Using ${cachedCandles.length} cached candles (${((cachedCandles.length/limit)*100).toFixed(1)}% complete) for ${symbol} ${timeframe}`);
       } else if (this.isDemoMode && cachedCandles.length > 0) {
         apiCandles = cachedCandles;
         shouldFetchApi = false;
@@ -74,6 +69,9 @@ class MarketDataService {
 
     if (shouldFetchApi && !this.isDemoMode) {
       try {
+        const endTime = new Date();
+        const startTime = utilCalculateStartTime(timeframe, limit, endTime);
+
         const liveCandles = await metaApiService.getHistoricalCandles(
           symbol,
           timeframe,
@@ -98,8 +96,7 @@ class MarketDataService {
         const cachedCandles = await marketDataCache.getCachedCandles(
           symbol,
           timeframe,
-          startTime,
-          endTime
+          limit
         );
         if (cachedCandles.length > 0) {
           apiCandles = cachedCandles;
@@ -113,7 +110,7 @@ class MarketDataService {
     const recentLiveCandles = await marketDataCache.getRecentLiveCandles(
       symbol,
       timeframe,
-      24
+      100
     );
 
     const mergeResult = mergeHistoricalAndLiveCandles(
@@ -127,56 +124,18 @@ class MarketDataService {
       liveCandles: mergeResult.stats.dbCandles,
       duplicatesRemoved: mergeResult.stats.duplicatesRemoved,
       gapsFilled: mergeResult.stats.gapsFilled,
-      total: mergeResult.stats.totalCandles
+      total: mergeResult.stats.totalCandles,
+      completeness: `${mergeResult.stats.totalCandles}/${limit} (${((mergeResult.stats.totalCandles/limit)*100).toFixed(1)}%)`
     });
 
-    const gaps = detectGaps(mergeResult.candles, timeframe);
-    if (gaps.length > 0) {
-      console.warn(`⚠️ Detected ${gaps.length} gap(s) in candle data for ${symbol} ${timeframe}:`, gaps.map(g => ({
-        start: g.start.toISOString(),
-        end: g.end.toISOString(),
-        tradingDays: g.missingTradingDays.length
-      })));
-
-      const tradingDayGaps = gaps.filter(g => g.isTradingDayGap);
-      if (tradingDayGaps.length > 0 && !this.isDemoMode) {
-        console.log(`🔍 Attempting to fill ${tradingDayGaps.length} trading day gap(s) for ${symbol} ${timeframe}...`);
-        const gapFilledCandles = await this.fetchMissingGapData(
-          symbol,
-          timeframe,
-          tradingDayGaps,
-          mergeResult.candles
-        );
-        if (gapFilledCandles.length > mergeResult.candles.length) {
-          console.log(`✅ Filled gaps: ${gapFilledCandles.length - mergeResult.candles.length} new candles added for ${symbol} ${timeframe}`);
-
-          await marketDataCache.updateDataCompletenessStats(symbol, timeframe, {
-            totalCandles: gapFilledCandles.length,
-            dateRangeStart: gapFilledCandles[0]?.time,
-            dateRangeEnd: gapFilledCandles[gapFilledCandles.length - 1]?.time,
-            gapsDetected: 0,
-            lastValidated: new Date()
-          });
-
-          return gapFilledCandles;
-        }
-      }
-    } else {
-      await marketDataCache.updateDataCompletenessStats(symbol, timeframe, {
-        totalCandles: mergeResult.candles.length,
-        dateRangeStart: mergeResult.candles[0]?.time,
-        dateRangeEnd: mergeResult.candles[mergeResult.candles.length - 1]?.time,
-        gapsDetected: 0,
-        lastValidated: new Date()
-      });
-    }
+    await marketDataCache.updateCandleCountStats(symbol, timeframe);
 
     if (mergeResult.candles.length === 0) {
       console.warn(`⚠️ No data available for ${symbol} ${timeframe}`);
       return [];
     }
 
-    return mergeResult.candles;
+    return mergeResult.candles.slice(0, limit);
   }
 
   async subscribeToSymbol(

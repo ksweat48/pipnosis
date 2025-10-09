@@ -182,79 +182,30 @@ class MultiTimeframeAggregator {
   async backfillTimeframe(
     symbol: string,
     timeframe: Timeframe,
-    startDate: Date,
-    endDate: Date
+    targetCandleCount: number = 500
   ): Promise<void> {
-    console.log(`🔍 Backfilling ${symbol} ${timeframe} from ${startDate.toISOString()} to ${endDate.toISOString()}`);
+    console.log(`🔍 Checking backfill for ${symbol} ${timeframe} (target: ${targetCandleCount} candles)`);
 
     try {
       const existingCandles = await marketDataCache.getCachedCandles(
         symbol,
         timeframe,
-        startDate,
-        endDate
+        targetCandleCount
       );
 
-      if (existingCandles.length > 0) {
-        console.log(`Found ${existingCandles.length} existing candles for ${symbol} ${timeframe}`);
-        const sortedCandles = existingCandles.sort((a, b) => a.time.getTime() - b.time.getTime());
-        const gaps = this.detectTimeframeGaps(sortedCandles, timeframe, startDate, endDate);
+      const actualCount = existingCandles.length;
+      const completeness = (actualCount / targetCandleCount) * 100;
 
-        if (gaps.length > 0) {
-          console.log(`Detected ${gaps.length} gaps in ${symbol} ${timeframe} data`);
-        } else {
-          console.log(`✅ No gaps detected in ${symbol} ${timeframe} data`);
-        }
+      if (actualCount >= targetCandleCount) {
+        console.log(`✅ ${symbol} ${timeframe} has ${actualCount}/${targetCandleCount} candles (${completeness.toFixed(1)}% complete)`);
       } else {
-        console.log(`⚠️ No existing data found for ${symbol} ${timeframe}, needs full backfill`);
+        console.log(`⚠️ ${symbol} ${timeframe} has ${actualCount}/${targetCandleCount} candles (${completeness.toFixed(1)}% complete) - needs backfill`);
       }
     } catch (error) {
-      console.error(`Error backfilling ${symbol} ${timeframe}:`, error);
+      console.error(`Error checking backfill for ${symbol} ${timeframe}:`, error);
     }
   }
 
-  private detectTimeframeGaps(
-    candles: CandleData[],
-    timeframe: Timeframe,
-    startDate: Date,
-    endDate: Date
-  ): Array<{ start: Date; end: Date }> {
-    if (candles.length < 2) return [];
-
-    const gaps: Array<{ start: Date; end: Date }> = [];
-    const timeframeMinutes = this.getTimeframeMinutes(timeframe);
-    const expectedIntervalMs = timeframeMinutes * 60 * 1000;
-
-    for (let i = 1; i < candles.length; i++) {
-      const prevTime = candles[i - 1].time.getTime();
-      const currTime = candles[i].time.getTime();
-      const actualInterval = currTime - prevTime;
-
-      if (actualInterval > expectedIntervalMs * 1.5) {
-        gaps.push({
-          start: new Date(prevTime + expectedIntervalMs),
-          end: new Date(currTime)
-        });
-      }
-    }
-
-    return gaps;
-  }
-
-  private getTimeframeMinutes(timeframe: Timeframe): number {
-    const map: Record<Timeframe, number> = {
-      M1: 1,
-      M5: 5,
-      M15: 15,
-      M30: 30,
-      H1: 60,
-      H4: 240,
-      D1: 1440,
-      W1: 10080,
-      MN1: 43200
-    };
-    return map[timeframe] || 15;
-  }
 }
 
 export const multiTimeframeAggregator = new MultiTimeframeAggregator();
