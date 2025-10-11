@@ -23,7 +23,7 @@ export const ChartSettings: React.FC<ChartSettingsProps> = ({ preferences, onUpd
       {isOpen && (
         <>
           <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
+            className="fixed inset-0 bg-black/50 z-50"
             onClick={() => setIsOpen(false)}
           />
           <div className="fixed right-4 top-20 z-[51] w-80 bg-slate-800 backdrop-blur-xl border border-slate-700 rounded-2xl p-4 shadow-2xl">
