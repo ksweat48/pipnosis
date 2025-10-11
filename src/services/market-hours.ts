@@ -60,6 +60,37 @@ class MarketHoursService {
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     return days[date.getDay()];
   }
+
+  getNextMarketClosePeriod(fromDate: Date): { start: Date; end: Date } | null {
+    const current = new Date(fromDate);
+    current.setHours(0, 0, 0, 0);
+
+    for (let i = 0; i < 30; i++) {
+      const checkDate = new Date(current);
+      checkDate.setDate(checkDate.getDate() + i);
+
+      if (!this.isTradingDay(checkDate)) {
+        const start = new Date(checkDate);
+        start.setHours(0, 0, 0, 0);
+
+        let end = new Date(start);
+
+        while (!this.isTradingDay(end)) {
+          end.setDate(end.getDate() + 1);
+          if (end.getTime() - start.getTime() > 7 * 24 * 60 * 60 * 1000) {
+            break;
+          }
+        }
+
+        end.setHours(23, 59, 59, 999);
+        end.setDate(end.getDate() - 1);
+
+        return { start, end };
+      }
+    }
+
+    return null;
+  }
 }
 
 export const marketHoursService = new MarketHoursService();

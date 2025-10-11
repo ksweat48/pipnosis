@@ -105,6 +105,27 @@ class ChartOverlayService {
     return overlays;
   }
 
+  getNextMarketClosedOverlay(latestTimestamp: Time): MarketClosedOverlay | null {
+    const timestamp = typeof latestTimestamp === 'number' ? latestTimestamp * 1000 : new Date(latestTimestamp as string).getTime();
+    const fromDate = new Date(timestamp);
+
+    const nextClosePeriod = marketHoursService.getNextMarketClosePeriod(fromDate);
+
+    if (!nextClosePeriod) {
+      console.log('[ChartOverlay] No upcoming market close period found');
+      return null;
+    }
+
+    const overlay: MarketClosedOverlay = {
+      startTime: Math.floor(nextClosePeriod.start.getTime() / 1000),
+      endTime: Math.floor(nextClosePeriod.end.getTime() / 1000),
+      color: this.MARKET_CLOSED_COLOR
+    };
+
+    console.log(`[ChartOverlay] Generated next market closed overlay from ${nextClosePeriod.start.toISOString()} to ${nextClosePeriod.end.toISOString()}`);
+    return overlay;
+  }
+
   private getDayKey(date: Date): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
