@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeries, HistogramSeries, LineSeries, HistogramData, LineData } from 'lightweight-charts';
 import { AIAnalysisData } from '../types/ai-analysis';
 import { ChartPreferences } from '../hooks/useChartPreferences';
+import { chartOverlayService } from '../services/chart-overlays';
 
 interface CandlestickChartProps {
   symbol: string;
@@ -31,6 +32,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const vwapSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const backgroundOverlayRef = useRef<HTMLDivElement | null>(null);
   const priceLinesRef = useRef<any[]>([]);
   const aiPriceLinesRef = useRef<any[]>([]);
   const [isReady, setIsReady] = useState(false);
@@ -76,8 +78,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         visible: true,
         alignLabels: true,
         scaleMargins: {
-          top: 0.1,
-          bottom: 0.1,
+          top: 0.2,
+          bottom: 0.2,
         },
         borderVisible: true,
         autoScale: true,
@@ -90,8 +92,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         timeVisible: true,
         secondsVisible: false,
         rightOffset: 5,
-        barSpacing: 8,
-        minBarSpacing: 0.5,
+        barSpacing: 12,
+        minBarSpacing: 2,
         fixLeftEdge: false,
         fixRightEdge: false,
       },
@@ -332,11 +334,96 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
   }, [tradeLines, isReady]);
 
+  useEffect(() => {
+    if (!isReady || !chartRef.current || !chartContainerRef.current || data.length === 0) return;
+
+    const overlayContainer = chartContainerRef.current.querySelector('.background-overlays') as HTMLDivElement;
+    if (!overlayContainer) return;
+
+    overlayContainer.innerHTML = '';
+
+    const timestamps = data.map(d => d.time);
+    const daySeparators = chartOverlayService.getDaySeparators(timestamps);
+    const weekendOverlays = chartOverlayService.getWeekendOverlays(timestamps);
+
+    const timeScale = chartRef.current.timeScale();
+
+    const renderOverlays = () => {
+      if (!chartRef.current || !overlayContainer) return;
+
+      overlayContainer.innerHTML = '';
+
+      daySeparators.forEach(separator => {
+        const startCoord = timeScale.timeToCoordinate(separator.startTime as Time);
+        const endCoord = timeScale.timeToCoordinate(separator.endTime as Time);
+
+        if (startCoord !== null && endCoord !== null) {
+          const rect = document.createElement('div');
+          rect.style.position = 'absolute';
+          rect.style.left = `${startCoord}px`;
+          rect.style.width = `${Math.max(endCoord - startCoord, 1)}px`;
+          rect.style.top = '0';
+          rect.style.height = '100%';
+          rect.style.backgroundColor = separator.color;
+          rect.style.pointerEvents = 'none';
+          rect.style.zIndex = '1';
+          overlayContainer.appendChild(rect);
+        }
+      });
+
+      weekendOverlays.forEach(overlay => {
+        const startCoord = timeScale.timeToCoordinate(overlay.startTime as Time);
+        const endCoord = timeScale.timeToCoordinate(overlay.endTime as Time);
+
+        if (startCoord !== null && endCoord !== null) {
+          const rect = document.createElement('div');
+          rect.style.position = 'absolute';
+          rect.style.left = `${startCoord}px`;
+          rect.style.width = `${Math.max(endCoord - startCoord, 1)}px`;
+          rect.style.top = '0';
+          rect.style.height = '100%';
+          rect.style.backgroundColor = overlay.color;
+          rect.style.pointerEvents = 'none';
+          rect.style.zIndex = '2';
+          overlayContainer.appendChild(rect);
+        }
+      });
+    };
+
+    renderOverlays();
+
+    const visibleLogicalRangeChangeHandler = () => {
+      renderOverlays();
+    };
+
+    timeScale.subscribeVisibleLogicalRangeChange(visibleLogicalRangeChangeHandler);
+
+    return () => {
+      timeScale.unsubscribeVisibleLogicalRangeChange(visibleLogicalRangeChangeHandler);
+    };
+  }, [data, isReady]);
+
   return (
     <div
-      ref={chartContainerRef}
-      className="w-full rounded-2xl overflow-hidden border border-white/10 touch-manipulation"
+      className="w-full rounded-2xl overflow-hidden border border-white/10 touch-manipulation relative"
       style={{ height: `${height}px`, touchAction: 'pan-x pan-y' }}
-    />
+    >
+      <div
+        className="background-overlays"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          pointerEvents: 'none',
+          zIndex: 0
+        }}
+      />
+      <div
+        ref={chartContainerRef}
+        style={{ position: 'relative', width: '100%', height: '100%', zIndex: 1 }}
+      />
+    </div>
   );
 };
