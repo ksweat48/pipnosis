@@ -23,10 +23,10 @@ export const ChartSettings: React.FC<ChartSettingsProps> = ({ preferences, onUpd
       {isOpen && (
         <>
           <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9998]"
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
             onClick={() => setIsOpen(false)}
           />
-          <div className="absolute right-0 top-12 z-[9999] w-80 bg-slate-800 backdrop-blur-xl border border-slate-700 rounded-2xl p-4 shadow-xl">
+          <div className="fixed right-4 top-20 z-[51] w-80 bg-slate-800 backdrop-blur-xl border border-slate-700 rounded-2xl p-4 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-white">Chart Settings</h3>
               <button
