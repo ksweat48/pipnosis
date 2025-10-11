@@ -7,6 +7,20 @@
   VITE_DEV_MODE = "true"
   SKIP_PREFLIGHT_CHECK = "true"
 
+[functions]
+  # Increase timeout for long-running refresh operations
+  node_bundler = "esbuild"
+
+[functions."refresh-candles"]
+  # Extended timeout for manual refresh operations (10 minutes)
+  timeout = 600
+
+[functions."scheduled-refresh"]
+  # Extended timeout for scheduled batch operations (10 minutes)
+  timeout = 600
+  # Daily schedule at 2:00 AM UTC
+  schedule = "0 2 * * *"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

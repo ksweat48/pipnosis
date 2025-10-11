@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, TrendingUp, DollarSign, Activity, BarChart3,
-  ArrowLeft, Download, RefreshCw, Eye, Shield, Target, Database
+  ArrowLeft, Download, RefreshCw, Eye, Shield, Target, Database, Calendar
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { DataHealthPanel } from '../components/DataHealthPanel';
+import { RefreshScheduleManager } from '../components/RefreshScheduleManager';
 
 interface PlatformStats {
   total_users: number;
@@ -72,7 +73,7 @@ export const AdminDashboard: React.FC = () => {
   const [userSummaries, setUserSummaries] = useState<UserSummary[]>([]);
   const [aiPerformance, setAIPerformance] = useState<AIPerformance[]>([]);
   const [symbolStats, setSymbolStats] = useState<SymbolStats[]>([]);
-  const [selectedView, setSelectedView] = useState<'overview' | 'users' | 'ai' | 'symbols' | 'data-health'>('overview');
+  const [selectedView, setSelectedView] = useState<'overview' | 'users' | 'ai' | 'symbols' | 'data-health' | 'refresh-schedules'>('overview');
 
   useEffect(() => {
     if (isAdmin) {
@@ -237,7 +238,8 @@ export const AdminDashboard: React.FC = () => {
             { id: 'users', label: 'Users', icon: Users },
             { id: 'ai', label: 'AI Performance', icon: Target },
             { id: 'symbols', label: 'Trading Pairs', icon: TrendingUp },
-            { id: 'data-health', label: 'Data Health', icon: Database }
+            { id: 'data-health', label: 'Data Health', icon: Database },
+            { id: 'refresh-schedules', label: 'Refresh Schedules', icon: Calendar }
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -521,6 +523,10 @@ export const AdminDashboard: React.FC = () => {
 
         {selectedView === 'data-health' && (
           <DataHealthPanel />
+        )}
+
+        {selectedView === 'refresh-schedules' && (
+          <RefreshScheduleManager />
         )}
       </div>
     </div>
