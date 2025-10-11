@@ -112,31 +112,30 @@ class ChartOverlayService {
 
     const currentClosePeriod = marketHoursService.getCurrentMarketClosePeriod(now);
     if (currentClosePeriod) {
-      const overlay: MarketClosedOverlay = {
-        startTime: Math.floor(currentClosePeriod.start.getTime() / 1000),
-        endTime: Math.floor(currentClosePeriod.end.getTime() / 1000),
-        color: this.MARKET_CLOSED_COLOR
-      };
+      const overlayStartTime = Math.max(
+        Math.floor(currentClosePeriod.start.getTime() / 1000),
+        Math.floor(timestamp / 1000)
+      );
 
-      console.log(`[ChartOverlay] Generated current market closed overlay from ${currentClosePeriod.start.toISOString()} to ${currentClosePeriod.end.toISOString()}`);
-      return overlay;
+      const overlayEndTime = Math.min(
+        Math.floor(currentClosePeriod.end.getTime() / 1000),
+        Math.floor(now.getTime() / 1000)
+      );
+
+      if (overlayStartTime < overlayEndTime) {
+        const overlay: MarketClosedOverlay = {
+          startTime: overlayStartTime,
+          endTime: overlayEndTime,
+          color: this.MARKET_CLOSED_COLOR
+        };
+
+        console.log(`[ChartOverlay] Generated current market closed overlay from ${new Date(overlayStartTime * 1000).toISOString()} to ${new Date(overlayEndTime * 1000).toISOString()}`);
+        return overlay;
+      }
     }
 
-    const nextClosePeriod = marketHoursService.getNextMarketClosePeriod(now);
-
-    if (!nextClosePeriod) {
-      console.log('[ChartOverlay] No upcoming market close period found');
-      return null;
-    }
-
-    const overlay: MarketClosedOverlay = {
-      startTime: Math.floor(nextClosePeriod.start.getTime() / 1000),
-      endTime: Math.floor(nextClosePeriod.end.getTime() / 1000),
-      color: this.MARKET_CLOSED_COLOR
-    };
-
-    console.log(`[ChartOverlay] Generated next market closed overlay from ${nextClosePeriod.start.toISOString()} to ${nextClosePeriod.end.toISOString()}`);
-    return overlay;
+    console.log('[ChartOverlay] No current market close period applicable to chart data');
+    return null;
   }
 
   private getDayKey(date: Date): string {

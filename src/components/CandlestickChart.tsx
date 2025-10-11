@@ -355,6 +355,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     const latestTimestamp = timestamps[timestamps.length - 1];
     const nextMarketClosedOverlay = chartOverlayService.getNextMarketClosedOverlay(latestTimestamp);
+    console.log('[CandlestickChart] Next market closed overlay:', nextMarketClosedOverlay);
 
     const timeScale = chartRef.current.timeScale();
 
@@ -407,28 +408,21 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         const startCoord = timeScale.timeToCoordinate(nextMarketClosedOverlay.startTime as Time);
         const endCoord = timeScale.timeToCoordinate(nextMarketClosedOverlay.endTime as Time);
 
-        const visibleRange = timeScale.getVisibleLogicalRange();
-        const chartWidth = chartContainerRef.current?.clientWidth || 0;
-
-        if (startCoord !== null || endCoord !== null) {
-          const leftPos = startCoord !== null ? startCoord : (endCoord !== null ? endCoord : 0);
-          const rightPos = endCoord !== null ? endCoord : chartWidth;
-          const width = Math.max(rightPos - leftPos, 1);
-
-          if (width > 0) {
-            const rect = document.createElement('div');
-            rect.style.position = 'absolute';
-            rect.style.left = `${leftPos}px`;
-            rect.style.width = `${width}px`;
-            rect.style.top = '0';
-            rect.style.height = '100%';
-            rect.style.backgroundColor = nextMarketClosedOverlay.color;
-            rect.style.pointerEvents = 'none';
-            rect.style.zIndex = '2';
-            overlayContainer.appendChild(rect);
-            marketClosedRendered++;
-            console.log(`[CandlestickChart] Rendered future market closed overlay at ${leftPos}px with width ${width}px`);
-          }
+        if (startCoord !== null && endCoord !== null && endCoord > startCoord) {
+          const rect = document.createElement('div');
+          rect.style.position = 'absolute';
+          rect.style.left = `${startCoord}px`;
+          rect.style.width = `${endCoord - startCoord}px`;
+          rect.style.top = '0';
+          rect.style.height = '100%';
+          rect.style.backgroundColor = nextMarketClosedOverlay.color;
+          rect.style.pointerEvents = 'none';
+          rect.style.zIndex = '2';
+          overlayContainer.appendChild(rect);
+          marketClosedRendered++;
+          console.log(`[CandlestickChart] Rendered current market closed overlay at ${startCoord}px with width ${endCoord - startCoord}px`);
+        } else {
+          console.log(`[CandlestickChart] Skipped rendering overlay - coordinates out of bounds: start=${startCoord}, end=${endCoord}`);
         }
       }
 

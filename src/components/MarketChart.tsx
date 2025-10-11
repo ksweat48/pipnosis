@@ -8,6 +8,7 @@ import { CandlestickData, Time, HistogramData } from 'lightweight-charts';
 import { marketDataService, MarketDataListener, TickData } from '../services/market-data';
 import { Timeframe, CandleData } from '../services/metaapi';
 import { getCandleOpenTime, isNewCandlePeriod } from '../services/candle-utils';
+import { marketHoursService } from '../services/market-hours';
 import { candleStateManager } from '../services/candle-state-manager';
 import { AIAnalysisData } from '../types/ai-analysis';
 import { generateSampleAIAnalysis } from '../utils/sample-ai-analysis';
@@ -347,6 +348,8 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const [priceChangePercent, setPriceChangePercent] = useState<number>(0);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisData | undefined>(undefined);
   const { preferences, updatePreferences } = useChartPreferences();
+  const [isMarketOpen, setIsMarketOpen] = useState<boolean>(true);
+  const [marketStatusMessage, setMarketStatusMessage] = useState<string>('');
 
   useEffect(() => {
     if (candleData.length > 0) {
@@ -365,6 +368,35 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     }
   }, [candleData, displayPrice, highPrice, lowPrice, symbol]);
 
+  useEffect(() => {
+    const updateMarketStatus = () => {
+      const now = new Date();
+      const isTradingDay = marketHoursService.isTradingDay(now);
+      setIsMarketOpen(isTradingDay);
+
+      if (!isTradingDay) {
+        const dayName = marketHoursService.getDayOfWeekName(now);
+        const isWeekend = marketHoursService.isWeekend(now);
+        const isHoliday = marketHoursService.isHoliday(now);
+
+        if (isWeekend) {
+          setMarketStatusMessage(`Market Closed - ${dayName}`);
+        } else if (isHoliday) {
+          setMarketStatusMessage('Market Closed - Holiday');
+        } else {
+          setMarketStatusMessage('Market Closed');
+        }
+      } else {
+        setMarketStatusMessage('Market Open');
+      }
+    };
+
+    updateMarketStatus();
+    const interval = setInterval(updateMarketStatus, 60000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className={`${className}`}>
       <div className="glass-card p-4 sm:p-6 mb-4">
@@ -381,6 +413,16 @@ export const MarketChart: React.FC<MarketChartProps> = ({
                 ))}
               </select>
               <div className="flex items-center space-x-2">
+                <div className={`flex items-center space-x-2 px-3 py-1 rounded-lg border ${
+                  isMarketOpen
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    : 'bg-red-500/10 border-red-500/30 text-red-400'
+                }`}>
+                  <div className={`w-2 h-2 rounded-full ${
+                    isMarketOpen ? 'bg-emerald-400' : 'bg-red-400'
+                  } ${isMarketOpen ? 'animate-pulse' : ''}`}></div>
+                  <span className="text-xs font-medium">{marketStatusMessage}</span>
+                </div>
                 {isConnected ? (
                   <div className="flex items-center space-x-1">
                     <Wifi className="h-4 w-4 text-emerald-400" />

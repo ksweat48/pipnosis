@@ -65,12 +65,20 @@ class MarketHoursService {
     const current = new Date(fromDate);
 
     if (!this.isTradingDay(current)) {
-      const start = new Date(current);
+      let start = new Date(current);
       start.setHours(0, 0, 0, 0);
 
-      while (start.getTime() > 0 && !this.isTradingDay(new Date(start.getTime() - 24 * 60 * 60 * 1000))) {
+      while (start.getTime() > 0 && !this.isTradingDay(start)) {
         start.setDate(start.getDate() - 1);
+        if (start.getTime() < current.getTime() - 7 * 24 * 60 * 60 * 1000) {
+          break;
+        }
       }
+
+      if (this.isTradingDay(start)) {
+        start.setDate(start.getDate() + 1);
+      }
+      start.setHours(0, 0, 0, 0);
 
       let end = new Date(current);
       end.setHours(0, 0, 0, 0);
