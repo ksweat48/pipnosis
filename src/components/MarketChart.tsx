@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { BarChart3, RefreshCw, Wifi, WifiOff, Database } from 'lucide-react';
 import { CandlestickChart } from './CandlestickChart';
 import { AIAnalysisPanel } from './AIAnalysisPanel';
+import { RealAIAnalysisPanel } from './RealAIAnalysisPanel';
 import { DataHealthIndicator } from './DataHealthIndicator';
 import { CandlestickData, Time, HistogramData } from 'lightweight-charts';
 import { marketDataService, MarketDataListener, TickData } from '../services/market-data';
@@ -12,6 +13,8 @@ import { candleStateManager } from '../services/candle-state-manager';
 import { AIAnalysisData } from '../types/ai-analysis';
 import { generateSampleAIAnalysis } from '../utils/sample-ai-analysis';
 import { useChartPreferences } from '../hooks/useChartPreferences';
+import { analyzeMarket, AiMarketSummary } from '../lib/aiMarketEngine';
+import { saveMarketAnalysis } from '../services/marketAnalysisService';
 
 interface MarketChartProps {
   symbol: string;
@@ -368,6 +371,8 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const [priceChange, setPriceChange] = useState<number>(0);
   const [priceChangePercent, setPriceChangePercent] = useState<number>(0);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisData | undefined>(undefined);
+  const [realAiAnalysis, setRealAiAnalysis] = useState<AiMarketSummary | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const { preferences, updatePreferences } = useChartPreferences();
   const [isMarketOpen, setIsMarketOpen] = useState<boolean>(true);
   const [marketStatusMessage, setMarketStatusMessage] = useState<string>('');
@@ -388,6 +393,52 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       setAiAnalysis(analysis);
     }
   }, [candleData, displayPrice, highPrice, lowPrice, symbol]);
+
+  const performRealAiAnalysis = useCallback(async () => {
+    if (candleData.length < 20 || isAnalyzing) {
+      return;
+    }
+
+    try {
+      setIsAnalyzing(true);
+
+      const candles = candleData.map(c => ({
+        time: new Date((c.time as number) * 1000).toISOString(),
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: 0
+      }));
+
+      console.log(`🤖 Starting real AI analysis for ${symbol} ${timeframe} with ${candles.length} candles...`);
+
+      const analysis = await analyzeMarket(candles);
+      setRealAiAnalysis(analysis);
+
+      console.log(`✅ AI Analysis complete for ${symbol} ${timeframe}`);
+      console.log(`   RSI: ${analysis.rsi.value} (${analysis.rsi.status})`);
+      console.log(`   VWAP: ${analysis.vwap.value} (${analysis.vwap.position})`);
+      console.log(`   Sentiment: ${analysis.sentiment.status} (${analysis.sentiment.confidence}%)`);
+      console.log(`   Trade Signal: ${analysis.tradeSignal.status}`);
+
+      saveMarketAnalysis(symbol, timeframe, analysis).catch(err => {
+        console.warn('Failed to save analysis to database:', err);
+      });
+
+    } catch (err) {
+      console.error('❌ AI analysis failed:', err);
+      setRealAiAnalysis(null);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [candleData, symbol, timeframe, isAnalyzing]);
+
+  useEffect(() => {
+    if (candleData.length >= 50 && !isAnalyzing) {
+      performRealAiAnalysis();
+    }
+  }, [candleData.length, symbol, timeframe]);
 
   useEffect(() => {
     const updateMarketStatus = () => {
@@ -563,7 +614,11 @@ export const MarketChart: React.FC<MarketChartProps> = ({
             height={500}
             preferences={preferences}
           />
-          {preferences.show_ai_analysis && <AIAnalysisPanel analysis={aiAnalysis} symbol={symbol} />}
+          {preferences.show_ai_analysis && realAiAnalysis ? (
+            <RealAIAnalysisPanel analysis={realAiAnalysis} symbol={symbol} isAnalyzing={isAnalyzing} />
+          ) : preferences.show_ai_analysis && aiAnalysis ? (
+            <AIAnalysisPanel analysis={aiAnalysis} symbol={symbol} />
+          ) : null}
         </div>
       ) : (
         <div className="relative bg-gradient-to-br from-slate-900/50 to-slate-800/50 backdrop-blur-sm rounded-2xl border border-white/10 h-64 sm:h-80 lg:h-96 flex items-center justify-center">
