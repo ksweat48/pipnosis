@@ -115,6 +115,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Function to check for existing candles in date range
+-- FIXED: Renamed 'exists' column to 'data_exists' (exists is a reserved keyword)
 CREATE OR REPLACE FUNCTION check_historical_candles_exist(
   p_symbol text,
   p_timeframe text,
@@ -122,13 +123,13 @@ CREATE OR REPLACE FUNCTION check_historical_candles_exist(
   p_end_time timestamptz
 )
 RETURNS TABLE (
-  exists boolean,
+  data_exists boolean,
   candle_count bigint
 ) AS $$
 BEGIN
   RETURN QUERY
   SELECT 
-    COUNT(*) > 0 as exists,
+    COUNT(*) > 0 as data_exists,
     COUNT(*)::bigint as candle_count
   FROM historical_candles hc
   WHERE 

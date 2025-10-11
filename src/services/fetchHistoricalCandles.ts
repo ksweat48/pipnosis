@@ -108,7 +108,7 @@ async function checkExistingCandles(
 
     if (data && data.length > 0) {
       return {
-        exists: data[0].exists || false,
+        exists: data[0].data_exists || false,
         count: parseInt(data[0].candle_count) || 0
       };
     }
