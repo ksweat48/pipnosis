@@ -407,18 +407,28 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         const startCoord = timeScale.timeToCoordinate(nextMarketClosedOverlay.startTime as Time);
         const endCoord = timeScale.timeToCoordinate(nextMarketClosedOverlay.endTime as Time);
 
-        if (startCoord !== null && endCoord !== null) {
-          const rect = document.createElement('div');
-          rect.style.position = 'absolute';
-          rect.style.left = `${startCoord}px`;
-          rect.style.width = `${Math.max(endCoord - startCoord, 1)}px`;
-          rect.style.top = '0';
-          rect.style.height = '100%';
-          rect.style.backgroundColor = nextMarketClosedOverlay.color;
-          rect.style.pointerEvents = 'none';
-          rect.style.zIndex = '2';
-          overlayContainer.appendChild(rect);
-          marketClosedRendered++;
+        const visibleRange = timeScale.getVisibleLogicalRange();
+        const chartWidth = chartContainerRef.current?.clientWidth || 0;
+
+        if (startCoord !== null || endCoord !== null) {
+          const leftPos = startCoord !== null ? startCoord : (endCoord !== null ? endCoord : 0);
+          const rightPos = endCoord !== null ? endCoord : chartWidth;
+          const width = Math.max(rightPos - leftPos, 1);
+
+          if (width > 0) {
+            const rect = document.createElement('div');
+            rect.style.position = 'absolute';
+            rect.style.left = `${leftPos}px`;
+            rect.style.width = `${width}px`;
+            rect.style.top = '0';
+            rect.style.height = '100%';
+            rect.style.backgroundColor = nextMarketClosedOverlay.color;
+            rect.style.pointerEvents = 'none';
+            rect.style.zIndex = '2';
+            overlayContainer.appendChild(rect);
+            marketClosedRendered++;
+            console.log(`[CandlestickChart] Rendered future market closed overlay at ${leftPos}px with width ${width}px`);
+          }
         }
       }
 

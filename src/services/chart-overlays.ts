@@ -108,8 +108,21 @@ class ChartOverlayService {
   getNextMarketClosedOverlay(latestTimestamp: Time): MarketClosedOverlay | null {
     const timestamp = typeof latestTimestamp === 'number' ? latestTimestamp * 1000 : new Date(latestTimestamp as string).getTime();
     const fromDate = new Date(timestamp);
+    const now = new Date();
 
-    const nextClosePeriod = marketHoursService.getNextMarketClosePeriod(fromDate);
+    const currentClosePeriod = marketHoursService.getCurrentMarketClosePeriod(now);
+    if (currentClosePeriod) {
+      const overlay: MarketClosedOverlay = {
+        startTime: Math.floor(currentClosePeriod.start.getTime() / 1000),
+        endTime: Math.floor(currentClosePeriod.end.getTime() / 1000),
+        color: this.MARKET_CLOSED_COLOR
+      };
+
+      console.log(`[ChartOverlay] Generated current market closed overlay from ${currentClosePeriod.start.toISOString()} to ${currentClosePeriod.end.toISOString()}`);
+      return overlay;
+    }
+
+    const nextClosePeriod = marketHoursService.getNextMarketClosePeriod(now);
 
     if (!nextClosePeriod) {
       console.log('[ChartOverlay] No upcoming market close period found');

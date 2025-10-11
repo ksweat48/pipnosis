@@ -61,11 +61,43 @@ class MarketHoursService {
     return days[date.getDay()];
   }
 
+  getCurrentMarketClosePeriod(fromDate: Date): { start: Date; end: Date } | null {
+    const current = new Date(fromDate);
+
+    if (!this.isTradingDay(current)) {
+      const start = new Date(current);
+      start.setHours(0, 0, 0, 0);
+
+      while (start.getTime() > 0 && !this.isTradingDay(new Date(start.getTime() - 24 * 60 * 60 * 1000))) {
+        start.setDate(start.getDate() - 1);
+      }
+
+      let end = new Date(current);
+      end.setHours(0, 0, 0, 0);
+
+      while (!this.isTradingDay(end)) {
+        end.setDate(end.getDate() + 1);
+        if (end.getTime() - start.getTime() > 7 * 24 * 60 * 60 * 1000) {
+          break;
+        }
+      }
+
+      end.setDate(end.getDate() - 1);
+      end.setHours(23, 59, 59, 999);
+
+      return { start, end };
+    }
+
+    return null;
+  }
+
   getNextMarketClosePeriod(fromDate: Date): { start: Date; end: Date } | null {
     const current = new Date(fromDate);
     current.setHours(0, 0, 0, 0);
 
-    for (let i = 0; i < 30; i++) {
+    const startCheckFrom = this.isTradingDay(current) ? 1 : 0;
+
+    for (let i = startCheckFrom; i < 30; i++) {
       const checkDate = new Date(current);
       checkDate.setDate(checkDate.getDate() + i);
 
@@ -82,8 +114,8 @@ class MarketHoursService {
           }
         }
 
-        end.setHours(23, 59, 59, 999);
         end.setDate(end.getDate() - 1);
+        end.setHours(23, 59, 59, 999);
 
         return { start, end };
       }
