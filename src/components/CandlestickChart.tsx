@@ -335,14 +335,21 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   }, [tradeLines, isReady]);
 
   useEffect(() => {
-    if (!isReady || !chartRef.current || !chartContainerRef.current || data.length === 0) return;
+    if (!isReady || !chartRef.current || !chartContainerRef.current || data.length === 0) {
+      console.log('[CandlestickChart] Overlay rendering skipped:', { isReady, hasChart: !!chartRef.current, hasContainer: !!chartContainerRef.current, dataLength: data.length });
+      return;
+    }
 
     const overlayContainer = chartContainerRef.current.querySelector('.background-overlays') as HTMLDivElement;
-    if (!overlayContainer) return;
+    if (!overlayContainer) {
+      console.log('[CandlestickChart] No overlay container found');
+      return;
+    }
 
     overlayContainer.innerHTML = '';
 
     const timestamps = data.map(d => d.time);
+    console.log('[CandlestickChart] Processing overlays for', timestamps.length, 'timestamps');
     const daySeparators = chartOverlayService.getDaySeparators(timestamps);
     const weekendOverlays = chartOverlayService.getWeekendOverlays(timestamps);
 
@@ -352,6 +359,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       if (!chartRef.current || !overlayContainer) return;
 
       overlayContainer.innerHTML = '';
+      let dayRendered = 0;
+      let weekendRendered = 0;
 
       daySeparators.forEach(separator => {
         const startCoord = timeScale.timeToCoordinate(separator.startTime as Time);
@@ -368,6 +377,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           rect.style.pointerEvents = 'none';
           rect.style.zIndex = '1';
           overlayContainer.appendChild(rect);
+          dayRendered++;
         }
       });
 
@@ -386,8 +396,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           rect.style.pointerEvents = 'none';
           rect.style.zIndex = '2';
           overlayContainer.appendChild(rect);
+          weekendRendered++;
         }
       });
+
+      console.log(`[CandlestickChart] Rendered ${dayRendered} day overlays and ${weekendRendered} weekend overlays`);
     };
 
     renderOverlays();
@@ -409,21 +422,22 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       style={{ height: `${height}px`, touchAction: 'pan-x pan-y' }}
     >
       <div
-        className="background-overlays"
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          pointerEvents: 'none',
-          zIndex: 0
-        }}
-      />
-      <div
         ref={chartContainerRef}
-        style={{ position: 'relative', width: '100%', height: '100%', zIndex: 1 }}
-      />
+        style={{ position: 'relative', width: '100%', height: '100%' }}
+      >
+        <div
+          className="background-overlays"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            pointerEvents: 'none',
+            zIndex: 1
+          }}
+        />
+      </div>
     </div>
   );
 };

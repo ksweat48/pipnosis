@@ -16,18 +16,21 @@ export interface WeekendOverlay {
 }
 
 class ChartOverlayService {
-  private readonly DAY_COLOR_LIGHT = 'rgba(30, 41, 59, 0.15)';
-  private readonly DAY_COLOR_DARK = 'rgba(15, 23, 42, 0.15)';
-  private readonly WEEKEND_COLOR = 'rgba(239, 68, 68, 0.08)';
+  private readonly DAY_COLOR_LIGHT = 'rgba(30, 41, 59, 0.3)';
+  private readonly DAY_COLOR_DARK = 'rgba(15, 23, 42, 0.3)';
+  private readonly WEEKEND_COLOR = 'rgba(239, 68, 68, 0.2)';
 
   getDaySeparators(timestamps: Time[]): DaySeparator[] {
-    if (timestamps.length === 0) return [];
+    if (timestamps.length === 0) {
+      console.log('[ChartOverlay] No timestamps provided for day separators');
+      return [];
+    }
 
     const separators: DaySeparator[] = [];
     const days = new Map<string, { start: number; end: number; dayOfWeek: number }>();
 
     timestamps.forEach(time => {
-      const timestamp = typeof time === 'number' ? time * 1000 : time;
+      const timestamp = typeof time === 'number' ? time * 1000 : new Date(time as string).getTime();
       const date = new Date(timestamp);
       const dayKey = this.getDayKey(date);
       const dayOfWeek = date.getDay();
@@ -58,17 +61,21 @@ class ChartOverlayService {
       });
     });
 
+    console.log(`[ChartOverlay] Generated ${separators.length} day separators`);
     return separators;
   }
 
   getWeekendOverlays(timestamps: Time[]): WeekendOverlay[] {
-    if (timestamps.length === 0) return [];
+    if (timestamps.length === 0) {
+      console.log('[ChartOverlay] No timestamps provided for weekend overlays');
+      return [];
+    }
 
     const overlays: WeekendOverlay[] = [];
     const weekends = new Map<string, { start: number; end: number }>();
 
     timestamps.forEach(time => {
-      const timestamp = typeof time === 'number' ? time * 1000 : time;
+      const timestamp = typeof time === 'number' ? time * 1000 : new Date(time as string).getTime();
       const date = new Date(timestamp);
 
       if (marketHoursService.isWeekend(date)) {
@@ -94,6 +101,7 @@ class ChartOverlayService {
       });
     });
 
+    console.log(`[ChartOverlay] Generated ${overlays.length} weekend overlays`);
     return overlays;
   }
 
