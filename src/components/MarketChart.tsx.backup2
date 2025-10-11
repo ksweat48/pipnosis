@@ -52,7 +52,6 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const [currentPrice, setCurrentPrice] = useState<number>(0);
   const [bidAskSpread, setBidAskSpread] = useState<number>(0);
   const [isLiveUpdating, setIsLiveUpdating] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [dataHealthStatus, setDataHealthStatus] = useState<{
     completeness: number;
     gaps: number;
@@ -138,62 +137,41 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     setDataHealthStatus(prev => ({ ...prev, isValidating: true }));
 
     try {
-      Promise.resolve().then(() => candleStateManager.initializeCandleState(symbol, timeframe));
+      await candleStateManager.initializeCandleState(symbol, timeframe);
 
-      const quickCandles = await marketDataService.getHistoricalData(symbol, timeframe, 100, true, true);
+      const candles = await marketDataService.getHistoricalData(symbol, timeframe, 500);
 
-      if (quickCandles.length === 0) {
+      if (candles.length === 0) {
         setError('No market data available');
         setDataSource('none');
         setDataHealthStatus({ completeness: 0, gaps: 0, isValidating: false });
         return;
       }
 
-      const cacheKey = `${symbol}_${timeframe}`;
-      const chartData = marketDataService.convertToCandlestickData(quickCandles, cacheKey);
-      const volumeChartData = marketDataService.convertToVolumeData(quickCandles, cacheKey);
+      const validation = await marketDataService.validateDataCompleteness(symbol, timeframe, candles);
+      setDataHealthStatus({
+        completeness: validation.completeness,
+        gaps: validation.gaps,
+        isValidating: false
+      });
+
+      if (!validation.isComplete && validation.gaps > 0) {
+        console.warn(`\u26a0\ufe0f Data completeness: ${validation.completeness.toFixed(1)}%, ${validation.gaps} gap(s) detected for ${symbol} ${timeframe}`);
+      } else {
+        console.log(`\u2705 Data complete for ${symbol} ${timeframe}: ${validation.completeness.toFixed(1)}%`);
+      }
+
+      const chartData = marketDataService.convertToCandlestickData(candles);
+      const volumeChartData = marketDataService.convertToVolumeData(candles);
       setCandleData(chartData);
       setVolumeData(volumeChartData);
       setLastUpdate(new Date());
       setDataSource('cache');
       setIsConnected(marketDataService.isConnected());
-      setDataHealthStatus({ completeness: 100, gaps: 0, isValidating: false });
-
-      Promise.resolve().then(async () => {
-        try {
-          setIsLoadingMore(true);
-          const fullCandles = await marketDataService.getHistoricalData(symbol, timeframe, 500, true, false);
-
-          if (fullCandles.length > quickCandles.length) {
-            const validation = await marketDataService.validateDataCompleteness(symbol, timeframe, fullCandles);
-            setDataHealthStatus({
-              completeness: validation.completeness,
-              gaps: validation.gaps,
-              isValidating: false
-            });
-
-            if (!validation.isComplete && validation.gaps > 0) {
-              console.warn(`⚠️ Data completeness: ${validation.completeness.toFixed(1)}%, ${validation.gaps} gap(s) detected for ${symbol} ${timeframe}`);
-            } else {
-              console.log(`✅ Data complete for ${symbol} ${timeframe}: ${validation.completeness.toFixed(1)}%`);
-            }
-
-            const fullChartData = marketDataService.convertToCandlestickData(fullCandles, cacheKey);
-            const fullVolumeData = marketDataService.convertToVolumeData(fullCandles, cacheKey);
-            setCandleData(fullChartData);
-            setVolumeData(fullVolumeData);
-            console.log(`✨ Loaded full ${fullCandles.length} candles for ${symbol} ${timeframe}`);
-          }
-        } catch (err) {
-          console.warn('Background data load failed:', err);
-        } finally {
-          setIsLoadingMore(false);
-        }
-      });
 
       const currentCandle = candleStateManager.getCurrentCandle(symbol, timeframe);
-      if (currentCandle && !currentCandle.isComplete && quickCandles.length > 0) {
-        const lastHistoricalCandle = quickCandles[quickCandles.length - 1];
+      if (currentCandle && !currentCandle.isComplete && candles.length > 0) {
+        const lastHistoricalCandle = candles[candles.length - 1];
         const lastHistoricalTime = lastHistoricalCandle ? lastHistoricalCandle.time.getTime() : 0;
         const currentCandleTime = currentCandle.timestamp.getTime();
 
@@ -457,7 +435,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
                 )}
               </div>
             </div>
-            {(isLoading || isLoadingMore) && <RefreshCw className="h-5 w-5 text-emerald-400 animate-spin ml-3" />}
+            {isLoading && <RefreshCw className="h-5 w-5 text-emerald-400 animate-spin ml-3" />}
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">

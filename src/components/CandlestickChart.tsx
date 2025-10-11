@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, memo } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeries, HistogramSeries, LineSeries, HistogramData, LineData } from 'lightweight-charts';
 import { AIAnalysisData } from '../types/ai-analysis';
 import { ChartPreferences } from '../hooks/useChartPreferences';
@@ -18,7 +18,7 @@ interface CandlestickChartProps {
   preferences?: ChartPreferences;
 }
 
-export const CandlestickChart: React.FC<CandlestickChartProps> = ({
+const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
   symbol,
   data,
   volumeData,
@@ -467,3 +467,19 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     </div>
   );
 };
+
+export const CandlestickChart = memo(CandlestickChartComponent, (prevProps, nextProps) => {
+  return (
+    prevProps.symbol === nextProps.symbol &&
+    prevProps.data.length === nextProps.data.length &&
+    prevProps.data[prevProps.data.length - 1]?.time === nextProps.data[nextProps.data.length - 1]?.time &&
+    prevProps.data[prevProps.data.length - 1]?.close === nextProps.data[nextProps.data.length - 1]?.close &&
+    prevProps.volumeData?.length === nextProps.volumeData?.length &&
+    prevProps.height === nextProps.height &&
+    prevProps.preferences?.theme === nextProps.preferences?.theme &&
+    prevProps.preferences?.show_grid === nextProps.preferences?.show_grid &&
+    prevProps.tradeLines?.entry === nextProps.tradeLines?.entry &&
+    prevProps.tradeLines?.stopLoss === nextProps.tradeLines?.stopLoss &&
+    prevProps.tradeLines?.takeProfit === nextProps.tradeLines?.takeProfit
+  );
+});

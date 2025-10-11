@@ -33,13 +33,17 @@ class MarketDataService {
   private initializationAttempted = false;
   private isDemoMode = false;
   private symbolsInitialized: Set<string> = new Set();
+  private chartDataCache: Map<string, { data: ChartCandleData[], volumeData: any[], timestamp: number }> = new Map();
+  private readonly CHART_CACHE_TTL = 30000;
 
   async getHistoricalData(
     symbol: string,
     timeframe: Timeframe,
     limit: number = 500,
-    useCache: boolean = true
+    useCache: boolean = true,
+    quickLoad: boolean = false
   ): Promise<CandleData[]> {
+    const effectiveLimit = quickLoad ? Math.min(100, limit) : limit;
     let apiCandles: CandleData[] = [];
     let shouldFetchApi = !this.isDemoMode;
 
@@ -47,7 +51,7 @@ class MarketDataService {
       const cachedCandles = await marketDataCache.getCachedCandles(
         symbol,
         timeframe,
-        limit
+        effectiveLimit
       );
 
       if (cachedCandles.length > 0) {
@@ -89,15 +93,18 @@ class MarketDataService {
           symbol,
           timeframe,
           startTime,
-          limit
+          effectiveLimit
         );
 
-        const validationResult = dataValidator.validateCandleSequence(liveCandles, timeframe);
-        dataValidator.logValidationResults(validationResult, `${symbol} ${timeframe} API data`);
-
-        apiCandles = validationResult.isValid
-          ? liveCandles
-          : liveCandles.map(c => dataValidator.repairCandle(c));
+        if (!quickLoad) {
+          const validationResult = dataValidator.validateCandleSequence(liveCandles, timeframe);
+          dataValidator.logValidationResults(validationResult, `${symbol} ${timeframe} API data`);
+          apiCandles = validationResult.isValid
+            ? liveCandles
+            : liveCandles.map(c => dataValidator.repairCandle(c));
+        } else {
+          apiCandles = liveCandles;
+        }
 
         if (apiCandles.length > 0 && useCache) {
           await marketDataCache.saveCandles(apiCandles, true);
@@ -141,14 +148,16 @@ class MarketDataService {
       completeness: `${mergeResult.stats.totalCandles}/${limit} (${((mergeResult.stats.totalCandles/limit)*100).toFixed(1)}%)`
     });
 
-    await marketDataCache.updateCandleCountStats(symbol, timeframe);
+    if (!quickLoad) {
+      Promise.resolve().then(() => marketDataCache.updateCandleCountStats(symbol, timeframe));
+    }
 
     if (mergeResult.candles.length === 0) {
       console.warn(`⚠️ No data available for ${symbol} ${timeframe}`);
       return [];
     }
 
-    return mergeResult.candles.slice(-limit);
+    return mergeResult.candles.slice(-effectiveLimit);
   }
 
   async subscribeToSymbol(
@@ -167,18 +176,21 @@ class MarketDataService {
     dataQualityMonitor.initializeSymbol(symbol, timeframe);
 
     if (!this.symbolsInitialized.has(symbol)) {
-      await multiTimeframeAggregator.initialize(symbol);
       this.symbolsInitialized.add(symbol);
-      console.log(`✅ Initialized multi-timeframe aggregation for ${symbol}`);
-
-      if (!this.isDemoMode) {
-        timeframeBackfillService.checkAndBackfillAllTimeframes(symbol, timeframe).catch(err => {
-          console.warn('Background backfill check failed:', err);
-        });
-      }
+      Promise.resolve().then(async () => {
+        await multiTimeframeAggregator.initialize(symbol);
+        console.log(`✅ Initialized multi-timeframe aggregation for ${symbol}`);
+        if (!this.isDemoMode) {
+          timeframeBackfillService.checkAndBackfillAllTimeframes(symbol, timeframe).catch(err => {
+            console.warn('Background backfill check failed:', err);
+          });
+        }
+      });
     } else if (!this.isDemoMode) {
-      timeframeBackfillService.checkAndBackfillTimeframe(symbol, timeframe).catch(err => {
-        console.warn('Timeframe backfill check failed:', err);
+      Promise.resolve().then(() => {
+        timeframeBackfillService.checkAndBackfillTimeframe(symbol, timeframe).catch(err => {
+          console.warn('Timeframe backfill check failed:', err);
+        });
       });
     }
 
@@ -242,22 +254,58 @@ class MarketDataService {
     }
   }
 
-  convertToCandlestickData(candles: CandleData[]): ChartCandleData[] {
-    return candles.map(candle => ({
+  convertToCandlestickData(candles: CandleData[], cacheKey?: string): ChartCandleData[] {
+    if (cacheKey) {
+      const cached = this.chartDataCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < this.CHART_CACHE_TTL) {
+        return cached.data;
+      }
+    }
+
+    const result = candles.map(candle => ({
       time: Math.floor(candle.time.getTime() / 1000) as Time,
       open: candle.open,
       high: candle.high,
       low: candle.low,
       close: candle.close
     }));
+
+    if (cacheKey) {
+      const existing = this.chartDataCache.get(cacheKey);
+      this.chartDataCache.set(cacheKey, {
+        data: result,
+        volumeData: existing?.volumeData || [],
+        timestamp: Date.now()
+      });
+    }
+
+    return result;
   }
 
-  convertToVolumeData(candles: CandleData[]): { time: Time; value: number; color: string }[] {
-    return candles.map(candle => ({
+  convertToVolumeData(candles: CandleData[], cacheKey?: string): { time: Time; value: number; color: string }[] {
+    if (cacheKey) {
+      const cached = this.chartDataCache.get(cacheKey);
+      if (cached && cached.volumeData.length > 0 && Date.now() - cached.timestamp < this.CHART_CACHE_TTL) {
+        return cached.volumeData;
+      }
+    }
+
+    const result = candles.map(candle => ({
       time: Math.floor(candle.time.getTime() / 1000) as Time,
       value: candle.volume,
       color: candle.close >= candle.open ? '#10b98180' : '#ef444480'
     }));
+
+    if (cacheKey) {
+      const existing = this.chartDataCache.get(cacheKey);
+      this.chartDataCache.set(cacheKey, {
+        data: existing?.data || [],
+        volumeData: result,
+        timestamp: Date.now()
+      });
+    }
+
+    return result;
   }
 
   async getCacheStats(symbol: string, timeframe: Timeframe) {
