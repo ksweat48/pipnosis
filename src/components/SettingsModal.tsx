@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
-import { X, Settings, Shield, Save, RotateCcw, Info, TrendingUp, CheckCircle } from 'lucide-react';
+import { X, Settings, Shield, Save, RotateCcw, Info, TrendingUp, CheckCircle, Monitor } from 'lucide-react';
+import { ChartPreferences } from '../hooks/useChartPreferences';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  chartPreferences?: ChartPreferences;
+  onChartPreferencesUpdate?: (updates: Partial<ChartPreferences>) => void;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, chartPreferences, onChartPreferencesUpdate }) => {
   const [settings, setSettings] = useState({
     // Primary Control
     dataMode: 'api', // 'api' or 'snapshot'
@@ -393,6 +396,82 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               </div>
             </div>
           </div>
+
+          {/* Chart Display Settings */}
+          {chartPreferences && onChartPreferencesUpdate && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
+                <Monitor className="h-5 w-5 text-blue-400" />
+                <span>Chart Display</span>
+              </h3>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Theme
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => onChartPreferencesUpdate({ theme: 'dark' })}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                      chartPreferences.theme === 'dark'
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50'
+                        : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-600'
+                    }`}
+                  >
+                    Dark
+                  </button>
+                  <button
+                    onClick={() => onChartPreferencesUpdate({ theme: 'light' })}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                      chartPreferences.theme === 'light'
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50'
+                        : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-600'
+                    }`}
+                  >
+                    Light
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="flex items-center justify-between cursor-pointer">
+                  <span className="text-sm font-medium text-slate-300">Show Volume</span>
+                  <input
+                    type="checkbox"
+                    checked={chartPreferences.show_volume}
+                    onChange={(e) => onChartPreferencesUpdate({ show_volume: e.target.checked })}
+                    className="w-5 h-5 rounded border-slate-600 bg-slate-900 checked:bg-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-0"
+                  />
+                </label>
+
+                <label className="flex items-center justify-between cursor-pointer">
+                  <span className="text-sm font-medium text-slate-300">Show Grid</span>
+                  <input
+                    type="checkbox"
+                    checked={chartPreferences.show_grid}
+                    onChange={(e) => onChartPreferencesUpdate({ show_grid: e.target.checked })}
+                    className="w-5 h-5 rounded border-slate-600 bg-slate-900 checked:bg-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-0"
+                  />
+                </label>
+
+                <label className="flex items-center justify-between cursor-pointer">
+                  <span className="text-sm font-medium text-slate-300">Show AI Analysis</span>
+                  <input
+                    type="checkbox"
+                    checked={chartPreferences.show_ai_analysis}
+                    onChange={(e) => onChartPreferencesUpdate({ show_ai_analysis: e.target.checked })}
+                    className="w-5 h-5 rounded border-slate-600 bg-slate-900 checked:bg-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-0"
+                  />
+                </label>
+              </div>
+
+              <div className="pt-3 border-t border-slate-700">
+                <p className="text-xs text-slate-400">
+                  Your chart preferences are automatically saved
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer - Fixed at bottom */}

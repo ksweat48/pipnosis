@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { Settings, Menu, X, ExternalLink, DollarSign, LogOut, User, LogIn, Shield } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useChartPreferences } from '@/hooks/useChartPreferences';
 import { SettingsModal } from './SettingsModal';
 import { DisclaimerModal } from './DisclaimerModal';
 
 export const Header: React.FC = () => {
   const { user, signOut, isAdmin } = useAuth();
+  const { preferences, updatePreferences } = useChartPreferences();
   const navigate = useNavigate();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
@@ -223,9 +225,11 @@ export const Header: React.FC = () => {
         )}
       </header>
 
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        chartPreferences={preferences}
+        onChartPreferencesUpdate={updatePreferences}
       />
       
       <DisclaimerModal 

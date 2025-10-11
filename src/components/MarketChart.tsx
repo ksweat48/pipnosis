@@ -2,7 +2,6 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { BarChart3, RefreshCw, Wifi, WifiOff, Database } from 'lucide-react';
 import { CandlestickChart } from './CandlestickChart';
 import { AIAnalysisPanel } from './AIAnalysisPanel';
-import { ChartSettings } from './ChartSettings';
 import { DataHealthIndicator } from './DataHealthIndicator';
 import { CandlestickData, Time, HistogramData } from 'lightweight-charts';
 import { marketDataService, MarketDataListener, TickData } from '../services/market-data';
@@ -531,7 +530,6 @@ export const MarketChart: React.FC<MarketChartProps> = ({
               )}
             </div>
             <DataHealthIndicator />
-            <ChartSettings preferences={preferences} onUpdate={updatePreferences} />
           </div>
         </div>
       </div>
