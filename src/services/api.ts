@@ -10,7 +10,8 @@ const getMockMarketData = () => {
     { symbol: 'NZDUSD', price: 0.6245 + (Math.random() - 0.5) * 0.02, change: (Math.random() - 0.5) * 0.01, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
     { symbol: 'EURJPY', price: 171.25 + (Math.random() - 0.5) * 2.0, change: (Math.random() - 0.5) * 1.0, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
     { symbol: 'GBPJPY', price: 190.85 + (Math.random() - 0.5) * 2.0, change: (Math.random() - 0.5) * 1.0, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
-    { symbol: 'XAUUSD', price: 2045.50 + (Math.random() - 0.5) * 20, change: (Math.random() - 0.5) * 10, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] }
+    { symbol: 'XAUUSD', price: 2045.50 + (Math.random() - 0.5) * 20, change: (Math.random() - 0.5) * 10, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] },
+    { symbol: 'US30', price: 36500 + (Math.random() - 0.5) * 200, change: (Math.random() - 0.5) * 100, changePercent: (Math.random() - 0.5) * 1, trend: Math.random() > 0.5 ? 'up' : 'down', signal: ['buy', 'sell', 'hold'][Math.floor(Math.random() * 3)] }
   ];
 };
 

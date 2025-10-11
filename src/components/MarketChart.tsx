@@ -68,7 +68,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const isUserInteractingRef = useRef<boolean>(false);
   const updateIntervalRef = useRef<number | null>(null);
 
-  const availablePairs = ['EURUSD', 'GBPUSD', 'XAUUSD'];
+  const availablePairs = ['EURUSD', 'GBPUSD', 'XAUUSD', 'US30'];
 
   const applyPendingUpdate = useCallback(() => {
     const pendingUpdate = pendingUpdateRef.current;
@@ -515,12 +515,12 @@ export const MarketChart: React.FC<MarketChartProps> = ({
               <div className="text-right">
                 <p className="text-white/50 text-xs font-medium mb-1">Current Price</p>
                 <p className={`text-2xl sm:text-3xl font-bold font-mono ${priceChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {displayPrice.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
+                  {displayPrice.toFixed(symbol === 'XAUUSD' || symbol === 'US30' ? 2 : 5)}
                 </p>
               </div>
               <div className="text-right">
                 <div className={`text-lg font-bold ${priceChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
+                  {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(symbol === 'XAUUSD' || symbol === 'US30' ? 2 : 5)}
                 </div>
                 <div className={`text-sm ${priceChangePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   {priceChangePercent >= 0 ? '+' : ''}{priceChangePercent.toFixed(2)}%
@@ -552,7 +552,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
               {bidAskSpread > 0 && (
                 <div>
                   <span className="text-white/40">Spread:</span>
-                  <span className="ml-1 text-white/60">{bidAskSpread.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+                  <span className="ml-1 text-white/60">{bidAskSpread.toFixed(symbol === 'XAUUSD' || symbol === 'US30' ? 2 : 5)}</span>
                 </div>
               )}
               <div>
@@ -638,19 +638,19 @@ export const MarketChart: React.FC<MarketChartProps> = ({
               {tradeLines.entry && (
                 <div className="flex items-center space-x-1">
                   <div className="w-4 h-1 sm:w-6 sm:h-1 bg-emerald-500 rounded-full"></div>
-                  <span className="text-emerald-300 font-semibold">Entry: {tradeLines.entry.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+                  <span className="text-emerald-300 font-semibold">Entry: {tradeLines.entry.toFixed(symbol === 'XAUUSD' || symbol === 'US30' ? 2 : 5)}</span>
                 </div>
               )}
               {tradeLines.stopLoss && (
                 <div className="flex items-center space-x-1">
                   <div className="w-4 h-1 sm:w-6 sm:h-1 bg-red-500 rounded-full"></div>
-                  <span className="text-red-300 font-semibold">SL: {tradeLines.stopLoss.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+                  <span className="text-red-300 font-semibold">SL: {tradeLines.stopLoss.toFixed(symbol === 'XAUUSD' || symbol === 'US30' ? 2 : 5)}</span>
                 </div>
               )}
               {tradeLines.takeProfit && (
                 <div className="flex items-center space-x-1">
                   <div className="w-4 h-1 sm:w-6 sm:h-1 bg-green-500 rounded-full"></div>
-                  <span className="text-green-300 font-semibold">TP: {tradeLines.takeProfit.toFixed(symbol === 'XAUUSD' ? 2 : 5)}</span>
+                  <span className="text-green-300 font-semibold">TP: {tradeLines.takeProfit.toFixed(symbol === 'XAUUSD' || symbol === 'US30' ? 2 : 5)}</span>
                 </div>
               )}
             </div>

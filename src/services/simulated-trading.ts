@@ -42,13 +42,17 @@ class SimulatedTradingService {
     if (symbol.includes('XAU') || symbol.includes('GOLD')) {
       return this.GOLD_LOT;
     }
+    if (symbol === 'US30' || symbol.includes('US30')) {
+      return 10;
+    }
     return this.STANDARD_LOT;
   }
 
   private calculatePipValue(symbol: string, lotSize: number): number {
     const contractSize = this.getContractSize(symbol);
     const isJPY = symbol.includes('JPY');
-    const pipSize = isJPY ? 0.01 : 0.0001;
+    const isIndex = symbol === 'US30' || symbol.includes('US30');
+    const pipSize = isJPY || isIndex ? 0.01 : 0.0001;
 
     return (contractSize * lotSize * pipSize);
   }
@@ -65,11 +69,12 @@ class SimulatedTradingService {
       : entryPrice - currentPrice;
 
     const isJPY = symbol.includes('JPY');
-    const pipSize = isJPY ? 0.01 : 0.0001;
+    const isIndex = symbol === 'US30' || symbol.includes('US30');
+    const pipSize = isJPY || isIndex ? 0.01 : 0.0001;
     const pips = priceDiff / pipSize;
     const pipValue = this.calculatePipValue(symbol, lotSize);
 
-    return parseFloat((pips * pipValue / (isJPY ? 1 : 10)).toFixed(2));
+    return parseFloat((pips * pipValue / (isJPY || isIndex ? 1 : 10)).toFixed(2));
   }
 
   async executeTrade(params: TradeExecutionParams, userId: string): Promise<{

@@ -92,22 +92,26 @@ const Dashboard: React.FC = () => {
       const analysis = await analyzePrompt(prompt, accountBalance, marketData);
       
       if (analysis && analysis.strategies.length > 0) {
-        const transformedStrategies = analysis.strategies.map((strategy: any, index: number) => ({
-          id: strategy.id || `ai-${index}`,
-          name: strategy.name,
-          risk: strategy.risk,
-          symbol: strategy.symbol,
-          action: strategy.action,
-          entry: strategy.entry.toFixed(strategy.symbol.includes('JPY') ? 2 : 5),
-          stopLoss: strategy.stopLoss.toFixed(strategy.symbol.includes('JPY') ? 2 : 5),
-          takeProfit: strategy.takeProfit.toFixed(strategy.symbol.includes('JPY') ? 2 : 5),
-          lotSize: strategy.lotSize,
-          estimatedGain: strategy.estimatedGain,
-          riskRewardRatio: strategy.riskRewardRatio,
-          feasible: strategy.feasible,
-          reasoning: strategy.reasoning,
-          confidence: strategy.confidence
-        }));
+        const transformedStrategies = analysis.strategies.map((strategy: any, index: number) => {
+          const isIndexOrGold = strategy.symbol === 'US30' || strategy.symbol === 'XAUUSD' || strategy.symbol.includes('JPY');
+          const precision = isIndexOrGold ? 2 : 5;
+          return {
+            id: strategy.id || `ai-${index}`,
+            name: strategy.name,
+            risk: strategy.risk,
+            symbol: strategy.symbol,
+            action: strategy.action,
+            entry: strategy.entry.toFixed(precision),
+            stopLoss: strategy.stopLoss.toFixed(precision),
+            takeProfit: strategy.takeProfit.toFixed(precision),
+            lotSize: strategy.lotSize,
+            estimatedGain: strategy.estimatedGain,
+            riskRewardRatio: strategy.riskRewardRatio,
+            feasible: strategy.feasible,
+            reasoning: strategy.reasoning,
+            confidence: strategy.confidence
+          };
+        });
         
         setStrategyOptions(transformedStrategies);
 

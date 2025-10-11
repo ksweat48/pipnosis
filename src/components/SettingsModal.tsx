@@ -16,7 +16,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, c
     
     // Trading Pairs Selection (API Mode only)
     pairSelectionMode: 'ai-choose', // 'ai-choose' or 'manual'
-    selectedPairs: ['EURUSD', 'GBPUSD', 'USDJPY'],
+    selectedPairs: ['EURUSD', 'GBPUSD', 'US30'],
     expandedScan: false, // Enable Tier 2 pairs
     
     // Trading Objective
@@ -48,7 +48,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, c
       { symbol: 'USDCHF', name: 'US Dollar / Swiss Franc', spread: 'Low', liquidity: 'High' },
       { symbol: 'AUDUSD', name: 'Australian Dollar / USD', spread: 'Medium', liquidity: 'High' },
       { symbol: 'USDCAD', name: 'US Dollar / Canadian Dollar', spread: 'Medium', liquidity: 'High' },
-      { symbol: 'NZDUSD', name: 'New Zealand Dollar / USD', spread: 'Medium', liquidity: 'Medium' }
+      { symbol: 'NZDUSD', name: 'New Zealand Dollar / USD', spread: 'Medium', liquidity: 'Medium' },
+      { symbol: 'US30', name: 'US 30 (Dow Jones)', spread: 'Low', liquidity: 'High' }
     ],
     tier2: [
       { symbol: 'EURJPY', name: 'Euro / Japanese Yen', spread: 'Medium', liquidity: 'Medium', reason: 'Trend-following potential' },

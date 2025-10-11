@@ -154,7 +154,8 @@ export const ActivePositions: React.FC = () => {
           const isProfit = position.pnl >= 0;
           const isEditing = editingPosition === position.id;
           const isJPY = position.symbol.includes('JPY');
-          const precision = position.symbol.includes('XAU') ? 2 : isJPY ? 2 : 5;
+          const isIndexOrGold = position.symbol === 'US30' || position.symbol.includes('XAU');
+          const precision = isIndexOrGold || isJPY ? 2 : 5;
 
           return (
             <div
