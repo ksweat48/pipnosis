@@ -351,7 +351,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const timestamps = data.map(d => d.time);
     console.log('[CandlestickChart] Processing overlays for', timestamps.length, 'timestamps');
     const daySeparators = chartOverlayService.getDaySeparators(timestamps);
-    const weekendOverlays = chartOverlayService.getWeekendOverlays(timestamps);
+    const marketClosedOverlays = chartOverlayService.getMarketClosedOverlays(timestamps);
 
     const timeScale = chartRef.current.timeScale();
 
@@ -360,7 +360,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       overlayContainer.innerHTML = '';
       let dayRendered = 0;
-      let weekendRendered = 0;
+      let marketClosedRendered = 0;
 
       daySeparators.forEach(separator => {
         const startCoord = timeScale.timeToCoordinate(separator.startTime as Time);
@@ -381,7 +381,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         }
       });
 
-      weekendOverlays.forEach(overlay => {
+      marketClosedOverlays.forEach(overlay => {
         const startCoord = timeScale.timeToCoordinate(overlay.startTime as Time);
         const endCoord = timeScale.timeToCoordinate(overlay.endTime as Time);
 
@@ -396,11 +396,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           rect.style.pointerEvents = 'none';
           rect.style.zIndex = '2';
           overlayContainer.appendChild(rect);
-          weekendRendered++;
+          marketClosedRendered++;
         }
       });
 
-      console.log(`[CandlestickChart] Rendered ${dayRendered} day overlays and ${weekendRendered} weekend overlays`);
+      console.log(`[CandlestickChart] Rendered ${dayRendered} day overlays and ${marketClosedRendered} market closed overlays`);
     };
 
     renderOverlays();
