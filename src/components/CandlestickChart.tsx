@@ -444,8 +444,8 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
 
   return (
     <div
-      className="w-full rounded-2xl overflow-hidden border border-white/10 touch-manipulation relative z-0"
-      style={{ height: `${height}px`, touchAction: 'pan-x pan-y' }}
+      className="w-full rounded-2xl overflow-hidden border border-white/10 touch-manipulation relative"
+      style={{ height: `${height}px`, touchAction: 'pan-x pan-y', zIndex: 0 }}
     >
       <div
         ref={chartContainerRef}

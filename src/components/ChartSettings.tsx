@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Settings, X } from 'lucide-react';
 import { ChartPreferences } from '../hooks/useChartPreferences';
 
@@ -9,10 +9,23 @@ interface ChartSettingsProps {
 
 export const ChartSettings: React.FC<ChartSettingsProps> = ({ preferences, onUpdate }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + 8,
+        right: window.innerWidth - rect.right
+      });
+    }
+  }, [isOpen]);
 
   return (
     <div className="relative">
       <button
+        ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
         className="p-2 bg-white/5 hover:bg-white/10 rounded-lg transition-colors border border-white/10"
         title="Chart Settings"
@@ -26,7 +39,13 @@ export const ChartSettings: React.FC<ChartSettingsProps> = ({ preferences, onUpd
             className="fixed inset-0 z-[9998]"
             onClick={() => setIsOpen(false)}
           />
-          <div className="absolute right-0 top-12 z-[9999] w-80 glass-card p-4 shadow-xl">
+          <div
+            className="fixed z-[9999] w-80 glass-card p-4 shadow-xl"
+            style={{
+              top: `${dropdownPosition.top}px`,
+              right: `${dropdownPosition.right}px`
+            }}
+          >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-white">Chart Settings</h3>
               <button
