@@ -10,6 +10,12 @@ export interface ChartPreferences {
   candlestick_up_color: string;
   candlestick_down_color: string;
   background_color: string;
+  show_all_emas: boolean;
+  ema_5_color: string;
+  ema_9_color: string;
+  ema_21_color: string;
+  ema_50_color: string;
+  ema_200_color: string;
 }
 
 const DEFAULT_PREFERENCES: ChartPreferences = {
@@ -20,6 +26,12 @@ const DEFAULT_PREFERENCES: ChartPreferences = {
   candlestick_up_color: '#10b981',
   candlestick_down_color: '#ef4444',
   background_color: 'rgba(15, 23, 42, 0.5)',
+  show_all_emas: false,
+  ema_5_color: '#00ff95',
+  ema_9_color: '#facc15',
+  ema_21_color: '#44c0ff',
+  ema_50_color: '#ff6b6b',
+  ema_200_color: '#aa44ff',
 };
 
 export function useChartPreferences() {
@@ -60,6 +72,12 @@ export function useChartPreferences() {
           candlestick_up_color: data.candlestick_up_color,
           candlestick_down_color: data.candlestick_down_color,
           background_color: data.background_color,
+          show_all_emas: data.show_all_emas ?? DEFAULT_PREFERENCES.show_all_emas,
+          ema_5_color: data.ema_5_color ?? DEFAULT_PREFERENCES.ema_5_color,
+          ema_9_color: data.ema_9_color ?? DEFAULT_PREFERENCES.ema_9_color,
+          ema_21_color: data.ema_21_color ?? DEFAULT_PREFERENCES.ema_21_color,
+          ema_50_color: data.ema_50_color ?? DEFAULT_PREFERENCES.ema_50_color,
+          ema_200_color: data.ema_200_color ?? DEFAULT_PREFERENCES.ema_200_color,
         });
       } else {
         setPreferences(DEFAULT_PREFERENCES);
@@ -100,6 +118,12 @@ export function useChartPreferences() {
             candlestick_up_color: newPreferences.candlestick_up_color,
             candlestick_down_color: newPreferences.candlestick_down_color,
             background_color: newPreferences.background_color,
+            show_all_emas: newPreferences.show_all_emas,
+            ema_5_color: newPreferences.ema_5_color,
+            ema_9_color: newPreferences.ema_9_color,
+            ema_21_color: newPreferences.ema_21_color,
+            ema_50_color: newPreferences.ema_50_color,
+            ema_200_color: newPreferences.ema_200_color,
           })
           .eq('user_id', user.id);
 
@@ -116,6 +140,12 @@ export function useChartPreferences() {
             candlestick_up_color: newPreferences.candlestick_up_color,
             candlestick_down_color: newPreferences.candlestick_down_color,
             background_color: newPreferences.background_color,
+            show_all_emas: newPreferences.show_all_emas,
+            ema_5_color: newPreferences.ema_5_color,
+            ema_9_color: newPreferences.ema_9_color,
+            ema_21_color: newPreferences.ema_21_color,
+            ema_50_color: newPreferences.ema_50_color,
+            ema_200_color: newPreferences.ema_200_color,
           });
 
         if (insertError) throw insertError;

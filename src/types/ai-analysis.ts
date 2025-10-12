@@ -50,6 +50,25 @@ export interface SessionMarker {
   session: 'asian' | 'london' | 'newyork';
 }
 
+export interface EMAAnalysis {
+  trendDirection: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  trendStrength: number;
+  crossoverEvent: string | null;
+  pullbackZone: number | null;
+  alignedWithH1: boolean;
+  confluenceScore: number;
+  shortTermAlign: boolean;
+  mediumTermAlign: boolean;
+  longTermAlign: boolean;
+}
+
+export interface EMALevelsData {
+  entry: number | null;
+  stopLoss: number | null;
+  takeProfit: number | null;
+  reasoning: string;
+}
+
 export interface AIAnalysisData {
   marketSentiment?: MarketSentiment;
   overboughtOversold?: OverboughtOversold;
@@ -59,6 +78,8 @@ export interface AIAnalysisData {
   patterns?: ChartPattern[];
   sessionMarkers?: SessionMarker[];
   vwap?: number;
+  emaAnalysis?: EMAAnalysis;
+  emaLevels?: EMALevelsData;
   aiConfidence?: number;
   analysisTimestamp?: Date;
 }

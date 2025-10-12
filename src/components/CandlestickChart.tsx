@@ -9,6 +9,13 @@ interface CandlestickChartProps {
   data: CandlestickData<Time>[];
   volumeData?: HistogramData<Time>[];
   aiAnalysis?: AIAnalysisData;
+  emaData?: {
+    ema5?: LineData<Time>[];
+    ema9?: LineData<Time>[];
+    ema21?: LineData<Time>[];
+    ema50?: LineData<Time>[];
+    ema200?: LineData<Time>[];
+  };
   tradeLines?: {
     entry?: number;
     stopLoss?: number;
@@ -23,6 +30,7 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
   data,
   volumeData,
   aiAnalysis,
+  emaData,
   tradeLines,
   height = 400,
   preferences
@@ -32,6 +40,11 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const vwapSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const ema5SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const ema9SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const ema21SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const ema50SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const ema200SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const backgroundOverlayRef = useRef<HTMLDivElement | null>(null);
   const priceLinesRef = useRef<any[]>([]);
   const aiPriceLinesRef = useRef<any[]>([]);
@@ -164,10 +177,64 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       title: 'VWAP',
     });
 
+    const ema21Color = preferences?.ema_21_color || '#44c0ff';
+    const ema200Color = preferences?.ema_200_color || '#aa44ff';
+    const ema5Color = preferences?.ema_5_color || '#00ff95';
+    const ema9Color = preferences?.ema_9_color || '#facc15';
+    const ema50Color = preferences?.ema_50_color || '#ff6b6b';
+
+    const ema21Series = chart.addSeries(LineSeries, {
+      color: ema21Color,
+      lineWidth: 2,
+      lineStyle: 0,
+      priceScaleId: 'right',
+      title: 'EMA 21',
+    });
+
+    const ema200Series = chart.addSeries(LineSeries, {
+      color: ema200Color,
+      lineWidth: 2,
+      lineStyle: 0,
+      priceScaleId: 'right',
+      title: 'EMA 200',
+    });
+
+    const ema5Series = chart.addSeries(LineSeries, {
+      color: ema5Color,
+      lineWidth: 2,
+      lineStyle: 0,
+      priceScaleId: 'right',
+      title: 'EMA 5',
+      visible: preferences?.show_all_emas ?? false,
+    });
+
+    const ema9Series = chart.addSeries(LineSeries, {
+      color: ema9Color,
+      lineWidth: 2,
+      lineStyle: 0,
+      priceScaleId: 'right',
+      title: 'EMA 9',
+      visible: preferences?.show_all_emas ?? false,
+    });
+
+    const ema50Series = chart.addSeries(LineSeries, {
+      color: ema50Color,
+      lineWidth: 2,
+      lineStyle: 0,
+      priceScaleId: 'right',
+      title: 'EMA 50',
+      visible: preferences?.show_all_emas ?? false,
+    });
+
     chartRef.current = chart;
     candlestickSeriesRef.current = candlestickSeries;
     volumeSeriesRef.current = volumeSeries;
     vwapSeriesRef.current = vwapSeries;
+    ema5SeriesRef.current = ema5Series;
+    ema9SeriesRef.current = ema9Series;
+    ema21SeriesRef.current = ema21Series;
+    ema50SeriesRef.current = ema50Series;
+    ema200SeriesRef.current = ema200Series;
     setIsReady(true);
 
     const handleResize = () => {
@@ -288,6 +355,36 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       });
     }
   }, [aiAnalysis, isReady, data]);
+
+  useEffect(() => {
+    if (!isReady || !emaData) return;
+
+    if (emaData.ema5 && ema5SeriesRef.current) {
+      ema5SeriesRef.current.setData(emaData.ema5);
+    }
+    if (emaData.ema9 && ema9SeriesRef.current) {
+      ema9SeriesRef.current.setData(emaData.ema9);
+    }
+    if (emaData.ema21 && ema21SeriesRef.current) {
+      ema21SeriesRef.current.setData(emaData.ema21);
+    }
+    if (emaData.ema50 && ema50SeriesRef.current) {
+      ema50SeriesRef.current.setData(emaData.ema50);
+    }
+    if (emaData.ema200 && ema200SeriesRef.current) {
+      ema200SeriesRef.current.setData(emaData.ema200);
+    }
+  }, [emaData, isReady]);
+
+  useEffect(() => {
+    if (!isReady) return;
+
+    const showAll = preferences?.show_all_emas ?? false;
+
+    ema5SeriesRef.current?.applyOptions({ visible: showAll });
+    ema9SeriesRef.current?.applyOptions({ visible: showAll });
+    ema50SeriesRef.current?.applyOptions({ visible: showAll });
+  }, [preferences?.show_all_emas, isReady]);
 
   useEffect(() => {
     if (!isReady || !chartRef.current || !candlestickSeriesRef.current) return;

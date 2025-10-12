@@ -466,6 +466,53 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, c
                 </label>
               </div>
 
+              <div className="space-y-3">
+                <label className="flex items-center justify-between cursor-pointer">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-slate-300">Show All EMAs</span>
+                    <span className="text-xs text-slate-400">Display all 5 EMAs or just EMA 21 & 200 (beginner-friendly)</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={chartPreferences.show_all_emas}
+                    onChange={(e) => onChartPreferencesUpdate({ show_all_emas: e.target.checked })}
+                    className="w-5 h-5 rounded border-slate-600 bg-slate-900 checked:bg-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-0"
+                  />
+                </label>
+
+                {!chartPreferences.show_all_emas && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                    <p className="text-xs text-emerald-300 flex items-center space-x-2">
+                      <Info className="h-4 w-4" />
+                      <span>Simplified view: Only EMA 21 (short-term trend) and EMA 200 (long-term trend) are displayed</span>
+                    </p>
+                  </div>
+                )}
+
+                {chartPreferences.show_all_emas && (
+                  <div className="p-3 bg-slate-900 border border-slate-600 rounded-lg">
+                    <p className="text-xs text-slate-300 mb-2 font-medium">Active EMAs:</p>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: chartPreferences.ema_5_color + '40', color: chartPreferences.ema_5_color }}>
+                        EMA 5
+                      </span>
+                      <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: chartPreferences.ema_9_color + '40', color: chartPreferences.ema_9_color }}>
+                        EMA 9
+                      </span>
+                      <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: chartPreferences.ema_21_color + '40', color: chartPreferences.ema_21_color }}>
+                        EMA 21
+                      </span>
+                      <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: chartPreferences.ema_50_color + '40', color: chartPreferences.ema_50_color }}>
+                        EMA 50
+                      </span>
+                      <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: chartPreferences.ema_200_color + '40', color: chartPreferences.ema_200_color }}>
+                        EMA 200
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="pt-3 border-t border-slate-700">
                 <p className="text-xs text-slate-400">
                   Your chart preferences are automatically saved

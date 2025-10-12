@@ -17,6 +17,7 @@ import {
 
 import { detectCandlePattern, isPatternStrong, CandleSignal } from './candlePatterns';
 import { analyzeStructure, StructureAnalysis } from './structureAnalysis';
+import { calculateEMAs, generateEMASignals, calculateEMALevels, EMASignals, EMAValues, EMALevels } from './emaAnalysis';
 
 export interface AiMarketSummary {
   rsi: {
@@ -45,6 +46,11 @@ export interface AiMarketSummary {
     type: string;
     recent: boolean;
   };
+  ema: {
+    signals: EMASignals;
+    values: EMAValues;
+    levels: EMALevels;
+  };
   sentiment: {
     status: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
     confidence: number;
@@ -70,7 +76,8 @@ function calculateSentiment(
   volumeStatus: string,
   candleSignal: CandleSignal,
   structure: StructureAnalysis,
-  atrStatus: string
+  atrStatus: string,
+  emaSignals?: EMASignals
 ): { status: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; confidence: number } {
   let bullishScore = 0;
   let bearishScore = 0;
@@ -132,6 +139,48 @@ function calculateSentiment(
     totalWeight += 5;
   }
 
+  if (emaSignals) {
+    if (emaSignals.trend.direction === 'BULLISH') {
+      const weight = Math.floor(emaSignals.trend.strength / 5);
+      bullishScore += weight;
+      totalWeight += weight;
+    } else if (emaSignals.trend.direction === 'BEARISH') {
+      const weight = Math.floor(emaSignals.trend.strength / 5);
+      bearishScore += weight;
+      totalWeight += weight;
+    }
+
+    if (emaSignals.crossover) {
+      const isBullish = emaSignals.crossover.type.includes('above') || emaSignals.crossover.type === 'golden_cross';
+      const weight = 15;
+      if (isBullish) {
+        bullishScore += weight;
+      } else {
+        bearishScore += weight;
+      }
+      totalWeight += weight;
+    }
+
+    if (emaSignals.pullback && emaSignals.trend.direction !== 'NEUTRAL') {
+      const weight = 10;
+      if (emaSignals.trend.direction === 'BULLISH') {
+        bullishScore += weight;
+      } else {
+        bearishScore += weight;
+      }
+      totalWeight += weight;
+    }
+
+    if (!emaSignals.alignedWithH1) {
+      const penalty = 10;
+      if (bullishScore > bearishScore) {
+        bullishScore -= penalty;
+      } else if (bearishScore > bullishScore) {
+        bearishScore -= penalty;
+      }
+    }
+  }
+
   const netScore = bullishScore - bearishScore;
   const maxPossibleScore = totalWeight;
 
@@ -166,7 +215,8 @@ function validateTradeSignal(
   candleSignal: CandleSignal,
   atr: { value: number; status: string },
   sentiment: { status: string; confidence: number },
-  currentPrice: number
+  currentPrice: number,
+  emaSignals?: EMASignals
 ): {
   status: 'VALID' | 'INVALID';
   direction?: 'BUY' | 'SELL';
@@ -237,6 +287,21 @@ function validateTradeSignal(
       confidence += 10;
     }
 
+    if (emaSignals && emaSignals.trend.direction === 'BULLISH') {
+      reasons.push('EMA trend aligned');
+      confidence += 15;
+
+      if (emaSignals.pullback) {
+        reasons.push(`Pullback to EMA${emaSignals.pullback.ema}`);
+        confidence += 10;
+      }
+
+      if (emaSignals.crossover && emaSignals.crossover.type.includes('above')) {
+        reasons.push('EMA crossover bullish');
+        confidence += 10;
+      }
+    }
+
   } else if (candleSignal.direction === 'bearish') {
     direction = 'SELL';
 
@@ -275,11 +340,31 @@ function validateTradeSignal(
       reasons.push('Stable volume');
       confidence += 10;
     }
+
+    if (emaSignals && emaSignals.trend.direction === 'BEARISH') {
+      reasons.push('EMA trend aligned');
+      confidence += 15;
+
+      if (emaSignals.pullback) {
+        reasons.push(`Pullback to EMA${emaSignals.pullback.ema}`);
+        confidence += 10;
+      }
+
+      if (emaSignals.crossover && emaSignals.crossover.type.includes('below')) {
+        reasons.push('EMA crossover bearish');
+        confidence += 10;
+      }
+    }
   } else {
     return {
       status: 'INVALID',
       reason: 'Neutral candle pattern - no directional bias'
     };
+  }
+
+  if (emaSignals && !emaSignals.alignedWithH1) {
+    confidence -= 15;
+    reasons.push('(H1 bias misaligned)');
   }
 
   if (sentiment.confidence < 60) {
@@ -333,13 +418,18 @@ export async function analyzeMarket(candles: Candle[]): Promise<AiMarketSummary>
 
   const structure = analyzeStructure(candles);
 
+  const emaValues = calculateEMAs(candles);
+  const emaSignals = generateEMASignals(candles);
+  const emaLevels = calculateEMALevels(candles, emaValues, emaSignals);
+
   const sentiment = calculateSentiment(
     rsiStatus,
     vwapPosition,
     volumeAnalysis.status,
     candleSignal,
     structure,
-    atrStatus
+    atrStatus,
+    emaSignals
   );
 
   const tradeSignal = validateTradeSignal(
@@ -349,7 +439,8 @@ export async function analyzeMarket(candles: Candle[]): Promise<AiMarketSummary>
     candleSignal,
     { value: atrValue, status: atrStatus },
     sentiment,
-    currentPrice
+    currentPrice,
+    emaSignals
   );
 
   return {
@@ -378,6 +469,11 @@ export async function analyzeMarket(candles: Candle[]): Promise<AiMarketSummary>
     structure: {
       type: structure.type,
       recent: structure.recent
+    },
+    ema: {
+      signals: emaSignals,
+      values: emaValues,
+      levels: emaLevels
     },
     sentiment: {
       status: sentiment.status,

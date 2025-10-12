@@ -15,6 +15,8 @@ import { generateSampleAIAnalysis } from '../utils/sample-ai-analysis';
 import { useChartPreferences } from '../hooks/useChartPreferences';
 import { analyzeMarket, AiMarketSummary } from '../lib/aiMarketEngine';
 import { saveMarketAnalysis } from '../services/marketAnalysisService';
+import { calculateEMAsForChart } from '../lib/emaAnalysis';
+import { LineData } from 'lightweight-charts';
 
 interface MarketChartProps {
   symbol: string;
@@ -376,6 +378,13 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const { preferences, updatePreferences } = useChartPreferences();
   const [isMarketOpen, setIsMarketOpen] = useState<boolean>(true);
   const [marketStatusMessage, setMarketStatusMessage] = useState<string>('');
+  const [emaChartData, setEmaChartData] = useState<{
+    ema5?: LineData<Time>[];
+    ema9?: LineData<Time>[];
+    ema21?: LineData<Time>[];
+    ema50?: LineData<Time>[];
+    ema200?: LineData<Time>[];
+  } | null>(null);
 
   useEffect(() => {
     if (candleData.length > 0) {
@@ -391,6 +400,30 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
       const analysis = generateSampleAIAnalysis(displayPrice, highPrice, lowPrice, symbol);
       setAiAnalysis(analysis);
+
+      if (candleData.length >= 200) {
+        try {
+          const candles = candleData.map(c => ({
+            time: new Date((c.time as number) * 1000).toISOString(),
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close,
+            volume: 0
+          }));
+
+          const emaData = calculateEMAsForChart(candles);
+          setEmaChartData({
+            ema5: emaData[5],
+            ema9: emaData[9],
+            ema21: emaData[21],
+            ema50: emaData[50],
+            ema200: emaData[200]
+          });
+        } catch (err) {
+          console.error('Failed to calculate EMA data:', err);
+        }
+      }
     }
   }, [candleData, displayPrice, highPrice, lowPrice, symbol]);
 
@@ -610,6 +643,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
             data={candleData}
             volumeData={preferences.show_volume ? volumeData : undefined}
             aiAnalysis={preferences.show_ai_analysis ? aiAnalysis : undefined}
+            emaData={emaChartData || undefined}
             tradeLines={tradeLines}
             height={500}
             preferences={preferences}

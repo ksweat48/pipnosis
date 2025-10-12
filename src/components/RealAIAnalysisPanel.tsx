@@ -14,6 +14,14 @@ interface RealAIAnalysisPanelProps {
 }
 
 export const RealAIAnalysisPanel: React.FC<RealAIAnalysisPanelProps> = ({ analysis, symbol, isAnalyzing = false }) => {
+  const getEMATrendColor = (direction: string) => {
+    switch (direction) {
+      case 'BULLISH': return 'text-emerald-400';
+      case 'BEARISH': return 'text-red-400';
+      default: return 'text-yellow-400';
+    }
+  };
+
   const getRSIColor = (status: string) => {
     switch (status) {
       case 'OVERBOUGHT': return 'text-red-400';
@@ -208,6 +216,39 @@ export const RealAIAnalysisPanel: React.FC<RealAIAnalysisPanelProps> = ({ analys
             )}
           </div>
         </div>
+
+        {/* EMA Trend Card */}
+        {analysis.ema && (
+          <div className="bg-white/5 rounded-lg p-4">
+            <div className="flex items-center space-x-2 mb-3">
+              <Activity className="h-4 w-4 text-cyan-400" />
+              <h4 className="text-sm font-semibold text-white">EMA Trend</h4>
+            </div>
+            <div className="space-y-2">
+              <div className={`text-sm font-bold ${getEMATrendColor(analysis.ema.signals.trend.direction)}`}>
+                {analysis.ema.signals.trend.direction}
+              </div>
+              <div className="text-xs text-white/60">
+                Strength: {analysis.ema.signals.trend.strength}%
+              </div>
+              {analysis.ema.signals.crossoverDescription && (
+                <div className="text-xs px-2 py-1 rounded bg-cyan-500/20 text-cyan-400">
+                  {analysis.ema.signals.crossoverDescription}
+                </div>
+              )}
+              {analysis.ema.signals.pullback && (
+                <div className="text-xs px-2 py-1 rounded bg-yellow-500/20 text-yellow-400">
+                  Pullback to EMA{analysis.ema.signals.pullback.ema}
+                </div>
+              )}
+              {!analysis.ema.signals.alignedWithH1 && (
+                <div className="text-xs px-2 py-1 rounded bg-orange-500/20 text-orange-400">
+                  ⚠️ H1 Bias Misaligned
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Sentiment Section */}
