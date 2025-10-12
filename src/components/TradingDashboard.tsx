@@ -1,7 +1,11 @@
-import React from 'react';
-import { Activity, DollarSign, TrendingUp, TrendingDown, Clock, BarChart3 } from 'lucide-react';
+import React, { useState } from 'react';
+import { Activity, DollarSign, TrendingUp, TrendingDown, Clock, BarChart3, Zap } from 'lucide-react';
 import { useActiveTrades, useTradeHistory } from '../hooks/useAPI';
 import { useAuth } from '../hooks/useAuth';
+import { FxFlowScalperPanel } from './FxFlowScalperPanel';
+import { StrategySignalCard } from './StrategySignalCard';
+import { StrategyPerformanceWidget } from './StrategyPerformanceWidget';
+import { AutoTradingControls } from './AutoTradingControls';
 
 interface TradingDashboardProps {
   todayPnL: number;
@@ -17,6 +21,7 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
   const { user } = useAuth();
   const { trades: activeTrades, isLoading: tradesLoading } = useActiveTrades(user?.id);
   const { trades: tradeHistory } = useTradeHistory(user?.id);
+  const [showStrategyPanel, setShowStrategyPanel] = useState(false);
 
   // Calculate today's P&L from trade history
   const today = new Date().toDateString();
@@ -34,6 +39,28 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
 
   return (
     <div className="space-y-8">
+      {/* Strategy Toggle Button */}
+      <div className="flex justify-end">
+        <button
+          onClick={() => setShowStrategyPanel(!showStrategyPanel)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors"
+        >
+          <Zap className="w-4 h-4" />
+          {showStrategyPanel ? 'Hide' : 'Show'} Fx Flow Scalper
+        </button>
+      </div>
+
+      {/* Strategy Panel */}
+      {showStrategyPanel && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="space-y-6">
+            <FxFlowScalperPanel />
+            <AutoTradingControls />
+          </div>
+          <StrategyPerformanceWidget />
+        </div>
+      )}
+
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
         <div className="glass-card p-3 sm:p-4 lg:p-6">

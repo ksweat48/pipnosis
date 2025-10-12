@@ -1,30 +1,60 @@
 import React, { useState } from 'react';
-import { Send, Mic, Zap, AlertCircle } from 'lucide-react';
+import { Send, Mic, Zap, AlertCircle, TrendingUp } from 'lucide-react';
 
 interface PromptInputProps {
   onSubmit: (prompt: string) => void;
+  onStrategyRequest?: (prompt: string) => void;
   isLoading: boolean;
   error?: string | null;
 }
 
-export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, error }) => {
+export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, onStrategyRequest, isLoading, error }) => {
   const [prompt, setPrompt] = useState('');
+
+  const detectStrategyRequest = (text: string): boolean => {
+    const strategyKeywords = [
+      'fx flow scalper',
+      'scalper strategy',
+      'best trade opportunity',
+      'find best trade',
+      'scan for trade',
+      'multi-symbol',
+      'strategy signal',
+      'phase analysis',
+      'precision entry'
+    ];
+    const lowerText = text.toLowerCase();
+    return strategyKeywords.some(keyword => lowerText.includes(keyword));
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (prompt.trim() && !isLoading) {
-      onSubmit(prompt.trim());
+      const trimmedPrompt = prompt.trim();
+
+      if (detectStrategyRequest(trimmedPrompt) && onStrategyRequest) {
+        onStrategyRequest(trimmedPrompt);
+      } else {
+        onSubmit(trimmedPrompt);
+      }
+
       setPrompt('');
     }
   };
 
   const suggestedPrompts = [
     "Make me $100 today",
-    "Earn $200 this week with low risk", 
+    "Earn $200 this week with low risk",
     "Find the best EURUSD opportunity",
     "Generate a safe XAUUSD trade",
     "Make 2% profit on GBPUSD",
     "What's the safest trade right now?"
+  ];
+
+  const strategyPrompts = [
+    "Find best trade with Fx Flow Scalper",
+    "Scan all symbols for high confidence setup",
+    "Show me the best scalping opportunity now"
   ];
 
   return (
@@ -85,6 +115,28 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, e
           ))}
         </div>
       </div>
+
+      {/* Strategy-Specific Prompts */}
+      {onStrategyRequest && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-center gap-2">
+            <TrendingUp className="w-5 h-5 text-blue-400" />
+            <h3 className="text-base sm:text-lg font-semibold text-blue-300">Fx Flow Scalper v2.0:</h3>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {strategyPrompts.map((suggestion, index) => (
+              <button
+                key={index}
+                onClick={() => setPrompt(suggestion)}
+                disabled={isLoading}
+                className="p-3 sm:p-4 bg-blue-500/10 border border-blue-500/30 text-blue-200 hover:text-blue-100 hover:bg-blue-500/20 transition-all duration-200 text-xs sm:text-sm font-medium rounded-xl disabled:opacity-50"
+              >
+                "{suggestion}"
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="p-4 sm:p-6 bg-gradient-to-r from-emerald-500/10 to-green-500/10 border border-emerald-500/20 rounded-2xl">
         <div className="flex items-start space-x-3">
