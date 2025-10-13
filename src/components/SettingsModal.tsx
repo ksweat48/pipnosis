@@ -11,29 +11,26 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, chartPreferences, onChartPreferencesUpdate }) => {
   const [settings, setSettings] = useState({
-    // Primary Control
-    dataMode: 'api', // 'api' or 'snapshot'
-    
-    // Trading Pairs Selection (API Mode only)
+    // Trading Pairs Selection
     pairSelectionMode: 'ai-choose', // 'ai-choose' or 'manual'
     selectedPairs: ['EURUSD', 'GBPUSD', 'US30'],
     expandedScan: false, // Enable Tier 2 pairs
-    
+
     // Trading Objective
     tradingGoal: 'weekly-income',
-    
+
     // Risk Profile
     riskProfile: 'auto-detect',
-    
+
     // Trading Style
     tradeRhythm: 'ai-choose',
-    
+
     // AI Behavior
     aiExecutionStyle: 'fully-automated',
-    
+
     // Trade Frequency
     maxTradeActivity: 'ai-decide',
-    
+
     // Reporting & Alerts
     reportingMethod: 'both',
     feedbackStyle: 'ai-reasoning',
@@ -90,9 +87,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, c
     });
   };
 
-  const isApiMode = settings.dataMode === 'api';
-  const isSnapshotMode = settings.dataMode === 'snapshot';
-
   if (!isOpen) return null;
 
   return (
@@ -114,236 +108,199 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, c
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-8">
-          {/* Section 1: Data Mode Selector */}
+          {/* Connection Status */}
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
               <Shield className="h-5 w-5 text-blue-400" />
-              <span>Select Trading Mode</span>
+              <span>Trading Connection</span>
             </h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div 
-                className={`p-6 rounded-xl border-2 cursor-pointer transition-all ${
-                  isApiMode 
-                    ? 'border-emerald-500 bg-emerald-500/10' 
-                    : 'border-slate-600 bg-slate-900 hover:border-slate-500'
-                }`}
-                onClick={() => handleSettingChange('dataMode', 'api')}
-              >
-                <div className="flex items-center space-x-3 mb-3">
-                  <div className={`w-4 h-4 rounded-full border-2 ${
-                    isApiMode ? 'border-emerald-500 bg-emerald-500' : 'border-slate-400'
-                  }`}>
-                    {isApiMode && <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>}
-                  </div>
-                  <h4 className="text-white font-semibold">API Mode</h4>
-                  <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">Recommended</span>
-                </div>
-                <ul className="text-sm text-slate-300 space-y-1">
-                  <li>• Connects directly to MetaTrader 5 using official MT5 Python API</li>
-                  <li>• Grants access to live price data and real-time trade management</li>
-                  <li>• Enables full feature set and AI optimization</li>
-                  <li>• Supports tiered pair analysis (Tier 1 + Tier 2)</li>
-                </ul>
-              </div>
 
-              <div 
-                className={`p-6 rounded-xl border-2 cursor-pointer transition-all ${
-                  isSnapshotMode 
-                    ? 'border-emerald-500 bg-emerald-500/10' 
-                    : 'border-slate-600 bg-slate-900 hover:border-slate-500'
-                }`}
-                onClick={() => handleSettingChange('dataMode', 'snapshot')}
-              >
-                <div className="flex items-center space-x-3 mb-3">
-                  <div className={`w-4 h-4 rounded-full border-2 ${
-                    isSnapshotMode ? 'border-emerald-500 bg-emerald-500' : 'border-slate-400'
-                  }`}>
-                    {isSnapshotMode && <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>}
-                  </div>
-                  <h4 className="text-white font-semibold">Snapshot Mode</h4>
-                  <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded">Manual Upload</span>
+            <div className="p-6 rounded-xl border-2 border-emerald-500 bg-emerald-500/10">
+              <div className="flex items-center space-x-3 mb-3">
+                <div className="w-4 h-4 rounded-full border-2 border-emerald-500 bg-emerald-500">
+                  <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>
                 </div>
-                <ul className="text-sm text-slate-300 space-y-1">
-                  <li>• User uploads screenshots of W1, D1, H1, M15 charts</li>
-                  <li>• Pipnosis reads snapshots to calculate one-time trade plan</li>
-                  <li>• Limits functionality to features without continuous market access</li>
-                </ul>
+                <h4 className="text-white font-semibold">Live API Connection</h4>
+                <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">Active</span>
               </div>
+              <ul className="text-sm text-slate-300 space-y-1">
+                <li>• Connected to MetaTrader 5 using official MT5 Python API</li>
+                <li>• Real-time market data and live price updates</li>
+                <li>• Full feature set with AI optimization enabled</li>
+                <li>• Supports tiered pair analysis (Tier 1 + Tier 2)</li>
+              </ul>
             </div>
           </div>
 
-          {/* Section 1.5: Enhanced Trading Pairs Selection (API Mode Only) */}
-          {isApiMode && (
-            <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
-                <TrendingUp className="h-5 w-5 text-emerald-400" />
-                <span>Trading Pairs Selection</span>
-              </h3>
-              
-              <div className="space-y-4">
-                <div className="flex items-center space-x-4">
-                  <label className="flex items-center space-x-2 cursor-pointer">
+          {/* Trading Pairs Selection */}
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
+              <TrendingUp className="h-5 w-5 text-emerald-400" />
+              <span>Trading Pairs Selection</span>
+            </h3>
+
+            <div className="space-y-4">
+              <div className="flex items-center space-x-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="pairSelection"
+                    value="ai-choose"
+                    checked={settings.pairSelectionMode === 'ai-choose'}
+                    onChange={(e) => handleSettingChange('pairSelectionMode', e.target.value)}
+                    className="text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <span className="text-white">Let AI choose the best pairs to execute your prompt</span>
+                  <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded">Recommended</span>
+                </label>
+              </div>
+
+              <div className="flex items-center space-x-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="pairSelection"
+                    value="manual"
+                    checked={settings.pairSelectionMode === 'manual'}
+                    onChange={(e) => handleSettingChange('pairSelectionMode', e.target.value)}
+                    className="text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <span className="text-white">I want to choose my 3 trading pairs</span>
+                </label>
+              </div>
+
+              {/* Expanded Scan Toggle */}
+              <div className="p-4 bg-slate-900 rounded-lg border border-slate-600">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h4 className="text-white font-medium">Expanded Pair Analysis</h4>
+                    <p className="text-sm text-slate-400">Include Tier 2 pairs for more opportunities</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
                     <input
-                      type="radio"
-                      name="pairSelection"
-                      value="ai-choose"
-                      checked={settings.pairSelectionMode === 'ai-choose'}
-                      onChange={(e) => handleSettingChange('pairSelectionMode', e.target.value)}
-                      className="text-emerald-500 focus:ring-emerald-500"
+                      type="checkbox"
+                      checked={settings.expandedScan}
+                      onChange={(e) => handleSettingChange('expandedScan', e.target.checked)}
+                      className="sr-only peer"
                     />
-                    <span className="text-white">Let AI choose the best pairs to execute your prompt</span>
-                    <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded">Recommended</span>
-                  </label>
-                </div>
-                
-                <div className="flex items-center space-x-4">
-                  <label className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="pairSelection"
-                      value="manual"
-                      checked={settings.pairSelectionMode === 'manual'}
-                      onChange={(e) => handleSettingChange('pairSelectionMode', e.target.value)}
-                      className="text-emerald-500 focus:ring-emerald-500"
-                    />
-                    <span className="text-white">I want to choose my 3 trading pairs</span>
+                    <div className="w-11 h-6 bg-slate-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
                   </label>
                 </div>
 
-                {/* Expanded Scan Toggle */}
+                <div className="text-xs text-slate-400">
+                  <strong>Tier 1 (Always Analyzed):</strong> {tradingPairs.tier1.map(p => p.symbol).join(', ')}
+                  <br />
+                  <strong>Tier 2 (Optional):</strong> {tradingPairs.tier2.map(p => p.symbol).join(', ')}
+                </div>
+              </div>
+
+              {settings.pairSelectionMode === 'manual' && (
                 <div className="p-4 bg-slate-900 rounded-lg border border-slate-600">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <h4 className="text-white font-medium">Expanded Pair Analysis</h4>
-                      <p className="text-sm text-slate-400">Include Tier 2 pairs for more opportunities</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={settings.expandedScan}
-                        onChange={(e) => handleSettingChange('expandedScan', e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-slate-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                    </label>
-                  </div>
-                  
-                  <div className="text-xs text-slate-400">
-                    <strong>Tier 1 (Always Analyzed):</strong> {tradingPairs.tier1.map(p => p.symbol).join(', ')}
-                    <br />
-                    <strong>Tier 2 (Optional):</strong> {tradingPairs.tier2.map(p => p.symbol).join(', ')}
-                  </div>
-                </div>
-
-                {settings.pairSelectionMode === 'manual' && (
-                  <div className="p-4 bg-slate-900 rounded-lg border border-slate-600">
-                    <div className="mb-3">
-                      <p className="text-sm text-slate-300 mb-2">
-                        Select up to 3 trading pairs ({settings.selectedPairs.length}/3 selected)
-                      </p>
-                      {settings.selectedPairs.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mb-3">
-                          {settings.selectedPairs.map(pair => (
-                            <span 
-                              key={pair}
-                              className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-sm flex items-center space-x-2"
-                            >
-                              <span>{pair}</span>
-                              <button
-                                onClick={() => handlePairToggle(pair)}
-                                className="text-emerald-300 hover:text-white"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* Tier 1 Pairs */}
-                    <div className="mb-4">
-                      <h5 className="text-sm font-medium text-green-400 mb-2">🔷 Tier 1 - Most Popular & Liquid</h5>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                        {tradingPairs.tier1.map(pair => {
-                          const isSelected = settings.selectedPairs.includes(pair.symbol);
-                          const canSelect = settings.selectedPairs.length < 3 || isSelected;
-                          
-                          return (
+                  <div className="mb-3">
+                    <p className="text-sm text-slate-300 mb-2">
+                      Select up to 3 trading pairs ({settings.selectedPairs.length}/3 selected)
+                    </p>
+                    {settings.selectedPairs.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {settings.selectedPairs.map(pair => (
+                          <span
+                            key={pair}
+                            className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-sm flex items-center space-x-2"
+                          >
+                            <span>{pair}</span>
                             <button
-                              key={pair.symbol}
-                              onClick={() => handlePairToggle(pair.symbol)}
-                              disabled={!canSelect}
-                              className={`px-3 py-2 text-sm rounded-lg border transition-all ${
-                                isSelected
-                                  ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
-                                  : canSelect
-                                  ? 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500 hover:bg-slate-700'
-                                  : 'border-slate-700 bg-slate-800/50 text-slate-500 cursor-not-allowed'
-                              }`}
-                              title={`${pair.name} - Spread: ${pair.spread}, Liquidity: ${pair.liquidity}`}
+                              onClick={() => handlePairToggle(pair)}
+                              className="text-emerald-300 hover:text-white"
                             >
-                              {pair.symbol}
+                              <X className="h-3 w-3" />
                             </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Tier 2 Pairs */}
-                    <div>
-                      <h5 className="text-sm font-medium text-yellow-400 mb-2">🔶 Tier 2 - Volatile & High RRR</h5>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                        {tradingPairs.tier2.map(pair => {
-                          const isSelected = settings.selectedPairs.includes(pair.symbol);
-                          const canSelect = settings.selectedPairs.length < 3 || isSelected;
-                          
-                          return (
-                            <button
-                              key={pair.symbol}
-                              onClick={() => handlePairToggle(pair.symbol)}
-                              disabled={!canSelect}
-                              className={`px-3 py-2 text-sm rounded-lg border transition-all ${
-                                isSelected
-                                  ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
-                                  : canSelect
-                                  ? 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500 hover:bg-slate-700'
-                                  : 'border-slate-700 bg-slate-800/50 text-slate-500 cursor-not-allowed'
-                              }`}
-                              title={`${pair.name} - ${pair.reason}`}
-                            >
-                              {pair.symbol}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    
-                    {settings.selectedPairs.length === 3 && (
-                      <div className="mt-3 p-2 bg-green-500/10 border border-green-500/30 rounded-lg">
-                        <p className="text-sm text-green-400 flex items-center space-x-2">
-                          <CheckCircle className="h-4 w-4" />
-                          <span>3 pairs selected. You can change your selection by clicking on selected pairs above.</span>
-                        </p>
+                          </span>
+                        ))}
                       </div>
                     )}
                   </div>
-                )}
 
-                {settings.pairSelectionMode === 'ai-choose' && (
-                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
-                    <p className="text-sm text-emerald-300 flex items-center space-x-2">
-                      <CheckCircle className="h-4 w-4" />
-                      <span>
-                        AI will analyze Tier 1 pairs by default{settings.expandedScan ? ' + Tier 2 pairs' : ''} and select the most profitable opportunities based on your trading goal and risk profile.
-                      </span>
-                    </p>
+                  {/* Tier 1 Pairs */}
+                  <div className="mb-4">
+                    <h5 className="text-sm font-medium text-green-400 mb-2">🔷 Tier 1 - Most Popular & Liquid</h5>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                      {tradingPairs.tier1.map(pair => {
+                        const isSelected = settings.selectedPairs.includes(pair.symbol);
+                        const canSelect = settings.selectedPairs.length < 3 || isSelected;
+
+                        return (
+                          <button
+                            key={pair.symbol}
+                            onClick={() => handlePairToggle(pair.symbol)}
+                            disabled={!canSelect}
+                            className={`px-3 py-2 text-sm rounded-lg border transition-all ${
+                              isSelected
+                                ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
+                                : canSelect
+                                ? 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500 hover:bg-slate-700'
+                                : 'border-slate-700 bg-slate-800/50 text-slate-500 cursor-not-allowed'
+                            }`}
+                            title={`${pair.name} - Spread: ${pair.spread}, Liquidity: ${pair.liquidity}`}
+                          >
+                            {pair.symbol}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                )}
-              </div>
+
+                  {/* Tier 2 Pairs */}
+                  <div>
+                    <h5 className="text-sm font-medium text-yellow-400 mb-2">🔶 Tier 2 - Volatile & High RRR</h5>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                      {tradingPairs.tier2.map(pair => {
+                        const isSelected = settings.selectedPairs.includes(pair.symbol);
+                        const canSelect = settings.selectedPairs.length < 3 || isSelected;
+
+                        return (
+                          <button
+                            key={pair.symbol}
+                            onClick={() => handlePairToggle(pair.symbol)}
+                            disabled={!canSelect}
+                            className={`px-3 py-2 text-sm rounded-lg border transition-all ${
+                              isSelected
+                                ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
+                                : canSelect
+                                ? 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500 hover:bg-slate-700'
+                                : 'border-slate-700 bg-slate-800/50 text-slate-500 cursor-not-allowed'
+                            }`}
+                            title={`${pair.name} - ${pair.reason}`}
+                          >
+                            {pair.symbol}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {settings.selectedPairs.length === 3 && (
+                    <div className="mt-3 p-2 bg-green-500/10 border border-green-500/30 rounded-lg">
+                      <p className="text-sm text-green-400 flex items-center space-x-2">
+                        <CheckCircle className="h-4 w-4" />
+                        <span>3 pairs selected. You can change your selection by clicking on selected pairs above.</span>
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {settings.pairSelectionMode === 'ai-choose' && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                  <p className="text-sm text-emerald-300 flex items-center space-x-2">
+                    <CheckCircle className="h-4 w-4" />
+                    <span>
+                      AI will analyze Tier 1 pairs by default{settings.expandedScan ? ' + Tier 2 pairs' : ''} and select the most profitable opportunities based on your trading goal and risk profile.
+                    </span>
+                  </p>
+                </div>
+              )}
             </div>
-          )}
+          </div>
 
           {/* Section 2: Trading Objective */}
           <div className="space-y-4">
@@ -356,7 +313,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, c
                 className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
                 <option value="grow-account">Grow Account (long-term compounding)</option>
-                <option value="weekly-income">Weekly Income (e.g., "Make $500/week")</option>
+                <option value="weekly-income">Weekly Income (e.g., Make $500 per week)</option>
                 <option value="quick-flip">Quick Flip (1 trade, high risk)</option>
               </select>
             </div>
