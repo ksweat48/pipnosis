@@ -83,13 +83,25 @@ export function AutoTradingControls() {
     try {
       const newEnabled = !config.enabled;
 
+      await autoTradingController.updateAutoTradingConfig(user.id, {
+        enabled: newEnabled,
+        maxDailyTrades: config.maxDailyTrades,
+        minConfidence: config.minConfidence,
+        symbols: config.activeSymbols,
+        tradingHours: {
+          start: `${config.tradingHoursStart}:00`,
+          end: `${config.tradingHoursEnd}:59`
+        },
+        riskPercentage: config.riskPercentage
+      });
+
       if (newEnabled) {
         await strategyService.startAutoTrading(user.id);
       } else {
         await strategyService.stopAutoTrading();
       }
 
-      setConfig({ ...config, enabled: newEnabled });
+      await loadConfig();
     } catch (error) {
       console.error('Error toggling auto trading:', error);
     } finally {
