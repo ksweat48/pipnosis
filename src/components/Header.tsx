@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { Settings, Menu, X, ExternalLink, DollarSign, LogOut, User, LogIn, Shield } from 'lucide-react';
+import { Settings, Menu, X, ExternalLink, DollarSign, LogOut, User, LogIn, Shield, Activity, BarChart3 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useChartPreferences } from '@/hooks/useChartPreferences';
+import { useAnalysisViewMode } from '@/hooks/useAnalysisViewMode';
 import { SettingsModal } from './SettingsModal';
 import { DisclaimerModal } from './DisclaimerModal';
 
 export const Header: React.FC = () => {
   const { user, signOut, isAdmin } = useAuth();
   const { preferences, updatePreferences } = useChartPreferences();
+  const { viewMode, setMode } = useAnalysisViewMode();
   const navigate = useNavigate();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
@@ -53,6 +55,32 @@ export const Header: React.FC = () => {
           
           {/* Desktop Navigation */}
           <div className="hidden lg:flex items-center space-x-4">
+            {user && (
+              <div className="flex items-center gap-2 glass-card p-1">
+                <button
+                  onClick={() => setMode('technical')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                    viewMode === 'technical'
+                      ? 'bg-blue-600 text-white shadow-lg'
+                      : 'text-white/60 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  <span>Technical</span>
+                </button>
+                <button
+                  onClick={() => setMode('autotrading')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                    viewMode === 'autotrading'
+                      ? 'bg-emerald-600 text-white shadow-lg'
+                      : 'text-white/60 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <Activity className="w-4 h-4" />
+                  <span>Auto Trading</span>
+                </button>
+              </div>
+            )}
             {user ? (
               <>
                 {/* User Info */}
@@ -161,6 +189,40 @@ export const Header: React.FC = () => {
                         {user?.email}
                       </p>
                     </div>
+                  </div>
+                </div>
+
+                {/* Mobile View Mode Toggle */}
+                <div className="mb-4 glass-card p-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => {
+                        setMode('technical');
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
+                        viewMode === 'technical'
+                          ? 'bg-blue-600 text-white shadow-lg'
+                          : 'text-white/60 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      <BarChart3 className="w-4 h-4" />
+                      <span>Technical</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setMode('autotrading');
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
+                        viewMode === 'autotrading'
+                          ? 'bg-emerald-600 text-white shadow-lg'
+                          : 'text-white/60 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      <Activity className="w-4 h-4" />
+                      <span>Auto Trading</span>
+                    </button>
                   </div>
                 </div>
                 
