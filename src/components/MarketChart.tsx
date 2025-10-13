@@ -4,6 +4,9 @@ import { CandlestickChart } from './CandlestickChart';
 import { AIAnalysisPanel } from './AIAnalysisPanel';
 import { RealAIAnalysisPanel } from './RealAIAnalysisPanel';
 import { DataHealthIndicator } from './DataHealthIndicator';
+import { AutoTradingAnalysisPanel } from './AutoTradingAnalysisPanel';
+import { ChartAutoTradingIndicator } from './ChartAutoTradingIndicator';
+import { useAutoTradingStatus } from '../hooks/useAutoTradingStatus';
 import { CandlestickData, Time, HistogramData } from 'lightweight-charts';
 import { marketDataService, MarketDataListener, TickData } from '../services/market-data';
 import { Timeframe, CandleData } from '../services/metaapi';
@@ -385,6 +388,8 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     ema50?: LineData<Time>[];
     ema200?: LineData<Time>[];
   } | null>(null);
+  const { status: autoTradingStatus, symbolStatuses } = useAutoTradingStatus();
+  const [nextScanCountdown, setNextScanCountdown] = useState<number>(0);
 
   useEffect(() => {
     if (candleData.length > 0) {
@@ -501,6 +506,17 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (autoTradingStatus.nextScanTime) {
+      const interval = setInterval(() => {
+        const secondsRemaining = Math.max(0, Math.floor((autoTradingStatus.nextScanTime!.getTime() - Date.now()) / 1000));
+        setNextScanCountdown(secondsRemaining);
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [autoTradingStatus.nextScanTime]);
 
   return (
     <div className={`${className}`}>
@@ -637,21 +653,68 @@ export const MarketChart: React.FC<MarketChartProps> = ({
         </div>
       ) : candleData.length > 0 ? (
         <div className="space-y-4">
-          <CandlestickChart
-            key={`${symbol}-${timeframe}`}
-            symbol={symbol}
-            data={candleData}
-            volumeData={preferences.show_volume ? volumeData : undefined}
-            aiAnalysis={preferences.show_ai_analysis ? aiAnalysis : undefined}
-            emaData={emaChartData || undefined}
-            tradeLines={tradeLines}
-            height={500}
-            preferences={preferences}
-          />
-          {preferences.show_ai_analysis && realAiAnalysis ? (
+          <div className="relative">
+            <CandlestickChart
+              key={`${symbol}-${timeframe}`}
+              symbol={symbol}
+              data={candleData}
+              volumeData={preferences.show_volume ? volumeData : undefined}
+              aiAnalysis={preferences.show_ai_analysis ? aiAnalysis : undefined}
+              emaData={emaChartData || undefined}
+              tradeLines={tradeLines}
+              height={500}
+              preferences={preferences}
+            />
+            <ChartAutoTradingIndicator
+              isActive={autoTradingStatus.isActive}
+              tradesRemaining={autoTradingStatus.tradesRemaining}
+              symbolsMonitored={autoTradingStatus.monitoredSymbols.length}
+              nextScanIn={nextScanCountdown}
+              currentlyScanning={autoTradingStatus.scanningSymbol || undefined}
+              onViewAnalysis={() => updatePreferences({ analysis_view_mode: 'autotrading' })}
+            />
+          </div>
+          {preferences.show_ai_analysis && (
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-bold text-white">Analysis</h3>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => updatePreferences({ analysis_view_mode: 'technical' })}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    preferences.analysis_view_mode === 'technical'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50'
+                      : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white border border-white/10'
+                  }`}
+                >
+                  Technical
+                </button>
+                <button
+                  onClick={() => updatePreferences({ analysis_view_mode: 'autotrading' })}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    preferences.analysis_view_mode === 'autotrading'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50'
+                      : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white border border-white/10'
+                  }`}
+                >
+                  Auto-Trading
+                </button>
+              </div>
+            </div>
+          )}
+          {preferences.show_ai_analysis && preferences.analysis_view_mode === 'technical' && realAiAnalysis ? (
             <RealAIAnalysisPanel analysis={realAiAnalysis} symbol={symbol} isAnalyzing={isAnalyzing} />
-          ) : preferences.show_ai_analysis && aiAnalysis ? (
+          ) : preferences.show_ai_analysis && preferences.analysis_view_mode === 'technical' && aiAnalysis ? (
             <AIAnalysisPanel analysis={aiAnalysis} symbol={symbol} />
+          ) : preferences.show_ai_analysis && preferences.analysis_view_mode === 'autotrading' ? (
+            <AutoTradingAnalysisPanel
+              symbols={symbolStatuses}
+              isActive={autoTradingStatus.isActive}
+              tradesRemaining={autoTradingStatus.tradesRemaining}
+              tradesTotal={autoTradingStatus.tradesToday + autoTradingStatus.tradesRemaining}
+              lastScanTime={autoTradingStatus.lastScanTime || undefined}
+              nextScanTime={autoTradingStatus.nextScanTime || undefined}
+              currentlyScanning={autoTradingStatus.scanningSymbol || undefined}
+            />
           ) : null}
         </div>
       ) : (

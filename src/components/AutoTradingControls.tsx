@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, Settings, AlertCircle, CheckCircle, Clock, TrendingUp } from 'lucide-react';
+import { Play, Pause, Settings, AlertCircle, CheckCircle, Clock, Activity } from 'lucide-react';
 import { autoTradingController } from '../strategies/core/autoTradingController';
 import { strategyService } from '../strategies';
 import { useAuth } from '../hooks/useAuth';
@@ -133,46 +133,46 @@ export function AutoTradingControls() {
   const availableSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD', 'XAUUSD'];
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-      <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
+    <div className="glass-card overflow-hidden">
+      <div className="p-6 bg-gradient-to-r from-emerald-500/10 to-green-500/10 border-b border-white/10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${config.enabled ? 'bg-green-100' : 'bg-gray-100'}`}>
+            <div className={`p-2 rounded-lg ${config.enabled ? 'bg-emerald-500/20' : 'bg-white/5'}`}>
               {config.enabled ? (
-                <Play className="w-6 h-6 text-green-600" />
+                <Play className="w-6 h-6 text-emerald-400" />
               ) : (
-                <Pause className="w-6 h-6 text-gray-600" />
+                <Pause className="w-6 h-6 text-white/60" />
               )}
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Automatic Trading</h3>
-              <p className="text-sm text-gray-600">
+              <h3 className="text-lg font-semibold text-white">Automatic Trading</h3>
+              <p className="text-sm text-white/60">
                 {config.enabled ? 'Active and monitoring' : 'Paused'}
               </p>
             </div>
           </div>
           <button
             onClick={() => setShowSettings(!showSettings)}
-            className="p-2 hover:bg-white/50 rounded-lg transition-colors"
+            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
           >
-            <Settings className="w-5 h-5 text-gray-600" />
+            <Settings className="w-5 h-5 text-white/60 hover:text-white" />
           </button>
         </div>
       </div>
 
       <div className="p-6">
         <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-            <p className="text-xs font-medium text-blue-900 mb-1">Daily Limit</p>
-            <p className="text-2xl font-bold text-blue-900">{config.maxDailyTrades}</p>
+          <div className="p-4 bg-white/5 rounded-lg border border-white/10">
+            <p className="text-xs font-medium text-white/60 mb-1">Daily Limit</p>
+            <p className="text-2xl font-bold text-white">{config.maxDailyTrades}</p>
           </div>
-          <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-            <p className="text-xs font-medium text-green-900 mb-1">Remaining</p>
-            <p className="text-2xl font-bold text-green-900">{config.tradesRemainingToday}</p>
+          <div className="p-4 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
+            <p className="text-xs font-medium text-emerald-400/80 mb-1">Remaining</p>
+            <p className="text-2xl font-bold text-emerald-400">{config.tradesRemainingToday}</p>
           </div>
-          <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-            <p className="text-xs font-medium text-purple-900 mb-1">Min Confidence</p>
-            <p className="text-2xl font-bold text-purple-900">{config.minConfidence}%</p>
+          <div className="p-4 bg-white/5 rounded-lg border border-white/10">
+            <p className="text-xs font-medium text-white/60 mb-1">Min Confidence</p>
+            <p className="text-2xl font-bold text-white">{config.minConfidence}%</p>
           </div>
         </div>
 
@@ -182,8 +182,8 @@ export function AutoTradingControls() {
           className={`w-full flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-semibold transition-colors ${
             config.enabled
               ? 'bg-red-600 hover:bg-red-700 text-white'
-              : 'bg-green-600 hover:bg-green-700 text-white'
-          } disabled:bg-gray-400 disabled:cursor-not-allowed`}
+              : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+          } disabled:bg-white/10 disabled:text-white/40 disabled:cursor-not-allowed`}
         >
           {loading ? (
             <>
@@ -204,12 +204,12 @@ export function AutoTradingControls() {
         </button>
 
         {config.enabled && (
-          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+          <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
             <div className="flex items-start gap-2">
-              <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+              <CheckCircle className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-green-900">Auto Trading Active</p>
-                <p className="text-xs text-green-700 mt-1">
+                <p className="text-sm font-semibold text-emerald-400">Auto Trading Active</p>
+                <p className="text-xs text-emerald-400/80 mt-1">
                   Monitoring {config.activeSymbols.length} symbols. Will execute up to{' '}
                   {config.tradesRemainingToday} more trades today with signals above {config.minConfidence}% confidence.
                 </p>
@@ -219,12 +219,12 @@ export function AutoTradingControls() {
         )}
 
         {!config.enabled && config.tradesRemainingToday === 0 && (
-          <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
             <div className="flex items-start gap-2">
-              <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5" />
+              <AlertCircle className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-yellow-900">Daily Limit Reached</p>
-                <p className="text-xs text-yellow-700 mt-1">
+                <p className="text-sm font-semibold text-yellow-400">Daily Limit Reached</p>
+                <p className="text-xs text-yellow-400/80 mt-1">
                   Maximum daily trades executed. Auto trading will resume tomorrow.
                 </p>
               </div>
@@ -234,12 +234,12 @@ export function AutoTradingControls() {
       </div>
 
       {showSettings && (
-        <div className="border-t border-gray-200 p-6 bg-gray-50">
-          <h4 className="font-semibold text-gray-900 mb-4">Auto Trading Settings</h4>
+        <div className="border-t border-white/10 p-6 bg-white/5">
+          <h4 className="font-semibold text-white mb-4">Auto Trading Settings</h4>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-white/70 mb-2">
                 Maximum Daily Trades
               </label>
               <input
@@ -248,12 +248,12 @@ export function AutoTradingControls() {
                 max="20"
                 value={editConfig.maxDailyTrades}
                 onChange={(e) => setEditConfig({ ...editConfig, maxDailyTrades: parseInt(e.target.value) })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-white/70 mb-2">
                 Minimum Confidence (%)
               </label>
               <input
@@ -262,12 +262,12 @@ export function AutoTradingControls() {
                 max="100"
                 value={editConfig.minConfidence}
                 onChange={(e) => setEditConfig({ ...editConfig, minConfidence: parseInt(e.target.value) })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-white/70 mb-2">
                 Risk Per Trade (%)
               </label>
               <input
@@ -277,12 +277,12 @@ export function AutoTradingControls() {
                 step="0.1"
                 value={editConfig.riskPercentage}
                 onChange={(e) => setEditConfig({ ...editConfig, riskPercentage: parseFloat(e.target.value) })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-white/70 mb-2">
                 Active Symbols
               </label>
               <div className="grid grid-cols-4 gap-2">
@@ -292,8 +292,8 @@ export function AutoTradingControls() {
                     onClick={() => handleSymbolToggle(symbol)}
                     className={`px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
                       editConfig.activeSymbols.includes(symbol)
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-white/5 text-white/60 hover:bg-white/10 border border-white/10'
                     }`}
                   >
                     {symbol}
@@ -304,25 +304,25 @@ export function AutoTradingControls() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-white/70 mb-2">
                   Trading Hours Start
                 </label>
                 <input
                   type="time"
                   value={editConfig.tradingHoursStart}
                   onChange={(e) => setEditConfig({ ...editConfig, tradingHoursStart: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-white/70 mb-2">
                   Trading Hours End
                 </label>
                 <input
                   type="time"
                   value={editConfig.tradingHoursEnd}
                   onChange={(e) => setEditConfig({ ...editConfig, tradingHoursEnd: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 />
               </div>
             </div>
@@ -331,7 +331,7 @@ export function AutoTradingControls() {
               <button
                 onClick={handleSaveSettings}
                 disabled={loading}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+                className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:bg-white/10 disabled:text-white/40 transition-colors"
               >
                 Save Settings
               </button>
@@ -340,7 +340,7 @@ export function AutoTradingControls() {
                   setEditConfig(config);
                   setShowSettings(false);
                 }}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors"
+                className="px-4 py-2 bg-white/5 text-white/70 rounded-lg font-medium hover:bg-white/10 border border-white/10 transition-colors"
               >
                 Cancel
               </button>

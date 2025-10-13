@@ -16,6 +16,7 @@ export interface ChartPreferences {
   ema_21_color: string;
   ema_50_color: string;
   ema_200_color: string;
+  analysis_view_mode: 'technical' | 'autotrading';
 }
 
 const DEFAULT_PREFERENCES: ChartPreferences = {
@@ -32,6 +33,7 @@ const DEFAULT_PREFERENCES: ChartPreferences = {
   ema_21_color: '#44c0ff',
   ema_50_color: '#ff6b6b',
   ema_200_color: '#aa44ff',
+  analysis_view_mode: 'technical',
 };
 
 export function useChartPreferences() {
@@ -78,6 +80,7 @@ export function useChartPreferences() {
           ema_21_color: data.ema_21_color ?? DEFAULT_PREFERENCES.ema_21_color,
           ema_50_color: data.ema_50_color ?? DEFAULT_PREFERENCES.ema_50_color,
           ema_200_color: data.ema_200_color ?? DEFAULT_PREFERENCES.ema_200_color,
+          analysis_view_mode: (data.analysis_view_mode as 'technical' | 'autotrading') ?? DEFAULT_PREFERENCES.analysis_view_mode,
         });
       } else {
         setPreferences(DEFAULT_PREFERENCES);
@@ -124,6 +127,7 @@ export function useChartPreferences() {
             ema_21_color: newPreferences.ema_21_color,
             ema_50_color: newPreferences.ema_50_color,
             ema_200_color: newPreferences.ema_200_color,
+            analysis_view_mode: newPreferences.analysis_view_mode,
           })
           .eq('user_id', user.id);
 
@@ -146,6 +150,7 @@ export function useChartPreferences() {
             ema_21_color: newPreferences.ema_21_color,
             ema_50_color: newPreferences.ema_50_color,
             ema_200_color: newPreferences.ema_200_color,
+            analysis_view_mode: newPreferences.analysis_view_mode,
           });
 
         if (insertError) throw insertError;
