@@ -83,7 +83,7 @@ export function AutoTradingControls() {
     try {
       const newEnabled = !config.enabled;
 
-      await autoTradingController.updateAutoTradingConfig(user.id, {
+      const updateSuccess = await autoTradingController.updateAutoTradingConfig(user.id, {
         enabled: newEnabled,
         maxDailyTrades: config.maxDailyTrades,
         minConfidence: config.minConfidence,
@@ -94,6 +94,11 @@ export function AutoTradingControls() {
         },
         riskPercentage: config.riskPercentage
       });
+
+      if (!updateSuccess) {
+        console.error('Failed to update auto-trading configuration');
+        return;
+      }
 
       if (newEnabled) {
         await strategyService.startAutoTrading(user.id);

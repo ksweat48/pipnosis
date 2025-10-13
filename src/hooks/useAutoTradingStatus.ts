@@ -60,6 +60,14 @@ export function useAutoTradingStatus() {
     try {
       setError(null);
 
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('auto_trading_sessions')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (sessionError) throw sessionError;
+
       const { data: statusData, error: statusError } = await supabase
         .from('auto_trading_status')
         .select('*')
@@ -68,17 +76,23 @@ export function useAutoTradingStatus() {
 
       if (statusError) throw statusError;
 
-      if (statusData) {
+      if (sessionData || statusData) {
+        const tradesRemaining = sessionData
+          ? Math.max(0, sessionData.max_daily_trades - (sessionData.trades_taken_today || 0))
+          : statusData?.trades_remaining || 0;
+
         setStatus({
-          isActive: statusData.is_active,
-          monitoredSymbols: statusData.monitored_symbols || [],
-          lastScanTime: statusData.last_scan_at ? new Date(statusData.last_scan_at) : null,
-          nextScanTime: statusData.next_scan_at ? new Date(statusData.next_scan_at) : null,
-          tradesToday: statusData.trades_today,
-          tradesRemaining: statusData.trades_remaining,
-          currentPhase: statusData.current_phase,
-          scanningSymbol: statusData.scanning_symbol,
-          sessionStartTime: statusData.session_start_at ? new Date(statusData.session_start_at) : null,
+          isActive: sessionData?.enabled || statusData?.is_active || false,
+          monitoredSymbols: sessionData?.active_symbols || statusData?.monitored_symbols || [],
+          lastScanTime: statusData?.last_scan_at ? new Date(statusData.last_scan_at) : null,
+          nextScanTime: statusData?.next_scan_at ? new Date(statusData.next_scan_at) : null,
+          tradesToday: sessionData?.trades_taken_today || statusData?.trades_today || 0,
+          tradesRemaining,
+          currentPhase: statusData?.current_phase || null,
+          scanningSymbol: statusData?.scanning_symbol || null,
+          sessionStartTime: sessionData?.session_start || statusData?.session_start_at
+            ? new Date(sessionData?.session_start || statusData.session_start_at)
+            : null,
         });
       } else {
         setStatus(DEFAULT_STATUS);
@@ -151,39 +165,36 @@ export function useAutoTradingStatus() {
     try {
       setError(null);
 
-      const updateData: any = {};
+      const statusUpdateData: any = {};
+      if (updates.isActive !== undefined) statusUpdateData.is_active = updates.isActive;
+      if (updates.monitoredSymbols !== undefined) statusUpdateData.monitored_symbols = updates.monitoredSymbols;
+      if (updates.lastScanTime !== undefined) statusUpdateData.last_scan_at = updates.lastScanTime?.toISOString();
+      if (updates.nextScanTime !== undefined) statusUpdateData.next_scan_at = updates.nextScanTime?.toISOString();
+      if (updates.tradesToday !== undefined) statusUpdateData.trades_today = updates.tradesToday;
+      if (updates.tradesRemaining !== undefined) statusUpdateData.trades_remaining = updates.tradesRemaining;
+      if (updates.currentPhase !== undefined) statusUpdateData.current_phase = updates.currentPhase;
+      if (updates.scanningSymbol !== undefined) statusUpdateData.scanning_symbol = updates.scanningSymbol;
+      if (updates.sessionStartTime !== undefined) statusUpdateData.session_start_at = updates.sessionStartTime?.toISOString();
 
-      if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
-      if (updates.monitoredSymbols !== undefined) updateData.monitored_symbols = updates.monitoredSymbols;
-      if (updates.lastScanTime !== undefined) updateData.last_scan_at = updates.lastScanTime?.toISOString();
-      if (updates.nextScanTime !== undefined) updateData.next_scan_at = updates.nextScanTime?.toISOString();
-      if (updates.tradesToday !== undefined) updateData.trades_today = updates.tradesToday;
-      if (updates.tradesRemaining !== undefined) updateData.trades_remaining = updates.tradesRemaining;
-      if (updates.currentPhase !== undefined) updateData.current_phase = updates.currentPhase;
-      if (updates.scanningSymbol !== undefined) updateData.scanning_symbol = updates.scanningSymbol;
-      if (updates.sessionStartTime !== undefined) updateData.session_start_at = updates.sessionStartTime?.toISOString();
-
-      const { data: existing } = await supabase
+      const { data: statusExists } = await supabase
         .from('auto_trading_status')
         .select('id')
         .eq('user_id', user.id)
         .maybeSingle();
 
-      if (existing) {
+      if (statusExists) {
         const { error: updateError } = await supabase
           .from('auto_trading_status')
-          .update(updateData)
+          .update(statusUpdateData)
           .eq('user_id', user.id);
-
         if (updateError) throw updateError;
-      } else {
+      } else if (Object.keys(statusUpdateData).length > 0) {
         const { error: insertError } = await supabase
           .from('auto_trading_status')
           .insert({
             user_id: user.id,
-            ...updateData,
+            ...statusUpdateData,
           });
-
         if (insertError) throw insertError;
       }
 
