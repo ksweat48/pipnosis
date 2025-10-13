@@ -2,10 +2,6 @@ import React from 'react';
 import { Activity, DollarSign, TrendingUp, TrendingDown, Clock, BarChart3 } from 'lucide-react';
 import { useActiveTrades, useTradeHistory } from '../hooks/useAPI';
 import { useAuth } from '../hooks/useAuth';
-import { useAnalysisViewMode } from '../hooks/useAnalysisViewMode';
-import { FxFlowScalperPanel } from './FxFlowScalperPanel';
-import { StrategyPerformanceWidget } from './StrategyPerformanceWidget';
-import { AutoTradingControls } from './AutoTradingControls';
 
 interface TradingDashboardProps {
   todayPnL: number;
@@ -19,7 +15,6 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
   totalBalance
 }) => {
   const { user } = useAuth();
-  const { viewMode } = useAnalysisViewMode();
   const { trades: activeTrades, isLoading: tradesLoading } = useActiveTrades(user?.id);
   const { trades: tradeHistory } = useTradeHistory(user?.id);
 
@@ -39,17 +34,6 @@ export const TradingDashboard: React.FC<TradingDashboardProps> = ({
 
   return (
     <div className="space-y-8">
-      {/* Auto Trading Strategy Panel - Only shown when in autotrading view mode */}
-      {viewMode === 'autotrading' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="space-y-6">
-            <FxFlowScalperPanel />
-            <AutoTradingControls />
-          </div>
-          <StrategyPerformanceWidget />
-        </div>
-      )}
-
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
         <div className="glass-card p-3 sm:p-4 lg:p-6">

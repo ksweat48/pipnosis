@@ -6,6 +6,9 @@ import { RealAIAnalysisPanel } from './RealAIAnalysisPanel';
 import { DataHealthIndicator } from './DataHealthIndicator';
 import { AutoTradingAnalysisPanel } from './AutoTradingAnalysisPanel';
 import { ChartAutoTradingIndicator } from './ChartAutoTradingIndicator';
+import { FxFlowScalperPanel } from './FxFlowScalperPanel';
+import { StrategyPerformanceWidget } from './StrategyPerformanceWidget';
+import { AutoTradingControls } from './AutoTradingControls';
 import { useAutoTradingStatus } from '../hooks/useAutoTradingStatus';
 import { CandlestickData, Time, HistogramData } from 'lightweight-charts';
 import { marketDataService, MarketDataListener, TickData } from '../services/market-data';
@@ -706,15 +709,27 @@ export const MarketChart: React.FC<MarketChartProps> = ({
           ) : preferences.show_ai_analysis && preferences.analysis_view_mode === 'technical' && aiAnalysis ? (
             <AIAnalysisPanel analysis={aiAnalysis} symbol={symbol} />
           ) : preferences.show_ai_analysis && preferences.analysis_view_mode === 'autotrading' ? (
-            <AutoTradingAnalysisPanel
-              symbols={symbolStatuses}
-              isActive={autoTradingStatus.isActive}
-              tradesRemaining={autoTradingStatus.tradesRemaining}
-              tradesTotal={autoTradingStatus.tradesToday + autoTradingStatus.tradesRemaining}
-              lastScanTime={autoTradingStatus.lastScanTime || undefined}
-              nextScanTime={autoTradingStatus.nextScanTime || undefined}
-              currentlyScanning={autoTradingStatus.scanningSymbol || undefined}
-            />
+            <div className="space-y-6">
+              {/* Auto Trading Strategy Panels */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-6">
+                  <FxFlowScalperPanel />
+                  <AutoTradingControls />
+                </div>
+                <StrategyPerformanceWidget />
+              </div>
+
+              {/* Multi-Symbol Scanner Analysis */}
+              <AutoTradingAnalysisPanel
+                symbols={symbolStatuses}
+                isActive={autoTradingStatus.isActive}
+                tradesRemaining={autoTradingStatus.tradesRemaining}
+                tradesTotal={autoTradingStatus.tradesToday + autoTradingStatus.tradesRemaining}
+                lastScanTime={autoTradingStatus.lastScanTime || undefined}
+                nextScanTime={autoTradingStatus.nextScanTime || undefined}
+                currentlyScanning={autoTradingStatus.scanningSymbol || undefined}
+              />
+            </div>
           ) : null}
         </div>
       ) : (
