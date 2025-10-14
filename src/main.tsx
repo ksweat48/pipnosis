@@ -12,6 +12,12 @@ console.log('Supabase URL:', import.meta.env.VITE_SUPABASE_URL);
 console.log('Supabase Key present:', !!import.meta.env.VITE_SUPABASE_ANON_KEY);
 
 window.addEventListener('unhandledrejection', (event) => {
+  if (errorHandler.isWebContainerError(event.reason)) {
+    event.preventDefault();
+    errorHandler.handleWebContainerTimeout(event.reason);
+    return;
+  }
+
   if (
     event.reason?.message?.includes('Failed to fetch') ||
     event.reason?.message?.includes('WebSocket') ||
@@ -19,6 +25,19 @@ window.addEventListener('unhandledrejection', (event) => {
   ) {
     event.preventDefault();
     errorHandler.handleNetworkError(event.reason);
+  }
+});
+
+window.addEventListener('error', (event) => {
+  if (errorHandler.isWebContainerError(event.error)) {
+    event.preventDefault();
+    errorHandler.handleWebContainerTimeout(event.error);
+    return;
+  }
+
+  if (event.message?.includes('preload')) {
+    event.preventDefault();
+    errorHandler.handleResourcePreloadWarning(event.filename || 'unknown resource');
   }
 });
 

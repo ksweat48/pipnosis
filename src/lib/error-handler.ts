@@ -45,6 +45,36 @@ class ErrorHandler {
     );
   }
 
+  handleWebContainerTimeout(error: any): void {
+    this.logWarning(
+      'WebContainer environment taking longer than expected to initialize. This is normal in cloud environments.',
+      'WebContainer'
+    );
+  }
+
+  handleResourcePreloadWarning(resource: string): void {
+    const errorKey = `preload:${resource}`;
+    const count = this.errorCounts.get(errorKey) || 0;
+
+    if (count === 0) {
+      this.logWarning(
+        `Resource preload issue detected for ${resource}. This won't affect functionality.`,
+        'ResourcePreload'
+      );
+      this.errorCounts.set(errorKey, count + 1);
+    }
+  }
+
+  isWebContainerError(error: any): boolean {
+    if (!error) return false;
+    const errorMessage = error.message || error.toString();
+    return (
+      errorMessage.includes('WebContainer') ||
+      errorMessage.includes('webcontainer') ||
+      errorMessage.includes('took longer than')
+    );
+  }
+
   isNetworkError(error: any): boolean {
     if (!error) return false;
 

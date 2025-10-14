@@ -2,22 +2,28 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 
 interface Props {
   children: ReactNode;
+  fallback?: ReactNode;
+  onError?: (error: Error, errorInfo: ErrorInfo) => void;
 }
 
 interface State {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
+  retryCount: number;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
+  private retryTimeout: NodeJS.Timeout | null = null;
+
   public state: State = {
     hasError: false,
     error: null,
-    errorInfo: null
+    errorInfo: null,
+    retryCount: 0,
   };
 
-  public static getDerivedStateFromError(error: Error): State {
+  public static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error, errorInfo: null };
   }
 
@@ -25,12 +31,37 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
     this.setState({
       error,
-      errorInfo
+      errorInfo,
     });
+
+    this.props.onError?.(error, errorInfo);
   }
+
+  public componentWillUnmount() {
+    if (this.retryTimeout) {
+      clearTimeout(this.retryTimeout);
+    }
+  }
+
+  private handleRetry = () => {
+    this.setState((prevState) => ({
+      hasError: false,
+      error: null,
+      errorInfo: null,
+      retryCount: prevState.retryCount + 1,
+    }));
+  };
+
+  private handleReload = () => {
+    window.location.reload();
+  };
 
   public render() {
     if (this.state.hasError) {
+      if (this.props.fallback) {
+        return this.props.fallback;
+      }
+
       return (
         <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex items-center justify-center p-4">
           <div className="max-w-2xl w-full glass-card p-8">
@@ -44,7 +75,8 @@ export class ErrorBoundary extends Component<Props, State> {
               <h1 className="text-2xl font-bold text-white">Something went wrong</h1>
 
               <p className="text-white/70">
-                The application encountered an unexpected error. Please try refreshing the page.
+                The application encountered an unexpected error.
+                {this.state.retryCount > 0 && ` (Retry attempt: ${this.state.retryCount})`}
               </p>
 
               {this.state.error && (
@@ -69,12 +101,22 @@ export class ErrorBoundary extends Component<Props, State> {
                 </details>
               )}
 
-              <button
-                onClick={() => window.location.reload()}
-                className="mt-6 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-lg transition-colors"
-              >
-                Reload Application
-              </button>
+              <div className="flex gap-3 justify-center mt-6">
+                {this.state.retryCount < 2 && (
+                  <button
+                    onClick={this.handleRetry}
+                    className="px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-lg transition-colors"
+                  >
+                    Try Again
+                  </button>
+                )}
+                <button
+                  onClick={this.handleReload}
+                  className="px-6 py-3 bg-slate-600 hover:bg-slate-700 text-white font-medium rounded-lg transition-colors"
+                >
+                  Reload Application
+                </button>
+              </div>
             </div>
           </div>
         </div>
