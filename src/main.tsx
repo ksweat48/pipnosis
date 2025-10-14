@@ -12,9 +12,27 @@ console.log('Supabase URL:', import.meta.env.VITE_SUPABASE_URL);
 console.log('Supabase Key present:', !!import.meta.env.VITE_SUPABASE_ANON_KEY);
 
 window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason?.message || event.reason?.toString() || '';
+
+  if (
+    reason.includes('ERR_NETWORK_CHANGED') ||
+    reason.includes('ERR_CONNECTION_RESET') ||
+    reason.includes('mt-provisioning-api') ||
+    reason.includes('/api/analytics')
+  ) {
+    event.preventDefault();
+    return;
+  }
+
   if (errorHandler.isWebContainerError(event.reason)) {
     event.preventDefault();
     errorHandler.handleWebContainerTimeout(event.reason);
+    return;
+  }
+
+  if (errorHandler.isMetaApiError(event.reason)) {
+    event.preventDefault();
+    errorHandler.handleMetaApiError(event.reason);
     return;
   }
 

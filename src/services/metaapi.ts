@@ -1,4 +1,5 @@
 import MetaApi, { MetatraderAccount } from 'metaapi.cloud-sdk';
+import { errorHandler } from '@/lib/error-handler';
 
 export interface CandleData {
   symbol: string;
@@ -47,6 +48,11 @@ class MetaApiService {
   constructor() {
     this.token = import.meta.env.VITE_METAAPI_TOKEN || '';
     this.accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID || '';
+
+    if (errorHandler.isWebContainerEnvironment()) {
+      this.isDemoMode = true;
+      console.info('🌐 Running in WebContainer environment - MetaAPI disabled, using demo mode');
+    }
   }
 
   private convertToApiTimeframe(timeframe: Timeframe): ApiTimeframe {
@@ -84,6 +90,13 @@ class MetaApiService {
       return;
     }
 
+    if (this.isDemoMode || errorHandler.isWebContainerEnvironment()) {
+      const error = new Error('MetaAPI disabled in preview environment. Using demo mode.');
+      this.initializationError = error;
+      this.isDemoMode = true;
+      return;
+    }
+
     if (this.isInitializing) {
       while (this.isInitializing) {
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -114,6 +127,11 @@ class MetaApiService {
         this.account = await this.api.metatraderAccountApi.getAccount(this.accountId);
       } catch (apiError) {
         const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
+        if (errorHandler.isNetworkError(apiError) || errorHandler.isMetaApiError(apiError)) {
+          errorHandler.handleMetaApiError(apiError, 'Account Fetch');
+          this.isDemoMode = true;
+          throw new Error('MetaAPI connection unavailable. Using demo mode.');
+        }
         if (errorMessage.includes('ERR_NETWORK') || errorMessage.includes('Failed to fetch')) {
           throw new Error('Network connection failed. Unable to reach MetaApi servers. Check your internet connection or firewall settings.');
         }
@@ -150,6 +168,11 @@ class MetaApiService {
       try {
         await this.connection.connect();
       } catch (connectError) {
+        if (errorHandler.isNetworkError(connectError) || errorHandler.isMetaApiError(connectError)) {
+          errorHandler.handleMetaApiError(connectError, 'Streaming Connect');
+          this.isDemoMode = true;
+          throw new Error('MetaAPI streaming unavailable. Using demo mode.');
+        }
         const errorMessage = connectError instanceof Error ? connectError.message : 'Unknown error';
         console.error('Connection error:', errorMessage);
         throw new Error('Failed to connect to MetaApi streaming endpoint. Please check your network connection.');

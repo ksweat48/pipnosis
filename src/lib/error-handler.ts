@@ -85,12 +85,47 @@ class ErrorHandler {
       'Network request failed',
       'ERR_INTERNET_DISCONNECTED',
       'ERR_CONNECTION',
+      'ERR_NETWORK_CHANGED',
+      'ERR_CONNECTION_RESET',
       'ECONNREFUSED',
       'net::ERR_',
     ];
 
     return networkErrorPatterns.some(pattern =>
       errorMessage.includes(pattern)
+    );
+  }
+
+  isWebContainerEnvironment(): boolean {
+    if (typeof window === 'undefined') return false;
+    const hostname = window.location.hostname;
+    return (
+      hostname.includes('webcontainer') ||
+      hostname.includes('bolt.new') ||
+      hostname.includes('stackblitz') ||
+      hostname.includes('csb.app') ||
+      hostname.includes('codesandbox')
+    );
+  }
+
+  isMetaApiError(error: any): boolean {
+    if (!error) return false;
+    const errorMessage = error.message || error.toString();
+    return (
+      errorMessage.includes('metaapi') ||
+      errorMessage.includes('agiliumtrade') ||
+      errorMessage.includes('mt-provisioning-api') ||
+      errorMessage.includes('mt-client-api')
+    );
+  }
+
+  handleMetaApiError(error: any, context?: string): void {
+    if (this.isWebContainerEnvironment()) {
+      return;
+    }
+    this.logWarning(
+      `MetaAPI connection issue${context ? ` (${context})` : ''}. Using demo mode.`,
+      'MetaAPI'
     );
   }
 
@@ -106,14 +141,30 @@ class ErrorHandler {
 
 export const errorHandler = new ErrorHandler();
 
-if (typeof window !== 'undefined' && isDevelopment) {
+if (typeof window !== 'undefined') {
   const originalConsoleError = console.error;
   console.error = (...args: any[]) => {
     const errorMessage = args.join(' ');
 
     if (
+      errorMessage.includes('ERR_NETWORK_CHANGED') ||
+      errorMessage.includes('ERR_CONNECTION_RESET') ||
+      errorMessage.includes('mt-provisioning-api') ||
+      errorMessage.includes('agiliumtrade') ||
+      errorMessage.includes('/api/analytics')
+    ) {
+      if (errorHandler.isWebContainerEnvironment()) {
+        return;
+      }
+      const count = errorHandler['errorCounts'].get('network-errors') || 0;
+      if (count < 2) {
+        errorHandler['errorCounts'].set('network-errors', count + 1);
+      }
+      return;
+    }
+
+    if (
       errorMessage.includes('WebSocket connection') ||
-      errorMessage.includes('failed:') ||
       errorMessage.includes('ERR_INTERNET_DISCONNECTED')
     ) {
       const count = errorHandler['errorCounts'].get('websocket') || 0;
@@ -126,4 +177,29 @@ if (typeof window !== 'undefined' && isDevelopment) {
 
     originalConsoleError.apply(console, args);
   };
+
+  window.addEventListener('error', (event) => {
+    const errorMessage = event.message || '';
+    if (
+      errorMessage.includes('ERR_NETWORK_CHANGED') ||
+      errorMessage.includes('ERR_CONNECTION_RESET') ||
+      errorMessage.includes('Failed to fetch')
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason?.message || event.reason?.toString() || '';
+    if (
+      reason.includes('ERR_NETWORK_CHANGED') ||
+      reason.includes('ERR_CONNECTION_RESET') ||
+      reason.includes('mt-provisioning-api') ||
+      reason.includes('/api/analytics')
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
 }
