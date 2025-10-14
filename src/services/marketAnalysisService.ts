@@ -6,6 +6,16 @@
 import { supabase } from '../lib/supabase';
 import { AiMarketSummary } from '../lib/aiMarketEngine';
 
+interface RetryConfig {
+  maxAttempts: number;
+  delayMs: number[];
+}
+
+const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxAttempts: 3,
+  delayMs: [100, 500, 2000]
+};
+
 export interface MarketAnalysisRecord {
   id?: string;
   symbol: string;
@@ -37,62 +47,162 @@ export interface MarketAnalysisRecord {
 }
 
 /**
- * Save or update market analysis in database
+ * Sleep utility for retry delays
+ */
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Validate analysis data before saving
+ */
+function validateAnalysisData(
+  symbol: string,
+  timeframe: string,
+  analysis: AiMarketSummary
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  if (!symbol || symbol.trim().length === 0) {
+    errors.push('Symbol is required');
+  }
+
+  if (!timeframe || timeframe.trim().length === 0) {
+    errors.push('Timeframe is required');
+  }
+
+  if (analysis.rsi.value < 0 || analysis.rsi.value > 100) {
+    errors.push(`Invalid RSI value: ${analysis.rsi.value}`);
+  }
+
+  if (analysis.sentiment.confidence < 0 || analysis.sentiment.confidence > 100) {
+    errors.push(`Invalid sentiment confidence: ${analysis.sentiment.confidence}`);
+  }
+
+  if (analysis.metadata.candlesAnalyzed < 1) {
+    errors.push(`Invalid candles analyzed: ${analysis.metadata.candlesAnalyzed}`);
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/**
+ * Save or update market analysis in database with retry logic
  */
 export async function saveMarketAnalysis(
   symbol: string,
   timeframe: string,
-  analysis: AiMarketSummary
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    const record: Partial<MarketAnalysisRecord> = {
+  analysis: AiMarketSummary,
+  retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG
+): Promise<{ success: boolean; error?: string; attempts?: number }> {
+  const validation = validateAnalysisData(symbol, timeframe, analysis);
+  if (!validation.valid) {
+    const errorMsg = `Validation failed: ${validation.errors.join(', ')}`;
+    console.error(`❌ ${errorMsg}`, {
       symbol,
       timeframe,
-      rsi_value: analysis.rsi.value,
-      rsi_status: analysis.rsi.status,
-      vwap_value: analysis.vwap.value,
-      vwap_position: analysis.vwap.position,
-      volume_status: analysis.volume.status,
-      volume_delta: analysis.volume.delta,
-      current_volume: analysis.volume.currentVolume,
-      average_volume: analysis.volume.averageVolume,
-      atr_value: analysis.atr.value,
-      atr_status: analysis.atr.status,
-      candle_signal_type: analysis.candleSignal.type,
-      candle_signal_strength: analysis.candleSignal.strength,
-      structure_type: analysis.structure.type,
-      structure_recent: analysis.structure.recent,
-      sentiment_status: analysis.sentiment.status,
-      sentiment_confidence: analysis.sentiment.confidence,
-      trade_signal_status: analysis.tradeSignal.status,
-      trade_signal_direction: analysis.tradeSignal.direction || null,
-      trade_signal_confidence: analysis.tradeSignal.confidence || null,
-      trade_signal_reason: analysis.tradeSignal.reason || null,
-      analyzed_at: analysis.metadata.timestamp.toISOString(),
-      candles_analyzed: analysis.metadata.candlesAnalyzed
-    };
-
-    const { data, error } = await supabase
-      .from('market_analysis')
-      .upsert(record, {
-        onConflict: 'symbol,timeframe'
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('❌ Failed to save market analysis:', error);
-      return { success: false, error: error.message };
-    }
-
-    console.log(`✅ Saved market analysis for ${symbol} ${timeframe}`);
-    return { success: true };
-
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-    console.error('❌ Exception saving market analysis:', errorMsg);
-    return { success: false, error: errorMsg };
+      errors: validation.errors
+    });
+    return { success: false, error: errorMsg, attempts: 0 };
   }
+
+  const record: Partial<MarketAnalysisRecord> = {
+    symbol,
+    timeframe,
+    rsi_value: analysis.rsi.value,
+    rsi_status: analysis.rsi.status,
+    vwap_value: analysis.vwap.value,
+    vwap_position: analysis.vwap.position,
+    volume_status: analysis.volume.status,
+    volume_delta: analysis.volume.delta,
+    current_volume: analysis.volume.currentVolume,
+    average_volume: analysis.volume.averageVolume,
+    atr_value: analysis.atr.value,
+    atr_status: analysis.atr.status,
+    candle_signal_type: analysis.candleSignal.type,
+    candle_signal_strength: analysis.candleSignal.strength,
+    structure_type: analysis.structure.type,
+    structure_recent: analysis.structure.recent,
+    sentiment_status: analysis.sentiment.status,
+    sentiment_confidence: analysis.sentiment.confidence,
+    trade_signal_status: analysis.tradeSignal.status,
+    trade_signal_direction: analysis.tradeSignal.direction || null,
+    trade_signal_confidence: analysis.tradeSignal.confidence || null,
+    trade_signal_reason: analysis.tradeSignal.reason || null,
+    analyzed_at: analysis.metadata.timestamp.toISOString(),
+    candles_analyzed: analysis.metadata.candlesAnalyzed
+  };
+
+  let lastError: any = null;
+
+  for (let attempt = 0; attempt < retryConfig.maxAttempts; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = retryConfig.delayMs[attempt - 1] || retryConfig.delayMs[retryConfig.delayMs.length - 1];
+        console.log(`⏳ Retry attempt ${attempt + 1}/${retryConfig.maxAttempts} for ${symbol} ${timeframe} after ${delay}ms delay`);
+        await sleep(delay);
+      }
+
+      const { data, error } = await supabase
+        .from('market_analysis')
+        .upsert(record, {
+          onConflict: 'symbol,timeframe'
+        })
+        .select()
+        .single();
+
+      if (error) {
+        lastError = error;
+        console.error(`❌ Database error (attempt ${attempt + 1}/${retryConfig.maxAttempts}):`, {
+          symbol,
+          timeframe,
+          errorCode: error.code,
+          errorMessage: error.message,
+          errorDetails: error.details,
+          errorHint: error.hint,
+          record: JSON.stringify(record, null, 2)
+        });
+
+        if (error.code === 'PGRST116' || error.message.includes('policy')) {
+          console.error('🔒 RLS Policy Error: Check that authenticated users have insert/update permissions');
+          return { success: false, error: `Permission denied: ${error.message}`, attempts: attempt + 1 };
+        }
+
+        if (error.code === '23505' || error.message.includes('duplicate')) {
+          console.error('🔄 Attempting update instead of insert due to duplicate constraint');
+        }
+
+        continue;
+      }
+
+      console.log(`✅ Successfully saved market analysis for ${symbol} ${timeframe}${attempt > 0 ? ` (after ${attempt + 1} attempts)` : ''}`);
+      return { success: true, attempts: attempt + 1 };
+
+    } catch (err) {
+      lastError = err;
+      console.error(`❌ Exception (attempt ${attempt + 1}/${retryConfig.maxAttempts}):`, {
+        symbol,
+        timeframe,
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        errorType: err?.constructor?.name
+      });
+    }
+  }
+
+  const finalErrorMsg = lastError?.message || String(lastError) || 'Unknown error after all retries';
+  console.error(`❌ Failed to save market analysis after ${retryConfig.maxAttempts} attempts:`, {
+    symbol,
+    timeframe,
+    finalError: finalErrorMsg,
+    errorDetails: lastError
+  });
+
+  return {
+    success: false,
+    error: finalErrorMsg,
+    attempts: retryConfig.maxAttempts
+  };
 }
 
 /**

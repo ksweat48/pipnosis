@@ -4,6 +4,7 @@ import { CandlestickChart } from './CandlestickChart';
 import { AIAnalysisPanel } from './AIAnalysisPanel';
 import { RealAIAnalysisPanel } from './RealAIAnalysisPanel';
 import { DataHealthIndicator } from './DataHealthIndicator';
+import { DataQualityWarning } from './DataQualityWarning';
 import { AutoTradingAnalysisPanel } from './AutoTradingAnalysisPanel';
 import { ChartAutoTradingIndicator } from './ChartAutoTradingIndicator';
 import { FxFlowScalperPanel } from './FxFlowScalperPanel';
@@ -168,6 +169,20 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       setDataSource('cache');
       setIsConnected(marketDataService.isConnected());
       setDataHealthStatus({ completeness: 100, gaps: 0, isValidating: false });
+
+      const qualityMetrics = marketDataService.getDataQualityMetrics(symbol, timeframe);
+      if (qualityMetrics) {
+        const hasErrors = qualityMetrics.errorCount > 0;
+        const hasWarnings = qualityMetrics.warningCount > 0;
+        setDataQualityStats({
+          hasErrors,
+          hasWarnings,
+          errorCount: qualityMetrics.errorCount,
+          warningCount: qualityMetrics.warningCount,
+          repairedCount: qualityMetrics.repairedCount
+        });
+        setShowDataQualityWarning(hasErrors || hasWarnings);
+      }
 
       Promise.resolve().then(async () => {
         try {
@@ -393,6 +408,14 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   } | null>(null);
   const { status: autoTradingStatus, symbolStatuses } = useAutoTradingStatus();
   const [nextScanCountdown, setNextScanCountdown] = useState<number>(0);
+  const [showDataQualityWarning, setShowDataQualityWarning] = useState(false);
+  const [dataQualityStats, setDataQualityStats] = useState<{
+    hasErrors: boolean;
+    hasWarnings: boolean;
+    errorCount: number;
+    warningCount: number;
+    repairedCount: number;
+  }>({ hasErrors: false, hasWarnings: false, errorCount: 0, warningCount: 0, repairedCount: 0 });
 
   useEffect(() => {
     if (candleData.length > 0) {
@@ -641,6 +664,17 @@ export const MarketChart: React.FC<MarketChartProps> = ({
         <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
           <p className="text-red-400 text-sm">{error}</p>
         </div>
+      )}
+
+      {showDataQualityWarning && (
+        <DataQualityWarning
+          hasErrors={dataQualityStats.hasErrors}
+          hasWarnings={dataQualityStats.hasWarnings}
+          errorCount={dataQualityStats.errorCount}
+          warningCount={dataQualityStats.warningCount}
+          repairedCount={dataQualityStats.repairedCount}
+          onDismiss={() => setShowDataQualityWarning(false)}
+        />
       )}
 
       {isLoading ? (

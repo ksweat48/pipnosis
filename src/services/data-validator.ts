@@ -200,11 +200,19 @@ export class DataValidator {
 
   logValidationResults(result: ValidationResult, context: string): void {
     if (!result.isValid) {
-      console.error(`❌ Validation failed for ${context}:`, result.errors);
+      console.error(`❌ Validation failed for ${context}:`);
+      result.errors.forEach((error, index) => {
+        console.error(`  ${index + 1}. ${error}`);
+      });
+      console.error(`Total errors: ${result.errors.length}`);
     }
 
     if (result.warnings.length > 0) {
-      console.warn(`⚠️ Validation warnings for ${context}:`, result.warnings);
+      console.warn(`⚠️ Validation warnings for ${context}:`);
+      result.warnings.forEach((warning, index) => {
+        console.warn(`  ${index + 1}. ${warning}`);
+      });
+      console.warn(`Total warnings: ${result.warnings.length}`);
     }
 
     if (result.isValid && result.warnings.length === 0) {

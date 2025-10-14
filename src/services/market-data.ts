@@ -25,9 +25,18 @@ export interface ChartCandleData {
   close: number;
 }
 
+export interface DataQualityMetrics {
+  errorCount: number;
+  warningCount: number;
+  repairedCount: number;
+  totalCandles: number;
+  lastUpdate: Date;
+}
+
 class MarketDataService {
   private activeSubscriptions: Map<string, Set<MarketDataListener>> = new Map();
   private reconnectAttempts: Map<string, number> = new Map();
+  private dataQualityMetrics: Map<string, DataQualityMetrics> = new Map();
   private maxReconnectAttempts = 5;
   private isInitialized = false;
   private initializationAttempted = false;
@@ -99,9 +108,27 @@ class MarketDataService {
         if (!quickLoad) {
           const validationResult = dataValidator.validateCandleSequence(liveCandles, timeframe);
           dataValidator.logValidationResults(validationResult, `${symbol} ${timeframe} API data`);
-          apiCandles = validationResult.isValid
-            ? liveCandles
-            : liveCandles.map(c => dataValidator.repairCandle(c));
+
+          const cacheKey = `${symbol}_${timeframe}`;
+          const metrics: DataQualityMetrics = {
+            errorCount: validationResult.isValid ? 0 : validationResult.errors.length,
+            warningCount: validationResult.warnings.length,
+            repairedCount: 0,
+            totalCandles: liveCandles.length,
+            lastUpdate: new Date()
+          };
+
+          if (!validationResult.isValid) {
+            console.log(`🔧 Auto-repairing ${liveCandles.length} candles for ${symbol} ${timeframe}...`);
+            const beforeRepair = liveCandles.length;
+            apiCandles = dataValidator.validateAndRepairCandleSequence(liveCandles, timeframe, false);
+            metrics.repairedCount = beforeRepair;
+            console.log(`✅ Candles repaired and ready for use`);
+          } else {
+            apiCandles = liveCandles;
+          }
+
+          this.dataQualityMetrics.set(cacheKey, metrics);
         } else {
           apiCandles = liveCandles;
         }
@@ -647,6 +674,20 @@ class MarketDataService {
           }
         });
       }
+    }
+  }
+
+  getDataQualityMetrics(symbol: string, timeframe: Timeframe): DataQualityMetrics | null {
+    const cacheKey = `${symbol}_${timeframe}`;
+    return this.dataQualityMetrics.get(cacheKey) || null;
+  }
+
+  clearDataQualityMetrics(symbol?: string, timeframe?: Timeframe): void {
+    if (symbol && timeframe) {
+      const cacheKey = `${symbol}_${timeframe}`;
+      this.dataQualityMetrics.delete(cacheKey);
+    } else {
+      this.dataQualityMetrics.clear();
     }
   }
 
