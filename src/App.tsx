@@ -377,35 +377,52 @@ const AppRoutes: React.FC = () => {
 };
 
 export default function App() {
-  const [dbValidated, setDbValidated] = useState(false);
+  const [dbValidated, setDbValidated] = useState(true);
   const [showSetupWizard, setShowSetupWizard] = useState(false);
 
   useEffect(() => {
     const runStartupDiagnostics = async () => {
-      logEnvironmentStatus();
+      try {
+        logEnvironmentStatus();
 
-      console.log('Running database connection validation...');
-      const validationResult = await connectionValidator.validateConnection();
+        console.log('Running non-blocking database connection validation...');
 
-      if (!validationResult.isValid) {
-        console.error('Database validation failed:', validationResult.errors);
-        setShowSetupWizard(true);
-        return;
+        const validationTimeout = setTimeout(() => {
+          console.warn('Database validation taking too long, allowing app to load anyway');
+          setDbValidated(true);
+        }, 3000);
+
+        const validationResult = await connectionValidator.validateConnection();
+        clearTimeout(validationTimeout);
+
+        if (!validationResult.isValid) {
+          console.warn('Database validation issues (non-blocking):', validationResult.warnings);
+          if (validationResult.errors.length > 0) {
+            console.error('Database errors (app will continue):', validationResult.errors);
+          }
+        }
+
+        console.log('Running background database diagnostics...');
+        const diagnostics = await runDatabaseDiagnostics();
+        logDiagnostics(diagnostics);
+
+        await verifyDatabaseSetup();
+
+        if (diagnostics.errors.length > 0) {
+          console.warn('⚠️ Database configuration issues detected (non-blocking). Some features may not work correctly.');
+          console.info('📖 See PRODUCTION_DATABASE_SETUP.md for detailed migration instructions');
+        }
+
+        setTimeout(() => {
+          console.log('Starting database health monitoring in background...');
+          dbHealthMonitor.startMonitoring();
+        }, 5000);
+
+        setDbValidated(true);
+      } catch (error) {
+        console.error('Startup diagnostics error (non-blocking):', error);
+        setDbValidated(true);
       }
-
-      console.log('Running database diagnostics...');
-      const diagnostics = await runDatabaseDiagnostics();
-      logDiagnostics(diagnostics);
-
-      await verifyDatabaseSetup();
-
-      if (diagnostics.errors.length > 0) {
-        console.error('⚠️ CRITICAL: Database configuration issues detected. The application may not function correctly.');
-        console.error('📖 Quick Fix: See PRODUCTION_DATABASE_SETUP.md for detailed migration instructions');
-      }
-
-      dbHealthMonitor.startMonitoring();
-      setDbValidated(true);
     };
 
     runStartupDiagnostics();
@@ -421,7 +438,7 @@ export default function App() {
         onComplete={() => {
           setShowSetupWizard(false);
           setDbValidated(true);
-          dbHealthMonitor.startMonitoring();
+          setTimeout(() => dbHealthMonitor.startMonitoring(), 2000);
         }}
       />
     );

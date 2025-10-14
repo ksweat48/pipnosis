@@ -40,26 +40,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { data, error } = await supabase
+      const timeoutPromise = new Promise<{ data: any; error: any }>((resolve) => {
+        setTimeout(() => {
+          resolve({ data: null, error: { message: 'Timeout', code: 'TIMEOUT' } });
+        }, 3000);
+      });
+
+      const queryPromise = supabase
         .from('user_profiles')
         .select('is_admin')
         .eq('id', userId)
         .maybeSingle();
 
-      if (error) {
-        console.error('Error checking admin status:', error);
+      const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
 
-        if (error.message.includes('500') || error.message.includes('Internal Server Error')) {
-          console.warn('Database error when checking admin status. Defaulting to non-admin.');
+      if (error) {
+        console.warn('Error checking admin status (non-blocking):', error.message);
+
+        if (error.code === 'TIMEOUT') {
+          console.warn('Admin status check timed out. Defaulting to non-admin.');
+          adminStatusCache.current[userId] = { value: false, timestamp: Date.now() };
           return false;
         }
 
-        if (retryCount < 2 && (error.message.includes('tected in policy') || error.message.includes('recursion'))) {
-          console.log(`Retrying admin status check (attempt ${retryCount + 1}/2)...`);
-          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+        if (error.message.includes('500') || error.message.includes('Internal Server Error')) {
+          console.warn('Database 500 error when checking admin status. Defaulting to non-admin.');
+          adminStatusCache.current[userId] = { value: false, timestamp: Date.now() };
+          return false;
+        }
+
+        if (retryCount < 1 && (error.message.includes('tected in policy') || error.message.includes('recursion'))) {
+          console.log(`Retrying admin status check (attempt ${retryCount + 1}/1)...`);
+          await new Promise(resolve => setTimeout(resolve, 500));
           return checkAdminStatus(userId, retryCount + 1);
         }
 
+        adminStatusCache.current[userId] = { value: false, timestamp: Date.now() };
         return false;
       }
 
@@ -67,14 +83,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       adminStatusCache.current[userId] = { value: adminStatus, timestamp: Date.now() };
       return adminStatus;
     } catch (error) {
-      console.error('Exception checking admin status:', error);
-
-      if (retryCount < 2) {
-        console.log(`Retrying admin status check after exception (attempt ${retryCount + 1}/2)...`);
-        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
-        return checkAdminStatus(userId, retryCount + 1);
-      }
-
+      console.warn('Exception checking admin status (non-blocking):', error);
+      adminStatusCache.current[userId] = { value: false, timestamp: Date.now() };
       return false;
     }
   };
@@ -82,11 +92,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const initAuth = async () => {
       try {
+        const sessionTimeout = setTimeout(() => {
+          console.warn('Session retrieval timed out, continuing without auth');
+          setSession(null);
+          setUser(null);
+          setIsAdmin(false);
+          setLoading(false);
+        }, 5000);
+
         const { data: { session }, error } = await supabase.auth.getSession();
+        clearTimeout(sessionTimeout);
+
         if (error) {
-          console.error('Error getting session:', error);
-          if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-            console.warn('Network error during auth initialization. App will continue without authentication.');
+          console.warn('Error getting session (non-blocking):', error.message);
+          if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError') || error.message.includes('500')) {
+            console.warn('Network/server error during auth initialization. App will continue without authentication.');
           }
         }
         setSession(session);
@@ -101,14 +121,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               console.log('Admin status verified for user:', session.user.email);
             }
           } catch (adminError) {
-            console.error('Failed to verify admin status after retries:', adminError);
+            console.warn('Failed to verify admin status (non-blocking):', adminError);
             setIsAdmin(false);
           }
         } else {
           setIsAdmin(false);
         }
       } catch (error) {
-        console.error('Error initializing auth:', error);
+        console.warn('Error initializing auth (non-blocking):', error);
         setSession(null);
         setUser(null);
         setIsAdmin(false);

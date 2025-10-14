@@ -20,23 +20,39 @@ export async function runDatabaseDiagnostics(): Promise<DatabaseDiagnostics> {
   };
 
   try {
-    const { data: healthCheck, error: healthError } = await supabase
+    const timeoutPromise = new Promise<{ data: any; error: any }>((resolve) => {
+      setTimeout(() => {
+        resolve({ data: null, error: { message: 'Timeout after 3 seconds', code: 'TIMEOUT' } });
+      }, 3000);
+    });
+
+    const queryPromise = supabase
       .from('market_data')
       .select('id')
       .limit(1)
       .maybeSingle();
 
+    const { data: healthCheck, error: healthError } = await Promise.race([queryPromise, timeoutPromise]);
+
     if (healthError) {
-      if (healthError.message.includes('does not exist') || healthError.code === 'PGRST204') {
-        diagnostics.errors.push('Table "market_data" does not exist in database');
+      if (healthError.code === 'TIMEOUT') {
+        diagnostics.warnings.push('Database health check timed out');
+        diagnostics.canConnect = false;
+        diagnostics.canRead = false;
+        return diagnostics;
+      } else if (healthError.message.includes('does not exist') || healthError.code === 'PGRST204') {
+        diagnostics.warnings.push('Table "market_data" does not exist in database');
         diagnostics.tableExists = false;
       } else if (healthError.message.includes('permission') || healthError.code === '42501') {
-        diagnostics.errors.push('Permission denied - RLS policies may be blocking access');
+        diagnostics.warnings.push('Permission denied - RLS policies may be blocking access');
         diagnostics.tableExists = true;
       } else if (healthError.message.includes('network') || healthError.message.includes('fetch')) {
-        diagnostics.errors.push('Network error - cannot reach Supabase database');
+        diagnostics.warnings.push('Network error - cannot reach Supabase database');
+      } else if (healthError.message.includes('500') || healthError.message.includes('Internal Server Error')) {
+        diagnostics.warnings.push('Database server error (500) - database may be unavailable');
+        console.error('Database 500 error in diagnostics:', healthError);
       } else {
-        diagnostics.errors.push(`Database error: ${healthError.message}`);
+        diagnostics.warnings.push(`Database error: ${healthError.message}`);
       }
       diagnostics.canConnect = false;
       diagnostics.canRead = false;
@@ -47,7 +63,8 @@ export async function runDatabaseDiagnostics(): Promise<DatabaseDiagnostics> {
     }
   } catch (error) {
     diagnostics.canConnect = false;
-    diagnostics.errors.push(`Connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    diagnostics.warnings.push(`Connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    console.warn('Database diagnostics exception (non-blocking):', error);
   }
 
   if (diagnostics.canRead) {
@@ -69,15 +86,27 @@ export async function runDatabaseDiagnostics(): Promise<DatabaseDiagnostics> {
         completed_at: new Date().toISOString()
       };
 
-      const { error: writeError } = await supabase
+      const writeTimeout = new Promise<{ error: any }>((resolve) => {
+        setTimeout(() => {
+          resolve({ error: { message: 'Write test timeout', code: 'TIMEOUT' } });
+        }, 2000);
+      });
+
+      const writeQuery = supabase
         .from('market_data')
         .upsert(testRow, {
           onConflict: 'symbol,timeframe,timestamp',
           ignoreDuplicates: false
         });
 
+      const { error: writeError } = await Promise.race([writeQuery, writeTimeout]);
+
       if (writeError) {
-        diagnostics.errors.push(`Write test failed: ${writeError.message}`);
+        if (writeError.code === 'TIMEOUT') {
+          diagnostics.warnings.push('Write test timed out');
+        } else {
+          diagnostics.warnings.push(`Write test failed: ${writeError.message}`);
+        }
         diagnostics.canWrite = false;
       } else {
         diagnostics.canWrite = true;
@@ -85,11 +114,13 @@ export async function runDatabaseDiagnostics(): Promise<DatabaseDiagnostics> {
         await supabase
           .from('market_data')
           .delete()
-          .eq('symbol', '__DIAGNOSTIC_TEST__');
+          .eq('symbol', '__DIAGNOSTIC_TEST__')
+          .then(() => {}, () => {});
       }
     } catch (error) {
-      diagnostics.errors.push(`Write test exception: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      diagnostics.warnings.push(`Write test exception: ${error instanceof Error ? error.message : 'Unknown error'}`);
       diagnostics.canWrite = false;
+      console.warn('Database write test exception (non-blocking):', error);
     }
   }
 
@@ -105,16 +136,16 @@ export async function runDatabaseDiagnostics(): Promise<DatabaseDiagnostics> {
 }
 
 export function logDiagnostics(diagnostics: DatabaseDiagnostics): void {
-  console.group('🔬 Database Diagnostics');
+  console.group('🔬 Database Diagnostics (Non-Blocking)');
 
-  console.log('Connection:', diagnostics.canConnect ? '✅ OK' : '❌ Failed');
-  console.log('Table Exists:', diagnostics.tableExists ? '✅ Yes' : '❌ No');
-  console.log('Read Access:', diagnostics.canRead ? '✅ OK' : '❌ Failed');
-  console.log('Write Access:', diagnostics.canWrite ? '✅ OK' : '❌ Failed');
+  console.log('Connection:', diagnostics.canConnect ? '✅ OK' : '⚠️ Failed (non-blocking)');
+  console.log('Table Exists:', diagnostics.tableExists ? '✅ Yes' : '⚠️ No (non-blocking)');
+  console.log('Read Access:', diagnostics.canRead ? '✅ OK' : '⚠️ Failed (non-blocking)');
+  console.log('Write Access:', diagnostics.canWrite ? '✅ OK' : '⚠️ Failed (non-blocking)');
 
   if (diagnostics.errors.length > 0) {
-    console.group('❌ Errors');
-    diagnostics.errors.forEach(error => console.error(error));
+    console.group('⚠️ Issues (Non-Blocking)');
+    diagnostics.errors.forEach(error => console.warn(error));
     console.groupEnd();
   }
 
@@ -127,7 +158,7 @@ export function logDiagnostics(diagnostics: DatabaseDiagnostics): void {
   if (diagnostics.canConnect && diagnostics.canRead && diagnostics.canWrite) {
     console.log('✅ All database checks passed');
   } else {
-    console.error('❌ Database diagnostics failed - check errors above');
+    console.warn('⚠️ Some database diagnostics failed - app will continue loading (check warnings above)');
   }
 
   console.groupEnd();
