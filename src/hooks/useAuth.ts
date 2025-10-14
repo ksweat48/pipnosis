@@ -30,7 +30,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
 
+  const adminStatusCache = React.useRef<{ [userId: string]: { value: boolean; timestamp: number } }>({});
+  const CACHE_DURATION = 5 * 60 * 1000;
+
   const checkAdminStatus = async (userId: string, retryCount = 0): Promise<boolean> => {
+    const cached = adminStatusCache.current[userId];
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      return cached.value;
+    }
+
     try {
       const { data, error } = await supabase
         .from('user_profiles')
@@ -41,6 +49,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) {
         console.error('Error checking admin status:', error);
 
+        if (error.message.includes('500') || error.message.includes('Internal Server Error')) {
+          console.warn('Database error when checking admin status. Defaulting to non-admin.');
+          return false;
+        }
+
         if (retryCount < 2 && (error.message.includes('tected in policy') || error.message.includes('recursion'))) {
           console.log(`Retrying admin status check (attempt ${retryCount + 1}/2)...`);
           await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
@@ -50,9 +63,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return false;
       }
 
-      return data?.is_admin || false;
+      const adminStatus = data?.is_admin || false;
+      adminStatusCache.current[userId] = { value: adminStatus, timestamp: Date.now() };
+      return adminStatus;
     } catch (error) {
-      console.error('Error checking admin status:', error);
+      console.error('Exception checking admin status:', error);
 
       if (retryCount < 2) {
         console.log(`Retrying admin status check after exception (attempt ${retryCount + 1}/2)...`);
