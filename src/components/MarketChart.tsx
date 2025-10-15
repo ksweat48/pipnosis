@@ -557,21 +557,29 @@ export const MarketChart: React.FC<MarketChartProps> = ({
         }
       );
 
-      setFixProgress(null);
-
       if (result.success) {
         const beforePercent = result.completenessImprovement.before.toFixed(0);
         const afterPercent = result.completenessImprovement.after.toFixed(0);
+        const gapChange = result.gapsFilled > 0 ? ` ${result.gapsFilled} gaps filled.` : '';
+
+        setFixProgress({ status: 'Reloading chart with fixed data...', percent: 95 });
+
+        setCandleData([]);
+        setVolumeData([]);
+        setDataHealthStatus({ completeness: 0, gaps: 0, isValidating: true });
+
+        await new Promise(resolve => setTimeout(resolve, 800));
+
+        await loadHistoricalData();
+
+        setFixProgress(null);
 
         setFixMessage({
           type: 'success',
-          text: `Fetched ${result.candlesFetched} candles. Data quality: ${beforePercent}% → ${afterPercent}%`
+          text: `Data repaired! Quality: ${beforePercent}% → ${afterPercent}%.${gapChange} ${result.candlesFetched} candles loaded.`
         });
-
-        setTimeout(() => {
-          loadHistoricalData();
-        }, 500);
       } else {
+        setFixProgress(null);
         setFixMessage({
           type: 'error',
           text: result.message
@@ -580,7 +588,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
       setTimeout(() => {
         setFixMessage(null);
-      }, 8000);
+      }, 10000);
     } catch (error) {
       setFixProgress(null);
       setFixMessage({

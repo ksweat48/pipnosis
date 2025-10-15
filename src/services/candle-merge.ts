@@ -95,20 +95,45 @@ export function detectGaps(
       const gapStart = new Date(prevTime + expectedIntervalMs);
       const gapEnd = new Date(currTime);
 
-      const missingTradingDays = marketHoursService.getTradingDaysBetween(gapStart, gapEnd);
-      const isWeekendOnly = missingTradingDays.length === 0;
+      const gapDurationHours = actualInterval / (60 * 60 * 1000);
+
+      const isWeekendGap = isLikelyWeekendGap(new Date(prevTime), new Date(currTime));
+      const missingTradingDays = isWeekendGap ? [] : marketHoursService.getTradingDaysBetween(gapStart, gapEnd);
+
+      const isTradingDayGap = !isWeekendGap && missingTradingDays.length > 0;
 
       gaps.push({
         start: gapStart,
         end: gapEnd,
-        isWeekend: isWeekendOnly,
-        isTradingDayGap: missingTradingDays.length > 0,
+        isWeekend: isWeekendGap,
+        isTradingDayGap,
         missingTradingDays
       });
     }
   }
 
   return gaps;
+}
+
+function isLikelyWeekendGap(prevTime: Date, currTime: Date): boolean {
+  const prevDay = prevTime.getUTCDay();
+  const currDay = currTime.getUTCDay();
+  const prevHour = prevTime.getUTCHours();
+  const currHour = currTime.getUTCHours();
+
+  const gapDurationHours = (currTime.getTime() - prevTime.getTime()) / (60 * 60 * 1000);
+
+  if (gapDurationHours < 40 || gapDurationHours > 72) {
+    return false;
+  }
+
+  if (prevDay === 5 && (prevHour >= 20 || prevHour <= 23)) {
+    if (currDay === 0 || currDay === 1) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function getTimeframeMinutes(timeframe: Timeframe): number {

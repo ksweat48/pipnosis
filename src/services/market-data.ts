@@ -357,13 +357,23 @@ class MarketDataService {
 
     const startTime = candles[0].time;
     const endTime = candles[candles.length - 1].time;
-    const totalMinutes = (endTime.getTime() - startTime.getTime()) / (60 * 1000);
 
     const timeframeMinutes = this.getTimeframeMinutes(timeframe);
-    const tradingDaysRatio = 5 / 7;
-    const expectedCandles = Math.floor((totalMinutes / timeframeMinutes) * tradingDaysRatio);
+    const timeSpanMs = endTime.getTime() - startTime.getTime();
+    const totalHours = timeSpanMs / (60 * 60 * 1000);
 
-    const completeness = expectedCandles > 0 ? (candles.length / expectedCandles) * 100 : 0;
+    const fullWeeks = Math.floor(totalHours / 168);
+    const remainingHours = totalHours % 168;
+
+    const tradingHoursPerWeek = 120;
+    const weekendHoursPerWeek = 48;
+    const tradingHoursPortion = Math.max(0, remainingHours - (remainingHours > 120 ? weekendHoursPerWeek : 0));
+
+    const totalTradingHours = (fullWeeks * tradingHoursPerWeek) + tradingHoursPortion;
+    const totalTradingMinutes = totalTradingHours * 60;
+
+    const expectedCandles = Math.floor(totalTradingMinutes / timeframeMinutes);
+    const completeness = expectedCandles > 0 ? Math.min(100, (candles.length / expectedCandles) * 100) : 0;
 
     return {
       isComplete: tradingDayGaps.length === 0 && completeness >= 98,
@@ -801,8 +811,14 @@ class MarketDataService {
       onProgress?.({ status: 'Saving to cache...', percent: 80 });
       await marketDataCache.saveCandles(finalCandles, true);
 
-      onProgress?.({ status: 'Verifying improvements...', percent: 90 });
-      const afterValidation = await this.validateDataCompleteness(symbol, timeframe, finalCandles);
+      onProgress?.({ status: 'Verifying saved data...', percent: 85 });
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const verifyCandles = await marketDataCache.getCachedCandles(symbol, timeframe, limit);
+      console.log(`🔍 Verification: ${verifyCandles.length} candles in cache after save`);
+
+      onProgress?.({ status: 'Calculating improvements...', percent: 90 });
+      const afterValidation = await this.validateDataCompleteness(symbol, timeframe, verifyCandles);
       const afterCompleteness = afterValidation.completeness;
 
       const improvement = afterCompleteness - beforeCompleteness;
