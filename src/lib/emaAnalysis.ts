@@ -101,8 +101,11 @@ export function calculateEMAsForChart(candles: Candle[]): EMAChartData {
   };
 
   if (candles.length < 5) {
+    console.log('[EMA] Insufficient candles for calculation:', candles.length);
     return result;
   }
+
+  console.log('[EMA] Starting calculation for', candles.length, 'candles');
 
   for (let i = 0; i < candles.length; i++) {
     const subset = candles.slice(0, i + 1);
@@ -113,15 +116,29 @@ export function calculateEMAsForChart(candles: Candle[]): EMAChartData {
       : Math.floor((candle.time as Date).getTime() / 1000)) as Time;
 
     for (const period of EMA_PERIODS) {
-      if (i >= period - 1) {
-        const emaValue = calculateEMA(closePrices, period);
-        result[period].push({
-          time,
-          value: emaValue
-        });
+      if (subset.length >= period) {
+        try {
+          const emaValue = calculateEMA(closePrices, period);
+          if (isFinite(emaValue) && emaValue > 0) {
+            result[period].push({
+              time,
+              value: emaValue
+            });
+          }
+        } catch (err) {
+          console.error(`[EMA] Error calculating EMA${period} at index ${i}:`, err);
+        }
       }
     }
   }
+
+  console.log('[EMA] Calculation complete:', {
+    ema5: result[5].length,
+    ema9: result[9].length,
+    ema21: result[21].length,
+    ema50: result[50].length,
+    ema200: result[200].length
+  });
 
   return result;
 }

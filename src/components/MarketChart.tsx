@@ -432,8 +432,9 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       const analysis = generateSampleAIAnalysis(displayPrice, highPrice, lowPrice, symbol);
       setAiAnalysis(analysis);
 
-      if (candleData.length >= 200) {
+      if (candleData.length >= 50) {
         try {
+          console.log('[MarketChart] Calculating EMAs for', candleData.length, 'candles');
           const candles = candleData.map(c => ({
             time: new Date((c.time as number) * 1000).toISOString(),
             open: c.open,
@@ -444,16 +445,31 @@ export const MarketChart: React.FC<MarketChartProps> = ({
           }));
 
           const emaData = calculateEMAsForChart(candles);
-          setEmaChartData({
-            ema5: emaData[5],
-            ema9: emaData[9],
-            ema21: emaData[21],
-            ema50: emaData[50],
-            ema200: emaData[200]
+          console.log('[MarketChart] EMA calculation returned:', {
+            ema5: emaData[5]?.length || 0,
+            ema9: emaData[9]?.length || 0,
+            ema21: emaData[21]?.length || 0,
+            ema50: emaData[50]?.length || 0,
+            ema200: emaData[200]?.length || 0
           });
+
+          if (emaData[5].length > 0 || emaData[21].length > 0 || emaData[200].length > 0) {
+            setEmaChartData({
+              ema5: emaData[5],
+              ema9: emaData[9],
+              ema21: emaData[21],
+              ema50: emaData[50],
+              ema200: emaData[200]
+            });
+            console.log('[MarketChart] EMA chart data state updated');
+          } else {
+            console.warn('[MarketChart] No EMA data generated');
+          }
         } catch (err) {
-          console.error('Failed to calculate EMA data:', err);
+          console.error('[MarketChart] Failed to calculate EMA data:', err);
         }
+      } else {
+        console.log('[MarketChart] Waiting for more candles before calculating EMAs:', candleData.length, '/ 50 minimum');
       }
     }
   }, [candleData, displayPrice, highPrice, lowPrice, symbol]);

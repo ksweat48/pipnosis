@@ -189,6 +189,9 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       lineStyle: 0,
       priceScaleId: 'right',
       title: 'EMA 21',
+      visible: true,
+      lastValueVisible: true,
+      priceLineVisible: false,
     });
 
     const ema200Series = chart.addSeries(LineSeries, {
@@ -197,6 +200,9 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       lineStyle: 0,
       priceScaleId: 'right',
       title: 'EMA 200',
+      visible: true,
+      lastValueVisible: true,
+      priceLineVisible: false,
     });
 
     const ema5Series = chart.addSeries(LineSeries, {
@@ -206,6 +212,8 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       priceScaleId: 'right',
       title: 'EMA 5',
       visible: preferences?.show_all_emas ?? false,
+      lastValueVisible: true,
+      priceLineVisible: false,
     });
 
     const ema9Series = chart.addSeries(LineSeries, {
@@ -215,6 +223,8 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       priceScaleId: 'right',
       title: 'EMA 9',
       visible: preferences?.show_all_emas ?? false,
+      lastValueVisible: true,
+      priceLineVisible: false,
     });
 
     const ema50Series = chart.addSeries(LineSeries, {
@@ -224,6 +234,8 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       priceScaleId: 'right',
       title: 'EMA 50',
       visible: preferences?.show_all_emas ?? false,
+      lastValueVisible: true,
+      priceLineVisible: false,
     });
 
     chartRef.current = chart;
@@ -236,6 +248,7 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
     ema50SeriesRef.current = ema50Series;
     ema200SeriesRef.current = ema200Series;
     setIsReady(true);
+    console.log('[CandlestickChart] Chart initialized with all series including EMAs');
 
     const handleResize = () => {
       if (chartContainerRef.current && chart) {
@@ -260,24 +273,38 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
     const isInitialLoad = lastDataLengthRef.current === 0;
 
     if (isInitialLoad) {
-      candlestickSeriesRef.current.setData(data);
+      const sortedData = [...data].sort((a, b) => (a.time as number) - (b.time as number));
+      candlestickSeriesRef.current.setData(sortedData);
       lastDataLengthRef.current = data.length;
       if (chartRef.current) {
         chartRef.current.timeScale().fitContent();
         isInitialLoadRef.current = false;
       }
+      console.log(`Chart: Initial load with ${sortedData.length} candles`);
       return;
     }
 
     if (isStructureChange) {
       if (data.length > lastDataLengthRef.current) {
         const newCandles = data.slice(lastDataLengthRef.current);
-        newCandles.forEach(candle => {
-          candlestickSeriesRef.current?.update(candle);
-        });
-        console.log(`Chart: Added ${newCandles.length} new candle(s)`);
+        const lastExistingTime = lastDataLengthRef.current > 0 ? (data[lastDataLengthRef.current - 1].time as number) : 0;
+
+        const validNewCandles = newCandles.filter(candle => (candle.time as number) > lastExistingTime);
+
+        if (validNewCandles.length > 0) {
+          validNewCandles.forEach(candle => {
+            candlestickSeriesRef.current?.update(candle);
+          });
+          console.log(`Chart: Added ${validNewCandles.length} new candle(s)`);
+        } else {
+          console.log('Chart: Using setData due to timestamp conflict');
+          const sortedData = [...data].sort((a, b) => (a.time as number) - (b.time as number));
+          candlestickSeriesRef.current.setData(sortedData);
+        }
       } else {
-        candlestickSeriesRef.current.setData(data);
+        const sortedData = [...data].sort((a, b) => (a.time as number) - (b.time as number));
+        candlestickSeriesRef.current.setData(sortedData);
+        console.log('Chart: Data shrunk, using setData');
       }
       lastDataLengthRef.current = data.length;
     } else if (data.length > 0) {
@@ -286,7 +313,13 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
         processingRef.current = true;
         requestAnimationFrame(() => {
           if (candlestickSeriesRef.current) {
-            candlestickSeriesRef.current.update(lastCandle);
+            try {
+              candlestickSeriesRef.current.update(lastCandle);
+            } catch (err) {
+              console.warn('Chart update failed, using setData:', err);
+              const sortedData = [...data].sort((a, b) => (a.time as number) - (b.time as number));
+              candlestickSeriesRef.current?.setData(sortedData);
+            }
           }
           processingRef.current = false;
         });
@@ -301,7 +334,8 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
     const isInitialLoad = lastVolumeLengthRef.current === 0;
 
     if (isInitialLoad) {
-      volumeSeriesRef.current.setData(volumeData);
+      const sortedVolume = [...volumeData].sort((a, b) => (a.time as number) - (b.time as number));
+      volumeSeriesRef.current.setData(sortedVolume);
       lastVolumeLengthRef.current = volumeData.length;
       return;
     }
@@ -309,16 +343,31 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
     if (isStructureChange) {
       if (volumeData.length > lastVolumeLengthRef.current) {
         const newVolumes = volumeData.slice(lastVolumeLengthRef.current);
-        newVolumes.forEach(volume => {
-          volumeSeriesRef.current?.update(volume);
-        });
+        const lastExistingTime = lastVolumeLengthRef.current > 0 ? (volumeData[lastVolumeLengthRef.current - 1].time as number) : 0;
+
+        const validNewVolumes = newVolumes.filter(volume => (volume.time as number) > lastExistingTime);
+
+        if (validNewVolumes.length > 0) {
+          validNewVolumes.forEach(volume => {
+            volumeSeriesRef.current?.update(volume);
+          });
+        } else {
+          const sortedVolume = [...volumeData].sort((a, b) => (a.time as number) - (b.time as number));
+          volumeSeriesRef.current.setData(sortedVolume);
+        }
       } else {
-        volumeSeriesRef.current.setData(volumeData);
+        const sortedVolume = [...volumeData].sort((a, b) => (a.time as number) - (b.time as number));
+        volumeSeriesRef.current.setData(sortedVolume);
       }
       lastVolumeLengthRef.current = volumeData.length;
     } else if (volumeData.length > 0) {
       const lastVolume = volumeData[volumeData.length - 1];
-      volumeSeriesRef.current.update(lastVolume);
+      try {
+        volumeSeriesRef.current.update(lastVolume);
+      } catch (err) {
+        const sortedVolume = [...volumeData].sort((a, b) => (a.time as number) - (b.time as number));
+        volumeSeriesRef.current.setData(sortedVolume);
+      }
     }
   }, [volumeData, isReady]);
 
@@ -357,22 +406,47 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
   }, [aiAnalysis, isReady, data]);
 
   useEffect(() => {
-    if (!isReady || !emaData) return;
+    if (!isReady || !emaData) {
+      console.log('[CandlestickChart] EMA update skipped:', { isReady, hasEmaData: !!emaData });
+      return;
+    }
 
-    if (emaData.ema5 && ema5SeriesRef.current) {
-      ema5SeriesRef.current.setData(emaData.ema5);
-    }
-    if (emaData.ema9 && ema9SeriesRef.current) {
-      ema9SeriesRef.current.setData(emaData.ema9);
-    }
-    if (emaData.ema21 && ema21SeriesRef.current) {
-      ema21SeriesRef.current.setData(emaData.ema21);
-    }
-    if (emaData.ema50 && ema50SeriesRef.current) {
-      ema50SeriesRef.current.setData(emaData.ema50);
-    }
-    if (emaData.ema200 && ema200SeriesRef.current) {
-      ema200SeriesRef.current.setData(emaData.ema200);
+    console.log('[CandlestickChart] Updating EMA series:', {
+      ema5Length: emaData.ema5?.length || 0,
+      ema9Length: emaData.ema9?.length || 0,
+      ema21Length: emaData.ema21?.length || 0,
+      ema50Length: emaData.ema50?.length || 0,
+      ema200Length: emaData.ema200?.length || 0
+    });
+
+    try {
+      if (emaData.ema5 && emaData.ema5.length > 0 && ema5SeriesRef.current) {
+        const sortedEma5 = [...emaData.ema5].sort((a, b) => (a.time as number) - (b.time as number));
+        ema5SeriesRef.current.setData(sortedEma5);
+        console.log('[CandlestickChart] EMA5 updated with', sortedEma5.length, 'points');
+      }
+      if (emaData.ema9 && emaData.ema9.length > 0 && ema9SeriesRef.current) {
+        const sortedEma9 = [...emaData.ema9].sort((a, b) => (a.time as number) - (b.time as number));
+        ema9SeriesRef.current.setData(sortedEma9);
+        console.log('[CandlestickChart] EMA9 updated with', sortedEma9.length, 'points');
+      }
+      if (emaData.ema21 && emaData.ema21.length > 0 && ema21SeriesRef.current) {
+        const sortedEma21 = [...emaData.ema21].sort((a, b) => (a.time as number) - (b.time as number));
+        ema21SeriesRef.current.setData(sortedEma21);
+        console.log('[CandlestickChart] EMA21 updated with', sortedEma21.length, 'points');
+      }
+      if (emaData.ema50 && emaData.ema50.length > 0 && ema50SeriesRef.current) {
+        const sortedEma50 = [...emaData.ema50].sort((a, b) => (a.time as number) - (b.time as number));
+        ema50SeriesRef.current.setData(sortedEma50);
+        console.log('[CandlestickChart] EMA50 updated with', sortedEma50.length, 'points');
+      }
+      if (emaData.ema200 && emaData.ema200.length > 0 && ema200SeriesRef.current) {
+        const sortedEma200 = [...emaData.ema200].sort((a, b) => (a.time as number) - (b.time as number));
+        ema200SeriesRef.current.setData(sortedEma200);
+        console.log('[CandlestickChart] EMA200 updated with', sortedEma200.length, 'points');
+      }
+    } catch (err) {
+      console.error('[CandlestickChart] Error updating EMA series:', err);
     }
   }, [emaData, isReady]);
 
@@ -572,6 +646,9 @@ export const CandlestickChart = memo(CandlestickChartComponent, (prevProps, next
     prevProps.data[prevProps.data.length - 1]?.time === nextProps.data[nextProps.data.length - 1]?.time &&
     prevProps.data[prevProps.data.length - 1]?.close === nextProps.data[nextProps.data.length - 1]?.close &&
     prevProps.volumeData?.length === nextProps.volumeData?.length &&
+    prevProps.emaData?.ema5?.length === nextProps.emaData?.ema5?.length &&
+    prevProps.emaData?.ema21?.length === nextProps.emaData?.ema21?.length &&
+    prevProps.emaData?.ema200?.length === nextProps.emaData?.ema200?.length &&
     prevProps.height === nextProps.height &&
     prevProps.preferences?.theme === nextProps.preferences?.theme &&
     prevProps.preferences?.show_grid === nextProps.preferences?.show_grid &&
