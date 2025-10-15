@@ -36,14 +36,21 @@ class MarketDataCache {
   async getCachedCandles(
     symbol: string,
     timeframe: Timeframe,
-    limit: number = 500
+    limit: number = 500,
+    includeIncomplete: boolean = false
   ): Promise<CandleData[]> {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('market_data')
         .select('*')
         .eq('symbol', symbol)
-        .eq('timeframe', timeframe)
+        .eq('timeframe', timeframe);
+
+      if (!includeIncomplete) {
+        query = query.eq('is_complete', true);
+      }
+
+      const { data, error } = await query
         .order('timestamp', { ascending: false })
         .limit(limit);
 
@@ -56,6 +63,46 @@ class MarketDataCache {
       return candles.reverse();
     } catch (error) {
       console.error('Error in getCachedCandles:', error);
+      return [];
+    }
+  }
+
+  async getCachedCandlesWithCurrent(
+    symbol: string,
+    timeframe: Timeframe,
+    limit: number = 500
+  ): Promise<CandleData[]> {
+    try {
+      const completeCandles = await this.getCompleteCandles(symbol, timeframe, limit);
+
+      const { data, error } = await supabase
+        .from('market_data')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('timeframe', timeframe)
+        .eq('is_complete', false)
+        .order('timestamp', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data) {
+        return completeCandles;
+      }
+
+      const currentCandle = this.rowToCandleData(data);
+
+      if (completeCandles.length === 0) {
+        return [currentCandle];
+      }
+
+      const lastCompleteTime = completeCandles[completeCandles.length - 1].time.getTime();
+      if (currentCandle.time.getTime() >= lastCompleteTime) {
+        return [...completeCandles, currentCandle];
+      }
+
+      return completeCandles;
+    } catch (error) {
+      console.error('Error in getCachedCandlesWithCurrent:', error);
       return [];
     }
   }

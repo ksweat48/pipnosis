@@ -1,5 +1,6 @@
 import { metaApiService, CandleData, Timeframe, TickData } from './metaapi';
 import { marketDataCache } from './market-data-cache';
+import { candleCompletionService } from './candle-completion';
 import { Time } from 'lightweight-charts';
 import { getCandleOpenTime, isNewCandlePeriod, calculateStartTime as utilCalculateStartTime } from './candle-utils';
 import { dataValidator } from './data-validator';
@@ -154,7 +155,7 @@ class MarketDataService {
       }
     }
 
-    const recentLiveCandles = await marketDataCache.getRecentLiveCandles(
+    const recentLiveCandles = await marketDataCache.getCompleteCandles(
       symbol,
       timeframe,
       100
@@ -513,8 +514,10 @@ class MarketDataService {
       this.isDemoMode = false;
 
       dbHealthMonitor.startMonitoring();
+      candleCompletionService.start();
       console.log('✅ Market data service initialized successfully');
       console.log('🔍 Database health monitoring active');
+      console.log('🔄 Candle completion service active');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
@@ -540,9 +543,29 @@ class MarketDataService {
     this.reconnectAttempts.clear();
     this.symbolsInitialized.clear();
     dbHealthMonitor.stopMonitoring();
+    candleCompletionService.stop();
     timeframeBackfillService.stop();
     await multiTimeframeAggregator.stop();
     await metaApiService.disconnect();
+  }
+
+  async getHistoricalDataWithCurrent(
+    symbol: string,
+    timeframe: Timeframe,
+    limit: number = 500
+  ): Promise<CandleData[]> {
+    const candles = await marketDataCache.getCachedCandlesWithCurrent(
+      symbol,
+      timeframe,
+      limit
+    );
+
+    if (candles.length === 0 && !this.isDemoMode) {
+      const fetchedCandles = await this.getHistoricalData(symbol, timeframe, limit, true, false);
+      return fetchedCandles;
+    }
+
+    return candles;
   }
 
   private handleCandleUpdate(key: string, candle: CandleData): void {

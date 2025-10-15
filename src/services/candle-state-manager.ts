@@ -103,7 +103,7 @@ class CandleStateManager {
       };
 
       this.currentCandles.set(key, currentCandle);
-      console.log(`🆕 New candle started: ${symbol} ${timeframe} @ ${candleOpenTime.toISOString()}`);
+      console.log(`🆕 New incomplete candle started: ${symbol} ${timeframe} @ ${candleOpenTime.toISOString()}`);
     } else {
       currentCandle.high = Math.max(currentCandle.high, tickPrice);
       currentCandle.low = Math.min(currentCandle.low, tickPrice);
@@ -115,6 +115,29 @@ class CandleStateManager {
     this.schedulePersistence(key, currentCandle);
 
     return currentCandle;
+  }
+
+  shouldCandleBeComplete(candle: CandleState): boolean {
+    const now = new Date();
+    const timeframeMinutes = this.getTimeframeMinutes(candle.timeframe);
+    const candleEndTime = new Date(candle.timestamp.getTime() + timeframeMinutes * 60 * 1000);
+
+    return now >= candleEndTime;
+  }
+
+  private getTimeframeMinutes(timeframe: Timeframe): number {
+    const map: Record<Timeframe, number> = {
+      M1: 1,
+      M5: 5,
+      M15: 15,
+      M30: 30,
+      H1: 60,
+      H4: 240,
+      D1: 1440,
+      W1: 10080,
+      MN1: 43200
+    };
+    return map[timeframe] || 15;
   }
 
   updateCandleWithCandleData(candle: CandleData): CandleState {

@@ -23,6 +23,7 @@ interface CandlestickChartProps {
   };
   height?: number;
   preferences?: ChartPreferences;
+  hasIncompleteCandle?: boolean;
 }
 
 const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
@@ -33,7 +34,8 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
   emaData,
   tradeLines,
   height = 400,
-  preferences
+  preferences,
+  hasIncompleteCandle = false
 }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
