@@ -118,22 +118,24 @@ export function detectGaps(
 function isLikelyWeekendGap(prevTime: Date, currTime: Date): boolean {
   const prevDay = prevTime.getUTCDay();
   const currDay = currTime.getUTCDay();
-  const prevHour = prevTime.getUTCHours();
-  const currHour = currTime.getUTCHours();
 
   const gapDurationHours = (currTime.getTime() - prevTime.getTime()) / (60 * 60 * 1000);
 
-  if (gapDurationHours < 40 || gapDurationHours > 72) {
-    return false;
-  }
+  if (gapDurationHours >= 40 && gapDurationHours <= 72) {
+    if ((prevDay === 5 || prevDay === 6) && (currDay === 0 || currDay === 1)) {
+      return true;
+    }
 
-  if (prevDay === 5 && (prevHour >= 20 || prevHour <= 23)) {
-    if (currDay === 0 || currDay === 1) {
+    if (prevDay === 5 && currDay === 0) {
+      return true;
+    }
+
+    if (prevDay === 5 && currDay === 1 && gapDurationHours >= 48) {
       return true;
     }
   }
 
-  return false;
+  return marketHoursService.isWeekend(prevTime) || marketHoursService.isWeekend(currTime);
 }
 
 function getTimeframeMinutes(timeframe: Timeframe): number {

@@ -359,20 +359,13 @@ class MarketDataService {
     const endTime = candles[candles.length - 1].time;
 
     const timeframeMinutes = this.getTimeframeMinutes(timeframe);
-    const timeSpanMs = endTime.getTime() - startTime.getTime();
-    const totalHours = timeSpanMs / (60 * 60 * 1000);
 
-    const fullWeeks = Math.floor(totalHours / 168);
-    const remainingHours = totalHours % 168;
+    const tradingDays = marketHoursService.getTradingDaysBetween(startTime, endTime);
+    const totalTradingDays = tradingDays.length;
 
-    const tradingHoursPerWeek = 120;
-    const weekendHoursPerWeek = 48;
-    const tradingHoursPortion = Math.max(0, remainingHours - (remainingHours > 120 ? weekendHoursPerWeek : 0));
+    const candlesPerDay = (24 * 60) / timeframeMinutes;
+    const expectedCandles = Math.floor(totalTradingDays * candlesPerDay);
 
-    const totalTradingHours = (fullWeeks * tradingHoursPerWeek) + tradingHoursPortion;
-    const totalTradingMinutes = totalTradingHours * 60;
-
-    const expectedCandles = Math.floor(totalTradingMinutes / timeframeMinutes);
     const completeness = expectedCandles > 0 ? Math.min(100, (candles.length / expectedCandles) * 100) : 0;
 
     return {

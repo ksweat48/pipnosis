@@ -253,8 +253,17 @@ class GapDetectionService {
 
       if (actualInterval > expectedIntervalMs * 1.5) {
         const durationHours = actualInterval / (1000 * 60 * 60);
-        const missingCandles = Math.floor(actualInterval / expectedIntervalMs) - 1;
         const isTradingHours = this.isInTradingHours(prevTime, currTime);
+
+        const gapStart = new Date(prevTime.getTime() + expectedIntervalMs);
+        const gapEnd = currTime;
+
+        const tradingDaysInGap = marketHoursService.getTradingDaysBetween(gapStart, gapEnd);
+        const expectedTradingHours = tradingDaysInGap.length * 24;
+        const expectedTradingMinutes = expectedTradingHours * 60;
+        const expectedCandlesInGap = Math.floor(expectedTradingMinutes / this.getTimeframeMinutes(timeframe));
+
+        const missingCandles = Math.max(1, expectedCandlesInGap);
 
         let severity: 'critical' | 'moderate' | 'minor';
         if (missingCandles > 20 && isTradingHours) {
@@ -266,8 +275,8 @@ class GapDetectionService {
         }
 
         gaps.push({
-          startTime: new Date(prevTime.getTime() + expectedIntervalMs),
-          endTime: currTime,
+          startTime: gapStart,
+          endTime: gapEnd,
           durationHours,
           missingCandles,
           isTradingHours,
