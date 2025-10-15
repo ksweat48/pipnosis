@@ -691,6 +691,164 @@ class MarketDataService {
     }
   }
 
+  async fetchAndFillMissingCandles(
+    symbol: string,
+    timeframe: Timeframe,
+    limit: number = 1000,
+    onProgress?: (progress: { status: string; percent: number }) => void
+  ): Promise<{
+    success: boolean;
+    candlesFetched: number;
+    gapsFilled: number;
+    completenessImprovement: { before: number; after: number };
+    message: string;
+  }> {
+    try {
+      console.log(`🔧 Starting comprehensive data fix for ${symbol} ${timeframe}...`);
+
+      onProgress?.({ status: 'Analyzing current data...', percent: 10 });
+
+      const currentCandles = await this.getHistoricalData(symbol, timeframe, limit, true, false);
+      const currentValidation = await this.validateDataCompleteness(symbol, timeframe, currentCandles);
+      const beforeCompleteness = currentValidation.completeness;
+
+      console.log(`📊 Current state: ${currentCandles.length} candles, ${beforeCompleteness.toFixed(1)}% complete, ${currentValidation.gaps} gaps`);
+
+      if (!this.isInitialized || this.isDemoMode) {
+        console.log('⚠️ MetaAPI not available, can only validate existing data');
+        const validationResult = dataValidator.validateCandleSequence(currentCandles, timeframe);
+
+        if (!validationResult.isValid) {
+          const repairedCandles = dataValidator.validateAndRepairCandleSequence(currentCandles, timeframe, false);
+          await marketDataCache.saveCandles(repairedCandles, true);
+
+          return {
+            success: true,
+            candlesFetched: 0,
+            gapsFilled: 0,
+            completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
+            message: `Repaired ${validationResult.errors.length} invalid candles (MetaAPI unavailable for fetching missing data)`
+          };
+        }
+
+        return {
+          success: false,
+          candlesFetched: 0,
+          gapsFilled: 0,
+          completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
+          message: 'MetaAPI not available. Cannot fetch missing candles.'
+        };
+      }
+
+      onProgress?.({ status: 'Clearing stale cache...', percent: 20 });
+      await marketDataCache.clearSymbolTimeframe(symbol, timeframe);
+
+      onProgress?.({ status: 'Fetching fresh data from MetaAPI...', percent: 30 });
+
+      const endTime = new Date();
+      const startTime = utilCalculateStartTime(timeframe, limit, endTime);
+
+      console.log(`📡 Requesting ${limit} candles from MetaAPI for ${symbol} ${timeframe}...`);
+      console.log(`   Date range: ${startTime.toISOString()} to ${endTime.toISOString()}`);
+
+      let freshCandles: CandleData[] = [];
+      try {
+        freshCandles = await metaApiService.getHistoricalCandles(
+          symbol,
+          timeframe,
+          startTime,
+          limit
+        );
+
+        console.log(`✅ Received ${freshCandles.length} candles from MetaAPI`);
+      } catch (apiError) {
+        console.error('❌ Failed to fetch from MetaAPI:', apiError);
+        return {
+          success: false,
+          candlesFetched: 0,
+          gapsFilled: 0,
+          completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
+          message: 'Failed to fetch data from MetaAPI. Please check connection and try again.'
+        };
+      }
+
+      if (freshCandles.length === 0) {
+        return {
+          success: false,
+          candlesFetched: 0,
+          gapsFilled: 0,
+          completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
+          message: 'MetaAPI returned no data for this symbol/timeframe'
+        };
+      }
+
+      onProgress?.({ status: 'Validating and repairing data...', percent: 60 });
+
+      const validationResult = dataValidator.validateCandleSequence(freshCandles, timeframe);
+      console.log(`📊 Fresh data validation: ${validationResult.isValid ? 'valid' : `${validationResult.errors.length} errors`}`);
+
+      let finalCandles = freshCandles;
+      if (!validationResult.isValid) {
+        console.log('🔧 Auto-repairing fetched candles...');
+        finalCandles = dataValidator.validateAndRepairCandleSequence(freshCandles, timeframe, false);
+      }
+
+      onProgress?.({ status: 'Detecting gaps...', percent: 70 });
+      const gaps = detectGaps(finalCandles, timeframe);
+      const tradingGaps = gaps.filter(g => g.isTradingDayGap);
+      console.log(`🔍 Gap analysis: ${gaps.length} total gaps, ${tradingGaps.length} during trading hours`);
+
+      onProgress?.({ status: 'Saving to cache...', percent: 80 });
+      await marketDataCache.saveCandles(finalCandles, true);
+
+      onProgress?.({ status: 'Verifying improvements...', percent: 90 });
+      const afterValidation = await this.validateDataCompleteness(symbol, timeframe, finalCandles);
+      const afterCompleteness = afterValidation.completeness;
+
+      const improvement = afterCompleteness - beforeCompleteness;
+      const candlesFetched = finalCandles.length - currentCandles.length;
+
+      const cacheKey = `${symbol}_${timeframe}`;
+      const metrics: DataQualityMetrics = {
+        errorCount: 0,
+        warningCount: afterValidation.gaps,
+        repairedCount: validationResult.errors.length,
+        totalCandles: finalCandles.length,
+        lastUpdate: new Date()
+      };
+      this.dataQualityMetrics.set(cacheKey, metrics);
+
+      onProgress?.({ status: 'Complete!', percent: 100 });
+
+      const message = `Successfully fetched ${finalCandles.length} candles. Data quality improved from ${beforeCompleteness.toFixed(0)}% to ${afterCompleteness.toFixed(0)}%.`;
+
+      console.log(`✅ ${message}`);
+      console.log(`   New candles: ${candlesFetched}`);
+      console.log(`   Remaining gaps: ${afterValidation.gaps}`);
+
+      return {
+        success: true,
+        candlesFetched: finalCandles.length,
+        gapsFilled: Math.max(0, currentValidation.gaps - afterValidation.gaps),
+        completenessImprovement: {
+          before: beforeCompleteness,
+          after: afterCompleteness
+        },
+        message
+      };
+
+    } catch (error) {
+      console.error('❌ Comprehensive data fix failed:', error);
+      return {
+        success: false,
+        candlesFetched: 0,
+        gapsFilled: 0,
+        completenessImprovement: { before: 0, after: 0 },
+        message: error instanceof Error ? error.message : 'Failed to fix data'
+      };
+    }
+  }
+
   async manuallyFixDataGaps(
     symbol: string,
     timeframe: Timeframe,
@@ -699,52 +857,12 @@ class MarketDataService {
     try {
       console.log(`🔧 Starting manual data repair for ${symbol} ${timeframe}...`);
 
-      const candles = await this.getHistoricalData(symbol, timeframe, limit, true, false);
+      const result = await this.fetchAndFillMissingCandles(symbol, timeframe, limit);
 
-      if (candles.length === 0) {
-        return {
-          success: false,
-          repairedCount: 0,
-          message: 'No data available to repair'
-        };
-      }
-
-      const beforeRepair = candles.length;
-      const validationResult = dataValidator.validateCandleSequence(candles, timeframe);
-
-      console.log(`📊 Validation results:`, {
-        errors: validationResult.errors.length,
-        warnings: validationResult.warnings.length
-      });
-
-      if (!validationResult.isValid) {
-        const repairedCandles = dataValidator.validateAndRepairCandleSequence(candles, timeframe, false);
-        await marketDataCache.saveCandles(repairedCandles, true);
-
-        const cacheKey = `${symbol}_${timeframe}`;
-        const metrics: DataQualityMetrics = {
-          errorCount: 0,
-          warningCount: 0,
-          repairedCount: validationResult.errors.length,
-          totalCandles: repairedCandles.length,
-          lastUpdate: new Date()
-        };
-        this.dataQualityMetrics.set(cacheKey, metrics);
-
-        console.log(`✅ Manual repair completed: ${validationResult.errors.length} issues fixed`);
-
-        return {
-          success: true,
-          repairedCount: validationResult.errors.length,
-          message: `Successfully repaired ${validationResult.errors.length} candle${validationResult.errors.length > 1 ? 's' : ''}`
-        };
-      }
-
-      console.log(`✅ No repairs needed - data is already valid`);
       return {
-        success: true,
-        repairedCount: 0,
-        message: 'Data is already in good condition'
+        success: result.success,
+        repairedCount: result.candlesFetched,
+        message: result.message
       };
     } catch (error) {
       console.error('❌ Manual data repair failed:', error);

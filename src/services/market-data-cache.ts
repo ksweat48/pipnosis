@@ -448,6 +448,29 @@ class MarketDataCache {
     }
   }
 
+  async clearSymbolTimeframe(symbol: string, timeframe: Timeframe): Promise<void> {
+    try {
+      console.log(`🗑️ Clearing stale cache for ${symbol} ${timeframe}...`);
+
+      const { error } = await supabase
+        .from('market_data')
+        .delete()
+        .eq('symbol', symbol)
+        .eq('timeframe', timeframe)
+        .neq('data_source', 'live_tick');
+
+      if (error) {
+        console.error('Error clearing symbol timeframe cache:', error);
+        throw error;
+      }
+
+      console.log(`✅ Cache cleared for ${symbol} ${timeframe}`);
+    } catch (error) {
+      console.error('Error in clearSymbolTimeframe:', error);
+      throw error;
+    }
+  }
+
   async updateCandleCountStats(symbol: string, timeframe: Timeframe): Promise<void> {
     try {
       const { error } = await supabase.rpc('update_candle_count_stats', {

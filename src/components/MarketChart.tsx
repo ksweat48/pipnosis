@@ -395,6 +395,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const [nextScanCountdown, setNextScanCountdown] = useState<number>(0);
   const [isFixingData, setIsFixingData] = useState(false);
   const [fixMessage, setFixMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [fixProgress, setFixProgress] = useState<{ status: string; percent: number } | null>(null);
 
   useEffect(() => {
     if (candleData.length > 0) {
@@ -544,14 +545,27 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
     setIsFixingData(true);
     setFixMessage(null);
+    setFixProgress({ status: 'Starting...', percent: 0 });
 
     try {
-      const result = await marketDataService.manuallyFixDataGaps(symbol, timeframe, 500);
+      const result = await marketDataService.fetchAndFillMissingCandles(
+        symbol,
+        timeframe,
+        1000,
+        (progress) => {
+          setFixProgress(progress);
+        }
+      );
+
+      setFixProgress(null);
 
       if (result.success) {
+        const beforePercent = result.completenessImprovement.before.toFixed(0);
+        const afterPercent = result.completenessImprovement.after.toFixed(0);
+
         setFixMessage({
           type: 'success',
-          text: result.message
+          text: `Fetched ${result.candlesFetched} candles. Data quality: ${beforePercent}% → ${afterPercent}%`
         });
 
         setTimeout(() => {
@@ -566,8 +580,9 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
       setTimeout(() => {
         setFixMessage(null);
-      }, 5000);
+      }, 8000);
     } catch (error) {
+      setFixProgress(null);
       setFixMessage({
         type: 'error',
         text: 'Failed to fix data gaps'
@@ -699,12 +714,12 @@ export const MarketChart: React.FC<MarketChartProps> = ({
                 onClick={handleManualDataFix}
                 disabled={isFixingData}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all bg-blue-500/20 text-blue-400 border border-blue-500/50 hover:bg-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Fix data gaps and quality issues"
+                title="Fetch missing candles from MetaAPI and fix data gaps"
               >
                 {isFixingData ? (
                   <>
                     <RefreshCw className="h-4 w-4 animate-spin" />
-                    <span>Fixing...</span>
+                    <span>{fixProgress?.status || 'Fixing...'}</span>
                   </>
                 ) : (
                   <>
@@ -722,6 +737,22 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       {error && (
         <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
           <p className="text-red-400 text-sm">{error}</p>
+        </div>
+      )}
+
+      {fixProgress && (
+        <div className="mb-4 p-4 rounded-xl border bg-blue-500/10 border-blue-500/30">
+          <div className="flex items-center gap-3 mb-2">
+            <RefreshCw className="h-5 w-5 text-blue-400 animate-spin flex-shrink-0" />
+            <p className="text-sm font-medium text-blue-300">{fixProgress.status}</p>
+            <span className="ml-auto text-xs text-blue-400 font-mono">{fixProgress.percent}%</span>
+          </div>
+          <div className="w-full bg-blue-900/30 rounded-full h-2 overflow-hidden">
+            <div
+              className="bg-gradient-to-r from-blue-500 to-cyan-500 h-full transition-all duration-300 ease-out"
+              style={{ width: `${fixProgress.percent}%` }}
+            />
+          </div>
         </div>
       )}
 
