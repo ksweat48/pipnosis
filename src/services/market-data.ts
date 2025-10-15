@@ -691,6 +691,71 @@ class MarketDataService {
     }
   }
 
+  async manuallyFixDataGaps(
+    symbol: string,
+    timeframe: Timeframe,
+    limit: number = 500
+  ): Promise<{ success: boolean; repairedCount: number; message: string }> {
+    try {
+      console.log(`🔧 Starting manual data repair for ${symbol} ${timeframe}...`);
+
+      const candles = await this.getHistoricalData(symbol, timeframe, limit, true, false);
+
+      if (candles.length === 0) {
+        return {
+          success: false,
+          repairedCount: 0,
+          message: 'No data available to repair'
+        };
+      }
+
+      const beforeRepair = candles.length;
+      const validationResult = dataValidator.validateCandleSequence(candles, timeframe);
+
+      console.log(`📊 Validation results:`, {
+        errors: validationResult.errors.length,
+        warnings: validationResult.warnings.length
+      });
+
+      if (!validationResult.isValid) {
+        const repairedCandles = dataValidator.validateAndRepairCandleSequence(candles, timeframe, false);
+        await marketDataCache.saveCandles(repairedCandles, true);
+
+        const cacheKey = `${symbol}_${timeframe}`;
+        const metrics: DataQualityMetrics = {
+          errorCount: 0,
+          warningCount: 0,
+          repairedCount: validationResult.errors.length,
+          totalCandles: repairedCandles.length,
+          lastUpdate: new Date()
+        };
+        this.dataQualityMetrics.set(cacheKey, metrics);
+
+        console.log(`✅ Manual repair completed: ${validationResult.errors.length} issues fixed`);
+
+        return {
+          success: true,
+          repairedCount: validationResult.errors.length,
+          message: `Successfully repaired ${validationResult.errors.length} candle${validationResult.errors.length > 1 ? 's' : ''}`
+        };
+      }
+
+      console.log(`✅ No repairs needed - data is already valid`);
+      return {
+        success: true,
+        repairedCount: 0,
+        message: 'Data is already in good condition'
+      };
+    } catch (error) {
+      console.error('❌ Manual data repair failed:', error);
+      return {
+        success: false,
+        repairedCount: 0,
+        message: error instanceof Error ? error.message : 'Failed to repair data'
+      };
+    }
+  }
+
 }
 
 export const marketDataService = new MarketDataService();

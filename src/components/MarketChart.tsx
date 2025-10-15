@@ -1,10 +1,9 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { BarChart3, RefreshCw, Wifi, WifiOff, Database } from 'lucide-react';
+import { BarChart3, RefreshCw, Wifi, WifiOff, Database, Wrench, CheckCircle } from 'lucide-react';
 import { CandlestickChart } from './CandlestickChart';
 import { AIAnalysisPanel } from './AIAnalysisPanel';
 import { RealAIAnalysisPanel } from './RealAIAnalysisPanel';
 import { DataHealthIndicator } from './DataHealthIndicator';
-import { DataQualityWarning } from './DataQualityWarning';
 import { AutoTradingAnalysisPanel } from './AutoTradingAnalysisPanel';
 import { ChartAutoTradingIndicator } from './ChartAutoTradingIndicator';
 import { FxFlowScalperPanel } from './FxFlowScalperPanel';
@@ -169,20 +168,6 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       setDataSource('cache');
       setIsConnected(marketDataService.isConnected());
       setDataHealthStatus({ completeness: 100, gaps: 0, isValidating: false });
-
-      const qualityMetrics = marketDataService.getDataQualityMetrics(symbol, timeframe);
-      if (qualityMetrics) {
-        const hasErrors = qualityMetrics.errorCount > 0;
-        const hasWarnings = qualityMetrics.warningCount > 0;
-        setDataQualityStats({
-          hasErrors,
-          hasWarnings,
-          errorCount: qualityMetrics.errorCount,
-          warningCount: qualityMetrics.warningCount,
-          repairedCount: qualityMetrics.repairedCount
-        });
-        setShowDataQualityWarning(hasErrors || hasWarnings);
-      }
 
       Promise.resolve().then(async () => {
         try {
@@ -408,14 +393,8 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   } | null>(null);
   const { status: autoTradingStatus, symbolStatuses } = useAutoTradingStatus();
   const [nextScanCountdown, setNextScanCountdown] = useState<number>(0);
-  const [showDataQualityWarning, setShowDataQualityWarning] = useState(false);
-  const [dataQualityStats, setDataQualityStats] = useState<{
-    hasErrors: boolean;
-    hasWarnings: boolean;
-    errorCount: number;
-    warningCount: number;
-    repairedCount: number;
-  }>({ hasErrors: false, hasWarnings: false, errorCount: 0, warningCount: 0, repairedCount: 0 });
+  const [isFixingData, setIsFixingData] = useState(false);
+  const [fixMessage, setFixMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     if (candleData.length > 0) {
@@ -560,6 +539,50 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     }
   }, [autoTradingStatus.nextScanTime]);
 
+  const handleManualDataFix = useCallback(async () => {
+    if (isFixingData) return;
+
+    setIsFixingData(true);
+    setFixMessage(null);
+
+    try {
+      const result = await marketDataService.manuallyFixDataGaps(symbol, timeframe, 500);
+
+      if (result.success) {
+        setFixMessage({
+          type: 'success',
+          text: result.message
+        });
+
+        setTimeout(() => {
+          loadHistoricalData();
+        }, 500);
+      } else {
+        setFixMessage({
+          type: 'error',
+          text: result.message
+        });
+      }
+
+      setTimeout(() => {
+        setFixMessage(null);
+      }, 5000);
+    } catch (error) {
+      setFixMessage({
+        type: 'error',
+        text: 'Failed to fix data gaps'
+      });
+
+      setTimeout(() => {
+        setFixMessage(null);
+      }, 5000);
+    } finally {
+      setIsFixingData(false);
+    }
+  }, [symbol, timeframe, isFixingData, loadHistoricalData]);
+
+  const shouldShowFixButton = dataHealthStatus.gaps > 0 || dataHealthStatus.completeness < 95;
+
   return (
     <div className={`${className}`}>
       <div className="glass-card p-4 sm:p-6 mb-4">
@@ -671,6 +694,26 @@ export const MarketChart: React.FC<MarketChartProps> = ({
                 </div>
               )}
             </div>
+            {shouldShowFixButton && (
+              <button
+                onClick={handleManualDataFix}
+                disabled={isFixingData}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all bg-blue-500/20 text-blue-400 border border-blue-500/50 hover:bg-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Fix data gaps and quality issues"
+              >
+                {isFixingData ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <span>Fixing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Wrench className="h-4 w-4" />
+                    <span>Fix Data</span>
+                  </>
+                )}
+              </button>
+            )}
             <DataHealthIndicator />
           </div>
         </div>
@@ -682,16 +725,25 @@ export const MarketChart: React.FC<MarketChartProps> = ({
         </div>
       )}
 
-      {showDataQualityWarning && (
-        <DataQualityWarning
-          hasErrors={dataQualityStats.hasErrors}
-          hasWarnings={dataQualityStats.hasWarnings}
-          errorCount={dataQualityStats.errorCount}
-          warningCount={dataQualityStats.warningCount}
-          repairedCount={dataQualityStats.repairedCount}
-          onDismiss={() => setShowDataQualityWarning(false)}
-        />
+      {fixMessage && (
+        <div className={`mb-4 p-4 rounded-xl border flex items-center gap-3 ${
+          fixMessage.type === 'success'
+            ? 'bg-green-500/10 border-green-500/30'
+            : 'bg-red-500/10 border-red-500/30'
+        }`}>
+          {fixMessage.type === 'success' ? (
+            <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+          ) : (
+            <Database className="h-5 w-5 text-red-400 flex-shrink-0" />
+          )}
+          <p className={`text-sm font-medium ${
+            fixMessage.type === 'success' ? 'text-green-300' : 'text-red-400'
+          }`}>
+            {fixMessage.text}
+          </p>
+        </div>
       )}
+
 
       {isLoading ? (
         <div className="relative bg-gradient-to-br from-slate-900/50 to-slate-800/50 backdrop-blur-sm rounded-2xl border border-white/10 h-64 sm:h-80 lg:h-96 flex items-center justify-center overflow-hidden">
