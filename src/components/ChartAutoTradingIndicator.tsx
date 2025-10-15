@@ -22,7 +22,7 @@ export const ChartAutoTradingIndicator: React.FC<ChartAutoTradingIndicatorProps>
 
   return (
     <div
-      className="absolute top-4 right-4 z-10 glass-card p-3 min-w-[200px] cursor-pointer hover:bg-white/10 transition-all"
+      className="absolute top-4 left-4 z-10 glass-card p-3 min-w-[200px] cursor-pointer hover:bg-white/10 transition-all"
       onClick={onViewAnalysis}
     >
       <div className="flex items-center justify-between mb-2">
