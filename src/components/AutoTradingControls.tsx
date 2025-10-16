@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, Settings, AlertCircle, CheckCircle, Clock, Activity } from 'lucide-react';
+import { Play, Pause, Settings, AlertCircle, CheckCircle, Clock, Activity, ShieldAlert } from 'lucide-react';
 import { autoTradingController } from '../strategies/core/autoTradingController';
 import { strategyService } from '../strategies';
 import { useAuth } from '../hooks/useAuth';
@@ -31,12 +31,37 @@ export function AutoTradingControls() {
   const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(false);
   const [editConfig, setEditConfig] = useState<AutoTradingConfig>(config);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
+      checkAdminStatus();
       loadConfig();
     }
   }, [user]);
+
+  const checkAdminStatus = async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('is_admin')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        console.error('Error checking admin status:', error);
+        return;
+      }
+
+      setIsAdmin(data?.is_admin === true);
+    } catch (error) {
+      console.error('Error in checkAdminStatus:', error);
+    }
+  };
 
   const loadConfig = async () => {
     if (!user) return;
@@ -77,11 +102,24 @@ export function AutoTradingControls() {
   };
 
   const handleToggle = async () => {
-    if (!user) return;
+    if (!user) {
+      setErrorMessage('You must be logged in to use auto trading');
+      return;
+    }
+
+    if (!isAdmin) {
+      setErrorMessage('Auto trading is currently available for admin users only during testing phase');
+      setTimeout(() => setErrorMessage(null), 5000);
+      return;
+    }
 
     setLoading(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
     try {
       const newEnabled = !config.enabled;
+      console.log(`[AutoTrading] ${newEnabled ? 'Starting' : 'Stopping'} auto trading for user ${user.id}`);
 
       const updateSuccess = await autoTradingController.updateAutoTradingConfig(user.id, {
         enabled: newEnabled,
@@ -96,19 +134,45 @@ export function AutoTradingControls() {
       });
 
       if (!updateSuccess) {
-        console.error('Failed to update auto-trading configuration');
+        console.error('[AutoTrading] Failed to update auto-trading configuration');
+        setErrorMessage('Failed to update configuration. Please try again.');
         return;
       }
 
+      console.log('[AutoTrading] Configuration updated successfully');
+
       if (newEnabled) {
-        await strategyService.startAutoTrading(user.id);
+        console.log('[AutoTrading] Calling strategyService.startAutoTrading');
+        const startResult = await strategyService.startAutoTrading(user.id);
+
+        if (startResult) {
+          console.log('[AutoTrading] Auto trading started successfully');
+          setSuccessMessage('Auto trading started successfully! Scanning markets every 2-3 minutes.');
+          setTimeout(() => setSuccessMessage(null), 5000);
+        } else {
+          console.error('[AutoTrading] Failed to start auto trading');
+          setErrorMessage('Failed to start auto trading. Check console for details.');
+          return;
+        }
       } else {
-        await strategyService.stopAutoTrading();
+        console.log('[AutoTrading] Calling strategyService.stopAutoTrading');
+        const stopResult = await strategyService.stopAutoTrading(user.id);
+
+        if (stopResult) {
+          console.log('[AutoTrading] Auto trading stopped successfully');
+          setSuccessMessage('Auto trading stopped successfully.');
+          setTimeout(() => setSuccessMessage(null), 5000);
+        } else {
+          console.error('[AutoTrading] Failed to stop auto trading');
+          setErrorMessage('Failed to stop auto trading. Check console for details.');
+          return;
+        }
       }
 
       await loadConfig();
     } catch (error) {
-      console.error('Error toggling auto trading:', error);
+      console.error('[AutoTrading] Error toggling auto trading:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'An unexpected error occurred');
     } finally {
       setLoading(false);
     }
@@ -178,6 +242,44 @@ export function AutoTradingControls() {
       </div>
 
       <div className="p-6">
+        {!isAdmin && (
+          <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+            <div className="flex items-start gap-2">
+              <ShieldAlert className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-yellow-400">Admin Only Feature</p>
+                <p className="text-xs text-yellow-400/80 mt-1">
+                  Auto trading is currently available for admin users only during the testing phase.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-red-400">Error</p>
+                <p className="text-xs text-red-400/80 mt-1">{errorMessage}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+            <div className="flex items-start gap-2">
+              <CheckCircle className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-emerald-400">Success</p>
+                <p className="text-xs text-emerald-400/80 mt-1">{successMessage}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="p-4 bg-white/5 rounded-lg border border-white/10">
             <p className="text-xs font-medium text-white/60 mb-1">Daily Limit</p>
@@ -195,7 +297,7 @@ export function AutoTradingControls() {
 
         <button
           onClick={handleToggle}
-          disabled={loading}
+          disabled={loading || !isAdmin}
           className={`w-full flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-semibold transition-colors ${
             config.enabled
               ? 'bg-red-600 hover:bg-red-700 text-white'
