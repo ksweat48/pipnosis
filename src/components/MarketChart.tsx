@@ -525,24 +525,11 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   useEffect(() => {
     const updateMarketStatus = () => {
       const now = new Date();
-      const isTradingDay = marketHoursService.isTradingDay(now);
-      setIsMarketOpen(isTradingDay);
+      const marketOpen = marketHoursService.isMarketOpen(now);
+      const statusMessage = marketHoursService.getMarketStatusMessage(now);
 
-      if (!isTradingDay) {
-        const dayName = marketHoursService.getDayOfWeekName(now);
-        const isWeekend = marketHoursService.isWeekend(now);
-        const isHoliday = marketHoursService.isHoliday(now);
-
-        if (isWeekend) {
-          setMarketStatusMessage(`Market Closed - ${dayName}`);
-        } else if (isHoliday) {
-          setMarketStatusMessage('Market Closed - Holiday');
-        } else {
-          setMarketStatusMessage('Market Closed');
-        }
-      } else {
-        setMarketStatusMessage('Market Open');
-      }
+      setIsMarketOpen(marketOpen);
+      setMarketStatusMessage(statusMessage);
     };
 
     updateMarketStatus();

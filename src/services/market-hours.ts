@@ -11,6 +11,11 @@ class MarketHoursService {
     new Date('2025-12-25'),
   ];
 
+  // Forex market opens Sunday 5:00 PM EST (10:00 PM UTC / 22:00 UTC)
+  private readonly MARKET_OPEN_UTC_HOUR = 22;
+  // Forex market closes Friday 5:00 PM EST (10:00 PM UTC / 22:00 UTC)
+  private readonly MARKET_CLOSE_UTC_HOUR = 22;
+
   isWeekend(date: Date): boolean {
     const day = date.getDay();
     return day === 0 || day === 6;
@@ -23,6 +28,45 @@ class MarketHoursService {
     );
   }
 
+  /**
+   * Check if the market is currently open based on day AND hour
+   * Sunday: Opens at 22:00 UTC (5:00 PM EST)
+   * Monday-Thursday: Open all day
+   * Friday: Closes at 22:00 UTC (5:00 PM EST)
+   * Saturday: Closed all day
+   */
+  isMarketOpen(date: Date): boolean {
+    const utcDay = date.getUTCDay();
+    const utcHour = date.getUTCHours();
+
+    // Check if it's a holiday
+    if (this.isHoliday(date)) {
+      return false;
+    }
+
+    // Saturday: Market is closed
+    if (utcDay === 6) {
+      return false;
+    }
+
+    // Sunday: Market opens at 22:00 UTC
+    if (utcDay === 0) {
+      return utcHour >= this.MARKET_OPEN_UTC_HOUR;
+    }
+
+    // Friday: Market closes at 22:00 UTC
+    if (utcDay === 5) {
+      return utcHour < this.MARKET_CLOSE_UTC_HOUR;
+    }
+
+    // Monday (1) through Thursday (4): Market is open all day
+    return true;
+  }
+
+  /**
+   * Legacy method for backward compatibility
+   * Use isMarketOpen() instead for accurate hour-based detection
+   */
   isTradingDay(date: Date): boolean {
     return !this.isWeekend(date) && !this.isHoliday(date);
   }
@@ -34,7 +78,7 @@ class MarketHoursService {
       date,
       isWeekend,
       isHoliday,
-      isTradingDay: !isWeekend && !isHoliday
+      isTradingDay: this.isMarketOpen(date)
     };
   }
 
@@ -59,6 +103,40 @@ class MarketHoursService {
   getDayOfWeekName(date: Date): string {
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     return days[date.getDay()];
+  }
+
+  /**
+   * Get detailed market status message with day and time context
+   */
+  getMarketStatusMessage(date: Date): string {
+    const isOpen = this.isMarketOpen(date);
+    const utcDay = date.getUTCDay();
+    const utcHour = date.getUTCHours();
+    const dayName = this.getDayOfWeekName(date);
+
+    if (this.isHoliday(date)) {
+      return 'Market Closed - Holiday';
+    }
+
+    if (utcDay === 6) {
+      return `Market Closed - ${dayName}`;
+    }
+
+    if (utcDay === 0) {
+      if (utcHour < this.MARKET_OPEN_UTC_HOUR) {
+        return `Market Closed - ${dayName} (Opens 5:00 PM EST)`;
+      }
+      return 'Market Open';
+    }
+
+    if (utcDay === 5) {
+      if (utcHour >= this.MARKET_CLOSE_UTC_HOUR) {
+        return `Market Closed - ${dayName} (Closed 5:00 PM EST)`;
+      }
+      return 'Market Open';
+    }
+
+    return isOpen ? 'Market Open' : 'Market Closed';
   }
 
   getCurrentMarketClosePeriod(fromDate: Date): { start: Date; end: Date } | null {
