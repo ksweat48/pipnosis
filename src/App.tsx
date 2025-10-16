@@ -22,6 +22,8 @@ import { TradeConfirmationModal } from './components/TradeConfirmationModal';
 import { ConfigurationStatus } from './components/ConfigurationStatus';
 import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
+import { AITradingConsole } from './components/AITradingConsole';
+import { AutoTradingPanel } from './components/AutoTradingPanel';
 import { usePromptAnalysis, useMarketData } from './hooks/useAPI';
 import { simulatedTradingService } from './services/simulated-trading';
 import { logEnvironmentStatus } from './lib/env-validator';
@@ -258,14 +260,11 @@ const Dashboard: React.FC = () => {
             />
           </div>
           
-          {/* Prompt Input Section */}
-          <div className="glass-card p-4 sm:p-6 lg:p-8">
-            <PromptInput 
-              onSubmit={handlePromptSubmit} 
-              isLoading={isAnalyzing}
-              error={aiError}
-            />
-          </div>
+          {/* AI Trading Console - New ChatGPT Integration */}
+          <AITradingConsole />
+
+          {/* Auto Trading Panel */}
+          <AutoTradingPanel />
           
           {/* AI Analysis Loading State */}
           {isAnalyzing && (
