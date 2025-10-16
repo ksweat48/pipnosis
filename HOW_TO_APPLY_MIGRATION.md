@@ -11,8 +11,11 @@ This guide will walk you through applying the consolidated database migration to
 ## Step-by-Step Instructions
 
 ### Step 1: Open the Consolidated Migration File
-1. Open the file `CONSOLIDATED_MIGRATION.sql` in your project root directory
+1. Open the file `supabase/migrations/20251016_100000_consolidated_schema.sql`
+   (Or use the original: `CONSOLIDATED_MIGRATION.sql` in your project root)
 2. Copy the ENTIRE contents of the file (Ctrl+A, Ctrl+C or Cmd+A, Cmd+C)
+
+**Note:** This migration is idempotent and safe to run multiple times. It includes `DROP POLICY IF EXISTS` statements to prevent "policy already exists" errors.
 
 ### Step 2: Access Supabase SQL Editor
 1. Go to https://supabase.com/dashboard

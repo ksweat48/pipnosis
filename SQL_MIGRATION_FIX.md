@@ -1,5 +1,9 @@
 # SQL Migration Fix - Reserved Keyword Issue
 
+> **Note:** This document describes a historical issue that has been resolved in the consolidated migration. As of October 16, 2025, all individual migrations have been archived and replaced with a single consolidated migration file. See `DATABASE_SETUP.md` for current setup instructions.
+
+---
+
 ## Problem
 
 The initial SQL migration failed with the error:
