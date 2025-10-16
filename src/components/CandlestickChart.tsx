@@ -227,7 +227,6 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       lineWidth: 2,
       lineStyle: 2,
       priceScaleId: 'right',
-      title: 'VWAP',
       lastValueVisible: false,
       priceLineVisible: false,
     });
@@ -243,7 +242,6 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       lineWidth: 2,
       lineStyle: 0,
       priceScaleId: 'right',
-      title: 'EMA 21',
       visible: true,
       lastValueVisible: false,
       priceLineVisible: false,
@@ -254,7 +252,6 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       lineWidth: 2,
       lineStyle: 0,
       priceScaleId: 'right',
-      title: 'EMA 200',
       visible: true,
       lastValueVisible: false,
       priceLineVisible: false,
@@ -265,7 +262,6 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       lineWidth: 2,
       lineStyle: 0,
       priceScaleId: 'right',
-      title: 'EMA 5',
       visible: preferences?.show_all_emas ?? false,
       lastValueVisible: false,
       priceLineVisible: false,
@@ -276,7 +272,6 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       lineWidth: 2,
       lineStyle: 0,
       priceScaleId: 'right',
-      title: 'EMA 9',
       visible: preferences?.show_all_emas ?? false,
       lastValueVisible: false,
       priceLineVisible: false,
@@ -287,7 +282,6 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       lineWidth: 2,
       lineStyle: 0,
       priceScaleId: 'right',
-      title: 'EMA 50',
       visible: preferences?.show_all_emas ?? false,
       lastValueVisible: false,
       priceLineVisible: false,
@@ -684,6 +678,13 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       className="w-full rounded-2xl overflow-hidden border border-white/10 touch-manipulation relative"
       style={{ height: `${height}px`, touchAction: 'pan-x pan-y', zIndex: 0 }}
     >
+      <IndicatorLegend
+        ema21Value={ema21CurrentValue}
+        vwapValue={vwapCurrentValue}
+        ema21Color={ema21Color}
+        vwapColor={vwapColor}
+        symbol={symbol}
+      />
       <div
         ref={chartContainerRef}
         style={{ position: 'relative', width: '100%', height: '100%' }}
