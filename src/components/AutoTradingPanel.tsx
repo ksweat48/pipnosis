@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Power, Settings, Activity, Clock, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
+import { Power, Settings, Activity, Clock, TrendingUp, AlertCircle, CheckCircle, Lock, Zap } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { autoTradingScanner, AutoTradingStatus } from '@/services/auto-trading-scanner';
+import { supabase } from '@/lib/supabase';
 
 export const AutoTradingPanel: React.FC = () => {
   const { user } = useAuth();
@@ -9,14 +10,37 @@ export const AutoTradingPanel: React.FC = () => {
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isCheckingAdmin, setIsCheckingAdmin] = useState(true);
 
   useEffect(() => {
     if (user?.id) {
+      checkAdminStatus();
       loadStatus();
       const interval = setInterval(loadStatus, 30000);
       return () => clearInterval(interval);
     }
   }, [user?.id]);
+
+  const checkAdminStatus = async () => {
+    if (!user?.id) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      if (!error && data) {
+        setIsAdmin(data.role === 'admin');
+      }
+    } catch (error) {
+      console.error('Failed to check admin status:', error);
+    } finally {
+      setIsCheckingAdmin(false);
+    }
+  };
 
   const loadStatus = async () => {
     if (!user?.id) return;
@@ -74,6 +98,49 @@ export const AutoTradingPanel: React.FC = () => {
     if (status.enabled) return 'Enabled';
     return 'Disabled';
   };
+
+  if (isCheckingAdmin) {
+    return (
+      <div className="glass-card p-6">
+        <div className="flex items-center justify-center py-8">
+          <div className="h-8 w-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="glass-card p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="p-3 rounded-2xl bg-yellow-500/20">
+            <Lock className="h-6 w-6 text-yellow-400" />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-white">Auto Trading</h3>
+            <p className="text-sm font-medium text-yellow-400">Admin Access Only</p>
+          </div>
+        </div>
+
+        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-yellow-400 mt-0.5 flex-shrink-0" />
+            <div className="space-y-2">
+              <p className="text-yellow-400 text-sm font-bold">Testing & Training Mode</p>
+              <p className="text-white/70 text-xs">
+                Auto-trading is currently in testing mode for continuous AI improvement and learning.
+                This feature is temporarily restricted to admin users only while the system trains on live market data.
+              </p>
+              <p className="text-white/60 text-xs mt-2">
+                The AI is executing trades, analyzing outcomes, and improving its decision-making algorithms.
+                This data will enhance trading accuracy for all users once testing is complete.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="glass-card p-6 space-y-6">
@@ -149,11 +216,12 @@ export const AutoTradingPanel: React.FC = () => {
           <div className="bg-white/5 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-2">
               <Activity className="h-4 w-4 text-blue-400" />
-              <span className="text-white/60 text-xs uppercase tracking-wide">Trades Today</span>
+              <span className="text-white/60 text-xs uppercase tracking-wide">Total Trades</span>
             </div>
             <p className="text-white text-2xl font-bold">
-              {status.tradesTakenToday} / {status.maxDailyTrades}
+              {status.tradesTakenToday}
             </p>
+            <p className="text-white/50 text-xs mt-1">Continuous Mode</p>
           </div>
 
           <div className="bg-white/5 rounded-xl p-4">
@@ -197,18 +265,20 @@ export const AutoTradingPanel: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+      <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/30 rounded-xl p-4">
         <div className="flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
+          <Zap className="h-5 w-5 text-purple-400 mt-0.5 flex-shrink-0" />
           <div className="space-y-2">
-            <p className="text-blue-400 text-sm font-bold">How Auto Trading Works</p>
+            <p className="text-purple-400 text-sm font-bold">Admin Testing Mode - Continuous Learning</p>
             <ul className="text-white/70 text-xs space-y-1">
-              <li>• Scans for opportunities every 5 minutes</li>
-              <li>• Maximum 6 trades per day</li>
-              <li>• Searches for up to 1 hour before notifying if no trade found</li>
-              <li>• Uses AI + FxFlowScalperV2 strategy for best signals</li>
-              <li>• Automatically stops if daily loss limit exceeded</li>
+              <li>• Runs continuously 24/7 until manually stopped</li>
+              <li>• No daily trade limits - executes as many quality trades as found</li>
+              <li>• Scans markets every 2-3 minutes for opportunities</li>
+              <li>• All trades feed into AI learning system</li>
+              <li>• Objective: Improve decision-making and accuracy</li>
+              <li>• Uses FxFlowScalperV2 + AI hybrid strategy</li>
             </ul>
+            <p className="text-emerald-400 text-xs font-semibold mt-3">This data improves trading accuracy for the entire platform</p>
           </div>
         </div>
       </div>

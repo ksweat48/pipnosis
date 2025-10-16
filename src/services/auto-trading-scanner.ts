@@ -18,6 +18,9 @@ export interface AutoTradingStatus {
   dailyPnl: number;
   dailyLossLimit: number;
   emergencyStop: boolean;
+  continuousMode?: boolean;
+  learningMode?: boolean;
+  totalTradesExecuted?: number;
 }
 
 export interface ScanResult {
@@ -34,6 +37,19 @@ class AutoTradingScanner {
 
   async startAutoTrading(userId: string): Promise<{ success: boolean; message: string }> {
     try {
+      const { data: userProfile } = await supabase
+        .from('user_profiles')
+        .select('role')
+        .eq('id', userId)
+        .single();
+
+      if (!userProfile || userProfile.role !== 'admin') {
+        return {
+          success: false,
+          message: 'Auto trading is currently available for admin users only during testing phase'
+        };
+      }
+
       const status = await this.getAutoTradingStatus(userId);
 
       if (!status) {
@@ -46,21 +62,28 @@ class AutoTradingScanner {
         .eq('user_id', userId)
         .single();
 
-      if (!preferences || !preferences.auto_trading_enabled) {
-        throw new Error('Auto trading is not enabled in user preferences');
+      if (!preferences) {
+        await supabase.from('user_trading_preferences').insert({
+          user_id: userId,
+          auto_trading_enabled: true,
+          min_confidence_threshold: 75
+        });
       }
 
       await this.updateAutoTradingStatus(userId, {
         enabled: true,
         scanning_active: true,
+        continuous_mode: true,
+        learning_mode: true,
+        started_by_admin: userId,
         opportunity_window_start: new Date().toISOString()
       });
 
-      this.startScanning(userId, preferences);
+      this.startScanning(userId, preferences || { preferred_pairs: ['EURUSD', 'GBPUSD', 'XAUUSD'], min_confidence_threshold: 75 });
 
       return {
         success: true,
-        message: 'Auto trading started. Scanning for opportunities every 5 minutes. Maximum 6 trades per day.'
+        message: 'Auto trading started in continuous learning mode. Scanning markets every 2-3 minutes. No trade limits.'
       };
     } catch (error) {
       console.error('Failed to start auto trading:', error);
@@ -104,17 +127,11 @@ class AutoTradingScanner {
   private startScanning(userId: string, preferences: any) {
     const scanInterval = setInterval(async () => {
       await this.performScan(userId, preferences);
-    }, 5 * 60 * 1000);
+    }, 2 * 60 * 1000);
 
     this.scannerIntervals.set(userId, scanInterval);
 
     this.performScan(userId, preferences);
-
-    const oneHourTimeout = setTimeout(async () => {
-      await this.handleNoOpportunityTimeout(userId);
-    }, 60 * 60 * 1000);
-
-    this.opportunityTimeouts.set(userId, oneHourTimeout);
   }
 
   private async performScan(userId: string, preferences: any): Promise<ScanResult> {
@@ -131,7 +148,7 @@ class AutoTradingScanner {
         };
       }
 
-      if (status.tradesTakenToday >= status.maxDailyTrades) {
+      if (!status.continuousMode && status.tradesTakenToday >= status.maxDailyTrades) {
         await this.updateAutoTradingStatus(userId, { scanning_active: false });
         return {
           opportunityFound: false,
@@ -235,18 +252,14 @@ class AutoTradingScanner {
 
       await this.updateAutoTradingStatus(userId, {
         trades_taken_today: status.tradesTakenToday + 1,
+        total_trades_executed: (status.totalTradesExecuted || 0) + 1,
         last_trade_time: new Date().toISOString(),
         last_opportunity_found: new Date().toISOString(),
         consecutive_no_opportunity_count: 0
       });
 
-      if (this.opportunityTimeouts.has(userId)) {
-        clearTimeout(this.opportunityTimeouts.get(userId)!);
-        const newTimeout = setTimeout(async () => {
-          await this.handleNoOpportunityTimeout(userId);
-        }, 60 * 60 * 1000);
-        this.opportunityTimeouts.set(userId, newTimeout);
-      }
+      await this.recordLearningMetric(userId, analysisResult.decision.id, selectedOption, tradeResult.trade);
+
 
       await this.notifyUser(
         userId,
@@ -357,7 +370,10 @@ class AutoTradingScanner {
         consecutiveNoOpportunityCount: data.consecutive_no_opportunity_count,
         dailyPnl: parseFloat(data.daily_pnl),
         dailyLossLimit: parseFloat(data.daily_loss_limit),
-        emergencyStop: data.emergency_stop
+        emergencyStop: data.emergency_stop,
+        continuousMode: data.continuous_mode || false,
+        learningMode: data.learning_mode || false,
+        totalTradesExecuted: data.total_trades_executed || 0
       };
     } catch (error) {
       console.error('Error getting auto trading status:', error);
@@ -393,6 +409,32 @@ class AutoTradingScanner {
 
   private async notifyUser(userId: string, title: string, message: string) {
     console.log(`[AUTO TRADE NOTIFICATION] ${userId}: ${title} - ${message}`);
+  }
+
+  private async recordLearningMetric(userId: string, decisionId: string, option: any, trade: any) {
+    try {
+      await supabase.from('ai_learning_metrics').insert({
+        user_id: userId,
+        trade_id: trade.id,
+        decision_id: decisionId,
+        strategy_used: 'ai_auto_continuous',
+        predicted_confidence: option.confidence,
+        actual_outcome: 'pending',
+        predicted_pnl: option.estimatedProfit,
+        market_conditions: {
+          symbol: option.symbol,
+          entryPrice: option.entryPrice,
+          timestamp: new Date().toISOString()
+        },
+        indicators_used: {
+          strategy: 'FxFlowScalperV2',
+          riskLevel: option.optionType,
+          confidence: option.confidence
+        }
+      });
+    } catch (error) {
+      console.error('Failed to record learning metric:', error);
+    }
   }
 
   async resetDailyCounters() {
