@@ -39,11 +39,11 @@ class AutoTradingScanner {
     try {
       const { data: userProfile } = await supabase
         .from('user_profiles')
-        .select('role')
+        .select('is_admin')
         .eq('id', userId)
         .single();
 
-      if (!userProfile || userProfile.role !== 'admin') {
+      if (!userProfile || userProfile.is_admin !== true) {
         return {
           success: false,
           message: 'Auto trading is currently available for admin users only during testing phase'

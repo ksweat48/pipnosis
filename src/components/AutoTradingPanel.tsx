@@ -28,12 +28,12 @@ export const AutoTradingPanel: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from('user_profiles')
-        .select('role')
+        .select('is_admin')
         .eq('id', user.id)
         .single();
 
       if (!error && data) {
-        setIsAdmin(data.role === 'admin');
+        setIsAdmin(data.is_admin === true);
       }
     } catch (error) {
       console.error('Failed to check admin status:', error);
