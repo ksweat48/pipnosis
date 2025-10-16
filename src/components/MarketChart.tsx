@@ -8,7 +8,7 @@ import { AutoTradingAnalysisPanel } from './AutoTradingAnalysisPanel';
 import { ChartAutoTradingIndicator } from './ChartAutoTradingIndicator';
 import { FxFlowScalperPanel } from './FxFlowScalperPanel';
 import { StrategyPerformanceWidget } from './StrategyPerformanceWidget';
-import { AutoTradingControls } from './AutoTradingControls';
+import { AutoTradingPanel } from './AutoTradingPanel';
 import { useAutoTradingStatus } from '../hooks/useAutoTradingStatus';
 import { CandlestickData, Time, HistogramData } from 'lightweight-charts';
 import { marketDataService, MarketDataListener, TickData } from '../services/market-data';
@@ -865,7 +865,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="space-y-6">
                   <FxFlowScalperPanel />
-                  <AutoTradingControls />
+                  <AutoTradingPanel />
                 </div>
                 <StrategyPerformanceWidget />
               </div>

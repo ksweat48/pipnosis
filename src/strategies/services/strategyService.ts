@@ -1,8 +1,8 @@
 import { supabase } from '../../lib/supabase';
 import { fxFlowScalperV2 } from '../core/fxFlowScalperV2';
 import { multiSymbolScanner } from '../core/multiSymbolScanner';
-import { autoTradingController } from '../core/autoTradingController';
 import { shadowTradingEngine } from '../core/shadowTradingEngine';
+import { autoTradingScanner } from '../../services/auto-trading-scanner';
 import { TradeSignal, OpportunityRanking, PerformanceMetrics } from '../types';
 
 class StrategyService {
@@ -272,26 +272,32 @@ class StrategyService {
 
   async startAutoTrading(userId: string): Promise<boolean> {
     try {
-      await autoTradingController.start(userId);
-      return true;
+      const result = await autoTradingScanner.startAutoTrading(userId);
+      return result.success;
     } catch (error) {
       console.error('Error starting auto trading:', error);
       return false;
     }
   }
 
-  async stopAutoTrading(): Promise<boolean> {
+  async stopAutoTrading(userId: string): Promise<boolean> {
     try {
-      await autoTradingController.stop();
-      return true;
+      const result = await autoTradingScanner.stopAutoTrading(userId);
+      return result.success;
     } catch (error) {
       console.error('Error stopping auto trading:', error);
       return false;
     }
   }
 
-  isAutoTradingActive(): boolean {
-    return autoTradingController.isActive();
+  async isAutoTradingActive(userId: string): Promise<boolean> {
+    try {
+      const status = await autoTradingScanner.getAutoTradingStatus(userId);
+      return status?.enabled && status?.scanningActive;
+    } catch (error) {
+      console.error('Error checking auto trading status:', error);
+      return false;
+    }
   }
 }
 

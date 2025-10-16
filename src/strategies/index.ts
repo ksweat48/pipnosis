@@ -1,6 +1,5 @@
 export { fxFlowScalperV2, FxFlowScalperV2 } from './core/fxFlowScalperV2';
 export { multiSymbolScanner, MultiSymbolScanner } from './core/multiSymbolScanner';
-export { autoTradingController, AutoTradingController } from './core/autoTradingController';
 export { shadowTradingEngine, ShadowTradingEngine } from './core/shadowTradingEngine';
 export { strategyService } from './services/strategyService';
 

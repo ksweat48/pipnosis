@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
-import { autoTradingController } from '../strategies/core/autoTradingController';
 
 export interface AutoTradingStatus {
   isActive: boolean;
