@@ -24,8 +24,13 @@ import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { AITradingConsole } from './components/AITradingConsole';
 import { AutoTradingPanel } from './components/AutoTradingPanel';
+import { SearchStatusPanel } from './components/SearchStatusPanel';
 import { usePromptAnalysis, useMarketData } from './hooks/useAPI';
 import { simulatedTradingService } from './services/simulated-trading';
+import { promptValidationService } from './services/prompt-validation';
+import { extendedSearchService } from './services/extended-search';
+import { multiSymbolScanner } from './strategies/core/multiSymbolScanner';
+import { strategyService } from './strategies';
 import { logEnvironmentStatus } from './lib/env-validator';
 import { runDatabaseDiagnostics, logDiagnostics } from './lib/database-diagnostics';
 import { verifyDatabaseSetup } from './lib/migration-checker';
@@ -71,6 +76,13 @@ const Dashboard: React.FC = () => {
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyOption | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [validationError, setValidationError] = useState<{
+    message: string;
+    details?: string[];
+    suggestion?: string;
+  } | null>(null);
+  const [activeSearchSessionId, setActiveSearchSessionId] = useState<string | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
 
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
 
@@ -90,67 +102,97 @@ const Dashboard: React.FC = () => {
   }, [strategyOptions]);
 
   const handlePromptSubmit = async (prompt: string) => {
-    try {
-      const analysis = await analyzePrompt(prompt, accountBalance, marketData);
-      
-      if (analysis && analysis.strategies.length > 0) {
-        const transformedStrategies = analysis.strategies.map((strategy: any, index: number) => {
-          const isIndexOrGold = strategy.symbol === 'US30' || strategy.symbol === 'XAUUSD' || strategy.symbol.includes('JPY');
-          const precision = isIndexOrGold ? 2 : 5;
-          return {
-            id: strategy.id || `ai-${index}`,
-            name: strategy.name,
-            risk: strategy.risk,
-            symbol: strategy.symbol,
-            action: strategy.action,
-            entry: strategy.entry.toFixed(precision),
-            stopLoss: strategy.stopLoss.toFixed(precision),
-            takeProfit: strategy.takeProfit.toFixed(precision),
-            lotSize: strategy.lotSize,
-            estimatedGain: strategy.estimatedGain,
-            riskRewardRatio: strategy.riskRewardRatio,
-            feasible: strategy.feasible,
-            reasoning: strategy.reasoning,
-            confidence: strategy.confidence
-          };
-        });
-        
-        setStrategyOptions(transformedStrategies);
+    if (!user) return;
 
-        if (transformedStrategies.length > 0) {
-          const firstStrategy = transformedStrategies[0];
-          setActiveTradeLines({
-            entry: parseFloat(firstStrategy.entry),
-            stopLoss: parseFloat(firstStrategy.stopLoss),
-            takeProfit: parseFloat(firstStrategy.takeProfit)
-          });
-          
-          setSelectedSymbol(firstStrategy.symbol);
-        }
+    setValidationError(null);
+    setStrategyOptions([]);
+    setActiveSearchSessionId(null);
+
+    try {
+      const validation = await promptValidationService.validatePrompt(prompt, accountBalance);
+
+      if (!validation.isValid || !validation.isFeasible) {
+        setValidationError({
+          message: validation.errorMessage || 'This request cannot be fulfilled',
+          details: validation.validationDetails?.reasons,
+          suggestion: validation.suggestedAlternative
+        });
+        return;
+      }
+
+      const promptAnalysis = await multiSymbolScanner.analyzePrompt(prompt);
+      const opportunities = await multiSymbolScanner.scanAllSymbols(promptAnalysis);
+
+      if (opportunities.length > 0) {
+        const bestOpportunity = opportunities[0];
+
+        const transformedStrategy = {
+          id: `opportunity-${Date.now()}`,
+          name: `${bestOpportunity.signal.symbol} ${bestOpportunity.signal.direction} Trade`,
+          risk: promptAnalysis.riskTolerance,
+          symbol: bestOpportunity.signal.symbol,
+          action: bestOpportunity.signal.direction.toLowerCase(),
+          entry: bestOpportunity.signal.entryPrice.toFixed(5),
+          stopLoss: bestOpportunity.signal.stopLoss.toFixed(5),
+          takeProfit: bestOpportunity.signal.takeProfit.toFixed(5),
+          lotSize: 0.1,
+          estimatedGain: '$TBD',
+          riskRewardRatio: bestOpportunity.signal.riskReward,
+          feasible: true,
+          reasoning: Array.isArray(bestOpportunity.signal.reasoning) ? bestOpportunity.signal.reasoning.join(', ') : bestOpportunity.signal.reasoning,
+          confidence: bestOpportunity.signal.confidence.toString()
+        };
+
+        setStrategyOptions([transformedStrategy]);
+        setActiveTradeLines({
+          entry: bestOpportunity.signal.entryPrice,
+          stopLoss: bestOpportunity.signal.stopLoss,
+          takeProfit: bestOpportunity.signal.takeProfit
+        });
+        setSelectedSymbol(bestOpportunity.signal.symbol);
 
         const notification: Notification = {
           id: Date.now().toString(),
-          type: 'info',
-          title: 'AI Analysis Complete',
-          message: `Generated ${transformedStrategies.length} trading strategies with ${analysis.confidence} confidence`,
+          type: 'success',
+          title: 'Trade Opportunity Found',
+          message: `${bestOpportunity.signal.symbol} ${bestOpportunity.signal.direction} - Confidence: ${bestOpportunity.signal.confidence}%`,
           timestamp: 'Just now',
           read: false
         };
-        
         setNotifications(prev => [notification, ...prev]);
+
+        return;
       }
-    } catch (err) {
-      console.error('Failed to process prompt:', err);
-      
+
       const notification: Notification = {
         id: Date.now().toString(),
-        type: 'error',
-        title: 'AI Analysis Failed',
-        message: 'Unable to generate strategies. Please try again.',
+        type: 'info',
+        title: 'Extended Search Started',
+        message: 'No immediate trades found. Searching for up to 1 hour...',
         timestamp: 'Just now',
         read: false
       };
-      
+      setNotifications(prev => [notification, ...prev]);
+
+      const sessionId = await extendedSearchService.startExtendedSearch(
+        user.id,
+        prompt,
+        accountBalance
+      );
+
+      setActiveSearchSessionId(sessionId);
+      setIsSearching(true);
+    } catch (err) {
+      console.error('Failed to process prompt:', err);
+
+      const notification: Notification = {
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Search Failed',
+        message: 'Unable to process request. Please try again.',
+        timestamp: 'Just now',
+        read: false
+      };
       setNotifications(prev => [notification, ...prev]);
     }
   };
@@ -231,7 +273,75 @@ const Dashboard: React.FC = () => {
 
   const handleJournalReaction = async (entryId: string, reaction: 'thumbs-up' | 'explain-more') => {
     console.log('Journal reaction:', entryId, reaction);
-    // Mock reaction handling - no backend to update
+  };
+
+  const handleSearchComplete = async (opportunity: any) => {
+    if (!opportunity) return;
+
+    const transformedStrategy = {
+      id: `extended-search-${Date.now()}`,
+      name: `${opportunity.symbol} ${opportunity.signal.direction} Trade`,
+      risk: 'medium',
+      symbol: opportunity.symbol,
+      action: opportunity.signal.direction.toLowerCase(),
+      entry: opportunity.signal.entryPrice.toFixed(5),
+      stopLoss: opportunity.signal.stopLoss.toFixed(5),
+      takeProfit: opportunity.signal.takeProfit.toFixed(5),
+      lotSize: 0.1,
+      estimatedGain: '$TBD',
+      riskRewardRatio: opportunity.signal.riskReward,
+      feasible: true,
+      reasoning: Array.isArray(opportunity.signal.reasoning) ? opportunity.signal.reasoning.join(', ') : opportunity.signal.reasoning,
+      confidence: opportunity.signal.confidence.toString()
+    };
+
+    setStrategyOptions([transformedStrategy]);
+    setActiveTradeLines({
+      entry: opportunity.signal.entryPrice,
+      stopLoss: opportunity.signal.stopLoss,
+      takeProfit: opportunity.signal.takeProfit
+    });
+    setSelectedSymbol(opportunity.symbol);
+    setIsSearching(false);
+
+    const notification: Notification = {
+      id: Date.now().toString(),
+      type: 'success',
+      title: 'Trade Opportunity Found!',
+      message: `${opportunity.symbol} ${opportunity.signal.direction} - Confidence: ${opportunity.signal.confidence}%`,
+      timestamp: 'Just now',
+      read: false
+    };
+    setNotifications(prev => [notification, ...prev]);
+  };
+
+  const handleSearchTimeout = () => {
+    setIsSearching(false);
+
+    const notification: Notification = {
+      id: Date.now().toString(),
+      type: 'warning',
+      title: 'Search Complete',
+      message: 'No valid trades found in 1 hour. Try again later or adjust your criteria.',
+      timestamp: 'Just now',
+      read: false
+    };
+    setNotifications(prev => [notification, ...prev]);
+  };
+
+  const handleSearchCancel = () => {
+    setActiveSearchSessionId(null);
+    setIsSearching(false);
+
+    const notification: Notification = {
+      id: Date.now().toString(),
+      type: 'info',
+      title: 'Search Cancelled',
+      message: 'Extended search was cancelled by user.',
+      timestamp: 'Just now',
+      read: false
+    };
+    setNotifications(prev => [notification, ...prev]);
   };
 
   return (
@@ -265,7 +375,17 @@ const Dashboard: React.FC = () => {
 
           {/* Auto Trading Panel */}
           <AutoTradingPanel />
-          
+
+          {/* Extended Search Status Panel */}
+          {activeSearchSessionId && isSearching && (
+            <SearchStatusPanel
+              sessionId={activeSearchSessionId}
+              onSearchComplete={handleSearchComplete}
+              onSearchTimeout={handleSearchTimeout}
+              onCancel={handleSearchCancel}
+            />
+          )}
+
           {/* AI Analysis Loading State */}
           {isAnalyzing && (
             <div className="glass-card p-6 sm:p-8 lg:p-12 text-center">
@@ -278,11 +398,11 @@ const Dashboard: React.FC = () => {
               <p className="text-white/50 text-sm mt-2 sm:mt-3">This may take 10-30 seconds</p>
             </div>
           )}
-          
+
           {/* Strategy Options */}
           <div ref={strategyOptionsRef}>
-            <StrategyOptions 
-              options={strategyOptions} 
+            <StrategyOptions
+              options={strategyOptions}
               onSelect={handleStrategySelect}
               isExecuting={isExecuting}
             />

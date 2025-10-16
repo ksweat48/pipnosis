@@ -1,5 +1,7 @@
 import { aiTradingEngine, AIAnalysisRequest, AIAnalysisResult, TradeOption } from './ai-trading-engine';
 import { simulatedTradingService } from './simulated-trading';
+import { promptValidationService, PromptValidationResult } from './prompt-validation';
+import { extendedSearchService } from './extended-search';
 import { supabase } from '@/lib/supabase';
 
 export interface ManualTradeRequest {
@@ -14,6 +16,13 @@ export interface ManualTradeResponse {
   options: TradeOption[];
   marketSummary: any;
   message: string;
+  validationError?: {
+    message: string;
+    details?: string[];
+    suggestion?: string;
+  };
+  extendedSearchSessionId?: string;
+  requiresExtendedSearch?: boolean;
 }
 
 export interface TradeExecutionRequest {
@@ -31,8 +40,27 @@ export interface TradeExecutionResponse {
 class ManualTradingService {
   async requestTradeAnalysis(request: ManualTradeRequest): Promise<ManualTradeResponse> {
     try {
-      const userPreferences = await this.getUserTradingPreferences(request.userId);
+      const validation = await promptValidationService.validatePrompt(
+        request.prompt,
+        request.accountBalance
+      );
 
+      if (!validation.isValid || !validation.isFeasible) {
+        return {
+          success: false,
+          decision: null,
+          options: [],
+          marketSummary: null,
+          message: validation.errorMessage || 'Request cannot be fulfilled',
+          validationError: {
+            message: validation.errorMessage || 'This request cannot be fulfilled',
+            details: validation.validationDetails?.reasons,
+            suggestion: validation.suggestedAlternative
+          }
+        };
+      }
+
+      const userPreferences = await this.getUserTradingPreferences(request.userId);
       const symbols = userPreferences?.preferred_pairs || ['EURUSD', 'GBPUSD', 'XAUUSD'];
 
       const analysisRequest: AIAnalysisRequest = {
@@ -45,6 +73,24 @@ class ManualTradingService {
       };
 
       const analysisResult = await aiTradingEngine.analyzeTradeRequest(analysisRequest);
+
+      if (analysisResult.options.length === 0) {
+        const sessionId = await extendedSearchService.startExtendedSearch(
+          request.userId,
+          request.prompt,
+          request.accountBalance
+        );
+
+        return {
+          success: true,
+          decision: null,
+          options: [],
+          marketSummary: analysisResult.marketSummary,
+          message: 'No immediate trade opportunities found. Extended search initiated (up to 1 hour).',
+          requiresExtendedSearch: true,
+          extendedSearchSessionId: sessionId
+        };
+      }
 
       return {
         success: true,

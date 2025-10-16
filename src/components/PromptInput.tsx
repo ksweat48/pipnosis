@@ -1,14 +1,25 @@
 import React, { useState } from 'react';
-import { Send, Mic, Zap, AlertCircle, TrendingUp } from 'lucide-react';
+import { Send, Mic, Zap, AlertCircle, TrendingUp, XCircle } from 'lucide-react';
 
 interface PromptInputProps {
   onSubmit: (prompt: string) => void;
   onStrategyRequest?: (prompt: string) => void;
   isLoading: boolean;
   error?: string | null;
+  validationError?: {
+    message: string;
+    details?: string[];
+    suggestion?: string;
+  } | null;
 }
 
-export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, onStrategyRequest, isLoading, error }) => {
+export const PromptInput: React.FC<PromptInputProps> = ({
+  onSubmit,
+  onStrategyRequest,
+  isLoading,
+  error,
+  validationError
+}) => {
   const [prompt, setPrompt] = useState('');
 
   const detectStrategyRequest = (text: string): boolean => {
@@ -59,7 +70,35 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, onStrategyRe
 
   return (
     <div className="space-y-6">
-      {error && (
+      {validationError && (
+        <div className="p-4 bg-red-500/10 border-2 border-red-500/30 rounded-2xl">
+          <div className="flex items-start space-x-3">
+            <XCircle className="h-5 w-5 text-red-400 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-red-400 text-base font-semibold mb-2">Request Not Feasible</p>
+              <p className="text-red-300 text-sm mb-3">{validationError.message}</p>
+              {validationError.details && validationError.details.length > 0 && (
+                <ul className="space-y-1 mb-3">
+                  {validationError.details.map((detail, index) => (
+                    <li key={index} className="text-red-300/80 text-xs flex items-start gap-2">
+                      <span className="text-red-400/60 mt-0.5">•</span>
+                      <span>{detail}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {validationError.suggestion && (
+                <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg mt-3">
+                  <p className="text-yellow-400 text-xs font-medium mb-1">Suggested Alternative:</p>
+                  <p className="text-yellow-300/90 text-xs">{validationError.suggestion}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && !validationError && (
         <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-start space-x-3">
           <AlertCircle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
           <div>

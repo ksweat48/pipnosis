@@ -83,5 +83,5 @@ export const WebContainerNotice: React.FC<WebContainerNoticeProps> = ({ onClose 
         )}
       </div>
     </div>
-  );}
+  );
 };
