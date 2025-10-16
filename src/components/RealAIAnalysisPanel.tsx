@@ -256,37 +256,69 @@ export const RealAIAnalysisPanel: React.FC<RealAIAnalysisPanelProps> = ({ analys
             </div>
           </div>
         )}
-      </div>
 
-      {/* Sentiment Section */}
-      <div className="mt-6 pt-6 border-t border-white/10">
-        <div className="flex items-center justify-between mb-4">
-          <h4 className="text-sm font-semibold text-white">Market Sentiment</h4>
-          <div className="flex items-center space-x-2">
-            <span className="text-xs text-white/60">Confidence:</span>
-            <span className={`text-sm font-bold ${getSentimentColor(analysis.sentiment.status)}`}>
-              {analysis.sentiment.confidence}%
-            </span>
+        {/* Market Sentiment Card */}
+        <div className="bg-white/5 rounded-lg p-4">
+          <div className="flex items-center space-x-2 mb-3">
+            {analysis.sentiment.status === 'BULLISH' ? (
+              <TrendingUp className="h-4 w-4 text-emerald-400" />
+            ) : analysis.sentiment.status === 'BEARISH' ? (
+              <TrendingDown className="h-4 w-4 text-red-400" />
+            ) : (
+              <Activity className="h-4 w-4 text-yellow-400" />
+            )}
+            <h4 className="text-sm font-semibold text-white">Market Sentiment</h4>
           </div>
-        </div>
-        <div className="flex items-center space-x-4">
-          <div className={`flex-1 px-4 py-3 rounded-lg ${
-            analysis.sentiment.status === 'BULLISH' ? 'bg-emerald-500/20 border border-emerald-500/50' :
-            analysis.sentiment.status === 'BEARISH' ? 'bg-red-500/20 border border-red-500/50' :
-            'bg-yellow-500/20 border border-yellow-500/50'
-          }`}>
-            <div className="flex items-center justify-center space-x-2">
-              {analysis.sentiment.status === 'BULLISH' ? (
-                <TrendingUp className="h-5 w-5 text-emerald-400" />
-              ) : analysis.sentiment.status === 'BEARISH' ? (
-                <TrendingDown className="h-5 w-5 text-red-400" />
-              ) : (
-                <Activity className="h-5 w-5 text-yellow-400" />
-              )}
-              <span className={`text-lg font-bold uppercase ${getSentimentColor(analysis.sentiment.status)}`}>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-white/60 text-sm">Confidence:</span>
+              <span className={`text-xl font-bold ${getSentimentColor(analysis.sentiment.status)}`}>
+                {analysis.sentiment.confidence}%
+              </span>
+            </div>
+            <div className={`px-3 py-2 rounded-lg text-center ${
+              analysis.sentiment.status === 'BULLISH' ? 'bg-emerald-500/20 border border-emerald-500/50' :
+              analysis.sentiment.status === 'BEARISH' ? 'bg-red-500/20 border border-red-500/50' :
+              'bg-yellow-500/20 border border-yellow-500/50'
+            }`}>
+              <span className={`text-base font-bold uppercase ${getSentimentColor(analysis.sentiment.status)}`}>
                 {analysis.sentiment.status}
               </span>
             </div>
+          </div>
+        </div>
+
+        {/* Trade Signal Assessment Card */}
+        <div className="bg-white/5 rounded-lg p-4">
+          <div className="flex items-center space-x-2 mb-3">
+            {analysis.tradeSignal.status === 'VALID' ? (
+              <CheckCircle className="h-4 w-4 text-emerald-400" />
+            ) : (
+              <XCircle className="h-4 w-4 text-red-400" />
+            )}
+            <h4 className="text-sm font-semibold text-white">Trade Signal</h4>
+          </div>
+          <div className="space-y-2">
+            <div className={`px-3 py-2 rounded-lg ${
+              analysis.tradeSignal.status === 'VALID'
+                ? 'bg-emerald-500/20 border border-emerald-500/50'
+                : 'bg-red-500/10 border border-red-500/30'
+            }`}>
+              <div className={`text-sm font-bold uppercase ${getSignalColor(analysis.tradeSignal.status)}`}>
+                {analysis.tradeSignal.status}
+                {analysis.tradeSignal.direction && ` - ${analysis.tradeSignal.direction}`}
+              </div>
+              {analysis.tradeSignal.confidence && (
+                <div className="text-xs text-white/60 mt-1">
+                  Confidence: <span className="text-emerald-400 font-semibold">{analysis.tradeSignal.confidence}%</span>
+                </div>
+              )}
+            </div>
+            {analysis.tradeSignal.reason && (
+              <p className="text-xs text-white/60">
+                {analysis.tradeSignal.reason}
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -324,40 +356,6 @@ export const RealAIAnalysisPanel: React.FC<RealAIAnalysisPanelProps> = ({ analys
           </div>
         </div>
       )}
-
-      {/* Trade Signal Section */}
-      <div className="mt-6 pt-6 border-t border-white/10">
-        <h4 className="text-sm font-semibold text-white mb-4">Trade Signal Assessment</h4>
-        <div className={`p-4 rounded-lg ${
-          analysis.tradeSignal.status === 'VALID'
-            ? 'bg-emerald-500/10 border border-emerald-500/30'
-            : 'bg-red-500/10 border border-red-500/30'
-        }`}>
-          <div className="flex items-center space-x-3 mb-3">
-            {analysis.tradeSignal.status === 'VALID' ? (
-              <CheckCircle className="h-6 w-6 text-emerald-400" />
-            ) : (
-              <XCircle className="h-6 w-6 text-red-400" />
-            )}
-            <div className="flex-1">
-              <div className={`text-lg font-bold uppercase ${getSignalColor(analysis.tradeSignal.status)}`}>
-                {analysis.tradeSignal.status}
-                {analysis.tradeSignal.direction && ` - ${analysis.tradeSignal.direction}`}
-              </div>
-              {analysis.tradeSignal.confidence && (
-                <div className="text-sm text-white/60">
-                  Confidence: <span className="text-emerald-400 font-semibold">{analysis.tradeSignal.confidence}%</span>
-                </div>
-              )}
-            </div>
-          </div>
-          {analysis.tradeSignal.reason && (
-            <p className="text-sm text-white/70 mt-2 pl-9">
-              {analysis.tradeSignal.reason}
-            </p>
-          )}
-        </div>
-      </div>
     </div>
   );
 };
