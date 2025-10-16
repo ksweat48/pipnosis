@@ -432,16 +432,9 @@ CREATE POLICY "Users can insert own profile"
   TO authenticated
   WITH CHECK (auth.uid() = id);
 
--- Admin Policy for User Profiles
-CREATE POLICY "Admins can view all profiles"
-  ON user_profiles FOR SELECT
-  TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM user_profiles
-      WHERE id = auth.uid() AND is_admin = true
-    )
-  );
+-- Admin Policy for User Profiles (REMOVED - caused infinite recursion)
+-- Users can already read their own profile including is_admin field via "Users can view own profile" policy
+-- Admin features in application code will verify admin status after reading the profile
 
 -- Trading Prompts Policies
 CREATE POLICY "Users can view own prompts"
