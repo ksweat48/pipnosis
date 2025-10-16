@@ -63,10 +63,13 @@ class AutoTradingScanner {
         .single();
 
       if (!preferences) {
-        await supabase.from('user_trading_preferences').insert({
+        await supabase.from('user_trading_preferences').upsert({
           user_id: userId,
           auto_trading_enabled: true,
           min_confidence_threshold: 75
+        }, {
+          onConflict: 'user_id',
+          ignoreDuplicates: false
         });
       }
 
@@ -384,7 +387,7 @@ class AutoTradingScanner {
   private async initializeAutoTradingStatus(userId: string) {
     await supabase
       .from('auto_trading_status')
-      .insert({
+      .upsert({
         user_id: userId,
         enabled: false,
         trades_taken_today: 0,
@@ -393,7 +396,14 @@ class AutoTradingScanner {
         consecutive_no_opportunity_count: 0,
         daily_pnl: 0,
         daily_loss_limit: -500,
-        emergency_stop: false
+        emergency_stop: false,
+        is_active: false,
+        monitored_symbols: [],
+        trades_today: 0,
+        trades_remaining: 0
+      }, {
+        onConflict: 'user_id',
+        ignoreDuplicates: false
       });
   }
 
@@ -404,6 +414,9 @@ class AutoTradingScanner {
         user_id: userId,
         ...updates,
         updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'user_id',
+        ignoreDuplicates: false
       });
   }
 

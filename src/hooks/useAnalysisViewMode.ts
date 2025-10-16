@@ -75,31 +75,19 @@ export function useAnalysisViewMode() {
     setViewMode(newMode);
 
     try {
-      const { data: existingPrefs } = await supabase
+      await supabase
         .from('chart_preferences')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (existingPrefs) {
-        await supabase
-          .from('chart_preferences')
-          .update({
-            analysis_view_mode: newMode,
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', user.id);
-      } else {
-        await supabase
-          .from('chart_preferences')
-          .insert({
-            user_id: user.id,
-            analysis_view_mode: newMode,
-            chart_type: 'candlestick',
-            show_grid: true,
-            show_volume: true
-          });
-      }
+        .upsert({
+          user_id: user.id,
+          analysis_view_mode: newMode,
+          chart_type: 'candlestick',
+          show_grid: true,
+          show_volume: true,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id',
+          ignoreDuplicates: false
+        });
 
       console.log(`View mode changed to: ${newMode}`);
     } catch (error) {
@@ -114,31 +102,19 @@ export function useAnalysisViewMode() {
     setViewMode(mode);
 
     try {
-      const { data: existingPrefs } = await supabase
+      await supabase
         .from('chart_preferences')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (existingPrefs) {
-        await supabase
-          .from('chart_preferences')
-          .update({
-            analysis_view_mode: mode,
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', user.id);
-      } else {
-        await supabase
-          .from('chart_preferences')
-          .insert({
-            user_id: user.id,
-            analysis_view_mode: mode,
-            chart_type: 'candlestick',
-            show_grid: true,
-            show_volume: true
-          });
-      }
+        .upsert({
+          user_id: user.id,
+          analysis_view_mode: mode,
+          chart_type: 'candlestick',
+          show_grid: true,
+          show_volume: true,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id',
+          ignoreDuplicates: false
+        });
 
       console.log(`View mode set to: ${mode}`);
     } catch (error) {

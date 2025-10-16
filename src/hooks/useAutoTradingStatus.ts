@@ -164,7 +164,10 @@ export function useAutoTradingStatus() {
     try {
       setError(null);
 
-      const statusUpdateData: any = {};
+      const statusUpdateData: any = {
+        user_id: user.id,
+      };
+
       if (updates.isActive !== undefined) statusUpdateData.is_active = updates.isActive;
       if (updates.monitoredSymbols !== undefined) statusUpdateData.monitored_symbols = updates.monitoredSymbols;
       if (updates.lastScanTime !== undefined) statusUpdateData.last_scan_at = updates.lastScanTime?.toISOString();
@@ -175,27 +178,15 @@ export function useAutoTradingStatus() {
       if (updates.scanningSymbol !== undefined) statusUpdateData.scanning_symbol = updates.scanningSymbol;
       if (updates.sessionStartTime !== undefined) statusUpdateData.session_start_at = updates.sessionStartTime?.toISOString();
 
-      const { data: statusExists } = await supabase
+      const { error: upsertError } = await supabase
         .from('auto_trading_status')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle();
+        .upsert(statusUpdateData, {
+          onConflict: 'user_id',
+          ignoreDuplicates: false
+        })
+        .eq('user_id', user.id);
 
-      if (statusExists) {
-        const { error: updateError } = await supabase
-          .from('auto_trading_status')
-          .update(statusUpdateData)
-          .eq('user_id', user.id);
-        if (updateError) throw updateError;
-      } else if (Object.keys(statusUpdateData).length > 0) {
-        const { error: insertError } = await supabase
-          .from('auto_trading_status')
-          .insert({
-            user_id: user.id,
-            ...statusUpdateData,
-          });
-        if (insertError) throw insertError;
-      }
+      if (upsertError) throw upsertError;
 
       setStatus(prev => ({ ...prev, ...updates }));
     } catch (err) {

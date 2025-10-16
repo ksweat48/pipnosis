@@ -119,67 +119,35 @@ export function useChartPreferences() {
       setError(null);
       const newPreferences = { ...preferences, ...updates };
 
-      const { data: existing } = await supabase
+      const { error: upsertError } = await supabase
         .from('chart_preferences')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle();
+        .upsert({
+          user_id: user.id,
+          theme: newPreferences.theme,
+          show_volume: newPreferences.show_volume,
+          show_grid: newPreferences.show_grid,
+          show_ai_analysis: newPreferences.show_ai_analysis,
+          candlestick_up_color: newPreferences.candlestick_up_color,
+          candlestick_down_color: newPreferences.candlestick_down_color,
+          background_color: newPreferences.background_color,
+          show_all_emas: newPreferences.show_all_emas,
+          show_ema_9: newPreferences.show_ema_9,
+          show_ema_21: newPreferences.show_ema_21,
+          show_ema_50: newPreferences.show_ema_50,
+          show_ema_100: newPreferences.show_ema_100,
+          show_ema_200: newPreferences.show_ema_200,
+          ema_5_color: newPreferences.ema_5_color,
+          ema_9_color: newPreferences.ema_9_color,
+          ema_21_color: newPreferences.ema_21_color,
+          ema_50_color: newPreferences.ema_50_color,
+          ema_200_color: newPreferences.ema_200_color,
+          analysis_view_mode: newPreferences.analysis_view_mode,
+        }, {
+          onConflict: 'user_id',
+          ignoreDuplicates: false
+        });
 
-      if (existing) {
-        const { error: updateError } = await supabase
-          .from('chart_preferences')
-          .update({
-            theme: newPreferences.theme,
-            show_volume: newPreferences.show_volume,
-            show_grid: newPreferences.show_grid,
-            show_ai_analysis: newPreferences.show_ai_analysis,
-            candlestick_up_color: newPreferences.candlestick_up_color,
-            candlestick_down_color: newPreferences.candlestick_down_color,
-            background_color: newPreferences.background_color,
-            show_all_emas: newPreferences.show_all_emas,
-            show_ema_9: newPreferences.show_ema_9,
-            show_ema_21: newPreferences.show_ema_21,
-            show_ema_50: newPreferences.show_ema_50,
-            show_ema_100: newPreferences.show_ema_100,
-            show_ema_200: newPreferences.show_ema_200,
-            ema_5_color: newPreferences.ema_5_color,
-            ema_9_color: newPreferences.ema_9_color,
-            ema_21_color: newPreferences.ema_21_color,
-            ema_50_color: newPreferences.ema_50_color,
-            ema_200_color: newPreferences.ema_200_color,
-            analysis_view_mode: newPreferences.analysis_view_mode,
-          })
-          .eq('user_id', user.id);
-
-        if (updateError) throw updateError;
-      } else {
-        const { error: insertError } = await supabase
-          .from('chart_preferences')
-          .insert({
-            user_id: user.id,
-            theme: newPreferences.theme,
-            show_volume: newPreferences.show_volume,
-            show_grid: newPreferences.show_grid,
-            show_ai_analysis: newPreferences.show_ai_analysis,
-            candlestick_up_color: newPreferences.candlestick_up_color,
-            candlestick_down_color: newPreferences.candlestick_down_color,
-            background_color: newPreferences.background_color,
-            show_all_emas: newPreferences.show_all_emas,
-            show_ema_9: newPreferences.show_ema_9,
-            show_ema_21: newPreferences.show_ema_21,
-            show_ema_50: newPreferences.show_ema_50,
-            show_ema_100: newPreferences.show_ema_100,
-            show_ema_200: newPreferences.show_ema_200,
-            ema_5_color: newPreferences.ema_5_color,
-            ema_9_color: newPreferences.ema_9_color,
-            ema_21_color: newPreferences.ema_21_color,
-            ema_50_color: newPreferences.ema_50_color,
-            ema_200_color: newPreferences.ema_200_color,
-            analysis_view_mode: newPreferences.analysis_view_mode,
-          });
-
-        if (insertError) throw insertError;
-      }
+      if (upsertError) throw upsertError;
 
       setPreferences(newPreferences);
     } catch (err) {

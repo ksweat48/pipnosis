@@ -66,6 +66,9 @@ export class AutoTradingController {
           trading_hours_end: config.tradingHours?.end,
           risk_percentage: config.riskPercentage,
           updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id',
+          ignoreDuplicates: false
         });
 
       if (error) {
