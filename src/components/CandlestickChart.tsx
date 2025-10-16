@@ -700,13 +700,6 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
             zIndex: 1
           }}
         />
-        <IndicatorLegend
-          ema21Value={ema21CurrentValue}
-          vwapValue={vwapCurrentValue}
-          ema21Color={ema21Color}
-          vwapColor={vwapColor}
-          symbol={symbol}
-        />
       </div>
     </div>
   );
