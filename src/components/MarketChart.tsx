@@ -22,6 +22,7 @@ import { useChartPreferences } from '../hooks/useChartPreferences';
 import { analyzeMarket, AiMarketSummary } from '../lib/aiMarketEngine';
 import { saveMarketAnalysis } from '../services/marketAnalysisService';
 import { calculateEMAsForChart } from '../lib/emaAnalysis';
+import { calculateVWAP } from '../lib/indicators';
 import { LineData } from 'lightweight-charts';
 
 interface MarketChartProps {
@@ -391,6 +392,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     ema50?: LineData<Time>[];
     ema200?: LineData<Time>[];
   } | null>(null);
+  const [vwapChartData, setVwapChartData] = useState<LineData<Time>[]>([]);
   const { status: autoTradingStatus, symbolStatuses } = useAutoTradingStatus();
   const [nextScanCountdown, setNextScanCountdown] = useState<number>(0);
   const [isFixingData, setIsFixingData] = useState(false);
@@ -445,6 +447,26 @@ export const MarketChart: React.FC<MarketChartProps> = ({
           } else {
             console.warn('[MarketChart] No EMA data generated');
           }
+
+          const vwapData: LineData<Time>[] = [];
+          for (let i = 0; i < candles.length; i++) {
+            const subset = candles.slice(Math.max(0, i - 49), i + 1);
+            if (subset.length >= 2) {
+              try {
+                const vwapValue = calculateVWAP(subset, subset.length);
+                if (isFinite(vwapValue) && vwapValue > 0) {
+                  vwapData.push({
+                    time: (candleData[i].time as number) as Time,
+                    value: vwapValue
+                  });
+                }
+              } catch (err) {
+                console.error(`[MarketChart] Error calculating VWAP at index ${i}:`, err);
+              }
+            }
+          }
+          setVwapChartData(vwapData);
+          console.log('[MarketChart] VWAP chart data calculated:', vwapData.length, 'points');
         } catch (err) {
           console.error('[MarketChart] Failed to calculate EMA data:', err);
         }
@@ -805,6 +827,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
               volumeData={preferences.show_volume ? volumeData : undefined}
               aiAnalysis={preferences.show_ai_analysis ? aiAnalysis : undefined}
               emaData={emaChartData || undefined}
+              vwapData={vwapChartData.length > 0 ? vwapChartData : undefined}
               tradeLines={tradeLines}
               height={500}
               preferences={preferences}

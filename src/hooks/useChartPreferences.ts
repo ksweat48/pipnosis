@@ -11,6 +11,11 @@ export interface ChartPreferences {
   candlestick_down_color: string;
   background_color: string;
   show_all_emas: boolean;
+  show_ema_9: boolean;
+  show_ema_21: boolean;
+  show_ema_50: boolean;
+  show_ema_100: boolean;
+  show_ema_200: boolean;
   ema_5_color: string;
   ema_9_color: string;
   ema_21_color: string;
@@ -28,6 +33,11 @@ const DEFAULT_PREFERENCES: ChartPreferences = {
   candlestick_down_color: '#ef4444',
   background_color: 'rgba(15, 23, 42, 0.5)',
   show_all_emas: false,
+  show_ema_9: true,
+  show_ema_21: true,
+  show_ema_50: false,
+  show_ema_100: false,
+  show_ema_200: true,
   ema_5_color: '#00ff95',
   ema_9_color: '#facc15',
   ema_21_color: '#44c0ff',
@@ -75,6 +85,11 @@ export function useChartPreferences() {
           candlestick_down_color: data.candlestick_down_color,
           background_color: data.background_color,
           show_all_emas: data.show_all_emas ?? DEFAULT_PREFERENCES.show_all_emas,
+          show_ema_9: data.show_ema_9 ?? DEFAULT_PREFERENCES.show_ema_9,
+          show_ema_21: data.show_ema_21 ?? DEFAULT_PREFERENCES.show_ema_21,
+          show_ema_50: data.show_ema_50 ?? DEFAULT_PREFERENCES.show_ema_50,
+          show_ema_100: data.show_ema_100 ?? DEFAULT_PREFERENCES.show_ema_100,
+          show_ema_200: data.show_ema_200 ?? DEFAULT_PREFERENCES.show_ema_200,
           ema_5_color: data.ema_5_color ?? DEFAULT_PREFERENCES.ema_5_color,
           ema_9_color: data.ema_9_color ?? DEFAULT_PREFERENCES.ema_9_color,
           ema_21_color: data.ema_21_color ?? DEFAULT_PREFERENCES.ema_21_color,
@@ -122,6 +137,11 @@ export function useChartPreferences() {
             candlestick_down_color: newPreferences.candlestick_down_color,
             background_color: newPreferences.background_color,
             show_all_emas: newPreferences.show_all_emas,
+            show_ema_9: newPreferences.show_ema_9,
+            show_ema_21: newPreferences.show_ema_21,
+            show_ema_50: newPreferences.show_ema_50,
+            show_ema_100: newPreferences.show_ema_100,
+            show_ema_200: newPreferences.show_ema_200,
             ema_5_color: newPreferences.ema_5_color,
             ema_9_color: newPreferences.ema_9_color,
             ema_21_color: newPreferences.ema_21_color,
@@ -145,6 +165,11 @@ export function useChartPreferences() {
             candlestick_down_color: newPreferences.candlestick_down_color,
             background_color: newPreferences.background_color,
             show_all_emas: newPreferences.show_all_emas,
+            show_ema_9: newPreferences.show_ema_9,
+            show_ema_21: newPreferences.show_ema_21,
+            show_ema_50: newPreferences.show_ema_50,
+            show_ema_100: newPreferences.show_ema_100,
+            show_ema_200: newPreferences.show_ema_200,
             ema_5_color: newPreferences.ema_5_color,
             ema_9_color: newPreferences.ema_9_color,
             ema_21_color: newPreferences.ema_21_color,

@@ -18,11 +18,14 @@ import {
 import { detectCandlePattern, isPatternStrong, CandleSignal } from './candlePatterns';
 import { analyzeStructure, StructureAnalysis } from './structureAnalysis';
 import { calculateEMAs, generateEMASignals, calculateEMALevels, EMASignals, EMAValues, EMALevels } from './emaAnalysis';
+import { detectAdvancedPattern, AdvancedPattern } from './advancedPatterns';
+import { getATRTooltip } from './indicators';
 
 export interface AiMarketSummary {
   rsi: {
     value: number;
     status: 'OVERBOUGHT' | 'OVERSOLD' | 'NEUTRAL';
+    trend: 'rising' | 'falling' | 'neutral';
   };
   vwap: {
     value: number;
@@ -36,7 +39,8 @@ export interface AiMarketSummary {
   };
   atr: {
     value: number;
-    status: 'Low' | 'Normal' | 'Elevated';
+    status: 'LOW VOLATILITY' | 'NORMAL VOLATILITY' | 'HIGH VOLATILITY';
+    tooltip: string;
   };
   candleSignal: {
     type: string;
@@ -46,6 +50,7 @@ export interface AiMarketSummary {
     type: string;
     recent: boolean;
   };
+  advancedPattern: AdvancedPattern;
   ema: {
     signals: EMASignals;
     values: EMAValues;
@@ -61,6 +66,7 @@ export interface AiMarketSummary {
     confidence?: number;
     reason?: string;
   };
+  aiCommentary: string;
   metadata: {
     candlesAnalyzed: number;
     timestamp: Date;
@@ -68,15 +74,79 @@ export interface AiMarketSummary {
 }
 
 /**
+ * Detect RSI trend direction
+ */
+function detectRSITrend(candles: Candle[]): 'rising' | 'falling' | 'neutral' {
+  if (candles.length < 5) return 'neutral';
+
+  const recentCandles = candles.slice(-5);
+  const rsiValues = [];
+
+  for (let i = 0; i < recentCandles.length; i++) {
+    const subset = candles.slice(0, candles.length - recentCandles.length + i + 1);
+    if (subset.length >= 15) {
+      try {
+        const rsi = calculateRSI(subset, 14);
+        rsiValues.push(rsi);
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  if (rsiValues.length < 3) return 'neutral';
+
+  let risingCount = 0;
+  let fallingCount = 0;
+
+  for (let i = 1; i < rsiValues.length; i++) {
+    if (rsiValues[i] > rsiValues[i - 1]) risingCount++;
+    if (rsiValues[i] < rsiValues[i - 1]) fallingCount++;
+  }
+
+  if (risingCount > fallingCount && risingCount >= 2) return 'rising';
+  if (fallingCount > risingCount && fallingCount >= 2) return 'falling';
+  return 'neutral';
+}
+
+/**
+ * Analyze candle body trends
+ */
+function analyzeCandleBodyTrend(candles: Candle[]): 'bullish' | 'bearish' | 'neutral' {
+  if (candles.length < 3) return 'neutral';
+
+  const recentCandles = candles.slice(-5);
+  let bullishBodies = 0;
+  let bearishBodies = 0;
+
+  for (const candle of recentCandles) {
+    const bodySize = Math.abs(candle.close - candle.open);
+    const range = candle.high - candle.low;
+
+    if (bodySize > range * 0.5) {
+      if (candle.close > candle.open) bullishBodies++;
+      else bearishBodies++;
+    }
+  }
+
+  if (bullishBodies >= 3) return 'bullish';
+  if (bearishBodies >= 3) return 'bearish';
+  return 'neutral';
+}
+
+/**
  * Calculate sentiment score based on multiple factors
  */
 function calculateSentiment(
   rsiStatus: string,
+  rsiTrend: 'rising' | 'falling' | 'neutral',
   vwapPosition: string,
   volumeStatus: string,
   candleSignal: CandleSignal,
   structure: StructureAnalysis,
   atrStatus: string,
+  candleBodyTrend: 'bullish' | 'bearish' | 'neutral',
+  advancedPattern: AdvancedPattern,
   emaSignals?: EMASignals
 ): { status: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; confidence: number } {
   let bullishScore = 0;
@@ -91,6 +161,36 @@ function calculateSentiment(
     totalWeight += 20;
   } else {
     totalWeight += 10;
+  }
+
+  if (rsiTrend === 'rising') {
+    bullishScore += 12;
+    totalWeight += 12;
+  } else if (rsiTrend === 'falling') {
+    bearishScore += 12;
+    totalWeight += 12;
+  } else {
+    totalWeight += 5;
+  }
+
+  if (candleBodyTrend === 'bullish') {
+    bullishScore += 15;
+    totalWeight += 15;
+  } else if (candleBodyTrend === 'bearish') {
+    bearishScore += 15;
+    totalWeight += 15;
+  } else {
+    totalWeight += 5;
+  }
+
+  if (advancedPattern.type !== 'None' && advancedPattern.isValid) {
+    const weight = Math.floor(advancedPattern.confidence / 5);
+    if (advancedPattern.direction === 'bullish') {
+      bullishScore += weight;
+    } else if (advancedPattern.direction === 'bearish') {
+      bearishScore += weight;
+    }
+    totalWeight += weight;
   }
 
   if (vwapPosition === 'Above VWAP') {
@@ -203,6 +303,39 @@ function calculateSentiment(
   }
 
   return { status, confidence: Math.round(confidence) };
+}
+
+/**
+ * Generate AI Commentary
+ * Natural language summary of market conditions
+ */
+function generateAICommentary(
+  vwapPosition: string,
+  rsiTrend: 'rising' | 'falling' | 'neutral',
+  advancedPattern: AdvancedPattern,
+  sentiment: { status: string; confidence: number }
+): string {
+  const parts: string[] = [];
+
+  parts.push(`Price ${vwapPosition.toLowerCase()}`);
+
+  if (rsiTrend === 'rising') {
+    parts.push('with RSI rising');
+  } else if (rsiTrend === 'falling') {
+    parts.push('with RSI falling');
+  } else {
+    parts.push('with RSI neutral');
+  }
+
+  if (advancedPattern.type !== 'None' && advancedPattern.isValid) {
+    parts.push(`Pattern detected: ${advancedPattern.type} (${advancedPattern.direction}, ${advancedPattern.confidence}% confidence)`);
+  } else {
+    parts.push('No clear pattern detected');
+  }
+
+  parts.push(`Sentiment: ${sentiment.status} with confidence ${sentiment.confidence}%`);
+
+  return parts.join('. ') + '.';
 }
 
 /**
@@ -405,6 +538,7 @@ export async function analyzeMarket(candles: Candle[]): Promise<AiMarketSummary>
 
   const rsiValue = calculateRSI(candles, 14);
   const rsiStatus = getRSIStatus(rsiValue);
+  const rsiTrend = detectRSITrend(candles);
 
   const vwapValue = calculateVWAP(candles, 50);
   const vwapPosition = getVWAPPosition(currentPrice, vwapValue);
@@ -412,11 +546,14 @@ export async function analyzeMarket(candles: Candle[]): Promise<AiMarketSummary>
   const volumeAnalysis = analyzeVolume(candles, 20);
 
   const atrValue = calculateATR(candles, 14);
-  const atrStatus = getATRStatus(atrValue, candles);
+  const atrStatus = getATRStatus(atrValue);
+  const atrTooltip = getATRTooltip();
 
   const candleSignal = detectCandlePattern(candles);
+  const candleBodyTrend = analyzeCandleBodyTrend(candles);
 
   const structure = analyzeStructure(candles);
+  const advancedPattern = detectAdvancedPattern(candles);
 
   const emaValues = calculateEMAs(candles);
   const emaSignals = generateEMASignals(candles);
@@ -424,13 +561,18 @@ export async function analyzeMarket(candles: Candle[]): Promise<AiMarketSummary>
 
   const sentiment = calculateSentiment(
     rsiStatus,
+    rsiTrend,
     vwapPosition,
     volumeAnalysis.status,
     candleSignal,
     structure,
     atrStatus,
+    candleBodyTrend,
+    advancedPattern,
     emaSignals
   );
+
+  const aiCommentary = generateAICommentary(vwapPosition, rsiTrend, advancedPattern, sentiment);
 
   const tradeSignal = validateTradeSignal(
     { value: rsiValue, status: rsiStatus },
@@ -446,7 +588,8 @@ export async function analyzeMarket(candles: Candle[]): Promise<AiMarketSummary>
   return {
     rsi: {
       value: parseFloat(rsiValue.toFixed(2)),
-      status: rsiStatus
+      status: rsiStatus,
+      trend: rsiTrend
     },
     vwap: {
       value: parseFloat(vwapValue.toFixed(8)),
@@ -460,7 +603,8 @@ export async function analyzeMarket(candles: Candle[]): Promise<AiMarketSummary>
     },
     atr: {
       value: parseFloat(atrValue.toFixed(8)),
-      status: atrStatus
+      status: atrStatus,
+      tooltip: atrTooltip
     },
     candleSignal: {
       type: candleSignal.type,
@@ -470,6 +614,7 @@ export async function analyzeMarket(candles: Candle[]): Promise<AiMarketSummary>
       type: structure.type,
       recent: structure.recent
     },
+    advancedPattern,
     ema: {
       signals: emaSignals,
       values: emaValues,
@@ -480,6 +625,7 @@ export async function analyzeMarket(candles: Candle[]): Promise<AiMarketSummary>
       confidence: sentiment.confidence
     },
     tradeSignal,
+    aiCommentary,
     metadata: {
       candlesAnalyzed: candles.length,
       timestamp: new Date()

@@ -102,6 +102,11 @@ export const RealAIAnalysisPanel: React.FC<RealAIAnalysisPanelProps> = ({ analys
             <div className={`text-sm font-bold uppercase ${getRSIColor(analysis.rsi.status)}`}>
               {analysis.rsi.status}
             </div>
+            {analysis.rsi.trend && (
+              <div className="text-xs px-2 py-1 rounded bg-white/5">
+                Trend: <span className="font-semibold">{analysis.rsi.trend}</span>
+              </div>
+            )}
             <div className="w-full bg-white/10 rounded-full h-2 mt-2">
               <div
                 className={`h-2 rounded-full ${
@@ -169,11 +174,13 @@ export const RealAIAnalysisPanel: React.FC<RealAIAnalysisPanelProps> = ({ analys
               {analysis.atr.value.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
             </div>
             <div className={`text-sm font-bold uppercase ${getATRColor(analysis.atr.status)}`}>
-              {analysis.atr.status} Volatility
+              {analysis.atr.status}
             </div>
-            <p className="text-xs text-white/40 mt-1">
-              Average True Range
-            </p>
+            {analysis.atr.tooltip && (
+              <p className="text-xs text-white/40 mt-1" title={analysis.atr.tooltip}>
+                {analysis.atr.tooltip}
+              </p>
+            )}
           </div>
         </div>
 
@@ -283,6 +290,40 @@ export const RealAIAnalysisPanel: React.FC<RealAIAnalysisPanelProps> = ({ analys
           </div>
         </div>
       </div>
+
+      {/* Advanced Pattern Section */}
+      {analysis.advancedPattern && analysis.advancedPattern.type !== 'None' && (
+        <div className="mt-6 pt-6 border-t border-white/10">
+          <h4 className="text-sm font-semibold text-white mb-4">Advanced Pattern Detected</h4>
+          <div className="bg-white/5 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-lg font-bold text-white">{analysis.advancedPattern.type}</span>
+              <span className={`text-sm font-semibold px-2 py-1 rounded ${
+                analysis.advancedPattern.direction === 'bullish' ? 'bg-emerald-500/20 text-emerald-400' :
+                analysis.advancedPattern.direction === 'bearish' ? 'bg-red-500/20 text-red-400' :
+                'bg-yellow-500/20 text-yellow-400'
+              }`}>
+                {analysis.advancedPattern.direction.toUpperCase()}
+              </span>
+            </div>
+            <p className="text-sm text-white/70 mb-2">{analysis.advancedPattern.description}</p>
+            <div className="flex items-center justify-between text-xs text-white/60">
+              <span>Confidence:</span>
+              <span className="font-semibold">{analysis.advancedPattern.confidence}%</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Commentary Section */}
+      {analysis.aiCommentary && (
+        <div className="mt-6 pt-6 border-t border-white/10">
+          <h4 className="text-sm font-semibold text-white mb-4">AI Commentary</h4>
+          <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-lg p-4">
+            <p className="text-white/90 leading-relaxed">{analysis.aiCommentary}</p>
+          </div>
+        </div>
+      )}
 
       {/* Trade Signal Section */}
       <div className="mt-6 pt-6 border-t border-white/10">

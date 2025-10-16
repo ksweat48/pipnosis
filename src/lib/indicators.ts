@@ -127,6 +127,7 @@ export function getVWAPPosition(currentPrice: number, vwap: number): 'Above VWAP
 /**
  * Analyze Volume
  * Compares current volume to 20-period average
+ * Uses 70% and 130% thresholds for classification
  */
 export interface VolumeAnalysis {
   status: 'LOW' | 'STABLE' | 'HIGH';
@@ -151,11 +152,12 @@ export function analyzeVolume(candles: Candle[], period: number = 20): VolumeAna
 
   let status: 'LOW' | 'STABLE' | 'HIGH' = 'STABLE';
   const percentChange = averageVolume > 0 ? ((currentVolume - averageVolume) / averageVolume) * 100 : 0;
+  const ratio = averageVolume > 0 ? currentVolume / averageVolume : 1;
 
-  if (percentChange > 20) {
-    status = 'HIGH';
-  } else if (percentChange < -20) {
+  if (ratio < 0.7) {
     status = 'LOW';
+  } else if (ratio > 1.3) {
+    status = 'HIGH';
   }
 
   const delta = `${percentChange >= 0 ? '+' : ''}${percentChange.toFixed(1)}%`;
@@ -210,17 +212,19 @@ export function calculateATR(candles: Candle[], period: number = 14): number {
 
 /**
  * Get ATR Status based on volatility
+ * Returns volatility classification and tooltip
  */
-export function getATRStatus(atr: number, candles: Candle[]): 'Low' | 'Normal' | 'Elevated' {
-  const recentCandles = candles.slice(-20);
-  const ranges = recentCandles.map(c => c.high - c.low);
-  const medianRange = calculateSMA(ranges, ranges.length);
+export function getATRStatus(atr: number): 'LOW VOLATILITY' | 'NORMAL VOLATILITY' | 'HIGH VOLATILITY' {
+  if (atr < 0.00015) return 'LOW VOLATILITY';
+  if (atr > 0.0006) return 'HIGH VOLATILITY';
+  return 'NORMAL VOLATILITY';
+}
 
-  const ratio = atr / medianRange;
-
-  if (ratio < 0.8) return 'Low';
-  if (ratio > 1.3) return 'Elevated';
-  return 'Normal';
+/**
+ * Get ATR tooltip description
+ */
+export function getATRTooltip(): string {
+  return 'ATR shows average price movement range. Higher = more volatility.';
 }
 
 /**

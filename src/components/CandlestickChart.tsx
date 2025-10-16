@@ -16,6 +16,7 @@ interface CandlestickChartProps {
     ema50?: LineData<Time>[];
     ema200?: LineData<Time>[];
   };
+  vwapData?: LineData<Time>[];
   tradeLines?: {
     entry?: number;
     stopLoss?: number;
@@ -32,6 +33,7 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
   volumeData,
   aiAnalysis,
   emaData,
+  vwapData,
   tradeLines,
   height = 400,
   preferences,
@@ -381,12 +383,15 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
     });
     aiPriceLinesRef.current = [];
 
-    if (aiAnalysis.vwap && vwapSeriesRef.current && data.length > 0) {
-      const vwapData: LineData<Time>[] = data.map(candle => ({
+    if (vwapData && vwapData.length > 0 && vwapSeriesRef.current) {
+      vwapSeriesRef.current.setData(vwapData);
+      console.log('[Chart] VWAP line data set:', vwapData.length, 'points');
+    } else if (aiAnalysis?.vwap && vwapSeriesRef.current && data.length > 0) {
+      const fallbackVwapData: LineData<Time>[] = data.map(candle => ({
         time: candle.time,
         value: aiAnalysis.vwap!
       }));
-      vwapSeriesRef.current.setData(vwapData);
+      vwapSeriesRef.current.setData(fallbackVwapData);
     }
 
     if (aiAnalysis.sessionMarkers && aiAnalysis.sessionMarkers.length > 0) {
