@@ -27,6 +27,53 @@ interface CandlestickChartProps {
   hasIncompleteCandle?: boolean;
 }
 
+interface IndicatorLegendProps {
+  ema21Value?: number;
+  vwapValue?: number;
+  ema21Color: string;
+  vwapColor: string;
+  symbol: string;
+}
+
+const IndicatorLegend: React.FC<IndicatorLegendProps> = ({ ema21Value, vwapValue, ema21Color, vwapColor, symbol }) => {
+  const precision = symbol === 'XAUUSD' ? 2 : 5;
+
+  if (!ema21Value && !vwapValue) return null;
+
+  return (
+    <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10 flex gap-3 pointer-events-none">
+      {ema21Value && (
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 backdrop-blur-sm border border-white/10">
+          <div
+            className="w-2 h-2 rounded-full"
+            style={{ backgroundColor: ema21Color }}
+          />
+          <span className="text-xs font-medium text-white/90">
+            EMA 21
+          </span>
+          <span className="text-xs font-bold" style={{ color: ema21Color }}>
+            {ema21Value.toFixed(precision)}
+          </span>
+        </div>
+      )}
+      {vwapValue && (
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 backdrop-blur-sm border border-white/10">
+          <div
+            className="w-2 h-2 rounded-full"
+            style={{ backgroundColor: vwapColor }}
+          />
+          <span className="text-xs font-medium text-white/90">
+            VWAP
+          </span>
+          <span className="text-xs font-bold" style={{ color: vwapColor }}>
+            {vwapValue.toFixed(precision)}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
   symbol,
   data,
@@ -53,6 +100,8 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
   const priceLinesRef = useRef<any[]>([]);
   const aiPriceLinesRef = useRef<any[]>([]);
   const [isReady, setIsReady] = useState(false);
+  const [ema21CurrentValue, setEma21CurrentValue] = useState<number | undefined>();
+  const [vwapCurrentValue, setVwapCurrentValue] = useState<number | undefined>();
   const lastDataLengthRef = useRef(0);
   const lastVolumeLengthRef = useRef(0);
   const isInitialLoadRef = useRef(true);
@@ -179,6 +228,8 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       lineStyle: 2,
       priceScaleId: 'right',
       title: 'VWAP',
+      lastValueVisible: false,
+      priceLineVisible: false,
     });
 
     const ema21Color = preferences?.ema_21_color || '#44c0ff';
@@ -194,7 +245,7 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       priceScaleId: 'right',
       title: 'EMA 21',
       visible: true,
-      lastValueVisible: true,
+      lastValueVisible: false,
       priceLineVisible: false,
     });
 
@@ -205,7 +256,7 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       priceScaleId: 'right',
       title: 'EMA 200',
       visible: true,
-      lastValueVisible: true,
+      lastValueVisible: false,
       priceLineVisible: false,
     });
 
@@ -216,7 +267,7 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       priceScaleId: 'right',
       title: 'EMA 5',
       visible: preferences?.show_all_emas ?? false,
-      lastValueVisible: true,
+      lastValueVisible: false,
       priceLineVisible: false,
     });
 
@@ -227,7 +278,7 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       priceScaleId: 'right',
       title: 'EMA 9',
       visible: preferences?.show_all_emas ?? false,
-      lastValueVisible: true,
+      lastValueVisible: false,
       priceLineVisible: false,
     });
 
@@ -238,7 +289,7 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       priceScaleId: 'right',
       title: 'EMA 50',
       visible: preferences?.show_all_emas ?? false,
-      lastValueVisible: true,
+      lastValueVisible: false,
       priceLineVisible: false,
     });
 
@@ -385,6 +436,8 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
 
     if (vwapData && vwapData.length > 0 && vwapSeriesRef.current) {
       vwapSeriesRef.current.setData(vwapData);
+      const latestVwap = vwapData[vwapData.length - 1];
+      setVwapCurrentValue(latestVwap.value);
       console.log('[Chart] VWAP line data set:', vwapData.length, 'points');
     } else if (aiAnalysis?.vwap && vwapSeriesRef.current && data.length > 0) {
       const fallbackVwapData: LineData<Time>[] = data.map(candle => ({
@@ -392,6 +445,7 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
         value: aiAnalysis.vwap!
       }));
       vwapSeriesRef.current.setData(fallbackVwapData);
+      setVwapCurrentValue(aiAnalysis.vwap);
     }
 
     if (aiAnalysis.sessionMarkers && aiAnalysis.sessionMarkers.length > 0) {
@@ -440,6 +494,8 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       if (emaData.ema21 && emaData.ema21.length > 0 && ema21SeriesRef.current) {
         const sortedEma21 = [...emaData.ema21].sort((a, b) => (a.time as number) - (b.time as number));
         ema21SeriesRef.current.setData(sortedEma21);
+        const latestEma21 = sortedEma21[sortedEma21.length - 1];
+        setEma21CurrentValue(latestEma21.value);
         console.log('[CandlestickChart] EMA21 updated with', sortedEma21.length, 'points');
       }
       if (emaData.ema50 && emaData.ema50.length > 0 && ema50SeriesRef.current) {
@@ -620,6 +676,9 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
     };
   }, [data, isReady]);
 
+  const ema21Color = preferences?.ema_21_color || '#44c0ff';
+  const vwapColor = '#fbbf24';
+
   return (
     <div
       className="w-full rounded-2xl overflow-hidden border border-white/10 touch-manipulation relative"
@@ -640,6 +699,13 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
             pointerEvents: 'none',
             zIndex: 1
           }}
+        />
+        <IndicatorLegend
+          ema21Value={ema21CurrentValue}
+          vwapValue={vwapCurrentValue}
+          ema21Color={ema21Color}
+          vwapColor={vwapColor}
+          symbol={symbol}
         />
       </div>
     </div>
