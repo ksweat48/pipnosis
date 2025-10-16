@@ -80,6 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const adminStatus = data?.is_admin || false;
+      console.log('[useAuth] Admin status check result for', userId, ':', adminStatus);
       adminStatusCache.current[userId] = { value: adminStatus, timestamp: Date.now() };
       return adminStatus;
     } catch (error) {
@@ -114,14 +115,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (session?.user) {
           try {
+            console.log('[useAuth] Checking admin status for user:', session.user.email);
             const adminStatus = await checkAdminStatus(session.user.id);
+            console.log('[useAuth] Setting isAdmin state to:', adminStatus);
             setIsAdmin(adminStatus);
 
             if (adminStatus) {
-              console.log('Admin status verified for user:', session.user.email);
+              console.log('[useAuth] ✅ Admin status verified for user:', session.user.email);
+            } else {
+              console.log('[useAuth] ⚠️ User is NOT admin:', session.user.email);
             }
           } catch (adminError) {
-            console.warn('Failed to verify admin status (non-blocking):', adminError);
+            console.warn('[useAuth] Failed to verify admin status (non-blocking):', adminError);
             setIsAdmin(false);
           }
         } else {

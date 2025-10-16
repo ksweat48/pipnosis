@@ -26,17 +26,27 @@ export const AutoTradingPanel: React.FC = () => {
     if (!user?.id) return;
 
     try {
+      console.log('[AutoTradingPanel] Checking admin status for user:', user.id, user.email);
+
       const { data, error } = await supabase
         .from('user_profiles')
         .select('is_admin')
         .eq('id', user.id)
         .single();
 
+      console.log('[AutoTradingPanel] Admin check result:', { data, error });
+
       if (!error && data) {
-        setIsAdmin(data.is_admin === true);
+        const adminStatus = data.is_admin === true;
+        console.log('[AutoTradingPanel] Setting isAdmin to:', adminStatus);
+        setIsAdmin(adminStatus);
+      } else if (error) {
+        console.error('[AutoTradingPanel] Admin check error:', error);
+        setIsAdmin(false);
       }
     } catch (error) {
-      console.error('Failed to check admin status:', error);
+      console.error('[AutoTradingPanel] Failed to check admin status:', error);
+      setIsAdmin(false);
     } finally {
       setIsCheckingAdmin(false);
     }
