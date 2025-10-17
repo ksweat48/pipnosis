@@ -278,7 +278,28 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
     return <Clock className="h-4 w-4 text-yellow-400" />;
   };
 
-  const getStepColor = (stepType: string) => {
+  const getReadinessColor = (metadata: any) => {
+    if (!metadata?.readinessStatus) return 'border-white/10 bg-white/5';
+
+    switch (metadata.readinessStatus) {
+      case 'ready':
+        return 'border-green-500/50 bg-green-500/10';
+      case 'close':
+        return 'border-yellow-500/50 bg-yellow-500/10';
+      case 'far':
+        return 'border-gray-500/30 bg-gray-500/5';
+      case 'not_viable':
+        return 'border-red-500/30 bg-red-500/5';
+      default:
+        return 'border-white/10 bg-white/5';
+    }
+  };
+
+  const getStepColor = (stepType: string, metadata?: any) => {
+    if (stepType === 'pair_analysis_consolidated') {
+      return getReadinessColor(metadata);
+    }
+
     switch (stepType) {
       case 'auto_scan_start':
         return 'border-blue-500/30 bg-blue-500/5';
@@ -300,6 +321,8 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         return 'border-red-500/50 bg-red-500/10';
       case 'symbol_scan':
         return 'border-cyan-500/30 bg-cyan-500/5';
+      case 'pair_prediction_update':
+        return 'border-blue-500/30 bg-blue-500/5';
       case 'market_data_fetch':
         return 'border-purple-500/30 bg-purple-500/5';
       case 'technical_analysis':
@@ -493,7 +516,7 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
                   {cycleThoughts.map((thought) => (
                     <div
                       key={thought.id}
-                      className={`border rounded-xl p-4 ${getStepColor(thought.step_type)} transition-all duration-300`}
+                      className={`border rounded-xl p-4 ${getStepColor(thought.step_type, thought.metadata)} transition-all duration-300`}
                     >
                       <div className="flex items-start gap-3 mb-2">
                         <div className="flex-shrink-0 mt-0.5">

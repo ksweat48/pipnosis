@@ -21,7 +21,9 @@ export type ThoughtStepType =
   | 'auto_trade_execute'
   | 'auto_market_hours_check'
   | 'auto_limit_check'
-  | 'auto_emergency_stop';
+  | 'auto_emergency_stop'
+  | 'pair_analysis_consolidated'
+  | 'pair_prediction_update';
 
 export interface ThoughtProcessEntry {
   userId: string;
@@ -57,7 +59,9 @@ class ThoughtProcessLogger {
     'auto_trade_execute',
     'auto_market_hours_check',
     'auto_limit_check',
-    'auto_emergency_stop'
+    'auto_emergency_stop',
+    'pair_analysis_consolidated',
+    'pair_prediction_update'
   ]);
 
   async logThought(entry: ThoughtProcessEntry, sessionId?: string | null): Promise<string | null> {
@@ -240,6 +244,55 @@ class ThoughtProcessLogger {
 
     return content;
   }
+
+  formatPairConditions(conditions: any[]): string {
+    if (!conditions || conditions.length === 0) {
+      return 'No specific conditions tracked';
+    }
+
+    let content = '📋 Entry Conditions:\n\n';
+
+    conditions.forEach((cond, index) => {
+      const status = cond.isMet ? '✅' : '⏳';
+      const proximity = cond.proximityPercent ? ` (${cond.proximityPercent.toFixed(0)}% ready)` : '';
+      content += `${status} ${cond.indicator}: ${cond.required}\n`;
+      content += `   Current: ${cond.current}${proximity}\n`;
+      if (index < conditions.length - 1) content += '\n';
+    });
+
+    return content;
+  }
+
+  formatPredictionSummary(prediction: any): string {
+    let content = '';
+
+    if (prediction.readinessStatus === 'ready') {
+      content += '🟢 READY FOR ENTRY\n';
+      content += `Entry expected within ${prediction.estimatedMinutesToEntry} minute(s)\n`;
+    } else if (prediction.readinessStatus === 'close') {
+      content += '🟡 APPROACHING ENTRY CONDITIONS\n';
+      content += `Estimated ${prediction.estimatedMinutesToEntry} minutes to entry\n`;
+    } else if (prediction.readinessStatus === 'far') {
+      content += '⚪ CONDITIONS PENDING\n';
+      content += `Potential entry ${prediction.estimatedMinutesToEntry > 30 ? 'more than 30min away' : `in ~${prediction.estimatedMinutesToEntry} minutes`}\n`;
+      if (prediction.estimatedMinutesToEntry > 30) {
+        content += `Will rescan in 20 minutes\n`;
+      }
+    } else {
+      content += '⚫ NOT VIABLE\n';
+      content += 'Market conditions do not support entry at this time\n';
+    }
+
+    content += `\nReadiness: ${prediction.readinessPercentage?.toFixed(0) || 0}%\n`;
+    content += `Confidence: ${prediction.predictionConfidence?.toFixed(0) || 0}%\n`;
+
+    if (prediction.predictedDirection) {
+      content += `Predicted Direction: ${prediction.predictedDirection}\n`;
+    }
+
+    return content;
+  }
 }
+
 
 export const thoughtProcessLogger = new ThoughtProcessLogger();

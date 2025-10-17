@@ -3,6 +3,7 @@ import { aiTradingEngine, AIAnalysisRequest } from './ai-trading-engine';
 import { simulatedTradingService } from './simulated-trading';
 import { thoughtProcessLogger } from './thought-process-logger';
 import { autoTradingPersistence } from './auto-trading-persistence';
+import { predictiveAutoScanner } from './predictive-auto-scanner';
 
 export interface AutoTradingStatus {
   id: string;
@@ -484,57 +485,72 @@ Status: ${isWithinHours ? '✓ Within trading hours' : '⚠️ Outside trading h
 
       const accountBalance = parseFloat(profile?.account_balance || '10000');
 
-      console.log('[AutoTradingScanner] Step 6: Preparing AI analysis request...');
+      console.log('[AutoTradingScanner] Step 6: Starting predictive multi-pair analysis...');
       console.log(`[AutoTradingScanner] Account balance: $${accountBalance}`);
       console.log(`[AutoTradingScanner] Symbols to scan: ${preferences.preferred_pairs?.join(', ') || 'EURUSD, GBPUSD, XAUUSD'}`);
 
+      const symbols = preferences.preferred_pairs || ['EURUSD', 'GBPUSD', 'XAUUSD'];
+
+      const predictiveScanResult = await predictiveAutoScanner.performPredictiveScan(
+        userId,
+        symbols,
+        sessionId!,
+        decisionId!,
+        'M15'
+      );
+
+      console.log(`[AutoTradingScanner] ✓ Predictive scan complete`);
+      console.log(`[AutoTradingScanner] Ready pairs: ${predictiveScanResult.readyPairs.length}`);
+      console.log(`[AutoTradingScanner] Close pairs: ${predictiveScanResult.closePairs.length}`);
+      console.log(`[AutoTradingScanner] Far pairs: ${predictiveScanResult.farPairs.length}`);
+
+      if (predictiveScanResult.readyPairs.length === 0) {
+        console.log('[AutoTradingScanner] ⚠️  No pairs ready for immediate entry');
+        await this.incrementNoOpportunityCount(userId);
+        return {
+          opportunityFound: false,
+          message: predictiveScanResult.message,
+          scanDuration: Date.now() - scanStartTime
+        };
+      }
+
+      const readyPrediction = predictiveScanResult.predictions.find(
+        p => p.symbol === predictiveScanResult.readyPairs[0]
+      );
+
+      if (!readyPrediction) {
+        console.error('[AutoTradingScanner] ❌ Could not find prediction for ready pair');
+        await this.incrementNoOpportunityCount(userId);
+        return {
+          opportunityFound: false,
+          message: 'Error retrieving trade opportunity',
+          scanDuration: Date.now() - scanStartTime
+        };
+      }
+
+      console.log('[AutoTradingScanner] Step 7: Generating trade options for ready pair...');
       const analysisRequest: AIAnalysisRequest = {
         userId,
-        prompt: 'Scan for the best high-confidence trading opportunity',
+        prompt: `Execute trade on ${readyPrediction.symbol} - conditions aligned`,
         accountBalance,
         decisionType: 'auto',
-        symbols: preferences.preferred_pairs || ['EURUSD', 'GBPUSD', 'XAUUSD'],
+        symbols: [readyPrediction.symbol],
         existingDecisionId: decisionId,
         sessionId: sessionId
       };
 
-      await thoughtProcessLogger.logThought({
-        userId,
-        decisionId: decisionId!,
-        stepNumber: ++scanStepNumber,
-        stepType: 'initialization',
-        title: 'Starting AI Market Analysis',
-        content: `Account Balance: $${accountBalance}
-Scanning Symbols: ${analysisRequest.symbols.join(', ')}
-Min Confidence Threshold: ${preferences.min_confidence_threshold || 75}%
-Risk Tolerance: ${preferences.risk_tolerance || 'medium'}`,
-        metadata: { accountBalance, symbols: analysisRequest.symbols }
-      }, sessionId);
-
-      console.log('[AutoTradingScanner] Step 7: Calling AI Trading Engine for market analysis...');
       const analysisResult = await aiTradingEngine.analyzeTradeRequest(analysisRequest);
-      console.log(`[AutoTradingScanner] ✓ AI analysis complete - Found ${analysisResult.options?.length || 0} trade options`);
 
-      // Update the decision ID if it changed
       if (analysisResult.decision?.id && analysisResult.decision.id !== decisionId) {
         decisionId = analysisResult.decision.id;
       }
 
       if (!analysisResult.decision || !analysisResult.options.length) {
-        console.log('[AutoTradingScanner] ⚠️  No opportunities found in this scan cycle');
-        await thoughtProcessLogger.logThought({
-          userId,
-          decisionId: decisionId!,
-          stepNumber: ++scanStepNumber,
-          stepType: 'auto_trade_skip',
-          title: 'No Opportunities Found',
-          content: 'AI analysis completed but found no high-confidence trading opportunities in current market conditions.',
-          metadata: { reason: 'no_opportunities' }
-        }, sessionId);
+        console.log('[AutoTradingScanner] ⚠️  Failed to generate trade options for ready pair');
         await this.incrementNoOpportunityCount(userId);
         return {
           opportunityFound: false,
-          message: 'No high-confidence opportunities found',
+          message: 'Failed to generate trade options',
           scanDuration: Date.now() - scanStartTime
         };
       }
