@@ -804,7 +804,9 @@ Auto trading has been paused to prevent further issues. Please review the error 
   }
 
   private async initializeAutoTradingStatus(userId: string) {
-    await supabase
+    console.log('[AutoTradingScanner.initializeAutoTradingStatus] Initializing status for user:', userId);
+
+    const { data, error } = await supabase
       .from('auto_trading_status')
       .upsert({
         user_id: userId,
@@ -816,18 +818,37 @@ Auto trading has been paused to prevent further issues. Please review the error 
         daily_pnl: 0,
         daily_loss_limit: -500,
         emergency_stop: false,
+        continuous_mode: false,
+        learning_mode: true,
+        total_trades_executed: 0,
         is_active: false,
         monitored_symbols: [],
         trades_today: 0,
-        trades_remaining: 0
+        trades_remaining: 0,
+        should_be_scanning: false,
+        scan_interval_seconds: 120,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }, {
         onConflict: 'user_id',
         ignoreDuplicates: false
-      });
+      })
+      .select();
+
+    if (error) {
+      console.error('[AutoTradingScanner.initializeAutoTradingStatus] Failed to initialize:', error);
+      throw new Error(`Failed to initialize auto trading status: ${error.message}`);
+    }
+
+    console.log('[AutoTradingScanner.initializeAutoTradingStatus] ✓ Status initialized successfully');
+    return data;
   }
 
   private async updateAutoTradingStatus(userId: string, updates: any) {
-    await supabase
+    console.log('[AutoTradingScanner.updateAutoTradingStatus] Updating status for user:', userId);
+    console.log('[AutoTradingScanner.updateAutoTradingStatus] Updates:', JSON.stringify(updates, null, 2));
+
+    const { data, error } = await supabase
       .from('auto_trading_status')
       .upsert({
         user_id: userId,
@@ -836,7 +857,22 @@ Auto trading has been paused to prevent further issues. Please review the error 
       }, {
         onConflict: 'user_id',
         ignoreDuplicates: false
+      })
+      .select();
+
+    if (error) {
+      console.error('[AutoTradingScanner.updateAutoTradingStatus] Database error:', error);
+      console.error('[AutoTradingScanner.updateAutoTradingStatus] Error details:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
       });
+      throw new Error(`Failed to update auto trading status: ${error.message}`);
+    }
+
+    console.log('[AutoTradingScanner.updateAutoTradingStatus] ✓ Status updated successfully');
+    return data;
   }
 
   private async notifyUser(userId: string, title: string, message: string) {

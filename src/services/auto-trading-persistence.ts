@@ -211,7 +211,10 @@ export class AutoTradingPersistence {
     const now = new Date();
     const nextScan = new Date(now.getTime() + scanIntervalSeconds * 1000);
 
-    await supabase
+    console.log('[AutoTradingPersistence.enableScanning] Enabling scanning for user:', userId);
+    console.log('[AutoTradingPersistence.enableScanning] Scan interval:', scanIntervalSeconds, 'seconds');
+
+    const { error } = await supabase
       .from('auto_trading_status')
       .update({
         should_be_scanning: true,
@@ -221,7 +224,12 @@ export class AutoTradingPersistence {
       })
       .eq('user_id', userId);
 
-    console.log('[AutoTradingPersistence] Scanning enabled. Next scan:', nextScan);
+    if (error) {
+      console.error('[AutoTradingPersistence.enableScanning] Failed to enable scanning:', error);
+      throw new Error(`Failed to enable scanning: ${error.message}`);
+    }
+
+    console.log('[AutoTradingPersistence.enableScanning] ✓ Scanning enabled. Next scan:', nextScan);
 
     // Start heartbeat for this session
     if (this.userId === userId) {
@@ -233,7 +241,9 @@ export class AutoTradingPersistence {
    * Disable auto trading scanning
    */
   async disableScanning(userId: string): Promise<void> {
-    await supabase
+    console.log('[AutoTradingPersistence.disableScanning] Disabling scanning for user:', userId);
+
+    const { error } = await supabase
       .from('auto_trading_status')
       .update({
         should_be_scanning: false,
@@ -242,7 +252,12 @@ export class AutoTradingPersistence {
       })
       .eq('user_id', userId);
 
-    console.log('[AutoTradingPersistence] Scanning disabled');
+    if (error) {
+      console.error('[AutoTradingPersistence.disableScanning] Failed to disable scanning:', error);
+      throw new Error(`Failed to disable scanning: ${error.message}`);
+    }
+
+    console.log('[AutoTradingPersistence.disableScanning] ✓ Scanning disabled');
 
     // Stop heartbeat
     if (this.userId === userId) {
