@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Power, Settings, Activity, Clock, TrendingUp, AlertCircle, CheckCircle, Lock, Zap } from 'lucide-react';
+import { Power, Settings, Activity, Clock, TrendingUp, AlertCircle, CheckCircle, Lock } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { autoTradingScanner, AutoTradingStatus } from '@/services/auto-trading-scanner';
 import { supabase } from '@/lib/supabase';
@@ -132,22 +132,6 @@ export const AutoTradingPanel: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-yellow-400 mt-0.5 flex-shrink-0" />
-            <div className="space-y-2">
-              <p className="text-yellow-400 text-sm font-bold">Testing & Training Mode</p>
-              <p className="text-white/70 text-xs">
-                Auto-trading is currently in testing mode for continuous AI improvement and learning.
-                This feature is temporarily restricted to admin users only while the system trains on live market data.
-              </p>
-              <p className="text-white/60 text-xs mt-2">
-                The AI is executing trades, analyzing outcomes, and improving its decision-making algorithms.
-                This data will enhance trading accuracy for all users once testing is complete.
-              </p>
-            </div>
-          </div>
-        </div>
       </div>
     );
   }
@@ -274,24 +258,6 @@ export const AutoTradingPanel: React.FC = () => {
           </div>
         </div>
       )}
-
-      <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/30 rounded-xl p-4">
-        <div className="flex items-start gap-3">
-          <Zap className="h-5 w-5 text-purple-400 mt-0.5 flex-shrink-0" />
-          <div className="space-y-2">
-            <p className="text-purple-400 text-sm font-bold">Admin Testing Mode - Continuous Learning</p>
-            <ul className="text-white/70 text-xs space-y-1">
-              <li>• Runs continuously 24/7 until manually stopped</li>
-              <li>• No daily trade limits - executes as many quality trades as found</li>
-              <li>• Scans markets every 2-3 minutes for opportunities</li>
-              <li>• All trades feed into AI learning system</li>
-              <li>• Objective: Improve decision-making and accuracy</li>
-              <li>• Uses FxFlowScalperV2 + AI hybrid strategy</li>
-            </ul>
-            <p className="text-emerald-400 text-xs font-semibold mt-3">This data improves trading accuracy for the entire platform</p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
