@@ -50,6 +50,7 @@ class MetaApiService {
   private initializationError: Error | null = null;
   private token: string;
   private accountId: string;
+  private region: string;
   private synchronizationListeners: Map<string, MarketDataListener> = new Map();
   private isListenerRegistered = false;
   private isDemoMode = false;
@@ -80,6 +81,7 @@ class MetaApiService {
   constructor() {
     this.token = import.meta.env.VITE_METAAPI_TOKEN || '';
     this.accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID || '';
+    this.region = import.meta.env.VITE_METAAPI_REGION || 'new-york';
 
     if (errorHandler.isWebContainerEnvironment()) {
       this.isDemoMode = true;
@@ -153,7 +155,16 @@ class MetaApiService {
 
     try {
       console.log('Initializing MetaApi connection...');
-      this.api = new MetaApi(this.token, { enableLatencyMonitor: false });
+      console.log(`Region: ${this.region}`);
+      console.log(`Account ID: ${this.accountId}`);
+
+      this.api = new MetaApi(this.token, {
+        application: 'Pipnosis',
+        domain: `${this.region}.metaapi.cloud`,
+        enableLatencyMonitor: false,
+        requestTimeout: 60000,
+        connectTimeout: 60000
+      });
 
       try {
         this.account = await this.api.metatraderAccountApi.getAccount(this.accountId);
@@ -172,21 +183,39 @@ class MetaApiService {
       }
 
       console.log(`Account state: ${this.account.state}`);
+      console.log(`Account region: ${this.account.region}`);
+      console.log(`Broker server: ${this.account.server || 'Unknown'}`);
+
+      if (this.account.region && this.account.region !== this.region) {
+        throw new Error(
+          `Region mismatch: Account is in '${this.account.region}' region but SDK is configured for '${this.region}'. ` +
+          `Please set VITE_METAAPI_REGION=${this.account.region} in your .env file.`
+        );
+      }
+
       const deployedStates = ['DEPLOYED', 'DEPLOYING'];
       if (!deployedStates.includes(this.account.state)) {
-        console.log('Deploying account...');
+        console.log('⚠️ Account is not deployed. Current state:', this.account.state);
+        console.log('Attempting to deploy account...');
         try {
           await this.account.deploy();
+          console.log('✓ Account deployment initiated');
         } catch (deployError) {
-          console.warn('Account deployment failed, attempting to continue:', deployError);
+          const deployMessage = deployError instanceof Error ? deployError.message : 'Unknown error';
+          throw new Error(`Account deployment failed: ${deployMessage}. Please deploy your account manually in the MetaAPI dashboard.`);
         }
       }
 
       console.log('Waiting for account deployment...');
       try {
-        await this.account.waitDeployed();
+        await this.account.waitDeployed({ timeoutInSeconds: 300, intervalInMilliseconds: 1000 });
+        console.log('✓ Account deployed successfully');
       } catch (waitError) {
-        console.warn('Wait for deployment timeout, attempting to continue:', waitError);
+        const waitMessage = waitError instanceof Error ? waitError.message : 'Unknown error';
+        throw new Error(
+          `Account deployment timeout: ${waitMessage}. ` +
+          `Please ensure your account is deployed and connected to broker in the MetaAPI dashboard.`
+        );
       }
 
       console.log('Getting streaming connection...');
@@ -196,9 +225,10 @@ class MetaApiService {
         throw new Error('Failed to get streaming connection from MetaApi account');
       }
 
-      console.log('Connecting to streaming endpoint...');
+      console.log(`Connecting to streaming endpoint at ${this.region}.metaapi.cloud...`);
       try {
         await this.connection.connect();
+        console.log('✓ Connected to streaming endpoint');
       } catch (connectError) {
         if (errorHandler.isNetworkError(connectError) || errorHandler.isMetaApiError(connectError)) {
           errorHandler.handleMetaApiError(connectError, 'Streaming Connect');
@@ -207,14 +237,35 @@ class MetaApiService {
         }
         const errorMessage = connectError instanceof Error ? connectError.message : 'Unknown error';
         console.error('Connection error:', errorMessage);
-        throw new Error('Failed to connect to MetaApi streaming endpoint. Please check your network connection.');
+
+        if (errorMessage.includes('not connected to broker') || errorMessage.includes('region')) {
+          throw new Error(
+            `MetaAPI connection failed: ${errorMessage}. ` +
+            `Please check: 1) Account is deployed and connected to broker in MetaAPI dashboard, ` +
+            `2) Correct region is set (current: ${this.region}). ` +
+            `Available regions: new-york, london, singapore.`
+          );
+        }
+
+        throw new Error(`Failed to connect to MetaApi streaming endpoint: ${errorMessage}`);
       }
 
       console.log('Waiting for synchronization...');
       try {
-        await this.connection.waitSynchronized();
+        await this.connection.waitSynchronized({ timeoutInSeconds: 300 });
+        console.log('✓ Synchronization completed');
       } catch (syncError) {
-        console.warn('Synchronization wait timeout, continuing with partial sync:', syncError);
+        const syncMessage = syncError instanceof Error ? syncError.message : 'Unknown error';
+
+        if (syncMessage.includes('TimeoutError') || syncMessage.includes('not connected to broker')) {
+          throw new Error(
+            `Synchronization failed: ${syncMessage}. ` +
+            `This usually means the account is not properly connected to the broker. ` +
+            `Please verify in MetaAPI dashboard that your account shows 'Connected' status.`
+          );
+        }
+
+        console.warn('⚠️ Synchronization timeout, attempting to continue:', syncError);
       }
 
       this.isInitialized = true;
@@ -228,12 +279,25 @@ class MetaApiService {
       console.error('Failed to initialize MetaApi:', error);
 
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (errorMessage.includes('ERR_NETWORK') || errorMessage.includes('CSP') || errorMessage.includes('ERR_QUIC')) {
+      if (errorMessage.includes('Region mismatch')) {
+        throw error;
+      } else if (errorMessage.includes('ERR_NETWORK') || errorMessage.includes('CSP') || errorMessage.includes('ERR_QUIC')) {
         throw new Error('Network connection blocked. MetaApi requires WebSocket connectivity. Please check your network and firewall settings.');
       } else if (errorMessage.includes('Unauthorized') || errorMessage.includes('401') || errorMessage.includes('Invalid MetaApi')) {
         throw new Error('Invalid MetaApi credentials. Please check your token and account ID in environment variables.');
-      } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
-        throw new Error('Connection timeout. MetaApi servers may be temporarily unavailable.');
+      } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT') || errorMessage.includes('TimeoutError')) {
+        throw new Error(
+          `Connection timeout: ${errorMessage}. ` +
+          `Please check: 1) Your account is deployed in MetaAPI dashboard, ` +
+          `2) Account is connected to broker, 3) Network connectivity is stable.`
+        );
+      } else if (errorMessage.includes('not connected to broker') || errorMessage.includes('broker yet')) {
+        throw new Error(
+          `Broker connection error: ${errorMessage}. ` +
+          `Your MetaAPI account needs to be connected to a broker. ` +
+          `Please check MetaAPI dashboard and ensure: 1) Account is deployed, ` +
+          `2) Broker credentials are correct, 3) Region matches (current: ${this.region}).`
+        );
       } else {
         throw error;
       }
