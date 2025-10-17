@@ -13,7 +13,15 @@ export type ThoughtStepType =
   | 'option_generation'
   | 'final_decision'
   | 'error'
-  | 'warning';
+  | 'warning'
+  | 'auto_scan_start'
+  | 'auto_scan_complete'
+  | 'auto_threshold_check'
+  | 'auto_trade_skip'
+  | 'auto_trade_execute'
+  | 'auto_market_hours_check'
+  | 'auto_limit_check'
+  | 'auto_emergency_stop';
 
 export interface ThoughtProcessEntry {
   userId: string;

@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { aiTradingEngine, AIAnalysisRequest } from './ai-trading-engine';
 import { simulatedTradingService } from './simulated-trading';
+import { thoughtProcessLogger } from './thought-process-logger';
 
 export interface AutoTradingStatus {
   id: string;
@@ -139,11 +140,39 @@ class AutoTradingScanner {
 
   private async performScan(userId: string, preferences: any): Promise<ScanResult> {
     const scanStartTime = Date.now();
+    const tempDecisionId = 'auto-temp-' + Date.now();
+    let scanStepNumber = 0;
 
     try {
       const status = await this.getAutoTradingStatus(userId);
 
+      await thoughtProcessLogger.logThought({
+        userId,
+        decisionId: tempDecisionId,
+        stepNumber: ++scanStepNumber,
+        stepType: 'auto_scan_start',
+        title: 'Auto Trading Scan Started',
+        content: `Continuous mode: ${status?.continuousMode ? 'Enabled' : 'Disabled'}
+Trades taken today: ${status?.tradesTakenToday || 0}/${status?.maxDailyTrades || 0}
+Daily P&L: $${status?.dailyPnl.toFixed(2) || '0.00'}
+Loss limit: $${status?.dailyLossLimit || '-500.00'}`,
+        metadata: {
+          scanTime: new Date().toISOString(),
+          tradesTaken: status?.tradesTakenToday,
+          dailyPnl: status?.dailyPnl
+        }
+      });
+
       if (!status || !status.enabled || status.emergencyStop) {
+        await thoughtProcessLogger.logThought({
+          userId,
+          decisionId: tempDecisionId,
+          stepNumber: ++scanStepNumber,
+          stepType: 'warning',
+          title: 'Scan Aborted',
+          content: 'Auto trading is disabled or emergency stopped. No scan will be performed.',
+          metadata: { enabled: status?.enabled, emergencyStop: status?.emergencyStop }
+        });
         return {
           opportunityFound: false,
           message: 'Auto trading is disabled or emergency stopped',
@@ -151,8 +180,29 @@ class AutoTradingScanner {
         };
       }
 
+      await thoughtProcessLogger.logThought({
+        userId,
+        decisionId: tempDecisionId,
+        stepNumber: ++scanStepNumber,
+        stepType: 'auto_limit_check',
+        title: 'Checking Trade Limits',
+        content: `Continuous Mode: ${status.continuousMode ? 'YES - No daily limits' : 'NO - Daily limits enforced'}
+Trades Today: ${status.tradesTakenToday}/${status.maxDailyTrades}
+${!status.continuousMode && status.tradesTakenToday >= status.maxDailyTrades ? '⚠️ Daily trade limit reached' : '✓ Trade limits OK'}`,
+        metadata: { continuousMode: status.continuousMode, tradesTaken: status.tradesTakenToday, maxTrades: status.maxDailyTrades }
+      });
+
       if (!status.continuousMode && status.tradesTakenToday >= status.maxDailyTrades) {
         await this.updateAutoTradingStatus(userId, { scanning_active: false });
+        await thoughtProcessLogger.logThought({
+          userId,
+          decisionId: tempDecisionId,
+          stepNumber: ++scanStepNumber,
+          stepType: 'auto_scan_complete',
+          title: 'Daily Limit Reached',
+          content: `Trade limit reached (${status.tradesTakenToday}/${status.maxDailyTrades}). Auto trading paused until tomorrow.`,
+          metadata: { reason: 'daily_limit' }
+        });
         return {
           opportunityFound: false,
           message: `Daily trade limit reached (${status.tradesTakenToday}/${status.maxDailyTrades})`,
@@ -166,6 +216,20 @@ class AutoTradingScanner {
           scanning_active: false
         });
 
+        await thoughtProcessLogger.logThought({
+          userId,
+          decisionId: tempDecisionId,
+          stepNumber: ++scanStepNumber,
+          stepType: 'auto_emergency_stop',
+          title: 'EMERGENCY STOP TRIGGERED',
+          content: `Daily P&L ($${status.dailyPnl.toFixed(2)}) has exceeded loss limit ($${status.dailyLossLimit.toFixed(2)}).
+
+Per Pipnosis Law #3 (Drawdown Management), auto trading has been automatically stopped to protect your capital.
+
+Manual intervention required to restart.`,
+          metadata: { dailyPnl: status.dailyPnl, lossLimit: status.dailyLossLimit }
+        });
+
         await this.notifyUser(userId, 'Emergency stop triggered', 'Daily loss limit exceeded. Auto trading has been stopped.');
 
         return {
@@ -175,7 +239,29 @@ class AutoTradingScanner {
         };
       }
 
-      if (!this.isWithinTradingHours(preferences)) {
+      const isWithinHours = this.isWithinTradingHours(preferences);
+      await thoughtProcessLogger.logThought({
+        userId,
+        decisionId: tempDecisionId,
+        stepNumber: ++scanStepNumber,
+        stepType: 'auto_market_hours_check',
+        title: 'Market Hours Validation',
+        content: `Current Time: ${new Date().toLocaleTimeString()}
+Trading Hours: ${preferences.auto_trading_hours_start || '00:00:00'} - ${preferences.auto_trading_hours_end || '23:59:59'}
+Status: ${isWithinHours ? '✓ Within trading hours' : '⚠️ Outside trading hours'}`,
+        metadata: { withinHours: isWithinHours, currentTime: new Date().toISOString() }
+      });
+
+      if (!isWithinHours) {
+        await thoughtProcessLogger.logThought({
+          userId,
+          decisionId: tempDecisionId,
+          stepNumber: ++scanStepNumber,
+          stepType: 'auto_scan_complete',
+          title: 'Scan Skipped - Outside Trading Hours',
+          content: 'Per Pipnosis Law #8 (Market Hours), scanning paused until trading hours resume.',
+          metadata: { reason: 'outside_hours' }
+        });
         return {
           opportunityFound: false,
           message: 'Outside trading hours',
@@ -199,9 +285,39 @@ class AutoTradingScanner {
         symbols: preferences.preferred_pairs || ['EURUSD', 'GBPUSD', 'XAUUSD']
       };
 
+      await thoughtProcessLogger.logThought({
+        userId,
+        decisionId: tempDecisionId,
+        stepNumber: ++scanStepNumber,
+        stepType: 'initialization',
+        title: 'Starting AI Market Analysis',
+        content: `Account Balance: $${accountBalance}
+Scanning Symbols: ${analysisRequest.symbols.join(', ')}
+Min Confidence Threshold: ${preferences.min_confidence_threshold || 75}%
+Risk Tolerance: ${preferences.risk_tolerance || 'medium'}`,
+        metadata: { accountBalance, symbols: analysisRequest.symbols }
+      });
+
       const analysisResult = await aiTradingEngine.analyzeTradeRequest(analysisRequest);
 
+      // Update temp decision ID to real decision ID
+      if (analysisResult.decision?.id) {
+        await supabase
+          .from('ai_thought_process')
+          .update({ decision_id: analysisResult.decision.id })
+          .eq('decision_id', tempDecisionId);
+      }
+
       if (!analysisResult.decision || !analysisResult.options.length) {
+        await thoughtProcessLogger.logThought({
+          userId,
+          decisionId: analysisResult.decision?.id || tempDecisionId,
+          stepNumber: ++scanStepNumber,
+          stepType: 'auto_trade_skip',
+          title: 'No Opportunities Found',
+          content: 'AI analysis completed but found no high-confidence trading opportunities in current market conditions.',
+          metadata: { reason: 'no_opportunities' }
+        });
         await this.incrementNoOpportunityCount(userId);
         return {
           opportunityFound: false,
@@ -212,7 +328,40 @@ class AutoTradingScanner {
 
       const selectedOption = this.selectBestAutoOption(analysisResult.options, preferences);
 
+      await thoughtProcessLogger.logThought({
+        userId,
+        decisionId: analysisResult.decision.id,
+        stepNumber: ++scanStepNumber,
+        stepType: 'auto_threshold_check',
+        title: 'Evaluating Confidence Threshold',
+        content: `Best Option Found:
+Symbol: ${selectedOption.symbol}
+Direction: ${selectedOption.direction}
+Confidence: ${selectedOption.confidence}%
+Required Threshold: ${preferences.min_confidence_threshold || 75}%
+Risk Level: ${selectedOption.optionType}
+
+${selectedOption.confidence >= (preferences.min_confidence_threshold || 75) ? '✓ Confidence threshold met - Trade approved' : '⚠️ Below confidence threshold - Trade rejected'}`,
+        metadata: {
+          confidence: selectedOption.confidence,
+          threshold: preferences.min_confidence_threshold,
+          symbol: selectedOption.symbol,
+          direction: selectedOption.direction
+        }
+      });
+
       if (selectedOption.confidence < preferences.min_confidence_threshold) {
+        await thoughtProcessLogger.logThought({
+          userId,
+          decisionId: analysisResult.decision.id,
+          stepNumber: ++scanStepNumber,
+          stepType: 'auto_trade_skip',
+          title: 'Trade Rejected - Low Confidence',
+          content: `Confidence (${selectedOption.confidence}%) below minimum threshold (${preferences.min_confidence_threshold}%).
+
+Per Pipnosis Law #6 (Quality Over Quantity), only high-probability setups are executed.`,
+          metadata: { confidence: selectedOption.confidence, threshold: preferences.min_confidence_threshold, reason: 'low_confidence' }
+        });
         await this.incrementNoOpportunityCount(userId);
         return {
           opportunityFound: false,
@@ -222,6 +371,33 @@ class AutoTradingScanner {
       }
 
       await aiTradingEngine.approveTradeOption(selectedOption.id, userId);
+
+      await thoughtProcessLogger.logThought({
+        userId,
+        decisionId: analysisResult.decision.id,
+        stepNumber: ++scanStepNumber,
+        stepType: 'auto_trade_execute',
+        title: 'Executing Auto Trade',
+        content: `Trade Details:
+Symbol: ${selectedOption.symbol}
+Direction: ${selectedOption.direction}
+Entry Price: ${selectedOption.entryPrice}
+Stop Loss: ${selectedOption.stopLoss}
+Take Profit: ${selectedOption.takeProfit}
+Lot Size: ${selectedOption.lotSize}
+Risk Level: ${selectedOption.optionType}
+Estimated Profit: $${selectedOption.estimatedProfit.toFixed(2)}
+Estimated Loss: $${selectedOption.estimatedLoss.toFixed(2)}
+R:R Ratio: ${selectedOption.riskRewardRatio.toFixed(2)}
+
+Executing trade now...`,
+        metadata: {
+          symbol: selectedOption.symbol,
+          direction: selectedOption.direction,
+          entryPrice: selectedOption.entryPrice,
+          lotSize: selectedOption.lotSize
+        }
+      });
 
       const tradeResult = await simulatedTradingService.executeTrade(
         {
@@ -241,6 +417,15 @@ class AutoTradingScanner {
       );
 
       if (!tradeResult.success) {
+        await thoughtProcessLogger.logThought({
+          userId,
+          decisionId: analysisResult.decision.id,
+          stepNumber: ++scanStepNumber,
+          stepType: 'error',
+          title: 'Trade Execution Failed',
+          content: `Failed to execute trade: ${tradeResult.message}`,
+          metadata: { error: tradeResult.message }
+        });
         throw new Error(tradeResult.message);
       }
 
@@ -263,6 +448,29 @@ class AutoTradingScanner {
 
       await this.recordLearningMetric(userId, analysisResult.decision.id, selectedOption, tradeResult.trade);
 
+      await thoughtProcessLogger.logThought({
+        userId,
+        decisionId: analysisResult.decision.id,
+        stepNumber: ++scanStepNumber,
+        stepType: 'auto_scan_complete',
+        title: 'Trade Successfully Executed',
+        content: `✓ ${selectedOption.direction} ${selectedOption.symbol} position opened
+
+Trade ID: ${tradeResult.trade?.id}
+Entry: ${selectedOption.entryPrice}
+Current Price: ${tradeResult.trade?.entryPrice}
+Position Size: ${selectedOption.lotSize} lots
+
+Trades today: ${status.tradesTakenToday + 1}
+Total auto trades: ${(status.totalTradesExecuted || 0) + 1}
+
+Next scan in approximately 2 minutes.`,
+        metadata: {
+          tradeId: tradeResult.trade?.id,
+          success: true,
+          tradesCount: status.tradesTakenToday + 1
+        }
+      });
 
       await this.notifyUser(
         userId,
@@ -280,6 +488,19 @@ class AutoTradingScanner {
 
     } catch (error) {
       console.error('Scan error:', error);
+
+      await thoughtProcessLogger.logThought({
+        userId,
+        decisionId: tempDecisionId,
+        stepNumber: ++scanStepNumber,
+        stepType: 'error',
+        title: 'Scan Error Occurred',
+        content: `An error occurred during the auto trading scan: ${error instanceof Error ? error.message : 'Unknown error'}
+
+The system will retry on the next scan cycle.`,
+        metadata: { error: error instanceof Error ? error.message : 'Unknown error' }
+      });
+
       await this.incrementNoOpportunityCount(userId);
       return {
         opportunityFound: false,
