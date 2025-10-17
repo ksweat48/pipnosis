@@ -49,7 +49,15 @@ class ThoughtProcessLogger {
     'option_generation',
     'final_decision',
     'error',
-    'warning'
+    'warning',
+    'auto_scan_start',
+    'auto_scan_complete',
+    'auto_threshold_check',
+    'auto_trade_skip',
+    'auto_trade_execute',
+    'auto_market_hours_check',
+    'auto_limit_check',
+    'auto_emergency_stop'
   ]);
 
   async logThought(entry: ThoughtProcessEntry): Promise<string | null> {
@@ -76,6 +84,12 @@ class ThoughtProcessLogger {
         .maybeSingle();
 
       if (error) {
+        console.error('[ThoughtProcessLogger] Failed to log thought:', {
+          stepType: entry.stepType,
+          normalizedStepType,
+          error: error.message,
+          details: error
+        });
         if (this.isLoggingEnabled) {
           this.isLoggingEnabled = false;
         }
@@ -84,6 +98,7 @@ class ThoughtProcessLogger {
 
       return data?.id || null;
     } catch (error) {
+      console.error('[ThoughtProcessLogger] Exception while logging thought:', error);
       this.isLoggingEnabled = false;
       return null;
     }
