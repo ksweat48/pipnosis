@@ -51,14 +51,23 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         (payload) => {
           const newThought = payload.new as ThoughtEntry;
 
-          // Check if this is from an auto trading decision
+          // Check if this is from an auto trading decision by querying the decision type
+          // This is done asynchronously to avoid blocking the UI
           supabase
             .from('ai_trade_decisions')
             .select('decision_type')
             .eq('id', newThought.decision_id)
-            .single()
-            .then(({ data }) => {
-              if (data?.decision_type === 'auto') {
+            .maybeSingle()
+            .then(({ data, error }) => {
+              // If we can't find the decision yet, it might still be being created
+              // In that case, add it anyway since thoughts are now always created with valid decision IDs
+              if (error || !data) {
+                console.log('Decision not found yet for thought, will show anyway:', newThought.decision_id);
+                setThoughts(prev => {
+                  const updated = [...prev, newThought];
+                  return updated.slice(-maxEntries);
+                });
+              } else if (data.decision_type === 'auto') {
                 setThoughts(prev => {
                   const updated = [...prev, newThought];
                   return updated.slice(-maxEntries);

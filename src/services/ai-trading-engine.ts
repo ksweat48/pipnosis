@@ -69,6 +69,7 @@ export interface AIAnalysisRequest {
   decisionType: 'manual' | 'auto';
   symbols?: string[];
   timeframe?: string;
+  existingDecisionId?: string;
 }
 
 export interface AIAnalysisResult {
@@ -96,7 +97,8 @@ class AITradingEngine {
     const symbols = request.symbols || ['EURUSD', 'GBPUSD', 'XAUUSD'];
     const timeframe = request.timeframe || 'M15';
 
-    const tempDecisionId = 'temp-' + Date.now();
+    // Use existing decision ID if provided, otherwise create a temporary one
+    const tempDecisionId = request.existingDecisionId || ('temp-' + Date.now());
 
     await thoughtProcessLogger.logThought({
       userId: request.userId,
@@ -209,19 +211,48 @@ Reasoning: ${chatgptResponse.reasoning}`,
       metadata: { selectedStrategy: selectedStrategy.name, signal: selectedStrategy.signal }
     });
 
-    const decision = await this.createTradeDecision({
-      userId: request.userId,
-      symbol,
-      timeframe,
-      decisionType: request.decisionType,
-      chatgptPrompt,
-      chatgptResponse,
-      marketContext,
-      strategyUsed: selectedStrategy.name,
-      signal: selectedStrategy.signal
-    });
+    // If we have an existing decision ID, update it; otherwise create a new one
+    let decision: AITradeDecision;
+    if (request.existingDecisionId) {
+      // Update the existing decision with actual analysis results
+      await supabase
+        .from('ai_trade_decisions')
+        .update({
+          symbol,
+          timeframe,
+          chatgpt_prompt: chatgptPrompt,
+          chatgpt_response: chatgptResponse,
+          market_context: marketContext,
+          trade_direction: selectedStrategy.signal.direction as 'BUY' | 'SELL',
+          confidence_score: selectedStrategy.signal.confidence,
+          strategy_used: selectedStrategy.name,
+          reasoning: selectedStrategy.signal.reasoning
+        })
+        .eq('id', request.existingDecisionId);
 
-    await this.updateThoughtProcessDecisionId(tempDecisionId, decision.id);
+      const { data: updatedDecision } = await supabase
+        .from('ai_trade_decisions')
+        .select('*')
+        .eq('id', request.existingDecisionId)
+        .single();
+
+      decision = this.mapDecisionFromDB(updatedDecision);
+    } else {
+      decision = await this.createTradeDecision({
+        userId: request.userId,
+        symbol,
+        timeframe,
+        decisionType: request.decisionType,
+        chatgptPrompt,
+        chatgptResponse,
+        marketContext,
+        strategyUsed: selectedStrategy.name,
+        signal: selectedStrategy.signal
+      });
+
+      // Only update thought process IDs if we created a new decision
+      await this.updateThoughtProcessDecisionId(tempDecisionId, decision.id);
+    }
 
     await thoughtProcessLogger.logThought({
       userId: request.userId,
@@ -568,6 +599,10 @@ Return ONLY valid JSON in this exact format:
 
     if (error) throw error;
 
+    return this.mapDecisionFromDB(data);
+  }
+
+  private mapDecisionFromDB(data: any): AITradeDecision {
     return {
       id: data.id,
       userId: data.user_id,
