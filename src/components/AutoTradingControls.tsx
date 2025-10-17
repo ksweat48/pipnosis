@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Play, Pause, Settings, AlertCircle, CheckCircle, Clock, Activity, ShieldAlert } from 'lucide-react';
-import { autoTradingController } from '../strategies/core/autoTradingController';
+import { autoTradingScanner } from '../services/auto-trading-scanner';
 import { strategyService } from '../strategies';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
@@ -68,7 +68,7 @@ export function AutoTradingControls() {
 
     try {
       const { data, error } = await supabase
-        .from('auto_trading_sessions')
+        .from('auto_trading_status')
         .select('*')
         .eq('user_id', user.id)
         .maybeSingle();
@@ -79,8 +79,8 @@ export function AutoTradingControls() {
           enabled: data.enabled,
           maxDailyTrades: data.max_daily_trades,
           tradesRemainingToday: tradesRemaining,
-          minConfidence: data.min_confidence,
-          riskPercentage: parseFloat(data.risk_percentage),
+          minConfidence: data.min_confidence || 75,
+          riskPercentage: parseFloat(data.risk_percentage || '1.0'),
           activeSymbols: data.active_symbols || ['EURUSD', 'GBPUSD', 'USDJPY'],
           tradingHoursStart: data.trading_hours_start?.substring(0, 5) || '00:00',
           tradingHoursEnd: data.trading_hours_end?.substring(0, 5) || '23:59'
@@ -89,8 +89,8 @@ export function AutoTradingControls() {
           enabled: data.enabled,
           maxDailyTrades: data.max_daily_trades,
           tradesRemainingToday: tradesRemaining,
-          minConfidence: data.min_confidence,
-          riskPercentage: parseFloat(data.risk_percentage),
+          minConfidence: data.min_confidence || 75,
+          riskPercentage: parseFloat(data.risk_percentage || '1.0'),
           activeSymbols: data.active_symbols || ['EURUSD', 'GBPUSD', 'USDJPY'],
           tradingHoursStart: data.trading_hours_start?.substring(0, 5) || '00:00',
           tradingHoursEnd: data.trading_hours_end?.substring(0, 5) || '23:59'
@@ -119,59 +119,39 @@ export function AutoTradingControls() {
 
     try {
       const newEnabled = !config.enabled;
-      console.log(`[AutoTrading] ${newEnabled ? 'Starting' : 'Stopping'} auto trading for user ${user.id}`);
-
-      const updateSuccess = await autoTradingController.updateAutoTradingConfig(user.id, {
-        enabled: newEnabled,
-        maxDailyTrades: config.maxDailyTrades,
-        minConfidence: config.minConfidence,
-        symbols: config.activeSymbols,
-        tradingHours: {
-          start: `${config.tradingHoursStart}:00`,
-          end: `${config.tradingHoursEnd}:59`
-        },
-        riskPercentage: config.riskPercentage
-      });
-
-      if (!updateSuccess) {
-        console.error('[AutoTrading] Failed to update auto-trading configuration');
-        setErrorMessage('Failed to update configuration. Please try again.');
-        return;
-      }
-
-      console.log('[AutoTrading] Configuration updated successfully');
+      console.log(`[AutoTradingControls] ${newEnabled ? 'Starting' : 'Stopping'} auto trading for user ${user.id}`);
 
       if (newEnabled) {
-        console.log('[AutoTrading] Calling strategyService.startAutoTrading');
-        const startResult = await strategyService.startAutoTrading(user.id);
+        console.log('[AutoTradingControls] Starting auto trading via autoTradingScanner');
+        const startResult = await autoTradingScanner.startAutoTrading(user.id);
 
-        if (startResult) {
-          console.log('[AutoTrading] Auto trading started successfully');
-          setSuccessMessage('Auto trading started successfully! Scanning markets every 2-3 minutes.');
+        if (startResult.success) {
+          console.log('[AutoTradingControls] Auto trading started successfully');
+          setSuccessMessage(startResult.message);
           setTimeout(() => setSuccessMessage(null), 5000);
         } else {
-          console.error('[AutoTrading] Failed to start auto trading');
-          setErrorMessage('Failed to start auto trading. Check console for details.');
+          console.error('[AutoTradingControls] Failed to start auto trading:', startResult.message);
+          setErrorMessage(startResult.message);
           return;
         }
       } else {
-        console.log('[AutoTrading] Calling strategyService.stopAutoTrading');
-        const stopResult = await strategyService.stopAutoTrading(user.id);
+        console.log('[AutoTradingControls] Stopping auto trading via autoTradingScanner');
+        const stopResult = await autoTradingScanner.stopAutoTrading(user.id);
 
-        if (stopResult) {
-          console.log('[AutoTrading] Auto trading stopped successfully');
-          setSuccessMessage('Auto trading stopped successfully.');
+        if (stopResult.success) {
+          console.log('[AutoTradingControls] Auto trading stopped successfully');
+          setSuccessMessage(stopResult.message);
           setTimeout(() => setSuccessMessage(null), 5000);
         } else {
-          console.error('[AutoTrading] Failed to stop auto trading');
-          setErrorMessage('Failed to stop auto trading. Check console for details.');
+          console.error('[AutoTradingControls] Failed to stop auto trading:', stopResult.message);
+          setErrorMessage(stopResult.message);
           return;
         }
       }
 
       await loadConfig();
     } catch (error) {
-      console.error('[AutoTrading] Error toggling auto trading:', error);
+      console.error('[AutoTradingControls] Error toggling auto trading:', error);
       setErrorMessage(error instanceof Error ? error.message : 'An unexpected error occurred');
     } finally {
       setLoading(false);
@@ -183,22 +163,38 @@ export function AutoTradingControls() {
 
     setLoading(true);
     try {
-      await autoTradingController.updateAutoTradingConfig(user.id, {
-        enabled: editConfig.enabled,
-        maxDailyTrades: editConfig.maxDailyTrades,
-        minConfidence: editConfig.minConfidence,
-        symbols: editConfig.activeSymbols,
-        tradingHours: {
-          start: `${editConfig.tradingHoursStart}:00`,
-          end: `${editConfig.tradingHoursEnd}:59`
-        },
-        riskPercentage: editConfig.riskPercentage
-      });
+      console.log('[AutoTradingControls] Saving settings to auto_trading_status');
 
+      const { error } = await supabase
+        .from('auto_trading_status')
+        .upsert({
+          user_id: user.id,
+          max_daily_trades: editConfig.maxDailyTrades,
+          min_confidence: editConfig.minConfidence,
+          active_symbols: editConfig.activeSymbols,
+          trading_hours_start: `${editConfig.tradingHoursStart}:00`,
+          trading_hours_end: `${editConfig.tradingHoursEnd}:59`,
+          risk_percentage: editConfig.riskPercentage,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id',
+          ignoreDuplicates: false
+        });
+
+      if (error) {
+        console.error('[AutoTradingControls] Error saving settings:', error);
+        setErrorMessage('Failed to save settings');
+        return;
+      }
+
+      console.log('[AutoTradingControls] Settings saved successfully');
       setConfig(editConfig);
       setShowSettings(false);
+      setSuccessMessage('Settings saved successfully');
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (error) {
-      console.error('Error saving settings:', error);
+      console.error('[AutoTradingControls] Error in handleSaveSettings:', error);
+      setErrorMessage('An error occurred while saving settings');
     } finally {
       setLoading(false);
     }

@@ -40,7 +40,14 @@ class AutoTradingScanner {
   private opportunityTimeouts: Map<string, NodeJS.Timeout> = new Map();
 
   async startAutoTrading(userId: string): Promise<{ success: boolean; message: string }> {
+    console.log('\n╔═══════════════════════════════════════════════════════════════════════╗');
+    console.log('║           🚀 AUTO TRADING START REQUEST RECEIVED                      ║');
+    console.log('╚═══════════════════════════════════════════════════════════════════════╝');
+    console.log(`[AutoTradingScanner.startAutoTrading] Requested by user: ${userId}`);
+    console.log(`[AutoTradingScanner.startAutoTrading] Timestamp: ${new Date().toISOString()}`);
+
     try {
+      console.log('[AutoTradingScanner.startAutoTrading] Checking admin privileges...');
       const { data: userProfile } = await supabase
         .from('user_profiles')
         .select('is_admin')
@@ -48,18 +55,26 @@ class AutoTradingScanner {
         .single();
 
       if (!userProfile || userProfile.is_admin !== true) {
+        console.log('[AutoTradingScanner.startAutoTrading] ❌ Access denied - User is not admin');
         return {
           success: false,
           message: 'Auto trading is currently available for admin users only during testing phase'
         };
       }
 
+      console.log('[AutoTradingScanner.startAutoTrading] ✓ Admin privileges confirmed');
+
+      console.log('[AutoTradingScanner.startAutoTrading] Loading auto trading status...');
       const status = await this.getAutoTradingStatus(userId);
 
       if (!status) {
+        console.log('[AutoTradingScanner.startAutoTrading] No existing status found, initializing...');
         await this.initializeAutoTradingStatus(userId);
+      } else {
+        console.log('[AutoTradingScanner.startAutoTrading] ✓ Existing status loaded');
       }
 
+      console.log('[AutoTradingScanner.startAutoTrading] Loading user trading preferences...');
       const { data: preferences } = await supabase
         .from('user_trading_preferences')
         .select('*')
@@ -67,6 +82,7 @@ class AutoTradingScanner {
         .single();
 
       if (!preferences) {
+        console.log('[AutoTradingScanner.startAutoTrading] No preferences found, creating defaults...');
         await supabase.from('user_trading_preferences').upsert({
           user_id: userId,
           auto_trading_enabled: true,
@@ -75,10 +91,15 @@ class AutoTradingScanner {
           onConflict: 'user_id',
           ignoreDuplicates: false
         });
+      } else {
+        console.log('[AutoTradingScanner.startAutoTrading] ✓ User preferences loaded');
       }
 
+      console.log('[AutoTradingScanner.startAutoTrading] Generating new session ID...');
       const newSessionId = crypto.randomUUID();
+      console.log(`[AutoTradingScanner.startAutoTrading] Session ID: ${newSessionId}`);
 
+      console.log('[AutoTradingScanner.startAutoTrading] Updating auto trading status in database...');
       await this.updateAutoTradingStatus(userId, {
         enabled: true,
         scanning_active: true,
@@ -90,15 +111,24 @@ class AutoTradingScanner {
         session_started_at: new Date().toISOString(),
         session_ended_at: null
       });
+      console.log('[AutoTradingScanner.startAutoTrading] ✓ Status updated successfully');
 
+      console.log('[AutoTradingScanner.startAutoTrading] Starting scanner intervals...');
       this.startScanning(userId, preferences || { preferred_pairs: ['EURUSD', 'GBPUSD', 'XAUUSD'], min_confidence_threshold: 75 });
+
+      console.log('╔═══════════════════════════════════════════════════════════════════════╗');
+      console.log('║              ✅ AUTO TRADING STARTED SUCCESSFULLY                      ║');
+      console.log('╚═══════════════════════════════════════════════════════════════════════╝\n');
 
       return {
         success: true,
         message: 'Auto trading started in continuous learning mode. Scanning markets every 2-3 minutes for maximum learning opportunities.'
       };
     } catch (error) {
-      console.error('Failed to start auto trading:', error);
+      console.error('╔═══════════════════════════════════════════════════════════════════════╗');
+      console.error('║              ❌ FAILED TO START AUTO TRADING                          ║');
+      console.error('╚═══════════════════════════════════════════════════════════════════════╝');
+      console.error('[AutoTradingScanner.startAutoTrading] Error:', error);
       return {
         success: false,
         message: error instanceof Error ? error.message : 'Failed to start auto trading'
@@ -107,35 +137,59 @@ class AutoTradingScanner {
   }
 
   async stopAutoTrading(userId: string): Promise<{ success: boolean; message: string }> {
+    console.log('\n╔═══════════════════════════════════════════════════════════════════════╗');
+    console.log('║           🛑 AUTO TRADING STOP REQUEST RECEIVED                       ║');
+    console.log('╚═══════════════════════════════════════════════════════════════════════╝');
+    console.log(`[AutoTradingScanner.stopAutoTrading] Requested by user: ${userId}`);
+    console.log(`[AutoTradingScanner.stopAutoTrading] Timestamp: ${new Date().toISOString()}`);
+
     try {
+      console.log('[AutoTradingScanner.stopAutoTrading] Clearing scan intervals...');
       if (this.scannerIntervals.has(userId)) {
         clearInterval(this.scannerIntervals.get(userId)!);
         this.scannerIntervals.delete(userId);
+        console.log('[AutoTradingScanner.stopAutoTrading] ✓ Scan interval cleared');
+      } else {
+        console.log('[AutoTradingScanner.stopAutoTrading] No active scan interval found');
       }
 
+      console.log('[AutoTradingScanner.stopAutoTrading] Clearing opportunity timeouts...');
       if (this.opportunityTimeouts.has(userId)) {
         clearTimeout(this.opportunityTimeouts.get(userId)!);
         this.opportunityTimeouts.delete(userId);
+        console.log('[AutoTradingScanner.stopAutoTrading] ✓ Opportunity timeout cleared');
       }
 
+      console.log('[AutoTradingScanner.stopAutoTrading] Loading current session...');
       const { data: currentStatus } = await supabase
         .from('auto_trading_status')
         .select('current_session_id')
         .eq('user_id', userId)
         .maybeSingle();
 
+      console.log(`[AutoTradingScanner.stopAutoTrading] Current session ID: ${currentStatus?.current_session_id || 'None'}`);
+
+      console.log('[AutoTradingScanner.stopAutoTrading] Updating status in database...');
       await this.updateAutoTradingStatus(userId, {
         enabled: false,
         scanning_active: false,
         session_ended_at: new Date().toISOString()
       });
+      console.log('[AutoTradingScanner.stopAutoTrading] ✓ Status updated successfully');
+
+      console.log('╔═══════════════════════════════════════════════════════════════════════╗');
+      console.log('║              ✅ AUTO TRADING STOPPED SUCCESSFULLY                      ║');
+      console.log('╚═══════════════════════════════════════════════════════════════════════╝\n');
 
       return {
         success: true,
         message: 'Auto trading stopped'
       };
     } catch (error) {
-      console.error('Failed to stop auto trading:', error);
+      console.error('╔═══════════════════════════════════════════════════════════════════════╗');
+      console.error('║              ❌ FAILED TO STOP AUTO TRADING                           ║');
+      console.error('╚═══════════════════════════════════════════════════════════════════════╝');
+      console.error('[AutoTradingScanner.stopAutoTrading] Error:', error);
       return {
         success: false,
         message: 'Failed to stop auto trading'
@@ -144,11 +198,23 @@ class AutoTradingScanner {
   }
 
   private startScanning(userId: string, preferences: any) {
+    console.log('╔═══════════════════════════════════════════════════════════════════════╗');
+    console.log('║                   🤖 AUTO TRADING SCANNER STARTED                     ║');
+    console.log('╚═══════════════════════════════════════════════════════════════════════╝');
+    console.log(`[AutoTradingScanner] User ID: ${userId}`);
+    console.log(`[AutoTradingScanner] Scan interval: Every 2 minutes`);
+    console.log(`[AutoTradingScanner] Preferred pairs: ${preferences.preferred_pairs?.join(', ') || 'Default pairs'}`);
+    console.log(`[AutoTradingScanner] Min confidence: ${preferences.min_confidence_threshold || 75}%`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
     const scanInterval = setInterval(async () => {
+      console.log(`\n[AutoTradingScanner] ⏰ Scheduled scan triggered at ${new Date().toLocaleTimeString()}`);
       await this.performScan(userId, preferences);
     }, 2 * 60 * 1000);
 
     this.scannerIntervals.set(userId, scanInterval);
+    console.log('[AutoTradingScanner] ✓ Interval timer set successfully');
+    console.log('[AutoTradingScanner] 🚀 Starting initial scan now...\n');
 
     this.performScan(userId, preferences);
   }
@@ -159,7 +225,14 @@ class AutoTradingScanner {
     let decisionId: string | null = null;
     let sessionId: string | null = null;
 
+    console.log('┌─────────────────────────────────────────────────────────────────────┐');
+    console.log('│                    🔍 STARTING MARKET SCAN CYCLE                     │');
+    console.log('└─────────────────────────────────────────────────────────────────────┘');
+    console.log(`[AutoTradingScanner] Scan started at: ${new Date().toLocaleString()}`);
+    console.log(`[AutoTradingScanner] User ID: ${userId}`);
+
     try {
+      console.log('[AutoTradingScanner] Step 1: Creating decision record in database...');
       // Create the decision record FIRST before any thought logging
       const { data: decisionData, error: decisionError } = await supabase
         .from('ai_trade_decisions')
@@ -180,7 +253,7 @@ class AutoTradingScanner {
         .single();
 
       if (decisionError || !decisionData) {
-        console.error('Failed to create decision record:', decisionError);
+        console.error('[AutoTradingScanner] ❌ Failed to create decision record:', decisionError);
         return {
           opportunityFound: false,
           message: 'Failed to initialize scan decision record',
@@ -189,10 +262,16 @@ class AutoTradingScanner {
       }
 
       decisionId = decisionData.id;
+      console.log(`[AutoTradingScanner] ✓ Decision record created with ID: ${decisionId}`);
 
+      console.log('[AutoTradingScanner] Step 2: Loading auto trading status...');
       const status = await this.getAutoTradingStatus(userId);
       sessionId = status?.currentSessionId || null;
+      console.log(`[AutoTradingScanner] ✓ Status loaded - Session ID: ${sessionId || 'No active session'}`);
+      console.log(`[AutoTradingScanner] Enabled: ${status?.enabled}, Scanning Active: ${status?.scanningActive}`);
+      console.log(`[AutoTradingScanner] Daily P&L: $${status?.dailyPnl.toFixed(2) || '0.00'}, Total Trades: ${status?.totalTradesExecuted || 0}`);
 
+      console.log('[AutoTradingScanner] Step 3: Logging thought process - Scan started...');
       await thoughtProcessLogger.logThought({
         userId,
         decisionId,
@@ -212,6 +291,8 @@ Total trades executed: ${status?.totalTradesExecuted || 0}`,
       }, sessionId);
 
       if (!status || !status.enabled || status.emergencyStop) {
+        console.log('[AutoTradingScanner] ⚠️  Scan aborted - Auto trading disabled or emergency stopped');
+        console.log(`[AutoTradingScanner] Status: enabled=${status?.enabled}, emergencyStop=${status?.emergencyStop}`);
         await thoughtProcessLogger.logThought({
           userId,
           decisionId: decisionId!,
@@ -227,6 +308,8 @@ Total trades executed: ${status?.totalTradesExecuted || 0}`,
           scanDuration: Date.now() - scanStartTime
         };
       }
+
+      console.log('[AutoTradingScanner] Step 4: Performing system status checks...');
 
       await thoughtProcessLogger.logThought({
         userId,
@@ -270,7 +353,12 @@ Manual intervention required to restart.`,
         };
       }
 
+      console.log('[AutoTradingScanner] Step 5: Checking trading hours...');
       const isWithinHours = this.isWithinTradingHours(preferences);
+      console.log(`[AutoTradingScanner] Current time: ${new Date().toLocaleTimeString()}`);
+      console.log(`[AutoTradingScanner] Trading hours: ${preferences.auto_trading_hours_start || '00:00:00'} - ${preferences.auto_trading_hours_end || '23:59:59'}`);
+      console.log(`[AutoTradingScanner] Within trading hours: ${isWithinHours ? 'YES ✓' : 'NO ✗'}`);
+
       await thoughtProcessLogger.logThought({
         userId,
         decisionId: decisionId!,
@@ -308,6 +396,10 @@ Status: ${isWithinHours ? '✓ Within trading hours' : '⚠️ Outside trading h
 
       const accountBalance = parseFloat(profile?.account_balance || '10000');
 
+      console.log('[AutoTradingScanner] Step 6: Preparing AI analysis request...');
+      console.log(`[AutoTradingScanner] Account balance: $${accountBalance}`);
+      console.log(`[AutoTradingScanner] Symbols to scan: ${preferences.preferred_pairs?.join(', ') || 'EURUSD, GBPUSD, XAUUSD'}`);
+
       const analysisRequest: AIAnalysisRequest = {
         userId,
         prompt: 'Scan for the best high-confidence trading opportunity',
@@ -331,7 +423,9 @@ Risk Tolerance: ${preferences.risk_tolerance || 'medium'}`,
         metadata: { accountBalance, symbols: analysisRequest.symbols }
       }, sessionId);
 
+      console.log('[AutoTradingScanner] Step 7: Calling AI Trading Engine for market analysis...');
       const analysisResult = await aiTradingEngine.analyzeTradeRequest(analysisRequest);
+      console.log(`[AutoTradingScanner] ✓ AI analysis complete - Found ${analysisResult.options?.length || 0} trade options`);
 
       // Update the decision ID if it changed
       if (analysisResult.decision?.id && analysisResult.decision.id !== decisionId) {
@@ -339,6 +433,7 @@ Risk Tolerance: ${preferences.risk_tolerance || 'medium'}`,
       }
 
       if (!analysisResult.decision || !analysisResult.options.length) {
+        console.log('[AutoTradingScanner] ⚠️  No opportunities found in this scan cycle');
         await thoughtProcessLogger.logThought({
           userId,
           decisionId: decisionId!,
@@ -356,7 +451,10 @@ Risk Tolerance: ${preferences.risk_tolerance || 'medium'}`,
         };
       }
 
+      console.log('[AutoTradingScanner] Step 8: Selecting best trade option based on risk preference...');
       const selectedOption = this.selectBestAutoOption(analysisResult.options, preferences);
+      console.log(`[AutoTradingScanner] ✓ Selected: ${selectedOption.symbol} ${selectedOption.direction} - Confidence: ${selectedOption.confidence}%`);
+      console.log(`[AutoTradingScanner] Entry: ${selectedOption.entryPrice}, SL: ${selectedOption.stopLoss}, TP: ${selectedOption.takeProfit}`);
 
       await thoughtProcessLogger.logThought({
         userId,
@@ -381,6 +479,7 @@ ${selectedOption.confidence >= (preferences.min_confidence_threshold || 75) ? '�
       }, sessionId);
 
       if (selectedOption.confidence < preferences.min_confidence_threshold) {
+        console.log(`[AutoTradingScanner] ⚠️  Trade rejected - Confidence ${selectedOption.confidence}% below threshold ${preferences.min_confidence_threshold}%`);
         await thoughtProcessLogger.logThought({
           userId,
           decisionId: decisionId!,
@@ -400,7 +499,9 @@ Per Pipnosis Law #6 (Quality Over Quantity), only high-probability setups are ex
         };
       }
 
+      console.log('[AutoTradingScanner] Step 9: Approving trade option...');
       await aiTradingEngine.approveTradeOption(selectedOption.id, userId);
+      console.log('[AutoTradingScanner] ✓ Trade option approved');
 
       await thoughtProcessLogger.logThought({
         userId,
@@ -429,6 +530,7 @@ Executing trade now...`,
         }
       }, sessionId);
 
+      console.log('[AutoTradingScanner] Step 10: Executing trade via simulated trading service...');
       const tradeResult = await simulatedTradingService.executeTrade(
         {
           symbol: selectedOption.symbol,
@@ -447,6 +549,7 @@ Executing trade now...`,
       );
 
       if (!tradeResult.success) {
+        console.error(`[AutoTradingScanner] ❌ Trade execution failed: ${tradeResult.message}`);
         await thoughtProcessLogger.logThought({
           userId,
           decisionId: decisionId!,
@@ -458,6 +561,9 @@ Executing trade now...`,
         }, sessionId);
         throw new Error(tradeResult.message);
       }
+
+      console.log(`[AutoTradingScanner] ✓ Trade executed successfully! Trade ID: ${tradeResult.trade?.id}`);
+      console.log(`[AutoTradingScanner] Position: ${selectedOption.direction} ${selectedOption.lotSize} lots ${selectedOption.symbol}`);
 
       await supabase
         .from('ai_trade_decisions')
@@ -476,7 +582,9 @@ Executing trade now...`,
         consecutive_no_opportunity_count: 0
       });
 
+      console.log('[AutoTradingScanner] Step 11: Recording learning metrics and updating status...');
       await this.recordLearningMetric(userId, decisionId!, selectedOption, tradeResult.trade);
+      console.log('[AutoTradingScanner] ✓ Learning metrics recorded');
 
       await thoughtProcessLogger.logThought({
         userId,
@@ -508,6 +616,16 @@ Next scan in approximately 2 minutes.`,
         `${selectedOption.direction} ${selectedOption.symbol} at ${selectedOption.entryPrice}. Confidence: ${selectedOption.confidence}%`
       );
 
+      const scanDuration = Date.now() - scanStartTime;
+      console.log('┌─────────────────────────────────────────────────────────────────────┐');
+      console.log('│                    ✅ SCAN CYCLE COMPLETED SUCCESSFULLY               │');
+      console.log('└─────────────────────────────────────────────────────────────────────┘');
+      console.log(`[AutoTradingScanner] Scan duration: ${scanDuration}ms`);
+      console.log(`[AutoTradingScanner] Trade executed: ${selectedOption.direction} ${selectedOption.symbol}`);
+      console.log(`[AutoTradingScanner] Total trades today: ${(status.totalTradesExecuted || 0) + 1}`);
+      console.log(`[AutoTradingScanner] Next scan in approximately 2 minutes`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
       return {
         opportunityFound: true,
         decision: analysisResult.decision,
@@ -521,6 +639,7 @@ Next scan in approximately 2 minutes.`,
       const isNoOpportunityError = errorMessage.includes('No profitable trade opportunities');
 
       if (isNoOpportunityError) {
+        console.log('[AutoTradingScanner] ℹ️  No profitable opportunities found in this scan cycle');
         await this.incrementNoOpportunityCount(userId);
         return {
           opportunityFound: false,
@@ -529,7 +648,10 @@ Next scan in approximately 2 minutes.`,
         };
       }
 
-      console.error('❌ Auto Trading Error:', errorMessage);
+      console.error('┌─────────────────────────────────────────────────────────────────────┐');
+      console.error('│                    ❌ AUTO TRADING ERROR OCCURRED                     │');
+      console.error('└─────────────────────────────────────────────────────────────────────┘');
+      console.error(`[AutoTradingScanner] Error: ${errorMessage}`);
 
       if (decisionId) {
         await thoughtProcessLogger.logThought({

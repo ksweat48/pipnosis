@@ -59,14 +59,6 @@ export function useAutoTradingStatus() {
     try {
       setError(null);
 
-      const { data: sessionData, error: sessionError } = await supabase
-        .from('auto_trading_sessions')
-        .select('*')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (sessionError) throw sessionError;
-
       const { data: statusData, error: statusError } = await supabase
         .from('auto_trading_status')
         .select('*')
@@ -75,23 +67,19 @@ export function useAutoTradingStatus() {
 
       if (statusError) throw statusError;
 
-      if (sessionData || statusData) {
-        const tradesRemaining = sessionData
-          ? Math.max(0, sessionData.max_daily_trades - (sessionData.trades_taken_today || 0))
-          : statusData?.trades_remaining || 0;
+      if (statusData) {
+        const tradesRemaining = Math.max(0, statusData.max_daily_trades - (statusData.trades_taken_today || 0));
 
         setStatus({
-          isActive: sessionData?.enabled || statusData?.is_active || false,
-          monitoredSymbols: sessionData?.active_symbols || statusData?.monitored_symbols || [],
-          lastScanTime: statusData?.last_scan_at ? new Date(statusData.last_scan_at) : null,
-          nextScanTime: statusData?.next_scan_at ? new Date(statusData.next_scan_at) : null,
-          tradesToday: sessionData?.trades_taken_today || statusData?.trades_today || 0,
+          isActive: statusData.enabled || false,
+          monitoredSymbols: statusData.active_symbols || [],
+          lastScanTime: statusData.last_scan_time ? new Date(statusData.last_scan_time) : null,
+          nextScanTime: null,
+          tradesToday: statusData.trades_taken_today || 0,
           tradesRemaining,
-          currentPhase: statusData?.current_phase || null,
-          scanningSymbol: statusData?.scanning_symbol || null,
-          sessionStartTime: sessionData?.session_start || statusData?.session_start_at
-            ? new Date(sessionData?.session_start || statusData.session_start_at)
-            : null,
+          currentPhase: null,
+          scanningSymbol: null,
+          sessionStartTime: statusData.session_started_at ? new Date(statusData.session_started_at) : null,
         });
       } else {
         setStatus(DEFAULT_STATUS);
