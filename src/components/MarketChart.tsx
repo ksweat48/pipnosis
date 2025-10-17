@@ -811,14 +811,6 @@ export const MarketChart: React.FC<MarketChartProps> = ({
               height={500}
               preferences={preferences}
             />
-            <ChartAutoTradingIndicator
-              isActive={autoTradingStatus.isActive}
-              tradesRemaining={autoTradingStatus.tradesRemaining}
-              symbolsMonitored={autoTradingStatus.monitoredSymbols.length}
-              nextScanIn={nextScanCountdown}
-              currentlyScanning={autoTradingStatus.scanningSymbol || undefined}
-              onViewAnalysis={() => updatePreferences({ analysis_view_mode: 'autotrading' })}
-            />
           </div>
           {preferences.show_ai_analysis && (
             <div className="flex items-center justify-between mb-2">
