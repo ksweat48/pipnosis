@@ -28,12 +28,11 @@ class ConsolidatedPairAnalysisService {
     const currentCandle = candles[candles.length - 1];
     const currentPrice = currentCandle.close;
 
-    const rsiValues = calculateRSI(candles.map(c => c.close), 14);
-    const rsiValue = rsiValues[rsiValues.length - 1];
+    const rsiValue = calculateRSI(candles, 14);
     const rsiStatus = this.getRSIStatus(rsiValue);
 
-    const ema9Values = calculateEMA(candles.map(c => c.close), 9);
-    const ema21Values = calculateEMA(candles.map(c => c.close), 21);
+    const ema9Values = this.calculateEMAArray(candles, 9);
+    const ema21Values = this.calculateEMAArray(candles, 21);
     const ema9 = ema9Values[ema9Values.length - 1];
     const ema21 = ema21Values[ema21Values.length - 1];
 
@@ -41,8 +40,7 @@ class ConsolidatedPairAnalysisService {
     const vwapSpread = currentPrice - vwapValue;
     const vwapPosition = this.getVWAPPosition(currentPrice, vwapValue);
 
-    const atrValues = calculateATR(candles, 14);
-    const atrValue = atrValues[atrValues.length - 1];
+    const atrValue = calculateATR(candles, 14);
     const atrStatus = this.getATRStatus(atrValue, currentPrice);
 
     const volumeData = this.analyzeVolume(candles);
@@ -148,6 +146,19 @@ class ConsolidatedPairAnalysisService {
     else status = 'STABLE';
 
     return { changePercent, status, avg };
+  }
+
+  private calculateEMAArray(candles: Candle[], period: number): number[] {
+    const emaValues: number[] = [];
+    const closePrices = candles.map(c => c.close);
+
+    for (let i = period; i <= closePrices.length; i++) {
+      const subset = closePrices.slice(0, i);
+      const emaValue = calculateEMA(subset, period);
+      emaValues.push(emaValue);
+    }
+
+    return emaValues;
   }
 
   private getEMACrossoverStatus(ema9: number, ema21: number, ema9Values: number[], ema21Values: number[]): string {
