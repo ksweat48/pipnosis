@@ -85,21 +85,23 @@ const Dashboard: React.FC = () => {
   const [isSearching, setIsSearching] = useState(false);
 
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
+  const [shouldScrollToStrategy, setShouldScrollToStrategy] = useState(false);
 
   const { analyzePrompt, isAnalyzing, error: aiError } = usePromptAnalysis();
   const { balance: accountBalance, totalPnL, openPositionsCount, refreshBalance, refreshPositions } = useUserBalance(user?.id || null);
   const { marketData, isLoading: marketLoading, error: marketError, lastUpdated, refetch } = useMarketData();
 
   useEffect(() => {
-    if (strategyOptions.length > 0 && strategyOptionsRef.current) {
+    if (shouldScrollToStrategy && strategyOptions.length > 0 && strategyOptionsRef.current) {
       setTimeout(() => {
         strategyOptionsRef.current?.scrollIntoView({
           behavior: 'smooth',
           block: 'start'
         });
+        setShouldScrollToStrategy(false);
       }, 100);
     }
-  }, [strategyOptions]);
+  }, [shouldScrollToStrategy, strategyOptions]);
 
   const handlePromptSubmit = async (prompt: string) => {
     if (!user) return;
@@ -144,6 +146,7 @@ const Dashboard: React.FC = () => {
         };
 
         setStrategyOptions([transformedStrategy]);
+        setShouldScrollToStrategy(true);
         setActiveTradeLines({
           entry: bestOpportunity.signal.entryPrice,
           stopLoss: bestOpportunity.signal.stopLoss,
@@ -296,6 +299,7 @@ const Dashboard: React.FC = () => {
     };
 
     setStrategyOptions([transformedStrategy]);
+    setShouldScrollToStrategy(true);
     setActiveTradeLines({
       entry: opportunity.signal.entryPrice,
       stopLoss: opportunity.signal.stopLoss,

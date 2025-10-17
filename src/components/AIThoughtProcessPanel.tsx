@@ -31,7 +31,7 @@ export const AIThoughtProcessPanel: React.FC<AIThoughtProcessPanelProps> = ({
 }) => {
   const [thoughts, setThoughts] = useState<ThoughtEntry[]>([]);
   const [isExpanded, setIsExpanded] = useState(true);
-  const [autoScroll, setAutoScroll] = useState(true);
+  const [autoScroll, setAutoScroll] = useState(false);
   const thoughtsEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
