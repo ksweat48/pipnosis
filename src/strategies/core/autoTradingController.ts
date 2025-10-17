@@ -9,7 +9,7 @@ export class AutoTradingController {
   private isRunning: boolean = false;
   private monitoringInterval: NodeJS.Timeout | null = null;
   private lastTradeTime: Date | null = null;
-  private readonly MIN_TRADE_SPACING_MINUTES = 30;
+  private readonly MIN_TRADE_SPACING_MINUTES = 5;
 
   constructor() {
     this.strategy = new FxFlowScalperV2();
@@ -121,13 +121,6 @@ export class AutoTradingController {
     config: AutoTradingConfig
   ): Promise<void> {
     try {
-      const tradesCount = await this.getTodayTradesCount(userId);
-
-      if (tradesCount >= config.maxDailyTrades) {
-        console.log(`Daily trade limit reached (${tradesCount}/${config.maxDailyTrades})`);
-        return;
-      }
-
       if (!this.isWithinTradingHours(config.tradingHours)) {
         return;
       }

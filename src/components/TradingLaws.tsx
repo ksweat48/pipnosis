@@ -71,8 +71,8 @@ export const TradingLaws: React.FC = () => {
     },
     {
       id: 9,
-      title: "Do Not Overtrade",
-      description: "Maximum 2 trades per session. No overlapping trades on the same pair. Obey trade frequency limits to prevent overexposure and maintain disciplined trading.",
+      title: "Continuous Learning Mode",
+      description: "Execute all high-probability setups for maximum learning and data collection. No artificial trade limits. Focus on quality entries with proper risk management.",
       icon: Zap,
       category: 'discipline'
     },

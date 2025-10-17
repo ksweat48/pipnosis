@@ -280,18 +280,14 @@ export function AutoTradingControls() {
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="p-4 bg-white/5 rounded-lg border border-white/10">
-            <p className="text-xs font-medium text-white/60 mb-1">Daily Limit</p>
-            <p className="text-2xl font-bold text-white">{config.maxDailyTrades}</p>
-          </div>
-          <div className="p-4 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
-            <p className="text-xs font-medium text-emerald-400/80 mb-1">Remaining</p>
-            <p className="text-2xl font-bold text-emerald-400">{config.tradesRemainingToday}</p>
-          </div>
+        <div className="grid grid-cols-2 gap-4 mb-6">
           <div className="p-4 bg-white/5 rounded-lg border border-white/10">
             <p className="text-xs font-medium text-white/60 mb-1">Min Confidence</p>
             <p className="text-2xl font-bold text-white">{config.minConfidence}%</p>
+          </div>
+          <div className="p-4 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
+            <p className="text-xs font-medium text-emerald-400/80 mb-1">Learning Mode</p>
+            <p className="text-lg font-bold text-emerald-400">Continuous</p>
           </div>
         </div>
 
@@ -329,27 +325,13 @@ export function AutoTradingControls() {
               <div>
                 <p className="text-sm font-semibold text-emerald-400">Auto Trading Active</p>
                 <p className="text-xs text-emerald-400/80 mt-1">
-                  Monitoring {config.activeSymbols.length} symbols. Will execute up to{' '}
-                  {config.tradesRemainingToday} more trades today with signals above {config.minConfidence}% confidence.
+                  Monitoring {config.activeSymbols.length} symbols. Executing all high-confidence signals above {config.minConfidence}% for continuous learning.
                 </p>
               </div>
             </div>
           </div>
         )}
 
-        {!config.enabled && config.tradesRemainingToday === 0 && (
-          <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-yellow-400">Daily Limit Reached</p>
-                <p className="text-xs text-yellow-400/80 mt-1">
-                  Maximum daily trades executed. Auto trading will resume tomorrow.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {showSettings && (
@@ -357,20 +339,6 @@ export function AutoTradingControls() {
           <h4 className="font-semibold text-white mb-4">Auto Trading Settings</h4>
 
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Maximum Daily Trades
-              </label>
-              <input
-                type="number"
-                min="1"
-                max="20"
-                value={editConfig.maxDailyTrades}
-                onChange={(e) => setEditConfig({ ...editConfig, maxDailyTrades: parseInt(e.target.value) })}
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-              />
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-white/70 mb-2">
                 Minimum Confidence (%)

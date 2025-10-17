@@ -13,7 +13,7 @@ const PIPNOSIS_TRADING_LAWS = [
   "Law #1: Capital Preservation - Never risk more than 2-4% of account balance per trade",
   "Law #2: Risk-Reward Ratio - Minimum 1:1 RRR, target 2:1 or better",
   "Law #3: Drawdown Management - Maximum 15% account drawdown before stopping",
-  "Law #4: Trade Limit - Maximum 6 trades per day in auto mode",
+  "Law #4: Continuous Learning - Execute all high-probability setups for maximum learning",
   "Law #5: AI Final Decision - AI has ultimate authority on trade execution",
   "Law #6: Quality Over Quantity - Only high-probability setups with multiple confirmations",
   "Law #7: No Revenge Trading - No re-entry after stop loss without new analysis",

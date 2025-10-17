@@ -95,7 +95,7 @@ class AutoTradingScanner {
 
       return {
         success: true,
-        message: 'Auto trading started in continuous learning mode. Scanning markets every 2-3 minutes. No trade limits.'
+        message: 'Auto trading started in continuous learning mode. Scanning markets every 2-3 minutes for maximum learning opportunities.'
       };
     } catch (error) {
       console.error('Failed to start auto trading:', error);
@@ -157,6 +157,7 @@ class AutoTradingScanner {
     const scanStartTime = Date.now();
     let scanStepNumber = 0;
     let decisionId: string | null = null;
+    let sessionId: string | null = null;
 
     try {
       // Create the decision record FIRST before any thought logging
@@ -190,7 +191,7 @@ class AutoTradingScanner {
       decisionId = decisionData.id;
 
       const status = await this.getAutoTradingStatus(userId);
-      const sessionId = status?.currentSessionId || null;
+      sessionId = status?.currentSessionId || null;
 
       await thoughtProcessLogger.logThought({
         userId,
@@ -198,14 +199,14 @@ class AutoTradingScanner {
         stepNumber: ++scanStepNumber,
         stepType: 'auto_scan_start',
         title: 'Auto Trading Scan Started',
-        content: `Continuous mode: ${status?.continuousMode ? 'Enabled' : 'Disabled'}
-Trades taken today: ${status?.tradesTakenToday || 0}/${status?.maxDailyTrades || 0}
+        content: `Continuous learning mode: Enabled
 Daily P&L: $${status?.dailyPnl.toFixed(2) || '0.00'}
-Loss limit: $${status?.dailyLossLimit || '-500.00'}`,
+Loss limit: $${status?.dailyLossLimit || '-500.00'}
+Total trades executed: ${status?.totalTradesExecuted || 0}`,
         metadata: {
           scanTime: new Date().toISOString(),
-          tradesTaken: status?.tradesTakenToday,
           dailyPnl: status?.dailyPnl,
+          totalTrades: status?.totalTradesExecuted,
           sessionId
         }
       }, sessionId);
@@ -232,30 +233,13 @@ Loss limit: $${status?.dailyLossLimit || '-500.00'}`,
         decisionId: decisionId!,
         stepNumber: ++scanStepNumber,
         stepType: 'auto_limit_check',
-        title: 'Checking Trade Limits',
-        content: `Continuous Mode: ${status.continuousMode ? 'YES - No daily limits' : 'NO - Daily limits enforced'}
-Trades Today: ${status.tradesTakenToday}/${status.maxDailyTrades}
-${!status.continuousMode && status.tradesTakenToday >= status.maxDailyTrades ? '⚠️ Daily trade limit reached' : '✓ Trade limits OK'}`,
-        metadata: { continuousMode: status.continuousMode, tradesTaken: status.tradesTakenToday, maxTrades: status.maxDailyTrades }
+        title: 'System Status Check',
+        content: `Continuous Learning Mode: Active
+Trades Executed: ${status.totalTradesExecuted || 0}
+Daily P&L: $${status.dailyPnl.toFixed(2)}
+✓ System operational - no trade limits`,
+        metadata: { continuousMode: status.continuousMode, totalTrades: status.totalTradesExecuted, dailyPnl: status.dailyPnl }
       }, sessionId);
-
-      if (!status.continuousMode && status.tradesTakenToday >= status.maxDailyTrades) {
-        await this.updateAutoTradingStatus(userId, { scanning_active: false });
-        await thoughtProcessLogger.logThought({
-          userId,
-          decisionId: decisionId!,
-          stepNumber: ++scanStepNumber,
-          stepType: 'auto_scan_complete',
-          title: 'Daily Limit Reached',
-          content: `Trade limit reached (${status.tradesTakenToday}/${status.maxDailyTrades}). Auto trading paused until tomorrow.`,
-          metadata: { reason: 'daily_limit' }
-        }, sessionId);
-        return {
-          opportunityFound: false,
-          message: `Daily trade limit reached (${status.tradesTakenToday}/${status.maxDailyTrades})`,
-          scanDuration: Date.now() - scanStartTime
-        };
-      }
 
       if (status.dailyPnl <= status.dailyLossLimit) {
         await this.updateAutoTradingStatus(userId, {
@@ -506,14 +490,14 @@ Entry: ${selectedOption.entryPrice}
 Current Price: ${tradeResult.trade?.entryPrice}
 Position Size: ${selectedOption.lotSize} lots
 
-Trades today: ${status.tradesTakenToday + 1}
 Total auto trades: ${(status.totalTradesExecuted || 0) + 1}
+Daily P&L: $${(status.dailyPnl + selectedOption.estimatedProfit).toFixed(2)}
 
 Next scan in approximately 2 minutes.`,
         metadata: {
           tradeId: tradeResult.trade?.id,
           success: true,
-          tradesCount: status.tradesTakenToday + 1
+          totalTrades: (status.totalTradesExecuted || 0) + 1
         }
       }, sessionId);
 

@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { pipnosisAPI } from '../services/api';
 import { simulatedTradingService } from '../services/simulated-trading';
 import { supabase } from '@/lib/supabase';
+import { supabaseDataService } from '@/services/supabase-data';
+import { useAuth } from './useAuth';
 
 export const useMarketData = (refreshInterval: number = 5000) => {
   const [marketData, setMarketData] = useState<any[]>([]);
@@ -91,26 +93,56 @@ export const useTradeExecution = () => {
   return { executeTrade, isExecuting, error };
 };
 
-// Mock data hooks - no longer connected to Supabase
+// Real KPIs connected to Supabase
 export const useTradingKPIs = () => {
-  const [kpis] = useState({
-    winRate: 75.5,
-    averageRRR: 2.1,
-    maxDrawdown: 8.2,
-    totalPnL: 1250.75,
-    winningTrades: 15,
-    losingTrades: 5,
-    totalTrades: 20
-  });
-  const [isLoading] = useState(false);
-  const [error] = useState<string | null>(null);
+  const { user } = useAuth();
+  const [kpis, setKpis] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const refetch = useCallback(() => {
-    // Mock refetch - no actual data fetching
-    console.log('Mock KPIs refetch');
-  }, []);
+  const fetchKPIs = useCallback(async () => {
+    if (!user?.id) {
+      setKpis({
+        winRate: 0,
+        averageRRR: 0,
+        maxDrawdown: 0,
+        totalPnL: 0,
+        winningTrades: 0,
+        losingTrades: 0,
+        totalTrades: 0
+      });
+      setIsLoading(false);
+      return;
+    }
 
-  return { kpis, isLoading, error, refetch };
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const data = await supabaseDataService.getTradingKPIs(user.id);
+      setKpis(data);
+    } catch (err) {
+      console.error('Failed to load KPIs:', err);
+      setError('Failed to load performance metrics');
+      setKpis({
+        winRate: 0,
+        averageRRR: 0,
+        maxDrawdown: 0,
+        totalPnL: 0,
+        winningTrades: 0,
+        losingTrades: 0,
+        totalTrades: 0
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchKPIs();
+  }, [fetchKPIs]);
+
+  return { kpis, isLoading, error, refetch: fetchKPIs };
 };
 
 export const useActiveTrades = (userId?: string) => {

@@ -36,7 +36,7 @@ export class ImmutableLawsValidator {
     LAW_1: 'Capital Preservation - Never risk more than 2-4% of account balance per trade',
     LAW_2: 'Risk-Reward Ratio - Minimum 1:1 RRR, target 2:1 or better',
     LAW_3: 'Drawdown Management - Maximum 15% account drawdown before stopping',
-    LAW_4: 'Trade Limit - Maximum 2 trades per session',
+    LAW_4: 'Continuous Learning - Execute all high-probability setups for maximum learning',
     LAW_5: 'AI Final Decision - AI has ultimate authority on trade execution',
     LAW_6: 'Quality Over Quantity - Only high-probability setups with multiple confirmations',
     LAW_7: 'No Revenge Trading - No re-entry after stop loss without new analysis',
@@ -112,11 +112,8 @@ export class ImmutableLawsValidator {
     violations: string[],
     warnings: string[]
   ): void {
-    if (context.tradesInSession >= 2) {
-      violations.push(`Law #4 Violation: Already executed ${context.tradesInSession} trades this session - Maximum is 2`);
-    } else if (context.tradesInSession === 1) {
-      warnings.push(`Law #4 Warning: This is your final trade allowed in this session`);
-    }
+    // Law #4: Continuous Learning - No trade limits, execute all high-probability setups
+    // This validation is now a no-op but kept for consistency
   }
 
   private static validateLaw7(
