@@ -47,25 +47,100 @@ class AutoTradingScanner {
   }
 
   private setupScheduledScanListener() {
-    if (this.isListeningForScheduledScans) return;
+    if (this.isListeningForScheduledScans) {
+      console.log('[AutoTradingScanner] Scheduled scan listener already initialized');
+      return;
+    }
+
+    console.log('[AutoTradingScanner] Setting up scheduled scan listener...');
 
     window.addEventListener('autoTradingScheduledScan', async (event: any) => {
-      const { userId } = event.detail;
-      console.log('[AutoTradingScanner] Received scheduled scan event for user:', userId);
+      try {
+        const { userId, scheduledAt } = event.detail;
+        console.log('┌─────────────────────────────────────────────────────────────────────┐');
+        console.log('│          🔔 SCHEDULED SCAN EVENT RECEIVED                            │');
+        console.log('└─────────────────────────────────────────────────────────────────────┘');
+        console.log(`[AutoTradingScanner] User ID: ${userId}`);
+        console.log(`[AutoTradingScanner] Scheduled at: ${scheduledAt}`);
+        console.log(`[AutoTradingScanner] Current time: ${new Date().toISOString()}`);
 
-      const { data: preferences } = await supabase
-        .from('user_trading_preferences')
-        .select('*')
-        .eq('user_id', userId)
-        .maybeSingle();
+        // Load preferences with fallback to defaults
+        console.log('[AutoTradingScanner] Loading user trading preferences...');
+        const { data: preferences, error: preferencesError } = await supabase
+          .from('user_trading_preferences')
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle();
 
-      if (preferences) {
-        await this.performScan(userId, preferences);
+        if (preferencesError) {
+          console.error('[AutoTradingScanner] Error loading preferences:', preferencesError);
+        }
+
+        // Use loaded preferences or fallback to defaults
+        const effectivePreferences = preferences || {
+          user_id: userId,
+          preferred_pairs: ['EURUSD', 'GBPUSD', 'XAUUSD'],
+          min_confidence_threshold: 75,
+          risk_tolerance: 'medium',
+          auto_trading_enabled: true,
+          auto_trading_hours_start: '00:00:00',
+          auto_trading_hours_end: '23:59:59'
+        };
+
+        console.log('[AutoTradingScanner] Using preferences:', {
+          pairs: effectivePreferences.preferred_pairs,
+          minConfidence: effectivePreferences.min_confidence_threshold,
+          riskTolerance: effectivePreferences.risk_tolerance
+        });
+
+        // Verify auto trading is still enabled before performing scan
+        const { data: status } = await supabase
+          .from('auto_trading_status')
+          .select('enabled, scanning_active, emergency_stop, should_be_scanning')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!status) {
+          console.log('[AutoTradingScanner] ⚠️ No auto trading status found - skipping scan');
+          return;
+        }
+
+        if (!status.enabled || !status.scanning_active || status.emergency_stop || !status.should_be_scanning) {
+          console.log('[AutoTradingScanner] ⚠️ Auto trading not active - skipping scan:', {
+            enabled: status.enabled,
+            scanningActive: status.scanning_active,
+            emergencyStop: status.emergency_stop,
+            shouldBeScanning: status.should_be_scanning
+          });
+          return;
+        }
+
+        console.log('[AutoTradingScanner] ✓ Auto trading is active - proceeding with scan');
+        console.log('[AutoTradingScanner] Calling performScan...');
+
+        // Perform the scan
+        const scanResult = await this.performScan(userId, effectivePreferences);
+
+        console.log('[AutoTradingScanner] Scan completed:', {
+          opportunityFound: scanResult.opportunityFound,
+          message: scanResult.message,
+          duration: scanResult.scanDuration + 'ms'
+        });
+
+      } catch (error) {
+        console.error('┌─────────────────────────────────────────────────────────────────────┐');
+        console.error('│          ❌ ERROR IN SCHEDULED SCAN EVENT HANDLER                    │');
+        console.error('└─────────────────────────────────────────────────────────────────────┘');
+        console.error('[AutoTradingScanner] Error details:', error);
+        console.error('[AutoTradingScanner] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+
+        // Don't let one error stop future scans - just log it
       }
     });
 
     this.isListeningForScheduledScans = true;
-    console.log('[AutoTradingScanner] Scheduled scan listener initialized');
+    console.log('[AutoTradingScanner] ✓ Scheduled scan listener initialized successfully');
+    console.log('[AutoTradingScanner] Listener is ready to receive autoTradingScheduledScan events');
   }
 
   async startAutoTrading(userId: string): Promise<{ success: boolean; message: string }> {

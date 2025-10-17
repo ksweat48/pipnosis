@@ -96,13 +96,14 @@ export class AutoTradingPersistence {
       clearInterval(this.pollingInterval);
     }
 
-    console.log('[AutoTradingPersistence] Starting polling mechanism');
+    console.log('[AutoTradingPersistence] ✓ Starting polling mechanism (checks every 30 seconds)');
 
     this.pollingInterval = setInterval(async () => {
       await this.checkForScheduledScan();
     }, 30000); // Check every 30 seconds
 
     // Also check immediately
+    console.log('[AutoTradingPersistence] Running initial polling check...');
     this.checkForScheduledScan();
   }
 
@@ -119,26 +120,47 @@ export class AutoTradingPersistence {
         .eq('user_id', this.userId)
         .maybeSingle();
 
-      if (error || !data) return;
+      if (error || !data) {
+        console.log('[AutoTradingPersistence] No status found or error:', error?.message);
+        return;
+      }
 
       // Check if scanning should be active
       if (!data.should_be_scanning || !data.enabled || data.emergency_stop) {
+        console.log('[AutoTradingPersistence] Polling check - Auto trading not active:', {
+          shouldBeScanning: data.should_be_scanning,
+          enabled: data.enabled,
+          emergencyStop: data.emergency_stop
+        });
         return;
       }
 
       const now = new Date();
       const nextScan = data.next_scan_scheduled_at ? new Date(data.next_scan_scheduled_at) : null;
 
+      // Log polling check (throttled to avoid spam)
+      const timeDiff = nextScan ? nextScan.getTime() - now.getTime() : 0;
+      const secondsUntilScan = Math.round(timeDiff / 1000);
+      console.log(`[AutoTradingPersistence] Polling check - Next scan in ${secondsUntilScan}s (${nextScan?.toLocaleTimeString() || 'Not set'})`);
+
       // If no next scan is scheduled or it's time to scan
       if (!nextScan || nextScan <= now) {
-        console.log('[AutoTradingPersistence] Time for scheduled scan');
+        console.log('┌─────────────────────────────────────────────────────────────────────┐');
+        console.log('│          ⏰ TIME FOR SCHEDULED SCAN                                  │');
+        console.log('└─────────────────────────────────────────────────────────────────────┘');
+        console.log(`[AutoTradingPersistence] User ID: ${this.userId}`);
+        console.log(`[AutoTradingPersistence] Current time: ${now.toISOString()}`);
+        console.log(`[AutoTradingPersistence] Next scan was: ${nextScan?.toISOString() || 'Not set'}`);
 
         // Calculate next scan time
         const scanIntervalSeconds = data.scan_interval_seconds || 120;
         const nextScanTime = new Date(now.getTime() + scanIntervalSeconds * 1000);
 
+        console.log(`[AutoTradingPersistence] Scan interval: ${scanIntervalSeconds} seconds`);
+        console.log(`[AutoTradingPersistence] Next scan will be: ${nextScanTime.toISOString()}`);
+
         // Update the schedule
-        await supabase
+        const { error: updateError } = await supabase
           .from('auto_trading_status')
           .update({
             next_scan_scheduled_at: nextScanTime.toISOString(),
@@ -146,12 +168,22 @@ export class AutoTradingPersistence {
           })
           .eq('user_id', this.userId);
 
+        if (updateError) {
+          console.error('[AutoTradingPersistence] ❌ Failed to update schedule:', updateError);
+          return;
+        }
+
+        console.log('[AutoTradingPersistence] ✓ Schedule updated in database');
+
         // Trigger a custom event that the scanner can listen to
+        console.log('[AutoTradingPersistence] Dispatching autoTradingScheduledScan event...');
         window.dispatchEvent(new CustomEvent('autoTradingScheduledScan', {
-          detail: { userId: this.userId, scheduledAt: now }
+          detail: { userId: this.userId, scheduledAt: now.toISOString() }
         }));
 
-        console.log('[AutoTradingPersistence] Scheduled scan event dispatched. Next scan:', nextScanTime);
+        console.log('[AutoTradingPersistence] ✓ Scheduled scan event dispatched successfully');
+        console.log(`[AutoTradingPersistence] Next scan scheduled for: ${nextScanTime.toLocaleTimeString()}`);
+        console.log('─'.repeat(70));
       }
     } catch (error) {
       console.error('[AutoTradingPersistence] Error checking scheduled scan:', error);
