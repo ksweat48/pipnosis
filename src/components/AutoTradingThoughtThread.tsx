@@ -37,6 +37,7 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
   const [filterSuccessOnly, setFilterSuccessOnly] = useState(false);
   const thoughtsEndRef = useRef<HTMLDivElement>(null);
   const [currentScanId, setCurrentScanId] = useState<string | null>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -52,6 +53,7 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
 
     loadRecentThoughts();
 
+    // Set up realtime subscription
     const channel = supabase
       .channel(`auto_trading_thoughts:${user.id}:${currentSessionId || 'nosession'}`)
       .on(
@@ -65,9 +67,10 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         (payload) => {
           const newThought = payload.new as ThoughtEntry;
 
-          console.log('[AutoTradingThoughtThread] New thought received', {
+          console.log('[AutoTradingThoughtThread] 🔔 New thought received via realtime', {
             thoughtId: newThought.id,
             stepType: newThought.step_type,
+            title: newThought.title,
             thoughtSessionId: newThought.session_id,
             currentSessionId,
             matches: newThought.session_id === currentSessionId
@@ -75,13 +78,18 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
 
           // Only add thoughts from the current session
           if (currentSessionId && newThought.session_id === currentSessionId) {
-            console.log('[AutoTradingThoughtThread] Adding thought to list (session match)');
+            console.log('[AutoTradingThoughtThread] ✅ Adding thought to list (session match)');
             setThoughts(prev => {
+              // Check if thought already exists to avoid duplicates
+              if (prev.some(t => t.id === newThought.id)) {
+                console.log('[AutoTradingThoughtThread] ⚠️ Thought already exists, skipping');
+                return prev;
+              }
               const updated = [...prev, newThought];
               return updated.slice(-maxEntries);
             });
           } else if (!currentSessionId) {
-            console.log('[AutoTradingThoughtThread] No session ID - checking decision type');
+            console.log('[AutoTradingThoughtThread] ℹ️ No session ID - checking decision type');
             // If no session ID, check if it's from an auto trading decision
             supabase
               .from('ai_trade_decisions')
@@ -90,17 +98,18 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
               .maybeSingle()
               .then(({ data, error }) => {
                 if (data?.decision_type === 'auto') {
-                  console.log('[AutoTradingThoughtThread] Adding thought to list (auto decision)');
+                  console.log('[AutoTradingThoughtThread] ✅ Adding thought to list (auto decision)');
                   setThoughts(prev => {
+                    if (prev.some(t => t.id === newThought.id)) return prev;
                     const updated = [...prev, newThought];
                     return updated.slice(-maxEntries);
                   });
                 } else {
-                  console.log('[AutoTradingThoughtThread] Skipping thought (not auto decision)');
+                  console.log('[AutoTradingThoughtThread] ❌ Skipping thought (not auto decision)');
                 }
               });
           } else {
-            console.log('[AutoTradingThoughtThread] Skipping thought (session mismatch)', {
+            console.log('[AutoTradingThoughtThread] ❌ Skipping thought (session mismatch)', {
               thoughtSessionId: newThought.session_id,
               currentSessionId
             });
@@ -117,7 +126,7 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         },
         (payload) => {
           const updatedThought = payload.new as ThoughtEntry;
-          console.log('[AutoTradingThoughtThread] Thought updated', {
+          console.log('[AutoTradingThoughtThread] 🔄 Thought updated', {
             thoughtId: updatedThought.id,
             status: updatedThought.status
           });
@@ -131,11 +140,25 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
       )
       .subscribe();
 
+    // Set up polling fallback for when auto trading is active
+    // This ensures updates appear even if realtime has issues
+    if (isAutoTradingActive && currentSessionId) {
+      console.log('[AutoTradingThoughtThread] 🔄 Starting polling fallback (every 10 seconds)');
+      pollingIntervalRef.current = setInterval(() => {
+        console.log('[AutoTradingThoughtThread] 📊 Polling for new thoughts...');
+        loadRecentThoughts();
+      }, 10000); // Poll every 10 seconds when auto trading is active
+    }
+
     return () => {
-      console.log('[AutoTradingThoughtThread] Cleaning up subscription');
+      console.log('[AutoTradingThoughtThread] 🧹 Cleaning up subscription and polling');
       supabase.removeChannel(channel);
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
     };
-  }, [user?.id, maxEntries, currentSessionId]);
+  }, [user?.id, maxEntries, currentSessionId, isAutoTradingActive]);
 
   useEffect(() => {
     if (autoScroll && thoughtsEndRef.current) {

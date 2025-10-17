@@ -18,12 +18,16 @@ interface AIThoughtProcessPanelProps {
   decisionId?: string;
   isAnalyzing?: boolean;
   onComplete?: () => void;
+  sessionId?: string | null;
+  mode?: 'manual' | 'auto';
 }
 
 export const AIThoughtProcessPanel: React.FC<AIThoughtProcessPanelProps> = ({
   decisionId,
   isAnalyzing = false,
-  onComplete
+  onComplete,
+  sessionId = null,
+  mode = 'manual'
 }) => {
   const [thoughts, setThoughts] = useState<ThoughtEntry[]>([]);
   const [isExpanded, setIsExpanded] = useState(true);
@@ -36,6 +40,7 @@ export const AIThoughtProcessPanel: React.FC<AIThoughtProcessPanelProps> = ({
       return;
     }
 
+    console.log('[AIThoughtProcessPanel] Setting up subscription for decision:', decisionId);
     loadThoughts();
 
     const channel = supabase
@@ -49,7 +54,20 @@ export const AIThoughtProcessPanel: React.FC<AIThoughtProcessPanelProps> = ({
           filter: `decision_id=eq.${decisionId}`
         },
         (payload) => {
-          setThoughts(prev => [...prev, payload.new as ThoughtEntry]);
+          const newThought = payload.new as ThoughtEntry;
+          console.log('[AIThoughtProcessPanel] 🔔 New thought received:', {
+            id: newThought.id,
+            title: newThought.title,
+            stepType: newThought.step_type
+          });
+          setThoughts(prev => {
+            // Avoid duplicates
+            if (prev.some(t => t.id === newThought.id)) {
+              console.log('[AIThoughtProcessPanel] Thought already exists, skipping');
+              return prev;
+            }
+            return [...prev, newThought];
+          });
         }
       )
       .on(
@@ -61,14 +79,19 @@ export const AIThoughtProcessPanel: React.FC<AIThoughtProcessPanelProps> = ({
           filter: `decision_id=eq.${decisionId}`
         },
         (payload) => {
+          const updatedThought = payload.new as ThoughtEntry;
+          console.log('[AIThoughtProcessPanel] 🔄 Thought updated:', updatedThought.id);
           setThoughts(prev =>
-            prev.map(t => t.id === payload.new.id ? payload.new as ThoughtEntry : t)
+            prev.map(t => t.id === updatedThought.id ? updatedThought : t)
           );
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[AIThoughtProcessPanel] Subscription status:', status);
+      });
 
     return () => {
+      console.log('[AIThoughtProcessPanel] Cleaning up subscription for decision:', decisionId);
       supabase.removeChannel(channel);
     };
   }, [decisionId]);
@@ -82,6 +105,8 @@ export const AIThoughtProcessPanel: React.FC<AIThoughtProcessPanelProps> = ({
   const loadThoughts = async () => {
     if (!decisionId) return;
 
+    console.log('[AIThoughtProcessPanel] Loading thoughts for decision:', decisionId);
+
     const { data, error } = await supabase
       .from('ai_thought_process')
       .select('*')
@@ -89,10 +114,11 @@ export const AIThoughtProcessPanel: React.FC<AIThoughtProcessPanelProps> = ({
       .order('step_number', { ascending: true });
 
     if (error) {
-      console.error('Error loading thought process:', error);
+      console.error('[AIThoughtProcessPanel] Error loading thought process:', error);
       return;
     }
 
+    console.log('[AIThoughtProcessPanel] Loaded thoughts:', data?.length || 0);
     setThoughts(data || []);
   };
 
