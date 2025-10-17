@@ -58,39 +58,44 @@ class MarketDataService {
     let apiCandles: CandleData[] = [];
     let shouldFetchApi = !this.isDemoMode;
 
+    let cachedCandlesBackup: CandleData[] = [];
+
     if (useCache) {
       const cachedCandles = await marketDataCache.getCachedCandles(
         symbol,
         timeframe,
         effectiveLimit
       );
+      cachedCandlesBackup = cachedCandles;
 
       if (cachedCandles.length > 0) {
-        const cacheValidation = this.validateCacheQuality(
-          cachedCandles,
-          timeframe,
-          limit
-        );
-
-        console.log(`📊 Cache validation for ${symbol} ${timeframe}:`, {
-          candleCount: `${cachedCandles.length}/${limit}`,
-          isFresh: cacheValidation.isFresh,
-          coversExpectedRange: cacheValidation.coversExpectedRange,
-          hasCriticalGaps: cacheValidation.hasCriticalGaps,
-          newestCandleAge: cacheValidation.newestCandleAge,
-          recommendation: cacheValidation.shouldUseCacheOnly ? 'USE CACHE' : 'FETCH FROM API'
-        });
-
-        if (cacheValidation.shouldUseCacheOnly && !this.isDemoMode) {
-          shouldFetchApi = false;
-          apiCandles = cachedCandles;
-          console.log(`✅ Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
-        } else if (!cacheValidation.shouldUseCacheOnly && !this.isDemoMode) {
-          console.log(`🔄 Cache validation failed: ${cacheValidation.reason}`);
-        } else if (this.isDemoMode && cachedCandles.length > 0) {
+        if (this.isDemoMode) {
           apiCandles = cachedCandles;
           shouldFetchApi = false;
           console.log(`💾 Demo mode: Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
+        } else {
+          const cacheValidation = this.validateCacheQuality(
+            cachedCandles,
+            timeframe,
+            limit
+          );
+
+          console.log(`📊 Cache validation for ${symbol} ${timeframe}:`, {
+            candleCount: `${cachedCandles.length}/${limit}`,
+            isFresh: cacheValidation.isFresh,
+            coversExpectedRange: cacheValidation.coversExpectedRange,
+            hasCriticalGaps: cacheValidation.hasCriticalGaps,
+            newestCandleAge: cacheValidation.newestCandleAge,
+            recommendation: cacheValidation.shouldUseCacheOnly ? 'USE CACHE' : 'FETCH FROM API'
+          });
+
+          if (cacheValidation.shouldUseCacheOnly) {
+            shouldFetchApi = false;
+            apiCandles = cachedCandles;
+            console.log(`✅ Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
+          } else {
+            console.log(`🔄 Cache validation failed: ${cacheValidation.reason}`);
+          }
         }
       }
     }
@@ -142,16 +147,21 @@ class MarketDataService {
         console.log(`📡 Fetched ${apiCandles.length} candles from MetaAPI for ${symbol} ${timeframe}`);
       } catch (error) {
         console.error('Error fetching from MetaAPI:', error);
-        const cachedCandles = await marketDataCache.getCachedCandles(
-          symbol,
-          timeframe,
-          limit
-        );
-        if (cachedCandles.length > 0) {
-          apiCandles = cachedCandles;
-          console.log(`⚠️ MetaApi error, using ${cachedCandles.length} cached candles`);
+        if (cachedCandlesBackup.length > 0) {
+          apiCandles = cachedCandlesBackup;
+          console.log(`⚠️ MetaApi error, falling back to ${cachedCandlesBackup.length} cached candles`);
         } else {
-          throw error;
+          const fallbackCandles = await marketDataCache.getCachedCandles(
+            symbol,
+            timeframe,
+            limit
+          );
+          if (fallbackCandles.length > 0) {
+            apiCandles = fallbackCandles;
+            console.log(`⚠️ MetaApi error, using ${fallbackCandles.length} cached candles from fresh query`);
+          } else {
+            throw error;
+          }
         }
       }
     }
@@ -173,7 +183,17 @@ class MarketDataService {
     }
 
     if (mergeResult.candles.length === 0) {
-      console.warn(`⚠️ No data available for ${symbol} ${timeframe}`);
+      console.warn(`⚠️ Merge result empty, attempting final fallback to cached data`);
+      if (cachedCandlesBackup.length > 0) {
+        console.log(`✅ Using ${cachedCandlesBackup.length} cached candles as final fallback`);
+        return cachedCandlesBackup.slice(-effectiveLimit);
+      }
+      const lastResortCandles = await marketDataCache.getCachedCandles(symbol, timeframe, limit);
+      if (lastResortCandles.length > 0) {
+        console.log(`✅ Using ${lastResortCandles.length} candles from last resort cache query`);
+        return lastResortCandles.slice(-effectiveLimit);
+      }
+      console.error(`❌ No data available for ${symbol} ${timeframe}`);
       return [];
     }
 
@@ -385,17 +405,17 @@ class MarketDataService {
 
   private getCacheFreshnessThreshold(timeframe: Timeframe): number {
     const thresholds: Record<Timeframe, number> = {
-      M1: 1 * 60 * 60 * 1000,
-      M5: 4 * 60 * 60 * 1000,
-      M15: 8 * 60 * 60 * 1000,
-      M30: 12 * 60 * 60 * 1000,
-      H1: 24 * 60 * 60 * 1000,
-      H4: 48 * 60 * 60 * 1000,
-      D1: 7 * 24 * 60 * 60 * 1000,
-      W1: 14 * 24 * 60 * 60 * 1000,
-      MN1: 30 * 24 * 60 * 60 * 1000
+      M1: 2 * 60 * 60 * 1000,
+      M5: 12 * 60 * 60 * 1000,
+      M15: 24 * 60 * 60 * 1000,
+      M30: 48 * 60 * 60 * 1000,
+      H1: 72 * 60 * 60 * 1000,
+      H4: 7 * 24 * 60 * 60 * 1000,
+      D1: 14 * 24 * 60 * 60 * 1000,
+      W1: 30 * 24 * 60 * 60 * 1000,
+      MN1: 60 * 24 * 60 * 60 * 1000
     };
-    return thresholds[timeframe] || 8 * 60 * 60 * 1000;
+    return thresholds[timeframe] || 24 * 60 * 60 * 1000;
   }
 
   private calculateExpectedStartDate(
