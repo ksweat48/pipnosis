@@ -35,37 +35,77 @@ export interface ThoughtProcessEntry {
 
 class ThoughtProcessLogger {
   private currentStep: number = 0;
+  private isLoggingEnabled: boolean = true;
+  private validStepTypes = new Set([
+    'initialization',
+    'symbol_scan',
+    'market_data_fetch',
+    'technical_analysis',
+    'fxflow_evaluation',
+    'chatgpt_prompt',
+    'chatgpt_response',
+    'strategy_comparison',
+    'risk_calculation',
+    'option_generation',
+    'final_decision',
+    'error',
+    'warning'
+  ]);
 
   async logThought(entry: ThoughtProcessEntry): Promise<string | null> {
+    if (!this.isLoggingEnabled) {
+      return null;
+    }
+
     try {
+      const normalizedStepType = this.normalizeStepType(entry.stepType);
+
       const { data, error } = await supabase
         .from('ai_thought_process')
         .insert({
           user_id: entry.userId,
           decision_id: entry.decisionId,
           step_number: entry.stepNumber,
-          step_type: entry.stepType,
+          step_type: normalizedStepType,
           title: entry.title,
           content: entry.content,
           metadata: entry.metadata || {},
           status: 'processing'
         })
         .select('id')
-        .single();
+        .maybeSingle();
 
       if (error) {
-        console.error('Error logging thought process:', error);
+        if (this.isLoggingEnabled) {
+          this.isLoggingEnabled = false;
+        }
         return null;
       }
 
-      return data.id;
+      return data?.id || null;
     } catch (error) {
-      console.error('Error logging thought process:', error);
+      this.isLoggingEnabled = false;
       return null;
     }
   }
 
+  private normalizeStepType(stepType: ThoughtStepType): string {
+    if (this.validStepTypes.has(stepType)) {
+      return stepType;
+    }
+
+    if (stepType.startsWith('auto_')) {
+      return 'initialization';
+    }
+
+    return 'warning';
+  }
+
   async completeThought(thoughtId: string, durationMs?: number): Promise<void> {
+    if (!thoughtId || !this.isLoggingEnabled) {
+      return;
+    }
+
     try {
       await supabase
         .from('ai_thought_process')
@@ -75,17 +115,20 @@ class ThoughtProcessLogger {
         })
         .eq('id', thoughtId);
     } catch (error) {
-      console.error('Error completing thought:', error);
     }
   }
 
   async errorThought(thoughtId: string, errorMessage: string): Promise<void> {
+    if (!thoughtId || !this.isLoggingEnabled) {
+      return;
+    }
+
     try {
       const { data: current } = await supabase
         .from('ai_thought_process')
         .select('content')
         .eq('id', thoughtId)
-        .single();
+        .maybeSingle();
 
       await supabase
         .from('ai_thought_process')
@@ -95,7 +138,6 @@ class ThoughtProcessLogger {
         })
         .eq('id', thoughtId);
     } catch (error) {
-      console.error('Error updating thought with error:', error);
     }
   }
 

@@ -167,15 +167,6 @@ class MarketDataService {
       timeframe
     );
 
-    console.log(`🔀 Merge results for ${symbol} ${timeframe}:`, {
-      apiCandles: mergeResult.stats.apiCandles,
-      liveCandles: mergeResult.stats.dbCandles,
-      duplicatesRemoved: mergeResult.stats.duplicatesRemoved,
-      gapsFilled: mergeResult.stats.gapsFilled,
-      total: mergeResult.stats.totalCandles,
-      completeness: `${mergeResult.stats.totalCandles}/${limit} (${((mergeResult.stats.totalCandles/limit)*100).toFixed(1)}%)`
-    });
-
     if (!quickLoad) {
       Promise.resolve().then(() => marketDataCache.updateCandleCountStats(symbol, timeframe));
     }

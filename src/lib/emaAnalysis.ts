@@ -73,10 +73,6 @@ export interface EMALevels {
  * Calculate EMAs for all standard periods
  */
 export function calculateEMAs(candles: Candle[]): EMAValues {
-  if (candles.length < 200) {
-    console.warn(`⚠️ EMA calculation with ${candles.length} candles. Recommend 200+ for EMA200 accuracy.`);
-  }
-
   const closePrices = candles.map(c => c.close);
 
   return {

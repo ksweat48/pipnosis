@@ -487,24 +487,52 @@ Next scan in approximately 2 minutes.`,
       };
 
     } catch (error) {
-      console.error('Scan error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const isNoOpportunityError = errorMessage.includes('No profitable trade opportunities');
+
+      if (isNoOpportunityError) {
+        await this.incrementNoOpportunityCount(userId);
+        return {
+          opportunityFound: false,
+          message: 'No opportunities found',
+          scanDuration: Date.now() - scanStartTime
+        };
+      }
+
+      console.error('❌ Auto Trading Error:', errorMessage);
 
       await thoughtProcessLogger.logThought({
         userId,
         decisionId: tempDecisionId,
         stepNumber: ++scanStepNumber,
         stepType: 'error',
-        title: 'Scan Error Occurred',
-        content: `An error occurred during the auto trading scan: ${error instanceof Error ? error.message : 'Unknown error'}
+        title: '❌ Auto Trading Paused - Error Occurred',
+        content: `An error occurred during the auto trading scan: ${errorMessage}
 
-The system will retry on the next scan cycle.`,
-        metadata: { error: error instanceof Error ? error.message : 'Unknown error' }
+Auto trading has been paused to prevent further issues. Please review the error and restart manually when ready.`,
+        metadata: { error: errorMessage, pausedAt: new Date().toISOString() }
       });
 
-      await this.incrementNoOpportunityCount(userId);
+      await this.updateAutoTradingStatus(userId, {
+        enabled: false,
+        scanning_active: false,
+        emergency_stop: true
+      });
+
+      if (this.scannerIntervals.has(userId)) {
+        clearInterval(this.scannerIntervals.get(userId)!);
+        this.scannerIntervals.delete(userId);
+      }
+
+      await this.notifyUser(
+        userId,
+        'Auto Trading Paused - Error',
+        `Auto trading has been paused due to an error: ${errorMessage}. Manual restart required.`
+      );
+
       return {
         opportunityFound: false,
-        message: error instanceof Error ? error.message : 'Scan failed',
+        message: `Auto trading paused: ${errorMessage}`,
         scanDuration: Date.now() - scanStartTime
       };
     } finally {

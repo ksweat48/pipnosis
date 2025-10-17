@@ -264,23 +264,18 @@ class MetaApiService {
     const self = this;
     return {
       async onConnected(instanceIndex: string, replicas: number) {
-        console.log(`[MetaApi] Connected to instance ${instanceIndex}, replicas: ${replicas}`);
       },
 
       async onHealthStatus(instanceIndex: string, status: any) {
-        console.log(`[MetaApi] Health status for ${instanceIndex}:`, status);
       },
 
       async onDisconnected(instanceIndex: string) {
-        console.log(`[MetaApi] Disconnected from instance ${instanceIndex}`);
       },
 
       async onBrokerConnectionStatusChanged(instanceIndex: string, connected: boolean) {
-        console.log(`[MetaApi] Broker connection status changed for ${instanceIndex}: ${connected}`);
       },
 
       async onSynchronizationStarted(instanceIndex: string) {
-        console.log(`[MetaApi] Synchronization started for ${instanceIndex}`);
       },
 
       async onAccountInformationUpdated(instanceIndex: string, accountInformation: any) {},
@@ -346,7 +341,6 @@ class MetaApiService {
         prices.forEach(price => {
           self.synchronizationListeners.forEach((listener, symbol) => {
             if (price.symbol === symbol && listener.onTick) {
-              console.log(`💹 Tick update: ${symbol} bid=${price.bid} ask=${price.ask}`);
               listener.onTick({
                 symbol: price.symbol,
                 bid: price.bid,
@@ -392,14 +386,11 @@ class MetaApiService {
         const completeListener = this.createCompleteSynchronizationListener();
         this.connection.addSynchronizationListener(completeListener);
         this.isListenerRegistered = true;
-        console.log('[MetaApi] Complete synchronization listener registered');
       }
 
       this.synchronizationListeners.set(symbol, listener);
 
-      console.log(`Subscribing to market data for ${symbol}...`);
       await this.connection.subscribeToMarketData(symbol);
-      console.log(`✅ Successfully subscribed to market data for ${symbol}`);
     } catch (error) {
       console.error(`Failed to subscribe to market data for ${symbol}:`, error);
       throw error;
