@@ -314,7 +314,8 @@ Status: ${isWithinHours ? '✓ Within trading hours' : '⚠️ Outside trading h
         accountBalance,
         decisionType: 'auto',
         symbols: preferences.preferred_pairs || ['EURUSD', 'GBPUSD', 'XAUUSD'],
-        existingDecisionId: decisionId
+        existingDecisionId: decisionId,
+        sessionId: sessionId
       };
 
       await thoughtProcessLogger.logThought({

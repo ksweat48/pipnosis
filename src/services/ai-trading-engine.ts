@@ -70,6 +70,7 @@ export interface AIAnalysisRequest {
   symbols?: string[];
   timeframe?: string;
   existingDecisionId?: string;
+  sessionId?: string | null;
 }
 
 export interface AIAnalysisResult {
@@ -96,6 +97,7 @@ class AITradingEngine {
 
     const symbols = request.symbols || ['EURUSD', 'GBPUSD', 'XAUUSD'];
     const timeframe = request.timeframe || 'M15';
+    const sessionId = request.sessionId || null;
 
     // Use existing decision ID if provided, otherwise create a temporary one
     const tempDecisionId = request.existingDecisionId || ('temp-' + Date.now());
@@ -112,9 +114,9 @@ Symbols to scan: ${symbols.join(', ')}
 Timeframe: ${timeframe}
 Decision Type: ${request.decisionType}`,
       metadata: { symbols, timeframe, accountBalance: request.accountBalance }
-    });
+    }, sessionId);
 
-    const bestOpportunity = await this.findBestOpportunity(symbols, request.userId, tempDecisionId);
+    const bestOpportunity = await this.findBestOpportunity(symbols, request.userId, tempDecisionId, sessionId);
 
     if (!bestOpportunity) {
       await thoughtProcessLogger.logThought({
@@ -125,7 +127,7 @@ Decision Type: ${request.decisionType}`,
         title: 'No Opportunities Found',
         content: 'No profitable trade opportunities found in the current market conditions across all scanned symbols.',
         metadata: { scannedSymbols: symbols }
-      });
+      }, sessionId);
       throw new Error('No profitable trade opportunities found in the current market conditions.');
     }
 
@@ -150,7 +152,7 @@ Decision Type: ${request.decisionType}`,
       title: 'Sending Analysis Request to ChatGPT',
       content: 'Requesting independent AI analysis with full market context and Pipnosis Trading Laws.',
       metadata: { promptLength: chatgptPrompt.length, symbol, currentPrice: marketContext.currentPrice }
-    });
+    }, sessionId);
 
     const chatgptResponse = await thoughtProcessLogger.logWithTiming(
       {
@@ -162,7 +164,8 @@ Decision Type: ${request.decisionType}`,
         content: 'Processing AI independent analysis...',
         metadata: {}
       },
-      () => this.callChatGPT(chatgptPrompt)
+      () => this.callChatGPT(chatgptPrompt),
+      sessionId
     );
 
     await thoughtProcessLogger.logThought({
@@ -176,7 +179,7 @@ Confidence: ${chatgptResponse.confidence}%
 Strategy Type: ${chatgptResponse.strategy_type}
 Reasoning: ${chatgptResponse.reasoning}`,
       metadata: chatgptResponse
-    });
+    }, sessionId);
 
     const aiIndependentSignal = this.parseAIResponse(chatgptResponse, marketContext);
 
@@ -197,7 +200,7 @@ Reasoning: ${chatgptResponse.reasoning}`,
         fxflowScore: strategyComparison.fxflow.score,
         aiScore: strategyComparison.ai.score
       }
-    });
+    }, sessionId);
 
     const selectedStrategy = this.selectBestStrategy(strategyComparison);
 
@@ -209,7 +212,7 @@ Reasoning: ${chatgptResponse.reasoning}`,
       title: `Selected Strategy: ${selectedStrategy.name}`,
       content: `The AI has selected the ${selectedStrategy.name} strategy based on comprehensive analysis.\n\nDirection: ${selectedStrategy.signal.direction}\nEntry: ${selectedStrategy.signal.entryPrice}\nConfidence: ${selectedStrategy.signal.confidence}%`,
       metadata: { selectedStrategy: selectedStrategy.name, signal: selectedStrategy.signal }
-    });
+    }, sessionId);
 
     // If we have an existing decision ID, update it; otherwise create a new one
     let decision: AITradeDecision;
@@ -262,7 +265,7 @@ Reasoning: ${chatgptResponse.reasoning}`,
       title: 'Calculating Risk Variants',
       content: 'Generating three risk-adjusted trade options: Conservative (1%), Balanced (2%), and Aggressive (4%) risk levels.',
       metadata: { accountBalance: request.accountBalance }
-    });
+    }, sessionId);
 
     const options = await this.generateTradeOptions(
       decision.id,
@@ -279,7 +282,7 @@ Reasoning: ${chatgptResponse.reasoning}`,
       title: 'Trade Options Generated',
       content: `Generated ${options.length} trade options for user selection.\n\nLow Risk: ${options[0].lotSize} lots, Est. Profit: $${options[0].estimatedProfit.toFixed(2)}\nMedium Risk: ${options[1].lotSize} lots, Est. Profit: $${options[1].estimatedProfit.toFixed(2)}\nHigh Risk: ${options[2].lotSize} lots, Est. Profit: $${options[2].estimatedProfit.toFixed(2)}`,
       metadata: { optionsCount: options.length }
-    });
+    }, sessionId);
 
     return {
       decision,
@@ -305,7 +308,7 @@ Reasoning: ${chatgptResponse.reasoning}`,
     }
   }
 
-  private async findBestOpportunity(symbols: string[], userId: string, tempDecisionId: string) {
+  private async findBestOpportunity(symbols: string[], userId: string, tempDecisionId: string, sessionId?: string | null) {
     let bestOpportunity: any = null;
     let highestConfidence = 0;
 
@@ -317,7 +320,7 @@ Reasoning: ${chatgptResponse.reasoning}`,
       title: 'Scanning Multiple Symbols',
       content: `Scanning ${symbols.length} currency pairs for trade opportunities: ${symbols.join(', ')}`,
       metadata: { symbols }
-    });
+    }, sessionId);
 
     for (const symbol of symbols) {
       try {
@@ -329,7 +332,7 @@ Reasoning: ${chatgptResponse.reasoning}`,
           title: `Fetching Market Data: ${symbol}`,
           content: 'Loading multi-timeframe candle data (H1, M5, M1)...',
           metadata: { symbol }
-        });
+        }, sessionId);
 
         const [h1Candles, m5Candles, m1Candles] = await Promise.all([
           marketDataService.getHistoricalData(symbol, 'H1' as Timeframe, 50, true, true),
@@ -351,7 +354,7 @@ Reasoning: ${chatgptResponse.reasoning}`,
           title: `Analyzing ${symbol} Market Conditions`,
           content: thoughtProcessLogger.formatMarketData(symbol, m1Candles),
           metadata: { symbol }
-        });
+        }, sessionId);
 
         const marketSummary = await analyzeMarket(m1Candles);
 
@@ -363,7 +366,7 @@ Reasoning: ${chatgptResponse.reasoning}`,
           title: `FxFlowScalperV2 Evaluation: ${symbol}`,
           content: 'Running baseline strategy analysis...',
           metadata: { symbol }
-        });
+        }, sessionId);
 
         const fxflowEvaluation = await this.fxFlowStrategy.evaluateStrategy(symbol, candles);
 
@@ -384,7 +387,7 @@ Reasoning: ${chatgptResponse.reasoning}`,
             title: `Strong Signal Found: ${symbol}`,
             content: `FxFlowScalperV2 detected a ${fxflowEvaluation.trade.direction} opportunity with ${fxflowEvaluation.trade.confidence}% confidence.\n\nEntry: ${fxflowEvaluation.trade.entryPrice}\nStop Loss: ${fxflowEvaluation.trade.stopLoss}\nTake Profit: ${fxflowEvaluation.trade.takeProfit}\nRisk/Reward: ${fxflowEvaluation.trade.riskReward}`,
             metadata: { symbol, signal: fxflowEvaluation.trade }
-          });
+          }, sessionId);
         }
       } catch (error) {
         console.error(`Error analyzing ${symbol}:`, error);

@@ -167,10 +167,11 @@ class ThoughtProcessLogger {
 
   async logWithTiming<T>(
     entry: ThoughtProcessEntry,
-    asyncFn: () => Promise<T>
+    asyncFn: () => Promise<T>,
+    sessionId?: string | null
   ): Promise<T> {
     const startTime = Date.now();
-    const thoughtId = await this.logThought(entry);
+    const thoughtId = await this.logThought(entry, sessionId);
 
     try {
       const result = await asyncFn();
