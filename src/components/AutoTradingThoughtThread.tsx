@@ -272,6 +272,7 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
     if (status === 'completed') {
       if (stepType === 'auto_trade_execute') return <Zap className="h-4 w-4 text-emerald-400" />;
       if (stepType === 'auto_scan_start') return <Activity className="h-4 w-4 text-blue-400" />;
+      if (stepType === 'warning') return <Clock className="h-4 w-4 text-yellow-400" />;
       return <CheckCircle className="h-4 w-4 text-green-400" />;
     }
     return <Clock className="h-4 w-4 text-yellow-400" />;
@@ -283,6 +284,8 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         return 'border-blue-500/30 bg-blue-500/5';
       case 'auto_scan_complete':
         return 'border-cyan-500/30 bg-cyan-500/5';
+      case 'warning':
+        return 'border-yellow-500/30 bg-yellow-500/5';
       case 'auto_threshold_check':
         return 'border-yellow-500/30 bg-yellow-500/5';
       case 'auto_trade_skip':
@@ -311,8 +314,6 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         return 'border-emerald-500/30 bg-emerald-500/5';
       case 'error':
         return 'border-red-500/50 bg-red-500/10';
-      case 'warning':
-        return 'border-yellow-500/50 bg-yellow-500/10';
       default:
         return 'border-white/10 bg-white/5';
     }

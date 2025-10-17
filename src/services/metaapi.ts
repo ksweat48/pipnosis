@@ -32,6 +32,15 @@ interface MarketDataListener {
   onTick?: (tick: TickData) => void;
 }
 
+interface RequestQueueItem {
+  execute: () => Promise<any>;
+  resolve: (value: any) => void;
+  reject: (error: any) => void;
+  symbol: string;
+  timeframe: string;
+  retryCount: number;
+}
+
 class MetaApiService {
   private api: MetaApi | null = null;
   private account: MetatraderAccount | null = null;
@@ -46,6 +55,27 @@ class MetaApiService {
   private isDemoMode = false;
   private latestPrices: Map<string, { bid: number; ask: number; timestamp: number }> = new Map();
   private readonly PRICE_CACHE_TTL = 60000;
+
+  private requestQueue: RequestQueueItem[] = [];
+  private isProcessingQueue = false;
+  private readonly MAX_CONCURRENT_REQUESTS = 2;
+  private activeRequests = 0;
+  private readonly REQUEST_DELAY_MS = 600;
+  private readonly MAX_RETRIES = 3;
+  private candleCache: Map<string, { data: CandleData[]; timestamp: number }> = new Map();
+  private readonly CANDLE_CACHE_TTL = {
+    'H1': 1800000,
+    'M5': 120000,
+    'M1': 30000,
+    'M15': 300000,
+    'M30': 600000,
+    'H4': 3600000,
+    'D1': 7200000,
+    'W1': 14400000,
+    'MN1': 28800000
+  };
+  private lastRateLimitTime: number = 0;
+  private rateLimitCooldownMs = 60000;
 
   constructor() {
     this.token = import.meta.env.VITE_METAAPI_TOKEN || '';
@@ -225,41 +255,162 @@ class MetaApiService {
       throw new Error('MetaApi account not initialized');
     }
 
-    try {
-      const endTime = new Date();
-      const calculatedStartTime = startTime || this.calculateStartTime(timeframe, limit, endTime);
-      const apiTimeframe = this.convertToApiTimeframe(timeframe);
+    const cacheKey = `${symbol}-${timeframe}-${limit}`;
+    const cached = this.candleCache.get(cacheKey);
+    const cacheTTL = this.CANDLE_CACHE_TTL[timeframe] || 60000;
 
-      console.log(`Fetching historical candles: ${symbol} ${timeframe} (API: ${apiTimeframe})`);
-      console.log(`Time range: ${calculatedStartTime.toISOString()} to ${endTime.toISOString()}`);
+    if (cached && (Date.now() - cached.timestamp) < cacheTTL) {
+      console.log(`✓ Using cached candles for ${symbol} ${timeframe} (age: ${Math.round((Date.now() - cached.timestamp) / 1000)}s)`);
+      return cached.data;
+    }
 
-      const candles = await this.account.getHistoricalCandles(
-        symbol,
-        apiTimeframe,
-        calculatedStartTime,
-        limit
-      );
+    return this.queueRequest(async () => {
+      try {
+        const endTime = new Date();
+        const calculatedStartTime = startTime || this.calculateStartTime(timeframe, limit, endTime);
+        const apiTimeframe = this.convertToApiTimeframe(timeframe);
 
-      const mappedCandles = candles.map((candle: any) => ({
+        console.log(`Fetching historical candles: ${symbol} ${timeframe} (API: ${apiTimeframe})`);
+        console.log(`Time range: ${calculatedStartTime.toISOString()} to ${endTime.toISOString()}`);
+
+        const candles = await this.account!.getHistoricalCandles(
+          symbol,
+          apiTimeframe,
+          calculatedStartTime,
+          limit
+        );
+
+        const mappedCandles = candles.map((candle: any) => ({
+          symbol,
+          timeframe,
+          time: new Date(candle.time),
+          brokerTime: candle.brokerTime,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          tickVolume: candle.tickVolume || 0,
+          spread: candle.spread || 0,
+          volume: candle.volume || 0
+        }));
+
+        this.candleCache.set(cacheKey, {
+          data: mappedCandles,
+          timestamp: Date.now()
+        });
+
+        console.log(`✓ Received ${mappedCandles.length} candles for ${symbol} ${timeframe}`);
+        return mappedCandles;
+      } catch (error: any) {
+        if (this.isRateLimitError(error)) {
+          throw new Error(`RATE_LIMIT:${symbol}:${timeframe}`);
+        }
+        console.error(`Failed to fetch historical candles for ${symbol} ${timeframe}:`, error);
+        throw error;
+      }
+    }, symbol, timeframe, 0);
+  }
+
+  private isRateLimitError(error: any): boolean {
+    if (!error) return false;
+    const errorStr = error.toString().toLowerCase();
+    const message = error.message?.toLowerCase() || '';
+    return errorStr.includes('429') ||
+           errorStr.includes('too many requests') ||
+           message.includes('429') ||
+           message.includes('too many requests') ||
+           error.status === 429 ||
+           error.statusCode === 429;
+  }
+
+  private async queueRequest<T>(
+    execute: () => Promise<T>,
+    symbol: string,
+    timeframe: string,
+    retryCount: number
+  ): Promise<T> {
+    return new Promise((resolve, reject) => {
+      this.requestQueue.push({
+        execute,
+        resolve,
+        reject,
         symbol,
         timeframe,
-        time: new Date(candle.time),
-        brokerTime: candle.brokerTime,
-        open: candle.open,
-        high: candle.high,
-        low: candle.low,
-        close: candle.close,
-        tickVolume: candle.tickVolume || 0,
-        spread: candle.spread || 0,
-        volume: candle.volume || 0
-      }));
+        retryCount
+      });
 
-      console.log(`Received ${mappedCandles.length} candles, latest: ${mappedCandles.length > 0 ? mappedCandles[mappedCandles.length - 1].time.toISOString() : 'none'}`);
-      return mappedCandles;
-    } catch (error) {
-      console.error(`Failed to fetch historical candles for ${symbol} ${timeframe}:`, error);
-      throw error;
+      this.processQueue();
+    });
+  }
+
+  private async processQueue(): Promise<void> {
+    if (this.isProcessingQueue || this.requestQueue.length === 0) {
+      return;
     }
+
+    this.isProcessingQueue = true;
+
+    while (this.requestQueue.length > 0 && this.activeRequests < this.MAX_CONCURRENT_REQUESTS) {
+      const timeSinceLastRateLimit = Date.now() - this.lastRateLimitTime;
+      if (timeSinceLastRateLimit < this.rateLimitCooldownMs) {
+        const waitTime = this.rateLimitCooldownMs - timeSinceLastRateLimit;
+        console.log(`⏳ Rate limit cooldown active. Waiting ${Math.round(waitTime / 1000)}s before next request...`);
+        await this.delay(waitTime);
+      }
+
+      const item = this.requestQueue.shift();
+      if (!item) break;
+
+      this.activeRequests++;
+
+      this.executeRequest(item)
+        .finally(() => {
+          this.activeRequests--;
+          this.processQueue();
+        });
+
+      await this.delay(this.REQUEST_DELAY_MS);
+    }
+
+    this.isProcessingQueue = false;
+  }
+
+  private async executeRequest(item: RequestQueueItem): Promise<void> {
+    try {
+      const result = await item.execute();
+      item.resolve(result);
+    } catch (error: any) {
+      if (this.isRateLimitError(error) && item.retryCount < this.MAX_RETRIES) {
+        this.lastRateLimitTime = Date.now();
+        const backoffDelay = Math.min(30000 * Math.pow(2, item.retryCount), 120000);
+
+        console.warn(`⚠️ Rate limit hit for ${item.symbol} ${item.timeframe}. Retry ${item.retryCount + 1}/${this.MAX_RETRIES} in ${backoffDelay / 1000}s`);
+
+        await this.delay(backoffDelay);
+
+        this.requestQueue.unshift({
+          ...item,
+          retryCount: item.retryCount + 1
+        });
+
+        this.processQueue();
+      } else {
+        item.reject(error);
+      }
+    }
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  isInRateLimitCooldown(): boolean {
+    return (Date.now() - this.lastRateLimitTime) < this.rateLimitCooldownMs;
+  }
+
+  getRateLimitCooldownRemaining(): number {
+    const remaining = this.rateLimitCooldownMs - (Date.now() - this.lastRateLimitTime);
+    return Math.max(0, remaining);
   }
 
   private createCompleteSynchronizationListener() {

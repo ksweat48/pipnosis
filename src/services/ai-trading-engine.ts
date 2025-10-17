@@ -317,12 +317,14 @@ Reasoning: ${chatgptResponse.reasoning}`,
       decisionId: tempDecisionId,
       stepNumber: thoughtProcessLogger.getNextStepNumber(),
       stepType: 'symbol_scan',
-      title: 'Starting Parallel Multi-Symbol Scan',
-      content: `🔄 Analyzing ${symbols.length} currency pairs SIMULTANEOUSLY for maximum efficiency\n\nPairs: ${symbols.join(', ')}\n\nEach pair will be analyzed in parallel to find the best opportunity faster.`,
-      metadata: { symbols, scanType: 'parallel' }
+      title: 'Starting Sequential Multi-Symbol Scan',
+      content: `🔄 Analyzing ${symbols.length} currency pairs SEQUENTIALLY to avoid rate limits\n\nPairs: ${symbols.join(', ')}\n\nEach pair will be analyzed one at a time with API rate limit protection.`,
+      metadata: { symbols, scanType: 'sequential' }
     }, sessionId);
 
-    const analysisPromises = symbols.map(async (symbol) => {
+    const results: any[] = [];
+
+    for (const symbol of symbols) {
       try {
         await thoughtProcessLogger.logThought({
           userId,
@@ -330,15 +332,13 @@ Reasoning: ${chatgptResponse.reasoning}`,
           stepNumber: thoughtProcessLogger.getNextStepNumber(),
           stepType: 'market_data_fetch',
           title: `📊 ${symbol} - Fetching Market Data`,
-          content: `Loading multi-timeframe candle data (H1, M5, M1)...\n\nThis is happening simultaneously with other pairs.`,
+          content: `Loading multi-timeframe candle data sequentially to respect API limits...\n\nTimeframes: H1 → M5 → M1`,
           metadata: { symbol, phase: 'data_fetch' }
         }, sessionId);
 
-        const [h1Candles, m5Candles, m1Candles] = await Promise.all([
-          marketDataService.getHistoricalData(symbol, 'H1' as Timeframe, 50, true, true),
-          marketDataService.getHistoricalData(symbol, 'M5' as Timeframe, 100, true, true),
-          marketDataService.getHistoricalData(symbol, 'M1' as Timeframe, 100, true, true)
-        ]);
+        const h1Candles = await marketDataService.getHistoricalData(symbol, 'H1' as Timeframe, 50, true, true);
+        const m5Candles = await marketDataService.getHistoricalData(symbol, 'M5' as Timeframe, 100, true, true);
+        const m1Candles = await marketDataService.getHistoricalData(symbol, 'M1' as Timeframe, 100, true, true);
 
         const candles: MultiTimeframeCandles = {
           h1: h1Candles,
@@ -400,23 +400,34 @@ Reasoning: ${chatgptResponse.reasoning}`,
           }, sessionId);
         }
 
-        return result;
-      } catch (error) {
-        console.error(`Error analyzing ${symbol}:`, error);
-        await thoughtProcessLogger.logThought({
-          userId,
-          decisionId: tempDecisionId,
-          stepNumber: thoughtProcessLogger.getNextStepNumber(),
-          stepType: 'error',
-          title: `❌ ${symbol} - Analysis Failed`,
-          content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          metadata: { symbol, error: error instanceof Error ? error.message : 'Unknown error' }
-        }, sessionId);
-        return null;
-      }
-    });
+        results.push(result);
+      } catch (error: any) {
+        const isRateLimit = error?.message?.includes('RATE_LIMIT') || error?.message?.includes('429');
 
-    const results = await Promise.all(analysisPromises);
+        if (isRateLimit) {
+          await thoughtProcessLogger.logThought({
+            userId,
+            decisionId: tempDecisionId,
+            stepNumber: thoughtProcessLogger.getNextStepNumber(),
+            stepType: 'warning',
+            title: `⏳ ${symbol} - Rate Limit Cooldown`,
+            content: `API rate limit detected. System is automatically waiting before continuing.\n\nThis is normal when scanning multiple pairs. The scan will continue automatically.`,
+            metadata: { symbol, error: 'rate_limit', waitTime: '30-60 seconds' }
+          }, sessionId);
+        } else {
+          console.error(`Error analyzing ${symbol}:`, error);
+          await thoughtProcessLogger.logThought({
+            userId,
+            decisionId: tempDecisionId,
+            stepNumber: thoughtProcessLogger.getNextStepNumber(),
+            stepType: 'error',
+            title: `❌ ${symbol} - Analysis Failed`,
+            content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}\n\nContinuing with remaining symbols...`,
+            metadata: { symbol, error: error instanceof Error ? error.message : 'Unknown error' }
+          }, sessionId);
+        }
+      }
+    }
 
     const validResults = results.filter(r => r !== null && r.fxflowSignal);
 
@@ -436,8 +447,8 @@ Reasoning: ${chatgptResponse.reasoning}`,
         decisionId: tempDecisionId,
         stepNumber: thoughtProcessLogger.getNextStepNumber(),
         stepType: 'symbol_scan',
-        title: '🎯 Parallel Scan Complete - Best Opportunity Selected',
-        content: `Analyzed ${symbols.length} pairs simultaneously\n\n📊 Results Summary:\n${summaryContent}\n\n✅ Selected: ${bestOpportunity.symbol} with ${highestConfidence}% confidence`,
+        title: '🎯 Sequential Scan Complete - Best Opportunity Selected',
+        content: `Analyzed ${symbols.length} pairs sequentially with rate limit protection\n\n📊 Results Summary:\n${summaryContent}\n\n✅ Selected: ${bestOpportunity.symbol} with ${highestConfidence}% confidence`,
         metadata: {
           totalScanned: symbols.length,
           signalsFound: validResults.length,
@@ -451,8 +462,8 @@ Reasoning: ${chatgptResponse.reasoning}`,
         decisionId: tempDecisionId,
         stepNumber: thoughtProcessLogger.getNextStepNumber(),
         stepType: 'symbol_scan',
-        title: '⚪ Parallel Scan Complete - No Opportunities',
-        content: `Analyzed ${symbols.length} pairs simultaneously\n\nNo high-confidence trading opportunities found in current market conditions.\n\nThis is normal - the AI only trades when conditions are favorable.`,
+        title: '⚪ Sequential Scan Complete - No Opportunities',
+        content: `Analyzed ${symbols.length} pairs sequentially\n\nNo high-confidence trading opportunities found in current market conditions.\n\nThis is normal - the AI only trades when conditions are favorable.`,
         metadata: {
           totalScanned: symbols.length,
           signalsFound: 0

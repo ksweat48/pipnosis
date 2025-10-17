@@ -722,9 +722,10 @@ Next scan in approximately 2 minutes.`,
         scanDuration: Date.now() - scanStartTime
       };
 
-    } catch (error) {
+    } catch (error: any) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const isNoOpportunityError = errorMessage.includes('No profitable trade opportunities');
+      const isRateLimitError = errorMessage.includes('RATE_LIMIT') || errorMessage.includes('429') || errorMessage.includes('Too Many Requests');
 
       if (isNoOpportunityError) {
         console.log('[AutoTradingScanner] ℹ️  No profitable opportunities found in this scan cycle');
@@ -732,6 +733,31 @@ Next scan in approximately 2 minutes.`,
         return {
           opportunityFound: false,
           message: 'No opportunities found',
+          scanDuration: Date.now() - scanStartTime
+        };
+      }
+
+      if (isRateLimitError) {
+        console.warn('┌─────────────────────────────────────────────────────────────────────┐');
+        console.warn('│                    ⏳ RATE LIMIT DETECTED - WAITING                   │');
+        console.warn('└─────────────────────────────────────────────────────────────────────┘');
+        console.warn(`[AutoTradingScanner] Rate limit encountered, will retry on next scheduled scan`);
+
+        if (decisionId) {
+          await thoughtProcessLogger.logThought({
+            userId,
+            decisionId,
+            stepNumber: ++scanStepNumber,
+            stepType: 'warning',
+            title: '⏳ Rate Limit Detected - Scan Will Retry',
+            content: `API rate limit temporarily reached. This is normal during active scanning.\n\nThe system will automatically continue scanning on the next scheduled cycle in approximately 2 minutes.\n\nNo action needed - auto trading remains active.`,
+            metadata: { error: 'rate_limit', retryIn: '2 minutes', autoTradingActive: true }
+          }, sessionId);
+        }
+
+        return {
+          opportunityFound: false,
+          message: 'Rate limit encountered - will retry on next scan',
           scanDuration: Date.now() - scanStartTime
         };
       }
@@ -763,7 +789,6 @@ Auto trading has been paused to prevent further issues. Please review the error 
         next_scan_scheduled_at: null
       });
 
-      // Disable persistence layer
       await autoTradingPersistence.disableScanning(userId);
 
       await this.notifyUser(
