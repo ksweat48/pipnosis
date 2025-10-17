@@ -1,5 +1,6 @@
 import MetaApi, { MetatraderAccount } from 'metaapi.cloud-sdk';
 import { errorHandler } from '@/lib/error-handler';
+import { metaApiTokenManager } from './metaapi-token-manager';
 
 export interface CandleData {
   symbol: string;
@@ -158,7 +159,10 @@ class MetaApiService {
       console.log(`Region: ${this.region}`);
       console.log(`Account ID: ${this.accountId}`);
 
-      this.api = new MetaApi(this.token, {
+      // Fetch secure token from edge function
+      const secureToken = await metaApiTokenManager.getToken(this.accountId, this.region);
+
+      this.api = new MetaApi(secureToken, {
         application: 'Pipnosis',
         domain: `${this.region}.metaapi.cloud`,
         enableLatencyMonitor: false,

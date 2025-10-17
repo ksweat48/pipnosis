@@ -9,6 +9,7 @@ import { dbHealthMonitor } from './db-health-monitor';
 import { dataQualityMonitor } from './data-quality-monitor';
 import { multiTimeframeAggregator } from './multi-timeframe-aggregator';
 import { timeframeBackfillService } from './timeframe-backfill';
+import { marketHoursService } from './market-hours';
 
 export interface MarketDataListener {
   onCandleUpdate?: (candle: CandleData) => void;
