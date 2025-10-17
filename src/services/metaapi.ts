@@ -44,6 +44,8 @@ class MetaApiService {
   private synchronizationListeners: Map<string, MarketDataListener> = new Map();
   private isListenerRegistered = false;
   private isDemoMode = false;
+  private latestPrices: Map<string, { bid: number; ask: number; timestamp: number }> = new Map();
+  private readonly PRICE_CACHE_TTL = 60000;
 
   constructor() {
     this.token = import.meta.env.VITE_METAAPI_TOKEN || '';
@@ -339,6 +341,13 @@ class MetaApiService {
 
       async onSymbolPricesUpdated(instanceIndex: string, prices: any[]) {
         prices.forEach(price => {
+          // Cache the latest price for each symbol
+          self.latestPrices.set(price.symbol, {
+            bid: price.bid,
+            ask: price.ask,
+            timestamp: Date.now()
+          });
+
           self.synchronizationListeners.forEach((listener, symbol) => {
             if (price.symbol === symbol && listener.onTick) {
               listener.onTick({
@@ -417,16 +426,63 @@ class MetaApiService {
     }
     await this.ensureInitialized();
 
-    try {
-      const price = await this.connection.getSymbolPrice(symbol);
+    // Check if we have a recent cached price from streaming data
+    const cachedPrice = this.latestPrices.get(symbol);
+    if (cachedPrice && (Date.now() - cachedPrice.timestamp) < this.PRICE_CACHE_TTL) {
+      console.log(`Using cached price for ${symbol}: bid=${cachedPrice.bid}, ask=${cachedPrice.ask}`);
       return {
-        bid: price.bid,
-        ask: price.ask
+        bid: cachedPrice.bid,
+        ask: cachedPrice.ask
       };
-    } catch (error) {
-      console.error(`Failed to get price for ${symbol}:`, error);
-      throw error;
     }
+
+    // If no cached price, try to get from terminal state
+    try {
+      if (this.connection && this.connection.terminalState) {
+        const price = this.connection.terminalState.price(symbol);
+        if (price && price.bid && price.ask) {
+          // Cache it for future use
+          this.latestPrices.set(symbol, {
+            bid: price.bid,
+            ask: price.ask,
+            timestamp: Date.now()
+          });
+          console.log(`Got price from terminal state for ${symbol}: bid=${price.bid}, ask=${price.ask}`);
+          return {
+            bid: price.bid,
+            ask: price.ask
+          };
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to get price from terminal state for ${symbol}:`, error);
+    }
+
+    // Last resort: subscribe to market data and wait for first price update
+    console.log(`Subscribing to ${symbol} to get current price...`);
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timeout waiting for ${symbol} price`));
+      }, 10000);
+
+      const priceListener = {
+        onTick: (tick: TickData) => {
+          if (tick.symbol === symbol) {
+            clearTimeout(timeout);
+            this.unsubscribeFromMarketData(symbol).catch(console.error);
+            resolve({
+              bid: tick.bid,
+              ask: tick.ask
+            });
+          }
+        }
+      };
+
+      this.subscribeToMarketData(symbol, priceListener).catch(error => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
   }
 
   async disconnect(): Promise<void> {
