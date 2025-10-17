@@ -104,14 +104,24 @@ class PredictiveAutoScanner {
       } catch (error: any) {
         console.error(`[PredictiveScanner] Error analyzing ${symbol}:`, error);
 
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const isSchemaError = errorMessage.includes('schema cache') || errorMessage.includes('ai_pair_predictions');
+
         await thoughtProcessLogger.logThought({
           userId,
           decisionId,
           stepNumber: ++stepNumber,
           stepType: 'error',
           title: `❌ ${symbol} - Analysis Failed`,
-          content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}\n\nContinuing with remaining symbols...`,
-          metadata: { symbol, error: error.message }
+          content: isSchemaError
+            ? `Database Setup Required:\n\n${errorMessage}\n\n⚠️ The auto trading scanner requires the AI prediction tables to be set up in your database. Please follow the instructions above to resolve this issue.`
+            : `Error: ${errorMessage}\n\nContinuing with remaining symbols...`,
+          metadata: {
+            symbol,
+            error: errorMessage,
+            isSchemaError,
+            errorType: error.code || 'unknown'
+          }
         }, sessionId);
       }
     }

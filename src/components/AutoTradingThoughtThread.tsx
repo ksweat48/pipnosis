@@ -43,6 +43,8 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
   const thoughtsEndRef = useRef<HTMLDivElement>(null);
   const [currentScanId, setCurrentScanId] = useState<string | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [isClearing, setIsClearing] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -278,8 +280,70 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
     URL.revokeObjectURL(url);
   };
 
-  const clearLog = () => {
-    setThoughts([]);
+  const clearLog = async () => {
+    if (!user?.id) return;
+
+    setIsClearing(true);
+
+    try {
+      console.log('[AutoTradingThoughtThread] Clearing logs from database', {
+        userId: user.id,
+        currentSessionId,
+        thoughtCount: thoughts.length
+      });
+
+      // Delete thoughts from database
+      let query = supabase
+        .from('ai_thought_process')
+        .delete()
+        .eq('user_id', user.id);
+
+      // If we have a current session ID, only delete thoughts from this session
+      if (currentSessionId) {
+        query = query.eq('session_id', currentSessionId);
+        console.log('[AutoTradingThoughtThread] Deleting thoughts for session:', currentSessionId);
+      } else {
+        // Otherwise, delete all auto trading thoughts from last 2 hours
+        const twoHoursAgo = new Date();
+        twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
+        query = query.gte('created_at', twoHoursAgo.toISOString());
+        console.log('[AutoTradingThoughtThread] Deleting thoughts from last 2 hours');
+      }
+
+      const { error, count } = await query;
+
+      if (error) {
+        console.error('[AutoTradingThoughtThread] Error deleting thoughts:', error);
+        throw error;
+      }
+
+      console.log('[AutoTradingThoughtThread] Successfully deleted thoughts from database', {
+        deletedCount: count
+      });
+
+      // Clear local state
+      setThoughts([]);
+      setShowClearConfirm(false);
+
+    } catch (error) {
+      console.error('[AutoTradingThoughtThread] Failed to clear logs:', error);
+      alert('Failed to clear logs. Please try again.');
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
+  const handleClearLogClick = () => {
+    if (thoughts.length === 0) return;
+    setShowClearConfirm(true);
+  };
+
+  const handleConfirmClear = async () => {
+    await clearLog();
+  };
+
+  const handleCancelClear = () => {
+    setShowClearConfirm(false);
   };
 
   const formatRelativeTime = (timestamp: string): string => {
@@ -457,6 +521,46 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
 
       {isExpanded && (
         <div className="p-4 space-y-4">
+          {showClearConfirm && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-4">
+              <div className="flex items-center gap-3 mb-3">
+                <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0" />
+                <div className="flex-1">
+                  <h4 className="text-white font-semibold text-sm mb-1">Confirm Clear Log</h4>
+                  <p className="text-white/80 text-xs">
+                    {currentSessionId
+                      ? `This will permanently delete all ${thoughts.length} thought entries from the current session. This action cannot be undone.`
+                      : `This will permanently delete all ${thoughts.length} thought entries from the last 2 hours. This action cannot be undone.`
+                    }
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 justify-end">
+                <button
+                  onClick={handleCancelClear}
+                  disabled={isClearing}
+                  className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmClear}
+                  disabled={isClearing}
+                  className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {isClearing ? (
+                    <>
+                      <div className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    'Delete Permanently'
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
           {sessionStartedAt && isAutoTradingActive && (
             <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3 mb-4">
               <div className="flex items-center justify-between">
@@ -492,10 +596,11 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
             </label>
             {thoughts.length > 0 && (
               <button
-                onClick={clearLog}
-                className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                onClick={handleClearLogClick}
+                disabled={isClearing}
+                className="text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Clear Log
+                {isClearing ? 'Clearing...' : 'Clear Log'}
               </button>
             )}
           </div>

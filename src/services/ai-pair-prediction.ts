@@ -74,6 +74,20 @@ export interface PairAnalysisSnapshot {
 }
 
 class AIPairPredictionService {
+  private async checkTableExists(): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('ai_pair_predictions')
+        .select('id')
+        .limit(1);
+
+      return !error || error.code !== 'PGRST200';
+    } catch (error) {
+      console.error('[AIPairPrediction] Table check failed:', error);
+      return false;
+    }
+  }
+
   async createPrediction(
     userId: string,
     symbol: string,
@@ -118,7 +132,29 @@ class AIPairPredictionService {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[AIPairPrediction] Error creating prediction:', {
+        error,
+        symbol,
+        code: error.code,
+        message: error.message,
+        hint: error.hint,
+        details: error.details
+      });
+
+      if (error.message?.includes('schema cache') || error.code === 'PGRST200') {
+        throw new Error(
+          `Database table 'ai_pair_predictions' not found. Please:\n` +
+          `1. Go to your Supabase Dashboard\n` +
+          `2. Navigate to SQL Editor\n` +
+          `3. Run the migration: supabase/migrations/20251017_140000_add_ai_prediction_system.sql\n` +
+          `4. Go to Settings > API and click "Refresh" to update the schema cache\n\n` +
+          `Original error: ${error.message}`
+        );
+      }
+
+      throw error;
+    }
 
     await this.saveAnalysisSnapshot(userId, data.id, analysis, sessionId);
 
