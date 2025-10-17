@@ -12,6 +12,8 @@ export interface AutoTradingStatus {
   currentPhase: string | null;
   scanningSymbol: string | null;
   sessionStartTime: Date | null;
+  currentSessionId: string | null;
+  sessionEndedAt: Date | null;
 }
 
 interface SymbolPhaseStatus {
@@ -39,6 +41,8 @@ const DEFAULT_STATUS: AutoTradingStatus = {
   currentPhase: null,
   scanningSymbol: null,
   sessionStartTime: null,
+  currentSessionId: null,
+  sessionEndedAt: null,
 };
 
 export function useAutoTradingStatus() {
@@ -80,6 +84,8 @@ export function useAutoTradingStatus() {
           currentPhase: null,
           scanningSymbol: null,
           sessionStartTime: statusData.session_started_at ? new Date(statusData.session_started_at) : null,
+          currentSessionId: statusData.current_session_id || null,
+          sessionEndedAt: statusData.session_ended_at ? new Date(statusData.session_ended_at) : null,
         });
       } else {
         setStatus(DEFAULT_STATUS);

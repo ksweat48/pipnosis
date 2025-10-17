@@ -47,6 +47,9 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
       isAutoTradingActive
     });
 
+    // Clear thoughts when session ID changes
+    setThoughts([]);
+
     loadRecentThoughts();
 
     const channel = supabase
