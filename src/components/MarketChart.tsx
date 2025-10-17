@@ -76,12 +76,22 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const lastRenderTimeRef = useRef<number>(0);
   const isUserInteractingRef = useRef<boolean>(false);
   const updateIntervalRef = useRef<number | null>(null);
+  const lastTickTimeRef = useRef<number>(0);
+  const tickCountRef = useRef<number>(0);
+  const isMountedRef = useRef<boolean>(true);
 
   const availablePairs = ['EURUSD', 'GBPUSD', 'XAUUSD', 'US30'];
 
   const applyPendingUpdate = useCallback(() => {
+    if (!isMountedRef.current) return;
+
     const pendingUpdate = pendingUpdateRef.current;
     const pendingVolume = pendingVolumeUpdateRef.current;
+
+    if (!pendingUpdate && !pendingVolume) {
+      return;
+    }
+
     pendingUpdateRef.current = null;
     pendingVolumeUpdateRef.current = null;
 
@@ -236,6 +246,8 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   }, [symbol, timeframe]);
 
   const subscribeToLiveData = useCallback(() => {
+    console.log(`[MarketChart] Starting subscription for ${symbol} ${timeframe}`);
+
     const listener: MarketDataListener = {
       onCandleUpdate: (candle: CandleData) => {
         if (candle.symbol === symbol && candle.timeframe === timeframe) {
@@ -257,16 +269,25 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
           pendingUpdateRef.current = chartCandle;
           pendingVolumeUpdateRef.current = chartVolume;
-          scheduleRender();
 
           setCurrentPrice(candle.close);
           setLastUpdate(new Date());
           setDataSource('live');
           setIsLiveUpdating(true);
+
+          console.log(`[MarketChart] Candle update: ${candle.close}`);
         }
       },
       onTick: (tick: TickData) => {
         if (tick.symbol === symbol) {
+          const now = Date.now();
+          tickCountRef.current++;
+          lastTickTimeRef.current = now;
+
+          if (tickCountRef.current % 10 === 0) {
+            console.log(`[MarketChart] Tick #${tickCountRef.current}: ${tick.bid}/${tick.ask}`);
+          }
+
           const midPrice = (tick.bid + tick.ask) / 2;
           const spread = tick.ask - tick.bid;
           setCurrentPrice(midPrice);
@@ -290,11 +311,10 @@ export const MarketChart: React.FC<MarketChartProps> = ({
           };
 
           pendingUpdateRef.current = chartCandle;
-          scheduleRender();
         }
       },
       onError: (error: Error) => {
-        console.error('Live data error:', error);
+        console.error('[MarketChart] Live data error:', error);
         setError(error.message);
         setIsConnected(false);
         setIsLiveUpdating(false);
@@ -303,27 +323,41 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
     listenerRef.current = listener;
     marketDataService.subscribeToSymbol(symbol, timeframe, listener).catch(err => {
-      console.error('Failed to subscribe:', err);
+      console.error('[MarketChart] Failed to subscribe:', err);
       setError('Failed to connect to live data feed');
     });
 
     if (updateIntervalRef.current) {
       clearInterval(updateIntervalRef.current);
+      updateIntervalRef.current = null;
     }
 
     updateIntervalRef.current = window.setInterval(() => {
-      if (pendingUpdateRef.current) {
+      if (!isMountedRef.current) {
+        if (updateIntervalRef.current) {
+          clearInterval(updateIntervalRef.current);
+          updateIntervalRef.current = null;
+        }
+        return;
+      }
+
+      if (pendingUpdateRef.current || pendingVolumeUpdateRef.current) {
         applyPendingUpdate();
       }
     }, 100);
-  }, [symbol, timeframe, scheduleRender, applyPendingUpdate]);
+
+    console.log(`[MarketChart] Update interval started for ${symbol} ${timeframe}`);
+  }, [symbol, timeframe, applyPendingUpdate]);
 
   useEffect(() => {
+    isMountedRef.current = true;
+
     const initializeService = async () => {
       try {
         await marketDataService.initialize();
         setIsConnected(true);
         setError(null);
+        console.log('[MarketChart] Market data service initialized');
       } catch (err) {
         setIsConnected(false);
         const errorMsg = err instanceof Error ? err.message : 'Failed to connect to MetaApi';
@@ -340,6 +374,9 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     initializeService();
 
     return () => {
+      console.log('[MarketChart] Component unmounting, cleaning up...');
+      isMountedRef.current = false;
+
       if (listenerRef.current) {
         marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
       }
@@ -348,6 +385,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       }
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current);
+        updateIntervalRef.current = null;
       }
       candleStateManager.flushAll();
     };
@@ -358,13 +396,18 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   }, [loadHistoricalData]);
 
   useEffect(() => {
-    if (isConnected) {
+    if (isConnected && isMountedRef.current) {
+      console.log(`[MarketChart] Subscribing to live data for ${symbol} ${timeframe}`);
+      tickCountRef.current = 0;
+      lastTickTimeRef.current = Date.now();
       subscribeToLiveData();
     }
 
     return () => {
+      console.log(`[MarketChart] Cleaning up subscription for ${symbol} ${timeframe}`);
       if (listenerRef.current) {
         marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
+        listenerRef.current = null;
       }
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current);
@@ -541,6 +584,27 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     }
   }, [autoTradingStatus.nextScanTime]);
 
+  useEffect(() => {
+    if (!isConnected) return;
+
+    const monitorInterval = setInterval(() => {
+      const now = Date.now();
+      const timeSinceLastTick = now - lastTickTimeRef.current;
+
+      if (timeSinceLastTick > 60000 && lastTickTimeRef.current > 0) {
+        console.warn(`[MarketChart] No ticks received for ${Math.floor(timeSinceLastTick / 1000)}s. Checking connection...`);
+        setIsLiveUpdating(false);
+      }
+
+      if (updateIntervalRef.current === null && isConnected) {
+        console.warn('[MarketChart] Update interval stopped unexpectedly. Restarting...');
+        subscribeToLiveData();
+      }
+    }, 10000);
+
+    return () => clearInterval(monitorInterval);
+  }, [isConnected, subscribeToLiveData]);
+
   const handleManualDataFix = useCallback(async () => {
     if (isFixingData) return;
 
@@ -634,7 +698,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
                   <span className="text-xs font-medium">{marketStatusMessage}</span>
                 </div>
                 {isConnected ? (
-                  <div className="flex items-center space-x-1">
+                  <div className="flex items-center space-x-1" title={`Connected - ${tickCountRef.current} ticks received`}>
                     <Wifi className="h-4 w-4 text-emerald-400" />
                     {isLiveUpdating && (
                       <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
