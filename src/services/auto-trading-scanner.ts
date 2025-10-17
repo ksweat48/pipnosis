@@ -105,13 +105,14 @@ class AutoTradingScanner {
         scanning_active: true,
         continuous_mode: true,
         learning_mode: true,
+        emergency_stop: false,
         started_by_admin: userId,
         opportunity_window_start: new Date().toISOString(),
         current_session_id: newSessionId,
         session_started_at: new Date().toISOString(),
         session_ended_at: null
       });
-      console.log('[AutoTradingScanner.startAutoTrading] ✓ Status updated successfully');
+      console.log('[AutoTradingScanner.startAutoTrading] ✓ Status updated successfully (emergency stop cleared)');
 
       console.log('[AutoTradingScanner.startAutoTrading] Starting scanner intervals...');
       this.startScanning(userId, preferences || { preferred_pairs: ['EURUSD', 'GBPUSD', 'XAUUSD'], min_confidence_threshold: 75 });
