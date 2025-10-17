@@ -321,8 +321,26 @@ class AutoTradingScanner {
     console.log(`[AutoTradingScanner] User ID: ${userId}`);
 
     try {
-      console.log('[AutoTradingScanner] Step 1: Creating decision record in database...');
-      // Create the decision record FIRST before any thought logging
+      console.log('[AutoTradingScanner] Step 1: Loading auto trading status and session ID...');
+      const status = await this.getAutoTradingStatus(userId);
+      sessionId = status?.currentSessionId || null;
+
+      console.log('╔═══════════════════════════════════════════════════════════════════════╗');
+      console.log('║                    SESSION ID TRACKING                                ║');
+      console.log('╚═══════════════════════════════════════════════════════════════════════╝');
+      console.log(`[AutoTradingScanner] Session ID from status: ${sessionId}`);
+      console.log(`[AutoTradingScanner] Enabled: ${status?.enabled}, Scanning Active: ${status?.scanningActive}`);
+      console.log(`[AutoTradingScanner] Daily P&L: $${status?.dailyPnl.toFixed(2) || '0.00'}, Total Trades: ${status?.totalTradesExecuted || 0}`);
+      console.log('═══════════════════════════════════════════════════════════════════════\n');
+
+      if (!sessionId) {
+        console.error('[AutoTradingScanner] ❌ CRITICAL: No session ID found in auto_trading_status!');
+        console.error('[AutoTradingScanner] This will prevent thoughts from being displayed in the UI.');
+        console.error('[AutoTradingScanner] Auto trading may need to be restarted.');
+      }
+
+      console.log('[AutoTradingScanner] Step 2: Creating decision record in database...');
+      // Create the decision record with session metadata
       const { data: decisionData, error: decisionError } = await supabase
         .from('ai_trade_decisions')
         .insert({
@@ -331,8 +349,8 @@ class AutoTradingScanner {
           timeframe: 'M15',
           decision_type: 'auto',
           chatgpt_prompt: 'Auto trading market scan',
-          chatgpt_response: { status: 'scanning' },
-          market_context: { scanStartTime: new Date().toISOString() },
+          chatgpt_response: { status: 'scanning', sessionId },
+          market_context: { scanStartTime: new Date().toISOString(), sessionId },
           strategy_used: 'FxFlowScalperV2',
           reasoning: 'Automated market scan for trading opportunities',
           approved: false,
@@ -353,14 +371,8 @@ class AutoTradingScanner {
       decisionId = decisionData.id;
       console.log(`[AutoTradingScanner] ✓ Decision record created with ID: ${decisionId}`);
 
-      console.log('[AutoTradingScanner] Step 2: Loading auto trading status...');
-      const status = await this.getAutoTradingStatus(userId);
-      sessionId = status?.currentSessionId || null;
-      console.log(`[AutoTradingScanner] ✓ Status loaded - Session ID: ${sessionId || 'No active session'}`);
-      console.log(`[AutoTradingScanner] Enabled: ${status?.enabled}, Scanning Active: ${status?.scanningActive}`);
-      console.log(`[AutoTradingScanner] Daily P&L: $${status?.dailyPnl.toFixed(2) || '0.00'}, Total Trades: ${status?.totalTradesExecuted || 0}`);
-
       console.log('[AutoTradingScanner] Step 3: Logging thought process - Scan started...');
+      console.log(`[AutoTradingScanner] 📝 Will log thoughts with Session ID: ${sessionId}`);
       await thoughtProcessLogger.logThought({
         userId,
         decisionId,
@@ -488,13 +500,32 @@ Status: ${isWithinHours ? '✓ Within trading hours' : '⚠️ Outside trading h
       console.log('[AutoTradingScanner] Step 6: Starting predictive multi-pair analysis...');
       console.log(`[AutoTradingScanner] Account balance: $${accountBalance}`);
       console.log(`[AutoTradingScanner] Symbols to scan: ${preferences.preferred_pairs?.join(', ') || 'EURUSD, GBPUSD, XAUUSD'}`);
+      console.log(`[AutoTradingScanner] 🔑 Passing Session ID to predictive scanner: ${sessionId}`);
 
       const symbols = preferences.preferred_pairs || ['EURUSD', 'GBPUSD', 'XAUUSD'];
+
+      if (!sessionId) {
+        console.error('[AutoTradingScanner] ❌ CRITICAL: Cannot perform scan without session ID!');
+        await thoughtProcessLogger.logThought({
+          userId,
+          decisionId: decisionId!,
+          stepNumber: ++scanStepNumber,
+          stepType: 'error',
+          title: 'Session ID Missing',
+          content: 'Auto trading session ID is not set. Please restart auto trading.',
+          metadata: { error: 'missing_session_id' }
+        }, null);
+        return {
+          opportunityFound: false,
+          message: 'Session ID missing - auto trading needs restart',
+          scanDuration: Date.now() - scanStartTime
+        };
+      }
 
       const predictiveScanResult = await predictiveAutoScanner.performPredictiveScan(
         userId,
         symbols,
-        sessionId!,
+        sessionId,
         decisionId!,
         'M15'
       );

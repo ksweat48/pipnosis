@@ -49,15 +49,21 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
   useEffect(() => {
     if (!user?.id) return;
 
+    console.log('╔═══════════════════════════════════════════════════════════════════════╗');
+    console.log('║              AUTO TRADING THOUGHT THREAD INITIALIZED                  ║');
+    console.log('╚═══════════════════════════════════════════════════════════════════════╝');
     console.log('[AutoTradingThoughtThread] Setting up subscription', {
       userId: user.id,
       currentSessionId,
-      isAutoTradingActive
+      isAutoTradingActive,
+      timestamp: new Date().toISOString()
     });
 
     // Clear thoughts when session ID changes
+    console.log('[AutoTradingThoughtThread] Clearing existing thoughts (session may have changed)');
     setThoughts([]);
 
+    console.log('[AutoTradingThoughtThread] Loading recent thoughts from database...');
     loadRecentThoughts();
 
     // Set up realtime subscription
@@ -190,6 +196,9 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
   const loadRecentThoughts = async () => {
     if (!user?.id) return;
 
+    console.log('╔═══════════════════════════════════════════════════════════════════════╗');
+    console.log('║              LOADING THOUGHTS FROM DATABASE                           ║');
+    console.log('╚═══════════════════════════════════════════════════════════════════════╝');
     console.log('[AutoTradingThoughtThread] Loading recent thoughts', {
       userId: user.id,
       currentSessionId,
@@ -198,6 +207,8 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
 
     // If we have a current session ID, only load thoughts from this session
     if (currentSessionId) {
+      console.log(`[AutoTradingThoughtThread] 🔍 Querying database with session_id: ${currentSessionId}`);
+
       const { data, error } = await supabase
         .from('ai_thought_process')
         .select('*')
@@ -206,13 +217,15 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.error('[AutoTradingThoughtThread] Error loading thought process:', error);
+        console.error('[AutoTradingThoughtThread] ❌ Error loading thought process:', error);
         return;
       }
 
+      console.log('[AutoTradingThoughtThread] ✓ Database query successful');
       console.log('[AutoTradingThoughtThread] Loaded thoughts from session', {
         count: data?.length || 0,
-        sessionId: currentSessionId
+        sessionId: currentSessionId,
+        thoughts: data?.map(t => ({ id: t.id, stepType: t.step_type, title: t.title }))
       });
 
       // Filter out hidden step types from loaded thoughts
@@ -220,10 +233,18 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
       console.log('[AutoTradingThoughtThread] Filtered thoughts:', {
         total: data?.length || 0,
         visible: filteredData.length,
-        hidden: (data?.length || 0) - filteredData.length
+        hidden: (data?.length || 0) - filteredData.length,
+        hiddenStepTypes: Array.from(HIDDEN_STEP_TYPES)
       });
 
+      if (filteredData.length === 0 && data && data.length > 0) {
+        console.warn('[AutoTradingThoughtThread] ⚠️ All thoughts were filtered out as hidden step types!');
+        console.warn('[AutoTradingThoughtThread] Hidden step types:', Array.from(HIDDEN_STEP_TYPES));
+      }
+
       setThoughts(filteredData);
+      console.log('[AutoTradingThoughtThread] ✓ Thoughts state updated with', filteredData.length, 'visible thoughts');
+      console.log('═══════════════════════════════════════════════════════════════════════\n');
     } else {
       // Fallback: Load recent thoughts from last 2 hours if no session ID
       const twoHoursAgo = new Date();
