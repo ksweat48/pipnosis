@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { aiTradingEngine, AIAnalysisRequest } from './ai-trading-engine';
 import { simulatedTradingService } from './simulated-trading';
 import { thoughtProcessLogger } from './thought-process-logger';
+import { autoTradingPersistence } from './auto-trading-persistence';
 
 export interface AutoTradingStatus {
   id: string;
@@ -36,8 +37,36 @@ export interface ScanResult {
 }
 
 class AutoTradingScanner {
-  private scannerIntervals: Map<string, NodeJS.Timeout> = new Map();
   private opportunityTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private isListeningForScheduledScans: boolean = false;
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      this.setupScheduledScanListener();
+    }
+  }
+
+  private setupScheduledScanListener() {
+    if (this.isListeningForScheduledScans) return;
+
+    window.addEventListener('autoTradingScheduledScan', async (event: any) => {
+      const { userId } = event.detail;
+      console.log('[AutoTradingScanner] Received scheduled scan event for user:', userId);
+
+      const { data: preferences } = await supabase
+        .from('user_trading_preferences')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (preferences) {
+        await this.performScan(userId, preferences);
+      }
+    });
+
+    this.isListeningForScheduledScans = true;
+    console.log('[AutoTradingScanner] Scheduled scan listener initialized');
+  }
 
   async startAutoTrading(userId: string): Promise<{ success: boolean; message: string }> {
     console.log('\n╔═══════════════════════════════════════════════════════════════════════╗');
@@ -100,6 +129,9 @@ class AutoTradingScanner {
       console.log(`[AutoTradingScanner.startAutoTrading] Session ID: ${newSessionId}`);
 
       console.log('[AutoTradingScanner.startAutoTrading] Updating auto trading status in database...');
+      const scanInterval = 120; // 2 minutes
+      const nextScanTime = new Date(Date.now() + scanInterval * 1000);
+
       await this.updateAutoTradingStatus(userId, {
         enabled: true,
         scanning_active: true,
@@ -110,12 +142,22 @@ class AutoTradingScanner {
         opportunity_window_start: new Date().toISOString(),
         current_session_id: newSessionId,
         session_started_at: new Date().toISOString(),
-        session_ended_at: null
+        session_ended_at: null,
+        should_be_scanning: true,
+        scan_interval_seconds: scanInterval,
+        next_scan_scheduled_at: nextScanTime.toISOString(),
+        last_heartbeat_at: new Date().toISOString()
       });
       console.log('[AutoTradingScanner.startAutoTrading] ✓ Status updated successfully (emergency stop cleared)');
 
-      console.log('[AutoTradingScanner.startAutoTrading] Starting scanner intervals...');
-      this.startScanning(userId, preferences || { preferred_pairs: ['EURUSD', 'GBPUSD', 'XAUUSD'], min_confidence_threshold: 75 });
+      // Enable persistence layer
+      console.log('[AutoTradingScanner.startAutoTrading] Enabling persistence layer...');
+      await autoTradingPersistence.enableScanning(userId, scanInterval);
+      console.log('[AutoTradingScanner.startAutoTrading] ✓ Persistence enabled');
+
+      console.log('[AutoTradingScanner.startAutoTrading] Performing initial scan...');
+      // Perform an immediate initial scan
+      await this.performScan(userId, preferences || { preferred_pairs: ['EURUSD', 'GBPUSD', 'XAUUSD'], min_confidence_threshold: 75 });
 
       console.log('╔═══════════════════════════════════════════════════════════════════════╗');
       console.log('║              ✅ AUTO TRADING STARTED SUCCESSFULLY                      ║');
@@ -123,7 +165,7 @@ class AutoTradingScanner {
 
       return {
         success: true,
-        message: 'Auto trading started in continuous learning mode. Scanning markets every 2-3 minutes for maximum learning opportunities.'
+        message: '✅ Auto trading started! The system will automatically scan markets every 2 minutes. This will continue even if you reload the page or navigate away.'
       };
     } catch (error) {
       console.error('╔═══════════════════════════════════════════════════════════════════════╗');
@@ -145,21 +187,9 @@ class AutoTradingScanner {
     console.log(`[AutoTradingScanner.stopAutoTrading] Timestamp: ${new Date().toISOString()}`);
 
     try {
-      console.log('[AutoTradingScanner.stopAutoTrading] Clearing scan intervals...');
-      if (this.scannerIntervals.has(userId)) {
-        clearInterval(this.scannerIntervals.get(userId)!);
-        this.scannerIntervals.delete(userId);
-        console.log('[AutoTradingScanner.stopAutoTrading] ✓ Scan interval cleared');
-      } else {
-        console.log('[AutoTradingScanner.stopAutoTrading] No active scan interval found');
-      }
-
-      console.log('[AutoTradingScanner.stopAutoTrading] Clearing opportunity timeouts...');
-      if (this.opportunityTimeouts.has(userId)) {
-        clearTimeout(this.opportunityTimeouts.get(userId)!);
-        this.opportunityTimeouts.delete(userId);
-        console.log('[AutoTradingScanner.stopAutoTrading] ✓ Opportunity timeout cleared');
-      }
+      console.log('[AutoTradingScanner.stopAutoTrading] Disabling persistence layer...');
+      await autoTradingPersistence.disableScanning(userId);
+      console.log('[AutoTradingScanner.stopAutoTrading] ✓ Persistence disabled');
 
       console.log('[AutoTradingScanner.stopAutoTrading] Loading current session...');
       const { data: currentStatus } = await supabase
@@ -174,7 +204,10 @@ class AutoTradingScanner {
       await this.updateAutoTradingStatus(userId, {
         enabled: false,
         scanning_active: false,
-        session_ended_at: new Date().toISOString()
+        session_ended_at: new Date().toISOString(),
+        should_be_scanning: false,
+        next_scan_scheduled_at: null,
+        last_heartbeat_at: null
       });
       console.log('[AutoTradingScanner.stopAutoTrading] ✓ Status updated successfully');
 
@@ -198,27 +231,6 @@ class AutoTradingScanner {
     }
   }
 
-  private startScanning(userId: string, preferences: any) {
-    console.log('╔═══════════════════════════════════════════════════════════════════════╗');
-    console.log('║                   🤖 AUTO TRADING SCANNER STARTED                     ║');
-    console.log('╚═══════════════════════════════════════════════════════════════════════╝');
-    console.log(`[AutoTradingScanner] User ID: ${userId}`);
-    console.log(`[AutoTradingScanner] Scan interval: Every 2 minutes`);
-    console.log(`[AutoTradingScanner] Preferred pairs: ${preferences.preferred_pairs?.join(', ') || 'Default pairs'}`);
-    console.log(`[AutoTradingScanner] Min confidence: ${preferences.min_confidence_threshold || 75}%`);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-    const scanInterval = setInterval(async () => {
-      console.log(`\n[AutoTradingScanner] ⏰ Scheduled scan triggered at ${new Date().toLocaleTimeString()}`);
-      await this.performScan(userId, preferences);
-    }, 2 * 60 * 1000);
-
-    this.scannerIntervals.set(userId, scanInterval);
-    console.log('[AutoTradingScanner] ✓ Interval timer set successfully');
-    console.log('[AutoTradingScanner] 🚀 Starting initial scan now...\n');
-
-    this.performScan(userId, preferences);
-  }
 
   private async performScan(userId: string, preferences: any): Promise<ScanResult> {
     const scanStartTime = Date.now();
@@ -671,13 +683,13 @@ Auto trading has been paused to prevent further issues. Please review the error 
       await this.updateAutoTradingStatus(userId, {
         enabled: false,
         scanning_active: false,
-        emergency_stop: true
+        emergency_stop: true,
+        should_be_scanning: false,
+        next_scan_scheduled_at: null
       });
 
-      if (this.scannerIntervals.has(userId)) {
-        clearInterval(this.scannerIntervals.get(userId)!);
-        this.scannerIntervals.delete(userId);
-      }
+      // Disable persistence layer
+      await autoTradingPersistence.disableScanning(userId);
 
       await this.notifyUser(
         userId,

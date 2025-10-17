@@ -78,7 +78,7 @@ class ThoughtProcessLogger {
           title: entry.title,
           content: entry.content,
           metadata: entry.metadata || {},
-          status: 'processing',
+          status: 'completed',
           session_id: sessionId
         })
         .select('id')

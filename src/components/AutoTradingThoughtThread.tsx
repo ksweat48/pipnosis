@@ -432,7 +432,12 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
             {thoughts.length === 0 && isAutoTradingActive && (
               <div className="text-center py-12">
                 <Loader className="h-8 w-8 text-emerald-400 animate-spin mx-auto mb-3" />
-                <p className="text-white/60 text-sm">Waiting for first scan cycle...</p>
+                <p className="text-white/60 text-sm font-semibold">🚀 Auto Trading Active</p>
+                <p className="text-white/40 text-xs mt-2">Waiting for first scan cycle...</p>
+                <p className="text-white/40 text-xs mt-1">Scans happen automatically every 2 minutes</p>
+                <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-xs text-blue-400">
+                  💡 You can reload the page or navigate away - scanning will continue automatically
+                </div>
               </div>
             )}
 

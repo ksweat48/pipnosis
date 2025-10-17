@@ -317,21 +317,21 @@ Reasoning: ${chatgptResponse.reasoning}`,
       decisionId: tempDecisionId,
       stepNumber: thoughtProcessLogger.getNextStepNumber(),
       stepType: 'symbol_scan',
-      title: 'Scanning Multiple Symbols',
-      content: `Scanning ${symbols.length} currency pairs for trade opportunities: ${symbols.join(', ')}`,
-      metadata: { symbols }
+      title: 'Starting Parallel Multi-Symbol Scan',
+      content: `🔄 Analyzing ${symbols.length} currency pairs SIMULTANEOUSLY for maximum efficiency\n\nPairs: ${symbols.join(', ')}\n\nEach pair will be analyzed in parallel to find the best opportunity faster.`,
+      metadata: { symbols, scanType: 'parallel' }
     }, sessionId);
 
-    for (const symbol of symbols) {
+    const analysisPromises = symbols.map(async (symbol) => {
       try {
         await thoughtProcessLogger.logThought({
           userId,
           decisionId: tempDecisionId,
           stepNumber: thoughtProcessLogger.getNextStepNumber(),
           stepType: 'market_data_fetch',
-          title: `Fetching Market Data: ${symbol}`,
-          content: 'Loading multi-timeframe candle data (H1, M5, M1)...',
-          metadata: { symbol }
+          title: `📊 ${symbol} - Fetching Market Data`,
+          content: `Loading multi-timeframe candle data (H1, M5, M1)...\n\nThis is happening simultaneously with other pairs.`,
+          metadata: { symbol, phase: 'data_fetch' }
         }, sessionId);
 
         const [h1Candles, m5Candles, m1Candles] = await Promise.all([
@@ -351,9 +351,9 @@ Reasoning: ${chatgptResponse.reasoning}`,
           decisionId: tempDecisionId,
           stepNumber: thoughtProcessLogger.getNextStepNumber(),
           stepType: 'technical_analysis',
-          title: `Analyzing ${symbol} Market Conditions`,
+          title: `🔍 ${symbol} - Technical Analysis`,
           content: thoughtProcessLogger.formatMarketData(symbol, m1Candles),
-          metadata: { symbol }
+          metadata: { symbol, phase: 'technical_analysis', candleCount: m1Candles.length }
         }, sessionId);
 
         const marketSummary = await analyzeMarket(m1Candles);
@@ -363,36 +363,101 @@ Reasoning: ${chatgptResponse.reasoning}`,
           decisionId: tempDecisionId,
           stepNumber: thoughtProcessLogger.getNextStepNumber(),
           stepType: 'fxflow_evaluation',
-          title: `FxFlowScalperV2 Evaluation: ${symbol}`,
-          content: 'Running baseline strategy analysis...',
-          metadata: { symbol }
+          title: `⚡ ${symbol} - Strategy Evaluation`,
+          content: `Running FxFlowScalperV2 baseline strategy...\n\nMarket Sentiment: ${marketSummary.sentiment?.status || 'N/A'}\nRSI: ${marketSummary.rsi?.value?.toFixed(1) || 'N/A'} (${marketSummary.rsi?.status || 'N/A'})`,
+          metadata: { symbol, phase: 'strategy_evaluation', marketSummary }
         }, sessionId);
 
         const fxflowEvaluation = await this.fxFlowStrategy.evaluateStrategy(symbol, candles);
 
-        if (fxflowEvaluation.trade && fxflowEvaluation.trade.confidence > highestConfidence) {
-          highestConfidence = fxflowEvaluation.trade.confidence;
-          bestOpportunity = {
-            symbol,
-            candles,
-            marketSummary,
-            fxflowSignal: fxflowEvaluation.trade
-          };
+        const result = {
+          symbol,
+          candles,
+          marketSummary,
+          fxflowSignal: fxflowEvaluation.trade,
+          confidence: fxflowEvaluation.trade?.confidence || 0
+        };
 
+        if (fxflowEvaluation.trade) {
           await thoughtProcessLogger.logThought({
             userId,
             decisionId: tempDecisionId,
             stepNumber: thoughtProcessLogger.getNextStepNumber(),
             stepType: 'fxflow_evaluation',
-            title: `Strong Signal Found: ${symbol}`,
-            content: `FxFlowScalperV2 detected a ${fxflowEvaluation.trade.direction} opportunity with ${fxflowEvaluation.trade.confidence}% confidence.\n\nEntry: ${fxflowEvaluation.trade.entryPrice}\nStop Loss: ${fxflowEvaluation.trade.stopLoss}\nTake Profit: ${fxflowEvaluation.trade.takeProfit}\nRisk/Reward: ${fxflowEvaluation.trade.riskReward}`,
-            metadata: { symbol, signal: fxflowEvaluation.trade }
+            title: `${fxflowEvaluation.trade.confidence >= 70 ? '✅' : '📋'} ${symbol} - Analysis Complete`,
+            content: `${fxflowEvaluation.trade.direction} Signal Detected\n\nConfidence: ${fxflowEvaluation.trade.confidence}%\nEntry: ${fxflowEvaluation.trade.entryPrice}\nStop Loss: ${fxflowEvaluation.trade.stopLoss}\nTake Profit: ${fxflowEvaluation.trade.takeProfit}\nRisk/Reward: ${fxflowEvaluation.trade.riskReward}`,
+            metadata: { symbol, signal: fxflowEvaluation.trade, phase: 'result' }
+          }, sessionId);
+        } else {
+          await thoughtProcessLogger.logThought({
+            userId,
+            decisionId: tempDecisionId,
+            stepNumber: thoughtProcessLogger.getNextStepNumber(),
+            stepType: 'fxflow_evaluation',
+            title: `⚪ ${symbol} - Analysis Complete`,
+            content: `No high-confidence signal detected for this pair.\n\nThis is normal - not every scan finds opportunities.`,
+            metadata: { symbol, noSignal: true, phase: 'result' }
           }, sessionId);
         }
+
+        return result;
       } catch (error) {
         console.error(`Error analyzing ${symbol}:`, error);
-        continue;
+        await thoughtProcessLogger.logThought({
+          userId,
+          decisionId: tempDecisionId,
+          stepNumber: thoughtProcessLogger.getNextStepNumber(),
+          stepType: 'error',
+          title: `❌ ${symbol} - Analysis Failed`,
+          content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          metadata: { symbol, error: error instanceof Error ? error.message : 'Unknown error' }
+        }, sessionId);
+        return null;
       }
+    });
+
+    const results = await Promise.all(analysisPromises);
+
+    const validResults = results.filter(r => r !== null && r.fxflowSignal);
+
+    if (validResults.length > 0) {
+      bestOpportunity = validResults.reduce((best, current) => {
+        return current.confidence > best.confidence ? current : best;
+      });
+      highestConfidence = bestOpportunity.confidence;
+
+      const summaryContent = validResults
+        .sort((a, b) => b.confidence - a.confidence)
+        .map(r => `${r.symbol}: ${r.fxflowSignal.direction} @ ${r.confidence}% confidence`)
+        .join('\n');
+
+      await thoughtProcessLogger.logThought({
+        userId,
+        decisionId: tempDecisionId,
+        stepNumber: thoughtProcessLogger.getNextStepNumber(),
+        stepType: 'symbol_scan',
+        title: '🎯 Parallel Scan Complete - Best Opportunity Selected',
+        content: `Analyzed ${symbols.length} pairs simultaneously\n\n📊 Results Summary:\n${summaryContent}\n\n✅ Selected: ${bestOpportunity.symbol} with ${highestConfidence}% confidence`,
+        metadata: {
+          totalScanned: symbols.length,
+          signalsFound: validResults.length,
+          bestSymbol: bestOpportunity.symbol,
+          bestConfidence: highestConfidence
+        }
+      }, sessionId);
+    } else {
+      await thoughtProcessLogger.logThought({
+        userId,
+        decisionId: tempDecisionId,
+        stepNumber: thoughtProcessLogger.getNextStepNumber(),
+        stepType: 'symbol_scan',
+        title: '⚪ Parallel Scan Complete - No Opportunities',
+        content: `Analyzed ${symbols.length} pairs simultaneously\n\nNo high-confidence trading opportunities found in current market conditions.\n\nThis is normal - the AI only trades when conditions are favorable.`,
+        metadata: {
+          totalScanned: symbols.length,
+          signalsFound: 0
+        }
+      }, sessionId);
     }
 
     return bestOpportunity;

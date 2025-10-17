@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Power, Settings, Activity, Clock, TrendingUp, AlertCircle, CheckCircle, Lock } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { autoTradingScanner, AutoTradingStatus } from '@/services/auto-trading-scanner';
+import { autoTradingPersistence } from '@/services/auto-trading-persistence';
 import { supabase } from '@/lib/supabase';
 import { AutoTradingThoughtThread } from './AutoTradingThoughtThread';
 
@@ -18,8 +19,15 @@ export const AutoTradingPanel: React.FC = () => {
     if (user?.id) {
       checkAdminStatus();
       loadStatus();
+
+      // Initialize persistence system
+      autoTradingPersistence.initialize(user.id);
+
       const interval = setInterval(loadStatus, 30000);
-      return () => clearInterval(interval);
+      return () => {
+        clearInterval(interval);
+        autoTradingPersistence.cleanup();
+      };
     }
   }, [user?.id]);
 
@@ -204,6 +212,17 @@ export const AutoTradingPanel: React.FC = () => {
             <p className={`text-sm font-medium ${message.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
               {message.text}
             </p>
+          </div>
+        )}
+
+        {status?.enabled && (
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mb-4">
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 bg-green-400 rounded-full animate-pulse" />
+              <p className="text-sm text-blue-400 font-medium">
+                ✅ Persistent Scanning Active - Auto trading will continue even if you reload the page or navigate away
+              </p>
+            </div>
           </div>
         )}
 
