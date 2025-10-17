@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, memo } from 'react';
+import React, { useEffect, useRef, useState, memo, useMemo } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeries, HistogramSeries, LineSeries, HistogramData, LineData } from 'lightweight-charts';
 import { AIAnalysisData } from '../types/ai-analysis';
 import { ChartPreferences } from '../hooks/useChartPreferences';
@@ -107,6 +107,12 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
   const isInitialLoadRef = useRef(true);
   const updateQueueRef = useRef<CandlestickData<Time>[]>([]);
   const processingRef = useRef(false);
+  const overlayDataRef = useRef<{
+    daySeparators: any[];
+    marketClosedOverlays: any[];
+    nextMarketClosedOverlay: any | null;
+  }>({ daySeparators: [], marketClosedOverlays: [], nextMarketClosedOverlay: null });
+  const lastOverlayDataHashRef = useRef<string>('');
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -562,28 +568,47 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
     }
   }, [tradeLines, isReady]);
 
+  const overlayData = useMemo(() => {
+    if (data.length === 0) {
+      return { daySeparators: [], marketClosedOverlays: [], nextMarketClosedOverlay: null };
+    }
+
+    const isStructureChange = Math.abs(data.length - lastDataLengthRef.current) > 1;
+    const isInitial = lastDataLengthRef.current === 0;
+
+    if (!isInitial && !isStructureChange) {
+      return overlayDataRef.current;
+    }
+
+    const timestamps = data.map(d => d.time);
+    const firstTimestamp = timestamps[0];
+    const lastTimestamp = timestamps[timestamps.length - 1];
+    const dataHash = `${firstTimestamp}-${lastTimestamp}-${timestamps.length}`;
+
+    if (dataHash === lastOverlayDataHashRef.current && !isInitial) {
+      return overlayDataRef.current;
+    }
+
+    lastOverlayDataHashRef.current = dataHash;
+
+    const daySeparators = chartOverlayService.getDaySeparators(timestamps);
+    const marketClosedOverlays = chartOverlayService.getMarketClosedOverlays(timestamps);
+    const nextMarketClosedOverlay = chartOverlayService.getNextMarketClosedOverlay(lastTimestamp);
+
+    const result = { daySeparators, marketClosedOverlays, nextMarketClosedOverlay };
+    overlayDataRef.current = result;
+    return result;
+  }, [data]);
+
   useEffect(() => {
-    if (!isReady || !chartRef.current || !chartContainerRef.current || data.length === 0) {
-      console.log('[CandlestickChart] Overlay rendering skipped:', { isReady, hasChart: !!chartRef.current, hasContainer: !!chartContainerRef.current, dataLength: data.length });
+    if (!isReady || !chartRef.current || !chartContainerRef.current) {
       return;
     }
 
     const overlayContainer = chartContainerRef.current.querySelector('.background-overlays') as HTMLDivElement;
     if (!overlayContainer) {
-      console.log('[CandlestickChart] No overlay container found');
       return;
     }
-
-    overlayContainer.innerHTML = '';
-
-    const timestamps = data.map(d => d.time);
-    console.log('[CandlestickChart] Processing overlays for', timestamps.length, 'timestamps');
-    const daySeparators = chartOverlayService.getDaySeparators(timestamps);
-    const marketClosedOverlays = chartOverlayService.getMarketClosedOverlays(timestamps);
-
-    const latestTimestamp = timestamps[timestamps.length - 1];
-    const nextMarketClosedOverlay = chartOverlayService.getNextMarketClosedOverlay(latestTimestamp);
-    console.log('[CandlestickChart] Next market closed overlay:', nextMarketClosedOverlay);
 
     const timeScale = chartRef.current.timeScale();
 
@@ -591,8 +616,8 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       if (!chartRef.current || !overlayContainer) return;
 
       overlayContainer.innerHTML = '';
-      let dayRendered = 0;
-      let marketClosedRendered = 0;
+
+      const { daySeparators, marketClosedOverlays, nextMarketClosedOverlay } = overlayDataRef.current;
 
       daySeparators.forEach(separator => {
         const startCoord = timeScale.timeToCoordinate(separator.startTime as Time);
@@ -609,7 +634,6 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
           rect.style.pointerEvents = 'none';
           rect.style.zIndex = '1';
           overlayContainer.appendChild(rect);
-          dayRendered++;
         }
       });
 
@@ -628,7 +652,6 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
           rect.style.pointerEvents = 'none';
           rect.style.zIndex = '2';
           overlayContainer.appendChild(rect);
-          marketClosedRendered++;
         }
       });
 
@@ -647,14 +670,8 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
           rect.style.pointerEvents = 'none';
           rect.style.zIndex = '2';
           overlayContainer.appendChild(rect);
-          marketClosedRendered++;
-          console.log(`[CandlestickChart] Rendered current market closed overlay at ${startCoord}px with width ${endCoord - startCoord}px`);
-        } else {
-          console.log(`[CandlestickChart] Skipped rendering overlay - coordinates out of bounds: start=${startCoord}, end=${endCoord}`);
         }
       }
-
-      console.log(`[CandlestickChart] Rendered ${dayRendered} day overlays and ${marketClosedRendered} market closed overlays`);
     };
 
     renderOverlays();
@@ -668,7 +685,7 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
     return () => {
       timeScale.unsubscribeVisibleLogicalRangeChange(visibleLogicalRangeChangeHandler);
     };
-  }, [data, isReady]);
+  }, [isReady, overlayData]);
 
   const ema21Color = preferences?.ema_21_color || '#44c0ff';
   const vwapColor = '#fbbf24';

@@ -35,7 +35,6 @@ class ChartOverlayService {
 
   getDaySeparators(timestamps: Time[]): DaySeparator[] {
     if (timestamps.length === 0) {
-      console.log('[ChartOverlay] No timestamps provided for day separators');
       return [];
     }
 
@@ -74,13 +73,11 @@ class ChartOverlayService {
       });
     });
 
-    console.log(`[ChartOverlay] Generated ${separators.length} day separators`);
     return separators;
   }
 
   getMarketClosedOverlays(timestamps: Time[]): MarketClosedOverlay[] {
     if (timestamps.length === 0) {
-      console.log('[ChartOverlay] No timestamps provided for market closed overlays');
       return [];
     }
 
@@ -114,7 +111,6 @@ class ChartOverlayService {
       });
     });
 
-    console.log(`[ChartOverlay] Generated ${overlays.length} market closed overlays`);
     return overlays;
   }
 
@@ -136,18 +132,14 @@ class ChartOverlayService {
       );
 
       if (overlayStartTime < overlayEndTime) {
-        const overlay: MarketClosedOverlay = {
+        return {
           startTime: overlayStartTime,
           endTime: overlayEndTime,
           color: this.MARKET_CLOSED_COLOR
         };
-
-        console.log(`[ChartOverlay] Generated current market closed overlay from ${new Date(overlayStartTime * 1000).toISOString()} to ${new Date(overlayEndTime * 1000).toISOString()}`);
-        return overlay;
       }
     }
 
-    console.log('[ChartOverlay] No current market close period applicable to chart data');
     return null;
   }
 
