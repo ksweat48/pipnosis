@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Brain, AlertCircle, CheckCircle, Sparkles } from 'lucide-react';
+import { Brain, CheckCircle, Sparkles } from 'lucide-react';
 import { PromptInput } from './PromptInput';
 import { AITradeOptionsModal } from './AITradeOptionsModal';
 import { AIThoughtProcessPanel } from './AIThoughtProcessPanel';
@@ -101,23 +101,6 @@ export const AITradingConsole: React.FC = () => {
           isExecuting={isExecuting}
         />
       )}
-
-      <div className="bg-blue-500/10 border border-blue-500/30 rounded-2xl p-6">
-        <div className="flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
-          <div className="space-y-2">
-            <p className="text-blue-400 text-sm font-bold">How It Works</p>
-            <ol className="text-white/70 text-xs space-y-1 list-decimal list-inside">
-              <li>Tell ChatGPT your trading goal (e.g., "Make me $100 today")</li>
-              <li>AI analyzes markets using FxFlowScalperV2 baseline + independent analysis</li>
-              <li>You get 3 trade options: Low Risk, Medium Risk, High Risk</li>
-              <li>Each option shows lot size, entry/exit, estimated profit/loss</li>
-              <li>Select your preferred risk level and execute the trade</li>
-              <li>AI follows Pipnosis 10 Immutable Laws for safety and consistency</li>
-            </ol>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

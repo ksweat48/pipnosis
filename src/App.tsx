@@ -23,7 +23,6 @@ import { ConfigurationStatus } from './components/ConfigurationStatus';
 import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { AITradingConsole } from './components/AITradingConsole';
-import { AutoTradingPanel } from './components/AutoTradingPanel';
 import { AutoTradingThoughtThread } from './components/AutoTradingThoughtThread';
 import { SearchStatusPanel } from './components/SearchStatusPanel';
 import { usePromptAnalysis, useMarketData } from './hooks/useAPI';
@@ -394,9 +393,6 @@ const Dashboard: React.FC = () => {
           
           {/* AI Trading Console - New ChatGPT Integration */}
           <AITradingConsole />
-
-          {/* Auto Trading Panel */}
-          <AutoTradingPanel />
 
           {/* Auto Trading AI Thought Process Thread */}
           <AutoTradingThoughtThread isAutoTradingActive={isAutoTradingActive} />
