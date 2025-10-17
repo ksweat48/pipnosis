@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Brain, AlertCircle, CheckCircle, Sparkles } from 'lucide-react';
 import { PromptInput } from './PromptInput';
 import { AITradeOptionsModal } from './AITradeOptionsModal';
+import { AIThoughtProcessPanel } from './AIThoughtProcessPanel';
 import { useAITrading } from '@/hooks/useAITrading';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -12,6 +13,7 @@ export const AITradingConsole: React.FC = () => {
     isExecuting,
     analysisResult,
     error,
+    currentDecisionId,
     requestTradeAnalysis,
     executeSelectedTrade,
     clearAnalysisResult
@@ -82,6 +84,11 @@ export const AITradingConsole: React.FC = () => {
           error={error}
         />
       </div>
+
+      <AIThoughtProcessPanel
+        decisionId={currentDecisionId || undefined}
+        isAnalyzing={isAnalyzing}
+      />
 
       {analysisResult && analysisResult.success && (
         <AITradeOptionsModal

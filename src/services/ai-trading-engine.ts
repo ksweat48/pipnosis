@@ -4,6 +4,7 @@ import { FxFlowScalperV2, MultiTimeframeCandles } from '@/strategies/core/fxFlow
 import { analyzeMarket, AiMarketSummary } from '@/lib/aiMarketEngine';
 import { Candle } from '@/lib/indicators';
 import { Timeframe } from './metaapi';
+import { thoughtProcessLogger } from './thought-process-logger';
 
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
@@ -90,12 +91,39 @@ class AITradingEngine {
   }
 
   async analyzeTradeRequest(request: AIAnalysisRequest): Promise<AIAnalysisResult> {
+    thoughtProcessLogger.resetStepCounter();
+
     const symbols = request.symbols || ['EURUSD', 'GBPUSD', 'XAUUSD'];
     const timeframe = request.timeframe || 'M15';
 
-    const bestOpportunity = await this.findBestOpportunity(symbols, request.userId);
+    const tempDecisionId = 'temp-' + Date.now();
+
+    await thoughtProcessLogger.logThought({
+      userId: request.userId,
+      decisionId: tempDecisionId,
+      stepNumber: thoughtProcessLogger.getNextStepNumber(),
+      stepType: 'initialization',
+      title: 'Starting AI Trade Analysis',
+      content: `User Request: "${request.prompt}"
+Account Balance: $${request.accountBalance}
+Symbols to scan: ${symbols.join(', ')}
+Timeframe: ${timeframe}
+Decision Type: ${request.decisionType}`,
+      metadata: { symbols, timeframe, accountBalance: request.accountBalance }
+    });
+
+    const bestOpportunity = await this.findBestOpportunity(symbols, request.userId, tempDecisionId);
 
     if (!bestOpportunity) {
+      await thoughtProcessLogger.logThought({
+        userId: request.userId,
+        decisionId: tempDecisionId,
+        stepNumber: thoughtProcessLogger.getNextStepNumber(),
+        stepType: 'error',
+        title: 'No Opportunities Found',
+        content: 'No profitable trade opportunities found in the current market conditions across all scanned symbols.',
+        metadata: { scannedSymbols: symbols }
+      });
       throw new Error('No profitable trade opportunities found in the current market conditions.');
     }
 
@@ -112,7 +140,41 @@ class AITradingEngine {
 
     const chatgptPrompt = this.buildChatGPTPrompt(request, marketContext);
 
-    const chatgptResponse = await this.callChatGPT(chatgptPrompt);
+    await thoughtProcessLogger.logThought({
+      userId: request.userId,
+      decisionId: tempDecisionId,
+      stepNumber: thoughtProcessLogger.getNextStepNumber(),
+      stepType: 'chatgpt_prompt',
+      title: 'Sending Analysis Request to ChatGPT',
+      content: 'Requesting independent AI analysis with full market context and Pipnosis Trading Laws.',
+      metadata: { promptLength: chatgptPrompt.length, symbol, currentPrice: marketContext.currentPrice }
+    });
+
+    const chatgptResponse = await thoughtProcessLogger.logWithTiming(
+      {
+        userId: request.userId,
+        decisionId: tempDecisionId,
+        stepNumber: thoughtProcessLogger.getNextStepNumber(),
+        stepType: 'chatgpt_response',
+        title: 'ChatGPT Analysis Received',
+        content: 'Processing AI independent analysis...',
+        metadata: {}
+      },
+      () => this.callChatGPT(chatgptPrompt)
+    );
+
+    await thoughtProcessLogger.logThought({
+      userId: request.userId,
+      decisionId: tempDecisionId,
+      stepNumber: thoughtProcessLogger.getNextStepNumber(),
+      stepType: 'chatgpt_response',
+      title: 'ChatGPT Analysis Complete',
+      content: `Direction: ${chatgptResponse.direction}
+Confidence: ${chatgptResponse.confidence}%
+Strategy Type: ${chatgptResponse.strategy_type}
+Reasoning: ${chatgptResponse.reasoning}`,
+      metadata: chatgptResponse
+    });
 
     const aiIndependentSignal = this.parseAIResponse(chatgptResponse, marketContext);
 
@@ -122,7 +184,30 @@ class AITradingEngine {
       marketSummary
     );
 
+    await thoughtProcessLogger.logThought({
+      userId: request.userId,
+      decisionId: tempDecisionId,
+      stepNumber: thoughtProcessLogger.getNextStepNumber(),
+      stepType: 'strategy_comparison',
+      title: 'Comparing Strategies',
+      content: thoughtProcessLogger.formatStrategyComparison(fxflowSignal, aiIndependentSignal),
+      metadata: {
+        fxflowScore: strategyComparison.fxflow.score,
+        aiScore: strategyComparison.ai.score
+      }
+    });
+
     const selectedStrategy = this.selectBestStrategy(strategyComparison);
+
+    await thoughtProcessLogger.logThought({
+      userId: request.userId,
+      decisionId: tempDecisionId,
+      stepNumber: thoughtProcessLogger.getNextStepNumber(),
+      stepType: 'final_decision',
+      title: `Selected Strategy: ${selectedStrategy.name}`,
+      content: `The AI has selected the ${selectedStrategy.name} strategy based on comprehensive analysis.\n\nDirection: ${selectedStrategy.signal.direction}\nEntry: ${selectedStrategy.signal.entryPrice}\nConfidence: ${selectedStrategy.signal.confidence}%`,
+      metadata: { selectedStrategy: selectedStrategy.name, signal: selectedStrategy.signal }
+    });
 
     const decision = await this.createTradeDecision({
       userId: request.userId,
@@ -136,12 +221,34 @@ class AITradingEngine {
       signal: selectedStrategy.signal
     });
 
+    await this.updateThoughtProcessDecisionId(tempDecisionId, decision.id);
+
+    await thoughtProcessLogger.logThought({
+      userId: request.userId,
+      decisionId: decision.id,
+      stepNumber: thoughtProcessLogger.getNextStepNumber(),
+      stepType: 'risk_calculation',
+      title: 'Calculating Risk Variants',
+      content: 'Generating three risk-adjusted trade options: Conservative (1%), Balanced (2%), and Aggressive (4%) risk levels.',
+      metadata: { accountBalance: request.accountBalance }
+    });
+
     const options = await this.generateTradeOptions(
       decision.id,
       request.userId,
       selectedStrategy.signal,
       request.accountBalance
     );
+
+    await thoughtProcessLogger.logThought({
+      userId: request.userId,
+      decisionId: decision.id,
+      stepNumber: thoughtProcessLogger.getNextStepNumber(),
+      stepType: 'option_generation',
+      title: 'Trade Options Generated',
+      content: `Generated ${options.length} trade options for user selection.\n\nLow Risk: ${options[0].lotSize} lots, Est. Profit: $${options[0].estimatedProfit.toFixed(2)}\nMedium Risk: ${options[1].lotSize} lots, Est. Profit: $${options[1].estimatedProfit.toFixed(2)}\nHigh Risk: ${options[2].lotSize} lots, Est. Profit: $${options[2].estimatedProfit.toFixed(2)}`,
+      metadata: { optionsCount: options.length }
+    });
 
     return {
       decision,
@@ -156,12 +263,43 @@ class AITradingEngine {
     };
   }
 
-  private async findBestOpportunity(symbols: string[], userId: string) {
+  private async updateThoughtProcessDecisionId(tempId: string, realId: string) {
+    try {
+      await supabase
+        .from('ai_thought_process')
+        .update({ decision_id: realId })
+        .eq('decision_id', tempId);
+    } catch (error) {
+      console.error('Error updating thought process decision IDs:', error);
+    }
+  }
+
+  private async findBestOpportunity(symbols: string[], userId: string, tempDecisionId: string) {
     let bestOpportunity: any = null;
     let highestConfidence = 0;
 
+    await thoughtProcessLogger.logThought({
+      userId,
+      decisionId: tempDecisionId,
+      stepNumber: thoughtProcessLogger.getNextStepNumber(),
+      stepType: 'symbol_scan',
+      title: 'Scanning Multiple Symbols',
+      content: `Scanning ${symbols.length} currency pairs for trade opportunities: ${symbols.join(', ')}`,
+      metadata: { symbols }
+    });
+
     for (const symbol of symbols) {
       try {
+        await thoughtProcessLogger.logThought({
+          userId,
+          decisionId: tempDecisionId,
+          stepNumber: thoughtProcessLogger.getNextStepNumber(),
+          stepType: 'market_data_fetch',
+          title: `Fetching Market Data: ${symbol}`,
+          content: 'Loading multi-timeframe candle data (H1, M5, M1)...',
+          metadata: { symbol }
+        });
+
         const [h1Candles, m5Candles, m1Candles] = await Promise.all([
           marketDataService.getHistoricalData(symbol, 'H1' as Timeframe, 50, true, true),
           marketDataService.getHistoricalData(symbol, 'M5' as Timeframe, 100, true, true),
@@ -174,7 +312,27 @@ class AITradingEngine {
           m1: m1Candles
         };
 
+        await thoughtProcessLogger.logThought({
+          userId,
+          decisionId: tempDecisionId,
+          stepNumber: thoughtProcessLogger.getNextStepNumber(),
+          stepType: 'technical_analysis',
+          title: `Analyzing ${symbol} Market Conditions`,
+          content: thoughtProcessLogger.formatMarketData(symbol, m1Candles),
+          metadata: { symbol }
+        });
+
         const marketSummary = await analyzeMarket(m1Candles);
+
+        await thoughtProcessLogger.logThought({
+          userId,
+          decisionId: tempDecisionId,
+          stepNumber: thoughtProcessLogger.getNextStepNumber(),
+          stepType: 'fxflow_evaluation',
+          title: `FxFlowScalperV2 Evaluation: ${symbol}`,
+          content: 'Running baseline strategy analysis...',
+          metadata: { symbol }
+        });
 
         const fxflowEvaluation = await this.fxFlowStrategy.evaluateStrategy(symbol, candles);
 
@@ -186,6 +344,16 @@ class AITradingEngine {
             marketSummary,
             fxflowSignal: fxflowEvaluation.trade
           };
+
+          await thoughtProcessLogger.logThought({
+            userId,
+            decisionId: tempDecisionId,
+            stepNumber: thoughtProcessLogger.getNextStepNumber(),
+            stepType: 'fxflow_evaluation',
+            title: `Strong Signal Found: ${symbol}`,
+            content: `FxFlowScalperV2 detected a ${fxflowEvaluation.trade.direction} opportunity with ${fxflowEvaluation.trade.confidence}% confidence.\n\nEntry: ${fxflowEvaluation.trade.entryPrice}\nStop Loss: ${fxflowEvaluation.trade.stopLoss}\nTake Profit: ${fxflowEvaluation.trade.takeProfit}\nRisk/Reward: ${fxflowEvaluation.trade.riskReward}`,
+            metadata: { symbol, signal: fxflowEvaluation.trade }
+          });
         }
       } catch (error) {
         console.error(`Error analyzing ${symbol}:`, error);

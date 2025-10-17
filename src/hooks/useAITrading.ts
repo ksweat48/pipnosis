@@ -10,6 +10,7 @@ export const useAITrading = () => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<ManualTradeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentDecisionId, setCurrentDecisionId] = useState<string | null>(null);
 
   const requestTradeAnalysis = useCallback(async (prompt: string) => {
     if (!user?.id) {
@@ -20,6 +21,7 @@ export const useAITrading = () => {
     setIsAnalyzing(true);
     setError(null);
     setAnalysisResult(null);
+    setCurrentDecisionId(null);
 
     try {
       const result = await manualTradingService.requestTradeAnalysis({
@@ -30,6 +32,9 @@ export const useAITrading = () => {
 
       if (result.success) {
         setAnalysisResult(result);
+        if (result.decision?.id) {
+          setCurrentDecisionId(result.decision.id);
+        }
         return result;
       } else {
         setError(result.message);
@@ -77,6 +82,7 @@ export const useAITrading = () => {
   const clearAnalysisResult = useCallback(() => {
     setAnalysisResult(null);
     setError(null);
+    setCurrentDecisionId(null);
   }, []);
 
   const cancelAnalysis = useCallback(async (decisionId: string) => {
@@ -95,6 +101,7 @@ export const useAITrading = () => {
     isExecuting,
     analysisResult,
     error,
+    currentDecisionId,
     requestTradeAnalysis,
     executeSelectedTrade,
     clearAnalysisResult,
