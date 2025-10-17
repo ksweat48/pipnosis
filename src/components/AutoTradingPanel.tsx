@@ -263,7 +263,11 @@ export const AutoTradingPanel: React.FC = () => {
       </div>
 
       {/* Auto Trading AI Thought Process */}
-      <AutoTradingThoughtThread isAutoTradingActive={status?.enabled || false} />
+      <AutoTradingThoughtThread
+        isAutoTradingActive={status?.enabled || false}
+        currentSessionId={status?.currentSessionId}
+        sessionStartedAt={status?.sessionStartedAt}
+      />
     </div>
   );
 };

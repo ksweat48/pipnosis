@@ -60,7 +60,7 @@ class ThoughtProcessLogger {
     'auto_emergency_stop'
   ]);
 
-  async logThought(entry: ThoughtProcessEntry): Promise<string | null> {
+  async logThought(entry: ThoughtProcessEntry, sessionId?: string | null): Promise<string | null> {
     if (!this.isLoggingEnabled) {
       return null;
     }
@@ -78,7 +78,8 @@ class ThoughtProcessLogger {
           title: entry.title,
           content: entry.content,
           metadata: entry.metadata || {},
-          status: 'processing'
+          status: 'processing',
+          session_id: sessionId
         })
         .select('id')
         .maybeSingle();

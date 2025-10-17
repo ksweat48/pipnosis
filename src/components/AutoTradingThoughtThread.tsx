@@ -19,11 +19,15 @@ interface ThoughtEntry {
 interface AutoTradingThoughtThreadProps {
   isAutoTradingActive: boolean;
   maxEntries?: number;
+  currentSessionId?: string | null;
+  sessionStartedAt?: Date | null;
 }
 
 export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> = ({
   isAutoTradingActive,
-  maxEntries = 100
+  maxEntries = 100,
+  currentSessionId,
+  sessionStartedAt
 }) => {
   const { user } = useAuth();
   const [thoughts, setThoughts] = useState<ThoughtEntry[]>([]);
@@ -39,7 +43,7 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
     loadRecentThoughts();
 
     const channel = supabase
-      .channel(`auto_trading_thoughts:${user.id}`)
+      .channel(`auto_trading_thoughts:${user.id}:${currentSessionId || 'nosession'}`)
       .on(
         'postgres_changes',
         {
@@ -51,29 +55,28 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         (payload) => {
           const newThought = payload.new as ThoughtEntry;
 
-          // Check if this is from an auto trading decision by querying the decision type
-          // This is done asynchronously to avoid blocking the UI
-          supabase
-            .from('ai_trade_decisions')
-            .select('decision_type')
-            .eq('id', newThought.decision_id)
-            .maybeSingle()
-            .then(({ data, error }) => {
-              // If we can't find the decision yet, it might still be being created
-              // In that case, add it anyway since thoughts are now always created with valid decision IDs
-              if (error || !data) {
-                console.log('Decision not found yet for thought, will show anyway:', newThought.decision_id);
-                setThoughts(prev => {
-                  const updated = [...prev, newThought];
-                  return updated.slice(-maxEntries);
-                });
-              } else if (data.decision_type === 'auto') {
-                setThoughts(prev => {
-                  const updated = [...prev, newThought];
-                  return updated.slice(-maxEntries);
-                });
-              }
+          // Only add thoughts from the current session
+          if (currentSessionId && newThought.session_id === currentSessionId) {
+            setThoughts(prev => {
+              const updated = [...prev, newThought];
+              return updated.slice(-maxEntries);
             });
+          } else if (!currentSessionId) {
+            // If no session ID, check if it's from an auto trading decision
+            supabase
+              .from('ai_trade_decisions')
+              .select('decision_type')
+              .eq('id', newThought.decision_id)
+              .maybeSingle()
+              .then(({ data, error }) => {
+                if (data?.decision_type === 'auto') {
+                  setThoughts(prev => {
+                    const updated = [...prev, newThought];
+                    return updated.slice(-maxEntries);
+                  });
+                }
+              });
+          }
         }
       )
       .on(
@@ -86,9 +89,12 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         },
         (payload) => {
           const updatedThought = payload.new as ThoughtEntry;
-          setThoughts(prev =>
-            prev.map(t => t.id === updatedThought.id ? updatedThought : t)
-          );
+          // Only update if it belongs to current session or if no session filter
+          if (!currentSessionId || updatedThought.session_id === currentSessionId) {
+            setThoughts(prev =>
+              prev.map(t => t.id === updatedThought.id ? updatedThought : t)
+            );
+          }
         }
       )
       .subscribe();
@@ -96,7 +102,7 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, maxEntries]);
+  }, [user?.id, maxEntries, currentSessionId]);
 
   useEffect(() => {
     if (autoScroll && thoughtsEndRef.current) {
@@ -107,36 +113,42 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
   const loadRecentThoughts = async () => {
     if (!user?.id) return;
 
-    // Get recent auto trading decisions
-    const { data: autoDecisions, error: decisionsError } = await supabase
-      .from('ai_trade_decisions')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('decision_type', 'auto')
-      .order('created_at', { ascending: false })
-      .limit(20);
+    // If we have a current session ID, only load thoughts from this session
+    if (currentSessionId) {
+      const { data, error } = await supabase
+        .from('ai_thought_process')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('session_id', currentSessionId)
+        .order('created_at', { ascending: true })
+        .limit(maxEntries);
 
-    if (decisionsError || !autoDecisions?.length) {
-      console.error('Error loading auto trading decisions:', decisionsError);
-      return;
+      if (error) {
+        console.error('Error loading thought process:', error);
+        return;
+      }
+
+      setThoughts(data || []);
+    } else {
+      // Fallback: Load recent thoughts from last 2 hours if no session ID
+      const twoHoursAgo = new Date();
+      twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
+
+      const { data, error } = await supabase
+        .from('ai_thought_process')
+        .select('*')
+        .eq('user_id', user.id)
+        .gte('created_at', twoHoursAgo.toISOString())
+        .order('created_at', { ascending: true })
+        .limit(maxEntries);
+
+      if (error) {
+        console.error('Error loading thought process:', error);
+        return;
+      }
+
+      setThoughts(data || []);
     }
-
-    const decisionIds = autoDecisions.map(d => d.id);
-
-    const { data, error } = await supabase
-      .from('ai_thought_process')
-      .select('*')
-      .eq('user_id', user.id)
-      .in('decision_id', decisionIds)
-      .order('created_at', { ascending: false })
-      .limit(maxEntries);
-
-    if (error) {
-      console.error('Error loading thought process:', error);
-      return;
-    }
-
-    setThoughts((data || []).reverse());
   };
 
   const copyToClipboard = () => {
@@ -164,6 +176,23 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
 
   const clearLog = () => {
     setThoughts([]);
+  };
+
+  const formatRelativeTime = (timestamp: string): string => {
+    const now = new Date();
+    const time = new Date(timestamp);
+    const diffMs = now.getTime() - time.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins === 1) return '1 minute ago';
+    if (diffMins < 60) return `${diffMins} minutes ago`;
+    if (diffHours === 1) return '1 hour ago';
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    if (diffDays === 1) return '1 day ago';
+    return `${diffDays} days ago`;
   };
 
   const getStepIcon = (stepType: string, status: string) => {
@@ -250,7 +279,18 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
           <div>
             <h3 className="text-lg font-bold text-white">Auto Trading AI Thought Process</h3>
             <p className="text-xs text-white/60">
-              {isAutoTradingActive ? 'Live monitoring active' : `${thoughts.length} entries logged`}
+              {isAutoTradingActive ? (
+                sessionStartedAt ? (
+                  <span className="flex items-center gap-1">
+                    <span className="h-2 w-2 bg-green-400 rounded-full animate-pulse" />
+                    Live - Session started {formatRelativeTime(sessionStartedAt.toISOString())}
+                  </span>
+                ) : (
+                  'Live monitoring active'
+                )
+              ) : (
+                `${thoughts.length} entries logged`
+              )}
             </p>
           </div>
         </div>
@@ -289,6 +329,20 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
 
       {isExpanded && (
         <div className="p-4 space-y-4">
+          {sessionStartedAt && isAutoTradingActive && (
+            <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3 mb-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 bg-green-400 rounded-full animate-pulse" />
+                  <span className="text-sm font-semibold text-green-400">Current Session Active</span>
+                </div>
+                <span className="text-xs text-white/60">
+                  Started {formatRelativeTime(sessionStartedAt.toISOString())} • {new Date(sessionStartedAt).toLocaleTimeString()}
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-between gap-3 pb-3 border-b border-white/10">
             <label className="flex items-center gap-2 text-sm text-white/60 cursor-pointer">
               <input
@@ -352,8 +406,8 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
                             Trade Executed
                           </span>
                         )}
-                        <span className="text-xs text-white/40">
-                          {new Date(cycleThoughts[0].created_at).toLocaleTimeString()}
+                        <span className="text-xs text-white/40" title={new Date(cycleThoughts[0].created_at).toLocaleString()}>
+                          {formatRelativeTime(cycleThoughts[0].created_at)}
                         </span>
                       </div>
                     </div>
@@ -379,8 +433,8 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
                                   {thought.duration_ms}ms
                                 </span>
                               )}
-                              <span className="text-xs text-white/40">
-                                {new Date(thought.created_at).toLocaleTimeString()}
+                              <span className="text-xs text-white/40" title={new Date(thought.created_at).toLocaleString()}>
+                                {formatRelativeTime(thought.created_at)}
                               </span>
                             </div>
                           </div>

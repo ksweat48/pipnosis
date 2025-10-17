@@ -22,6 +22,9 @@ export interface AutoTradingStatus {
   continuousMode?: boolean;
   learningMode?: boolean;
   totalTradesExecuted?: number;
+  currentSessionId?: string;
+  sessionStartedAt?: Date;
+  sessionEndedAt?: Date;
 }
 
 export interface ScanResult {
@@ -74,13 +77,18 @@ class AutoTradingScanner {
         });
       }
 
+      const newSessionId = crypto.randomUUID();
+
       await this.updateAutoTradingStatus(userId, {
         enabled: true,
         scanning_active: true,
         continuous_mode: true,
         learning_mode: true,
         started_by_admin: userId,
-        opportunity_window_start: new Date().toISOString()
+        opportunity_window_start: new Date().toISOString(),
+        current_session_id: newSessionId,
+        session_started_at: new Date().toISOString(),
+        session_ended_at: null
       });
 
       this.startScanning(userId, preferences || { preferred_pairs: ['EURUSD', 'GBPUSD', 'XAUUSD'], min_confidence_threshold: 75 });
@@ -110,9 +118,16 @@ class AutoTradingScanner {
         this.opportunityTimeouts.delete(userId);
       }
 
+      const { data: currentStatus } = await supabase
+        .from('auto_trading_status')
+        .select('current_session_id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
       await this.updateAutoTradingStatus(userId, {
         enabled: false,
-        scanning_active: false
+        scanning_active: false,
+        session_ended_at: new Date().toISOString()
       });
 
       return {
@@ -175,6 +190,7 @@ class AutoTradingScanner {
       decisionId = decisionData.id;
 
       const status = await this.getAutoTradingStatus(userId);
+      const sessionId = status?.currentSessionId || null;
 
       await thoughtProcessLogger.logThought({
         userId,
@@ -189,9 +205,10 @@ Loss limit: $${status?.dailyLossLimit || '-500.00'}`,
         metadata: {
           scanTime: new Date().toISOString(),
           tradesTaken: status?.tradesTakenToday,
-          dailyPnl: status?.dailyPnl
+          dailyPnl: status?.dailyPnl,
+          sessionId
         }
-      });
+      }, sessionId);
 
       if (!status || !status.enabled || status.emergencyStop) {
         await thoughtProcessLogger.logThought({
@@ -202,7 +219,7 @@ Loss limit: $${status?.dailyLossLimit || '-500.00'}`,
           title: 'Scan Aborted',
           content: 'Auto trading is disabled or emergency stopped. No scan will be performed.',
           metadata: { enabled: status?.enabled, emergencyStop: status?.emergencyStop }
-        });
+        }, sessionId);
         return {
           opportunityFound: false,
           message: 'Auto trading is disabled or emergency stopped',
@@ -220,7 +237,7 @@ Loss limit: $${status?.dailyLossLimit || '-500.00'}`,
 Trades Today: ${status.tradesTakenToday}/${status.maxDailyTrades}
 ${!status.continuousMode && status.tradesTakenToday >= status.maxDailyTrades ? '⚠️ Daily trade limit reached' : '✓ Trade limits OK'}`,
         metadata: { continuousMode: status.continuousMode, tradesTaken: status.tradesTakenToday, maxTrades: status.maxDailyTrades }
-      });
+      }, sessionId);
 
       if (!status.continuousMode && status.tradesTakenToday >= status.maxDailyTrades) {
         await this.updateAutoTradingStatus(userId, { scanning_active: false });
@@ -232,7 +249,7 @@ ${!status.continuousMode && status.tradesTakenToday >= status.maxDailyTrades ? '
           title: 'Daily Limit Reached',
           content: `Trade limit reached (${status.tradesTakenToday}/${status.maxDailyTrades}). Auto trading paused until tomorrow.`,
           metadata: { reason: 'daily_limit' }
-        });
+        }, sessionId);
         return {
           opportunityFound: false,
           message: `Daily trade limit reached (${status.tradesTakenToday}/${status.maxDailyTrades})`,
@@ -258,7 +275,7 @@ Per Pipnosis Law #3 (Drawdown Management), auto trading has been automatically s
 
 Manual intervention required to restart.`,
           metadata: { dailyPnl: status.dailyPnl, lossLimit: status.dailyLossLimit }
-        });
+        }, sessionId);
 
         await this.notifyUser(userId, 'Emergency stop triggered', 'Daily loss limit exceeded. Auto trading has been stopped.');
 
@@ -280,7 +297,7 @@ Manual intervention required to restart.`,
 Trading Hours: ${preferences.auto_trading_hours_start || '00:00:00'} - ${preferences.auto_trading_hours_end || '23:59:59'}
 Status: ${isWithinHours ? '✓ Within trading hours' : '⚠️ Outside trading hours'}`,
         metadata: { withinHours: isWithinHours, currentTime: new Date().toISOString() }
-      });
+      }, sessionId);
 
       if (!isWithinHours) {
         await thoughtProcessLogger.logThought({
@@ -291,7 +308,7 @@ Status: ${isWithinHours ? '✓ Within trading hours' : '⚠️ Outside trading h
           title: 'Scan Skipped - Outside Trading Hours',
           content: 'Per Pipnosis Law #8 (Market Hours), scanning paused until trading hours resume.',
           metadata: { reason: 'outside_hours' }
-        });
+        }, sessionId);
         return {
           opportunityFound: false,
           message: 'Outside trading hours',
@@ -327,7 +344,7 @@ Scanning Symbols: ${analysisRequest.symbols.join(', ')}
 Min Confidence Threshold: ${preferences.min_confidence_threshold || 75}%
 Risk Tolerance: ${preferences.risk_tolerance || 'medium'}`,
         metadata: { accountBalance, symbols: analysisRequest.symbols }
-      });
+      }, sessionId);
 
       const analysisResult = await aiTradingEngine.analyzeTradeRequest(analysisRequest);
 
@@ -345,7 +362,7 @@ Risk Tolerance: ${preferences.risk_tolerance || 'medium'}`,
           title: 'No Opportunities Found',
           content: 'AI analysis completed but found no high-confidence trading opportunities in current market conditions.',
           metadata: { reason: 'no_opportunities' }
-        });
+        }, sessionId);
         await this.incrementNoOpportunityCount(userId);
         return {
           opportunityFound: false,
@@ -376,7 +393,7 @@ ${selectedOption.confidence >= (preferences.min_confidence_threshold || 75) ? '�
           symbol: selectedOption.symbol,
           direction: selectedOption.direction
         }
-      });
+      }, sessionId);
 
       if (selectedOption.confidence < preferences.min_confidence_threshold) {
         await thoughtProcessLogger.logThought({
@@ -389,7 +406,7 @@ ${selectedOption.confidence >= (preferences.min_confidence_threshold || 75) ? '�
 
 Per Pipnosis Law #6 (Quality Over Quantity), only high-probability setups are executed.`,
           metadata: { confidence: selectedOption.confidence, threshold: preferences.min_confidence_threshold, reason: 'low_confidence' }
-        });
+        }, sessionId);
         await this.incrementNoOpportunityCount(userId);
         return {
           opportunityFound: false,
@@ -425,7 +442,7 @@ Executing trade now...`,
           entryPrice: selectedOption.entryPrice,
           lotSize: selectedOption.lotSize
         }
-      });
+      }, sessionId);
 
       const tradeResult = await simulatedTradingService.executeTrade(
         {
@@ -453,7 +470,7 @@ Executing trade now...`,
           title: 'Trade Execution Failed',
           content: `Failed to execute trade: ${tradeResult.message}`,
           metadata: { error: tradeResult.message }
-        });
+        }, sessionId);
         throw new Error(tradeResult.message);
       }
 
@@ -498,7 +515,7 @@ Next scan in approximately 2 minutes.`,
           success: true,
           tradesCount: status.tradesTakenToday + 1
         }
-      });
+      }, sessionId);
 
       await this.notifyUser(
         userId,
@@ -540,7 +557,7 @@ Next scan in approximately 2 minutes.`,
 
 Auto trading has been paused to prevent further issues. Please review the error and restart manually when ready.`,
           metadata: { error: errorMessage, pausedAt: new Date().toISOString() }
-        });
+        }, sessionId);
       }
 
       await this.updateAutoTradingStatus(userId, {
@@ -655,7 +672,10 @@ Auto trading has been paused to prevent further issues. Please review the error 
         emergencyStop: data.emergency_stop,
         continuousMode: data.continuous_mode || false,
         learningMode: data.learning_mode || false,
-        totalTradesExecuted: data.total_trades_executed || 0
+        totalTradesExecuted: data.total_trades_executed || 0,
+        currentSessionId: data.current_session_id,
+        sessionStartedAt: data.session_started_at ? new Date(data.session_started_at) : undefined,
+        sessionEndedAt: data.session_ended_at ? new Date(data.session_ended_at) : undefined
       };
     } catch (error) {
       console.error('Error getting auto trading status:', error);
