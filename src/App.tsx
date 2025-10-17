@@ -23,7 +23,6 @@ import { ConfigurationStatus } from './components/ConfigurationStatus';
 import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { AITradingConsole } from './components/AITradingConsole';
-import { AutoTradingThoughtThread } from './components/AutoTradingThoughtThread';
 import { SearchStatusPanel } from './components/SearchStatusPanel';
 import { usePromptAnalysis, useMarketData } from './hooks/useAPI';
 import { simulatedTradingService } from './services/simulated-trading';
@@ -84,7 +83,6 @@ const Dashboard: React.FC = () => {
   } | null>(null);
   const [activeSearchSessionId, setActiveSearchSessionId] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
-  const [isAutoTradingActive, setIsAutoTradingActive] = useState(false);
 
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
 
@@ -102,25 +100,6 @@ const Dashboard: React.FC = () => {
       }, 100);
     }
   }, [strategyOptions]);
-
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const checkAutoTradingStatus = async () => {
-      const { data } = await supabase
-        .from('auto_trading_status')
-        .select('enabled')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      setIsAutoTradingActive(data?.enabled || false);
-    };
-
-    checkAutoTradingStatus();
-    const interval = setInterval(checkAutoTradingStatus, 10000);
-
-    return () => clearInterval(interval);
-  }, [user?.id]);
 
   const handlePromptSubmit = async (prompt: string) => {
     if (!user) return;
@@ -393,9 +372,6 @@ const Dashboard: React.FC = () => {
           
           {/* AI Trading Console - New ChatGPT Integration */}
           <AITradingConsole />
-
-          {/* Auto Trading AI Thought Process Thread */}
-          <AutoTradingThoughtThread isAutoTradingActive={isAutoTradingActive} />
 
           {/* Extended Search Status Panel */}
           {activeSearchSessionId && isSearching && (
