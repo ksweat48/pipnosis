@@ -19,14 +19,19 @@ interface ThoughtEntry {
 
 interface AutoTradingThoughtThreadProps {
   isAutoTradingActive: boolean;
-  maxEntries?: number;
   currentSessionId?: string | null;
   sessionStartedAt?: Date | null;
 }
 
+// Step types to hide from UI display (still logged to database)
+const HIDDEN_STEP_TYPES = new Set([
+  'auto_scan_start',
+  'auto_limit_check',
+  'auto_market_hours_check'
+]);
+
 export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> = ({
   isAutoTradingActive,
-  maxEntries = 100,
   currentSessionId,
   sessionStartedAt
 }) => {
@@ -79,6 +84,13 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
           // Only add thoughts from the current session
           if (currentSessionId && newThought.session_id === currentSessionId) {
             console.log('[AutoTradingThoughtThread] ✅ Adding thought to list (session match)');
+
+            // Skip hidden step types
+            if (HIDDEN_STEP_TYPES.has(newThought.step_type)) {
+              console.log('[AutoTradingThoughtThread] ⏩ Skipping hidden step type:', newThought.step_type);
+              return;
+            }
+
             setThoughts(prev => {
               // Check if thought already exists to avoid duplicates
               if (prev.some(t => t.id === newThought.id)) {
@@ -86,7 +98,7 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
                 return prev;
               }
               const updated = [...prev, newThought];
-              return updated.slice(-maxEntries);
+              return updated;
             });
           } else if (!currentSessionId) {
             console.log('[AutoTradingThoughtThread] ℹ️ No session ID - checking decision type');
@@ -99,10 +111,17 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
               .then(({ data, error }) => {
                 if (data?.decision_type === 'auto') {
                   console.log('[AutoTradingThoughtThread] ✅ Adding thought to list (auto decision)');
+
+                  // Skip hidden step types
+                  if (HIDDEN_STEP_TYPES.has(newThought.step_type)) {
+                    console.log('[AutoTradingThoughtThread] ⏩ Skipping hidden step type:', newThought.step_type);
+                    return;
+                  }
+
                   setThoughts(prev => {
                     if (prev.some(t => t.id === newThought.id)) return prev;
                     const updated = [...prev, newThought];
-                    return updated.slice(-maxEntries);
+                    return updated;
                   });
                 } else {
                   console.log('[AutoTradingThoughtThread] ❌ Skipping thought (not auto decision)');
@@ -158,7 +177,7 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         pollingIntervalRef.current = null;
       }
     };
-  }, [user?.id, maxEntries, currentSessionId, isAutoTradingActive]);
+  }, [user?.id, currentSessionId, isAutoTradingActive]);
 
   useEffect(() => {
     if (autoScroll && thoughtsEndRef.current) {
@@ -182,8 +201,7 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         .select('*')
         .eq('user_id', user.id)
         .eq('session_id', currentSessionId)
-        .order('created_at', { ascending: true })
-        .limit(maxEntries);
+        .order('created_at', { ascending: true });
 
       if (error) {
         console.error('[AutoTradingThoughtThread] Error loading thought process:', error);
@@ -195,7 +213,15 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         sessionId: currentSessionId
       });
 
-      setThoughts(data || []);
+      // Filter out hidden step types from loaded thoughts
+      const filteredData = (data || []).filter(thought => !HIDDEN_STEP_TYPES.has(thought.step_type));
+      console.log('[AutoTradingThoughtThread] Filtered thoughts:', {
+        total: data?.length || 0,
+        visible: filteredData.length,
+        hidden: (data?.length || 0) - filteredData.length
+      });
+
+      setThoughts(filteredData);
     } else {
       // Fallback: Load recent thoughts from last 2 hours if no session ID
       const twoHoursAgo = new Date();
@@ -206,8 +232,7 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         .select('*')
         .eq('user_id', user.id)
         .gte('created_at', twoHoursAgo.toISOString())
-        .order('created_at', { ascending: true })
-        .limit(maxEntries);
+        .order('created_at', { ascending: true });
 
       if (error) {
         console.error('[AutoTradingThoughtThread] Error loading thought process:', error);
@@ -218,7 +243,15 @@ export const AutoTradingThoughtThread: React.FC<AutoTradingThoughtThreadProps> =
         count: data?.length || 0
       });
 
-      setThoughts(data || []);
+      // Filter out hidden step types from loaded thoughts
+      const filteredData = (data || []).filter(thought => !HIDDEN_STEP_TYPES.has(thought.step_type));
+      console.log('[AutoTradingThoughtThread] Filtered thoughts:', {
+        total: data?.length || 0,
+        visible: filteredData.length,
+        hidden: (data?.length || 0) - filteredData.length
+      });
+
+      setThoughts(filteredData);
     }
   };
 

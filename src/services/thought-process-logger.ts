@@ -245,8 +245,18 @@ class ThoughtProcessLogger {
     return content;
   }
 
-  formatPairConditions(conditions: any[]): string {
-    if (!conditions || conditions.length === 0) {
+  formatPairConditions(conditions: any): string {
+    // Defensive check: ensure conditions is an array
+    if (!conditions) {
+      return 'No specific conditions tracked';
+    }
+
+    if (!Array.isArray(conditions)) {
+      console.warn('[ThoughtProcessLogger] formatPairConditions received non-array:', typeof conditions);
+      return 'Conditions data format error';
+    }
+
+    if (conditions.length === 0) {
       return 'No specific conditions tracked';
     }
 

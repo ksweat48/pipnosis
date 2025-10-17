@@ -449,12 +449,19 @@ class AIPairPredictionService {
 
     if (error || !data) return null;
 
-    const requirements = data.conditions_required?.map((req: any) => ({
+    // Ensure conditions_required is always an array
+    let conditionsData = data.conditions_required;
+    if (!Array.isArray(conditionsData)) {
+      console.warn('[AIPairPrediction] conditions_required is not an array:', typeof conditionsData);
+      conditionsData = [];
+    }
+
+    const requirements = conditionsData.map((req: any) => ({
       ...req,
       current: '',
       isMet: data.conditions_met?.includes(req.indicator) || false,
       proximityPercent: data.condition_proximity?.[req.indicator] || 0
-    })) || [];
+    }));
 
     return this.mapPredictionFromDB(data, requirements);
   }
