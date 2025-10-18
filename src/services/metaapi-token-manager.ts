@@ -3,6 +3,7 @@ class MetaApiTokenManager {
   private tokenExpiry: Date | null = null;
   private region: string = 'new-york';
   private isInitialized: boolean = false;
+  private isFetching: boolean = false;
 
   async getToken(accountId: string, region: string = 'new-york'): Promise<string> {
     this.region = region;
@@ -11,7 +12,22 @@ class MetaApiTokenManager {
       return this.currentToken;
     }
 
-    return this.loadToken();
+    if (this.isFetching) {
+      await this.waitForFetch();
+      if (this.currentToken && this.isTokenValid()) {
+        return this.currentToken;
+      }
+    }
+
+    return this.fetchTokenFromEdgeFunction(accountId, region);
+  }
+
+  private async waitForFetch(): Promise<void> {
+    let attempts = 0;
+    while (this.isFetching && attempts < 50) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
   }
 
   private isTokenValid(): boolean {
@@ -24,22 +40,78 @@ class MetaApiTokenManager {
     return new Date() < expiryWithBuffer;
   }
 
-  private loadToken(): string {
-    const envToken = import.meta.env.VITE_METAAPI_TOKEN || '';
+  private async fetchTokenFromEdgeFunction(accountId: string, region: string): Promise<string> {
+    this.isFetching = true;
 
-    if (!envToken) {
-      throw new Error('MetaAPI token not configured in environment');
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Supabase configuration not found');
+      }
+
+      const edgeFunctionUrl = `${supabaseUrl}/functions/v1/metaapi-token`;
+
+      if (!this.isInitialized) {
+        console.log('🔑 Fetching secure MetaAPI token from edge function...');
+        this.isInitialized = true;
+      }
+
+      const response = await fetch(edgeFunctionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
+          'apikey': supabaseKey
+        },
+        body: JSON.stringify({ accountId, region })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Token fetch failed:', errorData);
+
+        throw new Error(
+          `Failed to fetch secure token: ${errorData.message || errorData.error || response.statusText}\n` +
+          `Status: ${response.status}\n` +
+          (errorData.troubleshooting ? `\nTroubleshooting:\n- ${errorData.troubleshooting.join('\n- ')}` : '')
+        );
+      }
+
+      const data = await response.json();
+
+      if (!data.token) {
+        throw new Error('No token received from edge function');
+      }
+
+      this.currentToken = data.token;
+      this.tokenExpiry = new Date(data.expiresAt);
+
+      console.log('✅ Secure MetaAPI token obtained successfully');
+
+      return data.token;
+    } catch (error) {
+      this.currentToken = null;
+      this.tokenExpiry = null;
+
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+      if (errorMessage.includes('SSL') || errorMessage.includes('certificate') || errorMessage.includes('ERR_CERT')) {
+        throw new Error(
+          'SSL Certificate Error: Unable to connect to MetaAPI Token Service.\n' +
+          'This may be caused by:\n' +
+          '- Expired or invalid SSL certificates on MetaAPI servers\n' +
+          '- Network security policies blocking HTTPS connections\n' +
+          '- System date/time being incorrect\n' +
+          '\nPlease check your system settings and try again.'
+        );
+      }
+
+      throw error;
+    } finally {
+      this.isFetching = false;
     }
-
-    if (!this.isInitialized) {
-      console.log('🔑 MetaAPI secure token loaded');
-      this.isInitialized = true;
-    }
-
-    this.currentToken = envToken;
-    this.tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-    return envToken;
   }
 
   clearToken(): void {

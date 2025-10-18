@@ -160,7 +160,39 @@ class MetaApiService {
       console.log(`Account ID: ${this.accountId}`);
 
       // Fetch secure token from edge function
-      const secureToken = await metaApiTokenManager.getToken(this.accountId, this.region);
+      let secureToken: string;
+      try {
+        secureToken = await metaApiTokenManager.getToken(this.accountId, this.region);
+      } catch (tokenError) {
+        const tokenErrorMsg = tokenError instanceof Error ? tokenError.message : 'Unknown error';
+
+        if (tokenErrorMsg.includes('SSL') || tokenErrorMsg.includes('certificate') || tokenErrorMsg.includes('ERR_CERT')) {
+          throw new Error(
+            'SSL Certificate Validation Error\n\n' +
+            'Unable to establish a secure connection to MetaAPI Token Service.\n\n' +
+            'Possible causes:\n' +
+            '• SSL certificate validation failed for MetaAPI endpoints\n' +
+            '• System date/time is incorrect\n' +
+            '• Network security policies are blocking HTTPS connections\n' +
+            '• Browser or system CA certificates need updating\n\n' +
+            'Please verify your system settings and network configuration.'
+          );
+        }
+
+        if (tokenErrorMsg.includes('502') || tokenErrorMsg.includes('Failed to generate')) {
+          throw new Error(
+            'MetaAPI Token Service Error\n\n' +
+            'Unable to generate a secure token from MetaAPI.\n\n' +
+            'Possible causes:\n' +
+            '• MetaAPI admin token is invalid or expired\n' +
+            '• MetaAPI account does not exist or is not accessible\n' +
+            '• Region mismatch between configuration and account\n\n' +
+            'Please verify your MetaAPI configuration and account status.'
+          );
+        }
+
+        throw new Error(`Token fetch failed: ${tokenErrorMsg}`);
+      }
 
       this.api = new MetaApi(secureToken, {
         application: 'Pipnosis',
@@ -174,6 +206,18 @@ class MetaApiService {
         this.account = await this.api.metatraderAccountApi.getAccount(this.accountId);
       } catch (apiError) {
         const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
+
+        if (errorMessage.includes('ERR_CERT') || errorMessage.includes('certificate')) {
+          throw new Error(
+            'SSL Certificate Error: Cannot verify MetaAPI server identity.\n\n' +
+            'This error typically occurs when:\n' +
+            '• SSL certificates for MetaAPI endpoints are not trusted\n' +
+            '• Your system date/time is incorrect\n' +
+            '• Corporate firewalls are intercepting SSL connections\n\n' +
+            'Please check your system settings and network configuration.'
+          );
+        }
+
         if (errorHandler.isNetworkError(apiError) || errorHandler.isMetaApiError(apiError)) {
           errorHandler.handleMetaApiError(apiError, 'Account Fetch');
           this.isDemoMode = true;
