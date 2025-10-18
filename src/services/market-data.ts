@@ -522,12 +522,20 @@ class MarketDataService {
 
     try {
       await metaApiService.initialize();
+      const status = metaApiService.getConnectionStatus();
+
       this.isInitialized = true;
       this.isDemoMode = false;
 
       dbHealthMonitor.startMonitoring();
       candleCompletionService.start();
-      console.log('✅ Market data service initialized successfully');
+
+      if (status.isDataOnlyMode) {
+        console.log('✅ Market data service initialized in data-only mode');
+        console.log('📊 Live candle fetching available (account management unavailable due to SSL issues)');
+      } else {
+        console.log('✅ Market data service initialized successfully');
+      }
       console.log('🔍 Database health monitoring active');
       console.log('🔄 Candle completion service active');
     } catch (error) {

@@ -55,6 +55,7 @@ class MetaApiService {
   private synchronizationListeners: Map<string, MarketDataListener> = new Map();
   private isListenerRegistered = false;
   private isDemoMode = false;
+  private isDataOnlyMode = false;
   private latestPrices: Map<string, { bid: number; ask: number; timestamp: number }> = new Map();
   private readonly PRICE_CACHE_TTL = 60000;
 
@@ -207,15 +208,19 @@ class MetaApiService {
       } catch (apiError) {
         const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
 
-        if (errorMessage.includes('ERR_CERT') || errorMessage.includes('certificate')) {
-          throw new Error(
-            'SSL Certificate Error: Cannot verify MetaAPI server identity.\n\n' +
-            'This error typically occurs when:\n' +
-            '• SSL certificates for MetaAPI endpoints are not trusted\n' +
-            '• Your system date/time is incorrect\n' +
-            '• Corporate firewalls are intercepting SSL connections\n\n' +
-            'Please check your system settings and network configuration.'
-          );
+        if (errorHandler.isSSLCertificateError(apiError)) {
+          console.warn('⚠️ SSL Certificate error on MetaAPI account endpoint (server-side issue)');
+          console.log('📊 Continuing in data-only mode - candle fetching available, account management unavailable');
+          errorHandler.handleMetaApiError(apiError, 'Account Fetch');
+
+          this.isDataOnlyMode = true;
+          this.isInitialized = true;
+          this.isInitializing = false;
+          this.initializationError = null;
+
+          console.log('✅ MetaApi initialized in data-only mode (SSL cert issue on account API)');
+          console.log('🔍 Live candle data fetching is available via cached token');
+          return;
         }
 
         if (errorHandler.isNetworkError(apiError) || errorHandler.isMetaApiError(apiError)) {
@@ -363,7 +368,11 @@ class MetaApiService {
     }
     await this.ensureInitialized();
 
-    if (!this.account) {
+    if (this.isDataOnlyMode) {
+      if (!this.api) {
+        throw new Error('MetaApi not initialized');
+      }
+    } else if (!this.account) {
       throw new Error('MetaApi account not initialized');
     }
 
@@ -385,12 +394,24 @@ class MetaApiService {
         console.log(`Fetching historical candles: ${symbol} ${timeframe} (API: ${apiTimeframe})`);
         console.log(`Time range: ${calculatedStartTime.toISOString()} to ${endTime.toISOString()}`);
 
-        const candles = await this.account!.getHistoricalCandles(
-          symbol,
-          apiTimeframe,
-          calculatedStartTime,
-          limit
-        );
+        let candles;
+        if (this.isDataOnlyMode) {
+          console.log('📊 Using direct API call (data-only mode)');
+          candles = await this.api!.metatraderAccountApi.getHistoricalMarketData(
+            this.accountId,
+            symbol,
+            apiTimeframe,
+            calculatedStartTime,
+            limit
+          );
+        } else {
+          candles = await this.account!.getHistoricalCandles(
+            symbol,
+            apiTimeframe,
+            calculatedStartTime,
+            limit
+          );
+        }
 
         const mappedCandles = candles.map((candle: any) => ({
           symbol,
@@ -766,20 +787,22 @@ class MetaApiService {
   }
 
   isConnected(): boolean {
-    return this.isInitialized && this.connection !== null;
+    return this.isInitialized && (this.connection !== null || this.isDataOnlyMode);
   }
 
   getConnectionStatus(): {
     isConnected: boolean;
     isDemoMode: boolean;
+    isDataOnlyMode: boolean;
     hasCredentials: boolean;
     initializationError: string | null;
     accountState: string | null;
     region: string;
   } {
     return {
-      isConnected: this.isInitialized && this.connection !== null,
+      isConnected: this.isInitialized && (this.connection !== null || this.isDataOnlyMode),
       isDemoMode: this.isDemoMode,
+      isDataOnlyMode: this.isDataOnlyMode,
       hasCredentials: !!(this.token && this.accountId),
       initializationError: this.initializationError?.message || null,
       accountState: this.account?.state || null,

@@ -75,10 +75,28 @@ class ErrorHandler {
     );
   }
 
+  isSSLCertificateError(error: any): boolean {
+    if (!error) return false;
+    const errorMessage = error.message || error.toString();
+    return (
+      errorMessage.includes('ERR_CERT') ||
+      errorMessage.includes('certificate') ||
+      errorMessage.includes('SSL') ||
+      errorMessage.includes('Expired') ||
+      errorMessage.includes('ERR_CERT_AUTHORITY_INVALID') ||
+      errorMessage.includes('ERR_CERT_DATE_INVALID')
+    );
+  }
+
   isNetworkError(error: any): boolean {
     if (!error) return false;
 
     const errorMessage = error.message || error.toString();
+
+    if (this.isSSLCertificateError(error)) {
+      return false;
+    }
+
     const networkErrorPatterns = [
       'Failed to fetch',
       'NetworkError',
@@ -88,7 +106,6 @@ class ErrorHandler {
       'ERR_NETWORK_CHANGED',
       'ERR_CONNECTION_RESET',
       'ECONNREFUSED',
-      'net::ERR_',
     ];
 
     return networkErrorPatterns.some(pattern =>
@@ -123,6 +140,15 @@ class ErrorHandler {
     if (this.isWebContainerEnvironment()) {
       return;
     }
+
+    if (this.isSSLCertificateError(error)) {
+      this.logWarning(
+        `SSL certificate issue with MetaAPI${context ? ` (${context})` : ''}. This is a server-side issue and won't affect data fetching.`,
+        'MetaAPI-SSL'
+      );
+      return;
+    }
+
     this.logWarning(
       `MetaAPI connection issue${context ? ` (${context})` : ''}. Using demo mode.`,
       'MetaAPI'
