@@ -610,7 +610,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
     setIsFixingData(true);
     setFixMessage(null);
-    setFixProgress({ status: 'Checking MetaAPI connection...', percent: 0 });
+    setFixProgress({ status: 'Initializing MetaAPI connection...', percent: 0 });
 
     try {
       const connectionStatus = marketDataService.getConnectionStatus();
@@ -628,7 +628,26 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       }
 
       if (!connectionStatus.isConnected) {
-        setFixProgress({ status: 'MetaAPI not connected. Testing connection...', percent: 2 });
+        setFixProgress({ status: 'Initializing MetaAPI service...', percent: 1 });
+
+        try {
+          await marketDataService.initialize();
+          console.log('✅ MetaAPI service initialized');
+        } catch (initError) {
+          const initMsg = initError instanceof Error ? initError.message : 'Unknown error';
+          if (initMsg.includes('demo mode') || initMsg.includes('not configured')) {
+            setFixProgress(null);
+            setFixMessage({
+              type: 'error',
+              text: 'MetaAPI is not configured. Running in demo mode with cached data only.'
+            });
+            setIsFixingData(false);
+            setTimeout(() => setFixMessage(null), 10000);
+            return;
+          }
+        }
+
+        setFixProgress({ status: 'Testing MetaAPI connection...', percent: 2 });
         const testResult = await marketDataService.testConnection();
 
         if (!testResult.success) {

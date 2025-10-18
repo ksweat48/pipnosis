@@ -59,25 +59,6 @@ class MetaApiTokenManager {
       region: this.region,
     };
   }
-
-  async testConnection(accountId: string): Promise<any> {
-    console.log('🧪 Testing MetaAPI connection...');
-    try {
-      const token = await this.getToken(accountId, this.region);
-      console.log('✅ Token loaded successfully');
-      return {
-        success: true,
-        tokenInfo: this.getTokenInfo(),
-      };
-    } catch (error) {
-      console.error('❌ Connection test failed:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        tokenInfo: this.getTokenInfo(),
-      };
-    }
-  }
 }
 
 export const metaApiTokenManager = new MetaApiTokenManager();

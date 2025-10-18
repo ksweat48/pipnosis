@@ -771,11 +771,35 @@ class MetaApiService {
         };
       }
 
+      if (this.isInitialized && this.connection) {
+        console.log('✅ Connection already established');
+        return {
+          success: true,
+          stage: 'complete',
+          message: 'MetaAPI is already connected and ready.',
+          details: {
+            state: this.account?.state,
+            region: this.account?.region,
+            server: this.account?.server || 'Unknown'
+          }
+        };
+      }
+
       console.log('🔍 Testing MetaAPI connection...');
       console.log(`   Region: ${this.region}`);
       console.log(`   Account ID: ${this.accountId}`);
 
-      const secureToken = await metaApiTokenManager.getToken(this.accountId, this.region);
+      let secureToken: string;
+      try {
+        secureToken = await metaApiTokenManager.getToken(this.accountId, this.region);
+      } catch (tokenError) {
+        return {
+          success: false,
+          stage: 'token_fetch',
+          message: `Failed to load MetaAPI token: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}`,
+          details: { error: tokenError }
+        };
+      }
 
       const testApi = new MetaApi(secureToken, {
         application: 'Pipnosis',

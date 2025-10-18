@@ -74,15 +74,20 @@ class MetaApiDiagnostics {
 
     if (accountId) {
       try {
-        console.log('🧪 Testing token manager connection...');
-        const connectionTest = await metaApiTokenManager.testConnection(accountId);
-        result.results.metaApiConnectivity = connectionTest;
+        console.log('🧪 Validating token availability...');
+        const tokenInfo = metaApiTokenManager.getTokenInfo();
+        result.results.metaApiConnectivity = {
+          success: tokenInfo.hasToken && tokenInfo.isValid,
+          tokenInfo: tokenInfo
+        };
 
-        if (!connectionTest.success) {
-          result.warnings.push('Token manager connection test failed');
+        if (!tokenInfo.hasToken) {
+          result.errors.push('No MetaAPI token available');
+        } else if (!tokenInfo.isValid) {
+          result.warnings.push('Token may be expired or invalid');
         }
       } catch (error) {
-        result.errors.push(`Connection test error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        result.errors.push(`Token validation error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
 
