@@ -1,9 +1,8 @@
 export interface EnvironmentConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
-  metaApiToken: string;
-  metaApiAccountId: string;
-  metaApiRegion: string;
+  metaApiToken?: string;
+  metaApiAccountId?: string;
 }
 
 export interface EnvironmentValidation {
@@ -21,7 +20,6 @@ export function validateEnvironment(): EnvironmentValidation {
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   const metaApiToken = import.meta.env.VITE_METAAPI_TOKEN;
   const metaApiAccountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID;
-  const metaApiRegion = import.meta.env.VITE_METAAPI_REGION || 'new-york';
 
   if (!supabaseUrl) {
     errors.push('VITE_SUPABASE_URL is not defined');
@@ -40,20 +38,11 @@ export function validateEnvironment(): EnvironmentValidation {
   }
 
   if (!metaApiToken) {
-    errors.push('VITE_METAAPI_TOKEN is required for live trading');
-  } else if (metaApiToken.length < 20) {
-    errors.push('VITE_METAAPI_TOKEN appears to be invalid (too short)');
+    warnings.push('VITE_METAAPI_TOKEN is not defined - running in demo mode');
   }
 
   if (!metaApiAccountId) {
-    errors.push('VITE_METAAPI_ACCOUNT_ID is required for live trading');
-  } else if (!metaApiAccountId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
-    warnings.push('VITE_METAAPI_ACCOUNT_ID does not appear to be a valid UUID');
-  }
-
-  const validRegions = ['new-york', 'london', 'singapore'];
-  if (metaApiRegion && !validRegions.includes(metaApiRegion)) {
-    warnings.push(`VITE_METAAPI_REGION '${metaApiRegion}' is not a known region. Valid options: ${validRegions.join(', ')}`);
+    warnings.push('VITE_METAAPI_ACCOUNT_ID is not defined - running in demo mode');
   }
 
   const isValid = errors.length === 0;
@@ -61,9 +50,8 @@ export function validateEnvironment(): EnvironmentValidation {
   const config: EnvironmentConfig | null = isValid ? {
     supabaseUrl: supabaseUrl || '',
     supabaseAnonKey: supabaseAnonKey || '',
-    metaApiToken: metaApiToken || '',
-    metaApiAccountId: metaApiAccountId || '',
-    metaApiRegion: metaApiRegion
+    metaApiToken,
+    metaApiAccountId
   } : null;
 
   return {
@@ -107,29 +95,6 @@ export function getEnvironmentSummary(): string {
     return `Configuration Error: ${validation.errors.join(', ')}`;
   }
 
-  return `Live Trading Mode (${validation.config?.metaApiRegion || 'new-york'})`;
-}
-
-export function checkCredentialsConfigured(): {
-  configured: boolean;
-  missing: {
-    token: boolean;
-    accountId: boolean;
-    region: boolean;
-  };
-} {
-  const metaApiToken = import.meta.env.VITE_METAAPI_TOKEN;
-  const metaApiAccountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID;
-  const metaApiRegion = import.meta.env.VITE_METAAPI_REGION;
-
-  const missing = {
-    token: !metaApiToken,
-    accountId: !metaApiAccountId,
-    region: !metaApiRegion
-  };
-
-  return {
-    configured: !missing.token && !missing.accountId,
-    missing
-  };
+  const hasMetaApi = validation.config?.metaApiToken && validation.config?.metaApiAccountId;
+  return hasMetaApi ? 'Live Trading Mode' : 'Demo Mode (Cached Data Only)';
 }

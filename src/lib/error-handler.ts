@@ -45,6 +45,12 @@ class ErrorHandler {
     );
   }
 
+  handleWebContainerTimeout(error: any): void {
+    this.logWarning(
+      'WebContainer environment taking longer than expected to initialize. This is normal in cloud environments.',
+      'WebContainer'
+    );
+  }
 
   handleResourcePreloadWarning(resource: string): void {
     const errorKey = `preload:${resource}`;
@@ -59,17 +65,13 @@ class ErrorHandler {
     }
   }
 
-
-  isSSLCertificateError(error: any): boolean {
+  isWebContainerError(error: any): boolean {
     if (!error) return false;
     const errorMessage = error.message || error.toString();
     return (
-      errorMessage.includes('ERR_CERT') ||
-      errorMessage.includes('certificate') ||
-      errorMessage.includes('SSL') ||
-      errorMessage.includes('Expired') ||
-      errorMessage.includes('ERR_CERT_AUTHORITY_INVALID') ||
-      errorMessage.includes('ERR_CERT_DATE_INVALID')
+      errorMessage.includes('WebContainer') ||
+      errorMessage.includes('webcontainer') ||
+      errorMessage.includes('took longer than')
     );
   }
 
@@ -77,11 +79,6 @@ class ErrorHandler {
     if (!error) return false;
 
     const errorMessage = error.message || error.toString();
-
-    if (this.isSSLCertificateError(error)) {
-      return false;
-    }
-
     const networkErrorPatterns = [
       'Failed to fetch',
       'NetworkError',
@@ -91,6 +88,7 @@ class ErrorHandler {
       'ERR_NETWORK_CHANGED',
       'ERR_CONNECTION_RESET',
       'ECONNREFUSED',
+      'net::ERR_',
     ];
 
     return networkErrorPatterns.some(pattern =>
@@ -98,8 +96,38 @@ class ErrorHandler {
     );
   }
 
+  isWebContainerEnvironment(): boolean {
+    if (typeof window === 'undefined') return false;
+    const hostname = window.location.hostname;
+    return (
+      hostname.includes('webcontainer') ||
+      hostname.includes('bolt.new') ||
+      hostname.includes('stackblitz') ||
+      hostname.includes('csb.app') ||
+      hostname.includes('codesandbox')
+    );
+  }
 
+  isMetaApiError(error: any): boolean {
+    if (!error) return false;
+    const errorMessage = error.message || error.toString();
+    return (
+      errorMessage.includes('metaapi') ||
+      errorMessage.includes('agiliumtrade') ||
+      errorMessage.includes('mt-provisioning-api') ||
+      errorMessage.includes('mt-client-api')
+    );
+  }
 
+  handleMetaApiError(error: any, context?: string): void {
+    if (this.isWebContainerEnvironment()) {
+      return;
+    }
+    this.logWarning(
+      `MetaAPI connection issue${context ? ` (${context})` : ''}. Using demo mode.`,
+      'MetaAPI'
+    );
+  }
 
   private getErrorKey(error: any, context?: string): string {
     const message = error?.message || error?.toString() || 'unknown';
@@ -116,36 +144,62 @@ export const errorHandler = new ErrorHandler();
 if (typeof window !== 'undefined') {
   const originalConsoleError = console.error;
   console.error = (...args: any[]) => {
-    const errorStr = args.join(' ');
+    const errorMessage = args.join(' ');
 
-    if (errorStr.includes('/api/deploy/') && errorStr.includes('404')) {
+    if (
+      errorMessage.includes('ERR_NETWORK_CHANGED') ||
+      errorMessage.includes('ERR_CONNECTION_RESET') ||
+      errorMessage.includes('mt-provisioning-api') ||
+      errorMessage.includes('agiliumtrade') ||
+      errorMessage.includes('/api/analytics')
+    ) {
+      if (errorHandler.isWebContainerEnvironment()) {
+        return;
+      }
+      const count = errorHandler['errorCounts'].get('network-errors') || 0;
+      if (count < 2) {
+        errorHandler['errorCounts'].set('network-errors', count + 1);
+      }
       return;
     }
 
-    if (errorStr.includes('blitz.') && errorStr.includes('running source code in new context')) {
-      return;
-    }
-
-    if (errorStr.includes('preloaded using link preload') && errorStr.includes('not used within')) {
-      errorHandler.handleResourcePreloadWarning(errorStr);
+    if (
+      errorMessage.includes('WebSocket connection') ||
+      errorMessage.includes('ERR_INTERNET_DISCONNECTED')
+    ) {
+      const count = errorHandler['errorCounts'].get('websocket') || 0;
+      if (count < 3) {
+        originalConsoleError.apply(console, args);
+        errorHandler['errorCounts'].set('websocket', count + 1);
+      }
       return;
     }
 
     originalConsoleError.apply(console, args);
   };
 
-  const originalConsoleWarn = console.warn;
-  console.warn = (...args: any[]) => {
-    const warnStr = args.join(' ');
-
-    if (warnStr.includes('running source code in new context')) {
-      return;
+  window.addEventListener('error', (event) => {
+    const errorMessage = event.message || '';
+    if (
+      errorMessage.includes('ERR_NETWORK_CHANGED') ||
+      errorMessage.includes('ERR_CONNECTION_RESET') ||
+      errorMessage.includes('Failed to fetch')
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
     }
+  });
 
-    if (warnStr.includes('[Contexify]')) {
-      return;
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason?.message || event.reason?.toString() || '';
+    if (
+      reason.includes('ERR_NETWORK_CHANGED') ||
+      reason.includes('ERR_CONNECTION_RESET') ||
+      reason.includes('mt-provisioning-api') ||
+      reason.includes('/api/analytics')
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
     }
-
-    originalConsoleWarn.apply(console, args);
-  };
+  });
 }

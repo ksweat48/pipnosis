@@ -9,7 +9,6 @@ import { dbHealthMonitor } from './db-health-monitor';
 import { dataQualityMonitor } from './data-quality-monitor';
 import { multiTimeframeAggregator } from './multi-timeframe-aggregator';
 import { timeframeBackfillService } from './timeframe-backfill';
-import { marketHoursService } from './market-hours';
 
 export interface MarketDataListener {
   onCandleUpdate?: (candle: CandleData) => void;
@@ -42,6 +41,7 @@ class MarketDataService {
   private maxReconnectAttempts = 5;
   private isInitialized = false;
   private initializationAttempted = false;
+  private isDemoMode = false;
   private symbolsInitialized: Set<string> = new Set();
   private chartDataCache: Map<string, { data: ChartCandleData[], volumeData: any[], timestamp: number }> = new Map();
   private readonly CHART_CACHE_TTL = 30000;
@@ -53,15 +53,9 @@ class MarketDataService {
     useCache: boolean = true,
     quickLoad: boolean = false
   ): Promise<CandleData[]> {
-    if (!this.isInitialized) {
-      throw new Error('Market data service not initialized. Please ensure MetaAPI credentials are configured.');
-    }
-
     const effectiveLimit = quickLoad ? Math.min(100, limit) : limit;
     let apiCandles: CandleData[] = [];
-    let shouldFetchApi = true;
-
-    let cachedCandlesBackup: CandleData[] = [];
+    let shouldFetchApi = !this.isDemoMode;
 
     if (useCache) {
       const cachedCandles = await marketDataCache.getCachedCandles(
@@ -69,35 +63,38 @@ class MarketDataService {
         timeframe,
         effectiveLimit
       );
-      cachedCandlesBackup = cachedCandles;
 
       if (cachedCandles.length > 0) {
         const cacheValidation = this.validateCacheQuality(
-            cachedCandles,
-            timeframe,
-            limit
-          );
+          cachedCandles,
+          timeframe,
+          limit
+        );
 
-          console.log(`📊 Cache validation for ${symbol} ${timeframe}:`, {
-            candleCount: `${cachedCandles.length}/${limit}`,
-            isFresh: cacheValidation.isFresh,
-            coversExpectedRange: cacheValidation.coversExpectedRange,
-            hasCriticalGaps: cacheValidation.hasCriticalGaps,
-            newestCandleAge: cacheValidation.newestCandleAge,
-            recommendation: cacheValidation.shouldUseCacheOnly ? 'USE CACHE' : 'FETCH FROM API'
-          });
+        console.log(`📊 Cache validation for ${symbol} ${timeframe}:`, {
+          candleCount: `${cachedCandles.length}/${limit}`,
+          isFresh: cacheValidation.isFresh,
+          coversExpectedRange: cacheValidation.coversExpectedRange,
+          hasCriticalGaps: cacheValidation.hasCriticalGaps,
+          newestCandleAge: cacheValidation.newestCandleAge,
+          recommendation: cacheValidation.shouldUseCacheOnly ? 'USE CACHE' : 'FETCH FROM API'
+        });
 
-        if (cacheValidation.shouldUseCacheOnly) {
+        if (cacheValidation.shouldUseCacheOnly && !this.isDemoMode) {
           shouldFetchApi = false;
           apiCandles = cachedCandles;
           console.log(`✅ Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
-        } else {
+        } else if (!cacheValidation.shouldUseCacheOnly && !this.isDemoMode) {
           console.log(`🔄 Cache validation failed: ${cacheValidation.reason}`);
+        } else if (this.isDemoMode && cachedCandles.length > 0) {
+          apiCandles = cachedCandles;
+          shouldFetchApi = false;
+          console.log(`💾 Demo mode: Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
         }
       }
     }
 
-    if (shouldFetchApi) {
+    if (shouldFetchApi && !this.isDemoMode) {
       try {
         const endTime = new Date();
         const startTime = utilCalculateStartTime(timeframe, limit, endTime);
@@ -143,11 +140,18 @@ class MarketDataService {
 
         console.log(`📡 Fetched ${apiCandles.length} candles from MetaAPI for ${symbol} ${timeframe}`);
       } catch (error) {
-        console.error('❌ Error fetching from MetaAPI:', error);
-        throw new Error(
-          `Failed to fetch market data for ${symbol} ${timeframe}. ` +
-          `MetaAPI connection error: ${error instanceof Error ? error.message : 'Unknown error'}`
+        console.error('Error fetching from MetaAPI:', error);
+        const cachedCandles = await marketDataCache.getCachedCandles(
+          symbol,
+          timeframe,
+          limit
         );
+        if (cachedCandles.length > 0) {
+          apiCandles = cachedCandles;
+          console.log(`⚠️ MetaApi error, using ${cachedCandles.length} cached candles`);
+        } else {
+          throw error;
+        }
       }
     }
 
@@ -168,17 +172,7 @@ class MarketDataService {
     }
 
     if (mergeResult.candles.length === 0) {
-      console.warn(`⚠️ Merge result empty, attempting final fallback to cached data`);
-      if (cachedCandlesBackup.length > 0) {
-        console.log(`✅ Using ${cachedCandlesBackup.length} cached candles as final fallback`);
-        return cachedCandlesBackup.slice(-effectiveLimit);
-      }
-      const lastResortCandles = await marketDataCache.getCachedCandles(symbol, timeframe, limit);
-      if (lastResortCandles.length > 0) {
-        console.log(`✅ Using ${lastResortCandles.length} candles from last resort cache query`);
-        return lastResortCandles.slice(-effectiveLimit);
-      }
-      console.error(`❌ No data available for ${symbol} ${timeframe}`);
+      console.warn(`⚠️ No data available for ${symbol} ${timeframe}`);
       return [];
     }
 
@@ -205,11 +199,13 @@ class MarketDataService {
       Promise.resolve().then(async () => {
         await multiTimeframeAggregator.initialize(symbol);
         console.log(`✅ Initialized multi-timeframe aggregation for ${symbol}`);
-        timeframeBackfillService.checkAndBackfillAllTimeframes(symbol, timeframe).catch(err => {
-          console.warn('Background backfill check failed:', err);
-        });
+        if (!this.isDemoMode) {
+          timeframeBackfillService.checkAndBackfillAllTimeframes(symbol, timeframe).catch(err => {
+            console.warn('Background backfill check failed:', err);
+          });
+        }
       });
-    } else {
+    } else if (!this.isDemoMode) {
       Promise.resolve().then(() => {
         timeframeBackfillService.checkAndBackfillTimeframe(symbol, timeframe).catch(err => {
           console.warn('Timeframe backfill check failed:', err);
@@ -388,17 +384,17 @@ class MarketDataService {
 
   private getCacheFreshnessThreshold(timeframe: Timeframe): number {
     const thresholds: Record<Timeframe, number> = {
-      M1: 2 * 60 * 60 * 1000,
-      M5: 12 * 60 * 60 * 1000,
-      M15: 24 * 60 * 60 * 1000,
-      M30: 48 * 60 * 60 * 1000,
-      H1: 72 * 60 * 60 * 1000,
-      H4: 7 * 24 * 60 * 60 * 1000,
-      D1: 14 * 24 * 60 * 60 * 1000,
-      W1: 30 * 24 * 60 * 60 * 1000,
-      MN1: 60 * 24 * 60 * 60 * 1000
+      M1: 1 * 60 * 60 * 1000,
+      M5: 4 * 60 * 60 * 1000,
+      M15: 8 * 60 * 60 * 1000,
+      M30: 12 * 60 * 60 * 1000,
+      H1: 24 * 60 * 60 * 1000,
+      H4: 48 * 60 * 60 * 1000,
+      D1: 7 * 24 * 60 * 60 * 1000,
+      W1: 14 * 24 * 60 * 60 * 1000,
+      MN1: 30 * 24 * 60 * 60 * 1000
     };
-    return thresholds[timeframe] || 24 * 60 * 60 * 1000;
+    return thresholds[timeframe] || 8 * 60 * 60 * 1000;
   }
 
   private calculateExpectedStartDate(
@@ -450,7 +446,7 @@ class MarketDataService {
 
     const gaps = detectGaps(cachedCandles, timeframe);
     const tradingDayGaps = gaps.filter(g => g.isTradingDayGap);
-    const hasCriticalGaps = tradingDayGaps.length > 5;
+    const hasCriticalGaps = tradingDayGaps.length > 0;
 
     const validationResult = dataValidator.validateCandleSequence(cachedCandles, timeframe);
     const isSequenceValid = validationResult.isValid;
@@ -458,27 +454,27 @@ class MarketDataService {
     const candlesInExpectedRange = cachedCandles.filter(
       c => c.time >= expectedStartDate && c.time <= now
     ).length;
-    const hasMinimumCount = candlesInExpectedRange >= limit * 0.7;
+    const hasMinimumCount = candlesInExpectedRange >= limit * 0.95;
 
     const ageInHours = (newestCandleAge / (60 * 60 * 1000)).toFixed(1);
 
     let reason: string | undefined;
     let shouldUseCacheOnly = true;
 
-    if (cachedCandles.length >= limit * 0.8) {
-      shouldUseCacheOnly = true;
-      console.log(`✅ Cache has sufficient data (${cachedCandles.length}/${limit} candles, ${(cachedCandles.length/limit*100).toFixed(0)}%)`);
-    } else if (!isFresh) {
+    if (!isFresh) {
       reason = `Cache is stale (newest candle is ${ageInHours}h old, threshold: ${(freshnessThreshold / (60 * 60 * 1000)).toFixed(1)}h)`;
       shouldUseCacheOnly = false;
-    } else if (!coversExpectedRange && !hasMinimumCount) {
-      reason = `Cache doesn't cover expected range and has insufficient candles (${candlesInExpectedRange}/${limit})`;
+    } else if (!coversExpectedRange) {
+      reason = `Cache doesn't cover expected date range (oldest: ${oldestCandle.time.toISOString()}, expected: ${expectedStartDate.toISOString()})`;
       shouldUseCacheOnly = false;
     } else if (hasCriticalGaps) {
-      reason = `Cache has too many gaps (${tradingDayGaps.length}) during trading days`;
+      reason = `Cache has ${tradingDayGaps.length} gap(s) during trading days`;
       shouldUseCacheOnly = false;
-    } else if (!hasMinimumCount && cachedCandles.length < limit * 0.5) {
-      reason = `Insufficient candles (${candlesInExpectedRange}/${limit})`;
+    } else if (!isSequenceValid) {
+      reason = 'Cache has invalid candle sequence';
+      shouldUseCacheOnly = false;
+    } else if (!hasMinimumCount) {
+      reason = `Insufficient candles in expected range (${candlesInExpectedRange}/${limit})`;
       shouldUseCacheOnly = false;
     }
 
@@ -505,18 +501,25 @@ class MarketDataService {
 
     try {
       await metaApiService.initialize();
-
       this.isInitialized = true;
+      this.isDemoMode = false;
 
       dbHealthMonitor.startMonitoring();
       candleCompletionService.start();
-
       console.log('✅ Market data service initialized successfully');
       console.log('🔍 Database health monitoring active');
       console.log('🔄 Candle completion service active');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('❌ Failed to initialize MetaAPI:', errorMessage);
+
+      if (errorMessage.includes('not configured') || errorMessage.includes('demo mode')) {
+        this.isDemoMode = true;
+        console.warn('⚠️ Running in demo mode with cached data only');
+      } else {
+        console.error('❌ Failed to initialize MetaApi:', errorMessage);
+        this.isDemoMode = true;
+      }
+
       dbHealthMonitor.startMonitoring();
       throw error;
     }
@@ -524,25 +527,6 @@ class MarketDataService {
 
   isConnected(): boolean {
     return metaApiService.isConnected();
-  }
-
-  getConnectionStatus() {
-    return metaApiService.getConnectionStatus();
-  }
-
-  async testConnection() {
-    return await metaApiService.testConnection();
-  }
-
-  async forceReconnect() {
-    try {
-      await metaApiService.forceReconnect();
-      this.isInitialized = true;
-      console.log('✅ Market data service reconnected to MetaAPI');
-    } catch (error) {
-      console.error('❌ Market data service failed to reconnect:', error);
-      throw error;
-    }
   }
 
   async disconnect(): Promise<void> {
@@ -567,7 +551,7 @@ class MarketDataService {
       limit
     );
 
-    if (candles.length === 0) {
+    if (candles.length === 0 && !this.isDemoMode) {
       const fetchedCandles = await this.getHistoricalData(symbol, timeframe, limit, true, false);
       return fetchedCandles;
     }
@@ -739,7 +723,7 @@ class MarketDataService {
     try {
       console.log(`🔧 Starting comprehensive data fix for ${symbol} ${timeframe}...`);
 
-      onProgress?.({ status: 'Analyzing current data...', percent: 5 });
+      onProgress?.({ status: 'Analyzing current data...', percent: 10 });
 
       const currentCandles = await this.getHistoricalData(symbol, timeframe, limit, true, false);
       const currentValidation = await this.validateDataCompleteness(symbol, timeframe, currentCandles);
@@ -747,64 +731,36 @@ class MarketDataService {
 
       console.log(`📊 Current state: ${currentCandles.length} candles, ${beforeCompleteness.toFixed(1)}% complete, ${currentValidation.gaps} gaps`);
 
-      if (!this.isInitialized) {
-        console.log('⚠️ MetaAPI not connected. Attempting to connect...');
-        onProgress?.({ status: 'Testing MetaAPI connection...', percent: 10 });
+      if (!this.isInitialized || this.isDemoMode) {
+        console.log('⚠️ MetaAPI not available, can only validate existing data');
+        const validationResult = dataValidator.validateCandleSequence(currentCandles, timeframe);
 
-        const connectionStatus = metaApiService.getConnectionStatus();
-        console.log('📊 Connection status:', connectionStatus);
+        if (!validationResult.isValid) {
+          const repairedCandles = dataValidator.validateAndRepairCandleSequence(currentCandles, timeframe, false);
+          await marketDataCache.saveCandles(repairedCandles, true);
 
-        if (!connectionStatus.hasCredentials) {
-          console.error('❌ MetaAPI credentials not configured');
           return {
-            success: false,
+            success: true,
             candlesFetched: 0,
             gapsFilled: 0,
             completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
-            message: 'MetaAPI credentials not configured. Please set VITE_METAAPI_TOKEN and VITE_METAAPI_ACCOUNT_ID in your .env file'
+            message: `Repaired ${validationResult.errors.length} invalid candles (MetaAPI unavailable for fetching missing data)`
           };
         }
 
-        onProgress?.({ status: 'Running connection diagnostics...', percent: 12 });
-        const testResult = await metaApiService.testConnection();
-        console.log('🔍 Connection test result:', testResult);
-
-        if (!testResult.success) {
-          console.error(`❌ Connection test failed at stage: ${testResult.stage}`);
-          return {
-            success: false,
-            candlesFetched: 0,
-            gapsFilled: 0,
-            completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
-            message: `MetaAPI connection failed: ${testResult.message}`
-          };
-        }
-
-        onProgress?.({ status: 'Connecting to MetaAPI...', percent: 15 });
-        console.log('🔄 Connection test passed. Attempting to establish full connection...');
-
-        try {
-          await metaApiService.forceReconnect();
-          console.log('✅ MetaAPI connection established successfully');
-          this.isInitialized = true;
-        } catch (reconnectError) {
-          const errorMessage = reconnectError instanceof Error ? reconnectError.message : 'Unknown error';
-          console.error('❌ Failed to reconnect to MetaAPI:', errorMessage);
-
-          return {
-            success: false,
-            candlesFetched: 0,
-            gapsFilled: 0,
-            completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
-            message: `MetaAPI connection failed: ${errorMessage}`
-          };
-        }
+        return {
+          success: false,
+          candlesFetched: 0,
+          gapsFilled: 0,
+          completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
+          message: 'MetaAPI not available. Cannot fetch missing candles.'
+        };
       }
 
-      onProgress?.({ status: 'Clearing stale cache...', percent: 25 });
+      onProgress?.({ status: 'Clearing stale cache...', percent: 20 });
       await marketDataCache.clearSymbolTimeframe(symbol, timeframe);
 
-      onProgress?.({ status: 'Fetching fresh data from MetaAPI...', percent: 35 });
+      onProgress?.({ status: 'Fetching fresh data from MetaAPI...', percent: 30 });
 
       const endTime = new Date();
       const startTime = utilCalculateStartTime(timeframe, limit, endTime);

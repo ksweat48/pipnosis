@@ -106,14 +106,6 @@ export async function saveMarketAnalysis(
     return { success: false, error: errorMsg, attempts: 0 };
   }
 
-  // Map ATR status from analysis format to database format
-  const mapATRStatus = (status: string): string => {
-    if (status === 'LOW VOLATILITY') return 'Low';
-    if (status === 'HIGH VOLATILITY') return 'Elevated';
-    if (status === 'NORMAL VOLATILITY') return 'Normal';
-    return 'Normal'; // Default fallback
-  };
-
   const record: Partial<MarketAnalysisRecord> = {
     symbol,
     timeframe,
@@ -126,7 +118,7 @@ export async function saveMarketAnalysis(
     current_volume: analysis.volume.currentVolume,
     average_volume: analysis.volume.averageVolume,
     atr_value: analysis.atr.value,
-    atr_status: mapATRStatus(analysis.atr.status),
+    atr_status: analysis.atr.status,
     candle_signal_type: analysis.candleSignal.type,
     candle_signal_strength: analysis.candleSignal.strength,
     structure_type: analysis.structure.type,

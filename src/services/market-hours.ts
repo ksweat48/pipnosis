@@ -11,41 +11,10 @@ class MarketHoursService {
     new Date('2025-12-25'),
   ];
 
-  /**
-   * Determine if Daylight Saving Time is active for US Eastern Time
-   * DST is observed from second Sunday in March to first Sunday in November
-   */
-  private isDST(date: Date): boolean {
-    const year = date.getFullYear();
-
-    // Find second Sunday in March
-    const marchFirst = new Date(Date.UTC(year, 2, 1));
-    const marchFirstDay = marchFirst.getUTCDay();
-    const dstStart = new Date(Date.UTC(year, 2, 1 + (7 - marchFirstDay) % 7 + 7, 2, 0, 0));
-
-    // Find first Sunday in November
-    const novemberFirst = new Date(Date.UTC(year, 10, 1));
-    const novemberFirstDay = novemberFirst.getUTCDay();
-    const dstEnd = new Date(Date.UTC(year, 10, 1 + (7 - novemberFirstDay) % 7, 2, 0, 0));
-
-    return date >= dstStart && date < dstEnd;
-  }
-
-  /**
-   * Get the UTC hour when forex market opens on Sunday (5:00 PM ET)
-   * Returns 21 during EDT (Daylight Saving Time) or 22 during EST (Standard Time)
-   */
-  private getMarketOpenUTCHour(date: Date): number {
-    return this.isDST(date) ? 21 : 22;
-  }
-
-  /**
-   * Get the UTC hour when forex market closes on Friday (5:00 PM ET)
-   * Returns 21 during EDT (Daylight Saving Time) or 22 during EST (Standard Time)
-   */
-  private getMarketCloseUTCHour(date: Date): number {
-    return this.isDST(date) ? 21 : 22;
-  }
+  // Forex market opens Sunday 5:00 PM EST (10:00 PM UTC / 22:00 UTC)
+  private readonly MARKET_OPEN_UTC_HOUR = 22;
+  // Forex market closes Friday 5:00 PM EST (10:00 PM UTC / 22:00 UTC)
+  private readonly MARKET_CLOSE_UTC_HOUR = 22;
 
   isWeekend(date: Date): boolean {
     const day = date.getDay();
@@ -61,17 +30,14 @@ class MarketHoursService {
 
   /**
    * Check if the market is currently open based on day AND hour
-   * Accounts for DST transitions (EDT vs EST)
-   * Sunday: Opens at 5:00 PM ET (21:00 UTC in EDT, 22:00 UTC in EST)
+   * Sunday: Opens at 22:00 UTC (5:00 PM EST)
    * Monday-Thursday: Open all day
-   * Friday: Closes at 5:00 PM ET (21:00 UTC in EDT, 22:00 UTC in EST)
+   * Friday: Closes at 22:00 UTC (5:00 PM EST)
    * Saturday: Closed all day
    */
   isMarketOpen(date: Date): boolean {
     const utcDay = date.getUTCDay();
     const utcHour = date.getUTCHours();
-    const marketOpenHour = this.getMarketOpenUTCHour(date);
-    const marketCloseHour = this.getMarketCloseUTCHour(date);
 
     // Check if it's a holiday
     if (this.isHoliday(date)) {
@@ -83,14 +49,14 @@ class MarketHoursService {
       return false;
     }
 
-    // Sunday: Market opens at 5:00 PM ET
+    // Sunday: Market opens at 22:00 UTC
     if (utcDay === 0) {
-      return utcHour >= marketOpenHour;
+      return utcHour >= this.MARKET_OPEN_UTC_HOUR;
     }
 
-    // Friday: Market closes at 5:00 PM ET
+    // Friday: Market closes at 22:00 UTC
     if (utcDay === 5) {
-      return utcHour < marketCloseHour;
+      return utcHour < this.MARKET_CLOSE_UTC_HOUR;
     }
 
     // Monday (1) through Thursday (4): Market is open all day
@@ -141,16 +107,12 @@ class MarketHoursService {
 
   /**
    * Get detailed market status message with day and time context
-   * Shows ET timezone (automatically adjusts for EDT/EST)
    */
   getMarketStatusMessage(date: Date): string {
     const isOpen = this.isMarketOpen(date);
     const utcDay = date.getUTCDay();
     const utcHour = date.getUTCHours();
     const dayName = this.getDayOfWeekName(date);
-    const marketOpenHour = this.getMarketOpenUTCHour(date);
-    const marketCloseHour = this.getMarketCloseUTCHour(date);
-    const timezone = this.isDST(date) ? 'EDT' : 'EST';
 
     if (this.isHoliday(date)) {
       return 'Market Closed - Holiday';
@@ -161,15 +123,15 @@ class MarketHoursService {
     }
 
     if (utcDay === 0) {
-      if (utcHour < marketOpenHour) {
-        return `Market Closed - ${dayName} (Opens 5:00 PM ${timezone})`;
+      if (utcHour < this.MARKET_OPEN_UTC_HOUR) {
+        return `Market Closed - ${dayName} (Opens 5:00 PM EST)`;
       }
       return 'Market Open';
     }
 
     if (utcDay === 5) {
-      if (utcHour >= marketCloseHour) {
-        return `Market Closed - ${dayName} (Closed 5:00 PM ${timezone})`;
+      if (utcHour >= this.MARKET_CLOSE_UTC_HOUR) {
+        return `Market Closed - ${dayName} (Closed 5:00 PM EST)`;
       }
       return 'Market Open';
     }

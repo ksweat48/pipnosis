@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useChartPreferences } from '@/hooks/useChartPreferences';
 import { SettingsModal } from './SettingsModal';
 import { DisclaimerModal } from './DisclaimerModal';
-import { MetaAPIStatusIndicator } from './MetaAPIStatusIndicator';
+import { ConnectionStatus } from './ConnectionStatus';
 
 export const Header: React.FC = () => {
   const { user, signOut, isAdmin } = useAuth();
@@ -37,6 +37,9 @@ export const Header: React.FC = () => {
   return (
     <>
       <header className="bg-black/20 backdrop-blur-2xl border-b border-white/10 px-4 sm:px-6 py-6 sticky top-0 z-40">
+        <div className="flex items-center justify-between space-y-2">
+          <ConnectionStatus className="absolute top-2 right-4 hidden sm:flex" />
+        </div>
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2 min-w-0 flex-1">
             <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl overflow-hidden flex-shrink-0 ring-2 ring-emerald-500/30">
@@ -54,7 +57,6 @@ export const Header: React.FC = () => {
           
           {/* Desktop Navigation */}
           <div className="hidden lg:flex items-center space-x-4">
-            <MetaAPIStatusIndicator />
             {user ? (
               <>
                 {/* User Info */}

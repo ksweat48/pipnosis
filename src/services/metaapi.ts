@@ -1,6 +1,5 @@
 import MetaApi, { MetatraderAccount } from 'metaapi.cloud-sdk';
 import { errorHandler } from '@/lib/error-handler';
-import { metaApiTokenManager } from './metaapi-token-manager';
 
 export interface CandleData {
   symbol: string;
@@ -54,6 +53,7 @@ class MetaApiService {
   private region: string;
   private synchronizationListeners: Map<string, MarketDataListener> = new Map();
   private isListenerRegistered = false;
+  private isDemoMode = false;
   private latestPrices: Map<string, { bid: number; ask: number; timestamp: number }> = new Map();
   private readonly PRICE_CACHE_TTL = 60000;
 
@@ -82,6 +82,11 @@ class MetaApiService {
     this.token = import.meta.env.VITE_METAAPI_TOKEN || '';
     this.accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID || '';
     this.region = import.meta.env.VITE_METAAPI_REGION || 'new-york';
+
+    if (errorHandler.isWebContainerEnvironment()) {
+      this.isDemoMode = true;
+      console.info('🌐 Running in WebContainer environment - MetaAPI disabled, using demo mode');
+    }
   }
 
   private convertToApiTimeframe(timeframe: Timeframe): ApiTimeframe {
@@ -119,6 +124,13 @@ class MetaApiService {
       return;
     }
 
+    if (this.isDemoMode || errorHandler.isWebContainerEnvironment()) {
+      const error = new Error('MetaAPI disabled in preview environment. Using demo mode.');
+      this.initializationError = error;
+      this.isDemoMode = true;
+      return;
+    }
+
     if (this.isInitializing) {
       while (this.isInitializing) {
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -132,15 +144,10 @@ class MetaApiService {
     }
 
     if (!this.token || !this.accountId) {
-      const error = new Error(
-        'MetaAPI credentials not configured.\n\n' +
-        'Required environment variables:\n' +
-        '• VITE_METAAPI_TOKEN - Your MetaAPI account token\n' +
-        '• VITE_METAAPI_ACCOUNT_ID - Your MetaAPI account ID\n' +
-        '• VITE_METAAPI_REGION - Your account region (new-york, london, singapore)\n\n' +
-        'Please configure these in your .env file and restart the application.'
-      );
+      const error = new Error('MetaApi credentials not configured. App running in demo mode. Configure VITE_METAAPI_TOKEN and VITE_METAAPI_ACCOUNT_ID for live trading.');
       this.initializationError = error;
+      this.isDemoMode = true;
+      console.warn('⚠️ MetaApi not configured - running in demo mode with cached data only');
       throw error;
     }
 
@@ -151,42 +158,7 @@ class MetaApiService {
       console.log(`Region: ${this.region}`);
       console.log(`Account ID: ${this.accountId}`);
 
-      // Fetch secure token from edge function
-      let secureToken: string;
-      try {
-        secureToken = await metaApiTokenManager.getToken(this.accountId, this.region);
-      } catch (tokenError) {
-        const tokenErrorMsg = tokenError instanceof Error ? tokenError.message : 'Unknown error';
-
-        if (tokenErrorMsg.includes('SSL') || tokenErrorMsg.includes('certificate') || tokenErrorMsg.includes('ERR_CERT')) {
-          throw new Error(
-            'SSL Certificate Validation Error\n\n' +
-            'Unable to establish a secure connection to MetaAPI Token Service.\n\n' +
-            'Possible causes:\n' +
-            '• SSL certificate validation failed for MetaAPI endpoints\n' +
-            '• System date/time is incorrect\n' +
-            '• Network security policies are blocking HTTPS connections\n' +
-            '• Browser or system CA certificates need updating\n\n' +
-            'Please verify your system settings and network configuration.'
-          );
-        }
-
-        if (tokenErrorMsg.includes('502') || tokenErrorMsg.includes('Failed to generate')) {
-          throw new Error(
-            'MetaAPI Token Service Error\n\n' +
-            'Unable to generate a secure token from MetaAPI.\n\n' +
-            'Possible causes:\n' +
-            '• MetaAPI admin token is invalid or expired\n' +
-            '• MetaAPI account does not exist or is not accessible\n' +
-            '• Region mismatch between configuration and account\n\n' +
-            'Please verify your MetaAPI configuration and account status.'
-          );
-        }
-
-        throw new Error(`Token fetch failed: ${tokenErrorMsg}`);
-      }
-
-      this.api = new MetaApi(secureToken, {
+      this.api = new MetaApi(this.token, {
         application: 'Pipnosis',
         domain: `${this.region}.metaapi.cloud`,
         enableLatencyMonitor: false,
@@ -198,36 +170,10 @@ class MetaApiService {
         this.account = await this.api.metatraderAccountApi.getAccount(this.accountId);
       } catch (apiError) {
         const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
-
-        if (errorHandler.isSSLCertificateError(apiError)) {
-          throw new Error(
-            '🔒 SSL Certificate Error\n\n' +
-            'Unable to establish a secure connection to MetaAPI.\n\n' +
-            'Common causes:\n' +
-            '• System date/time is incorrect\n' +
-            '• SSL certificates need updating on your system\n' +
-            '• Network security policies blocking HTTPS\n' +
-            '• Antivirus or firewall interfering with SSL\n\n' +
-            'Troubleshooting steps:\n' +
-            '1. Verify your system date and time are correct\n' +
-            '2. Update your operating system and browsers\n' +
-            '3. Temporarily disable antivirus/firewall to test\n' +
-            '4. Check with your network administrator\n' +
-            '5. Try from a different network connection\n\n' +
-            'Technical details: ' + errorMessage
-          );
-        }
-
-        if (errorHandler.isNetworkError(apiError)) {
-          throw new Error(
-            '🌐 Network Connection Error\n\n' +
-            'Cannot reach MetaAPI servers.\n\n' +
-            'Please check:\n' +
-            '• Your internet connection is active\n' +
-            '• Firewall is not blocking the connection\n' +
-            '• VPN or proxy settings (if applicable)\n\n' +
-            'Technical details: ' + errorMessage
-          );
+        if (errorHandler.isNetworkError(apiError) || errorHandler.isMetaApiError(apiError)) {
+          errorHandler.handleMetaApiError(apiError, 'Account Fetch');
+          this.isDemoMode = true;
+          throw new Error('MetaAPI connection unavailable. Using demo mode.');
         }
         if (errorMessage.includes('ERR_NETWORK') || errorMessage.includes('Failed to fetch')) {
           throw new Error('Network connection failed. Unable to reach MetaApi servers. Check your internet connection or firewall settings.');
@@ -284,16 +230,10 @@ class MetaApiService {
         await this.connection.connect();
         console.log('✓ Connected to streaming endpoint');
       } catch (connectError) {
-        if (errorHandler.isNetworkError(connectError)) {
-          throw new Error(
-            '🌐 Streaming Connection Failed\n\n' +
-            'Unable to establish real-time data connection.\n\n' +
-            'Please verify:\n' +
-            '• Internet connection is stable\n' +
-            '• WebSocket connections are not blocked\n' +
-            '• No firewall restrictions\n\n' +
-            'Technical details: ' + (connectError instanceof Error ? connectError.message : 'Unknown error')
-          );
+        if (errorHandler.isNetworkError(connectError) || errorHandler.isMetaApiError(connectError)) {
+          errorHandler.handleMetaApiError(connectError, 'Streaming Connect');
+          this.isDemoMode = true;
+          throw new Error('MetaAPI streaming unavailable. Using demo mode.');
         }
         const errorMessage = connectError instanceof Error ? connectError.message : 'Unknown error';
         console.error('Connection error:', errorMessage);
@@ -370,14 +310,13 @@ class MetaApiService {
     startTime?: Date,
     limit: number = 500
   ): Promise<CandleData[]> {
-    if (!this.isInitialized || this.initializationError) {
-      throw this.initializationError || new Error(
-        'MetaAPI not connected. Please ensure your credentials are configured correctly.'
-      );
+    if (this.isDemoMode || this.initializationError) {
+      throw this.initializationError || new Error('MetaApi not available in demo mode');
     }
+    await this.ensureInitialized();
 
-    if (!this.api || !this.account) {
-      throw new Error('MetaAPI connection not established');
+    if (!this.account) {
+      throw new Error('MetaApi account not initialized');
     }
 
     const cacheKey = `${symbol}-${timeframe}-${limit}`;
@@ -652,9 +591,10 @@ class MetaApiService {
     symbol: string,
     listener: MarketDataListener
   ): Promise<void> {
-    if (!this.isInitialized || this.initializationError) {
-      throw this.initializationError || new Error('MetaAPI not connected');
+    if (this.isDemoMode || this.initializationError) {
+      throw this.initializationError || new Error('MetaApi not available in demo mode');
     }
+    await this.ensureInitialized();
 
     if (!this.connection) {
       throw new Error('Connection not established');
@@ -696,9 +636,10 @@ class MetaApiService {
   }
 
   async getSymbolPrice(symbol: string): Promise<{ bid: number; ask: number }> {
-    if (!this.isInitialized || this.initializationError) {
-      throw this.initializationError || new Error('MetaAPI not connected');
+    if (this.isDemoMode || this.initializationError) {
+      throw this.initializationError || new Error('MetaApi not available in demo mode');
     }
+    await this.ensureInitialized();
 
     // Check if we have a recent cached price from streaming data
     const cachedPrice = this.latestPrices.get(symbol);
@@ -778,162 +719,6 @@ class MetaApiService {
 
   isConnected(): boolean {
     return this.isInitialized && this.connection !== null;
-  }
-
-  getConnectionStatus(): {
-    isConnected: boolean;
-    hasCredentials: boolean;
-    initializationError: string | null;
-    accountState: string | null;
-    region: string;
-  } {
-    return {
-      isConnected: this.isInitialized && this.connection !== null,
-      hasCredentials: !!(this.token && this.accountId),
-      initializationError: this.initializationError?.message || null,
-      accountState: this.account?.state || null,
-      region: this.region
-    };
-  }
-
-  async testConnection(): Promise<{
-    success: boolean;
-    stage: string;
-    message: string;
-    details?: any;
-  }> {
-    try {
-
-      if (!this.token || !this.accountId) {
-        return {
-          success: false,
-          stage: 'credentials',
-          message: 'MetaAPI credentials not configured. Please set VITE_METAAPI_TOKEN and VITE_METAAPI_ACCOUNT_ID in your .env file',
-          details: {
-            hasToken: !!this.token,
-            hasAccountId: !!this.accountId,
-            region: this.region
-          }
-        };
-      }
-
-      if (this.isInitialized && this.connection) {
-        console.log('✅ Connection already established');
-        return {
-          success: true,
-          stage: 'complete',
-          message: 'MetaAPI is already connected and ready.',
-          details: {
-            state: this.account?.state,
-            region: this.account?.region,
-            server: this.account?.server || 'Unknown'
-          }
-        };
-      }
-
-      console.log('🔍 Testing MetaAPI connection...');
-      console.log(`   Region: ${this.region}`);
-      console.log(`   Account ID: ${this.accountId}`);
-
-      let secureToken: string;
-      try {
-        secureToken = await metaApiTokenManager.getToken(this.accountId, this.region);
-      } catch (tokenError) {
-        return {
-          success: false,
-          stage: 'token_fetch',
-          message: `Failed to load MetaAPI token: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}`,
-          details: { error: tokenError }
-        };
-      }
-
-      const testApi = new MetaApi(secureToken, {
-        application: 'Pipnosis',
-        domain: `${this.region}.metaapi.cloud`,
-        enableLatencyMonitor: false,
-        requestTimeout: 30000,
-        connectTimeout: 30000
-      });
-
-      let testAccount;
-      try {
-        testAccount = await testApi.metatraderAccountApi.getAccount(this.accountId);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        return {
-          success: false,
-          stage: 'account_fetch',
-          message: `Failed to fetch account: ${errorMessage}`,
-          details: { error: errorMessage }
-        };
-      }
-
-      const accountInfo = {
-        state: testAccount.state,
-        region: testAccount.region,
-        server: testAccount.server || 'Unknown'
-      };
-
-      console.log('✓ Account fetched successfully:', accountInfo);
-
-      if (testAccount.region && testAccount.region !== this.region) {
-        return {
-          success: false,
-          stage: 'region_mismatch',
-          message: `Region mismatch: Account is in '${testAccount.region}' but SDK configured for '${this.region}'. Update VITE_METAAPI_REGION=${testAccount.region}`,
-          details: accountInfo
-        };
-      }
-
-      const deployedStates = ['DEPLOYED', 'DEPLOYING'];
-      if (!deployedStates.includes(testAccount.state)) {
-        return {
-          success: false,
-          stage: 'account_state',
-          message: `Account is not deployed. Current state: ${testAccount.state}. Please deploy your account in the MetaAPI dashboard.`,
-          details: accountInfo
-        };
-      }
-
-      return {
-        success: true,
-        stage: 'complete',
-        message: 'Connection test passed. MetaAPI is ready.',
-        details: accountInfo
-      };
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      return {
-        success: false,
-        stage: 'unknown',
-        message: `Connection test failed: ${errorMessage}`,
-        details: { error: errorMessage }
-      };
-    }
-  }
-
-  async forceReconnect(): Promise<void> {
-    console.log('🔄 Force reconnecting to MetaAPI...');
-
-    this.isInitialized = false;
-    this.isInitializing = false;
-    this.initializationError = null;
-
-    if (this.connection) {
-      try {
-        await this.connection.close();
-      } catch (error) {
-        console.warn('Error closing existing connection:', error);
-      }
-      this.connection = null;
-    }
-
-    this.api = null;
-    this.account = null;
-
-    console.log('🔄 Attempting fresh initialization...');
-    await this.initialize();
   }
 
   private async ensureInitialized(): Promise<void> {

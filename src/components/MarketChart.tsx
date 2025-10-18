@@ -76,22 +76,12 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const lastRenderTimeRef = useRef<number>(0);
   const isUserInteractingRef = useRef<boolean>(false);
   const updateIntervalRef = useRef<number | null>(null);
-  const lastTickTimeRef = useRef<number>(0);
-  const tickCountRef = useRef<number>(0);
-  const isMountedRef = useRef<boolean>(true);
 
   const availablePairs = ['EURUSD', 'GBPUSD', 'XAUUSD', 'US30'];
 
   const applyPendingUpdate = useCallback(() => {
-    if (!isMountedRef.current) return;
-
     const pendingUpdate = pendingUpdateRef.current;
     const pendingVolume = pendingVolumeUpdateRef.current;
-
-    if (!pendingUpdate && !pendingVolume) {
-      return;
-    }
-
     pendingUpdateRef.current = null;
     pendingVolumeUpdateRef.current = null;
 
@@ -246,8 +236,6 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   }, [symbol, timeframe]);
 
   const subscribeToLiveData = useCallback(() => {
-    console.log(`[MarketChart] Starting subscription for ${symbol} ${timeframe}`);
-
     const listener: MarketDataListener = {
       onCandleUpdate: (candle: CandleData) => {
         if (candle.symbol === symbol && candle.timeframe === timeframe) {
@@ -269,25 +257,16 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
           pendingUpdateRef.current = chartCandle;
           pendingVolumeUpdateRef.current = chartVolume;
+          scheduleRender();
 
           setCurrentPrice(candle.close);
           setLastUpdate(new Date());
           setDataSource('live');
           setIsLiveUpdating(true);
-
-          console.log(`[MarketChart] Candle update: ${candle.close}`);
         }
       },
       onTick: (tick: TickData) => {
         if (tick.symbol === symbol) {
-          const now = Date.now();
-          tickCountRef.current++;
-          lastTickTimeRef.current = now;
-
-          if (tickCountRef.current % 10 === 0) {
-            console.log(`[MarketChart] Tick #${tickCountRef.current}: ${tick.bid}/${tick.ask}`);
-          }
-
           const midPrice = (tick.bid + tick.ask) / 2;
           const spread = tick.ask - tick.bid;
           setCurrentPrice(midPrice);
@@ -311,10 +290,11 @@ export const MarketChart: React.FC<MarketChartProps> = ({
           };
 
           pendingUpdateRef.current = chartCandle;
+          scheduleRender();
         }
       },
       onError: (error: Error) => {
-        console.error('[MarketChart] Live data error:', error);
+        console.error('Live data error:', error);
         setError(error.message);
         setIsConnected(false);
         setIsLiveUpdating(false);
@@ -323,41 +303,27 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
     listenerRef.current = listener;
     marketDataService.subscribeToSymbol(symbol, timeframe, listener).catch(err => {
-      console.error('[MarketChart] Failed to subscribe:', err);
+      console.error('Failed to subscribe:', err);
       setError('Failed to connect to live data feed');
     });
 
     if (updateIntervalRef.current) {
       clearInterval(updateIntervalRef.current);
-      updateIntervalRef.current = null;
     }
 
     updateIntervalRef.current = window.setInterval(() => {
-      if (!isMountedRef.current) {
-        if (updateIntervalRef.current) {
-          clearInterval(updateIntervalRef.current);
-          updateIntervalRef.current = null;
-        }
-        return;
-      }
-
-      if (pendingUpdateRef.current || pendingVolumeUpdateRef.current) {
+      if (pendingUpdateRef.current) {
         applyPendingUpdate();
       }
     }, 100);
-
-    console.log(`[MarketChart] Update interval started for ${symbol} ${timeframe}`);
-  }, [symbol, timeframe, applyPendingUpdate]);
+  }, [symbol, timeframe, scheduleRender, applyPendingUpdate]);
 
   useEffect(() => {
-    isMountedRef.current = true;
-
     const initializeService = async () => {
       try {
         await marketDataService.initialize();
         setIsConnected(true);
         setError(null);
-        console.log('[MarketChart] Market data service initialized');
       } catch (err) {
         setIsConnected(false);
         const errorMsg = err instanceof Error ? err.message : 'Failed to connect to MetaApi';
@@ -374,9 +340,6 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     initializeService();
 
     return () => {
-      console.log('[MarketChart] Component unmounting, cleaning up...');
-      isMountedRef.current = false;
-
       if (listenerRef.current) {
         marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
       }
@@ -385,7 +348,6 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       }
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current);
-        updateIntervalRef.current = null;
       }
       candleStateManager.flushAll();
     };
@@ -396,18 +358,13 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   }, [loadHistoricalData]);
 
   useEffect(() => {
-    if (isConnected && isMountedRef.current) {
-      console.log(`[MarketChart] Subscribing to live data for ${symbol} ${timeframe}`);
-      tickCountRef.current = 0;
-      lastTickTimeRef.current = Date.now();
+    if (isConnected) {
       subscribeToLiveData();
     }
 
     return () => {
-      console.log(`[MarketChart] Cleaning up subscription for ${symbol} ${timeframe}`);
       if (listenerRef.current) {
         marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
-        listenerRef.current = null;
       }
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current);
@@ -584,192 +541,65 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     }
   }, [autoTradingStatus.nextScanTime]);
 
-  useEffect(() => {
-    if (!isConnected) return;
-
-    const monitorInterval = setInterval(() => {
-      const now = Date.now();
-      const timeSinceLastTick = now - lastTickTimeRef.current;
-
-      if (timeSinceLastTick > 60000 && lastTickTimeRef.current > 0) {
-        console.warn(`[MarketChart] No ticks received for ${Math.floor(timeSinceLastTick / 1000)}s. Checking connection...`);
-        setIsLiveUpdating(false);
-      }
-
-      if (updateIntervalRef.current === null && isConnected) {
-        console.warn('[MarketChart] Update interval stopped unexpectedly. Restarting...');
-        subscribeToLiveData();
-      }
-    }, 10000);
-
-    return () => clearInterval(monitorInterval);
-  }, [isConnected, subscribeToLiveData]);
-
   const handleManualDataFix = useCallback(async () => {
     if (isFixingData) return;
 
     setIsFixingData(true);
     setFixMessage(null);
-    setFixProgress({ status: 'Initializing MetaAPI connection...', percent: 0 });
+    setFixProgress({ status: 'Starting...', percent: 0 });
 
     try {
-      const connectionStatus = marketDataService.getConnectionStatus();
-      console.log('📊 Current connection status:', connectionStatus);
+      const result = await marketDataService.fetchAndFillMissingCandles(
+        symbol,
+        timeframe,
+        1000,
+        (progress) => {
+          setFixProgress(progress);
+        }
+      );
 
-      if (!connectionStatus.hasCredentials) {
+      if (result.success) {
+        const beforePercent = result.completenessImprovement.before.toFixed(0);
+        const afterPercent = result.completenessImprovement.after.toFixed(0);
+        const gapChange = result.gapsFilled > 0 ? ` ${result.gapsFilled} gaps filled.` : '';
+
+        setFixProgress({ status: 'Reloading chart with fixed data...', percent: 95 });
+
+        setCandleData([]);
+        setVolumeData([]);
+        setDataHealthStatus({ completeness: 0, gaps: 0, isValidating: true });
+
+        await new Promise(resolve => setTimeout(resolve, 800));
+
+        await loadHistoricalData();
+
+        setFixProgress(null);
+
+        setFixMessage({
+          type: 'success',
+          text: `Data repaired! Quality: ${beforePercent}% → ${afterPercent}%.${gapChange} ${result.candlesFetched} candles loaded.`
+        });
+      } else {
         setFixProgress(null);
         setFixMessage({
           type: 'error',
-          text: 'MetaAPI credentials not configured. Please check your .env file.'
-        });
-        setIsFixingData(false);
-        setTimeout(() => setFixMessage(null), 10000);
-        return;
-      }
-
-      if (!connectionStatus.isConnected) {
-        setFixProgress({ status: 'Initializing MetaAPI service...', percent: 1 });
-
-        try {
-          await marketDataService.initialize();
-          console.log('✅ MetaAPI service initialized');
-        } catch (initError) {
-          const initMsg = initError instanceof Error ? initError.message : 'Unknown error';
-          if (initMsg.includes('demo mode') || initMsg.includes('not configured')) {
-            setFixProgress(null);
-            setFixMessage({
-              type: 'error',
-              text: 'MetaAPI is not configured. Running in demo mode with cached data only.'
-            });
-            setIsFixingData(false);
-            setTimeout(() => setFixMessage(null), 10000);
-            return;
-          }
-        }
-
-        setFixProgress({ status: 'Testing MetaAPI connection...', percent: 2 });
-        const testResult = await marketDataService.testConnection();
-
-        if (!testResult.success) {
-          console.error('❌ Connection test failed:', testResult);
-          setFixProgress(null);
-          setFixMessage({
-            type: 'error',
-            text: `Connection test failed: ${testResult.message}`
-          });
-          setIsFixingData(false);
-          setTimeout(() => setFixMessage(null), 15000);
-          return;
-        }
-
-        console.log('✅ Connection test passed:', testResult);
-      }
-
-      setFixProgress({ status: 'Starting multi-timeframe backfill...', percent: 5 });
-
-      const allTimeframes: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
-      const totalTimeframes = allTimeframes.length;
-      let completedTimeframes = 0;
-      let totalCandlesFetched = 0;
-      const results: { [key: string]: { success: boolean; candles: number; message?: string } } = {};
-
-      for (const tf of allTimeframes) {
-        const basePercent = 5;
-        const tfPercent = basePercent + Math.floor((completedTimeframes / totalTimeframes) * 85);
-
-        try {
-          const candleLimit = tf === 'M1' ? 500 : tf === 'M5' ? 1000 : tf === 'M15' ? 1000 : 1000;
-
-          const result = await marketDataService.fetchAndFillMissingCandles(
-            symbol,
-            tf,
-            candleLimit,
-            (progress) => {
-              setFixProgress({
-                status: `[${tf}] ${progress.status} (${completedTimeframes + 1}/${totalTimeframes})`,
-                percent: tfPercent + Math.floor(progress.percent * 0.85 / totalTimeframes)
-              });
-            }
-          );
-
-          results[tf] = {
-            success: result.success,
-            candles: result.candlesFetched,
-            message: result.message
-          };
-
-          if (result.success) {
-            totalCandlesFetched += result.candlesFetched;
-            console.log(`✅ ${tf}: ${result.candlesFetched} candles fetched`);
-          } else {
-            console.warn(`⚠️ ${tf}: ${result.message}`);
-          }
-
-          completedTimeframes++;
-        } catch (error) {
-          const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-          console.error(`❌ Failed to backfill ${tf}:`, errorMsg);
-          results[tf] = { success: false, candles: 0, message: errorMsg };
-          completedTimeframes++;
-        }
-      }
-
-      setFixProgress({ status: 'Reloading current chart...', percent: 95 });
-
-      setCandleData([]);
-      setVolumeData([]);
-      setDataHealthStatus({ completeness: 0, gaps: 0, isValidating: true });
-
-      await new Promise(resolve => setTimeout(resolve, 800));
-      await loadHistoricalData();
-
-      setFixProgress(null);
-
-      const successCount = Object.values(results).filter(r => r.success).length;
-      const failedCount = totalTimeframes - successCount;
-      const successTimeframes = Object.entries(results)
-        .filter(([_, r]) => r.success)
-        .map(([tf, _]) => tf)
-        .join(', ');
-
-      const failedTimeframes = Object.entries(results)
-        .filter(([_, r]) => !r.success)
-        .map(([tf, r]) => `${tf} (${r.message || 'unknown error'})`)
-        .join(', ');
-
-      if (successCount === totalTimeframes) {
-        setFixMessage({
-          type: 'success',
-          text: `✅ All ${totalTimeframes} timeframes successfully backfilled! Total: ${totalCandlesFetched} candles fetched and saved to database.`
-        });
-      } else if (successCount > 0) {
-        setFixMessage({
-          type: 'success',
-          text: `Partially successful: ${successCount}/${totalTimeframes} timeframes backfilled (${successTimeframes}). Total: ${totalCandlesFetched} candles saved. Failed: ${failedTimeframes}`
-        });
-      } else {
-        const firstError = Object.values(results)[0]?.message || 'Unknown error';
-        setFixMessage({
-          type: 'error',
-          text: `Failed to backfill all timeframes. First error: ${firstError}. Check console for details.`
+          text: result.message
         });
       }
-
-      setTimeout(() => {
-        setFixMessage(null);
-      }, 20000);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      console.error('❌ Multi-timeframe backfill error:', error);
-      setFixProgress(null);
-      setFixMessage({
-        type: 'error',
-        text: `Failed to complete multi-timeframe backfill: ${errorMsg}`
-      });
 
       setTimeout(() => {
         setFixMessage(null);
       }, 10000);
+    } catch (error) {
+      setFixProgress(null);
+      setFixMessage({
+        type: 'error',
+        text: 'Failed to fix data gaps'
+      });
+
+      setTimeout(() => {
+        setFixMessage(null);
+      }, 5000);
     } finally {
       setIsFixingData(false);
     }
@@ -804,7 +634,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
                   <span className="text-xs font-medium">{marketStatusMessage}</span>
                 </div>
                 {isConnected ? (
-                  <div className="flex items-center space-x-1" title={`Connected - ${tickCountRef.current} ticks received`}>
+                  <div className="flex items-center space-x-1">
                     <Wifi className="h-4 w-4 text-emerald-400" />
                     {isLiveUpdating && (
                       <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
