@@ -119,9 +119,9 @@ export function DiagnosticsPanel() {
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400">Type:</span>
-                  <span className="text-white font-mono">
-                    {diagnostics.results.tokenManager?.isAdminToken ? 'Admin' : 'Temporary'}
+                  <span className="text-gray-400">Status:</span>
+                  <span className="text-green-400 font-mono">
+                    Active
                   </span>
                 </div>
                 <div className="flex justify-between">

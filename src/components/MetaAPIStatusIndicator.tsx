@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Activity, AlertCircle, CheckCircle, Clock, XCircle } from 'lucide-react';
+import { Activity, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 import { metaApiTokenManager } from '@/services/metaapi-token-manager';
 
 interface TokenInfo {
   hasToken: boolean;
-  isAdminToken: boolean;
   expiresInMinutes: number | null;
   isValid: boolean;
   region: string;
-  refreshCount: number;
 }
 
 export function MetaAPIStatusIndicator() {
@@ -34,22 +32,19 @@ export function MetaAPIStatusIndicator() {
   const getStatusColor = () => {
     if (!tokenInfo.hasToken) return 'text-gray-400';
     if (!tokenInfo.isValid) return 'text-red-500';
-    if (tokenInfo.isAdminToken) return 'text-yellow-500';
     return 'text-green-500';
   };
 
   const getStatusIcon = () => {
     if (!tokenInfo.hasToken) return <XCircle className="w-4 h-4" />;
     if (!tokenInfo.isValid) return <AlertCircle className="w-4 h-4" />;
-    if (tokenInfo.isAdminToken) return <Clock className="w-4 h-4" />;
     return <CheckCircle className="w-4 h-4" />;
   };
 
   const getStatusText = () => {
     if (!tokenInfo.hasToken) return 'No Token';
     if (!tokenInfo.isValid) return 'Token Expired';
-    if (tokenInfo.isAdminToken) return 'Admin Token';
-    return 'Secure Token';
+    return 'Connected';
   };
 
   const getStatusMessage = () => {
@@ -59,10 +54,7 @@ export function MetaAPIStatusIndicator() {
     if (!tokenInfo.isValid) {
       return 'Token has expired and needs refresh';
     }
-    if (tokenInfo.isAdminToken) {
-      return 'Using admin token (fallback mode)';
-    }
-    return `Temporary token active (${tokenInfo.expiresInMinutes}m remaining)`;
+    return 'Secure connection active';
   };
 
   return (
@@ -97,27 +89,21 @@ export function MetaAPIStatusIndicator() {
 
               {tokenInfo.expiresInMinutes !== null && (
                 <div className="flex justify-between text-xs">
-                  <span className="text-gray-400">Expires:</span>
-                  <span className={`font-mono ${
-                    tokenInfo.expiresInMinutes < 10 ? 'text-red-400' :
-                    tokenInfo.expiresInMinutes < 30 ? 'text-yellow-400' :
-                    'text-green-400'
-                  }`}>
-                    {tokenInfo.expiresInMinutes} minutes
+                  <span className="text-gray-400">Token Valid:</span>
+                  <span className="text-green-400 font-mono">
+                    {tokenInfo.expiresInMinutes > 60
+                      ? `${Math.floor(tokenInfo.expiresInMinutes / 60)}h ${tokenInfo.expiresInMinutes % 60}m`
+                      : `${tokenInfo.expiresInMinutes}m`
+                    }
                   </span>
                 </div>
               )}
 
               <div className="flex justify-between text-xs">
-                <span className="text-gray-400">Type:</span>
-                <span className="text-white font-mono">
-                  {tokenInfo.isAdminToken ? 'Admin' : 'Temporary'}
+                <span className="text-gray-400">Status:</span>
+                <span className="text-green-400 font-mono">
+                  Active
                 </span>
-              </div>
-
-              <div className="flex justify-between text-xs">
-                <span className="text-gray-400">Refresh Count:</span>
-                <span className="text-white font-mono">{tokenInfo.refreshCount}</span>
               </div>
             </div>
 
@@ -132,14 +118,6 @@ export function MetaAPIStatusIndicator() {
                 Run Diagnostics
               </button>
             </div>
-
-            {tokenInfo.isAdminToken && (
-              <div className="bg-yellow-900/20 border border-yellow-700/30 rounded p-2">
-                <p className="text-xs text-yellow-400">
-                  ⚠️ Using admin token. Check browser console or run diagnostics to troubleshoot.
-                </p>
-              </div>
-            )}
           </div>
         </div>
       )}
