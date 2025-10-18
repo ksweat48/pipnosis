@@ -610,55 +610,82 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
     setIsFixingData(true);
     setFixMessage(null);
-    setFixProgress({ status: 'Starting...', percent: 0 });
+    setFixProgress({ status: 'Starting multi-timeframe backfill...', percent: 0 });
 
     try {
-      const result = await marketDataService.fetchAndFillMissingCandles(
-        symbol,
-        timeframe,
-        1000,
-        (progress) => {
-          setFixProgress(progress);
+      const allTimeframes: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
+      const totalTimeframes = allTimeframes.length;
+      let completedTimeframes = 0;
+      let totalCandlesFetched = 0;
+      const results: { [key: string]: { success: boolean; candles: number } } = {};
+
+      for (const tf of allTimeframes) {
+        const tfPercent = Math.floor((completedTimeframes / totalTimeframes) * 90);
+        setFixProgress({
+          status: `Backfilling ${symbol} ${tf}... (${completedTimeframes + 1}/${totalTimeframes})`,
+          percent: tfPercent
+        });
+
+        try {
+          const candleLimit = tf === 'M1' ? 500 : tf === 'M5' ? 1000 : tf === 'M15' ? 1000 : 1000;
+
+          const result = await marketDataService.fetchAndFillMissingCandles(
+            symbol,
+            tf,
+            candleLimit,
+            () => {}
+          );
+
+          results[tf] = { success: result.success, candles: result.candlesFetched };
+          if (result.success) {
+            totalCandlesFetched += result.candlesFetched;
+          }
+
+          completedTimeframes++;
+        } catch (error) {
+          console.error(`Failed to backfill ${tf}:`, error);
+          results[tf] = { success: false, candles: 0 };
+          completedTimeframes++;
         }
-      );
+      }
 
-      if (result.success) {
-        const beforePercent = result.completenessImprovement.before.toFixed(0);
-        const afterPercent = result.completenessImprovement.after.toFixed(0);
-        const gapChange = result.gapsFilled > 0 ? ` ${result.gapsFilled} gaps filled.` : '';
+      setFixProgress({ status: 'Reloading current chart...', percent: 95 });
 
-        setFixProgress({ status: 'Reloading chart with fixed data...', percent: 95 });
+      setCandleData([]);
+      setVolumeData([]);
+      setDataHealthStatus({ completeness: 0, gaps: 0, isValidating: true });
 
-        setCandleData([]);
-        setVolumeData([]);
-        setDataHealthStatus({ completeness: 0, gaps: 0, isValidating: true });
+      await new Promise(resolve => setTimeout(resolve, 800));
+      await loadHistoricalData();
 
-        await new Promise(resolve => setTimeout(resolve, 800));
+      setFixProgress(null);
 
-        await loadHistoricalData();
+      const successCount = Object.values(results).filter(r => r.success).length;
+      const successTimeframes = Object.entries(results)
+        .filter(([_, r]) => r.success)
+        .map(([tf, _]) => tf)
+        .join(', ');
 
-        setFixProgress(null);
-
+      if (successCount > 0) {
         setFixMessage({
           type: 'success',
-          text: `Data repaired! Quality: ${beforePercent}% → ${afterPercent}%.${gapChange} ${result.candlesFetched} candles loaded.`
+          text: `Successfully backfilled ${successCount}/${totalTimeframes} timeframes (${successTimeframes}). Total: ${totalCandlesFetched} candles saved to database.`
         });
       } else {
-        setFixProgress(null);
         setFixMessage({
           type: 'error',
-          text: result.message
+          text: 'Failed to backfill data for all timeframes. Check MetaAPI connection.'
         });
       }
 
       setTimeout(() => {
         setFixMessage(null);
-      }, 10000);
+      }, 15000);
     } catch (error) {
       setFixProgress(null);
       setFixMessage({
         type: 'error',
-        text: 'Failed to fix data gaps'
+        text: 'Failed to complete multi-timeframe backfill'
       });
 
       setTimeout(() => {

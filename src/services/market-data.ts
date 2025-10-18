@@ -467,7 +467,7 @@ class MarketDataService {
 
     const gaps = detectGaps(cachedCandles, timeframe);
     const tradingDayGaps = gaps.filter(g => g.isTradingDayGap);
-    const hasCriticalGaps = tradingDayGaps.length > 0;
+    const hasCriticalGaps = tradingDayGaps.length > 5;
 
     const validationResult = dataValidator.validateCandleSequence(cachedCandles, timeframe);
     const isSequenceValid = validationResult.isValid;
@@ -475,27 +475,27 @@ class MarketDataService {
     const candlesInExpectedRange = cachedCandles.filter(
       c => c.time >= expectedStartDate && c.time <= now
     ).length;
-    const hasMinimumCount = candlesInExpectedRange >= limit * 0.95;
+    const hasMinimumCount = candlesInExpectedRange >= limit * 0.7;
 
     const ageInHours = (newestCandleAge / (60 * 60 * 1000)).toFixed(1);
 
     let reason: string | undefined;
     let shouldUseCacheOnly = true;
 
-    if (!isFresh) {
+    if (cachedCandles.length >= limit * 0.8) {
+      shouldUseCacheOnly = true;
+      console.log(`✅ Cache has sufficient data (${cachedCandles.length}/${limit} candles, ${(cachedCandles.length/limit*100).toFixed(0)}%)`);
+    } else if (!isFresh) {
       reason = `Cache is stale (newest candle is ${ageInHours}h old, threshold: ${(freshnessThreshold / (60 * 60 * 1000)).toFixed(1)}h)`;
       shouldUseCacheOnly = false;
-    } else if (!coversExpectedRange) {
-      reason = `Cache doesn't cover expected date range (oldest: ${oldestCandle.time.toISOString()}, expected: ${expectedStartDate.toISOString()})`;
+    } else if (!coversExpectedRange && !hasMinimumCount) {
+      reason = `Cache doesn't cover expected range and has insufficient candles (${candlesInExpectedRange}/${limit})`;
       shouldUseCacheOnly = false;
     } else if (hasCriticalGaps) {
-      reason = `Cache has ${tradingDayGaps.length} gap(s) during trading days`;
+      reason = `Cache has too many gaps (${tradingDayGaps.length}) during trading days`;
       shouldUseCacheOnly = false;
-    } else if (!isSequenceValid) {
-      reason = 'Cache has invalid candle sequence';
-      shouldUseCacheOnly = false;
-    } else if (!hasMinimumCount) {
-      reason = `Insufficient candles in expected range (${candlesInExpectedRange}/${limit})`;
+    } else if (!hasMinimumCount && cachedCandles.length < limit * 0.5) {
+      reason = `Insufficient candles (${candlesInExpectedRange}/${limit})`;
       shouldUseCacheOnly = false;
     }
 
