@@ -71,12 +71,15 @@ class MetaApiTokenManager {
         return this.getFallbackToken();
       }
 
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
       console.log(`📡 Calling edge function: ${tokenUrl}`);
       const response = await fetch(tokenUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
+          'apikey': anonKey,
         },
         body: JSON.stringify({
           accountId,

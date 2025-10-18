@@ -1,4 +1,5 @@
 import { metaApiTokenManager } from '@/services/metaapi-token-manager';
+import { supabase } from '@/lib/supabase';
 
 export interface DiagnosticResult {
   success: boolean;
@@ -38,14 +39,24 @@ class MetaApiDiagnostics {
 
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       const testUrl = `${supabaseUrl}/functions/v1/test-metaapi-token?testConnectivity=true&region=${region}`;
+
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'apikey': anonKey,
+      };
+
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
 
       console.log('📡 Testing edge function...');
       const response = await fetch(testUrl, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
       });
 
       if (response.ok) {
@@ -91,13 +102,25 @@ class MetaApiDiagnostics {
 
   async testEdgeFunction(testConnectivity: boolean = false) {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
     const region = import.meta.env.VITE_METAAPI_REGION || 'new-york';
     const testUrl = `${supabaseUrl}/functions/v1/test-metaapi-token?testConnectivity=${testConnectivity}&region=${region}`;
 
     console.log(`🧪 Testing edge function (connectivity: ${testConnectivity})...`);
 
     try {
-      const response = await fetch(testUrl);
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'apikey': anonKey,
+      };
+
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
+      const response = await fetch(testUrl, { headers });
       const data = await response.json();
       console.log('📊 Edge function response:', data);
       return data;

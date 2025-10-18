@@ -26,11 +26,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Verify user is authenticated via Supabase JWT
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+    const apiKey = req.headers.get("apikey");
+
+    if (!authHeader && !apiKey) {
       return new Response(
-        JSON.stringify({ error: "Missing authorization header" }),
+        JSON.stringify({ error: "Authentication required. Please provide Authorization header or apikey header." }),
         {
           status: 401,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -50,7 +51,6 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Get the admin token from environment variables (secure server-side)
     const adminToken = Deno.env.get("METAAPI_TOKEN");
     if (!adminToken) {
       return new Response(
@@ -62,11 +62,8 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Generate a temporary token using MetaAPI Token Management API
-    // This token will have limited scope and expiration
     const tokenManagementUrl = `https://mt-provisioning-api-v1.${region}.metaapi.cloud/users/current/tokens`;
     
-    // Create a token with 24-hour expiration and limited permissions
     const tokenResponse = await fetch(tokenManagementUrl, {
       method: "POST",
       headers: {
@@ -75,7 +72,7 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         name: `temp-token-${Date.now()}`,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
         permissions: [
           "read-only"
         ],
@@ -87,8 +84,6 @@ Deno.serve(async (req: Request) => {
       const errorText = await tokenResponse.text();
       console.error("MetaAPI token creation failed:", errorText);
       
-      // Fallback: return the admin token with a warning
-      // In production, you might want to handle this differently
       return new Response(
         JSON.stringify({
           token: adminToken,

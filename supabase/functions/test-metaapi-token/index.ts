@@ -36,6 +36,24 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const authHeader = req.headers.get("Authorization");
+    const apiKey = req.headers.get("apikey");
+
+    if (!authHeader && !apiKey) {
+      return new Response(
+        JSON.stringify({
+          status: "error",
+          timestamp: new Date().toISOString(),
+          error: "Authentication required. Please provide Authorization header or apikey header.",
+          errors: ["Missing authentication headers"],
+        }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
     const response: DiagnosticResponse = {
       status: "running",
       timestamp: new Date().toISOString(),
