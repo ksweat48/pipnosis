@@ -44,21 +44,20 @@ class MetaApiTokenManager {
     this.isFetching = true;
 
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-      if (!supabaseUrl || !supabaseKey) {
+      if (!supabaseKey) {
         throw new Error('Supabase configuration not found');
       }
 
-      const edgeFunctionUrl = `${supabaseUrl}/functions/v1/metaapi-token`;
+      const netlifyFunctionUrl = `/.netlify/functions/metaapi-token`;
 
       if (!this.isInitialized) {
-        console.log('🔑 Fetching secure MetaAPI token from edge function...');
+        console.log('🔑 Fetching secure MetaAPI token from Netlify function...');
         this.isInitialized = true;
       }
 
-      const response = await fetch(edgeFunctionUrl, {
+      const response = await fetch(netlifyFunctionUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -73,21 +72,21 @@ class MetaApiTokenManager {
         console.error('Token fetch failed:', errorData);
 
         throw new Error(
-          `Failed to fetch secure token from edge function: ${errorData.message || errorData.error || response.statusText}\n` +
+          `Failed to fetch secure token: ${errorData.message || errorData.error || response.statusText}\n` +
           `Status: ${response.status}\n` +
           (errorData.troubleshooting ? `\nTroubleshooting:\n- ${errorData.troubleshooting.join('\n- ')}` : '') +
-          `\n\nThe edge function could not generate a secure token. This may be due to:\n` +
-          `- SSL certificate validation issues\n` +
+          `\n\nThe function could not generate a secure token. This may be due to:\n` +
           `- MetaAPI service connectivity problems\n` +
-          `- Invalid admin token configuration\n\n` +
-          `Please check the Supabase edge function logs for more details.`
+          `- Invalid admin token configuration\n` +
+          `- Incorrect account ID or region\n\n` +
+          `Please check the Netlify function logs for more details.`
         );
       }
 
       const data = await response.json();
 
       if (!data.token) {
-        throw new Error('No token received from edge function');
+        throw new Error('No token received from function');
       }
 
       this.currentToken = data.token;

@@ -11,6 +11,10 @@
   # Increase timeout for long-running refresh operations
   node_bundler = "esbuild"
 
+[functions."metaapi-token"]
+  # Standard timeout for token generation (30 seconds)
+  timeout = 30
+
 [functions."refresh-candles"]
   # Extended timeout for manual refresh operations (10 minutes)
   timeout = 600
