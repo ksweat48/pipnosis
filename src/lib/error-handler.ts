@@ -116,8 +116,36 @@ export const errorHandler = new ErrorHandler();
 if (typeof window !== 'undefined') {
   const originalConsoleError = console.error;
   console.error = (...args: any[]) => {
+    const errorStr = args.join(' ');
+
+    if (errorStr.includes('/api/deploy/') && errorStr.includes('404')) {
+      return;
+    }
+
+    if (errorStr.includes('blitz.') && errorStr.includes('running source code in new context')) {
+      return;
+    }
+
+    if (errorStr.includes('preloaded using link preload') && errorStr.includes('not used within')) {
+      errorHandler.handleResourcePreloadWarning(errorStr);
+      return;
+    }
+
     originalConsoleError.apply(console, args);
   };
 
+  const originalConsoleWarn = console.warn;
+  console.warn = (...args: any[]) => {
+    const warnStr = args.join(' ');
 
+    if (warnStr.includes('running source code in new context')) {
+      return;
+    }
+
+    if (warnStr.includes('[Contexify]')) {
+      return;
+    }
+
+    originalConsoleWarn.apply(console, args);
+  };
 }
