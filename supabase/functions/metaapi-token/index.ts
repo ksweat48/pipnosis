@@ -62,23 +62,40 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    console.log(`Attempting to create token for account ${accountId} in region ${region}`);
+    console.log(`DENO_TLS_CA_STORE: ${Deno.env.get("DENO_TLS_CA_STORE") || "not set"}`);
+
     const tokenManagementUrl = `https://mt-provisioning-api-v1.${region}.metaapi.cloud/users/current/tokens`;
-    
-    const tokenResponse = await fetch(tokenManagementUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "auth-token": adminToken,
-      },
-      body: JSON.stringify({
-        name: `temp-token-${Date.now()}`,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        permissions: [
-          "read-only"
-        ],
-        accountIds: [accountId],
-      }),
-    });
+
+    let tokenResponse: Response;
+    try {
+      tokenResponse = await fetch(tokenManagementUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "auth-token": adminToken,
+        },
+        body: JSON.stringify({
+          name: `temp-token-${Date.now()}`,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          permissions: [
+            "read-only"
+          ],
+          accountIds: [accountId],
+        }),
+      });
+    } catch (fetchError) {
+      console.error("Fetch error details:", {
+        error: fetchError,
+        message: fetchError instanceof Error ? fetchError.message : "Unknown",
+        stack: fetchError instanceof Error ? fetchError.stack : undefined,
+      });
+
+      throw new Error(
+        `Failed to connect to MetaAPI: ${fetchError instanceof Error ? fetchError.message : "Unknown error"}. ` +
+        `This may be due to SSL certificate validation issues.`
+      );
+    }
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
