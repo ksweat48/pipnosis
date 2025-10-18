@@ -42,7 +42,6 @@ class MarketDataService {
   private maxReconnectAttempts = 5;
   private isInitialized = false;
   private initializationAttempted = false;
-  private isDemoMode = false;
   private symbolsInitialized: Set<string> = new Set();
   private chartDataCache: Map<string, { data: ChartCandleData[], volumeData: any[], timestamp: number }> = new Map();
   private readonly CHART_CACHE_TTL = 30000;
@@ -54,9 +53,13 @@ class MarketDataService {
     useCache: boolean = true,
     quickLoad: boolean = false
   ): Promise<CandleData[]> {
+    if (!this.isInitialized) {
+      throw new Error('Market data service not initialized. Please ensure MetaAPI credentials are configured.');
+    }
+
     const effectiveLimit = quickLoad ? Math.min(100, limit) : limit;
     let apiCandles: CandleData[] = [];
-    let shouldFetchApi = !this.isDemoMode;
+    let shouldFetchApi = true;
 
     let cachedCandlesBackup: CandleData[] = [];
 
@@ -69,12 +72,7 @@ class MarketDataService {
       cachedCandlesBackup = cachedCandles;
 
       if (cachedCandles.length > 0) {
-        if (this.isDemoMode) {
-          apiCandles = cachedCandles;
-          shouldFetchApi = false;
-          console.log(`💾 Demo mode: Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
-        } else {
-          const cacheValidation = this.validateCacheQuality(
+        const cacheValidation = this.validateCacheQuality(
             cachedCandles,
             timeframe,
             limit
@@ -89,18 +87,17 @@ class MarketDataService {
             recommendation: cacheValidation.shouldUseCacheOnly ? 'USE CACHE' : 'FETCH FROM API'
           });
 
-          if (cacheValidation.shouldUseCacheOnly) {
-            shouldFetchApi = false;
-            apiCandles = cachedCandles;
-            console.log(`✅ Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
-          } else {
-            console.log(`🔄 Cache validation failed: ${cacheValidation.reason}`);
-          }
+        if (cacheValidation.shouldUseCacheOnly) {
+          shouldFetchApi = false;
+          apiCandles = cachedCandles;
+          console.log(`✅ Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
+        } else {
+          console.log(`🔄 Cache validation failed: ${cacheValidation.reason}`);
         }
       }
     }
 
-    if (shouldFetchApi && !this.isDemoMode) {
+    if (shouldFetchApi) {
       try {
         const endTime = new Date();
         const startTime = utilCalculateStartTime(timeframe, limit, endTime);
@@ -146,23 +143,11 @@ class MarketDataService {
 
         console.log(`📡 Fetched ${apiCandles.length} candles from MetaAPI for ${symbol} ${timeframe}`);
       } catch (error) {
-        console.error('Error fetching from MetaAPI:', error);
-        if (cachedCandlesBackup.length > 0) {
-          apiCandles = cachedCandlesBackup;
-          console.log(`⚠️ MetaApi error, falling back to ${cachedCandlesBackup.length} cached candles`);
-        } else {
-          const fallbackCandles = await marketDataCache.getCachedCandles(
-            symbol,
-            timeframe,
-            limit
-          );
-          if (fallbackCandles.length > 0) {
-            apiCandles = fallbackCandles;
-            console.log(`⚠️ MetaApi error, using ${fallbackCandles.length} cached candles from fresh query`);
-          } else {
-            throw error;
-          }
-        }
+        console.error('❌ Error fetching from MetaAPI:', error);
+        throw new Error(
+          `Failed to fetch market data for ${symbol} ${timeframe}. ` +
+          `MetaAPI connection error: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
       }
     }
 
@@ -220,13 +205,11 @@ class MarketDataService {
       Promise.resolve().then(async () => {
         await multiTimeframeAggregator.initialize(symbol);
         console.log(`✅ Initialized multi-timeframe aggregation for ${symbol}`);
-        if (!this.isDemoMode) {
-          timeframeBackfillService.checkAndBackfillAllTimeframes(symbol, timeframe).catch(err => {
-            console.warn('Background backfill check failed:', err);
-          });
-        }
+        timeframeBackfillService.checkAndBackfillAllTimeframes(symbol, timeframe).catch(err => {
+          console.warn('Background backfill check failed:', err);
+        });
       });
-    } else if (!this.isDemoMode) {
+    } else {
       Promise.resolve().then(() => {
         timeframeBackfillService.checkAndBackfillTimeframe(symbol, timeframe).catch(err => {
           console.warn('Timeframe backfill check failed:', err);
@@ -522,33 +505,18 @@ class MarketDataService {
 
     try {
       await metaApiService.initialize();
-      const status = metaApiService.getConnectionStatus();
 
       this.isInitialized = true;
-      this.isDemoMode = false;
 
       dbHealthMonitor.startMonitoring();
       candleCompletionService.start();
 
-      if (status.isDataOnlyMode) {
-        console.log('✅ Market data service initialized in data-only mode');
-        console.log('📊 Live candle fetching available (account management unavailable due to SSL issues)');
-      } else {
-        console.log('✅ Market data service initialized successfully');
-      }
+      console.log('✅ Market data service initialized successfully');
       console.log('🔍 Database health monitoring active');
       console.log('🔄 Candle completion service active');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-      if (errorMessage.includes('not configured') || errorMessage.includes('demo mode')) {
-        this.isDemoMode = true;
-        console.warn('⚠️ Running in demo mode with cached data only');
-      } else {
-        console.error('❌ Failed to initialize MetaApi:', errorMessage);
-        this.isDemoMode = true;
-      }
-
+      console.error('❌ Failed to initialize MetaAPI:', errorMessage);
       dbHealthMonitor.startMonitoring();
       throw error;
     }
@@ -570,7 +538,6 @@ class MarketDataService {
     try {
       await metaApiService.forceReconnect();
       this.isInitialized = true;
-      this.isDemoMode = false;
       console.log('✅ Market data service reconnected to MetaAPI');
     } catch (error) {
       console.error('❌ Market data service failed to reconnect:', error);
@@ -600,7 +567,7 @@ class MarketDataService {
       limit
     );
 
-    if (candles.length === 0 && !this.isDemoMode) {
+    if (candles.length === 0) {
       const fetchedCandles = await this.getHistoricalData(symbol, timeframe, limit, true, false);
       return fetchedCandles;
     }
@@ -780,7 +747,7 @@ class MarketDataService {
 
       console.log(`📊 Current state: ${currentCandles.length} candles, ${beforeCompleteness.toFixed(1)}% complete, ${currentValidation.gaps} gaps`);
 
-      if (!this.isInitialized || this.isDemoMode) {
+      if (!this.isInitialized) {
         console.log('⚠️ MetaAPI not connected. Attempting to connect...');
         onProgress?.({ status: 'Testing MetaAPI connection...', percent: 10 });
 
@@ -820,24 +787,9 @@ class MarketDataService {
           await metaApiService.forceReconnect();
           console.log('✅ MetaAPI connection established successfully');
           this.isInitialized = true;
-          this.isDemoMode = false;
         } catch (reconnectError) {
           const errorMessage = reconnectError instanceof Error ? reconnectError.message : 'Unknown error';
           console.error('❌ Failed to reconnect to MetaAPI:', errorMessage);
-
-          const validationResult = dataValidator.validateCandleSequence(currentCandles, timeframe);
-          if (!validationResult.isValid) {
-            const repairedCandles = dataValidator.validateAndRepairCandleSequence(currentCandles, timeframe, false);
-            await marketDataCache.saveCandles(repairedCandles, true);
-
-            return {
-              success: true,
-              candlesFetched: 0,
-              gapsFilled: 0,
-              completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
-              message: `MetaAPI unavailable (${errorMessage}). Repaired ${validationResult.errors.length} invalid candles from cache.`
-            };
-          }
 
           return {
             success: false,

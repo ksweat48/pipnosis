@@ -54,8 +54,6 @@ class MetaApiService {
   private region: string;
   private synchronizationListeners: Map<string, MarketDataListener> = new Map();
   private isListenerRegistered = false;
-  private isDemoMode = false;
-  private isDataOnlyMode = false;
   private latestPrices: Map<string, { bid: number; ask: number; timestamp: number }> = new Map();
   private readonly PRICE_CACHE_TTL = 60000;
 
@@ -84,11 +82,6 @@ class MetaApiService {
     this.token = import.meta.env.VITE_METAAPI_TOKEN || '';
     this.accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID || '';
     this.region = import.meta.env.VITE_METAAPI_REGION || 'new-york';
-
-    if (errorHandler.isWebContainerEnvironment()) {
-      this.isDemoMode = true;
-      console.info('🌐 Running in WebContainer environment - MetaAPI disabled, using demo mode');
-    }
   }
 
   private convertToApiTimeframe(timeframe: Timeframe): ApiTimeframe {
@@ -126,13 +119,6 @@ class MetaApiService {
       return;
     }
 
-    if (this.isDemoMode || errorHandler.isWebContainerEnvironment()) {
-      const error = new Error('MetaAPI disabled in preview environment. Using demo mode.');
-      this.initializationError = error;
-      this.isDemoMode = true;
-      return;
-    }
-
     if (this.isInitializing) {
       while (this.isInitializing) {
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -146,10 +132,15 @@ class MetaApiService {
     }
 
     if (!this.token || !this.accountId) {
-      const error = new Error('MetaApi credentials not configured. App running in demo mode. Configure VITE_METAAPI_TOKEN and VITE_METAAPI_ACCOUNT_ID for live trading.');
+      const error = new Error(
+        'MetaAPI credentials not configured.\n\n' +
+        'Required environment variables:\n' +
+        '• VITE_METAAPI_TOKEN - Your MetaAPI account token\n' +
+        '• VITE_METAAPI_ACCOUNT_ID - Your MetaAPI account ID\n' +
+        '• VITE_METAAPI_REGION - Your account region (new-york, london, singapore)\n\n' +
+        'Please configure these in your .env file and restart the application.'
+      );
       this.initializationError = error;
-      this.isDemoMode = true;
-      console.warn('⚠️ MetaApi not configured - running in demo mode with cached data only');
       throw error;
     }
 
@@ -209,24 +200,34 @@ class MetaApiService {
         const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
 
         if (errorHandler.isSSLCertificateError(apiError)) {
-          console.warn('⚠️ SSL Certificate error on MetaAPI account endpoint (server-side issue)');
-          console.log('📊 Continuing in data-only mode - candle fetching available, account management unavailable');
-          errorHandler.handleMetaApiError(apiError, 'Account Fetch');
-
-          this.isDataOnlyMode = true;
-          this.isInitialized = true;
-          this.isInitializing = false;
-          this.initializationError = null;
-
-          console.log('✅ MetaApi initialized in data-only mode (SSL cert issue on account API)');
-          console.log('🔍 Live candle data fetching is available via cached token');
-          return;
+          throw new Error(
+            '🔒 SSL Certificate Error\n\n' +
+            'Unable to establish a secure connection to MetaAPI.\n\n' +
+            'Common causes:\n' +
+            '• System date/time is incorrect\n' +
+            '• SSL certificates need updating on your system\n' +
+            '• Network security policies blocking HTTPS\n' +
+            '• Antivirus or firewall interfering with SSL\n\n' +
+            'Troubleshooting steps:\n' +
+            '1. Verify your system date and time are correct\n' +
+            '2. Update your operating system and browsers\n' +
+            '3. Temporarily disable antivirus/firewall to test\n' +
+            '4. Check with your network administrator\n' +
+            '5. Try from a different network connection\n\n' +
+            'Technical details: ' + errorMessage
+          );
         }
 
-        if (errorHandler.isNetworkError(apiError) || errorHandler.isMetaApiError(apiError)) {
-          errorHandler.handleMetaApiError(apiError, 'Account Fetch');
-          this.isDemoMode = true;
-          throw new Error('MetaAPI connection unavailable. Using demo mode.');
+        if (errorHandler.isNetworkError(apiError)) {
+          throw new Error(
+            '🌐 Network Connection Error\n\n' +
+            'Cannot reach MetaAPI servers.\n\n' +
+            'Please check:\n' +
+            '• Your internet connection is active\n' +
+            '• Firewall is not blocking the connection\n' +
+            '• VPN or proxy settings (if applicable)\n\n' +
+            'Technical details: ' + errorMessage
+          );
         }
         if (errorMessage.includes('ERR_NETWORK') || errorMessage.includes('Failed to fetch')) {
           throw new Error('Network connection failed. Unable to reach MetaApi servers. Check your internet connection or firewall settings.');
@@ -283,10 +284,16 @@ class MetaApiService {
         await this.connection.connect();
         console.log('✓ Connected to streaming endpoint');
       } catch (connectError) {
-        if (errorHandler.isNetworkError(connectError) || errorHandler.isMetaApiError(connectError)) {
-          errorHandler.handleMetaApiError(connectError, 'Streaming Connect');
-          this.isDemoMode = true;
-          throw new Error('MetaAPI streaming unavailable. Using demo mode.');
+        if (errorHandler.isNetworkError(connectError)) {
+          throw new Error(
+            '🌐 Streaming Connection Failed\n\n' +
+            'Unable to establish real-time data connection.\n\n' +
+            'Please verify:\n' +
+            '• Internet connection is stable\n' +
+            '• WebSocket connections are not blocked\n' +
+            '• No firewall restrictions\n\n' +
+            'Technical details: ' + (connectError instanceof Error ? connectError.message : 'Unknown error')
+          );
         }
         const errorMessage = connectError instanceof Error ? connectError.message : 'Unknown error';
         console.error('Connection error:', errorMessage);
@@ -363,17 +370,14 @@ class MetaApiService {
     startTime?: Date,
     limit: number = 500
   ): Promise<CandleData[]> {
-    if (this.isDemoMode || this.initializationError) {
-      throw this.initializationError || new Error('MetaApi not available in demo mode');
+    if (!this.isInitialized || this.initializationError) {
+      throw this.initializationError || new Error(
+        'MetaAPI not connected. Please ensure your credentials are configured correctly.'
+      );
     }
-    await this.ensureInitialized();
 
-    if (this.isDataOnlyMode) {
-      if (!this.api) {
-        throw new Error('MetaApi not initialized');
-      }
-    } else if (!this.account) {
-      throw new Error('MetaApi account not initialized');
+    if (!this.api || !this.account) {
+      throw new Error('MetaAPI connection not established');
     }
 
     const cacheKey = `${symbol}-${timeframe}-${limit}`;
@@ -394,24 +398,12 @@ class MetaApiService {
         console.log(`Fetching historical candles: ${symbol} ${timeframe} (API: ${apiTimeframe})`);
         console.log(`Time range: ${calculatedStartTime.toISOString()} to ${endTime.toISOString()}`);
 
-        let candles;
-        if (this.isDataOnlyMode) {
-          console.log('📊 Using direct API call (data-only mode)');
-          candles = await this.api!.metatraderAccountApi.getHistoricalMarketData(
-            this.accountId,
-            symbol,
-            apiTimeframe,
-            calculatedStartTime,
-            limit
-          );
-        } else {
-          candles = await this.account!.getHistoricalCandles(
-            symbol,
-            apiTimeframe,
-            calculatedStartTime,
-            limit
-          );
-        }
+        const candles = await this.account!.getHistoricalCandles(
+          symbol,
+          apiTimeframe,
+          calculatedStartTime,
+          limit
+        );
 
         const mappedCandles = candles.map((candle: any) => ({
           symbol,
@@ -660,10 +652,9 @@ class MetaApiService {
     symbol: string,
     listener: MarketDataListener
   ): Promise<void> {
-    if (this.isDemoMode || this.initializationError) {
-      throw this.initializationError || new Error('MetaApi not available in demo mode');
+    if (!this.isInitialized || this.initializationError) {
+      throw this.initializationError || new Error('MetaAPI not connected');
     }
-    await this.ensureInitialized();
 
     if (!this.connection) {
       throw new Error('Connection not established');
@@ -705,10 +696,9 @@ class MetaApiService {
   }
 
   async getSymbolPrice(symbol: string): Promise<{ bid: number; ask: number }> {
-    if (this.isDemoMode || this.initializationError) {
-      throw this.initializationError || new Error('MetaApi not available in demo mode');
+    if (!this.isInitialized || this.initializationError) {
+      throw this.initializationError || new Error('MetaAPI not connected');
     }
-    await this.ensureInitialized();
 
     // Check if we have a recent cached price from streaming data
     const cachedPrice = this.latestPrices.get(symbol);
@@ -787,22 +777,18 @@ class MetaApiService {
   }
 
   isConnected(): boolean {
-    return this.isInitialized && (this.connection !== null || this.isDataOnlyMode);
+    return this.isInitialized && this.connection !== null;
   }
 
   getConnectionStatus(): {
     isConnected: boolean;
-    isDemoMode: boolean;
-    isDataOnlyMode: boolean;
     hasCredentials: boolean;
     initializationError: string | null;
     accountState: string | null;
     region: string;
   } {
     return {
-      isConnected: this.isInitialized && (this.connection !== null || this.isDataOnlyMode),
-      isDemoMode: this.isDemoMode,
-      isDataOnlyMode: this.isDataOnlyMode,
+      isConnected: this.isInitialized && this.connection !== null,
       hasCredentials: !!(this.token && this.accountId),
       initializationError: this.initializationError?.message || null,
       accountState: this.account?.state || null,
@@ -817,13 +803,6 @@ class MetaApiService {
     details?: any;
   }> {
     try {
-      if (this.isDemoMode || errorHandler.isWebContainerEnvironment()) {
-        return {
-          success: false,
-          stage: 'environment',
-          message: 'Running in WebContainer environment - MetaAPI disabled'
-        };
-      }
 
       if (!this.token || !this.accountId) {
         return {
@@ -940,7 +919,6 @@ class MetaApiService {
     this.isInitialized = false;
     this.isInitializing = false;
     this.initializationError = null;
-    this.isDemoMode = false;
 
     if (this.connection) {
       try {

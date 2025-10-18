@@ -24,18 +24,21 @@ import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { AITradingConsole } from './components/AITradingConsole';
 import { SearchStatusPanel } from './components/SearchStatusPanel';
+import { SetupInstructionsScreen } from './components/SetupInstructionsScreen';
+import { MetaAPIErrorModal } from './components/MetaAPIErrorModal';
 import { usePromptAnalysis, useMarketData } from './hooks/useAPI';
 import { simulatedTradingService } from './services/simulated-trading';
 import { promptValidationService } from './services/prompt-validation';
 import { extendedSearchService } from './services/extended-search';
 import { multiSymbolScanner } from './strategies/core/multiSymbolScanner';
 import { strategyService } from './strategies';
-import { logEnvironmentStatus } from './lib/env-validator';
+import { logEnvironmentStatus, checkCredentialsConfigured } from './lib/env-validator';
 import { supabase } from './lib/supabase';
 import { runDatabaseDiagnostics, logDiagnostics } from './lib/database-diagnostics';
 import { verifyDatabaseSetup } from './lib/migration-checker';
 import { connectionValidator } from './lib/connection-validator';
 import { dbHealthMonitor } from './services/db-health-monitor';
+import { marketDataService } from './services/market-data';
 
 interface StrategyOption {
   id: string;
@@ -499,11 +502,30 @@ const AppRoutes: React.FC = () => {
 export default function App() {
   const [dbValidated, setDbValidated] = useState(true);
   const [showSetupWizard, setShowSetupWizard] = useState(false);
+  const [initError, setInitError] = useState<Error | null>(null);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+
+  const credentialsCheck = checkCredentialsConfigured();
+
+  if (!credentialsCheck.configured) {
+    return <SetupInstructionsScreen missingCredentials={credentialsCheck.missing} />;
+  }
 
   useEffect(() => {
     const runStartupDiagnostics = async () => {
       try {
         logEnvironmentStatus();
+
+        console.log('Initializing MetaAPI connection...');
+        try {
+          await marketDataService.initialize();
+          console.log('✅ MetaAPI initialized successfully');
+        } catch (metaApiError) {
+          console.error('❌ MetaAPI initialization failed:', metaApiError);
+          setInitError(metaApiError as Error);
+          setShowErrorModal(true);
+          return;
+        }
 
         console.log('Running non-blocking database connection validation...');
 
@@ -566,6 +588,23 @@ export default function App() {
 
   return (
     <DatabaseErrorBoundary>
+      <MetaAPIErrorModal
+        isOpen={showErrorModal}
+        error={initError}
+        onClose={() => setShowErrorModal(false)}
+        onRetry={async () => {
+          setShowErrorModal(false);
+          setInitError(null);
+          try {
+            await marketDataService.forceReconnect();
+            console.log('✅ Reconnection successful');
+          } catch (retryError) {
+            console.error('❌ Reconnection failed:', retryError);
+            setInitError(retryError as Error);
+            setShowErrorModal(true);
+          }
+        }}
+      />
       <AppRoutes />
     </DatabaseErrorBoundary>
   );

@@ -45,12 +45,6 @@ class ErrorHandler {
     );
   }
 
-  handleWebContainerTimeout(error: any): void {
-    this.logWarning(
-      'WebContainer environment taking longer than expected to initialize. This is normal in cloud environments.',
-      'WebContainer'
-    );
-  }
 
   handleResourcePreloadWarning(resource: string): void {
     const errorKey = `preload:${resource}`;
@@ -65,15 +59,6 @@ class ErrorHandler {
     }
   }
 
-  isWebContainerError(error: any): boolean {
-    if (!error) return false;
-    const errorMessage = error.message || error.toString();
-    return (
-      errorMessage.includes('WebContainer') ||
-      errorMessage.includes('webcontainer') ||
-      errorMessage.includes('took longer than')
-    );
-  }
 
   isSSLCertificateError(error: any): boolean {
     if (!error) return false;
@@ -113,47 +98,8 @@ class ErrorHandler {
     );
   }
 
-  isWebContainerEnvironment(): boolean {
-    if (typeof window === 'undefined') return false;
-    const hostname = window.location.hostname;
-    return (
-      hostname.includes('webcontainer') ||
-      hostname.includes('bolt.new') ||
-      hostname.includes('stackblitz') ||
-      hostname.includes('csb.app') ||
-      hostname.includes('codesandbox')
-    );
-  }
 
-  isMetaApiError(error: any): boolean {
-    if (!error) return false;
-    const errorMessage = error.message || error.toString();
-    return (
-      errorMessage.includes('metaapi') ||
-      errorMessage.includes('agiliumtrade') ||
-      errorMessage.includes('mt-provisioning-api') ||
-      errorMessage.includes('mt-client-api')
-    );
-  }
 
-  handleMetaApiError(error: any, context?: string): void {
-    if (this.isWebContainerEnvironment()) {
-      return;
-    }
-
-    if (this.isSSLCertificateError(error)) {
-      this.logWarning(
-        `SSL certificate issue with MetaAPI${context ? ` (${context})` : ''}. This is a server-side issue and won't affect data fetching.`,
-        'MetaAPI-SSL'
-      );
-      return;
-    }
-
-    this.logWarning(
-      `MetaAPI connection issue${context ? ` (${context})` : ''}. Using demo mode.`,
-      'MetaAPI'
-    );
-  }
 
   private getErrorKey(error: any, context?: string): string {
     const message = error?.message || error?.toString() || 'unknown';
@@ -170,62 +116,8 @@ export const errorHandler = new ErrorHandler();
 if (typeof window !== 'undefined') {
   const originalConsoleError = console.error;
   console.error = (...args: any[]) => {
-    const errorMessage = args.join(' ');
-
-    if (
-      errorMessage.includes('ERR_NETWORK_CHANGED') ||
-      errorMessage.includes('ERR_CONNECTION_RESET') ||
-      errorMessage.includes('mt-provisioning-api') ||
-      errorMessage.includes('agiliumtrade') ||
-      errorMessage.includes('/api/analytics')
-    ) {
-      if (errorHandler.isWebContainerEnvironment()) {
-        return;
-      }
-      const count = errorHandler['errorCounts'].get('network-errors') || 0;
-      if (count < 2) {
-        errorHandler['errorCounts'].set('network-errors', count + 1);
-      }
-      return;
-    }
-
-    if (
-      errorMessage.includes('WebSocket connection') ||
-      errorMessage.includes('ERR_INTERNET_DISCONNECTED')
-    ) {
-      const count = errorHandler['errorCounts'].get('websocket') || 0;
-      if (count < 3) {
-        originalConsoleError.apply(console, args);
-        errorHandler['errorCounts'].set('websocket', count + 1);
-      }
-      return;
-    }
-
     originalConsoleError.apply(console, args);
   };
 
-  window.addEventListener('error', (event) => {
-    const errorMessage = event.message || '';
-    if (
-      errorMessage.includes('ERR_NETWORK_CHANGED') ||
-      errorMessage.includes('ERR_CONNECTION_RESET') ||
-      errorMessage.includes('Failed to fetch')
-    ) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
-  });
 
-  window.addEventListener('unhandledrejection', (event) => {
-    const reason = event.reason?.message || event.reason?.toString() || '';
-    if (
-      reason.includes('ERR_NETWORK_CHANGED') ||
-      reason.includes('ERR_CONNECTION_RESET') ||
-      reason.includes('mt-provisioning-api') ||
-      reason.includes('/api/analytics')
-    ) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
-  });
 }
