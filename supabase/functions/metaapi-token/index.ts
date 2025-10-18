@@ -64,6 +64,8 @@ Deno.serve(async (req: Request) => {
 
     console.log(`Attempting to create token for account ${accountId} in region ${region}`);
     console.log(`DENO_TLS_CA_STORE: ${Deno.env.get("DENO_TLS_CA_STORE") || "not set"}`);
+    console.log(`NODE_TLS_REJECT_UNAUTHORIZED: ${Deno.env.get("NODE_TLS_REJECT_UNAUTHORIZED") || "not set"}`);
+    console.log(`System time: ${new Date().toISOString()}`);
 
     const tokenManagementUrl = `https://mt-provisioning-api-v1.${region}.metaapi.cloud/users/current/tokens`;
 
@@ -85,15 +87,37 @@ Deno.serve(async (req: Request) => {
         }),
       });
     } catch (fetchError) {
+      const errorMessage = fetchError instanceof Error ? fetchError.message : "Unknown";
+      const errorStack = fetchError instanceof Error ? fetchError.stack : undefined;
+
+      const isSSLError = errorMessage.toLowerCase().includes('certificate') ||
+                        errorMessage.toLowerCase().includes('ssl') ||
+                        errorMessage.toLowerCase().includes('tls') ||
+                        errorMessage.toLowerCase().includes('self-signed');
+
       console.error("Fetch error details:", {
         error: fetchError,
-        message: fetchError instanceof Error ? fetchError.message : "Unknown",
-        stack: fetchError instanceof Error ? fetchError.stack : undefined,
+        message: errorMessage,
+        stack: errorStack,
+        isSSLError,
+        url: tokenManagementUrl,
+        tlsConfig: {
+          denoTlsCaStore: Deno.env.get("DENO_TLS_CA_STORE") || "not set",
+          nodeTlsRejectUnauthorized: Deno.env.get("NODE_TLS_REJECT_UNAUTHORIZED") || "not set",
+        }
       });
 
+      if (isSSLError) {
+        throw new Error(
+          `SSL Certificate Validation Failed: ${errorMessage}. ` +
+          `To fix this, add DENO_TLS_CA_STORE=mozilla,system to your Supabase Edge Function secrets. ` +
+          `The MetaAPI endpoint is presenting a self-signed or untrusted certificate.`
+        );
+      }
+
       throw new Error(
-        `Failed to connect to MetaAPI: ${fetchError instanceof Error ? fetchError.message : "Unknown error"}. ` +
-        `This may be due to SSL certificate validation issues.`
+        `Failed to connect to MetaAPI: ${errorMessage}. ` +
+        `Check network connectivity and MetaAPI service status.`
       );
     }
 
@@ -116,7 +140,8 @@ Deno.serve(async (req: Request) => {
             "Verify MetaAPI admin token is valid and not expired",
             "Check that account exists in MetaAPI dashboard",
             "Ensure account region matches the configured region",
-            "Verify SSL certificates are valid for MetaAPI endpoints"
+            "If SSL errors occur, add DENO_TLS_CA_STORE=mozilla,system to Supabase Edge Function secrets",
+            "Verify system time is synchronized (SSL certificates are time-sensitive)"
           ]
         }),
         {
