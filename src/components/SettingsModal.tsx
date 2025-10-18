@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Settings, Shield, Save, RotateCcw, Info, TrendingUp, CheckCircle, Monitor } from 'lucide-react';
+import { X, Settings, Shield, Save, RotateCcw, Info, TrendingUp, CheckCircle, Monitor, Activity } from 'lucide-react';
 import { ChartPreferences } from '../hooks/useChartPreferences';
+import { DiagnosticsPanel } from './DiagnosticsPanel';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, chartPreferences, onChartPreferencesUpdate }) => {
+  const [activeTab, setActiveTab] = useState<'settings' | 'diagnostics'>('settings');
   const [settings, setSettings] = useState({
     // Trading Pairs Selection
     pairSelectionMode: 'ai-choose', // 'ai-choose' or 'manual'
@@ -106,8 +108,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, c
           </button>
         </div>
 
+        {/* Tabs */}
+        <div className="flex border-b border-slate-700 px-6 flex-shrink-0">
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`px-4 py-3 font-medium transition-colors relative ${
+              activeTab === 'settings'
+                ? 'text-emerald-400'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Settings className="w-4 h-4" />
+              <span>Settings</span>
+            </div>
+            {activeTab === 'settings' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('diagnostics')}
+            className={`px-4 py-3 font-medium transition-colors relative ${
+              activeTab === 'diagnostics'
+                ? 'text-emerald-400'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4" />
+              <span>Diagnostics</span>
+            </div>
+            {activeTab === 'diagnostics' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />
+            )}
+          </button>
+        </div>
+
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-8">
+          {activeTab === 'diagnostics' ? (
+            <DiagnosticsPanel />
+          ) : (
+            <>
           {/* Connection Status */}
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
@@ -476,6 +518,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, c
                 </p>
               </div>
             </div>
+          )}
+          </>
           )}
         </div>
 

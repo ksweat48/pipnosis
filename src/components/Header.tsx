@@ -6,6 +6,7 @@ import { useChartPreferences } from '@/hooks/useChartPreferences';
 import { SettingsModal } from './SettingsModal';
 import { DisclaimerModal } from './DisclaimerModal';
 import { ConnectionStatus } from './ConnectionStatus';
+import { MetaAPIStatusIndicator } from './MetaAPIStatusIndicator';
 
 export const Header: React.FC = () => {
   const { user, signOut, isAdmin } = useAuth();
@@ -57,6 +58,7 @@ export const Header: React.FC = () => {
           
           {/* Desktop Navigation */}
           <div className="hidden lg:flex items-center space-x-4">
+            <MetaAPIStatusIndicator />
             {user ? (
               <>
                 {/* User Info */}
