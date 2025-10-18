@@ -725,6 +725,148 @@ class MetaApiService {
     return this.isInitialized && this.connection !== null;
   }
 
+  getConnectionStatus(): {
+    isConnected: boolean;
+    isDemoMode: boolean;
+    hasCredentials: boolean;
+    initializationError: string | null;
+    accountState: string | null;
+    region: string;
+  } {
+    return {
+      isConnected: this.isInitialized && this.connection !== null,
+      isDemoMode: this.isDemoMode,
+      hasCredentials: !!(this.token && this.accountId),
+      initializationError: this.initializationError?.message || null,
+      accountState: this.account?.state || null,
+      region: this.region
+    };
+  }
+
+  async testConnection(): Promise<{
+    success: boolean;
+    stage: string;
+    message: string;
+    details?: any;
+  }> {
+    try {
+      if (this.isDemoMode || errorHandler.isWebContainerEnvironment()) {
+        return {
+          success: false,
+          stage: 'environment',
+          message: 'Running in WebContainer environment - MetaAPI disabled'
+        };
+      }
+
+      if (!this.token || !this.accountId) {
+        return {
+          success: false,
+          stage: 'credentials',
+          message: 'MetaAPI credentials not configured. Please set VITE_METAAPI_TOKEN and VITE_METAAPI_ACCOUNT_ID in your .env file',
+          details: {
+            hasToken: !!this.token,
+            hasAccountId: !!this.accountId,
+            region: this.region
+          }
+        };
+      }
+
+      console.log('🔍 Testing MetaAPI connection...');
+      console.log(`   Region: ${this.region}`);
+      console.log(`   Account ID: ${this.accountId}`);
+
+      const secureToken = await metaApiTokenManager.getToken(this.accountId, this.region);
+
+      const testApi = new MetaApi(secureToken, {
+        application: 'Pipnosis',
+        domain: `${this.region}.metaapi.cloud`,
+        enableLatencyMonitor: false,
+        requestTimeout: 30000,
+        connectTimeout: 30000
+      });
+
+      let testAccount;
+      try {
+        testAccount = await testApi.metatraderAccountApi.getAccount(this.accountId);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        return {
+          success: false,
+          stage: 'account_fetch',
+          message: `Failed to fetch account: ${errorMessage}`,
+          details: { error: errorMessage }
+        };
+      }
+
+      const accountInfo = {
+        state: testAccount.state,
+        region: testAccount.region,
+        server: testAccount.server || 'Unknown'
+      };
+
+      console.log('✓ Account fetched successfully:', accountInfo);
+
+      if (testAccount.region && testAccount.region !== this.region) {
+        return {
+          success: false,
+          stage: 'region_mismatch',
+          message: `Region mismatch: Account is in '${testAccount.region}' but SDK configured for '${this.region}'. Update VITE_METAAPI_REGION=${testAccount.region}`,
+          details: accountInfo
+        };
+      }
+
+      const deployedStates = ['DEPLOYED', 'DEPLOYING'];
+      if (!deployedStates.includes(testAccount.state)) {
+        return {
+          success: false,
+          stage: 'account_state',
+          message: `Account is not deployed. Current state: ${testAccount.state}. Please deploy your account in the MetaAPI dashboard.`,
+          details: accountInfo
+        };
+      }
+
+      return {
+        success: true,
+        stage: 'complete',
+        message: 'Connection test passed. MetaAPI is ready.',
+        details: accountInfo
+      };
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return {
+        success: false,
+        stage: 'unknown',
+        message: `Connection test failed: ${errorMessage}`,
+        details: { error: errorMessage }
+      };
+    }
+  }
+
+  async forceReconnect(): Promise<void> {
+    console.log('🔄 Force reconnecting to MetaAPI...');
+
+    this.isInitialized = false;
+    this.isInitializing = false;
+    this.initializationError = null;
+    this.isDemoMode = false;
+
+    if (this.connection) {
+      try {
+        await this.connection.close();
+      } catch (error) {
+        console.warn('Error closing existing connection:', error);
+      }
+      this.connection = null;
+    }
+
+    this.api = null;
+    this.account = null;
+
+    console.log('🔄 Attempting fresh initialization...');
+    await this.initialize();
+  }
+
   private async ensureInitialized(): Promise<void> {
     if (!this.isInitialized) {
       await this.initialize();

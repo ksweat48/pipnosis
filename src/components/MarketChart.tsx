@@ -610,21 +610,53 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
     setIsFixingData(true);
     setFixMessage(null);
-    setFixProgress({ status: 'Starting multi-timeframe backfill...', percent: 0 });
+    setFixProgress({ status: 'Checking MetaAPI connection...', percent: 0 });
 
     try {
+      const connectionStatus = marketDataService.getConnectionStatus();
+      console.log('📊 Current connection status:', connectionStatus);
+
+      if (!connectionStatus.hasCredentials) {
+        setFixProgress(null);
+        setFixMessage({
+          type: 'error',
+          text: 'MetaAPI credentials not configured. Please check your .env file.'
+        });
+        setIsFixingData(false);
+        setTimeout(() => setFixMessage(null), 10000);
+        return;
+      }
+
+      if (!connectionStatus.isConnected) {
+        setFixProgress({ status: 'MetaAPI not connected. Testing connection...', percent: 2 });
+        const testResult = await marketDataService.testConnection();
+
+        if (!testResult.success) {
+          console.error('❌ Connection test failed:', testResult);
+          setFixProgress(null);
+          setFixMessage({
+            type: 'error',
+            text: `Connection test failed: ${testResult.message}`
+          });
+          setIsFixingData(false);
+          setTimeout(() => setFixMessage(null), 15000);
+          return;
+        }
+
+        console.log('✅ Connection test passed:', testResult);
+      }
+
+      setFixProgress({ status: 'Starting multi-timeframe backfill...', percent: 5 });
+
       const allTimeframes: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
       const totalTimeframes = allTimeframes.length;
       let completedTimeframes = 0;
       let totalCandlesFetched = 0;
-      const results: { [key: string]: { success: boolean; candles: number } } = {};
+      const results: { [key: string]: { success: boolean; candles: number; message?: string } } = {};
 
       for (const tf of allTimeframes) {
-        const tfPercent = Math.floor((completedTimeframes / totalTimeframes) * 90);
-        setFixProgress({
-          status: `Backfilling ${symbol} ${tf}... (${completedTimeframes + 1}/${totalTimeframes})`,
-          percent: tfPercent
-        });
+        const basePercent = 5;
+        const tfPercent = basePercent + Math.floor((completedTimeframes / totalTimeframes) * 85);
 
         try {
           const candleLimit = tf === 'M1' ? 500 : tf === 'M5' ? 1000 : tf === 'M15' ? 1000 : 1000;
@@ -633,18 +665,32 @@ export const MarketChart: React.FC<MarketChartProps> = ({
             symbol,
             tf,
             candleLimit,
-            () => {}
+            (progress) => {
+              setFixProgress({
+                status: `[${tf}] ${progress.status} (${completedTimeframes + 1}/${totalTimeframes})`,
+                percent: tfPercent + Math.floor(progress.percent * 0.85 / totalTimeframes)
+              });
+            }
           );
 
-          results[tf] = { success: result.success, candles: result.candlesFetched };
+          results[tf] = {
+            success: result.success,
+            candles: result.candlesFetched,
+            message: result.message
+          };
+
           if (result.success) {
             totalCandlesFetched += result.candlesFetched;
+            console.log(`✅ ${tf}: ${result.candlesFetched} candles fetched`);
+          } else {
+            console.warn(`⚠️ ${tf}: ${result.message}`);
           }
 
           completedTimeframes++;
         } catch (error) {
-          console.error(`Failed to backfill ${tf}:`, error);
-          results[tf] = { success: false, candles: 0 };
+          const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+          console.error(`❌ Failed to backfill ${tf}:`, errorMsg);
+          results[tf] = { success: false, candles: 0, message: errorMsg };
           completedTimeframes++;
         }
       }
@@ -661,36 +707,50 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       setFixProgress(null);
 
       const successCount = Object.values(results).filter(r => r.success).length;
+      const failedCount = totalTimeframes - successCount;
       const successTimeframes = Object.entries(results)
         .filter(([_, r]) => r.success)
         .map(([tf, _]) => tf)
         .join(', ');
 
-      if (successCount > 0) {
+      const failedTimeframes = Object.entries(results)
+        .filter(([_, r]) => !r.success)
+        .map(([tf, r]) => `${tf} (${r.message || 'unknown error'})`)
+        .join(', ');
+
+      if (successCount === totalTimeframes) {
         setFixMessage({
           type: 'success',
-          text: `Successfully backfilled ${successCount}/${totalTimeframes} timeframes (${successTimeframes}). Total: ${totalCandlesFetched} candles saved to database.`
+          text: `✅ All ${totalTimeframes} timeframes successfully backfilled! Total: ${totalCandlesFetched} candles fetched and saved to database.`
+        });
+      } else if (successCount > 0) {
+        setFixMessage({
+          type: 'success',
+          text: `Partially successful: ${successCount}/${totalTimeframes} timeframes backfilled (${successTimeframes}). Total: ${totalCandlesFetched} candles saved. Failed: ${failedTimeframes}`
         });
       } else {
+        const firstError = Object.values(results)[0]?.message || 'Unknown error';
         setFixMessage({
           type: 'error',
-          text: 'Failed to backfill data for all timeframes. Check MetaAPI connection.'
+          text: `Failed to backfill all timeframes. First error: ${firstError}. Check console for details.`
         });
       }
 
       setTimeout(() => {
         setFixMessage(null);
-      }, 15000);
+      }, 20000);
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      console.error('❌ Multi-timeframe backfill error:', error);
       setFixProgress(null);
       setFixMessage({
         type: 'error',
-        text: 'Failed to complete multi-timeframe backfill'
+        text: `Failed to complete multi-timeframe backfill: ${errorMsg}`
       });
 
       setTimeout(() => {
         setFixMessage(null);
-      }, 5000);
+      }, 10000);
     } finally {
       setIsFixingData(false);
     }

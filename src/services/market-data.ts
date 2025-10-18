@@ -550,6 +550,26 @@ class MarketDataService {
     return metaApiService.isConnected();
   }
 
+  getConnectionStatus() {
+    return metaApiService.getConnectionStatus();
+  }
+
+  async testConnection() {
+    return await metaApiService.testConnection();
+  }
+
+  async forceReconnect() {
+    try {
+      await metaApiService.forceReconnect();
+      this.isInitialized = true;
+      this.isDemoMode = false;
+      console.log('✅ Market data service reconnected to MetaAPI');
+    } catch (error) {
+      console.error('❌ Market data service failed to reconnect:', error);
+      throw error;
+    }
+  }
+
   async disconnect(): Promise<void> {
     this.activeSubscriptions.clear();
     this.reconnectAttempts.clear();
@@ -744,7 +764,7 @@ class MarketDataService {
     try {
       console.log(`🔧 Starting comprehensive data fix for ${symbol} ${timeframe}...`);
 
-      onProgress?.({ status: 'Analyzing current data...', percent: 10 });
+      onProgress?.({ status: 'Analyzing current data...', percent: 5 });
 
       const currentCandles = await this.getHistoricalData(symbol, timeframe, limit, true, false);
       const currentValidation = await this.validateDataCompleteness(symbol, timeframe, currentCandles);
@@ -753,35 +773,78 @@ class MarketDataService {
       console.log(`📊 Current state: ${currentCandles.length} candles, ${beforeCompleteness.toFixed(1)}% complete, ${currentValidation.gaps} gaps`);
 
       if (!this.isInitialized || this.isDemoMode) {
-        console.log('⚠️ MetaAPI not available, can only validate existing data');
-        const validationResult = dataValidator.validateCandleSequence(currentCandles, timeframe);
+        console.log('⚠️ MetaAPI not connected. Attempting to connect...');
+        onProgress?.({ status: 'Testing MetaAPI connection...', percent: 10 });
 
-        if (!validationResult.isValid) {
-          const repairedCandles = dataValidator.validateAndRepairCandleSequence(currentCandles, timeframe, false);
-          await marketDataCache.saveCandles(repairedCandles, true);
+        const connectionStatus = metaApiService.getConnectionStatus();
+        console.log('📊 Connection status:', connectionStatus);
 
+        if (!connectionStatus.hasCredentials) {
+          console.error('❌ MetaAPI credentials not configured');
           return {
-            success: true,
+            success: false,
             candlesFetched: 0,
             gapsFilled: 0,
             completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
-            message: `Repaired ${validationResult.errors.length} invalid candles (MetaAPI unavailable for fetching missing data)`
+            message: 'MetaAPI credentials not configured. Please set VITE_METAAPI_TOKEN and VITE_METAAPI_ACCOUNT_ID in your .env file'
           };
         }
 
-        return {
-          success: false,
-          candlesFetched: 0,
-          gapsFilled: 0,
-          completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
-          message: 'MetaAPI not available. Cannot fetch missing candles.'
-        };
+        onProgress?.({ status: 'Running connection diagnostics...', percent: 12 });
+        const testResult = await metaApiService.testConnection();
+        console.log('🔍 Connection test result:', testResult);
+
+        if (!testResult.success) {
+          console.error(`❌ Connection test failed at stage: ${testResult.stage}`);
+          return {
+            success: false,
+            candlesFetched: 0,
+            gapsFilled: 0,
+            completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
+            message: `MetaAPI connection failed: ${testResult.message}`
+          };
+        }
+
+        onProgress?.({ status: 'Connecting to MetaAPI...', percent: 15 });
+        console.log('🔄 Connection test passed. Attempting to establish full connection...');
+
+        try {
+          await metaApiService.forceReconnect();
+          console.log('✅ MetaAPI connection established successfully');
+          this.isInitialized = true;
+          this.isDemoMode = false;
+        } catch (reconnectError) {
+          const errorMessage = reconnectError instanceof Error ? reconnectError.message : 'Unknown error';
+          console.error('❌ Failed to reconnect to MetaAPI:', errorMessage);
+
+          const validationResult = dataValidator.validateCandleSequence(currentCandles, timeframe);
+          if (!validationResult.isValid) {
+            const repairedCandles = dataValidator.validateAndRepairCandleSequence(currentCandles, timeframe, false);
+            await marketDataCache.saveCandles(repairedCandles, true);
+
+            return {
+              success: true,
+              candlesFetched: 0,
+              gapsFilled: 0,
+              completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
+              message: `MetaAPI unavailable (${errorMessage}). Repaired ${validationResult.errors.length} invalid candles from cache.`
+            };
+          }
+
+          return {
+            success: false,
+            candlesFetched: 0,
+            gapsFilled: 0,
+            completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
+            message: `MetaAPI connection failed: ${errorMessage}`
+          };
+        }
       }
 
-      onProgress?.({ status: 'Clearing stale cache...', percent: 20 });
+      onProgress?.({ status: 'Clearing stale cache...', percent: 25 });
       await marketDataCache.clearSymbolTimeframe(symbol, timeframe);
 
-      onProgress?.({ status: 'Fetching fresh data from MetaAPI...', percent: 30 });
+      onProgress?.({ status: 'Fetching fresh data from MetaAPI...', percent: 35 });
 
       const endTime = new Date();
       const startTime = utilCalculateStartTime(timeframe, limit, endTime);
