@@ -6,7 +6,7 @@
 import React from 'react';
 import { Brain, TrendingUp, TrendingDown, Activity, BarChart3, Gauge, Target, Zap, CheckCircle, XCircle } from 'lucide-react';
 import { AiMarketSummary } from '../lib/aiMarketEngine';
-import { formatATRStatus } from '../lib/indicators';
+import { formatATRStatus, formatVWAPPosition } from '../lib/indicators';
 
 interface RealAIAnalysisPanelProps {
   analysis: AiMarketSummary;
@@ -31,10 +31,10 @@ export const RealAIAnalysisPanel: React.FC<RealAIAnalysisPanelProps> = ({ analys
     }
   };
 
-  const getVWAPColor = (position: string) => {
+  const getVWAPColor = (position: 'ABOVE' | 'BELOW' | 'NEAR') => {
     switch (position) {
-      case 'Above VWAP': return 'text-emerald-400';
-      case 'Below VWAP': return 'text-red-400';
+      case 'ABOVE': return 'text-emerald-400';
+      case 'BELOW': return 'text-red-400';
       default: return 'text-yellow-400';
     }
   };
@@ -132,7 +132,7 @@ export const RealAIAnalysisPanel: React.FC<RealAIAnalysisPanelProps> = ({ analys
               {analysis.vwap.value.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
             </div>
             <div className={`text-sm font-bold ${getVWAPColor(analysis.vwap.position)}`}>
-              {analysis.vwap.position}
+              {formatVWAPPosition(analysis.vwap.position)}
             </div>
             <p className="text-xs text-white/40 mt-1">
               Volume-Weighted Average Price

@@ -114,14 +114,27 @@ export function calculateVWAP(candles: Candle[], maxCandles: number = 50): numbe
 
 /**
  * Get VWAP Position relative to current price
+ * Returns short-form status matching database constraint
  */
-export function getVWAPPosition(currentPrice: number, vwap: number): 'Above VWAP' | 'Below VWAP' | 'Near VWAP' {
+export function getVWAPPosition(currentPrice: number, vwap: number): 'ABOVE' | 'BELOW' | 'NEAR' {
   const threshold = 0.001;
   const diff = Math.abs(currentPrice - vwap) / vwap;
 
-  if (diff <= threshold) return 'Near VWAP';
-  if (currentPrice > vwap) return 'Above VWAP';
-  return 'Below VWAP';
+  if (diff <= threshold) return 'NEAR';
+  if (currentPrice > vwap) return 'ABOVE';
+  return 'BELOW';
+}
+
+/**
+ * Format VWAP position for display in UI
+ */
+export function formatVWAPPosition(position: 'ABOVE' | 'BELOW' | 'NEAR'): string {
+  const displayMap = {
+    'ABOVE': 'Above VWAP',
+    'BELOW': 'Below VWAP',
+    'NEAR': 'Near VWAP'
+  };
+  return displayMap[position];
 }
 
 /**

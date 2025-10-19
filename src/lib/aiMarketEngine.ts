@@ -29,7 +29,7 @@ export interface AiMarketSummary {
   };
   vwap: {
     value: number;
-    position: 'Above VWAP' | 'Below VWAP' | 'Near VWAP';
+    position: 'ABOVE' | 'BELOW' | 'NEAR';
   };
   volume: {
     status: 'LOW' | 'STABLE' | 'HIGH';
