@@ -212,12 +212,24 @@ export function calculateATR(candles: Candle[], period: number = 14): number {
 
 /**
  * Get ATR Status based on volatility
- * Returns volatility classification and tooltip
+ * Returns short-form status matching database constraint
  */
-export function getATRStatus(atr: number): 'LOW VOLATILITY' | 'NORMAL VOLATILITY' | 'HIGH VOLATILITY' {
-  if (atr < 0.00015) return 'LOW VOLATILITY';
-  if (atr > 0.0006) return 'HIGH VOLATILITY';
-  return 'NORMAL VOLATILITY';
+export function getATRStatus(atr: number): 'LOW' | 'NORMAL' | 'HIGH' {
+  if (atr < 0.00015) return 'LOW';
+  if (atr > 0.0006) return 'HIGH';
+  return 'NORMAL';
+}
+
+/**
+ * Format ATR status for display in UI
+ */
+export function formatATRStatus(status: 'LOW' | 'NORMAL' | 'HIGH'): string {
+  const displayMap = {
+    'LOW': 'Low Volatility',
+    'NORMAL': 'Normal Volatility',
+    'HIGH': 'High Volatility'
+  };
+  return displayMap[status];
 }
 
 /**

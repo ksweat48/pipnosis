@@ -6,6 +6,7 @@
 import React from 'react';
 import { Brain, TrendingUp, TrendingDown, Activity, BarChart3, Gauge, Target, Zap, CheckCircle, XCircle } from 'lucide-react';
 import { AiMarketSummary } from '../lib/aiMarketEngine';
+import { formatATRStatus } from '../lib/indicators';
 
 interface RealAIAnalysisPanelProps {
   analysis: AiMarketSummary;
@@ -46,10 +47,10 @@ export const RealAIAnalysisPanel: React.FC<RealAIAnalysisPanelProps> = ({ analys
     }
   };
 
-  const getATRColor = (status: string) => {
+  const getATRColor = (status: 'LOW' | 'NORMAL' | 'HIGH') => {
     switch (status) {
-      case 'Elevated': return 'text-orange-400';
-      case 'Low': return 'text-blue-400';
+      case 'HIGH': return 'text-orange-400';
+      case 'LOW': return 'text-blue-400';
       default: return 'text-yellow-400';
     }
   };
@@ -173,8 +174,8 @@ export const RealAIAnalysisPanel: React.FC<RealAIAnalysisPanelProps> = ({ analys
             <div className="text-lg font-mono text-white">
               {analysis.atr.value.toFixed(symbol === 'XAUUSD' ? 2 : 5)}
             </div>
-            <div className={`text-sm font-bold uppercase ${getATRColor(analysis.atr.status)}`}>
-              {analysis.atr.status}
+            <div className={`text-sm font-bold ${getATRColor(analysis.atr.status)}`}>
+              {formatATRStatus(analysis.atr.status)}
             </div>
             {analysis.atr.tooltip && (
               <p className="text-xs text-white/40 mt-1" title={analysis.atr.tooltip}>

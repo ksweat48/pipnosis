@@ -39,7 +39,7 @@ export interface AiMarketSummary {
   };
   atr: {
     value: number;
-    status: 'LOW VOLATILITY' | 'NORMAL VOLATILITY' | 'HIGH VOLATILITY';
+    status: 'LOW' | 'NORMAL' | 'HIGH';
     tooltip: string;
   };
   candleSignal: {
