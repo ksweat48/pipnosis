@@ -193,10 +193,10 @@ function calculateSentiment(
     totalWeight += weight;
   }
 
-  if (vwapPosition === 'Above VWAP') {
+  if (vwapPosition === 'ABOVE') {
     bullishScore += 15;
     totalWeight += 15;
-  } else if (vwapPosition === 'Below VWAP') {
+  } else if (vwapPosition === 'BELOW') {
     bearishScore += 15;
     totalWeight += 15;
   } else {
@@ -235,7 +235,7 @@ function calculateSentiment(
     totalWeight += 5;
   }
 
-  if (atrStatus === 'Elevated') {
+  if (atrStatus === 'HIGH') {
     totalWeight += 5;
   }
 
@@ -374,7 +374,7 @@ function validateTradeSignal(
     };
   }
 
-  if (atr.status === 'Low') {
+  if (atr.status === 'LOW') {
     return {
       status: 'INVALID',
       reason: 'ATR too low - insufficient volatility for trade'
@@ -391,7 +391,7 @@ function validateTradeSignal(
       };
     }
 
-    if (vwap.position === 'Above VWAP' || vwap.position === 'Near VWAP') {
+    if (vwap.position === 'ABOVE' || vwap.position === 'NEAR') {
       reasons.push('VWAP support confirmed');
       confidence += 25;
     }
@@ -445,7 +445,7 @@ function validateTradeSignal(
       };
     }
 
-    if (vwap.position === 'Below VWAP' || vwap.position === 'Near VWAP') {
+    if (vwap.position === 'BELOW' || vwap.position === 'NEAR') {
       reasons.push('VWAP resistance confirmed');
       confidence += 25;
     }
