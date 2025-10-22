@@ -1,5 +1,6 @@
 import MetaApi, { MetatraderAccount } from 'metaapi.cloud-sdk';
 import { errorHandler } from '@/lib/error-handler';
+import { tokenManager } from './token-manager';
 
 export interface CandleData {
   symbol: string;
@@ -48,9 +49,10 @@ class MetaApiService {
   private isInitialized = false;
   private isInitializing = false;
   private initializationError: Error | null = null;
-  private token: string;
+  private token: string = '';
   private accountId: string;
   private region: string;
+  private tokenFetchPromise: Promise<string> | null = null;
   private synchronizationListeners: Map<string, MarketDataListener> = new Map();
   private isListenerRegistered = false;
   private isDemoMode = false;
@@ -79,7 +81,6 @@ class MetaApiService {
   private rateLimitCooldownMs = 60000;
 
   constructor() {
-    this.token = import.meta.env.VITE_METAAPI_TOKEN || '';
     this.accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID || '';
     this.region = import.meta.env.VITE_METAAPI_REGION || 'new-york';
 
@@ -143,11 +144,26 @@ class MetaApiService {
       }
     }
 
-    if (!this.token || !this.accountId) {
-      const error = new Error('MetaApi credentials not configured. App running in demo mode. Configure VITE_METAAPI_TOKEN and VITE_METAAPI_ACCOUNT_ID for live trading.');
+    if (!this.accountId) {
+      const error = new Error('MetaApi account ID not configured. App running in demo mode. Configure VITE_METAAPI_ACCOUNT_ID for live trading.');
       this.initializationError = error;
       this.isDemoMode = true;
-      console.warn('⚠️ MetaApi not configured - running in demo mode with cached data only');
+      console.warn('⚠️ MetaApi account ID not configured - running in demo mode with cached data only');
+      throw error;
+    }
+
+    try {
+      console.log('Fetching secure temporary token from backend...');
+      this.token = await this.fetchToken();
+      console.log('✓ Received secure temporary token');
+    } catch (tokenError) {
+      const error = new Error(
+        `Failed to fetch MetaAPI token: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}. ` +
+        `Ensure backend token service is configured with METAAPI_ADMIN_TOKEN.`
+      );
+      this.initializationError = error;
+      this.isDemoMode = true;
+      console.error('⚠️ Token fetch failed - running in demo mode');
       throw error;
     }
 
@@ -698,6 +714,37 @@ class MetaApiService {
         reject(error);
       });
     });
+  }
+
+  private async fetchToken(): Promise<string> {
+    if (this.tokenFetchPromise) {
+      return this.tokenFetchPromise;
+    }
+
+    this.tokenFetchPromise = tokenManager.getToken(this.accountId)
+      .finally(() => {
+        this.tokenFetchPromise = null;
+      });
+
+    return this.tokenFetchPromise;
+  }
+
+  async refreshToken(): Promise<void> {
+    try {
+      console.log('Refreshing MetaAPI token...');
+      tokenManager.clearCache(this.accountId);
+      this.token = await this.fetchToken();
+      console.log('✓ Token refreshed successfully');
+
+      if (this.isInitialized) {
+        console.log('Re-initializing connection with new token...');
+        await this.disconnect();
+        await this.initialize();
+      }
+    } catch (error) {
+      console.error('Failed to refresh token:', error);
+      throw error;
+    }
   }
 
   async disconnect(): Promise<void> {
