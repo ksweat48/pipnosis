@@ -128,7 +128,43 @@ export const handler: Handler = async (event) => {
     let MetaApi;
     try {
       const metaApiModule = await import('metaapi.cloud-sdk');
-      MetaApi = metaApiModule.default;
+
+      // Try different export patterns
+      if (metaApiModule.default) {
+        MetaApi = metaApiModule.default;
+      } else if (metaApiModule.MetaApi) {
+        MetaApi = metaApiModule.MetaApi;
+      } else if (typeof metaApiModule === 'function') {
+        MetaApi = metaApiModule;
+      } else {
+        // Check all available exports
+        const moduleKeys = Object.keys(metaApiModule);
+        addStep(
+          '2. SDK Import',
+          'error',
+          'MetaApi constructor not found in module exports',
+          {
+            hasDefault: !!metaApiModule.default,
+            hasMetaApi: !!metaApiModule.MetaApi,
+            moduleKeys: moduleKeys,
+            moduleType: typeof metaApiModule,
+            allExports: Object.keys(metaApiModule).reduce((acc: any, key) => {
+              acc[key] = typeof (metaApiModule as any)[key];
+              return acc;
+            }, {})
+          }
+        );
+
+        return {
+          statusCode: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            testResults,
+            error: 'MetaApi constructor not found'
+          })
+        };
+      }
 
       addStep(
         '2. SDK Import',
@@ -136,7 +172,10 @@ export const handler: Handler = async (event) => {
         'MetaAPI SDK imported successfully',
         {
           hasDefault: !!metaApiModule.default,
-          moduleKeys: Object.keys(metaApiModule)
+          hasMetaApi: !!metaApiModule.MetaApi,
+          moduleKeys: Object.keys(metaApiModule),
+          constructorFound: typeof MetaApi === 'function',
+          exportUsed: metaApiModule.default ? 'default' : (metaApiModule.MetaApi ? 'MetaApi' : 'direct')
         }
       );
     } catch (importError: any) {
@@ -170,7 +209,12 @@ export const handler: Handler = async (event) => {
 
     let metaApi;
     try {
-      metaApi = new MetaApi(adminToken);
+      metaApi = new MetaApi(adminToken, {
+        application: 'Pipnosis',
+        domain: `${region}.agiliumtrade.ai`,
+        requestTimeout: 60000,
+        connectTimeout: 60000,
+      });
 
       addStep(
         '3. Initialize Client',
@@ -178,7 +222,9 @@ export const handler: Handler = async (event) => {
         'MetaAPI client initialized',
         {
           hasTokenManagementApi: !!metaApi.tokenManagementApi,
-          hasMetatraderAccountApi: !!metaApi.metatraderAccountApi
+          hasMetatraderAccountApi: !!metaApi.metatraderAccountApi,
+          region: region,
+          domain: `${region}.agiliumtrade.ai`
         }
       );
     } catch (initError: any) {
@@ -188,7 +234,9 @@ export const handler: Handler = async (event) => {
         'Failed to initialize MetaAPI client',
         {
           error: initError.message,
-          stack: initError.stack
+          stack: initError.stack,
+          metaApiType: typeof MetaApi,
+          isConstructor: typeof MetaApi === 'function'
         }
       );
 

@@ -2,7 +2,8 @@
 // Serverless function that returns a short-lived MetaAPI token using admin token.
 // Expects POST JSON body: { accountId: "<account-id>" }
 
-const MetaApi = require('metaapi.cloud-sdk').default;
+const metaApiSdk = require('metaapi.cloud-sdk');
+const MetaApi = metaApiSdk.default || metaApiSdk.MetaApi || metaApiSdk;
 
 exports.handler = async (event) => {
   try {
@@ -56,7 +57,13 @@ exports.handler = async (event) => {
     }
 
     // Create MetaApi client with admin token (server-side only)
-    const metaApi = new MetaApi(adminToken);
+    const region = process.env.VITE_METAAPI_REGION || 'new-york';
+    const metaApi = new MetaApi(adminToken, {
+      application: 'Pipnosis',
+      domain: `${region}.agiliumtrade.ai`,
+      requestTimeout: 60000,
+      connectTimeout: 60000,
+    });
 
     // Generate narrowed down token using Token Management API
     // Token is restricted to specific account and necessary applications

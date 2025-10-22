@@ -1,5 +1,7 @@
 import { Handler } from '@netlify/functions';
-import MetaApi from 'metaapi.cloud-sdk';
+import * as metaApiSdk from 'metaapi.cloud-sdk';
+
+const MetaApi = (metaApiSdk as any).default || (metaApiSdk as any).MetaApi || metaApiSdk;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
