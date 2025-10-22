@@ -160,7 +160,7 @@ class MetaApiService {
 
       this.api = new MetaApi(this.token, {
         application: 'Pipnosis',
-        domain: `${this.region}.metaapi.cloud`,
+        domain: `${this.region}.agiliumtrade.ai`,
         enableLatencyMonitor: false,
         requestTimeout: 60000,
         connectTimeout: 60000
@@ -225,7 +225,7 @@ class MetaApiService {
         throw new Error('Failed to get streaming connection from MetaApi account');
       }
 
-      console.log(`Connecting to streaming endpoint at ${this.region}.metaapi.cloud...`);
+      console.log(`Connecting to streaming endpoint at ${this.region}.agiliumtrade.ai...`);
       try {
         await this.connection.connect();
         console.log('✓ Connected to streaming endpoint');
