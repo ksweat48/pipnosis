@@ -21,6 +21,10 @@
   # Daily schedule at 2:00 AM UTC
   schedule = "0 2 * * *"
 
+[functions."get-metaapi-token"]
+  # Standard timeout for token generation (10 seconds)
+  timeout = 10
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
