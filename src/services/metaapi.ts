@@ -174,16 +174,47 @@ class MetaApiService {
       console.log(`Region: ${this.region}`);
       console.log(`Account ID: ${this.accountId}`);
 
-      this.api = new MetaApi(this.token, {
-        application: 'Pipnosis',
-        domain: `${this.region}.agiliumtrade.ai`,
-        enableLatencyMonitor: false,
-        requestTimeout: 60000,
-        connectTimeout: 60000
-      });
-
+      // Use backend proxy to verify account (avoids browser SSL issues)
+      console.log('Verifying account via backend proxy...');
       try {
+        const response = await fetch('/.netlify/functions/verify-metaapi-account', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token: this.token,
+            accountId: this.accountId,
+            region: this.region
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+          throw new Error(errorData.error || 'Account verification failed');
+        }
+
+        const { account: accountInfo } = await response.json();
+        console.log(`✓ Account verified via backend proxy`);
+        console.log(`Account state: ${accountInfo.state}`);
+        console.log(`Account region: ${accountInfo.region}`);
+        console.log(`Broker server: ${accountInfo.server || 'Unknown'}`);
+
+        // Now initialize MetaAPI SDK for streaming connection
+        this.api = new MetaApi(this.token, {
+          application: 'Pipnosis',
+          domain: `${this.region}.agiliumtrade.ai`,
+          enableLatencyMonitor: false,
+          requestTimeout: 60000,
+          connectTimeout: 60000
+        });
+
         this.account = await this.api.metatraderAccountApi.getAccount(this.accountId);
+
+        if (this.account.region && this.account.region !== this.region) {
+          throw new Error(
+            `Region mismatch: Account is in '${this.account.region}' region but SDK is configured for '${this.region}'. ` +
+            `Please set VITE_METAAPI_REGION=${this.account.region} in your .env file.`
+          );
+        }
       } catch (apiError) {
         const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
         if (errorHandler.isNetworkError(apiError) || errorHandler.isMetaApiError(apiError)) {
@@ -191,22 +222,11 @@ class MetaApiService {
           this.isDemoMode = true;
           throw new Error('MetaAPI connection unavailable. Using demo mode.');
         }
-        if (errorMessage.includes('ERR_NETWORK') || errorMessage.includes('Failed to fetch')) {
+        if (errorMessage.includes('ERR_NETWORK') || errorMessage.includes('Failed to fetch') || errorMessage.includes('ERR_CERT')) {
           throw new Error('Network connection failed. Unable to reach MetaApi servers. Check your internet connection or firewall settings.');
         }
         console.error('Failed to get MetaApi account:', errorMessage);
         throw new Error('Invalid MetaApi account ID or credentials. Please verify your configuration.');
-      }
-
-      console.log(`Account state: ${this.account.state}`);
-      console.log(`Account region: ${this.account.region}`);
-      console.log(`Broker server: ${this.account.server || 'Unknown'}`);
-
-      if (this.account.region && this.account.region !== this.region) {
-        throw new Error(
-          `Region mismatch: Account is in '${this.account.region}' region but SDK is configured for '${this.region}'. ` +
-          `Please set VITE_METAAPI_REGION=${this.account.region} in your .env file.`
-        );
       }
 
       const deployedStates = ['DEPLOYED', 'DEPLOYING'];
