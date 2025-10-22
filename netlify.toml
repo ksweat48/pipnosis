@@ -10,6 +10,8 @@
 [functions]
   # Increase timeout for long-running refresh operations
   node_bundler = "esbuild"
+  # Use custom esbuild configuration
+  external_node_modules = []
 
 [functions."refresh-candles"]
   # Extended timeout for manual refresh operations (10 minutes)
