@@ -127,20 +127,27 @@ export const handler: Handler = async (event) => {
 
     let MetaApi;
     try {
+      // Import MetaApi using named import pattern (matches src/services/metaapi.ts)
       const metaApiModule = await import('metaapi.cloud-sdk');
 
-      // MetaAPI SDK exports MetaApi class as default export
-      MetaApi = metaApiModule.default;
+      // Try to extract MetaApi - it may be exported as default or named export
+      MetaApi = metaApiModule.default || metaApiModule.MetaApi || (metaApiModule as any).default;
 
       if (!MetaApi || typeof MetaApi !== 'function') {
+        // If still not found, log available exports for debugging
+        const availableExports = Object.keys(metaApiModule).filter(key =>
+          typeof (metaApiModule as any)[key] === 'function'
+        );
+
         addStep(
           '2. SDK Import',
           'error',
-          'MetaApi default export is not a valid constructor',
+          'MetaApi constructor not found in module exports',
           {
             defaultType: typeof metaApiModule.default,
-            isFunction: typeof MetaApi === 'function',
-            moduleKeys: Object.keys(metaApiModule)
+            hasMetaApiNamed: 'MetaApi' in metaApiModule,
+            availableFunctions: availableExports,
+            moduleKeys: Object.keys(metaApiModule).slice(0, 20)
           }
         );
 
@@ -150,7 +157,7 @@ export const handler: Handler = async (event) => {
           body: JSON.stringify({
             success: false,
             testResults,
-            error: 'MetaApi constructor not valid'
+            error: 'MetaApi constructor not found'
           })
         };
       }
@@ -162,7 +169,7 @@ export const handler: Handler = async (event) => {
         {
           constructorFound: true,
           constructorType: typeof MetaApi,
-          exportType: 'default'
+          constructorName: MetaApi.name
         }
       );
     } catch (importError: any) {
