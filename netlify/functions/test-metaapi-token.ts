@@ -129,29 +129,18 @@ export const handler: Handler = async (event) => {
     try {
       const metaApiModule = await import('metaapi.cloud-sdk');
 
-      // Try different export patterns
-      if (metaApiModule.default) {
-        MetaApi = metaApiModule.default;
-      } else if (metaApiModule.MetaApi) {
-        MetaApi = metaApiModule.MetaApi;
-      } else if (typeof metaApiModule === 'function') {
-        MetaApi = metaApiModule;
-      } else {
-        // Check all available exports
-        const moduleKeys = Object.keys(metaApiModule);
+      // MetaAPI SDK exports MetaApi class as default export
+      MetaApi = metaApiModule.default;
+
+      if (!MetaApi || typeof MetaApi !== 'function') {
         addStep(
           '2. SDK Import',
           'error',
-          'MetaApi constructor not found in module exports',
+          'MetaApi default export is not a valid constructor',
           {
-            hasDefault: !!metaApiModule.default,
-            hasMetaApi: !!metaApiModule.MetaApi,
-            moduleKeys: moduleKeys,
-            moduleType: typeof metaApiModule,
-            allExports: Object.keys(metaApiModule).reduce((acc: any, key) => {
-              acc[key] = typeof (metaApiModule as any)[key];
-              return acc;
-            }, {})
+            defaultType: typeof metaApiModule.default,
+            isFunction: typeof MetaApi === 'function',
+            moduleKeys: Object.keys(metaApiModule)
           }
         );
 
@@ -161,7 +150,7 @@ export const handler: Handler = async (event) => {
           body: JSON.stringify({
             success: false,
             testResults,
-            error: 'MetaApi constructor not found'
+            error: 'MetaApi constructor not valid'
           })
         };
       }
@@ -171,11 +160,9 @@ export const handler: Handler = async (event) => {
         'success',
         'MetaAPI SDK imported successfully',
         {
-          hasDefault: !!metaApiModule.default,
-          hasMetaApi: !!metaApiModule.MetaApi,
-          moduleKeys: Object.keys(metaApiModule),
-          constructorFound: typeof MetaApi === 'function',
-          exportUsed: metaApiModule.default ? 'default' : (metaApiModule.MetaApi ? 'MetaApi' : 'direct')
+          constructorFound: true,
+          constructorType: typeof MetaApi,
+          exportType: 'default'
         }
       );
     } catch (importError: any) {
