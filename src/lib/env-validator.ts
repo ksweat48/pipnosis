@@ -1,8 +1,8 @@
 export interface EnvironmentConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
-  metaApiToken?: string;
   metaApiAccountId?: string;
+  metaApiRegion?: string;
 }
 
 export interface EnvironmentValidation {
@@ -18,8 +18,8 @@ export function validateEnvironment(): EnvironmentValidation {
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const metaApiToken = import.meta.env.VITE_METAAPI_TOKEN;
   const metaApiAccountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID;
+  const metaApiRegion = import.meta.env.VITE_METAAPI_REGION;
 
   if (!supabaseUrl) {
     errors.push('VITE_SUPABASE_URL is not defined');
@@ -37,12 +37,12 @@ export function validateEnvironment(): EnvironmentValidation {
     warnings.push('VITE_SUPABASE_ANON_KEY appears to be invalid (too short)');
   }
 
-  if (!metaApiToken) {
-    warnings.push('VITE_METAAPI_TOKEN is not defined - running in demo mode');
-  }
-
   if (!metaApiAccountId) {
     warnings.push('VITE_METAAPI_ACCOUNT_ID is not defined - running in demo mode');
+  }
+
+  if (!metaApiRegion) {
+    warnings.push('VITE_METAAPI_REGION is not defined - defaulting to new-york');
   }
 
   const isValid = errors.length === 0;
@@ -50,8 +50,8 @@ export function validateEnvironment(): EnvironmentValidation {
   const config: EnvironmentConfig | null = isValid ? {
     supabaseUrl: supabaseUrl || '',
     supabaseAnonKey: supabaseAnonKey || '',
-    metaApiToken,
-    metaApiAccountId
+    metaApiAccountId,
+    metaApiRegion
   } : null;
 
   return {
@@ -74,8 +74,9 @@ export function logEnvironmentStatus(): void {
     console.log('✅ Environment validation: PASSED');
     console.log('Supabase URL:', validation.config?.supabaseUrl);
     console.log('Supabase Key:', validation.config?.supabaseAnonKey ? '✓ Present' : '✗ Missing');
-    console.log('MetaAPI Token:', validation.config?.metaApiToken ? '✓ Present' : '✗ Missing');
     console.log('MetaAPI Account:', validation.config?.metaApiAccountId ? '✓ Present' : '✗ Missing');
+    console.log('MetaAPI Region:', validation.config?.metaApiRegion || 'new-york (default)');
+    console.log('Token Mode: Secure token service (Netlify function)');
   } else {
     console.error('❌ Environment validation: FAILED');
     validation.errors.forEach(error => console.error('  ERROR:', error));
@@ -95,6 +96,6 @@ export function getEnvironmentSummary(): string {
     return `Configuration Error: ${validation.errors.join(', ')}`;
   }
 
-  const hasMetaApi = validation.config?.metaApiToken && validation.config?.metaApiAccountId;
+  const hasMetaApi = validation.config?.metaApiAccountId;
   return hasMetaApi ? 'Live Trading Mode' : 'Demo Mode (Cached Data Only)';
 }

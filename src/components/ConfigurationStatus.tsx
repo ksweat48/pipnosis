@@ -18,8 +18,8 @@ export const ConfigurationStatus: React.FC = () => {
     const checkConfiguration = () => {
       const supabaseConfigured = isSupabaseConfigured();
       const metaapiConfigured = !!(
-        import.meta.env.VITE_METAAPI_TOKEN &&
-        import.meta.env.VITE_METAAPI_ACCOUNT_ID
+        import.meta.env.VITE_METAAPI_ACCOUNT_ID &&
+        import.meta.env.VITE_METAAPI_REGION
       );
 
       setStatus({
