@@ -25,6 +25,14 @@
   # Standard timeout for token generation (10 seconds)
   timeout = 10
 
+[functions."test-metaapi-token"]
+  # Test function timeout (30 seconds)
+  timeout = 30
+
+[functions."verify-metaapi-account"]
+  # Account verification timeout (30 seconds)
+  timeout = 30
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
