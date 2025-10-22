@@ -58,15 +58,25 @@ exports.handler = async (event) => {
     // Create MetaApi client with admin token (server-side only)
     const metaApi = new MetaApi(adminToken);
 
-    // Generate token using Token Management API
-    // You may tune timeToLive (seconds). Here we use 3600 (1 hour).
-    const timeToLive = 60 * 60; // 1 hour
-    let tokenResponse;
+    // Generate narrowed down token using Token Management API
+    // Token is restricted to specific account and necessary applications
+    const validityInHours = 1; // 1 hour validity
+    const timeToLive = validityInHours * 60 * 60; // Convert to seconds
+
+    let narrowedToken;
     try {
-      tokenResponse = await metaApi.tokenManagementApi.generateToken({
-        accountId,
-        timeToLive
-      });
+      narrowedToken = await metaApi.tokenManagementApi.narrowDownToken({
+        applications: [
+          'trading-account-management-api',
+          'metaapi-rest-api',
+          'metaapi-rpc-api',
+          'metaapi-real-time-streaming-api',
+          'metastats-api',
+          'risk-management-api'
+        ],
+        roles: ['reader', 'writer'],
+        resources: [{ entity: 'account', id: accountId }]
+      }, validityInHours);
     } catch (err) {
       console.error('MetaAPI token generation error:', err && err.message ? err.message : err);
       // If MetaAPI returns a structured error object, include limited info
@@ -77,12 +87,12 @@ exports.handler = async (event) => {
       };
     }
 
-    if (!tokenResponse || !tokenResponse.token) {
-      console.error('MetaAPI returned unexpected token payload:', tokenResponse);
+    if (!narrowedToken || typeof narrowedToken !== 'string') {
+      console.error('MetaAPI returned invalid token:', narrowedToken);
       return {
         statusCode: 502,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'MetaAPI returned no token' })
+        body: JSON.stringify({ error: 'MetaAPI returned invalid token' })
       };
     }
 
@@ -94,7 +104,7 @@ exports.handler = async (event) => {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS'
       },
-      body: JSON.stringify({ token: tokenResponse.token, expiresIn: timeToLive })
+      body: JSON.stringify({ token: narrowedToken, expiresIn: timeToLive })
     };
   } catch (err) {
     console.error('Unexpected error in get-metaapi-token:', err);
