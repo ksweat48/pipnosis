@@ -1,4 +1,13 @@
-import { Handler } from '@netlify/functions';
+// netlify/functions/test-metaapi-token.js
+// Comprehensive test function for MetaAPI token generation and account verification
+
+const {
+  initializeMetaApiSDK,
+  createMetaApiClient,
+  generateNarrowedToken,
+  verifyAccount,
+  getSDKInfo
+} = require('./metaapi-utils');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -6,15 +15,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-interface TestStep {
-  step: string;
-  status: 'pending' | 'running' | 'success' | 'error';
-  message: string;
-  details?: any;
-  timestamp: string;
+function addStep(results, step, status, message, details = null) {
+  results.push({
+    step,
+    status,
+    message,
+    details,
+    timestamp: new Date().toISOString()
+  });
 }
 
-export const handler: Handler = async (event) => {
+exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
@@ -31,17 +42,7 @@ export const handler: Handler = async (event) => {
     };
   }
 
-  const testResults: TestStep[] = [];
-
-  function addStep(step: string, status: TestStep['status'], message: string, details?: any) {
-    testResults.push({
-      step,
-      status,
-      message,
-      details,
-      timestamp: new Date().toISOString()
-    });
-  }
+  const testResults = [];
 
   try {
     const body = JSON.parse(event.body || '{}');
@@ -54,6 +55,7 @@ export const handler: Handler = async (event) => {
 
     // Step 1: Check environment variables
     addStep(
+      testResults,
       '1. Environment Check',
       'running',
       'Checking environment variables...'
@@ -61,6 +63,7 @@ export const handler: Handler = async (event) => {
 
     if (!adminToken) {
       addStep(
+        testResults,
         '1. Environment Check',
         'error',
         'METAAPI_ADMIN_TOKEN not found in environment variables',
@@ -83,6 +86,7 @@ export const handler: Handler = async (event) => {
 
     if (!accountId) {
       addStep(
+        testResults,
         '1. Environment Check',
         'error',
         'Account ID not found',
@@ -104,6 +108,7 @@ export const handler: Handler = async (event) => {
     }
 
     addStep(
+      testResults,
       '1. Environment Check',
       'success',
       'Environment variables found',
@@ -114,41 +119,30 @@ export const handler: Handler = async (event) => {
         accountId,
         region,
         nodeVersion: process.version,
+        platform: process.platform,
         envVarSource: testAdminToken ? 'provided' : 'environment'
       }
     );
 
-    // Step 2: Import MetaAPI SDK
+    // Step 2: Check SDK loading
     addStep(
+      testResults,
       '2. SDK Import',
       'running',
-      'Importing MetaAPI SDK...'
+      'Loading MetaAPI SDK...'
     );
 
-    let MetaApi;
+    let sdkInfo;
     try {
-      // Import MetaApi using named import pattern (matches src/services/metaapi.ts)
-      const metaApiModule = await import('metaapi.cloud-sdk');
+      sdkInfo = getSDKInfo();
 
-      // Try to extract MetaApi - it may be exported as default or named export
-      MetaApi = metaApiModule.default || metaApiModule.MetaApi || (metaApiModule as any).default;
-
-      if (!MetaApi || typeof MetaApi !== 'function') {
-        // If still not found, log available exports for debugging
-        const availableExports = Object.keys(metaApiModule).filter(key =>
-          typeof (metaApiModule as any)[key] === 'function'
-        );
-
+      if (!sdkInfo.loaded) {
         addStep(
+          testResults,
           '2. SDK Import',
           'error',
-          'MetaApi constructor not found in module exports',
-          {
-            defaultType: typeof metaApiModule.default,
-            hasMetaApiNamed: 'MetaApi' in metaApiModule,
-            availableFunctions: availableExports,
-            moduleKeys: Object.keys(metaApiModule).slice(0, 20)
-          }
+          'Failed to load MetaAPI SDK',
+          sdkInfo
         );
 
         return {
@@ -157,29 +151,27 @@ export const handler: Handler = async (event) => {
           body: JSON.stringify({
             success: false,
             testResults,
-            error: 'MetaApi constructor not found'
+            error: 'SDK import failed'
           })
         };
       }
 
       addStep(
+        testResults,
         '2. SDK Import',
         'success',
-        'MetaAPI SDK imported successfully',
-        {
-          constructorFound: true,
-          constructorType: typeof MetaApi,
-          constructorName: MetaApi.name
-        }
+        'MetaAPI SDK loaded successfully',
+        sdkInfo
       );
-    } catch (importError: any) {
+    } catch (sdkError) {
       addStep(
+        testResults,
         '2. SDK Import',
         'error',
-        'Failed to import MetaAPI SDK',
+        'SDK import threw an error',
         {
-          error: importError.message,
-          stack: importError.stack
+          error: sdkError.message,
+          stack: sdkError.stack
         }
       );
 
@@ -196,6 +188,7 @@ export const handler: Handler = async (event) => {
 
     // Step 3: Initialize MetaAPI client
     addStep(
+      testResults,
       '3. Initialize Client',
       'running',
       'Initializing MetaAPI client...'
@@ -203,14 +196,12 @@ export const handler: Handler = async (event) => {
 
     let metaApi;
     try {
-      metaApi = new MetaApi(adminToken, {
-        application: 'Pipnosis',
-        domain: `${region}.agiliumtrade.ai`,
-        requestTimeout: 60000,
-        connectTimeout: 60000,
+      metaApi = createMetaApiClient(adminToken, {
+        domain: `${region}.agiliumtrade.ai`
       });
 
       addStep(
+        testResults,
         '3. Initialize Client',
         'success',
         'MetaAPI client initialized',
@@ -221,16 +212,15 @@ export const handler: Handler = async (event) => {
           domain: `${region}.agiliumtrade.ai`
         }
       );
-    } catch (initError: any) {
+    } catch (initError) {
       addStep(
+        testResults,
         '3. Initialize Client',
         'error',
         'Failed to initialize MetaAPI client',
         {
           error: initError.message,
-          stack: initError.stack,
-          metaApiType: typeof MetaApi,
-          isConstructor: typeof MetaApi === 'function'
+          stack: initError.stack
         }
       );
 
@@ -247,6 +237,7 @@ export const handler: Handler = async (event) => {
 
     // Step 4: Generate narrowed token
     addStep(
+      testResults,
       '4. Generate Token',
       'running',
       'Generating narrowed token for account...'
@@ -254,64 +245,34 @@ export const handler: Handler = async (event) => {
 
     let narrowedToken;
     try {
-      const validityInHours = 1;
-
-      narrowedToken = await metaApi.tokenManagementApi.narrowDownToken({
-        applications: [
-          'trading-account-management-api',
-          'metaapi-rest-api',
-          'metaapi-rpc-api',
-          'metaapi-real-time-streaming-api',
-          'metastats-api',
-          'risk-management-api'
-        ],
-        roles: ['reader', 'writer'],
-        resources: [{ entity: 'account', id: accountId }]
-      }, validityInHours);
-
-      if (!narrowedToken || typeof narrowedToken !== 'string') {
-        addStep(
-          '4. Generate Token',
-          'error',
-          'Token generated but invalid format',
-          {
-            tokenType: typeof narrowedToken,
-            tokenValue: narrowedToken
-          }
-        );
-
-        return {
-          statusCode: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            success: false,
-            testResults,
-            error: 'Invalid token format'
-          })
-        };
-      }
+      narrowedToken = await generateNarrowedToken(
+        adminToken,
+        accountId,
+        region,
+        1
+      );
 
       addStep(
+        testResults,
         '4. Generate Token',
         'success',
         'Token generated successfully',
         {
           tokenLength: narrowedToken.length,
           tokenPrefix: narrowedToken.substring(0, 20) + '...',
-          validityHours: validityInHours,
-          expiresIn: validityInHours * 3600
+          validityHours: 1,
+          expiresIn: 3600
         }
       );
-    } catch (tokenError: any) {
+    } catch (tokenError) {
       addStep(
+        testResults,
         '4. Generate Token',
         'error',
         'Failed to generate token',
         {
           error: tokenError.message,
-          stack: tokenError.stack,
-          statusCode: tokenError.status || tokenError.statusCode,
-          response: tokenError.response?.data || null
+          stack: tokenError.stack
         }
       );
 
@@ -328,46 +289,31 @@ export const handler: Handler = async (event) => {
 
     // Step 5: Verify account with narrowed token
     addStep(
+      testResults,
       '5. Verify Account',
       'running',
       'Verifying account access with generated token...'
     );
 
     try {
-      const verifyMetaApi = new MetaApi(narrowedToken, {
-        application: 'Pipnosis',
-        domain: `${region}.agiliumtrade.ai`,
-        requestTimeout: 60000,
-        connectTimeout: 60000,
-      });
-
-      const account = await verifyMetaApi.metatraderAccountApi.getAccount(accountId);
+      const accountInfo = await verifyAccount(narrowedToken, accountId, region);
 
       addStep(
+        testResults,
         '5. Verify Account',
         'success',
         'Account verified successfully',
-        {
-          accountId: account.id,
-          accountName: account.name,
-          state: account.state,
-          region: account.region,
-          server: account.server,
-          platform: account.platform,
-          magic: account.magic,
-          connectionStatus: account.connectionStatus
-        }
+        accountInfo
       );
-    } catch (verifyError: any) {
+    } catch (verifyError) {
       addStep(
+        testResults,
         '5. Verify Account',
         'error',
         'Failed to verify account',
         {
           error: verifyError.message,
-          stack: verifyError.stack,
-          statusCode: verifyError.status || verifyError.statusCode,
-          response: verifyError.response?.data || null
+          stack: verifyError.stack
         }
       );
 
@@ -395,15 +341,16 @@ export const handler: Handler = async (event) => {
         message: 'All MetaAPI token tests passed successfully!',
         token: {
           generated: true,
-          prefix: narrowedToken!.substring(0, 20) + '...',
-          length: narrowedToken!.length
+          prefix: narrowedToken.substring(0, 20) + '...',
+          length: narrowedToken.length
         }
       }),
     };
-  } catch (error: any) {
+  } catch (error) {
     console.error('Unexpected error in test-metaapi-token:', error);
 
     addStep(
+      testResults,
       'Unexpected Error',
       'error',
       'An unexpected error occurred',

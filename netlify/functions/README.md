@@ -1,0 +1,185 @@
+# MetaAPI Serverless Functions
+
+This directory contains serverless functions for MetaAPI integration. All functions use CommonJS and proper Node.js SDK imports to avoid browser compatibility issues.
+
+## Architecture
+
+### Problem Solved
+Previously, the MetaAPI SDK was being imported with its browser distribution (`dists/esm-web/index.js`) in serverless functions, causing "window is not defined" errors. This happened because:
+1. Modern bundlers default to the `module` field in package.json
+2. The SDK's `module` field points to the browser version
+3. The browser version includes window/browser-specific APIs
+
+### Solution
+1. **Dedicated utility module** (`metaapi-utils.js`) that forces Node.js SDK imports
+2. **CommonJS configuration** via `package.json` in functions directory
+3. **Pure JavaScript functions** to avoid TypeScript transpilation issues
+4. **Frontend isolation** - SDK is never imported on the frontend
+
+## Files
+
+### `metaapi-utils.js`
+Shared utility module that handles all MetaAPI SDK operations:
+- `initializeMetaApiSDK()` - Loads SDK with proper Node.js distribution
+- `createMetaApiClient()` - Creates MetaAPI client instances
+- `generateNarrowedToken()` - Generates account-scoped tokens
+- `verifyAccount()` - Verifies account access
+- `getSDKInfo()` - Returns SDK debugging information
+
+### `get-metaapi-token.js`
+Generates short-lived narrowed tokens for frontend use.
+- **Method**: POST
+- **Input**: `{ accountId: string }`
+- **Output**: `{ token: string, expiresIn: number }`
+- **Environment**: Requires `METAAPI_ADMIN_TOKEN`, `VITE_METAAPI_REGION`
+
+### `test-metaapi-token.js`
+Comprehensive testing function that validates the entire token generation flow.
+- **Method**: POST
+- **Input**: `{ testAdminToken?: string, testAccountId?: string }`
+- **Output**: Step-by-step test results with detailed logging
+- **Purpose**: Debugging and validation of MetaAPI integration
+
+### `verify-metaapi-account.js`
+Verifies account access with a given token.
+- **Method**: POST
+- **Input**: `{ token: string, accountId: string, region?: string }`
+- **Output**: `{ success: boolean, account: {...} }`
+- **Purpose**: Backend proxy for account verification
+
+## Configuration
+
+### `package.json`
+Forces CommonJS module resolution:
+```json
+{
+  "type": "commonjs",
+  "dependencies": {
+    "metaapi.cloud-sdk": "^29.3.1"
+  }
+}
+```
+
+### `.esbuild.config.js`
+Configures esbuild bundler for proper Node.js targeting:
+- Platform: `node`
+- Target: `node18`
+- Main fields priority: `['main', 'module']`
+- Conditions: `['node', 'require', 'default']`
+
+## Environment Variables Required
+
+### Netlify Environment Variables
+Set these in Netlify dashboard under Site Settings > Environment Variables:
+
+- `METAAPI_ADMIN_TOKEN` - MetaAPI admin token (kept secret on server)
+- `VITE_METAAPI_ACCOUNT_ID` - MetaAPI trading account ID
+- `VITE_METAAPI_REGION` - MetaAPI region (e.g., 'new-york', 'london', 'singapore')
+
+## Usage from Frontend
+
+### Get Token
+```typescript
+const response = await fetch('/.netlify/functions/get-metaapi-token', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ accountId: 'your-account-id' })
+});
+
+const { token, expiresIn } = await response.json();
+```
+
+### Test Integration
+```typescript
+const response = await fetch('/.netlify/functions/test-metaapi-token', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({}) // Uses environment variables
+});
+
+const { success, testResults } = await response.json();
+```
+
+### Verify Account
+```typescript
+const response = await fetch('/.netlify/functions/verify-metaapi-account', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    token: 'narrowed-token',
+    accountId: 'account-id',
+    region: 'new-york'
+  })
+});
+
+const { success, account } = await response.json();
+```
+
+## Debugging
+
+### Check SDK Loading
+All functions include detailed logging. Check Netlify function logs:
+1. Go to Netlify dashboard
+2. Navigate to Functions tab
+3. Click on the function name
+4. View real-time logs
+
+### Common Issues
+
+#### "SDK import failed"
+- Check that `metaapi.cloud-sdk` is installed in functions directory
+- Run `npm install` in `netlify/functions/`
+
+#### "Token generation failed"
+- Verify `METAAPI_ADMIN_TOKEN` is set correctly
+- Check token has proper permissions in MetaAPI dashboard
+- Verify account ID matches your MetaAPI account
+
+#### "Region mismatch"
+- Ensure `VITE_METAAPI_REGION` matches your account's actual region
+- Check account region in MetaAPI dashboard
+
+## Local Testing
+
+To test functions locally:
+
+```bash
+# Install Netlify CLI
+npm install -g netlify-cli
+
+# Install function dependencies
+cd netlify/functions
+npm install
+cd ../..
+
+# Run local dev server
+netlify dev
+
+# Test function
+curl -X POST http://localhost:8888/.netlify/functions/test-metaapi-token \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+## Migration Notes
+
+### Frontend Changes
+The frontend service (`src/services/metaapi.ts`) no longer imports the MetaAPI SDK directly:
+- SDK import is commented out
+- Streaming functionality is disabled
+- All operations use backend functions
+
+### Benefits
+1. **No browser errors** - SDK never loaded in browser
+2. **Secure tokens** - Admin token stays on server
+3. **Predictable bundling** - CommonJS ensures correct distribution
+4. **Better debugging** - Detailed logs in serverless functions
+5. **Smaller frontend bundle** - SDK not included in client code
+
+## Future Improvements
+
+1. **Streaming alternative** - Implement WebSocket proxy for streaming data
+2. **Token caching** - Cache tokens in Supabase to reduce API calls
+3. **Rate limiting** - Add rate limiting to protect backend
+4. **Monitoring** - Add error tracking and performance monitoring
+5. **Type safety** - Generate TypeScript types from function responses

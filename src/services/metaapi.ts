@@ -1,4 +1,12 @@
-import MetaApi, { MetatraderAccount } from 'metaapi.cloud-sdk';
+// IMPORTANT: MetaAPI SDK import commented out to prevent browser bundle issues
+// The SDK's browser version includes 'window' references that cause errors
+// For now, the streaming functionality is disabled on the frontend
+// All MetaAPI operations should go through backend serverless functions
+// import MetaApi, { MetatraderAccount } from 'metaapi.cloud-sdk';
+
+// Temporary type stubs until we fully migrate to backend-only approach
+type MetaApi = any;
+type MetatraderAccount = any;
 import { errorHandler } from '@/lib/error-handler';
 import { tokenManager } from './token-manager';
 

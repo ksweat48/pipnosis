@@ -1,7 +1,8 @@
 {
-  "name": "netlify-functions",
+  "name": "pipnosis-netlify-functions",
   "version": "1.0.0",
-  "description": "Netlify functions dependencies",
+  "type": "commonjs",
+  "description": "Serverless functions for Pipnosis trading platform",
   "dependencies": {
     "metaapi.cloud-sdk": "^29.3.1"
   }

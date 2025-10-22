@@ -1,7 +1,7 @@
-import { Handler } from '@netlify/functions';
-import * as metaApiSdk from 'metaapi.cloud-sdk';
+// netlify/functions/verify-metaapi-account.js
+// Verifies MetaAPI account access with a given token
 
-const MetaApi = (metaApiSdk as any).default || (metaApiSdk as any).MetaApi || metaApiSdk;
+const { verifyAccount } = require('./metaapi-utils');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -9,7 +9,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-export const handler: Handler = async (event) => {
+exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
@@ -37,16 +37,13 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Initialize MetaAPI with the provided token
-    const metaApi = new MetaApi(token, {
-      application: 'Pipnosis',
-      domain: `${region || 'new-york'}.agiliumtrade.ai`,
-      requestTimeout: 60000,
-      connectTimeout: 60000,
-    });
+    console.log(`Verifying account ${accountId} in ${region || 'new-york'} region`);
 
-    // Get account information
-    const account = await metaApi.metatraderAccountApi.getAccount(accountId);
+    const accountInfo = await verifyAccount(
+      token,
+      accountId,
+      region || 'new-york'
+    );
 
     return {
       statusCode: 200,
@@ -56,18 +53,10 @@ export const handler: Handler = async (event) => {
       },
       body: JSON.stringify({
         success: true,
-        account: {
-          id: account.id,
-          name: account.name,
-          state: account.state,
-          region: account.region,
-          server: account.server,
-          platform: account.platform,
-          magic: account.magic,
-        },
+        account: accountInfo
       }),
     };
-  } catch (error: any) {
+  } catch (error) {
     console.error('MetaAPI account verification error:', error);
 
     return {
@@ -78,8 +67,8 @@ export const handler: Handler = async (event) => {
       },
       body: JSON.stringify({
         success: false,
-        error: error?.message || 'Failed to verify MetaAPI account',
-        details: error?.details || null,
+        error: error.message || 'Failed to verify MetaAPI account',
+        details: error.details || null,
       }),
     };
   }
