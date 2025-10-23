@@ -96,25 +96,57 @@ exports.handler = async (event) => {
       if (cacheEnabled) {
         try {
           const supabase = createClient(supabaseUrl, supabaseServiceKey);
-          const { data, error } = await supabase
-            .from('metaapi_token_cache')
-            .select('id')
-            .limit(1);
 
-          if (error) {
+          // Check if cache table exists and is accessible
+          const { data: cacheData, error: cacheError } = await supabase
+            .from('metaapi_token_cache')
+            .select('id, account_id, expires_at, is_valid, created_at')
+            .limit(10);
+
+          if (cacheError) {
             addStep(
               testResults,
               '0. Cache Configuration',
               'error',
               'Cache table accessible but query failed',
               {
-                error: error.message,
-                code: error.code,
+                error: cacheError.message,
+                code: cacheError.code,
                 hasServiceKey: !!supabaseServiceKey,
                 hint: 'Check RLS policies and service role permissions'
               }
             );
           } else {
+            // Check for existing cached tokens for this account
+            const { data: accountTokens, error: accountError } = await supabase
+              .from('metaapi_token_cache')
+              .select('*')
+              .eq('account_id', accountId)
+              .eq('region', region)
+              .order('expires_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            const now = new Date();
+            let tokenStatus = 'No cached token for this account';
+            let tokenExpired = false;
+            let tokenAge = null;
+
+            if (accountTokens && !accountError) {
+              const expiresAt = new Date(accountTokens.expires_at);
+              const createdAt = new Date(accountTokens.created_at);
+              tokenAge = Math.round((now - createdAt) / 1000 / 60);
+              tokenExpired = expiresAt < now;
+
+              if (tokenExpired) {
+                const expiredMinutes = Math.round((now - expiresAt) / 1000 / 60);
+                tokenStatus = `Cached token EXPIRED ${expiredMinutes} minutes ago`;
+              } else {
+                const expiresInMinutes = Math.round((expiresAt - now) / 1000 / 60);
+                tokenStatus = `Valid cached token found (expires in ${expiresInMinutes} minutes)`;
+              }
+            }
+
             cacheHealthy = true;
             addStep(
               testResults,
@@ -124,7 +156,12 @@ exports.handler = async (event) => {
               {
                 cacheEnabled: true,
                 cacheHealthy: true,
-                recordsFound: data ? data.length : 0,
+                totalCachedTokens: cacheData ? cacheData.length : 0,
+                accountTokenStatus: tokenStatus,
+                tokenExpired,
+                tokenAgeMinutes: tokenAge,
+                accountId,
+                region,
                 note: 'Service role key working correctly'
               }
             );
@@ -344,9 +381,12 @@ exports.handler = async (event) => {
       }
 
       // Step 4: Generate narrowed token with optimized timeout
-      const tokenMessage = cacheHealthy
-        ? 'Generating narrowed token (will be cached for future use)...'
-        : 'Generating narrowed token (WARNING: caching disabled - this will be slow)...';
+      let tokenMessage = 'Checking for cached token...';
+      if (cacheHealthy) {
+        tokenMessage = 'Checking cache, will generate fresh token if needed (with 9-second timeout per attempt)...';
+      } else {
+        tokenMessage = 'Generating token (WARNING: caching disabled - this will be slow)...';
+      }
 
       addStep(
         testResults,

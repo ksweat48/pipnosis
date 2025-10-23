@@ -330,12 +330,14 @@ export default function TestMetaApiToken() {
         <div className="mt-6 bg-white rounded-lg shadow-lg p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">What This Test Does:</h3>
           <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
-            <li>Checks if METAAPI_ADMIN_TOKEN is configured in Netlify environment</li>
-            <li>Verifies the MetaAPI SDK can be imported and initialized</li>
+            <li>Checks Supabase token cache health and displays cached token status</li>
+            <li>Verifies METAAPI_ADMIN_TOKEN is configured in Netlify environment</li>
+            <li>Confirms the MetaAPI SDK can be imported and initialized</li>
             <li>Initializes a MetaAPI client with your admin token</li>
-            <li>Generates a narrowed token scoped to your trading account (optimized timing with 1 retry)</li>
-            <li>Verifies the account can be accessed with the generated token</li>
-            <li>Caches valid tokens in Supabase to prevent future timeouts</li>
+            <li>Tries to fetch token from cache, or generates new token (tries fast method first, falls back to slower method)</li>
+            <li>If generation times out, falls back to stale cached token (5-minute grace period)</li>
+            <li>Verifies the account can be accessed with the generated/cached token</li>
+            <li>Caches newly generated tokens in Supabase for instant future use</li>
           </ol>
 
           <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
@@ -344,9 +346,10 @@ export default function TestMetaApiToken() {
             </p>
             <ul className="list-disc list-inside text-xs text-green-700 space-y-1 ml-4">
               <li>Token caching in Supabase database (reuses valid tokens, prevents repeated API calls)</li>
-              <li>Optimized timeout (20 seconds per attempt) to avoid gateway timeouts</li>
+              <li>Dual-method token generation: tries fast generateToken() first, falls back to narrowDownToken()</li>
+              <li>Aggressive timeout protection (9 seconds per attempt, 3-second safety margin before gateway timeout)</li>
+              <li>Stale-while-revalidate: uses recently expired tokens as emergency fallback (5-minute grace period)</li>
               <li>Fast retry on failure (1 retry with 1.5 second delay)</li>
-              <li>Aggressive timeout protection (returns response before gateway timeout)</li>
               <li>Cached tokens are valid for 1 hour and automatically managed</li>
             </ul>
           </div>
@@ -356,10 +359,11 @@ export default function TestMetaApiToken() {
               <strong>Troubleshooting:</strong> If tests fail, common causes include:
             </p>
             <ul className="list-disc list-inside text-xs text-blue-700 space-y-1 ml-4">
-              <li>First-time token generation may take 20-25 seconds (subsequent uses will be instant via cache)</li>
-              <li>MetaAPI servers experiencing high load (cached tokens will prevent this issue)</li>
+              <li>First-time token generation: With new optimizations, should complete in 9-12 seconds (or use stale fallback)</li>
+              <li>If you see stale token warnings: The system is working! It's using an emergency fallback while MetaAPI is slow</li>
+              <li>Cache miss: Subsequent requests will be instant (sub-100ms) once token is cached</li>
               <li>Invalid or expired METAAPI_ADMIN_TOKEN in environment variables</li>
-              <li>Network connectivity issues between Netlify and MetaAPI servers</li>
+              <li>Missing SUPABASE_SERVICE_ROLE_KEY (check Step 0 in test results)</li>
               <li>Incorrect region setting (verify VITE_METAAPI_REGION matches your account)</li>
             </ul>
           </div>

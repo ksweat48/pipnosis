@@ -2,12 +2,13 @@
 // This module ensures we always use the Node.js distribution of the SDK
 
 // Global timeout constants - Optimized to avoid Netlify gateway timeouts
-const FUNCTION_TIMEOUT_MS = 25000; // 25 seconds (well before 26s gateway timeout)
-const TOKEN_GENERATION_TIMEOUT_MS = 18000; // 18 seconds for token generation API call
-const ACCOUNT_VERIFICATION_TIMEOUT_MS = 10000; // 10 seconds for account verification
-const SDK_INIT_TIMEOUT_MS = 3000; // 3 seconds for SDK initialization
-const MAX_RETRIES = 1; // 1 retry attempt (total 2 attempts) to fit within gateway timeout
-const RETRY_DELAYS = [2000]; // Single retry delay: 2 seconds
+const FUNCTION_TIMEOUT_MS = 23000; // 23 seconds (3s safety margin before 26s gateway timeout)
+const TOKEN_GENERATION_TIMEOUT_MS = 9000; // 9 seconds for token generation API call (aggressive)
+const ACCOUNT_VERIFICATION_TIMEOUT_MS = 8000; // 8 seconds for account verification
+const SDK_INIT_TIMEOUT_MS = 2000; // 2 seconds for SDK initialization
+const MAX_RETRIES = 1; // 1 retry attempt (total 2 attempts)
+const RETRY_DELAYS = [1500]; // Single retry delay: 1.5 seconds
+const STALE_TOKEN_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes - accept slightly expired tokens in emergencies
 
 /**
  * Create a promise that rejects after a timeout
@@ -200,12 +201,119 @@ function createMetaApiClient(token, options = {}) {
 }
 
 /**
- * Generate a narrowed token for a specific account
+ * Generate a token using the faster generateToken method (primary method)
+ * @param {string} adminToken - Admin token with full permissions
+ * @param {string} accountId - MetaAPI account ID
+ * @param {string} region - MetaAPI region (default: 'new-york')
+ * @param {number} validityHours - Token validity in hours (default: 1)
+ * @returns {Promise<string>} Generated token
+ */
+async function generateTokenFast(adminToken, accountId, region = 'new-york', validityHours = 1) {
+  const endpoint = `${region}.agiliumtrade.ai`;
+  console.log(`[${new Date().toISOString()}] Trying FAST method: generateToken() for account ${accountId}`);
+
+  const requestStartTime = Date.now();
+
+  const metaApi = createMetaApiClient(adminToken, {
+    domain: endpoint,
+    requestTimeout: TOKEN_GENERATION_TIMEOUT_MS,
+    connectTimeout: 6000
+  });
+
+  if (!metaApi.tokenManagementApi) {
+    throw new Error('MetaAPI client does not have tokenManagementApi');
+  }
+
+  console.log(`[${new Date().toISOString()}] Calling MetaAPI generateToken API at ${endpoint}...`);
+
+  const tokenPromise = metaApi.tokenManagementApi.generateToken({
+    accountId,
+    validity: `${validityHours}h`
+  });
+
+  const generatedToken = await withTimeout(
+    tokenPromise,
+    TOKEN_GENERATION_TIMEOUT_MS,
+    'generateToken API call'
+  );
+
+  if (!generatedToken || typeof generatedToken !== 'string') {
+    throw new Error('Invalid token format returned from MetaAPI');
+  }
+
+  const requestDuration = Date.now() - requestStartTime;
+  console.log(`[${new Date().toISOString()}] ✓ Token generated successfully with FAST method`);
+  console.log(`[${new Date().toISOString()}] Token length: ${generatedToken.length} characters`);
+  console.log(`[${new Date().toISOString()}] Request duration: ${requestDuration}ms`);
+
+  return generatedToken;
+}
+
+/**
+ * Generate a narrowed token for a specific account (fallback method)
  * @param {string} adminToken - Admin token with full permissions
  * @param {string} accountId - MetaAPI account ID
  * @param {string} region - MetaAPI region (default: 'new-york')
  * @param {number} validityHours - Token validity in hours (default: 1)
  * @returns {Promise<string>} Narrowed token
+ */
+async function generateTokenNarrowed(adminToken, accountId, region = 'new-york', validityHours = 1) {
+  const endpoint = `${region}.agiliumtrade.ai`;
+  console.log(`[${new Date().toISOString()}] Trying FALLBACK method: narrowDownToken() for account ${accountId}`);
+
+  const requestStartTime = Date.now();
+
+  const metaApi = createMetaApiClient(adminToken, {
+    domain: endpoint,
+    requestTimeout: TOKEN_GENERATION_TIMEOUT_MS,
+    connectTimeout: 6000
+  });
+
+  if (!metaApi.tokenManagementApi) {
+    throw new Error('MetaAPI client does not have tokenManagementApi');
+  }
+
+  console.log(`[${new Date().toISOString()}] Calling MetaAPI narrowDownToken API at ${endpoint}...`);
+
+  const tokenPromise = metaApi.tokenManagementApi.narrowDownToken({
+    applications: [
+      'trading-account-management-api',
+      'metaapi-rest-api',
+      'metaapi-rpc-api',
+      'metaapi-real-time-streaming-api',
+      'metastats-api',
+      'risk-management-api'
+    ],
+    roles: ['reader', 'writer'],
+    resources: [{ entity: 'account', id: accountId }]
+  }, validityHours);
+
+  const narrowedToken = await withTimeout(
+    tokenPromise,
+    TOKEN_GENERATION_TIMEOUT_MS,
+    'narrowDownToken API call'
+  );
+
+  if (!narrowedToken || typeof narrowedToken !== 'string') {
+    throw new Error('Invalid token format returned from MetaAPI');
+  }
+
+  const requestDuration = Date.now() - requestStartTime;
+  console.log(`[${new Date().toISOString()}] ✓ Narrowed token generated successfully with FALLBACK method`);
+  console.log(`[${new Date().toISOString()}] Token length: ${narrowedToken.length} characters`);
+  console.log(`[${new Date().toISOString()}] Request duration: ${requestDuration}ms`);
+
+  return narrowedToken;
+}
+
+/**
+ * Generate a token using best available method with automatic fallback
+ * This is the main function that should be called by other modules
+ * @param {string} adminToken - Admin token with full permissions
+ * @param {string} accountId - MetaAPI account ID
+ * @param {string} region - MetaAPI region (default: 'new-york')
+ * @param {number} validityHours - Token validity in hours (default: 1)
+ * @returns {Promise<string>} Generated token
  */
 async function generateNarrowedToken(adminToken, accountId, region = 'new-york', validityHours = 1) {
   if (!adminToken) {
@@ -217,55 +325,33 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
   }
 
   const endpoint = `${region}.agiliumtrade.ai`;
-  console.log(`[${new Date().toISOString()}] Generating narrowed token for account ${accountId}`);
+  console.log(`[${new Date().toISOString()}] Starting token generation for account ${accountId}`);
   console.log(`[${new Date().toISOString()}] Target endpoint: ${endpoint}`);
   console.log(`[${new Date().toISOString()}] Token validity: ${validityHours} hour(s)`);
 
   // Use retry logic for the entire token generation process
   return withRetry(async () => {
-    const requestStartTime = Date.now();
+    // Try the FAST method first (generateToken)
+    try {
+      console.log(`[${new Date().toISOString()}] Attempting PRIMARY method: generateToken()`);
+      const token = await generateTokenFast(adminToken, accountId, region, validityHours);
+      console.log(`[${new Date().toISOString()}] ✓ PRIMARY method succeeded`);
+      return token;
+    } catch (fastError) {
+      console.warn(`[${new Date().toISOString()}] PRIMARY method failed: ${fastError.message}`);
+      console.log(`[${new Date().toISOString()}] Falling back to SECONDARY method: narrowDownToken()`);
 
-    const metaApi = createMetaApiClient(adminToken, {
-      domain: endpoint,
-      requestTimeout: TOKEN_GENERATION_TIMEOUT_MS,
-      connectTimeout: 8000
-    });
-
-    if (!metaApi.tokenManagementApi) {
-      throw new Error('MetaAPI client does not have tokenManagementApi');
+      // Fall back to narrowDownToken if generateToken fails
+      try {
+        const token = await generateTokenNarrowed(adminToken, accountId, region, validityHours);
+        console.log(`[${new Date().toISOString()}] ✓ SECONDARY method succeeded`);
+        return token;
+      } catch (narrowError) {
+        console.error(`[${new Date().toISOString()}] SECONDARY method also failed: ${narrowError.message}`);
+        // Re-throw the narrowed error as it's the final attempt
+        throw narrowError;
+      }
     }
-
-    console.log(`[${new Date().toISOString()}] Calling MetaAPI narrowDownToken API at ${endpoint}...`);
-
-    const tokenPromise = metaApi.tokenManagementApi.narrowDownToken({
-      applications: [
-        'trading-account-management-api',
-        'metaapi-rest-api',
-        'metaapi-rpc-api',
-        'metaapi-real-time-streaming-api',
-        'metastats-api',
-        'risk-management-api'
-      ],
-      roles: ['reader', 'writer'],
-      resources: [{ entity: 'account', id: accountId }]
-    }, validityHours);
-
-    const narrowedToken = await withTimeout(
-      tokenPromise,
-      TOKEN_GENERATION_TIMEOUT_MS,
-      'narrowDownToken API call'
-    );
-
-    if (!narrowedToken || typeof narrowedToken !== 'string') {
-      throw new Error('Invalid token format returned from MetaAPI');
-    }
-
-    const requestDuration = Date.now() - requestStartTime;
-    console.log(`[${new Date().toISOString()}] ✓ Narrowed token generated successfully`);
-    console.log(`[${new Date().toISOString()}] Token length: ${narrowedToken.length} characters`);
-    console.log(`[${new Date().toISOString()}] Request duration: ${requestDuration}ms`);
-
-    return narrowedToken;
   }, 'Token Generation', MAX_RETRIES).catch(error => {
     console.error(`[${new Date().toISOString()}] Token generation failed after all retries:`, error.message);
 
@@ -298,7 +384,7 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
       );
     }
 
-    throw new Error(`Failed to generate narrowed token: ${error.message}`);
+    throw new Error(`Failed to generate token: ${error.message}`);
   });
 }
 
@@ -431,5 +517,6 @@ module.exports = {
   FUNCTION_TIMEOUT_MS,
   TOKEN_GENERATION_TIMEOUT_MS,
   ACCOUNT_VERIFICATION_TIMEOUT_MS,
-  MAX_RETRIES
+  MAX_RETRIES,
+  STALE_TOKEN_GRACE_PERIOD_MS
 };

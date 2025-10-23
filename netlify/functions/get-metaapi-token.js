@@ -3,7 +3,7 @@
 // Expects POST JSON body: { accountId: "<account-id>" }
 // Now includes aggressive timeout protection and token caching via Supabase
 
-const { generateNarrowedToken, FUNCTION_TIMEOUT_MS } = require('./metaapi-utils');
+const { generateNarrowedToken, FUNCTION_TIMEOUT_MS, STALE_TOKEN_GRACE_PERIOD_MS } = require('./metaapi-utils');
 const { createClient } = require('@supabase/supabase-js');
 
 const corsHeaders = {
@@ -12,12 +12,13 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS'
 };
 
-async function getCachedToken(supabase, accountId, region) {
+async function getCachedToken(supabase, accountId, region, allowStale = false) {
   const startTime = Date.now();
   try {
-    console.log(`[${new Date().toISOString()}] Checking cache for account ${accountId} in ${region} region...`);
+    console.log(`[${new Date().toISOString()}] Checking cache for account ${accountId} in ${region} region (allowStale: ${allowStale})...`);
 
-    const { data, error } = await supabase
+    // First try to get a fresh (non-expired) token
+    const { data: freshData, error: freshError } = await supabase
       .from('metaapi_token_cache')
       .select('*')
       .eq('account_id', accountId)
@@ -28,24 +29,51 @@ async function getCachedToken(supabase, accountId, region) {
       .limit(1)
       .maybeSingle();
 
-    if (error) {
-      console.error(`[${new Date().toISOString()}] ERROR: Failed to fetch cached token:`, error);
-      console.error(`[${new Date().toISOString()}] Error details:`, JSON.stringify(error, null, 2));
-      return { success: false, error: error.message, token: null };
+    if (freshError) {
+      console.error(`[${new Date().toISOString()}] ERROR: Failed to fetch cached token:`, freshError);
+      console.error(`[${new Date().toISOString()}] Error details:`, JSON.stringify(freshError, null, 2));
+      return { success: false, error: freshError.message, token: null, stale: false };
     }
 
     const elapsed = Date.now() - startTime;
-    if (data) {
-      console.log(`[${new Date().toISOString()}] ✓ Found cached token for ${accountId}, expires at ${data.expires_at} (${elapsed}ms)`);
-      return { success: true, token: data.token, cached: true };
+    if (freshData) {
+      console.log(`[${new Date().toISOString()}] ✓ Found FRESH cached token for ${accountId}, expires at ${freshData.expires_at} (${elapsed}ms)`);
+      return { success: true, token: freshData.token, cached: true, stale: false, expiresAt: freshData.expires_at };
+    }
+
+    // If no fresh token and allowStale is true, try to get a recently expired token
+    if (allowStale) {
+      const staleThreshold = new Date(Date.now() - STALE_TOKEN_GRACE_PERIOD_MS).toISOString();
+      console.log(`[${new Date().toISOString()}] No fresh token found, checking for stale tokens (grace period: 5 minutes)...`);
+
+      const { data: staleData, error: staleError } = await supabase
+        .from('metaapi_token_cache')
+        .select('*')
+        .eq('account_id', accountId)
+        .eq('region', region)
+        .eq('is_valid', true)
+        .gt('expires_at', staleThreshold)
+        .order('expires_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (staleError) {
+        console.error(`[${new Date().toISOString()}] ERROR: Failed to fetch stale token:`, staleError);
+        return { success: false, error: staleError.message, token: null, stale: false };
+      }
+
+      if (staleData) {
+        console.log(`[${new Date().toISOString()}] ⚠️  Found STALE cached token for ${accountId}, expired at ${staleData.expires_at} (within grace period) (${elapsed}ms)`);
+        return { success: true, token: staleData.token, cached: true, stale: true, expiresAt: staleData.expires_at };
+      }
     }
 
     console.log(`[${new Date().toISOString()}] No cached token found for ${accountId} (${elapsed}ms)`);
-    return { success: true, token: null, cached: false };
+    return { success: true, token: null, cached: false, stale: false };
   } catch (err) {
     console.error(`[${new Date().toISOString()}] EXCEPTION in getCachedToken:`, err);
     console.error(`[${new Date().toISOString()}] Stack trace:`, err.stack);
-    return { success: false, error: err.message, token: null };
+    return { success: false, error: err.message, token: null, stale: false };
   }
 }
 
@@ -183,8 +211,8 @@ exports.handler = async (event) => {
         console.log(`[${new Date().toISOString()}] Using service role key for cache operations`);
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-        // Try to get cached token
-        const cacheResult = await getCachedToken(supabase, accountId, region);
+        // Try to get cached token (fresh only, no stale)
+        const cacheResult = await getCachedToken(supabase, accountId, region, false);
 
         if (!cacheResult.success) {
           cacheError = cacheResult.error;
@@ -192,27 +220,46 @@ exports.handler = async (event) => {
         } else if (cacheResult.token) {
           narrowedToken = cacheResult.token;
           fromCache = true;
-          console.log(`[${new Date().toISOString()}] ✓ Using cached token for account ${accountId}`);
+          const isStale = cacheResult.stale ? ' (STALE)' : '';
+          console.log(`[${new Date().toISOString()}] ✓ Using cached token for account ${accountId}${isStale}`);
         } else {
           console.log(`[${new Date().toISOString()}] No cached token found, generating new token for ${accountId}`);
         }
 
         // Generate new token if needed
         if (!narrowedToken) {
-          narrowedToken = await generateNarrowedToken(
-            adminToken,
-            accountId,
-            region,
-            validityInHours
-          );
+          try {
+            narrowedToken = await generateNarrowedToken(
+              adminToken,
+              accountId,
+              region,
+              validityInHours
+            );
 
-          // Try to cache the new token
-          console.log(`[${new Date().toISOString()}] Attempting to cache newly generated token...`);
-          const cacheWriteResult = await cacheToken(supabase, accountId, region, narrowedToken, validityInHours);
+            // Try to cache the new token
+            console.log(`[${new Date().toISOString()}] Attempting to cache newly generated token...`);
+            const cacheWriteResult = await cacheToken(supabase, accountId, region, narrowedToken, validityInHours);
 
-          if (!cacheWriteResult.success) {
-            cacheWriteError = cacheWriteResult.error;
-            console.error(`[${new Date().toISOString()}] WARNING: Token generated but failed to cache - next request will be slow`);
+            if (!cacheWriteResult.success) {
+              cacheWriteError = cacheWriteResult.error;
+              console.error(`[${new Date().toISOString()}] WARNING: Token generated but failed to cache - next request will be slow`);
+            }
+          } catch (tokenError) {
+            console.error(`[${new Date().toISOString()}] Token generation failed: ${tokenError.message}`);
+            console.log(`[${new Date().toISOString()}] Attempting stale token fallback...`);
+
+            // Try to get a stale token as emergency fallback
+            const staleCacheResult = await getCachedToken(supabase, accountId, region, true);
+
+            if (staleCacheResult.success && staleCacheResult.token) {
+              narrowedToken = staleCacheResult.token;
+              fromCache = true;
+              console.log(`[${new Date().toISOString()}] ✓ Using STALE cached token as emergency fallback (expired at ${staleCacheResult.expiresAt})`);
+              cacheError = 'Using stale token due to generation timeout';
+            } else {
+              // No stale token available, re-throw the error
+              throw tokenError;
+            }
           }
         }
       } else {
