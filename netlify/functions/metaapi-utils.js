@@ -1,12 +1,12 @@
 // MetaAPI Utility Module for Serverless Functions
 // This module ensures we always use the Node.js distribution of the SDK
 
-// Global timeout constants - Increased to handle slow MetaAPI responses
-const FUNCTION_TIMEOUT_MS = 50000; // 50 seconds (allows time for retries)
-const API_CALL_TIMEOUT_MS = 45000; // 45 seconds for individual API calls (MetaAPI can be slow)
-const SDK_INIT_TIMEOUT_MS = 5000; // 5 seconds for SDK initialization
-const MAX_RETRIES = 3; // Maximum retry attempts for API calls
-const RETRY_DELAYS = [2000, 5000, 10000]; // Exponential backoff delays in ms
+// Global timeout constants - Optimized to avoid Netlify gateway timeouts
+const FUNCTION_TIMEOUT_MS = 24000; // 24 seconds (well before 26s gateway timeout)
+const API_CALL_TIMEOUT_MS = 20000; // 20 seconds for individual API calls
+const SDK_INIT_TIMEOUT_MS = 3000; // 3 seconds for SDK initialization
+const MAX_RETRIES = 1; // 1 retry attempt (total 2 attempts) to fit within gateway timeout
+const RETRY_DELAYS = [1500]; // Single retry delay in ms
 
 /**
  * Create a promise that rejects after a timeout
@@ -177,11 +177,12 @@ function createMetaApiClient(token, options = {}) {
   const defaultOptions = {
     application: 'Pipnosis',
     requestTimeout: API_CALL_TIMEOUT_MS,
-    connectTimeout: API_CALL_TIMEOUT_MS,
+    connectTimeout: 10000, // Faster connection timeout
     retries: 0, // We handle retries at a higher level with better control
     headers: {
       'User-Agent': 'Pipnosis/1.0',
-      'Accept-Encoding': 'gzip, deflate'
+      'Accept-Encoding': 'gzip, deflate',
+      'Connection': 'keep-alive'
     }
   };
 

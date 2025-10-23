@@ -24,16 +24,16 @@
   schedule = "0 2 * * *"
 
 [functions."get-metaapi-token"]
-  # Increased timeout for token generation with retries (30 seconds)
-  timeout = 30
+  # Conservative timeout to prevent gateway timeouts (26 seconds - below 26s Netlify limit)
+  timeout = 26
 
 [functions."test-metaapi-token"]
-  # Test function timeout with retry support (60 seconds)
-  timeout = 60
+  # Test function with aggressive timeout protection (26 seconds)
+  timeout = 26
 
 [functions."verify-metaapi-account"]
-  # Account verification timeout with retry support (60 seconds)
-  timeout = 60
+  # Account verification with optimized timeout (26 seconds)
+  timeout = 26
 
 [[redirects]]
   from = "/*"

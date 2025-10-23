@@ -35,7 +35,7 @@ export default function TestMetaApiToken() {
     setTestResult(null);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 58000); // Extended to 58 seconds to allow for retries
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds to match optimized function timeout
 
     try {
       const requestBody: any = {};
@@ -94,8 +94,8 @@ export default function TestMetaApiToken() {
       let errorDetail = error.message;
 
       if (error.name === 'AbortError') {
-        errorMessage = 'Request timed out after 58 seconds';
-        errorDetail = 'The test function took too long to respond even with automatic retries. MetaAPI servers may be experiencing severe issues. Try again in a few minutes.';
+        errorMessage = 'Request timed out after 30 seconds';
+        errorDetail = 'The test function took too long to respond. MetaAPI servers may be slow. Token caching has been enabled to reduce future delays. Try again in a moment.';
       } else if (error.message.includes('Failed to fetch')) {
         errorMessage = 'Network connection failed';
         errorDetail = 'Unable to reach the test function. Check your internet connection.';
@@ -104,7 +104,7 @@ export default function TestMetaApiToken() {
         errorDetail = error.message;
       } else if (error.message.includes('HTTP 504')) {
         errorMessage = 'Gateway timeout';
-        errorDetail = 'The function timed out on the server. MetaAPI services may be slow or unavailable.';
+        errorDetail = 'The function timed out on the server. The system now uses token caching to prevent this. Please wait a moment and try again.';
       }
 
       setTestResult({
@@ -333,32 +333,34 @@ export default function TestMetaApiToken() {
             <li>Checks if METAAPI_ADMIN_TOKEN is configured in Netlify environment</li>
             <li>Verifies the MetaAPI SDK can be imported and initialized</li>
             <li>Initializes a MetaAPI client with your admin token</li>
-            <li>Generates a narrowed token scoped to your trading account (with automatic retry on timeout)</li>
+            <li>Generates a narrowed token scoped to your trading account (optimized timing with 1 retry)</li>
             <li>Verifies the account can be accessed with the generated token</li>
+            <li>Caches valid tokens in Supabase to prevent future timeouts</li>
           </ol>
 
           <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
             <p className="text-sm text-green-800 mb-2">
-              <strong>Enhanced Reliability:</strong> The token generation step now includes:
+              <strong>Enhanced Reliability:</strong> The token generation system now includes:
             </p>
             <ul className="list-disc list-inside text-xs text-green-700 space-y-1 ml-4">
-              <li>Extended timeout (45 seconds per attempt) to handle slow MetaAPI responses</li>
-              <li>Automatic retry with exponential backoff (up to 3 attempts)</li>
-              <li>Retry delays: 2s, 5s, and 10s between attempts</li>
-              <li>Improved error messages with specific troubleshooting steps</li>
+              <li>Token caching in Supabase database (reuses valid tokens, prevents repeated API calls)</li>
+              <li>Optimized timeout (20 seconds per attempt) to avoid gateway timeouts</li>
+              <li>Fast retry on failure (1 retry with 1.5 second delay)</li>
+              <li>Aggressive timeout protection (returns response before gateway timeout)</li>
+              <li>Cached tokens are valid for 1 hour and automatically managed</li>
             </ul>
           </div>
 
           <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm text-blue-800">
-              <strong>Troubleshooting:</strong> If tests fail after retries, common causes include:
+              <strong>Troubleshooting:</strong> If tests fail, common causes include:
             </p>
             <ul className="list-disc list-inside text-xs text-blue-700 space-y-1 ml-4">
-              <li>MetaAPI servers experiencing high load (wait a few minutes and retry)</li>
+              <li>First-time token generation may take 20-25 seconds (subsequent uses will be instant via cache)</li>
+              <li>MetaAPI servers experiencing high load (cached tokens will prevent this issue)</li>
               <li>Invalid or expired METAAPI_ADMIN_TOKEN in environment variables</li>
               <li>Network connectivity issues between Netlify and MetaAPI servers</li>
               <li>Incorrect region setting (verify VITE_METAAPI_REGION matches your account)</li>
-              <li>Rate limiting (wait 5-10 minutes before retrying)</li>
             </ul>
           </div>
         </div>

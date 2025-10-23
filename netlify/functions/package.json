@@ -4,6 +4,7 @@
   "type": "commonjs",
   "description": "Serverless functions for Pipnosis trading platform",
   "dependencies": {
-    "metaapi.cloud-sdk": "^29.3.1"
+    "metaapi.cloud-sdk": "^29.3.1",
+    "@supabase/supabase-js": "^2.53.0"
   }
 }

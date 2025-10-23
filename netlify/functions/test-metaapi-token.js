@@ -261,19 +261,18 @@ exports.handler = async (event) => {
         };
       }
 
-      // Step 4: Generate narrowed token with retry support
+      // Step 4: Generate narrowed token with optimized timeout
       addStep(
         testResults,
         '4. Generate Token',
         'running',
-        'Generating narrowed token for account (with automatic retry on failure)...'
+        'Generating narrowed token for account (optimized for fast response)...'
       );
 
       let narrowedToken;
       try {
-        console.log(`[${new Date().toISOString()}] Starting token generation with retry support...`);
-        console.log(`[${new Date().toISOString()}] This may take up to 45 seconds per attempt`);
-        console.log(`[${new Date().toISOString()}] Up to 3 retries will be attempted on timeout`);
+        console.log(`[${new Date().toISOString()}] Starting token generation with optimized timeout...`);
+        console.log(`[${new Date().toISOString()}] Timeout: 20 seconds per attempt, 1 retry on failure`);
 
         narrowedToken = await generateNarrowedToken(
           adminToken,
@@ -287,13 +286,13 @@ exports.handler = async (event) => {
           testResults,
           '4. Generate Token',
           'success',
-          'Token generated successfully (with retry support)',
+          'Token generated successfully (optimized timing)',
           {
             tokenLength: narrowedToken.length,
             tokenPrefix: narrowedToken.substring(0, 20) + '...',
             validityHours: 1,
             expiresIn: 3600,
-            note: 'Function now includes automatic retries with exponential backoff'
+            note: 'Function optimized to avoid gateway timeouts with faster response times'
           }
         );
       } catch (tokenError) {
@@ -305,8 +304,9 @@ exports.handler = async (event) => {
 
         if (tokenError.message.includes('timed out') || tokenError.message.includes('timeout')) {
           errorDetails.troubleshooting.push('MetaAPI servers are responding slowly or experiencing high load');
-          errorDetails.troubleshooting.push('The function automatically retried 3 times with delays');
+          errorDetails.troubleshooting.push('The function automatically retried once with optimized timing');
           errorDetails.troubleshooting.push('Try again in a few minutes when server load decreases');
+          errorDetails.troubleshooting.push('Consider using cached tokens if available');
         } else if (tokenError.message.includes('ECONNREFUSED') || tokenError.message.includes('ENOTFOUND')) {
           errorDetails.troubleshooting.push('Network connectivity issue to MetaAPI servers');
           errorDetails.troubleshooting.push('Check your internet connection');
