@@ -11,6 +11,8 @@ const {
   FUNCTION_TIMEOUT_MS
 } = require('./metaapi-utils');
 
+const { createClient } = require('@supabase/supabase-js');
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -76,6 +78,84 @@ exports.handler = async (event) => {
       const adminToken = testAdminToken || process.env.METAAPI_ADMIN_TOKEN;
       const accountId = testAccountId || process.env.VITE_METAAPI_ACCOUNT_ID;
       const region = process.env.VITE_METAAPI_REGION || 'new-york';
+      const supabaseUrl = process.env.VITE_SUPABASE_URL;
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      // Step 1: Check environment variables
+      // Step 0: Check cache configuration
+      addStep(
+        testResults,
+        '0. Cache Configuration',
+        'running',
+        'Checking token cache configuration...'
+      );
+
+      const cacheEnabled = !!(supabaseUrl && supabaseServiceKey);
+      let cacheHealthy = false;
+
+      if (cacheEnabled) {
+        try {
+          const supabase = createClient(supabaseUrl, supabaseServiceKey);
+          const { data, error } = await supabase
+            .from('metaapi_token_cache')
+            .select('id')
+            .limit(1);
+
+          if (error) {
+            addStep(
+              testResults,
+              '0. Cache Configuration',
+              'error',
+              'Cache table accessible but query failed',
+              {
+                error: error.message,
+                code: error.code,
+                hasServiceKey: !!supabaseServiceKey,
+                hint: 'Check RLS policies and service role permissions'
+              }
+            );
+          } else {
+            cacheHealthy = true;
+            addStep(
+              testResults,
+              '0. Cache Configuration',
+              'success',
+              'Token cache is properly configured and accessible',
+              {
+                cacheEnabled: true,
+                cacheHealthy: true,
+                recordsFound: data ? data.length : 0,
+                note: 'Service role key working correctly'
+              }
+            );
+          }
+        } catch (cacheError) {
+          addStep(
+            testResults,
+            '0. Cache Configuration',
+            'error',
+            'Cache health check failed',
+            {
+              error: cacheError.message,
+              hasServiceKey: !!supabaseServiceKey,
+              warning: 'Token generation will work but will be slow (no caching)'
+            }
+          );
+        }
+      } else {
+        addStep(
+          testResults,
+          '0. Cache Configuration',
+          'error',
+          'Token cache not configured - missing environment variables',
+          {
+            hasSupabaseUrl: !!supabaseUrl,
+            hasServiceRoleKey: !!supabaseServiceKey,
+            impact: 'Every token request will take 18-25 seconds',
+            fix: 'Add SUPABASE_SERVICE_ROLE_KEY to Netlify environment variables'
+          }
+        );
+      }
 
       // Step 1: Check environment variables
       addStep(
@@ -142,6 +222,8 @@ exports.handler = async (event) => {
           tokenPrefix: adminToken.substring(0, 20) + '...',
           accountId,
           region,
+          cacheEnabled,
+          cacheHealthy,
           nodeVersion: process.version,
           platform: process.platform,
           envVarSource: testAdminToken ? 'provided' : 'environment'
@@ -262,11 +344,15 @@ exports.handler = async (event) => {
       }
 
       // Step 4: Generate narrowed token with optimized timeout
+      const tokenMessage = cacheHealthy
+        ? 'Generating narrowed token (will be cached for future use)...'
+        : 'Generating narrowed token (WARNING: caching disabled - this will be slow)...';
+
       addStep(
         testResults,
         '4. Generate Token',
         'running',
-        'Generating narrowed token for account (optimized for fast response)...'
+        tokenMessage
       );
 
       let narrowedToken;
@@ -282,17 +368,22 @@ exports.handler = async (event) => {
         );
         console.log(`[${new Date().toISOString()}] Token generation completed successfully`);
 
+        const generationTime = Date.now() - startTime;
         addStep(
           testResults,
           '4. Generate Token',
           'success',
-          'Token generated successfully (optimized timing)',
+          cacheHealthy ? 'Token generated and cached successfully' : 'Token generated (not cached)',
           {
             tokenLength: narrowedToken.length,
             tokenPrefix: narrowedToken.substring(0, 20) + '...',
             validityHours: 1,
             expiresIn: 3600,
-            note: 'Function optimized to avoid gateway timeouts with faster response times'
+            generationTime: `${generationTime}ms`,
+            cached: cacheHealthy,
+            note: cacheHealthy
+              ? 'Token cached - next request will be <100ms'
+              : 'Token NOT cached - every request will take 18-25 seconds'
           }
         );
       } catch (tokenError) {

@@ -13,7 +13,10 @@ const corsHeaders = {
 };
 
 async function getCachedToken(supabase, accountId, region) {
+  const startTime = Date.now();
   try {
+    console.log(`[${new Date().toISOString()}] Checking cache for account ${accountId} in ${region} region...`);
+
     const { data, error } = await supabase
       .from('metaapi_token_cache')
       .select('*')
@@ -26,28 +29,35 @@ async function getCachedToken(supabase, accountId, region) {
       .maybeSingle();
 
     if (error) {
-      console.error('Error fetching cached token:', error);
-      return null;
+      console.error(`[${new Date().toISOString()}] ERROR: Failed to fetch cached token:`, error);
+      console.error(`[${new Date().toISOString()}] Error details:`, JSON.stringify(error, null, 2));
+      return { success: false, error: error.message, token: null };
     }
 
+    const elapsed = Date.now() - startTime;
     if (data) {
-      console.log(`Found cached token for ${accountId}, expires at ${data.expires_at}`);
-      return data.token;
+      console.log(`[${new Date().toISOString()}] ✓ Found cached token for ${accountId}, expires at ${data.expires_at} (${elapsed}ms)`);
+      return { success: true, token: data.token, cached: true };
     }
 
-    return null;
+    console.log(`[${new Date().toISOString()}] No cached token found for ${accountId} (${elapsed}ms)`);
+    return { success: true, token: null, cached: false };
   } catch (err) {
-    console.error('Exception in getCachedToken:', err);
-    return null;
+    console.error(`[${new Date().toISOString()}] EXCEPTION in getCachedToken:`, err);
+    console.error(`[${new Date().toISOString()}] Stack trace:`, err.stack);
+    return { success: false, error: err.message, token: null };
   }
 }
 
 async function cacheToken(supabase, accountId, region, token, validityHours) {
+  const startTime = Date.now();
   try {
+    console.log(`[${new Date().toISOString()}] Attempting to cache token for ${accountId}...`);
+
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + validityHours);
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('metaapi_token_cache')
       .insert({
         account_id: accountId,
@@ -56,15 +66,25 @@ async function cacheToken(supabase, accountId, region, token, validityHours) {
         expires_at: expiresAt.toISOString(),
         validity_hours: validityHours,
         is_valid: true
-      });
+      })
+      .select();
+
+    const elapsed = Date.now() - startTime;
 
     if (error) {
-      console.error('Error caching token:', error);
-    } else {
-      console.log(`Cached token for ${accountId}, expires at ${expiresAt.toISOString()}`);
+      console.error(`[${new Date().toISOString()}] ERROR: Failed to cache token:`, error);
+      console.error(`[${new Date().toISOString()}] Error code:`, error.code);
+      console.error(`[${new Date().toISOString()}] Error details:`, JSON.stringify(error, null, 2));
+      return { success: false, error: error.message };
     }
+
+    console.log(`[${new Date().toISOString()}] ✓ Token cached successfully for ${accountId}, expires at ${expiresAt.toISOString()} (${elapsed}ms)`);
+    return { success: true, data };
   } catch (err) {
-    console.error('Exception in cacheToken:', err);
+    const elapsed = Date.now() - startTime;
+    console.error(`[${new Date().toISOString()}] EXCEPTION in cacheToken (${elapsed}ms):`, err);
+    console.error(`[${new Date().toISOString()}] Stack trace:`, err.stack);
+    return { success: false, error: err.message };
   }
 }
 
@@ -141,10 +161,13 @@ exports.handler = async (event) => {
       }
 
       const supabaseUrl = process.env.VITE_SUPABASE_URL;
-      const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-      if (!supabaseUrl || !supabaseKey) {
-        console.error('Supabase configuration missing');
+      if (!supabaseUrl || !supabaseServiceKey) {
+        console.error(`[${new Date().toISOString()}] WARNING: Supabase configuration incomplete`);
+        console.error(`[${new Date().toISOString()}] VITE_SUPABASE_URL: ${supabaseUrl ? 'present' : 'MISSING'}`);
+        console.error(`[${new Date().toISOString()}] SUPABASE_SERVICE_ROLE_KEY: ${supabaseServiceKey ? 'present' : 'MISSING'}`);
+        console.error(`[${new Date().toISOString()}] Token caching will be disabled`);
       }
 
       const region = process.env.VITE_METAAPI_REGION || 'new-york';
@@ -153,18 +176,29 @@ exports.handler = async (event) => {
       // Try to get cached token first
       let narrowedToken = null;
       let fromCache = false;
+      let cacheError = null;
+      let cacheWriteError = null;
 
-      if (supabaseUrl && supabaseKey) {
-        const supabase = createClient(supabaseUrl, supabaseKey);
-        narrowedToken = await getCachedToken(supabase, accountId, region);
+      if (supabaseUrl && supabaseServiceKey) {
+        console.log(`[${new Date().toISOString()}] Using service role key for cache operations`);
+        const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-        if (narrowedToken) {
+        // Try to get cached token
+        const cacheResult = await getCachedToken(supabase, accountId, region);
+
+        if (!cacheResult.success) {
+          cacheError = cacheResult.error;
+          console.error(`[${new Date().toISOString()}] Cache read failed, will generate fresh token`);
+        } else if (cacheResult.token) {
+          narrowedToken = cacheResult.token;
           fromCache = true;
-          console.log(`Using cached token for account ${accountId}`);
+          console.log(`[${new Date().toISOString()}] ✓ Using cached token for account ${accountId}`);
         } else {
-          console.log(`No cached token found, generating new token for ${accountId}`);
+          console.log(`[${new Date().toISOString()}] No cached token found, generating new token for ${accountId}`);
+        }
 
-          // Generate new token
+        // Generate new token if needed
+        if (!narrowedToken) {
           narrowedToken = await generateNarrowedToken(
             adminToken,
             accountId,
@@ -172,12 +206,19 @@ exports.handler = async (event) => {
             validityInHours
           );
 
-          // Cache the new token
-          await cacheToken(supabase, accountId, region, narrowedToken, validityInHours);
+          // Try to cache the new token
+          console.log(`[${new Date().toISOString()}] Attempting to cache newly generated token...`);
+          const cacheWriteResult = await cacheToken(supabase, accountId, region, narrowedToken, validityInHours);
+
+          if (!cacheWriteResult.success) {
+            cacheWriteError = cacheWriteResult.error;
+            console.error(`[${new Date().toISOString()}] WARNING: Token generated but failed to cache - next request will be slow`);
+          }
         }
       } else {
         // Fallback: generate without caching
-        console.log(`Generating token without caching for account ${accountId} in ${region} region`);
+        console.log(`[${new Date().toISOString()}] Generating token WITHOUT caching for account ${accountId} in ${region} region`);
+        console.log(`[${new Date().toISOString()}] WARNING: Token caching disabled - every request will be slow`);
         narrowedToken = await generateNarrowedToken(
           adminToken,
           accountId,
@@ -198,7 +239,12 @@ exports.handler = async (event) => {
           token: narrowedToken,
           expiresIn: timeToLive,
           cached: fromCache,
-          executionTime
+          executionTime,
+          cacheStatus: {
+            enabled: !!(supabaseUrl && supabaseServiceKey),
+            readError: cacheError,
+            writeError: cacheWriteError
+          }
         })
       };
 

@@ -2,11 +2,12 @@
 // This module ensures we always use the Node.js distribution of the SDK
 
 // Global timeout constants - Optimized to avoid Netlify gateway timeouts
-const FUNCTION_TIMEOUT_MS = 24000; // 24 seconds (well before 26s gateway timeout)
-const API_CALL_TIMEOUT_MS = 20000; // 20 seconds for individual API calls
+const FUNCTION_TIMEOUT_MS = 25000; // 25 seconds (well before 26s gateway timeout)
+const TOKEN_GENERATION_TIMEOUT_MS = 18000; // 18 seconds for token generation API call
+const ACCOUNT_VERIFICATION_TIMEOUT_MS = 10000; // 10 seconds for account verification
 const SDK_INIT_TIMEOUT_MS = 3000; // 3 seconds for SDK initialization
 const MAX_RETRIES = 1; // 1 retry attempt (total 2 attempts) to fit within gateway timeout
-const RETRY_DELAYS = [1500]; // Single retry delay in ms
+const RETRY_DELAYS = [2000]; // Single retry delay: 2 seconds
 
 /**
  * Create a promise that rejects after a timeout
@@ -176,8 +177,8 @@ function createMetaApiClient(token, options = {}) {
 
   const defaultOptions = {
     application: 'Pipnosis',
-    requestTimeout: API_CALL_TIMEOUT_MS,
-    connectTimeout: 10000, // Faster connection timeout
+    requestTimeout: options.requestTimeout || TOKEN_GENERATION_TIMEOUT_MS,
+    connectTimeout: 8000, // 8 second connection timeout
     retries: 0, // We handle retries at a higher level with better control
     headers: {
       'User-Agent': 'Pipnosis/1.0',
@@ -226,8 +227,8 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
 
     const metaApi = createMetaApiClient(adminToken, {
       domain: endpoint,
-      requestTimeout: API_CALL_TIMEOUT_MS,
-      connectTimeout: API_CALL_TIMEOUT_MS
+      requestTimeout: TOKEN_GENERATION_TIMEOUT_MS,
+      connectTimeout: 8000
     });
 
     if (!metaApi.tokenManagementApi) {
@@ -251,7 +252,7 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
 
     const narrowedToken = await withTimeout(
       tokenPromise,
-      API_CALL_TIMEOUT_MS,
+      TOKEN_GENERATION_TIMEOUT_MS,
       'narrowDownToken API call'
     );
 
@@ -327,8 +328,8 @@ async function verifyAccount(token, accountId, region = 'new-york') {
 
     const metaApi = createMetaApiClient(token, {
       domain: endpoint,
-      requestTimeout: API_CALL_TIMEOUT_MS,
-      connectTimeout: API_CALL_TIMEOUT_MS
+      requestTimeout: ACCOUNT_VERIFICATION_TIMEOUT_MS,
+      connectTimeout: 8000
     });
 
     if (!metaApi.metatraderAccountApi) {
@@ -340,7 +341,7 @@ async function verifyAccount(token, accountId, region = 'new-york') {
     const accountPromise = metaApi.metatraderAccountApi.getAccount(accountId);
     const account = await withTimeout(
       accountPromise,
-      API_CALL_TIMEOUT_MS,
+      ACCOUNT_VERIFICATION_TIMEOUT_MS,
       'getAccount API call'
     );
 
@@ -428,6 +429,7 @@ module.exports = {
   withRetry,
   delay,
   FUNCTION_TIMEOUT_MS,
-  API_CALL_TIMEOUT_MS,
+  TOKEN_GENERATION_TIMEOUT_MS,
+  ACCOUNT_VERIFICATION_TIMEOUT_MS,
   MAX_RETRIES
 };
