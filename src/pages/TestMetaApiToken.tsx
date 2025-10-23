@@ -34,6 +34,9 @@ export default function TestMetaApiToken() {
     setIsRunning(true);
     setTestResult(null);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 26000);
+
     try {
       const requestBody: any = {};
 
@@ -51,22 +54,71 @@ export default function TestMetaApiToken() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(requestBody),
+        signal: controller.signal,
       });
 
-      const data = await response.json();
+      clearTimeout(timeoutId);
+
+      const contentType = response.headers.get('content-type');
+      const contentLength = response.headers.get('content-length');
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error(`Expected JSON response but got ${contentType || 'no content-type'}`);
+      }
+
+      if (contentLength === '0') {
+        throw new Error('Received empty response from server');
+      }
+
+      const text = await response.text();
+      if (!text || text.trim() === '') {
+        throw new Error('Received empty response body');
+      }
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (parseError) {
+        throw new Error(`Failed to parse JSON response: ${text.substring(0, 100)}`);
+      }
+
       setTestResult(data);
     } catch (error: any) {
+      clearTimeout(timeoutId);
+
+      let errorMessage = 'Failed to connect to test function';
+      let errorDetail = error.message;
+
+      if (error.name === 'AbortError') {
+        errorMessage = 'Request timed out after 26 seconds';
+        errorDetail = 'The test function took too long to respond. This usually indicates network connectivity issues with MetaAPI servers or the function is taking longer than expected to execute.';
+      } else if (error.message.includes('Failed to fetch')) {
+        errorMessage = 'Network connection failed';
+        errorDetail = 'Unable to reach the test function. Check your internet connection.';
+      } else if (error.message.includes('JSON')) {
+        errorMessage = 'Invalid response format';
+        errorDetail = error.message;
+      } else if (error.message.includes('HTTP 504')) {
+        errorMessage = 'Gateway timeout';
+        errorDetail = 'The function timed out on the server. MetaAPI services may be slow or unavailable.';
+      }
+
       setTestResult({
         success: false,
         testResults: [
           {
             step: 'Network Error',
             status: 'error',
-            message: error.message || 'Failed to connect to test function',
+            message: errorMessage,
+            details: { error: errorDetail, originalError: error.message },
             timestamp: new Date().toISOString(),
           },
         ],
-        error: 'Network request failed',
+        error: errorMessage,
       });
     } finally {
       setIsRunning(false);

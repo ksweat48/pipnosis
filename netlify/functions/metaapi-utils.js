@@ -1,6 +1,39 @@
 // MetaAPI Utility Module for Serverless Functions
 // This module ensures we always use the Node.js distribution of the SDK
 
+// Global timeout constants
+const FUNCTION_TIMEOUT_MS = 25000; // 25 seconds (before Netlify's 28s limit)
+const API_CALL_TIMEOUT_MS = 20000; // 20 seconds for individual API calls
+const SDK_INIT_TIMEOUT_MS = 5000; // 5 seconds for SDK initialization
+
+/**
+ * Create a promise that rejects after a timeout
+ * @param {number} ms - Timeout in milliseconds
+ * @param {string} operation - Operation description for error message
+ * @returns {Promise} Promise that rejects on timeout
+ */
+function createTimeout(ms, operation) {
+  return new Promise((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(`Operation timed out after ${ms}ms: ${operation}`));
+    }, ms);
+  });
+}
+
+/**
+ * Race a promise against a timeout
+ * @param {Promise} promise - The promise to execute
+ * @param {number} timeoutMs - Timeout in milliseconds
+ * @param {string} operation - Operation description
+ * @returns {Promise} Result of the promise or timeout error
+ */
+async function withTimeout(promise, timeoutMs, operation) {
+  return Promise.race([
+    promise,
+    createTimeout(timeoutMs, operation)
+  ]);
+}
+
 /**
  * Initialize MetaAPI SDK with proper Node.js imports
  * This function handles all the complexity of loading the correct SDK version
@@ -70,12 +103,17 @@ function createMetaApiClient(token, options = {}) {
     throw new Error('Token is required to create MetaAPI client');
   }
 
+  if (typeof token !== 'string' || token.length < 10) {
+    throw new Error('Invalid token format');
+  }
+
   const MetaApi = initializeMetaApiSDK();
 
   const defaultOptions = {
     application: 'Pipnosis',
-    requestTimeout: 60000,
-    connectTimeout: 60000,
+    requestTimeout: API_CALL_TIMEOUT_MS,
+    connectTimeout: API_CALL_TIMEOUT_MS,
+    retries: 1,
   };
 
   const config = { ...defaultOptions, ...options };
@@ -107,14 +145,20 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
     throw new Error('Account ID is required');
   }
 
-  console.log(`Generating narrowed token for account ${accountId} in ${region} region`);
+  console.log(`[${new Date().toISOString()}] Generating narrowed token for account ${accountId} in ${region} region`);
 
   const metaApi = createMetaApiClient(adminToken, {
     domain: `${region}.agiliumtrade.ai`
   });
 
+  if (!metaApi.tokenManagementApi) {
+    throw new Error('MetaAPI client does not have tokenManagementApi');
+  }
+
   try {
-    const narrowedToken = await metaApi.tokenManagementApi.narrowDownToken({
+    console.log(`[${new Date().toISOString()}] Calling narrowDownToken API...`);
+
+    const tokenPromise = metaApi.tokenManagementApi.narrowDownToken({
       applications: [
         'trading-account-management-api',
         'metaapi-rest-api',
@@ -127,15 +171,26 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
       resources: [{ entity: 'account', id: accountId }]
     }, validityHours);
 
+    const narrowedToken = await withTimeout(
+      tokenPromise,
+      API_CALL_TIMEOUT_MS,
+      'narrowDownToken API call'
+    );
+
     if (!narrowedToken || typeof narrowedToken !== 'string') {
       throw new Error('Invalid token format returned from MetaAPI');
     }
 
-    console.log(`✓ Narrowed token generated successfully (length: ${narrowedToken.length})`);
+    console.log(`[${new Date().toISOString()}] ✓ Narrowed token generated successfully (length: ${narrowedToken.length})`);
     return narrowedToken;
 
   } catch (error) {
-    console.error('Token generation failed:', error);
+    console.error(`[${new Date().toISOString()}] Token generation failed:`, error.message);
+
+    if (error.message.includes('timed out')) {
+      throw new Error('MetaAPI API call timed out. The service may be slow or unavailable.');
+    }
+
     throw new Error(`Failed to generate narrowed token: ${error.message}`);
   }
 }
@@ -156,16 +211,27 @@ async function verifyAccount(token, accountId, region = 'new-york') {
     throw new Error('Account ID is required');
   }
 
-  console.log(`Verifying account ${accountId} in ${region} region`);
+  console.log(`[${new Date().toISOString()}] Verifying account ${accountId} in ${region} region`);
 
   const metaApi = createMetaApiClient(token, {
     domain: `${region}.agiliumtrade.ai`
   });
 
-  try {
-    const account = await metaApi.metatraderAccountApi.getAccount(accountId);
+  if (!metaApi.metatraderAccountApi) {
+    throw new Error('MetaAPI client does not have metatraderAccountApi');
+  }
 
-    console.log(`✓ Account verified: ${account.name} (${account.state})`);
+  try {
+    console.log(`[${new Date().toISOString()}] Calling getAccount API...`);
+
+    const accountPromise = metaApi.metatraderAccountApi.getAccount(accountId);
+    const account = await withTimeout(
+      accountPromise,
+      API_CALL_TIMEOUT_MS,
+      'getAccount API call'
+    );
+
+    console.log(`[${new Date().toISOString()}] ✓ Account verified: ${account.name} (${account.state})`);
 
     return {
       id: account.id,
@@ -179,7 +245,12 @@ async function verifyAccount(token, accountId, region = 'new-york') {
     };
 
   } catch (error) {
-    console.error('Account verification failed:', error);
+    console.error(`[${new Date().toISOString()}] Account verification failed:`, error.message);
+
+    if (error.message.includes('timed out')) {
+      throw new Error('MetaAPI API call timed out. The service may be slow or unavailable.');
+    }
+
     throw new Error(`Failed to verify account: ${error.message}`);
   }
 }
@@ -213,5 +284,8 @@ module.exports = {
   createMetaApiClient,
   generateNarrowedToken,
   verifyAccount,
-  getSDKInfo
+  getSDKInfo,
+  withTimeout,
+  FUNCTION_TIMEOUT_MS,
+  API_CALL_TIMEOUT_MS
 };
