@@ -60,7 +60,7 @@ exports.handler = async (event) => {
           success: false,
           testResults,
           error: 'Function execution time limit reached',
-          details: `The test took longer than ${FUNCTION_TIMEOUT_MS}ms to complete. This usually indicates network connectivity issues with MetaAPI servers.`
+          details: `The test took longer than ${FUNCTION_TIMEOUT_MS}ms to complete. This indicates MetaAPI servers are responding slowly. The function has been configured with automatic retries and extended timeouts, but the service may still be experiencing high load.`
         })
       });
     }, FUNCTION_TIMEOUT_MS);
@@ -261,47 +261,70 @@ exports.handler = async (event) => {
         };
       }
 
-      // Step 4: Generate narrowed token
+      // Step 4: Generate narrowed token with retry support
       addStep(
         testResults,
         '4. Generate Token',
         'running',
-        'Generating narrowed token for account...'
+        'Generating narrowed token for account (with automatic retry on failure)...'
       );
 
       let narrowedToken;
       try {
-        console.log(`[${new Date().toISOString()}] Starting token generation...`);
+        console.log(`[${new Date().toISOString()}] Starting token generation with retry support...`);
+        console.log(`[${new Date().toISOString()}] This may take up to 45 seconds per attempt`);
+        console.log(`[${new Date().toISOString()}] Up to 3 retries will be attempted on timeout`);
+
         narrowedToken = await generateNarrowedToken(
           adminToken,
           accountId,
           region,
           1
         );
-        console.log(`[${new Date().toISOString()}] Token generation completed`);
+        console.log(`[${new Date().toISOString()}] Token generation completed successfully`);
 
         addStep(
           testResults,
           '4. Generate Token',
           'success',
-          'Token generated successfully',
+          'Token generated successfully (with retry support)',
           {
             tokenLength: narrowedToken.length,
             tokenPrefix: narrowedToken.substring(0, 20) + '...',
             validityHours: 1,
-            expiresIn: 3600
+            expiresIn: 3600,
+            note: 'Function now includes automatic retries with exponential backoff'
           }
         );
       } catch (tokenError) {
+        const errorDetails = {
+          error: tokenError.message,
+          stack: tokenError.stack,
+          troubleshooting: []
+        };
+
+        if (tokenError.message.includes('timed out') || tokenError.message.includes('timeout')) {
+          errorDetails.troubleshooting.push('MetaAPI servers are responding slowly or experiencing high load');
+          errorDetails.troubleshooting.push('The function automatically retried 3 times with delays');
+          errorDetails.troubleshooting.push('Try again in a few minutes when server load decreases');
+        } else if (tokenError.message.includes('ECONNREFUSED') || tokenError.message.includes('ENOTFOUND')) {
+          errorDetails.troubleshooting.push('Network connectivity issue to MetaAPI servers');
+          errorDetails.troubleshooting.push('Check your internet connection');
+          errorDetails.troubleshooting.push(`Verify region setting is correct (current: ${region})`);
+        } else if (tokenError.message.includes('Unauthorized') || tokenError.message.includes('401')) {
+          errorDetails.troubleshooting.push('Admin token is invalid or expired');
+          errorDetails.troubleshooting.push('Verify METAAPI_ADMIN_TOKEN in environment variables');
+        } else if (tokenError.message.includes('429') || tokenError.message.includes('rate limit')) {
+          errorDetails.troubleshooting.push('MetaAPI rate limit exceeded');
+          errorDetails.troubleshooting.push('Wait 5-10 minutes before trying again');
+        }
+
         addStep(
           testResults,
           '4. Generate Token',
           'error',
-          'Failed to generate token',
-          {
-            error: tokenError.message,
-            stack: tokenError.stack
-          }
+          'Failed to generate token after multiple retry attempts',
+          errorDetails
         );
 
         return {
@@ -310,7 +333,8 @@ exports.handler = async (event) => {
           body: JSON.stringify({
             success: false,
             testResults,
-            error: 'Token generation failed'
+            error: 'Token generation failed after retries',
+            details: tokenError.message
           })
         };
       }

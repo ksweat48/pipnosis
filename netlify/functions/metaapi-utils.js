@@ -1,10 +1,12 @@
 // MetaAPI Utility Module for Serverless Functions
 // This module ensures we always use the Node.js distribution of the SDK
 
-// Global timeout constants
-const FUNCTION_TIMEOUT_MS = 25000; // 25 seconds (before Netlify's 28s limit)
-const API_CALL_TIMEOUT_MS = 20000; // 20 seconds for individual API calls
+// Global timeout constants - Increased to handle slow MetaAPI responses
+const FUNCTION_TIMEOUT_MS = 50000; // 50 seconds (allows time for retries)
+const API_CALL_TIMEOUT_MS = 45000; // 45 seconds for individual API calls (MetaAPI can be slow)
 const SDK_INIT_TIMEOUT_MS = 5000; // 5 seconds for SDK initialization
+const MAX_RETRIES = 3; // Maximum retry attempts for API calls
+const RETRY_DELAYS = [2000, 5000, 10000]; // Exponential backoff delays in ms
 
 /**
  * Create a promise that rejects after a timeout
@@ -28,10 +30,73 @@ function createTimeout(ms, operation) {
  * @returns {Promise} Result of the promise or timeout error
  */
 async function withTimeout(promise, timeoutMs, operation) {
-  return Promise.race([
-    promise,
-    createTimeout(timeoutMs, operation)
-  ]);
+  const startTime = Date.now();
+  try {
+    const result = await Promise.race([
+      promise,
+      createTimeout(timeoutMs, operation)
+    ]);
+    const elapsed = Date.now() - startTime;
+    console.log(`✓ ${operation} completed in ${elapsed}ms`);
+    return result;
+  } catch (error) {
+    const elapsed = Date.now() - startTime;
+    console.error(`✗ ${operation} failed after ${elapsed}ms:`, error.message);
+    throw error;
+  }
+}
+
+/**
+ * Delay execution for a specified number of milliseconds
+ * @param {number} ms - Milliseconds to delay
+ * @returns {Promise<void>}
+ */
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Execute a function with retry logic and exponential backoff
+ * @param {Function} fn - Async function to execute
+ * @param {string} operationName - Name of operation for logging
+ * @param {number} maxRetries - Maximum number of retry attempts
+ * @returns {Promise} Result of the function
+ */
+async function withRetry(fn, operationName, maxRetries = MAX_RETRIES) {
+  let lastError;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delayMs = RETRY_DELAYS[attempt - 1] || 10000;
+        console.log(`[${new Date().toISOString()}] Retry attempt ${attempt}/${maxRetries} for ${operationName} after ${delayMs}ms delay...`);
+        await delay(delayMs);
+      }
+
+      console.log(`[${new Date().toISOString()}] Executing ${operationName} (attempt ${attempt + 1}/${maxRetries + 1})...`);
+      const result = await fn();
+
+      if (attempt > 0) {
+        console.log(`[${new Date().toISOString()}] ✓ ${operationName} succeeded on retry attempt ${attempt}`);
+      }
+
+      return result;
+    } catch (error) {
+      lastError = error;
+      const isTimeout = error.message.includes('timed out') || error.message.includes('timeout');
+      const isNetworkError = error.message.includes('ECONNREFUSED') || error.message.includes('ETIMEDOUT') || error.message.includes('ENOTFOUND');
+
+      if (attempt < maxRetries && (isTimeout || isNetworkError)) {
+        console.warn(`[${new Date().toISOString()}] ${operationName} failed (attempt ${attempt + 1}/${maxRetries + 1}): ${error.message}. Will retry...`);
+        continue;
+      }
+
+      console.error(`[${new Date().toISOString()}] ${operationName} failed after ${attempt + 1} attempts:`, error.message);
+      throw error;
+    }
+  }
+
+  throw lastError;
 }
 
 /**
@@ -113,7 +178,11 @@ function createMetaApiClient(token, options = {}) {
     application: 'Pipnosis',
     requestTimeout: API_CALL_TIMEOUT_MS,
     connectTimeout: API_CALL_TIMEOUT_MS,
-    retries: 1,
+    retries: 0, // We handle retries at a higher level with better control
+    headers: {
+      'User-Agent': 'Pipnosis/1.0',
+      'Accept-Encoding': 'gzip, deflate'
+    }
   };
 
   const config = { ...defaultOptions, ...options };
@@ -145,18 +214,26 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
     throw new Error('Account ID is required');
   }
 
-  console.log(`[${new Date().toISOString()}] Generating narrowed token for account ${accountId} in ${region} region`);
+  const endpoint = `${region}.agiliumtrade.ai`;
+  console.log(`[${new Date().toISOString()}] Generating narrowed token for account ${accountId}`);
+  console.log(`[${new Date().toISOString()}] Target endpoint: ${endpoint}`);
+  console.log(`[${new Date().toISOString()}] Token validity: ${validityHours} hour(s)`);
 
-  const metaApi = createMetaApiClient(adminToken, {
-    domain: `${region}.agiliumtrade.ai`
-  });
+  // Use retry logic for the entire token generation process
+  return withRetry(async () => {
+    const requestStartTime = Date.now();
 
-  if (!metaApi.tokenManagementApi) {
-    throw new Error('MetaAPI client does not have tokenManagementApi');
-  }
+    const metaApi = createMetaApiClient(adminToken, {
+      domain: endpoint,
+      requestTimeout: API_CALL_TIMEOUT_MS,
+      connectTimeout: API_CALL_TIMEOUT_MS
+    });
 
-  try {
-    console.log(`[${new Date().toISOString()}] Calling narrowDownToken API...`);
+    if (!metaApi.tokenManagementApi) {
+      throw new Error('MetaAPI client does not have tokenManagementApi');
+    }
+
+    console.log(`[${new Date().toISOString()}] Calling MetaAPI narrowDownToken API at ${endpoint}...`);
 
     const tokenPromise = metaApi.tokenManagementApi.narrowDownToken({
       applications: [
@@ -181,18 +258,46 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
       throw new Error('Invalid token format returned from MetaAPI');
     }
 
-    console.log(`[${new Date().toISOString()}] ✓ Narrowed token generated successfully (length: ${narrowedToken.length})`);
+    const requestDuration = Date.now() - requestStartTime;
+    console.log(`[${new Date().toISOString()}] ✓ Narrowed token generated successfully`);
+    console.log(`[${new Date().toISOString()}] Token length: ${narrowedToken.length} characters`);
+    console.log(`[${new Date().toISOString()}] Request duration: ${requestDuration}ms`);
+
     return narrowedToken;
+  }, 'Token Generation', MAX_RETRIES).catch(error => {
+    console.error(`[${new Date().toISOString()}] Token generation failed after all retries:`, error.message);
 
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Token generation failed:`, error.message);
+    if (error.message.includes('timed out') || error.message.includes('timeout')) {
+      throw new Error(
+        `MetaAPI token generation timed out after multiple attempts. ` +
+        `The ${endpoint} server may be experiencing high load or network issues. ` +
+        `Please try again in a few moments.`
+      );
+    }
 
-    if (error.message.includes('timed out')) {
-      throw new Error('MetaAPI API call timed out. The service may be slow or unavailable.');
+    if (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND')) {
+      throw new Error(
+        `Unable to connect to MetaAPI server at ${endpoint}. ` +
+        `Please check your network connection and verify the region setting (current: ${region}).`
+      );
+    }
+
+    if (error.message.includes('Unauthorized') || error.message.includes('401')) {
+      throw new Error(
+        `Authentication failed with MetaAPI. ` +
+        `Please verify your admin token is valid and has not expired.`
+      );
+    }
+
+    if (error.message.includes('429') || error.message.includes('rate limit')) {
+      throw new Error(
+        `MetaAPI rate limit exceeded. ` +
+        `Please wait a few minutes before trying again.`
+      );
     }
 
     throw new Error(`Failed to generate narrowed token: ${error.message}`);
-  }
+  });
 }
 
 /**
@@ -211,18 +316,25 @@ async function verifyAccount(token, accountId, region = 'new-york') {
     throw new Error('Account ID is required');
   }
 
+  const endpoint = `${region}.agiliumtrade.ai`;
   console.log(`[${new Date().toISOString()}] Verifying account ${accountId} in ${region} region`);
+  console.log(`[${new Date().toISOString()}] Target endpoint: ${endpoint}`);
 
-  const metaApi = createMetaApiClient(token, {
-    domain: `${region}.agiliumtrade.ai`
-  });
+  // Use retry logic for account verification
+  return withRetry(async () => {
+    const requestStartTime = Date.now();
 
-  if (!metaApi.metatraderAccountApi) {
-    throw new Error('MetaAPI client does not have metatraderAccountApi');
-  }
+    const metaApi = createMetaApiClient(token, {
+      domain: endpoint,
+      requestTimeout: API_CALL_TIMEOUT_MS,
+      connectTimeout: API_CALL_TIMEOUT_MS
+    });
 
-  try {
-    console.log(`[${new Date().toISOString()}] Calling getAccount API...`);
+    if (!metaApi.metatraderAccountApi) {
+      throw new Error('MetaAPI client does not have metatraderAccountApi');
+    }
+
+    console.log(`[${new Date().toISOString()}] Calling MetaAPI getAccount API at ${endpoint}...`);
 
     const accountPromise = metaApi.metatraderAccountApi.getAccount(accountId);
     const account = await withTimeout(
@@ -231,7 +343,9 @@ async function verifyAccount(token, accountId, region = 'new-york') {
       'getAccount API call'
     );
 
+    const requestDuration = Date.now() - requestStartTime;
     console.log(`[${new Date().toISOString()}] ✓ Account verified: ${account.name} (${account.state})`);
+    console.log(`[${new Date().toISOString()}] Request duration: ${requestDuration}ms`);
 
     return {
       id: account.id,
@@ -243,16 +357,40 @@ async function verifyAccount(token, accountId, region = 'new-york') {
       magic: account.magic,
       connectionStatus: account.connectionStatus
     };
+  }, 'Account Verification', MAX_RETRIES).catch(error => {
+    console.error(`[${new Date().toISOString()}] Account verification failed after all retries:`, error.message);
 
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Account verification failed:`, error.message);
+    if (error.message.includes('timed out') || error.message.includes('timeout')) {
+      throw new Error(
+        `MetaAPI account verification timed out after multiple attempts. ` +
+        `The ${endpoint} server may be experiencing high load. ` +
+        `Please try again in a few moments.`
+      );
+    }
 
-    if (error.message.includes('timed out')) {
-      throw new Error('MetaAPI API call timed out. The service may be slow or unavailable.');
+    if (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND')) {
+      throw new Error(
+        `Unable to connect to MetaAPI server at ${endpoint}. ` +
+        `Please check your network connection and verify the region setting (current: ${region}).`
+      );
+    }
+
+    if (error.message.includes('Unauthorized') || error.message.includes('401')) {
+      throw new Error(
+        `Authentication failed with MetaAPI. ` +
+        `The provided token may be invalid or expired.`
+      );
+    }
+
+    if (error.message.includes('404') || error.message.includes('not found')) {
+      throw new Error(
+        `Account ${accountId} not found in ${region} region. ` +
+        `Please verify the account ID and region are correct.`
+      );
     }
 
     throw new Error(`Failed to verify account: ${error.message}`);
-  }
+  });
 }
 
 /**
@@ -286,6 +424,9 @@ module.exports = {
   verifyAccount,
   getSDKInfo,
   withTimeout,
+  withRetry,
+  delay,
   FUNCTION_TIMEOUT_MS,
-  API_CALL_TIMEOUT_MS
+  API_CALL_TIMEOUT_MS,
+  MAX_RETRIES
 };

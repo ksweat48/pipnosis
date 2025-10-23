@@ -24,16 +24,16 @@
   schedule = "0 2 * * *"
 
 [functions."get-metaapi-token"]
-  # Standard timeout for token generation (10 seconds)
-  timeout = 10
+  # Increased timeout for token generation with retries (30 seconds)
+  timeout = 30
 
 [functions."test-metaapi-token"]
-  # Test function timeout (30 seconds)
-  timeout = 30
+  # Test function timeout with retry support (60 seconds)
+  timeout = 60
 
 [functions."verify-metaapi-account"]
-  # Account verification timeout (30 seconds)
-  timeout = 30
+  # Account verification timeout with retry support (60 seconds)
+  timeout = 60
 
 [[redirects]]
   from = "/*"

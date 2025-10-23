@@ -35,7 +35,7 @@ export default function TestMetaApiToken() {
     setTestResult(null);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 26000);
+    const timeoutId = setTimeout(() => controller.abort(), 58000); // Extended to 58 seconds to allow for retries
 
     try {
       const requestBody: any = {};
@@ -94,8 +94,8 @@ export default function TestMetaApiToken() {
       let errorDetail = error.message;
 
       if (error.name === 'AbortError') {
-        errorMessage = 'Request timed out after 26 seconds';
-        errorDetail = 'The test function took too long to respond. This usually indicates network connectivity issues with MetaAPI servers or the function is taking longer than expected to execute.';
+        errorMessage = 'Request timed out after 58 seconds';
+        errorDetail = 'The test function took too long to respond even with automatic retries. MetaAPI servers may be experiencing severe issues. Try again in a few minutes.';
       } else if (error.message.includes('Failed to fetch')) {
         errorMessage = 'Network connection failed';
         errorDetail = 'Unable to reach the test function. Check your internet connection.';
@@ -333,16 +333,33 @@ export default function TestMetaApiToken() {
             <li>Checks if METAAPI_ADMIN_TOKEN is configured in Netlify environment</li>
             <li>Verifies the MetaAPI SDK can be imported and initialized</li>
             <li>Initializes a MetaAPI client with your admin token</li>
-            <li>Generates a narrowed token scoped to your trading account</li>
+            <li>Generates a narrowed token scoped to your trading account (with automatic retry on timeout)</li>
             <li>Verifies the account can be accessed with the generated token</li>
           </ol>
 
+          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <p className="text-sm text-green-800 mb-2">
+              <strong>Enhanced Reliability:</strong> The token generation step now includes:
+            </p>
+            <ul className="list-disc list-inside text-xs text-green-700 space-y-1 ml-4">
+              <li>Extended timeout (45 seconds per attempt) to handle slow MetaAPI responses</li>
+              <li>Automatic retry with exponential backoff (up to 3 attempts)</li>
+              <li>Retry delays: 2s, 5s, and 10s between attempts</li>
+              <li>Improved error messages with specific troubleshooting steps</li>
+            </ul>
+          </div>
+
           <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm text-blue-800">
-              <strong>Troubleshooting:</strong> If tests fail, check that METAAPI_ADMIN_TOKEN
-              is set in your Netlify environment variables. The token should have full permissions
-              for your trading account.
+              <strong>Troubleshooting:</strong> If tests fail after retries, common causes include:
             </p>
+            <ul className="list-disc list-inside text-xs text-blue-700 space-y-1 ml-4">
+              <li>MetaAPI servers experiencing high load (wait a few minutes and retry)</li>
+              <li>Invalid or expired METAAPI_ADMIN_TOKEN in environment variables</li>
+              <li>Network connectivity issues between Netlify and MetaAPI servers</li>
+              <li>Incorrect region setting (verify VITE_METAAPI_REGION matches your account)</li>
+              <li>Rate limiting (wait 5-10 minutes before retrying)</li>
+            </ul>
           </div>
         </div>
       </div>
