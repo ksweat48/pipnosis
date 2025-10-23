@@ -83,9 +83,19 @@ CREATE POLICY "Admins can manage token cache"
     )
   );
 
+-- Add unique constraint on account_id and region to prevent duplicates
+-- This allows upsert operations (insert or update on conflict)
+ALTER TABLE metaapi_token_cache
+  DROP CONSTRAINT IF EXISTS metaapi_token_cache_account_region_key;
+
+ALTER TABLE metaapi_token_cache
+  ADD CONSTRAINT metaapi_token_cache_account_region_key
+  UNIQUE (account_id, region);
+
 -- Add comment explaining the security model
 COMMENT ON TABLE metaapi_token_cache IS
 'Caches MetaAPI tokens to prevent timeouts.
 Service role (serverless functions) has full access for cache operations.
 Client-side access restricted to admin users only.
-Tokens expire automatically after validity period.';
+Tokens expire automatically after validity period.
+Unique constraint on (account_id, region) allows safe upsert operations.';

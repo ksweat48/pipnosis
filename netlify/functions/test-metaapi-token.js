@@ -380,10 +380,10 @@ exports.handler = async (event) => {
         };
       }
 
-      // Step 4: Generate narrowed token with optimized timeout
+      // Step 4: Generate narrowed token with cache-first approach
       let tokenMessage = 'Checking for cached token...';
       if (cacheHealthy) {
-        tokenMessage = 'Checking cache, will generate fresh token if needed (with 9-second timeout per attempt)...';
+        tokenMessage = 'Checking cache, will generate fresh token if needed (14-second timeout, no retries)...';
       } else {
         tokenMessage = 'Generating token (WARNING: caching disabled - this will be slow)...';
       }
@@ -395,35 +395,44 @@ exports.handler = async (event) => {
         tokenMessage
       );
 
-      let narrowedToken;
+      let tokenResult;
       try {
-        console.log(`[${new Date().toISOString()}] Starting token generation with optimized timeout...`);
-        console.log(`[${new Date().toISOString()}] Timeout: 20 seconds per attempt, 1 retry on failure`);
+        console.log(`[${new Date().toISOString()}] Starting token generation with cache-first approach...`);
+        console.log(`[${new Date().toISOString()}] Timeout: 14 seconds per attempt, 1 total attempt (no retries)`);
 
-        narrowedToken = await generateNarrowedToken(
+        tokenResult = await generateNarrowedToken(
           adminToken,
           accountId,
           region,
           1
         );
-        console.log(`[${new Date().toISOString()}] Token generation completed successfully`);
+        console.log(`[${new Date().toISOString()}] Token retrieval completed successfully`);
 
         const generationTime = Date.now() - startTime;
+        const sourceDescription = tokenResult.source === 'cache'
+          ? 'Retrieved from cache (< 100ms)'
+          : tokenResult.source === 'fallback'
+          ? 'Emergency fallback token used'
+          : 'Generated fresh token and cached';
+
         addStep(
           testResults,
           '4. Generate Token',
           'success',
-          cacheHealthy ? 'Token generated and cached successfully' : 'Token generated (not cached)',
+          sourceDescription,
           {
-            tokenLength: narrowedToken.length,
-            tokenPrefix: narrowedToken.substring(0, 20) + '...',
-            validityHours: 1,
-            expiresIn: 3600,
+            tokenLength: tokenResult.token.length,
+            tokenPrefix: tokenResult.token.substring(0, 20) + '...',
+            source: tokenResult.source,
+            expiresAt: tokenResult.expiresAt,
             generationTime: `${generationTime}ms`,
-            cached: cacheHealthy,
-            note: cacheHealthy
-              ? 'Token cached - next request will be <100ms'
-              : 'Token NOT cached - every request will take 18-25 seconds'
+            cached: tokenResult.cached,
+            warning: tokenResult.warning || null,
+            note: tokenResult.source === 'cache'
+              ? 'Token retrieved from cache - very fast'
+              : tokenResult.source === 'fallback'
+              ? 'Using fallback token - MetaAPI may be experiencing issues'
+              : 'Fresh token generated and cached for future use'
           }
         );
       } catch (tokenError) {
@@ -435,9 +444,9 @@ exports.handler = async (event) => {
 
         if (tokenError.message.includes('timed out') || tokenError.message.includes('timeout')) {
           errorDetails.troubleshooting.push('MetaAPI servers are responding slowly or experiencing high load');
-          errorDetails.troubleshooting.push('The function automatically retried once with optimized timing');
+          errorDetails.troubleshooting.push('Function timeout increased to 14 seconds with no retries');
           errorDetails.troubleshooting.push('Try again in a few minutes when server load decreases');
-          errorDetails.troubleshooting.push('Consider using cached tokens if available');
+          errorDetails.troubleshooting.push('Emergency fallback attempted but no cached token available');
         } else if (tokenError.message.includes('ECONNREFUSED') || tokenError.message.includes('ENOTFOUND')) {
           errorDetails.troubleshooting.push('Network connectivity issue to MetaAPI servers');
           errorDetails.troubleshooting.push('Check your internet connection');
@@ -448,13 +457,17 @@ exports.handler = async (event) => {
         } else if (tokenError.message.includes('429') || tokenError.message.includes('rate limit')) {
           errorDetails.troubleshooting.push('MetaAPI rate limit exceeded');
           errorDetails.troubleshooting.push('Wait 5-10 minutes before trying again');
+        } else if (tokenError.message.includes('not a function')) {
+          errorDetails.troubleshooting.push('MetaAPI SDK method issue - narrowDownTokenResources may not be available');
+          errorDetails.troubleshooting.push('Check MetaAPI SDK version in package.json');
+          errorDetails.troubleshooting.push('SDK version should be v6+ for narrowDownTokenResources support');
         }
 
         addStep(
           testResults,
           '4. Generate Token',
           'error',
-          'Failed to generate token after multiple retry attempts',
+          'Failed to generate token (single attempt with 14s timeout)',
           errorDetails
         );
 
@@ -464,23 +477,23 @@ exports.handler = async (event) => {
           body: JSON.stringify({
             success: false,
             testResults,
-            error: 'Token generation failed after retries',
+            error: 'Token generation failed',
             details: tokenError.message
           })
         };
       }
 
-      // Step 5: Verify account with narrowed token
+      // Step 5: Verify account with token
       addStep(
         testResults,
         '5. Verify Account',
         'running',
-        'Verifying account access with generated token...'
+        'Verifying account access with token...'
       );
 
       try {
         console.log(`[${new Date().toISOString()}] Starting account verification...`);
-        const accountInfo = await verifyAccount(narrowedToken, accountId, region);
+        const accountInfo = await verifyAccount(tokenResult.token, accountId, region);
         console.log(`[${new Date().toISOString()}] Account verification completed`);
 
         addStep(
@@ -488,7 +501,10 @@ exports.handler = async (event) => {
           '5. Verify Account',
           'success',
           'Account verified successfully',
-          accountInfo
+          {
+            ...accountInfo,
+            tokenSource: tokenResult.source
+          }
         );
       } catch (verifyError) {
         addStep(
@@ -528,9 +544,12 @@ exports.handler = async (event) => {
           testResults,
           message: 'All MetaAPI token tests passed successfully!',
           token: {
-            generated: true,
-            prefix: narrowedToken.substring(0, 20) + '...',
-            length: narrowedToken.length
+            source: tokenResult.source,
+            prefix: tokenResult.token.substring(0, 20) + '...',
+            length: tokenResult.token.length,
+            expiresAt: tokenResult.expiresAt,
+            cached: tokenResult.cached,
+            warning: tokenResult.warning || null
           }
         }),
       };

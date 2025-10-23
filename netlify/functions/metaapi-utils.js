@@ -2,13 +2,14 @@
 // This module ensures we always use the Node.js distribution of the SDK
 
 // Global timeout constants - Optimized to avoid Netlify gateway timeouts
-const FUNCTION_TIMEOUT_MS = 23000; // 23 seconds (3s safety margin before 26s gateway timeout)
-const TOKEN_GENERATION_TIMEOUT_MS = 9000; // 9 seconds for token generation API call (aggressive)
+const FUNCTION_TIMEOUT_MS = 25700; // 25.7 seconds (300ms safety buffer before 26s gateway timeout)
+const TOKEN_GENERATION_TIMEOUT_MS = 14000; // 14 seconds for token generation API call (optimized)
 const ACCOUNT_VERIFICATION_TIMEOUT_MS = 8000; // 8 seconds for account verification
 const SDK_INIT_TIMEOUT_MS = 2000; // 2 seconds for SDK initialization
-const MAX_RETRIES = 1; // 1 retry attempt (total 2 attempts)
-const RETRY_DELAYS = [1500]; // Single retry delay: 1.5 seconds
+const MAX_RETRIES = 0; // 0 retry attempts (1 total attempt only)
+const RETRY_DELAYS = []; // No retries
 const STALE_TOKEN_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes - accept slightly expired tokens in emergencies
+const TOKEN_EXPIRATION_BUFFER_MS = 5 * 60 * 1000; // 5 minutes - refresh token if expiring within 5 minutes
 
 /**
  * Create a promise that rejects after a timeout
@@ -200,98 +201,205 @@ function createMetaApiClient(token, options = {}) {
   }
 }
 
+
 /**
- * Generate a token using the faster generateToken method (primary method)
- * @param {string} adminToken - Admin token with full permissions
+ * Check Supabase cache for a valid token
  * @param {string} accountId - MetaAPI account ID
- * @param {string} region - MetaAPI region (default: 'new-york')
- * @param {number} validityHours - Token validity in hours (default: 1)
- * @returns {Promise<string>} Generated token
+ * @param {string} region - MetaAPI region
+ * @returns {Promise<Object|null>} Cached token object or null
  */
-async function generateTokenFast(adminToken, accountId, region = 'new-york', validityHours = 1) {
-  const endpoint = `${region}.agiliumtrade.ai`;
-  console.log(`[${new Date().toISOString()}] Trying FAST method: generateToken() for account ${accountId}`);
+async function getCachedToken(accountId, region) {
+  try {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  const requestStartTime = Date.now();
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.log('[Cache] Supabase not configured - skipping cache check');
+      return null;
+    }
 
-  const metaApi = createMetaApiClient(adminToken, {
-    domain: endpoint,
-    requestTimeout: TOKEN_GENERATION_TIMEOUT_MS,
-    connectTimeout: 6000
-  });
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-  if (!metaApi.tokenManagementApi) {
-    throw new Error('MetaAPI client does not have tokenManagementApi');
+    const { data, error } = await supabase
+      .from('metaapi_token_cache')
+      .select('*')
+      .eq('account_id', accountId)
+      .eq('region', region)
+      .eq('is_valid', true)
+      .order('expires_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('[Cache] Error querying cache:', error.message);
+      return null;
+    }
+
+    if (!data) {
+      console.log('[Cache] No cached token found for account:', accountId);
+      return null;
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(data.expires_at);
+    const timeUntilExpiry = expiresAt - now;
+
+    if (timeUntilExpiry <= 0) {
+      console.log('[Cache] Token expired at:', data.expires_at);
+      return null;
+    }
+
+    if (timeUntilExpiry < TOKEN_EXPIRATION_BUFFER_MS) {
+      const minutesRemaining = Math.round(timeUntilExpiry / 1000 / 60);
+      console.log(`[Cache] Token expiring soon (${minutesRemaining} minutes) - will generate fresh token`);
+      return null;
+    }
+
+    const minutesRemaining = Math.round(timeUntilExpiry / 1000 / 60);
+    console.log(`[Cache] ✓ Valid cached token found (expires in ${minutesRemaining} minutes)`);
+    return data;
+  } catch (error) {
+    console.warn('[Cache] Unexpected error during cache check:', error.message);
+    return null;
   }
-
-  console.log(`[${new Date().toISOString()}] Calling MetaAPI generateToken API at ${endpoint}...`);
-
-  const tokenPromise = metaApi.tokenManagementApi.generateToken({
-    accountId,
-    validity: `${validityHours}h`
-  });
-
-  const generatedToken = await withTimeout(
-    tokenPromise,
-    TOKEN_GENERATION_TIMEOUT_MS,
-    'generateToken API call'
-  );
-
-  if (!generatedToken || typeof generatedToken !== 'string') {
-    throw new Error('Invalid token format returned from MetaAPI');
-  }
-
-  const requestDuration = Date.now() - requestStartTime;
-  console.log(`[${new Date().toISOString()}] ✓ Token generated successfully with FAST method`);
-  console.log(`[${new Date().toISOString()}] Token length: ${generatedToken.length} characters`);
-  console.log(`[${new Date().toISOString()}] Request duration: ${requestDuration}ms`);
-
-  return generatedToken;
 }
 
 /**
- * Generate a narrowed token for a specific account (fallback method)
+ * Store a token in Supabase cache
+ * @param {string} token - MetaAPI token to cache
+ * @param {string} accountId - MetaAPI account ID
+ * @param {string} region - MetaAPI region
+ * @param {number} validityHours - Token validity in hours
+ * @returns {Promise<void>}
+ */
+async function cacheToken(token, accountId, region, validityHours) {
+  try {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.log('[Cache] Supabase not configured - skipping token caching');
+      return;
+    }
+
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + validityHours * 60 * 60 * 1000);
+
+    const { error } = await supabase
+      .from('metaapi_token_cache')
+      .upsert({
+        account_id: accountId,
+        region: region,
+        token: token,
+        expires_at: expiresAt.toISOString(),
+        is_valid: true,
+        created_at: now.toISOString(),
+        updated_at: now.toISOString()
+      }, {
+        onConflict: 'account_id,region'
+      });
+
+    if (error) {
+      console.warn('[Cache] Failed to cache token:', error.message);
+    } else {
+      console.log(`[Cache] ✓ Token cached successfully (expires: ${expiresAt.toISOString()})`);
+    }
+  } catch (error) {
+    console.warn('[Cache] Unexpected error during token caching:', error.message);
+  }
+}
+
+/**
+ * Get emergency fallback token from cache (allows slightly expired tokens)
+ * @param {string} accountId - MetaAPI account ID
+ * @param {string} region - MetaAPI region
+ * @returns {Promise<Object|null>} Fallback token or null
+ */
+async function getFallbackToken(accountId, region) {
+  try {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return null;
+    }
+
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { data, error } = await supabase
+      .from('metaapi_token_cache')
+      .select('*')
+      .eq('account_id', accountId)
+      .eq('region', region)
+      .order('expires_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(data.expires_at);
+    const timeSinceExpiry = now - expiresAt;
+
+    if (timeSinceExpiry > STALE_TOKEN_GRACE_PERIOD_MS) {
+      console.log('[Fallback] Token too old for emergency use');
+      return null;
+    }
+
+    if (timeSinceExpiry > 0) {
+      const minutesExpired = Math.round(timeSinceExpiry / 1000 / 60);
+      console.log(`[Fallback] ⚠ Using expired token as emergency fallback (expired ${minutesExpired} minutes ago)`);
+    } else {
+      console.log('[Fallback] Using recently cached token as fallback');
+    }
+
+    return data;
+  } catch (error) {
+    console.warn('[Fallback] Error retrieving fallback token:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Generate a narrowed token using narrowDownTokenResources (only method)
  * @param {string} adminToken - Admin token with full permissions
  * @param {string} accountId - MetaAPI account ID
  * @param {string} region - MetaAPI region (default: 'new-york')
- * @param {number} validityHours - Token validity in hours (default: 1)
  * @returns {Promise<string>} Narrowed token
  */
-async function generateTokenNarrowed(adminToken, accountId, region = 'new-york', validityHours = 1) {
+async function generateTokenFromAPI(adminToken, accountId, region = 'new-york') {
   const endpoint = `${region}.agiliumtrade.ai`;
-  console.log(`[${new Date().toISOString()}] Trying FALLBACK method: narrowDownToken() for account ${accountId}`);
+  console.log(`[${new Date().toISOString()}] Generating token using narrowDownTokenResources() for account ${accountId}`);
 
   const requestStartTime = Date.now();
 
   const metaApi = createMetaApiClient(adminToken, {
     domain: endpoint,
     requestTimeout: TOKEN_GENERATION_TIMEOUT_MS,
-    connectTimeout: 6000
+    connectTimeout: 8000
   });
 
   if (!metaApi.tokenManagementApi) {
     throw new Error('MetaAPI client does not have tokenManagementApi');
   }
 
-  console.log(`[${new Date().toISOString()}] Calling MetaAPI narrowDownToken API at ${endpoint}...`);
+  console.log(`[${new Date().toISOString()}] Calling MetaAPI narrowDownTokenResources API at ${endpoint}...`);
 
-  const tokenPromise = metaApi.tokenManagementApi.narrowDownToken({
-    applications: [
-      'trading-account-management-api',
-      'metaapi-rest-api',
-      'metaapi-rpc-api',
-      'metaapi-real-time-streaming-api',
-      'metastats-api',
-      'risk-management-api'
-    ],
-    roles: ['reader', 'writer'],
-    resources: [{ entity: 'account', id: accountId }]
-  }, validityHours);
+  const tokenPromise = metaApi.tokenManagementApi.narrowDownTokenResources({
+    accountId: accountId
+  });
 
   const narrowedToken = await withTimeout(
     tokenPromise,
     TOKEN_GENERATION_TIMEOUT_MS,
-    'narrowDownToken API call'
+    'narrowDownTokenResources API call'
   );
 
   if (!narrowedToken || typeof narrowedToken !== 'string') {
@@ -299,7 +407,7 @@ async function generateTokenNarrowed(adminToken, accountId, region = 'new-york',
   }
 
   const requestDuration = Date.now() - requestStartTime;
-  console.log(`[${new Date().toISOString()}] ✓ Narrowed token generated successfully with FALLBACK method`);
+  console.log(`[${new Date().toISOString()}] ✓ Token generated successfully`);
   console.log(`[${new Date().toISOString()}] Token length: ${narrowedToken.length} characters`);
   console.log(`[${new Date().toISOString()}] Request duration: ${requestDuration}ms`);
 
@@ -307,13 +415,13 @@ async function generateTokenNarrowed(adminToken, accountId, region = 'new-york',
 }
 
 /**
- * Generate a token using best available method with automatic fallback
+ * Generate a token with cache-first strategy and emergency fallback
  * This is the main function that should be called by other modules
  * @param {string} adminToken - Admin token with full permissions
  * @param {string} accountId - MetaAPI account ID
  * @param {string} region - MetaAPI region (default: 'new-york')
  * @param {number} validityHours - Token validity in hours (default: 1)
- * @returns {Promise<string>} Generated token
+ * @returns {Promise<Object>} Object containing token and metadata
  */
 async function generateNarrowedToken(adminToken, accountId, region = 'new-york', validityHours = 1) {
   if (!adminToken) {
@@ -329,35 +437,61 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
   console.log(`[${new Date().toISOString()}] Target endpoint: ${endpoint}`);
   console.log(`[${new Date().toISOString()}] Token validity: ${validityHours} hour(s)`);
 
-  // Use retry logic for the entire token generation process
-  return withRetry(async () => {
-    // Try the FAST method first (generateToken)
-    try {
-      console.log(`[${new Date().toISOString()}] Attempting PRIMARY method: generateToken()`);
-      const token = await generateTokenFast(adminToken, accountId, region, validityHours);
-      console.log(`[${new Date().toISOString()}] ✓ PRIMARY method succeeded`);
-      return token;
-    } catch (fastError) {
-      console.warn(`[${new Date().toISOString()}] PRIMARY method failed: ${fastError.message}`);
-      console.log(`[${new Date().toISOString()}] Falling back to SECONDARY method: narrowDownToken()`);
+  // Step 1: Check cache first
+  console.log(`[${new Date().toISOString()}] Checking Supabase cache...`);
+  const cachedToken = await getCachedToken(accountId, region);
 
-      // Fall back to narrowDownToken if generateToken fails
-      try {
-        const token = await generateTokenNarrowed(adminToken, accountId, region, validityHours);
-        console.log(`[${new Date().toISOString()}] ✓ SECONDARY method succeeded`);
-        return token;
-      } catch (narrowError) {
-        console.error(`[${new Date().toISOString()}] SECONDARY method also failed: ${narrowError.message}`);
-        // Re-throw the narrowed error as it's the final attempt
-        throw narrowError;
-      }
+  if (cachedToken) {
+    console.log(`[${new Date().toISOString()}] ✓ Using cached token (cached at: ${cachedToken.created_at})`);
+    return {
+      token: cachedToken.token,
+      source: 'cache',
+      expiresAt: cachedToken.expires_at,
+      cached: true
+    };
+  }
+
+  // Step 2: No valid cache - generate new token
+  console.log(`[${new Date().toISOString()}] No valid cached token - generating fresh token...`);
+
+  try {
+    const token = await generateTokenFromAPI(adminToken, accountId, region);
+
+    // Step 3: Cache the newly generated token
+    await cacheToken(token, accountId, region, validityHours);
+
+    const expiresAt = new Date(Date.now() + validityHours * 60 * 60 * 1000);
+
+    return {
+      token: token,
+      source: 'generated',
+      expiresAt: expiresAt.toISOString(),
+      cached: false
+    };
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] Token generation failed:`, error.message);
+
+    // Step 4: Emergency fallback - try to use recently expired token
+    console.log(`[${new Date().toISOString()}] Attempting emergency fallback...`);
+    const fallbackToken = await getFallbackToken(accountId, region);
+
+    if (fallbackToken) {
+      console.warn(`[${new Date().toISOString()}] ⚠ Using fallback token due to generation failure`);
+      return {
+        token: fallbackToken.token,
+        source: 'fallback',
+        expiresAt: fallbackToken.expires_at,
+        cached: true,
+        warning: 'Using fallback token - MetaAPI may be experiencing issues'
+      };
     }
-  }, 'Token Generation', MAX_RETRIES).catch(error => {
-    console.error(`[${new Date().toISOString()}] Token generation failed after all retries:`, error.message);
+
+    // Step 5: No fallback available - throw error with helpful message
+    console.error(`[${new Date().toISOString()}] No fallback token available`);
 
     if (error.message.includes('timed out') || error.message.includes('timeout')) {
       throw new Error(
-        `MetaAPI token generation timed out after multiple attempts. ` +
+        `MetaAPI token generation timed out. ` +
         `The ${endpoint} server may be experiencing high load or network issues. ` +
         `Please try again in a few moments.`
       );
@@ -385,7 +519,7 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
     }
 
     throw new Error(`Failed to generate token: ${error.message}`);
-  });
+  }
 }
 
 /**
@@ -511,6 +645,9 @@ module.exports = {
   generateNarrowedToken,
   verifyAccount,
   getSDKInfo,
+  getCachedToken,
+  cacheToken,
+  getFallbackToken,
   withTimeout,
   withRetry,
   delay,
@@ -518,5 +655,6 @@ module.exports = {
   TOKEN_GENERATION_TIMEOUT_MS,
   ACCOUNT_VERIFICATION_TIMEOUT_MS,
   MAX_RETRIES,
-  STALE_TOKEN_GRACE_PERIOD_MS
+  STALE_TOKEN_GRACE_PERIOD_MS,
+  TOKEN_EXPIRATION_BUFFER_MS
 };
