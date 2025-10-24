@@ -1,5 +1,6 @@
 import type { Handler, HandlerEvent, HandlerContext } from "@netlify/functions";
 import { refreshBatchSchedules } from '../../src/services/refresh-service';
+import { createLogger } from './function-logger';
 
 /**
  * Netlify Scheduled Function for Daily Automatic Refresh
@@ -23,7 +24,10 @@ import { refreshBatchSchedules } from '../../src/services/refresh-service';
  */
 
 const handler: Handler = async (event: HandlerEvent, context: HandlerContext) => {
+  const logger = createLogger('scheduled-refresh');
   const startTime = new Date();
+
+  logger.info('Scheduled candle refresh starting', { time: startTime.toISOString() });
 
   console.log(`
 ╔════════════════════════════════════════════════════════════════╗
@@ -38,6 +42,15 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
 
     const endTime = new Date();
     const durationSeconds = (result.duration / 1000).toFixed(2);
+
+    logger.success('Scheduled refresh completed', {
+      totalSchedules: result.totalSchedules,
+      successful: result.successful,
+      failed: result.failed,
+      durationSeconds
+    });
+
+    await logger.saveToDatabase(200, result.duration, {}, { result });
 
     console.log(`
 ╔════════════════════════════════════════════════════════════════╗
@@ -85,8 +98,11 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
       })
     };
 
-  } catch (error) {
+  } catch (error: any) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+    logger.error('Scheduled refresh failed', { error: errorMessage, stack: error?.stack });
+    await logger.saveToDatabase(500, Date.now() - startTime.getTime(), {}, null, error);
 
     console.error(`
 ╔════════════════════════════════════════════════════════════════╗

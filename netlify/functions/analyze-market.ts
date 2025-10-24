@@ -5,6 +5,7 @@
 
 import { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
+import { createLogger } from './function-logger';
 
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE || '';
@@ -25,6 +26,10 @@ interface Candle {
 }
 
 const handler: Handler = async (event: HandlerEvent, context: HandlerContext) => {
+  const logger = createLogger('analyze-market');
+
+  logger.info('Market analysis request received');
+
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
@@ -87,7 +92,7 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    console.log(`📊 Fetching ${candleCount} candles for ${symbol} ${timeframe}...`);
+    logger.info(`Fetching ${candleCount} candles for ${symbol} ${timeframe}`);
 
     const { data: candles, error: fetchError } = await supabase
       .from('historical_candles')
@@ -98,7 +103,7 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
       .limit(candleCount);
 
     if (fetchError) {
-      console.error('❌ Failed to fetch candles:', fetchError);
+      logger.error('Failed to fetch candles', { error: fetchError });
       return {
         statusCode: 500,
         headers: corsHeaders,
@@ -120,7 +125,7 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
 
     const { analyzeMarket } = await import('../../src/lib/aiMarketEngine');
 
-    console.log(`🤖 Analyzing ${sortedCandles.length} candles for ${symbol} ${timeframe}...`);
+    logger.info(`Analyzing ${sortedCandles.length} candles for ${symbol} ${timeframe}`);
 
     const analysis = await analyzeMarket(sortedCandles);
 
@@ -129,8 +134,20 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
     const saveResult = await saveMarketAnalysis(symbol, timeframe, analysis);
 
     if (!saveResult.success) {
-      console.error('❌ Failed to save analysis:', saveResult.error);
+      logger.warn('Failed to save analysis', { error: saveResult.error });
+    } else {
+      logger.success('Analysis saved successfully');
     }
+
+    const result = {
+      success: true,
+      symbol,
+      timeframe,
+      analysis,
+      saved: saveResult.success
+    };
+
+    await logger.saveToDatabase(200, logger.getExecutionTime(), { symbol, timeframe, candleCount }, result);
 
     return {
       statusCode: 200,
@@ -138,17 +155,12 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
         ...corsHeaders,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        success: true,
-        symbol,
-        timeframe,
-        analysis,
-        saved: saveResult.success
-      })
+      body: JSON.stringify(result)
     };
 
-  } catch (error) {
-    console.error('❌ Analysis error:', error);
+  } catch (error: any) {
+    logger.error('Analysis error', { error: error.message, stack: error.stack });
+    await logger.saveToDatabase(500, logger.getExecutionTime(), {}, null, error);
 
     return {
       statusCode: 500,

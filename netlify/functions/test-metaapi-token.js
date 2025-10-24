@@ -1,9 +1,10 @@
-// netlify/functions/test-metaapi-token.js
-// Test function for MetaAPI token generation and account verification
-
 const MetaApi = require('metaapi.cloud-sdk');
 const { createClient } = require('@supabase/supabase-js');
 const { verifyAccount, getSDKInfo } = require('./metaapi-utils');
+const { createLogger } = require('./function-logger');
+const { handleCorsPreFlight } = require('./error-handler');
+
+const FUNCTION_NAME = 'test-metaapi-token';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -22,14 +23,13 @@ function addStep(results, step, status, message, details = null) {
 }
 
 exports.handler = async (event) => {
+  const logger = createLogger(FUNCTION_NAME);
   const startTime = Date.now();
 
+  logger.info('MetaAPI token test initiated');
+
   if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: '',
-    };
+    return handleCorsPreFlight();
   }
 
   if (event.httpMethod !== 'POST') {
@@ -51,7 +51,7 @@ exports.handler = async (event) => {
     const accountId = process.env.METAAPI_ACCOUNT_ID;
     const region = process.env.METAAPI_REGION || 'new-york';
     const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     // Step 0: Check cache configuration
     addStep(
@@ -333,8 +333,10 @@ exports.handler = async (event) => {
       }
     }
 
-    // All tests passed
     const executionTime = Date.now() - startTime;
+
+    logger.success('All tests passed', { executionTime, totalSteps: testResults.length });
+    await logger.saveToDatabase(200, executionTime, { testAdminToken: !!body.testAdminToken }, { testResults });
 
     return {
       statusCode: 200,
@@ -352,7 +354,8 @@ exports.handler = async (event) => {
     };
 
   } catch (error) {
-    console.error('Test function error:', error);
+    logger.error('Test function failed', { error: error.message, stack: error.stack });
+    await logger.saveToDatabase(500, Date.now() - startTime, {}, null, error);
 
     addStep(
       testResults,

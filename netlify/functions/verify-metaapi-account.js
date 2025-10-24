@@ -1,75 +1,85 @@
-// netlify/functions/verify-metaapi-account.js
-// Verifies MetaAPI account access with a given token
-
 const { verifyAccount } = require('./metaapi-utils');
+const { createLogger } = require('./function-logger');
+const {
+  formatErrorResponse,
+  handleCorsPreFlight,
+  createSuccessResponse,
+  ValidationError,
+  withTimeout
+} = require('./error-handler');
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+const FUNCTION_NAME = 'verify-metaapi-account';
+const VERIFY_TIMEOUT_MS = 15000;
 
 exports.handler = async (event) => {
+  const logger = createLogger(FUNCTION_NAME);
+
+  logger.info('Account verification request received');
+
   if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: '',
-    };
+    return handleCorsPreFlight();
   }
 
   if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: 'Method not allowed' }),
-    };
+    logger.warn('Invalid HTTP method', { method: event.httpMethod });
+    return formatErrorResponse(
+      new ValidationError('Method not allowed. Use POST.'),
+      logger
+    );
   }
 
+  let params = {};
+
   try {
-    const { token, accountId, region } = JSON.parse(event.body || '{}');
+    const body = JSON.parse(event.body || '{}');
+    const { token, accountId, region } = body;
+
+    params = { accountId, region: region || 'new-york' };
 
     if (!token || !accountId) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Missing token or accountId' }),
-      };
+      throw new ValidationError('Missing required parameters: token and accountId', {
+        hasToken: !!token,
+        hasAccountId: !!accountId
+      });
     }
 
-    console.log(`Verifying account ${accountId} in ${region || 'new-york'} region`);
+    logger.info('Verifying account', params);
 
-    const accountInfo = await verifyAccount(
-      token,
-      accountId,
-      region || 'new-york'
+    const accountInfo = await withTimeout(
+      verifyAccount(token, accountId, region || 'new-york'),
+      VERIFY_TIMEOUT_MS,
+      'Account verification timed out'
     );
 
-    return {
-      statusCode: 200,
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        success: true,
-        account: accountInfo
-      }),
-    };
-  } catch (error) {
-    console.error('MetaAPI account verification error:', error);
+    logger.success('Account verified successfully', {
+      accountName: accountInfo.name,
+      accountState: accountInfo.state,
+      platform: accountInfo.platform
+    });
 
-    return {
-      statusCode: 500,
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        success: false,
-        error: error.message || 'Failed to verify MetaAPI account',
-        details: error.details || null,
-      }),
+    const result = {
+      success: true,
+      account: accountInfo
     };
+
+    await logger.saveToDatabase(200, logger.getExecutionTime(), params, result);
+
+    return createSuccessResponse(result);
+
+  } catch (error) {
+    logger.error('Account verification failed', {
+      error: error.message,
+      type: error.name
+    });
+
+    await logger.saveToDatabase(
+      error.statusCode || 500,
+      logger.getExecutionTime(),
+      params,
+      null,
+      error
+    );
+
+    return formatErrorResponse(error, logger);
   }
 };
