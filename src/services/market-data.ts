@@ -56,6 +56,7 @@ class MarketDataService {
   ): Promise<CandleData[]> {
     const effectiveLimit = quickLoad ? Math.min(100, limit) : limit;
     let apiCandles: CandleData[] = [];
+    // Always attempt to fetch live data when not in demo mode
     let shouldFetchApi = !this.isDemoMode;
 
     if (useCache) {
@@ -81,12 +82,13 @@ class MarketDataService {
           recommendation: cacheValidation.shouldUseCacheOnly ? 'USE CACHE' : 'FETCH FROM API'
         });
 
-        if (cacheValidation.shouldUseCacheOnly && !this.isDemoMode) {
+        // In production/preview, prioritize live data unless explicitly using quickLoad
+        if (cacheValidation.shouldUseCacheOnly && quickLoad) {
           shouldFetchApi = false;
           apiCandles = cachedCandles;
-          console.log(`✅ Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
+          console.log(`✅ Quick load: Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
         } else if (!cacheValidation.shouldUseCacheOnly && !this.isDemoMode) {
-          console.log(`🔄 Cache validation failed: ${cacheValidation.reason}`);
+          console.log(`🔄 Fetching fresh data: ${cacheValidation.reason}`);
         } else if (this.isDemoMode && cachedCandles.length > 0) {
           apiCandles = cachedCandles;
           shouldFetchApi = false;
@@ -507,7 +509,8 @@ class MarketDataService {
 
       dbHealthMonitor.startMonitoring();
       candleCompletionService.start();
-      console.log('✅ Market data service initialized successfully');
+      console.log('✅ Market data service initialized successfully with LIVE MetaAPI connection');
+      console.log('📡 Real-time streaming active for all subscribed symbols');
       console.log('🔍 Database health monitoring active');
       console.log('🔄 Candle completion service active');
     } catch (error) {

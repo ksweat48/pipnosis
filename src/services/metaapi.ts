@@ -92,9 +92,10 @@ class MetaApiService {
     this.accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID || '';
     this.region = import.meta.env.VITE_METAAPI_REGION || 'new-york';
 
-    if (errorHandler.isWebContainerEnvironment()) {
+    // Demo mode only activated when credentials are genuinely missing
+    if (!this.accountId) {
       this.isDemoMode = true;
-      console.info('🌐 Running in WebContainer environment - MetaAPI disabled, using demo mode');
+      console.warn('⚠️ MetaAPI Account ID not configured - running in demo mode');
     }
   }
 
@@ -133,10 +134,10 @@ class MetaApiService {
       return;
     }
 
-    if (this.isDemoMode || errorHandler.isWebContainerEnvironment()) {
-      const error = new Error('MetaAPI disabled in preview environment. Using demo mode.');
+    if (this.isDemoMode) {
+      const error = new Error('MetaAPI credentials not configured. Using demo mode with cached data only.');
       this.initializationError = error;
-      this.isDemoMode = true;
+      console.warn('⚠️ Initialize called but demo mode is active');
       return;
     }
 

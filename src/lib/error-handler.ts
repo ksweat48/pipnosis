@@ -97,15 +97,8 @@ class ErrorHandler {
   }
 
   isWebContainerEnvironment(): boolean {
-    if (typeof window === 'undefined') return false;
-    const hostname = window.location.hostname;
-    return (
-      hostname.includes('webcontainer') ||
-      hostname.includes('bolt.new') ||
-      hostname.includes('stackblitz') ||
-      hostname.includes('csb.app') ||
-      hostname.includes('codesandbox')
-    );
+    // Disabled for production - always use live MetaAPI when credentials are available
+    return false;
   }
 
   isMetaApiError(error: any): boolean {
@@ -120,11 +113,8 @@ class ErrorHandler {
   }
 
   handleMetaApiError(error: any, context?: string): void {
-    if (this.isWebContainerEnvironment()) {
-      return;
-    }
     this.logWarning(
-      `MetaAPI connection issue${context ? ` (${context})` : ''}. Using demo mode.`,
+      `MetaAPI connection issue${context ? ` (${context})` : ''}. Will attempt to use cached data.`,
       'MetaAPI'
     );
   }

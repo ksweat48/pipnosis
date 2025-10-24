@@ -324,15 +324,22 @@ export const MarketChart: React.FC<MarketChartProps> = ({
         await marketDataService.initialize();
         setIsConnected(true);
         setError(null);
+        console.log('✅ Live MetaAPI connection established');
       } catch (err) {
         setIsConnected(false);
         const errorMsg = err instanceof Error ? err.message : 'Failed to connect to MetaApi';
         if (errorMsg.includes('credentials not configured') || errorMsg.includes('demo mode')) {
-          console.log('📊 Running in demo mode with cached data');
+          console.warn('⚠️ Running in demo mode with cached data only');
+          setError('Demo mode: Using cached data. Configure MetaAPI credentials for live trading.');
         } else if (errorMsg.includes('Network connection failed')) {
-          setError('Network connection failed. Using cached data only.');
+          setError('Network connection failed. Retrying connection...');
+          console.error('❌ MetaAPI network connection failed:', err);
         } else if (errorMsg.includes('Invalid') || errorMsg.includes('credentials')) {
-          setError('Invalid MetaApi credentials. Using cached data only.');
+          setError('Invalid MetaApi credentials. Check configuration.');
+          console.error('❌ MetaAPI credentials invalid:', err);
+        } else {
+          setError('MetaAPI connection error. Using cached data as fallback.');
+          console.error('❌ MetaAPI initialization error:', err);
         }
       }
     };
@@ -793,7 +800,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
               <RefreshCw className="relative h-8 w-8 sm:h-12 sm:w-12 text-emerald-400 animate-spin mx-auto" />
             </div>
             <p className="text-white/70 text-base sm:text-lg font-medium">Loading {symbol} {timeframe} chart...</p>
-            <p className="text-white/50 text-sm mt-2">Connecting to MetaApi...</p>
+            <p className="text-white/50 text-sm mt-2">Connecting to live MetaAPI data feed...</p>
           </div>
         </div>
       ) : candleData.length > 0 ? (

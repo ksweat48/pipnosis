@@ -19,8 +19,8 @@ const TOKEN_EXPIRATION_BUFFER_MS = 10 * 60 * 1000; // 10 minutes - refresh token
  */
 async function getCachedToken(accountId, region) {
   try {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !supabaseServiceKey) {
       console.log('[Cache] Supabase not configured - skipping cache check');
@@ -93,8 +93,8 @@ async function getCachedToken(accountId, region) {
  */
 async function cacheToken(token, accountId, region, validityHours, generationTimeMs) {
   try {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !supabaseServiceKey) {
       console.log('[Cache] Supabase not configured - skipping token caching');
@@ -147,8 +147,8 @@ exports.handler = async (event, context) => {
 
   try {
     const adminToken = process.env.METAAPI_ADMIN_TOKEN;
-    const accountId = process.env.METAAPI_ACCOUNT_ID;
-    const region = process.env.METAAPI_REGION || 'new-york';
+    const accountId = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
+    const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'new-york';
 
     if (!adminToken) {
       console.error('❌ Missing METAAPI_ADMIN_TOKEN in Netlify env');

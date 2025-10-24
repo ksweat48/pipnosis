@@ -38,7 +38,12 @@ export function validateEnvironment(): EnvironmentValidation {
   }
 
   if (!metaApiAccountId) {
-    warnings.push('VITE_METAAPI_ACCOUNT_ID is not defined - running in demo mode');
+    // In production mode, treat missing MetaAPI credentials as an error
+    if (import.meta.env.PROD) {
+      errors.push('VITE_METAAPI_ACCOUNT_ID is required for production deployment');
+    } else {
+      warnings.push('VITE_METAAPI_ACCOUNT_ID is not defined - running in demo mode');
+    }
   }
 
   if (!metaApiRegion) {
@@ -97,5 +102,6 @@ export function getEnvironmentSummary(): string {
   }
 
   const hasMetaApi = validation.config?.metaApiAccountId;
-  return hasMetaApi ? 'Live Trading Mode' : 'Demo Mode (Cached Data Only)';
+  const mode = import.meta.env.MODE || 'unknown';
+  return hasMetaApi ? `Live Trading Mode (${mode})` : `Demo Mode - Cached Data Only (${mode})`;
 }
