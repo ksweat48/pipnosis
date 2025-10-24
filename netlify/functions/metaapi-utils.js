@@ -715,7 +715,7 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
         `2. Verify firewall settings allow outbound HTTPS connections\n` +
         `3. Try accessing https://${endpoint}/ in your browser\n` +
         `4. Check if your hosting provider blocks MetaAPI domains\n` +
-        `5. Try changing the VITE_METAAPI_REGION environment variable to 'london' or 'singapore'\n\n` +
+        `5. Try changing the METAAPI_REGION environment variable to 'london' or 'singapore'\n\n` +
         `Current region: ${region}`
       );
     }

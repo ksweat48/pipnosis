@@ -94,7 +94,7 @@ exports.handler = async (event) => {
         console.error(`[${new Date().toISOString()}] Token caching will be disabled`);
       }
 
-      const region = process.env.VITE_METAAPI_REGION || 'new-york';
+      const region = process.env.METAAPI_REGION || 'new-york';
       const validityInHours = 1;
 
       // Use the unified generateNarrowedToken function with built-in caching and fallback

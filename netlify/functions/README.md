@@ -31,7 +31,7 @@ Generates short-lived narrowed tokens for frontend use.
 - **Method**: POST
 - **Input**: `{ accountId: string }`
 - **Output**: `{ token: string, expiresIn: number }`
-- **Environment**: Requires `METAAPI_ADMIN_TOKEN`, `VITE_METAAPI_REGION`
+- **Environment**: Requires `METAAPI_ADMIN_TOKEN`, `METAAPI_REGION`
 
 ### `test-metaapi-token.js`
 Comprehensive testing function that validates the entire token generation flow.
@@ -73,8 +73,8 @@ Configures esbuild bundler for proper Node.js targeting:
 Set these in Netlify dashboard under Site Settings > Environment Variables:
 
 - `METAAPI_ADMIN_TOKEN` - MetaAPI admin token (kept secret on server)
-- `VITE_METAAPI_ACCOUNT_ID` - MetaAPI trading account ID
-- `VITE_METAAPI_REGION` - MetaAPI region (e.g., 'new-york', 'london', 'singapore')
+- `METAAPI_ACCOUNT_ID` - MetaAPI trading account ID
+- `METAAPI_REGION` - MetaAPI region (e.g., 'new-york', 'london', 'singapore')
 
 ## Usage from Frontend
 
@@ -136,7 +136,7 @@ All functions include detailed logging. Check Netlify function logs:
 - Verify account ID matches your MetaAPI account
 
 #### "Region mismatch"
-- Ensure `VITE_METAAPI_REGION` matches your account's actual region
+- Ensure `METAAPI_REGION` matches your account's actual region
 - Check account region in MetaAPI dashboard
 
 ## Local Testing
@@ -180,7 +180,7 @@ The frontend service (`src/services/metaapi.ts`) no longer imports the MetaAPI S
 
 ### Multi-Region Fallback (IMPLEMENTED)
 Token generation now includes automatic multi-region fallback:
-1. Tries primary region (from VITE_METAAPI_REGION)
+1. Tries primary region (from METAAPI_REGION)
 2. Falls back to `new-york` if primary fails
 3. Falls back to `london` if new-york fails
 4. Falls back to `singapore` if london fails
@@ -209,8 +209,8 @@ This script:
 
 **Required Environment Variables for Bootstrap:**
 - `METAAPI_ADMIN_TOKEN`
-- `VITE_METAAPI_ACCOUNT_ID`
-- `VITE_METAAPI_REGION` (optional, defaults to new-york)
+- `METAAPI_ACCOUNT_ID`
+- `METAAPI_REGION` (optional, defaults to new-york)
 - `VITE_SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 

@@ -76,8 +76,8 @@ exports.handler = async (event) => {
 
       // Use provided tokens or fall back to environment variables
       const adminToken = testAdminToken || process.env.METAAPI_ADMIN_TOKEN;
-      const accountId = testAccountId || process.env.VITE_METAAPI_ACCOUNT_ID;
-      const region = process.env.VITE_METAAPI_REGION || 'new-york';
+      const accountId = testAccountId || process.env.METAAPI_ACCOUNT_ID;
+      const region = process.env.METAAPI_REGION || 'new-york';
       const supabaseUrl = process.env.SUPABASE_URL;
       const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE;
 
@@ -232,7 +232,7 @@ exports.handler = async (event) => {
           'error',
           'Account ID not found',
           {
-            hasEnvAccountId: !!process.env.VITE_METAAPI_ACCOUNT_ID,
+            hasEnvAccountId: !!process.env.METAAPI_ACCOUNT_ID,
             hasProvidedAccountId: !!testAccountId
           }
         );
