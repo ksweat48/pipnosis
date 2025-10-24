@@ -41,7 +41,7 @@ This variable is no longer needed and should be removed for security.
 Ensure these variables are set (should already exist):
 
 ```bash
-✓ VITE_METAAPI_ACCOUNT_ID=c9991ce7-f9ab-49fd-bc67-12839e567e8f
+✓ VITE_METAAPI_ACCOUNT_ID=8845e940-c372-4a3d-9f7e-66288924c46f
 ✓ VITE_METAAPI_REGION=new-york
 ✓ VITE_SUPABASE_URL=[your Supabase URL]
 ✓ VITE_SUPABASE_ANON_KEY=[your Supabase anon key]
@@ -80,7 +80,7 @@ Deploys > [Latest Deploy] > Functions > get-metaapi-token > View logs
 
 Look for:
 ```
-✓ Generating temporary token for account: c9991ce7-...
+✓ Generating temporary token for account: 8845e940-...
 ✓ Successfully generated temporary token
 ```
 
@@ -89,7 +89,7 @@ Look for:
 ```bash
 curl -X POST https://your-site.netlify.app/.netlify/functions/get-metaapi-token \
   -H "Content-Type: application/json" \
-  -d '{"accountId":"c9991ce7-f9ab-49fd-bc67-12839e567e8f"}'
+  -d '{"accountId":"8845e940-c372-4a3d-9f7e-66288924c46f"}'
 ```
 
 Expected response:
@@ -97,7 +97,7 @@ Expected response:
 {
   "token": "eyJ0eXAiOiJKV1Q...",
   "expiresIn": 3600,
-  "accountId": "c9991ce7-f9ab-49fd-bc67-12839e567e8f"
+  "accountId": "8845e940-c372-4a3d-9f7e-66288924c46f"
 }
 ```
 

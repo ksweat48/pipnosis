@@ -91,7 +91,7 @@ curl -X POST -d '{}' https://api.netlify.com/build_hooks/68965660f2a0a7d94873ccc
 ```
 ✅ Initializing MetaApi connection...
 ✅ Region: new-york
-✅ Account ID: c9991ce7-f9ab-49fd-bc67-12839e567e8f
+✅ Account ID: 8845e940-c372-4a3d-9f7e-66288924c46f
 ✅ Connected to MetaAPI
 ✅ Successfully saved market analysis for EURUSD M5
 ```

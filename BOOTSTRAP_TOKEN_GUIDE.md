@@ -45,7 +45,7 @@ node scripts/generate-bootstrap-token.js
 🚀 Bootstrap Token Generator
 
 Configuration:
-   Account ID: c9991ce7-f9ab-49fd-bc67-12839e567e8f
+   Account ID: 8845e940-c372-4a3d-9f7e-66288924c46f
    Region: new-york
    Supabase URL: https://your-project.supabase.co
 
@@ -76,7 +76,7 @@ Token Details:
 🚀 Bootstrap Token Generator
 
 Configuration:
-   Account ID: c9991ce7-f9ab-49fd-bc67-12839e567e8f
+   Account ID: 8845e940-c372-4a3d-9f7e-66288924c46f
    Region: new-york
    Supabase URL: https://your-project.supabase.co
 

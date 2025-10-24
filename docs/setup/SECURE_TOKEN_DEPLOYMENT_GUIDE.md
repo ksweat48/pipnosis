@@ -62,7 +62,7 @@ Navigate to: **Netlify Dashboard > Your Site > Site settings > Environment varia
 METAAPI_ADMIN_TOKEN=your_actual_admin_token_here
 
 # Keep existing variables
-VITE_METAAPI_ACCOUNT_ID=c9991ce7-f9ab-49fd-bc67-12839e567e8f
+VITE_METAAPI_ACCOUNT_ID=8845e940-c372-4a3d-9f7e-66288924c46f
 VITE_METAAPI_REGION=new-york
 VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
@@ -84,7 +84,7 @@ Update your local `.env` file (for development only):
 VITE_DEV_MODE=true
 VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-VITE_METAAPI_ACCOUNT_ID=c9991ce7-f9ab-49fd-bc67-12839e567e8f
+VITE_METAAPI_ACCOUNT_ID=8845e940-c372-4a3d-9f7e-66288924c46f
 VITE_METAAPI_REGION=new-york
 
 # Backend variables (for local testing)
@@ -117,7 +117,7 @@ After deployment, verify the implementation:
    ```bash
    curl -X POST https://your-site.netlify.app/.netlify/functions/get-metaapi-token \
      -H "Content-Type: application/json" \
-     -d '{"accountId":"c9991ce7-f9ab-49fd-bc67-12839e567e8f"}'
+     -d '{"accountId":"8845e940-c372-4a3d-9f7e-66288924c46f"}'
    ```
 
    Expected response:
@@ -125,7 +125,7 @@ After deployment, verify the implementation:
    {
      "token": "temporary_token_here",
      "expiresIn": 3600,
-     "accountId": "c9991ce7-f9ab-49fd-bc67-12839e567e8f"
+     "accountId": "8845e940-c372-4a3d-9f7e-66288924c46f"
    }
    ```
 

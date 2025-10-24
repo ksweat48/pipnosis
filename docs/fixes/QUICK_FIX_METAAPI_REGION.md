@@ -3,7 +3,7 @@
 ## The Error You're Seeing
 
 ```
-Failed to subscribe TimeoutError: It seems like the account c9991ce7-f9ab-49fd-bc67-12839e567e8f
+Failed to subscribe TimeoutError: It seems like the account 8845e940-c372-4a3d-9f7e-66288924c46f
 is not connected to broker yet or SDK settings you use does not match the account region.
 ```
 
