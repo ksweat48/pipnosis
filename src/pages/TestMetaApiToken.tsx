@@ -28,7 +28,6 @@ export default function TestMetaApiToken() {
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [useCustomToken, setUseCustomToken] = useState(false);
   const [customAdminToken, setCustomAdminToken] = useState('');
-  const [customAccountId, setCustomAccountId] = useState('');
 
   const runTest = async () => {
     setIsRunning(true);
@@ -42,10 +41,6 @@ export default function TestMetaApiToken() {
 
       if (useCustomToken && customAdminToken) {
         requestBody.testAdminToken = customAdminToken;
-      }
-
-      if (useCustomToken && customAccountId) {
-        requestBody.testAccountId = customAccountId;
       }
 
       const response = await fetch('/.netlify/functions/test-metaapi-token', {
@@ -207,19 +202,9 @@ export default function TestMetaApiToken() {
                     placeholder="Leave blank to use environment variable"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Account ID (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={customAccountId}
-                    onChange={(e) => setCustomAccountId(e.target.value)}
-                    placeholder="Leave blank to use environment variable"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
-                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Account ID is always read from METAAPI_ACCOUNT_ID environment variable
+                  </p>
                 </div>
               </div>
             )}
@@ -331,26 +316,25 @@ export default function TestMetaApiToken() {
           <h3 className="text-lg font-semibold text-gray-900 mb-4">What This Test Does:</h3>
           <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
             <li>Checks Supabase token cache health and displays cached token status</li>
-            <li>Verifies METAAPI_ADMIN_TOKEN is configured in Netlify environment</li>
+            <li>Verifies METAAPI_ADMIN_TOKEN and METAAPI_ACCOUNT_ID are configured in Netlify environment</li>
             <li>Confirms the MetaAPI SDK can be imported and initialized</li>
             <li>Initializes a MetaAPI client with your admin token</li>
-            <li>Tries to fetch token from cache, or generates new token (tries fast method first, falls back to slower method)</li>
-            <li>If generation times out, falls back to stale cached token (5-minute grace period)</li>
-            <li>Verifies the account can be accessed with the generated/cached token</li>
+            <li>Generates new token using narrowDownTokenResources method</li>
+            <li>Verifies the account can be accessed with the generated token</li>
             <li>Caches newly generated tokens in Supabase for instant future use</li>
           </ol>
 
           <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
             <p className="text-sm text-green-800 mb-2">
-              <strong>Enhanced Reliability:</strong> The token generation system now includes:
+              <strong>Optimized Reliability:</strong> The token generation system features:
             </p>
             <ul className="list-disc list-inside text-xs text-green-700 space-y-1 ml-4">
               <li>Token caching in Supabase database (reuses valid tokens, prevents repeated API calls)</li>
-              <li>Dual-method token generation: tries fast generateToken() first, falls back to narrowDownToken()</li>
-              <li>Aggressive timeout protection (9 seconds per attempt, 3-second safety margin before gateway timeout)</li>
-              <li>Stale-while-revalidate: uses recently expired tokens as emergency fallback (5-minute grace period)</li>
-              <li>Fast retry on failure (1 retry with 1.5 second delay)</li>
+              <li>Simple, proven narrowDownTokenResources method for reliable token generation</li>
+              <li>Account ID automatically read from METAAPI_ACCOUNT_ID environment variable</li>
               <li>Cached tokens are valid for 1 hour and automatically managed</li>
+              <li>Clean error handling with clear, actionable error messages</li>
+              <li>Sub-100ms response time when using cached tokens</li>
             </ul>
           </div>
 
@@ -359,12 +343,12 @@ export default function TestMetaApiToken() {
               <strong>Troubleshooting:</strong> If tests fail, common causes include:
             </p>
             <ul className="list-disc list-inside text-xs text-blue-700 space-y-1 ml-4">
-              <li>First-time token generation: With new optimizations, should complete in 9-12 seconds (or use stale fallback)</li>
-              <li>If you see stale token warnings: The system is working! It's using an emergency fallback while MetaAPI is slow</li>
-              <li>Cache miss: Subsequent requests will be instant (sub-100ms) once token is cached</li>
-              <li>Invalid or expired METAAPI_ADMIN_TOKEN in environment variables</li>
-              <li>Missing SUPABASE_SERVICE_ROLE_KEY (check Step 0 in test results)</li>
-              <li>Incorrect region setting (verify VITE_METAAPI_REGION matches your account)</li>
+              <li>Missing METAAPI_ADMIN_TOKEN in Netlify environment variables</li>
+              <li>Missing METAAPI_ACCOUNT_ID in Netlify environment variables</li>
+              <li>Invalid or expired METAAPI_ADMIN_TOKEN</li>
+              <li>Missing SUPABASE_SERVICE_ROLE (check Step 0 in test results)</li>
+              <li>Incorrect METAAPI_REGION setting (verify it matches your account's region)</li>
+              <li>MetaAPI service experiencing slowness or downtime</li>
             </ul>
           </div>
         </div>

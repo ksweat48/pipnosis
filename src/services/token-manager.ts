@@ -27,24 +27,20 @@ class TokenManager {
 
   private async fetchNewToken(accountId: string): Promise<string> {
     try {
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL?.replace(/\/+$/, '') || ''}/functions/v1/get-metaapi-token`;
       const netlifyUrl = '/.netlify/functions/get-metaapi-token';
 
-      const url = import.meta.env.PROD ? netlifyUrl : netlifyUrl;
-
-      const response = await fetch(url, {
+      const response = await fetch(netlifyUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ accountId })
+        }
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(
           errorData.error ||
-          errorData.message ||
+          errorData.details ||
           `Failed to fetch token: ${response.status} ${response.statusText}`
         );
       }
@@ -55,8 +51,14 @@ class TokenManager {
         throw new Error('Invalid response: missing token');
       }
 
-      const expiresIn = data.expiresIn || 3600;
-      const expiresAt = Date.now() + (expiresIn * 1000);
+      // Calculate expiration time from expiresAt if provided, otherwise default to 1 hour
+      let expiresAt: number;
+      if (data.expiresAt) {
+        expiresAt = new Date(data.expiresAt).getTime();
+      } else {
+        const expiresIn = data.expiresIn || 3600;
+        expiresAt = Date.now() + (expiresIn * 1000);
+      }
 
       const tokenData: TokenData = {
         token: data.token,
@@ -66,7 +68,10 @@ class TokenManager {
 
       this.tokenCache.set(accountId, tokenData);
 
-      console.log(`✓ Received new token for account ${accountId} (valid for ${Math.round(expiresIn / 60)} minutes)`);
+      const minutesValid = Math.round((expiresAt - Date.now()) / 1000 / 60);
+      const source = data.source || (data.cached ? 'cache' : 'generated');
+
+      console.log(`✓ Received ${source} token for account ${accountId} (valid for ${minutesValid} minutes)`);
 
       return data.token;
 
@@ -74,7 +79,7 @@ class TokenManager {
       console.error(`Failed to fetch MetaAPI token for account ${accountId}:`, error);
       throw new Error(
         `Token fetch failed: ${error instanceof Error ? error.message : 'Unknown error'}. ` +
-        `Ensure backend token service is running and METAAPI_ADMIN_TOKEN is configured.`
+        `Ensure METAAPI_ADMIN_TOKEN and METAAPI_ACCOUNT_ID are configured in Netlify.`
       );
     }
   }
