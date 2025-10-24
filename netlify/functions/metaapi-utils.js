@@ -212,8 +212,8 @@ function createMetaApiClient(token, options = {}) {
  */
 async function getCachedToken(accountId, region) {
   try {
-    const supabaseUrl = process.env.VITE_SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE;
 
     if (!supabaseUrl || !supabaseServiceKey) {
       console.log('[Cache] Supabase not configured - skipping cache check');
@@ -294,8 +294,8 @@ async function getCachedToken(accountId, region) {
  */
 async function cacheToken(token, accountId, region, validityHours, generationTimeMs = null, sourceRegion = null) {
   try {
-    const supabaseUrl = process.env.VITE_SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE;
 
     if (!supabaseUrl || !supabaseServiceKey) {
       console.log('[Cache] Supabase not configured - skipping token caching');
@@ -344,8 +344,8 @@ async function cacheToken(token, accountId, region, validityHours, generationTim
  */
 async function getFallbackToken(accountId, region) {
   try {
-    const supabaseUrl = process.env.VITE_SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE;
 
     if (!supabaseUrl || !supabaseServiceKey) {
       return null;

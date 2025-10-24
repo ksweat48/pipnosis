@@ -84,13 +84,13 @@ exports.handler = async (event) => {
         };
       }
 
-      const supabaseUrl = process.env.VITE_SUPABASE_URL;
-      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE;
 
       if (!supabaseUrl || !supabaseServiceKey) {
         console.error(`[${new Date().toISOString()}] WARNING: Supabase configuration incomplete`);
-        console.error(`[${new Date().toISOString()}] VITE_SUPABASE_URL: ${supabaseUrl ? 'present' : 'MISSING'}`);
-        console.error(`[${new Date().toISOString()}] SUPABASE_SERVICE_ROLE_KEY: ${supabaseServiceKey ? 'present' : 'MISSING'}`);
+        console.error(`[${new Date().toISOString()}] SUPABASE_URL: ${supabaseUrl ? 'present' : 'MISSING'}`);
+        console.error(`[${new Date().toISOString()}] SUPABASE_SERVICE_ROLE: ${supabaseServiceKey ? 'present' : 'MISSING'}`);
         console.error(`[${new Date().toISOString()}] Token caching will be disabled`);
       }
 

@@ -78,8 +78,8 @@ exports.handler = async (event) => {
       const adminToken = testAdminToken || process.env.METAAPI_ADMIN_TOKEN;
       const accountId = testAccountId || process.env.VITE_METAAPI_ACCOUNT_ID;
       const region = process.env.VITE_METAAPI_REGION || 'new-york';
-      const supabaseUrl = process.env.VITE_SUPABASE_URL;
-      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE;
 
       // Step 1: Check environment variables
       // Step 0: Check cache configuration
