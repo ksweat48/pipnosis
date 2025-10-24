@@ -3,8 +3,9 @@
 
 // Global timeout constants - Optimized to avoid Netlify gateway timeouts
 const FUNCTION_TIMEOUT_MS = 25700; // 25.7 seconds (300ms safety buffer before 26s gateway timeout)
-const TOKEN_GENERATION_TIMEOUT_MS = 14000; // 14 seconds for token generation API call (optimized)
+const TOKEN_GENERATION_TIMEOUT_MS = 22000; // 22 seconds for token generation API call (increased for slow MetaAPI responses)
 const ACCOUNT_VERIFICATION_TIMEOUT_MS = 8000; // 8 seconds for account verification
+const MULTI_REGION_FALLBACK_REGIONS = ['new-york', 'london', 'singapore']; // Regions to try in order
 const SDK_INIT_TIMEOUT_MS = 2000; // 2 seconds for SDK initialization
 const MAX_RETRIES = 0; // 0 retry attempts (1 total attempt only)
 const RETRY_DELAYS = []; // No retries
@@ -377,6 +378,7 @@ async function getFallbackToken(accountId, region) {
 async function generateTokenFromAPI(adminToken, accountId, region = 'new-york') {
   const endpoint = `${region}.agiliumtrade.ai`;
   console.log(`[${new Date().toISOString()}] Generating token using narrowDownTokenResources() for account ${accountId}`);
+  console.log(`[${new Date().toISOString()}] Attempting region: ${region}`);
 
   const requestStartTime = Date.now();
 
@@ -407,11 +409,55 @@ async function generateTokenFromAPI(adminToken, accountId, region = 'new-york') 
   }
 
   const requestDuration = Date.now() - requestStartTime;
-  console.log(`[${new Date().toISOString()}] ✓ Token generated successfully`);
+  console.log(`[${new Date().toISOString()}] ✓ Token generated successfully from ${region} region`);
   console.log(`[${new Date().toISOString()}] Token length: ${narrowedToken.length} characters`);
   console.log(`[${new Date().toISOString()}] Request duration: ${requestDuration}ms`);
 
   return narrowedToken;
+}
+
+/**
+ * Try generating token from multiple regions with fallback
+ * @param {string} adminToken - Admin token with full permissions
+ * @param {string} accountId - MetaAPI account ID
+ * @param {string} primaryRegion - Primary region to try first
+ * @returns {Promise<Object>} Object with token and successful region
+ */
+async function generateTokenWithMultiRegionFallback(adminToken, accountId, primaryRegion = 'new-york') {
+  const regions = [primaryRegion, ...MULTI_REGION_FALLBACK_REGIONS.filter(r => r !== primaryRegion)];
+  const errors = [];
+
+  console.log(`[${new Date().toISOString()}] Multi-region fallback enabled. Will try regions in order: ${regions.join(', ')}`);
+
+  for (const region of regions) {
+    try {
+      console.log(`[${new Date().toISOString()}] Attempting token generation from ${region} region...`);
+      const token = await generateTokenFromAPI(adminToken, accountId, region);
+      console.log(`[${new Date().toISOString()}] ✓ Successfully generated token from ${region} region`);
+
+      return {
+        token,
+        region,
+        fallbackUsed: region !== primaryRegion
+      };
+    } catch (error) {
+      const errorMessage = `${region}: ${error.message}`;
+      errors.push(errorMessage);
+      console.warn(`[${new Date().toISOString()}] ✗ Failed to generate token from ${region} region: ${error.message}`);
+
+      // If this isn't the last region, continue to next
+      if (region !== regions[regions.length - 1]) {
+        console.log(`[${new Date().toISOString()}] Trying next region...`);
+        continue;
+      }
+    }
+  }
+
+  // All regions failed
+  console.error(`[${new Date().toISOString()}] All regions failed to generate token`);
+  throw new Error(
+    `Failed to generate token from all regions. Errors: ${errors.join('; ')}`
+  );
 }
 
 /**
@@ -451,14 +497,15 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
     };
   }
 
-  // Step 2: No valid cache - generate new token
+  // Step 2: No valid cache - generate new token with multi-region fallback
   console.log(`[${new Date().toISOString()}] No valid cached token - generating fresh token...`);
 
   try {
-    const token = await generateTokenFromAPI(adminToken, accountId, region);
+    const result = await generateTokenWithMultiRegionFallback(adminToken, accountId, region);
+    const { token, region: successfulRegion, fallbackUsed } = result;
 
     // Step 3: Cache the newly generated token
-    await cacheToken(token, accountId, region, validityHours);
+    await cacheToken(token, accountId, successfulRegion, validityHours);
 
     const expiresAt = new Date(Date.now() + validityHours * 60 * 60 * 1000);
 
@@ -466,7 +513,9 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
       token: token,
       source: 'generated',
       expiresAt: expiresAt.toISOString(),
-      cached: false
+      cached: false,
+      region: successfulRegion,
+      fallbackUsed: fallbackUsed || false
     };
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Token generation failed:`, error.message);
@@ -643,6 +692,7 @@ module.exports = {
   initializeMetaApiSDK,
   createMetaApiClient,
   generateNarrowedToken,
+  generateTokenWithMultiRegionFallback,
   verifyAccount,
   getSDKInfo,
   getCachedToken,
@@ -656,5 +706,6 @@ module.exports = {
   ACCOUNT_VERIFICATION_TIMEOUT_MS,
   MAX_RETRIES,
   STALE_TOKEN_GRACE_PERIOD_MS,
-  TOKEN_EXPIRATION_BUFFER_MS
+  TOKEN_EXPIRATION_BUFFER_MS,
+  MULTI_REGION_FALLBACK_REGIONS
 };

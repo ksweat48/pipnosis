@@ -176,10 +176,65 @@ The frontend service (`src/services/metaapi.ts`) no longer imports the MetaAPI S
 4. **Better debugging** - Detailed logs in serverless functions
 5. **Smaller frontend bundle** - SDK not included in client code
 
+## Recent Improvements
+
+### Multi-Region Fallback (IMPLEMENTED)
+Token generation now includes automatic multi-region fallback:
+1. Tries primary region (from VITE_METAAPI_REGION)
+2. Falls back to `new-york` if primary fails
+3. Falls back to `london` if new-york fails
+4. Falls back to `singapore` if london fails
+
+This significantly improves reliability when a specific MetaAPI region is slow or timing out.
+
+### Token Caching (IMPLEMENTED)
+Tokens are cached in Supabase (`metaapi_token_cache` table) for 1 hour to reduce MetaAPI API calls and improve performance.
+
+### Increased Timeout (IMPLEMENTED)
+Token generation timeout increased from 14s to 22s to accommodate slower MetaAPI responses while staying under Netlify's 26s gateway timeout.
+
+## Bootstrap Token Generation
+
+To pre-generate and cache a token for immediate demo mode exit:
+
+```bash
+node scripts/generate-bootstrap-token.js
+```
+
+This script:
+- Generates a fresh MetaAPI token
+- Tries multiple regions automatically
+- Caches the token in Supabase
+- Provides immediate application access
+
+**Required Environment Variables for Bootstrap:**
+- `METAAPI_ADMIN_TOKEN`
+- `VITE_METAAPI_ACCOUNT_ID`
+- `VITE_METAAPI_REGION` (optional, defaults to new-york)
+- `VITE_SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+## Troubleshooting
+
+### Token Generation Timeouts
+
+If you see timeout errors:
+1. The timeout is now 22 seconds (increased from 14s)
+2. Multi-region fallback will automatically try other regions
+3. Run the bootstrap script locally to pre-cache a token
+4. Check Netlify function logs to see which region is responding
+
+### All Regions Timing Out
+
+If all regions timeout:
+1. MetaAPI may be experiencing service-wide issues
+2. Check MetaAPI status page
+3. Wait a few minutes and try again
+4. Use the bootstrap script during off-peak hours to cache a token
+
 ## Future Improvements
 
 1. **Streaming alternative** - Implement WebSocket proxy for streaming data
-2. **Token caching** - Cache tokens in Supabase to reduce API calls
-3. **Rate limiting** - Add rate limiting to protect backend
-4. **Monitoring** - Add error tracking and performance monitoring
-5. **Type safety** - Generate TypeScript types from function responses
+2. **Rate limiting** - Add rate limiting to protect backend
+3. **Monitoring** - Add error tracking and performance monitoring
+4. **Type safety** - Generate TypeScript types from function responses

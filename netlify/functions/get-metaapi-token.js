@@ -121,6 +121,8 @@ exports.handler = async (event) => {
           expiresAt: tokenResult.expiresAt,
           cached: tokenResult.cached,
           source: tokenResult.source,
+          region: tokenResult.region || region,
+          fallbackUsed: tokenResult.fallbackUsed || false,
           executionTime,
           warning: tokenResult.warning || null,
           cacheStatus: {
