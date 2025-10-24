@@ -2,15 +2,16 @@
 // This module ensures we always use the Node.js distribution of the SDK
 
 // Global timeout constants - Optimized to avoid Netlify gateway timeouts
-const FUNCTION_TIMEOUT_MS = 25700; // 25.7 seconds (300ms safety buffer before 26s gateway timeout)
-const TOKEN_GENERATION_TIMEOUT_MS = 22000; // 22 seconds for token generation API call (increased for slow MetaAPI responses)
+const FUNCTION_TIMEOUT_MS = 25000; // 25 seconds (1s safety buffer before 26s gateway timeout)
+const TOKEN_GENERATION_TIMEOUT_MS = 8000; // 8 seconds per region attempt (fast failover)
 const ACCOUNT_VERIFICATION_TIMEOUT_MS = 8000; // 8 seconds for account verification
-const MULTI_REGION_FALLBACK_REGIONS = ['new-york', 'london', 'singapore']; // Regions to try in order
+const MULTI_REGION_FALLBACK_REGIONS = ['new-york', 'london', 'singapore']; // Regions to try in parallel
 const SDK_INIT_TIMEOUT_MS = 2000; // 2 seconds for SDK initialization
-const MAX_RETRIES = 0; // 0 retry attempts (1 total attempt only)
-const RETRY_DELAYS = []; // No retries
-const STALE_TOKEN_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes - accept slightly expired tokens in emergencies
-const TOKEN_EXPIRATION_BUFFER_MS = 5 * 60 * 1000; // 5 minutes - refresh token if expiring within 5 minutes
+const MAX_RETRIES = 2; // 2 retry attempts per region (3 total attempts)
+const RETRY_DELAYS = [1000, 2000]; // 1s, 2s delays between retries
+const STALE_TOKEN_GRACE_PERIOD_MS = 10 * 60 * 1000; // 10 minutes - accept slightly expired tokens in emergencies
+const TOKEN_EXPIRATION_BUFFER_MS = 10 * 60 * 1000; // 10 minutes - refresh token if expiring within 10 minutes
+const PARALLEL_REGION_ATTEMPTS = true; // Try regions in parallel for faster response
 
 /**
  * Create a promise that rejects after a timeout
@@ -259,6 +260,21 @@ async function getCachedToken(accountId, region) {
 
     const minutesRemaining = Math.round(timeUntilExpiry / 1000 / 60);
     console.log(`[Cache] ✓ Valid cached token found (expires in ${minutesRemaining} minutes)`);
+
+    // Update last_used_at and increment use_count
+    try {
+      await supabase
+        .from('metaapi_token_cache')
+        .update({
+          last_used_at: new Date().toISOString(),
+          use_count: (data.use_count || 0) + 1
+        })
+        .eq('account_id', accountId)
+        .eq('region', region);
+    } catch (updateError) {
+      console.warn('[Cache] Failed to update usage stats:', updateError.message);
+    }
+
     return data;
   } catch (error) {
     console.warn('[Cache] Unexpected error during cache check:', error.message);
@@ -272,9 +288,11 @@ async function getCachedToken(accountId, region) {
  * @param {string} accountId - MetaAPI account ID
  * @param {string} region - MetaAPI region
  * @param {number} validityHours - Token validity in hours
+ * @param {number} generationTimeMs - Time taken to generate token
+ * @param {string} sourceRegion - Region that generated the token
  * @returns {Promise<void>}
  */
-async function cacheToken(token, accountId, region, validityHours) {
+async function cacheToken(token, accountId, region, validityHours, generationTimeMs = null, sourceRegion = null) {
   try {
     const supabaseUrl = process.env.VITE_SUPABASE_URL;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -299,7 +317,11 @@ async function cacheToken(token, accountId, region, validityHours) {
         expires_at: expiresAt.toISOString(),
         is_valid: true,
         created_at: now.toISOString(),
-        updated_at: now.toISOString()
+        updated_at: now.toISOString(),
+        generation_time_ms: generationTimeMs,
+        source_region: sourceRegion || region,
+        use_count: 0,
+        last_used_at: now.toISOString()
       }, {
         onConflict: 'account_id,region'
       });
@@ -307,7 +329,7 @@ async function cacheToken(token, accountId, region, validityHours) {
     if (error) {
       console.warn('[Cache] Failed to cache token:', error.message);
     } else {
-      console.log(`[Cache] ✓ Token cached successfully (expires: ${expiresAt.toISOString()})`);
+      console.log(`[Cache] ✓ Token cached successfully (expires: ${expiresAt.toISOString()}, generation: ${generationTimeMs}ms)`);
     }
   } catch (error) {
     console.warn('[Cache] Unexpected error during token caching:', error.message);
@@ -369,6 +391,57 @@ async function getFallbackToken(accountId, region) {
 }
 
 /**
+ * Check if a MetaAPI region is healthy and responsive
+ * @param {string} region - MetaAPI region to check
+ * @returns {Promise<Object>} Health check result
+ */
+async function checkRegionHealth(region) {
+  const endpoint = `${region}.agiliumtrade.ai`;
+  const startTime = Date.now();
+
+  try {
+    // Simple connectivity check with minimal timeout
+    const healthTimeout = 3000; // 3 second health check
+    const checkPromise = new Promise((resolve, reject) => {
+      const https = require('https');
+      const req = https.get(`https://${endpoint}/`, { timeout: healthTimeout }, (res) => {
+        resolve({
+          healthy: res.statusCode >= 200 && res.statusCode < 500,
+          statusCode: res.statusCode,
+          responseTime: Date.now() - startTime
+        });
+      });
+
+      req.on('error', (err) => {
+        reject(err);
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Health check timeout'));
+      });
+    });
+
+    const result = await Promise.race([
+      checkPromise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Health check timeout')), healthTimeout)
+      )
+    ]);
+
+    console.log(`[Health] ${region} region is healthy (${result.responseTime}ms)`);
+    return result;
+  } catch (error) {
+    console.warn(`[Health] ${region} region appears unhealthy: ${error.message}`);
+    return {
+      healthy: false,
+      error: error.message,
+      responseTime: Date.now() - startTime
+    };
+  }
+}
+
+/**
  * Generate a narrowed token using narrowDownTokenResources (only method)
  * @param {string} adminToken - Admin token with full permissions
  * @param {string} accountId - MetaAPI account ID
@@ -417,7 +490,7 @@ async function generateTokenFromAPI(adminToken, accountId, region = 'new-york') 
 }
 
 /**
- * Try generating token from multiple regions with fallback
+ * Try generating token from multiple regions with parallel attempts
  * @param {string} adminToken - Admin token with full permissions
  * @param {string} accountId - MetaAPI account ID
  * @param {string} primaryRegion - Primary region to try first
@@ -425,39 +498,112 @@ async function generateTokenFromAPI(adminToken, accountId, region = 'new-york') 
  */
 async function generateTokenWithMultiRegionFallback(adminToken, accountId, primaryRegion = 'new-york') {
   const regions = [primaryRegion, ...MULTI_REGION_FALLBACK_REGIONS.filter(r => r !== primaryRegion)];
-  const errors = [];
 
-  console.log(`[${new Date().toISOString()}] Multi-region fallback enabled. Will try regions in order: ${regions.join(', ')}`);
+  if (PARALLEL_REGION_ATTEMPTS) {
+    console.log(`[${new Date().toISOString()}] Attempting parallel token generation from regions: ${regions.join(', ')}`);
 
-  for (const region of regions) {
-    try {
-      console.log(`[${new Date().toISOString()}] Attempting token generation from ${region} region...`);
-      const token = await generateTokenFromAPI(adminToken, accountId, region);
-      console.log(`[${new Date().toISOString()}] ✓ Successfully generated token from ${region} region`);
+    // Quick health check for all regions in parallel
+    console.log(`[${new Date().toISOString()}] Running pre-flight health checks...`);
+    const healthChecks = await Promise.all(
+      regions.map(region => checkRegionHealth(region).catch(() => ({ healthy: false, region })))
+    );
 
-      return {
-        token,
-        region,
-        fallbackUsed: region !== primaryRegion
-      };
-    } catch (error) {
-      const errorMessage = `${region}: ${error.message}`;
-      errors.push(errorMessage);
-      console.warn(`[${new Date().toISOString()}] ✗ Failed to generate token from ${region} region: ${error.message}`);
+    // Sort regions by health and response time
+    const sortedRegions = regions.sort((a, b) => {
+      const healthA = healthChecks.find(h => h.region === a || true);
+      const healthB = healthChecks.find(h => h.region === b || true);
+      if (healthA.healthy && !healthB.healthy) return -1;
+      if (!healthA.healthy && healthB.healthy) return 1;
+      return (healthA.responseTime || 9999) - (healthB.responseTime || 9999);
+    });
 
-      // If this isn't the last region, continue to next
-      if (region !== regions[regions.length - 1]) {
-        console.log(`[${new Date().toISOString()}] Trying next region...`);
-        continue;
+    console.log(`[${new Date().toISOString()}] Regions sorted by health: ${sortedRegions.join(', ')}`);
+
+    // Create promises for all regions simultaneously
+    const regionPromises = sortedRegions.map(async (region) => {
+      try {
+        console.log(`[${new Date().toISOString()}] Starting parallel attempt for ${region} region...`);
+        const token = await generateTokenFromAPI(adminToken, accountId, region);
+        console.log(`[${new Date().toISOString()}] ✓ Successfully generated token from ${region} region`);
+
+        return {
+          token,
+          region,
+          fallbackUsed: region !== primaryRegion,
+          success: true
+        };
+      } catch (error) {
+        console.warn(`[${new Date().toISOString()}] ✗ Failed to generate token from ${region} region: ${error.message}`);
+        return {
+          region,
+          error: error.message,
+          success: false
+        };
+      }
+    });
+
+    // Use Promise.race to return the first successful result
+    const raceResult = await Promise.race([
+      ...regionPromises.map(p => p.then(result => result.success ? result : Promise.reject(result))),
+      // Add a timeout promise that resolves after all regions have had time to respond
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('All regions timed out')), TOKEN_GENERATION_TIMEOUT_MS * regions.length)
+      )
+    ].map(p => p.catch(e => e)));
+
+    if (raceResult && raceResult.success) {
+      return raceResult;
+    }
+
+    // If race didn't work, wait for all and check results
+    const results = await Promise.all(regionPromises);
+    const successfulResult = results.find(r => r.success);
+
+    if (successfulResult) {
+      return successfulResult;
+    }
+
+    // All regions failed
+    const errors = results.filter(r => !r.success).map(r => `${r.region}: ${r.error}`);
+    console.error(`[${new Date().toISOString()}] All regions failed to generate token (parallel)`);
+    throw new Error(
+      `Failed to generate token from all regions. Errors: ${errors.join('; ')}`
+    );
+  } else {
+    // Sequential fallback (original behavior)
+    const errors = [];
+    console.log(`[${new Date().toISOString()}] Multi-region fallback enabled. Will try regions in order: ${regions.join(', ')}`);
+
+    for (const region of regions) {
+      try {
+        console.log(`[${new Date().toISOString()}] Attempting token generation from ${region} region...`);
+        const token = await generateTokenFromAPI(adminToken, accountId, region);
+        console.log(`[${new Date().toISOString()}] ✓ Successfully generated token from ${region} region`);
+
+        return {
+          token,
+          region,
+          fallbackUsed: region !== primaryRegion
+        };
+      } catch (error) {
+        const errorMessage = `${region}: ${error.message}`;
+        errors.push(errorMessage);
+        console.warn(`[${new Date().toISOString()}] ✗ Failed to generate token from ${region} region: ${error.message}`);
+
+        // If this isn't the last region, continue to next
+        if (region !== regions[regions.length - 1]) {
+          console.log(`[${new Date().toISOString()}] Trying next region...`);
+          continue;
+        }
       }
     }
-  }
 
-  // All regions failed
-  console.error(`[${new Date().toISOString()}] All regions failed to generate token`);
-  throw new Error(
-    `Failed to generate token from all regions. Errors: ${errors.join('; ')}`
-  );
+    // All regions failed
+    console.error(`[${new Date().toISOString()}] All regions failed to generate token`);
+    throw new Error(
+      `Failed to generate token from all regions. Errors: ${errors.join('; ')}`
+    );
+  }
 }
 
 /**
@@ -501,11 +647,13 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
   console.log(`[${new Date().toISOString()}] No valid cached token - generating fresh token...`);
 
   try {
+    const generationStartTime = Date.now();
     const result = await generateTokenWithMultiRegionFallback(adminToken, accountId, region);
     const { token, region: successfulRegion, fallbackUsed } = result;
+    const generationTimeMs = Date.now() - generationStartTime;
 
-    // Step 3: Cache the newly generated token
-    await cacheToken(token, accountId, successfulRegion, validityHours);
+    // Step 3: Cache the newly generated token with timing metadata
+    await cacheToken(token, accountId, region, validityHours, generationTimeMs, successfulRegion);
 
     const expiresAt = new Date(Date.now() + validityHours * 60 * 60 * 1000);
 
@@ -540,34 +688,102 @@ async function generateNarrowedToken(adminToken, accountId, region = 'new-york',
 
     if (error.message.includes('timed out') || error.message.includes('timeout')) {
       throw new Error(
-        `MetaAPI token generation timed out. ` +
-        `The ${endpoint} server may be experiencing high load or network issues. ` +
-        `Please try again in a few moments.`
+        `MetaAPI Token Generation Timeout\n\n` +
+        `The MetaAPI service is responding slowly or is unavailable.\n\n` +
+        `What happened:\n` +
+        `- All regions (${MULTI_REGION_FALLBACK_REGIONS.join(', ')}) failed to respond within ${TOKEN_GENERATION_TIMEOUT_MS / 1000} seconds\n` +
+        `- No cached tokens are available for fallback\n\n` +
+        `Troubleshooting steps:\n` +
+        `1. Check MetaAPI service status at https://metaapi.cloud/status\n` +
+        `2. Verify your internet connection is stable\n` +
+        `3. Wait 2-3 minutes and try again (MetaAPI may be experiencing temporary issues)\n` +
+        `4. Check if your MetaAPI account is active and not rate-limited\n` +
+        `5. Try using a different region in your settings\n\n` +
+        `If the issue persists, contact MetaAPI support with this timestamp: ${new Date().toISOString()}`
       );
     }
 
     if (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND')) {
       throw new Error(
-        `Unable to connect to MetaAPI server at ${endpoint}. ` +
-        `Please check your network connection and verify the region setting (current: ${region}).`
+        `MetaAPI Connection Failed\n\n` +
+        `Unable to establish connection to MetaAPI servers.\n\n` +
+        `What happened:\n` +
+        `- Failed to connect to ${endpoint}\n` +
+        `- DNS resolution or network connectivity issue\n\n` +
+        `Troubleshooting steps:\n` +
+        `1. Check your internet connection\n` +
+        `2. Verify firewall settings allow outbound HTTPS connections\n` +
+        `3. Try accessing https://${endpoint}/ in your browser\n` +
+        `4. Check if your hosting provider blocks MetaAPI domains\n` +
+        `5. Try changing the VITE_METAAPI_REGION environment variable to 'london' or 'singapore'\n\n` +
+        `Current region: ${region}`
       );
     }
 
     if (error.message.includes('Unauthorized') || error.message.includes('401')) {
       throw new Error(
-        `Authentication failed with MetaAPI. ` +
-        `Please verify your admin token is valid and has not expired.`
+        `MetaAPI Authentication Failed\n\n` +
+        `Your MetaAPI admin token is invalid or expired.\n\n` +
+        `What happened:\n` +
+        `- The METAAPI_ADMIN_TOKEN was rejected by MetaAPI servers\n` +
+        `- Token may be expired, revoked, or incorrect\n\n` +
+        `Troubleshooting steps:\n` +
+        `1. Log into https://app.metaapi.cloud/\n` +
+        `2. Navigate to Settings > API Tokens\n` +
+        `3. Verify your admin token is active and has not expired\n` +
+        `4. Generate a new admin token if needed\n` +
+        `5. Update the METAAPI_ADMIN_TOKEN environment variable in Netlify\n` +
+        `6. Redeploy your application after updating the token\n\n` +
+        `Token format should start with: "eyJ..."`
       );
     }
 
     if (error.message.includes('429') || error.message.includes('rate limit')) {
       throw new Error(
-        `MetaAPI rate limit exceeded. ` +
-        `Please wait a few minutes before trying again.`
+        `MetaAPI Rate Limit Exceeded\n\n` +
+        `You have exceeded the MetaAPI API rate limit.\n\n` +
+        `What happened:\n` +
+        `- Too many API requests in a short time period\n` +
+        `- MetaAPI throttling protection activated\n\n` +
+        `Troubleshooting steps:\n` +
+        `1. Wait 5-10 minutes before trying again\n` +
+        `2. Check your MetaAPI dashboard for rate limit details\n` +
+        `3. Consider upgrading your MetaAPI plan for higher limits\n` +
+        `4. Review your application for excessive token generation requests\n` +
+        `5. Ensure token caching is working properly (check Supabase connection)\n\n` +
+        `Rate limits reset every hour. Current time: ${new Date().toISOString()}`
       );
     }
 
-    throw new Error(`Failed to generate token: ${error.message}`);
+    if (error.message.includes('403') || error.message.includes('Forbidden')) {
+      throw new Error(
+        `MetaAPI Access Forbidden\n\n` +
+        `Your token does not have permission to access this account.\n\n` +
+        `What happened:\n` +
+        `- The admin token doesn't have access to account ${accountId}\n` +
+        `- Account may be in a different organization or region\n\n` +
+        `Troubleshooting steps:\n` +
+        `1. Verify the account ID is correct: ${accountId}\n` +
+        `2. Check that the account belongs to your MetaAPI organization\n` +
+        `3. Ensure your admin token has organization-wide permissions\n` +
+        `4. Log into MetaAPI dashboard and verify account access\n` +
+        `5. Try accessing the account with a different admin token`
+      );
+    }
+
+    throw new Error(
+      `MetaAPI Token Generation Failed\n\n` +
+      `An unexpected error occurred while generating the token.\n\n` +
+      `Error details: ${error.message}\n\n` +
+      `Troubleshooting steps:\n` +
+      `1. Check the full error logs for more details\n` +
+      `2. Verify all MetaAPI environment variables are set correctly\n` +
+      `3. Try accessing MetaAPI dashboard to verify service availability\n` +
+      `4. Contact support with this error message and timestamp\n\n` +
+      `Timestamp: ${new Date().toISOString()}\n` +
+      `Region attempted: ${region}\n` +
+      `Account ID: ${accountId}`
+    );
   }
 }
 
@@ -698,6 +914,7 @@ module.exports = {
   getCachedToken,
   cacheToken,
   getFallbackToken,
+  checkRegionHealth,
   withTimeout,
   withRetry,
   delay,
@@ -707,5 +924,6 @@ module.exports = {
   MAX_RETRIES,
   STALE_TOKEN_GRACE_PERIOD_MS,
   TOKEN_EXPIRATION_BUFFER_MS,
-  MULTI_REGION_FALLBACK_REGIONS
+  MULTI_REGION_FALLBACK_REGIONS,
+  PARALLEL_REGION_ATTEMPTS
 };
