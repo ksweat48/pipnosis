@@ -8,31 +8,24 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["metaapi.cloud-sdk", "@supabase/supabase-js"]
+  external_node_modules = ["metaapi.cloud-sdk"]
 
-[functions."*"]
-  node_runtime = "node18"
+# ✅ Removed deprecated node_runtime override
 
 [functions."refresh-candles"]
-  # Extended timeout for manual refresh operations (10 minutes)
   timeout = 600
 
 [functions."scheduled-refresh"]
-  # Extended timeout for scheduled batch operations (10 minutes)
   timeout = 600
-  # Daily schedule at 2:00 AM UTC
   schedule = "0 2 * * *"
 
 [functions."get-metaapi-token"]
-  # Conservative timeout to prevent gateway timeouts (26 seconds - below 26s Netlify limit)
   timeout = 26
 
 [functions."test-metaapi-token"]
-  # Test function with aggressive timeout protection (26 seconds)
   timeout = 26
 
 [functions."verify-metaapi-account"]
-  # Account verification with optimized timeout (26 seconds)
   timeout = 26
 
 [[redirects]]
@@ -63,7 +56,7 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' http://localhost:* ws://localhost:* wss://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://127.0.0.1:* https://*.supabase.co wss://*.supabase.co https://*.agiliumtrade.ai wss://*.agiliumtrade.ai https://metaapi.cloud wss://mt-client-api-v1.agiliumtrade.ai https://mt-provisioning-api-v1.agiliumtrade.ai https://api.openai.com; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; child-src 'self' blob:;"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.agiliumtrade.ai wss://*.agiliumtrade.ai https://metaapi.cloud wss://mt-client-api-v1.agiliumtrade.ai https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai https://api.openai.com; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; child-src 'self' blob:;"
 
 [[headers]]
   for = "/*"
