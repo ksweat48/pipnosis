@@ -22,10 +22,13 @@ export const handler = async () => {
 
     const response = await metaApi.tokenManagementApi.narrowDownTokenResources([
       {
-        type: 'account',
-        id: accountId,
-        entity: 'account',
-        permissions: ['read', 'trade']
+        resources: [
+          {
+            type: 'account',
+            id: accountId,
+            permissions: ['read', 'trade']
+          }
+        ]
       }
     ]);
 
