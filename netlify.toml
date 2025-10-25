@@ -19,12 +19,6 @@
   timeout = 600
   schedule = "0 2 * * *"
 
-[functions."get-metaapi-token"]
-  timeout = 26
-
-[functions."test-metaapi-token"]
-  timeout = 26
-
 [functions."verify-metaapi-account"]
   timeout = 26
 

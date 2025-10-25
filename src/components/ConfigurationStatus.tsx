@@ -5,29 +5,43 @@ import { isSupabaseConfigured } from '@/lib/supabase';
 interface ConfigStatus {
   supabase: boolean;
   metaapi: boolean;
+  metaapiVerified?: boolean;
 }
 
 export const ConfigurationStatus: React.FC = () => {
   const [status, setStatus] = useState<ConfigStatus>({
     supabase: false,
-    metaapi: false
+    metaapi: false,
+    metaapiVerified: false
   });
   const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
-    const checkConfiguration = () => {
+    const checkConfiguration = async () => {
       const supabaseConfigured = isSupabaseConfigured();
       const metaapiConfigured = !!(
         import.meta.env.VITE_METAAPI_ACCOUNT_ID &&
         import.meta.env.VITE_METAAPI_REGION
       );
 
+      let metaapiVerified = false;
+      if (metaapiConfigured) {
+        try {
+          const res = await fetch('/.netlify/functions/verify-metaapi-account', { method: 'GET' });
+          const data = await res.json();
+          metaapiVerified = data.ok === true;
+        } catch (error) {
+          console.warn('MetaAPI verification check failed:', error);
+        }
+      }
+
       setStatus({
         supabase: supabaseConfigured,
-        metaapi: metaapiConfigured
+        metaapi: metaapiConfigured,
+        metaapiVerified
       });
 
-      if (!supabaseConfigured || !metaapiConfigured) {
+      if (!supabaseConfigured || !metaapiVerified) {
         setShowDetails(true);
       }
     };
@@ -72,21 +86,27 @@ export const ConfigurationStatus: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2">
-                {status.metaapi ? (
+                {status.metaapiVerified ? (
                   <CheckCircle className="w-4 h-4 text-emerald-400" />
                 ) : (
                   <AlertCircle className="w-4 h-4 text-yellow-400" />
                 )}
                 <span className="text-white/70">
-                  MetaApi: {status.metaapi ? 'Connected' : 'Demo mode (live trading disabled)'}
+                  MetaApi: {status.metaapiVerified ? 'Connected' : 'Not connected'}
                 </span>
               </div>
             </div>
           )}
 
-          {partiallyConfigured && !allConfigured && (
+          {!status.metaapiVerified && status.metaapi && (
             <p className="text-white/60 text-xs mt-3">
-              The app is running in demo mode. Configure MetaApi credentials in your .env file to enable live trading.
+              MetaApi credentials configured but connection verification failed. Check backend configuration.
+            </p>
+          )}
+
+          {!status.metaapi && (
+            <p className="text-white/60 text-xs mt-3">
+              Configure MetaApi credentials in your .env file to enable live trading.
             </p>
           )}
 

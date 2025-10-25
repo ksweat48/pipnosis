@@ -8,7 +8,6 @@
 type MetaApi = any;
 type MetatraderAccount = any;
 import { errorHandler } from '@/lib/error-handler';
-import { tokenManager } from './token-manager';
 
 export interface CandleData {
   symbol: string;
@@ -60,7 +59,6 @@ class MetaApiService {
   private token: string = '';
   private accountId: string;
   private region: string;
-  private tokenFetchPromise: Promise<string> | null = null;
   private synchronizationListeners: Map<string, MarketDataListener> = new Map();
   private isListenerRegistered = false;
   private isDemoMode = false;
@@ -91,12 +89,7 @@ class MetaApiService {
   constructor() {
     this.accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID || '';
     this.region = import.meta.env.VITE_METAAPI_REGION || 'new-york';
-
-    // Demo mode only activated when credentials are genuinely missing
-    if (!this.accountId) {
-      this.isDemoMode = true;
-      console.warn('⚠️ MetaAPI Account ID not configured - running in demo mode');
-    }
+    this.isDemoMode = false;
   }
 
   private convertToApiTimeframe(timeframe: Timeframe): ApiTimeframe {
@@ -134,12 +127,6 @@ class MetaApiService {
       return;
     }
 
-    if (this.isDemoMode) {
-      const error = new Error('MetaAPI credentials not configured. Using demo mode with cached data only.');
-      this.initializationError = error;
-      console.warn('⚠️ Initialize called but demo mode is active');
-      return;
-    }
 
     if (this.isInitializing) {
       while (this.isInitializing) {
@@ -154,25 +141,8 @@ class MetaApiService {
     }
 
     if (!this.accountId) {
-      const error = new Error('MetaApi account ID not configured. App running in demo mode. Configure VITE_METAAPI_ACCOUNT_ID for live trading.');
+      const error = new Error('MetaApi account ID not configured. Configure VITE_METAAPI_ACCOUNT_ID.');
       this.initializationError = error;
-      this.isDemoMode = true;
-      console.warn('⚠️ MetaApi account ID not configured - running in demo mode with cached data only');
-      throw error;
-    }
-
-    try {
-      console.log('Fetching secure temporary token from backend...');
-      this.token = await this.fetchToken();
-      console.log('✓ Received secure temporary token');
-    } catch (tokenError) {
-      const error = new Error(
-        `Failed to fetch MetaAPI token: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}. ` +
-        `Ensure backend token service is configured with METAAPI_ADMIN_TOKEN.`
-      );
-      this.initializationError = error;
-      this.isDemoMode = true;
-      console.error('⚠️ Token fetch failed - running in demo mode');
       throw error;
     }
 
@@ -183,17 +153,11 @@ class MetaApiService {
       console.log(`Region: ${this.region}`);
       console.log(`Account ID: ${this.accountId}`);
 
-      // Use backend proxy to verify account (avoids browser SSL issues)
-      console.log('Verifying account via backend proxy...');
+      // Verify account via backend (secure, uses admin token server-side)
+      console.log('Verifying MetaAPI connection via backend...');
       try {
         const response = await fetch('/.netlify/functions/verify-metaapi-account', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            token: this.token,
-            accountId: this.accountId,
-            region: this.region
-          })
+          method: 'GET'
         });
 
         if (!response.ok) {
@@ -201,123 +165,36 @@ class MetaApiService {
           throw new Error(errorData.error || 'Account verification failed');
         }
 
-        const { account: accountInfo } = await response.json();
-        console.log(`✓ Account verified via backend proxy`);
-        console.log(`Account state: ${accountInfo.state}`);
-        console.log(`Account region: ${accountInfo.region}`);
-        console.log(`Broker server: ${accountInfo.server || 'Unknown'}`);
-
-        // Now initialize MetaAPI SDK for streaming connection
-        this.api = new MetaApi(this.token, {
-          application: 'Pipnosis',
-          domain: `${this.region}.agiliumtrade.ai`,
-          enableLatencyMonitor: false,
-          requestTimeout: 60000,
-          connectTimeout: 60000
-        });
-
-        this.account = await this.api.metatraderAccountApi.getAccount(this.accountId);
-
-        if (this.account.region && this.account.region !== this.region) {
-          throw new Error(
-            `Region mismatch: Account is in '${this.account.region}' region but SDK is configured for '${this.region}'. ` +
-            `Please set VITE_METAAPI_REGION=${this.account.region} in your .env file.`
-          );
+        const result = await response.json();
+        if (!result.ok) {
+          throw new Error(result.error || 'Account verification failed');
         }
+
+        console.log(`✓ MetaAPI account verified`);
+        console.log(`Account: ${result.name} (${result.id})`);
+        console.log(`Platform: ${result.platform}`);
+        console.log(`Region: ${result.region}`);
+        console.log(`Server: ${result.server}`);
+        console.log(`State: ${result.state}`);
+        console.log(`Connection: ${result.connectionStatus}`);
+
+        // Backend verification successful - frontend streaming not used
+        // All MetaAPI operations should go through backend functions
       } catch (apiError) {
         const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
         if (errorHandler.isNetworkError(apiError) || errorHandler.isMetaApiError(apiError)) {
-          errorHandler.handleMetaApiError(apiError, 'Account Fetch');
-          this.isDemoMode = true;
-          throw new Error('MetaAPI connection unavailable. Using demo mode.');
+          errorHandler.handleMetaApiError(apiError, 'Account Verification');
         }
-        if (errorMessage.includes('ERR_NETWORK') || errorMessage.includes('Failed to fetch') || errorMessage.includes('ERR_CERT')) {
-          throw new Error('Network connection failed. Unable to reach MetaApi servers. Check your internet connection or firewall settings.');
-        }
-        console.error('Failed to get MetaApi account:', errorMessage);
-        throw new Error('Invalid MetaApi account ID or credentials. Please verify your configuration.');
+        console.error('Failed to verify MetaAPI account:', errorMessage);
+        throw new Error('MetaAPI account verification failed. Check backend configuration.');
       }
 
-      const deployedStates = ['DEPLOYED', 'DEPLOYING'];
-      if (!deployedStates.includes(this.account.state)) {
-        console.log('⚠️ Account is not deployed. Current state:', this.account.state);
-        console.log('Attempting to deploy account...');
-        try {
-          await this.account.deploy();
-          console.log('✓ Account deployment initiated');
-        } catch (deployError) {
-          const deployMessage = deployError instanceof Error ? deployError.message : 'Unknown error';
-          throw new Error(`Account deployment failed: ${deployMessage}. Please deploy your account manually in the MetaAPI dashboard.`);
-        }
-      }
-
-      console.log('Waiting for account deployment...');
-      try {
-        await this.account.waitDeployed({ timeoutInSeconds: 300, intervalInMilliseconds: 1000 });
-        console.log('✓ Account deployed successfully');
-      } catch (waitError) {
-        const waitMessage = waitError instanceof Error ? waitError.message : 'Unknown error';
-        throw new Error(
-          `Account deployment timeout: ${waitMessage}. ` +
-          `Please ensure your account is deployed and connected to broker in the MetaAPI dashboard.`
-        );
-      }
-
-      console.log('Getting streaming connection...');
-      this.connection = this.account.getStreamingConnection();
-
-      if (!this.connection) {
-        throw new Error('Failed to get streaming connection from MetaApi account');
-      }
-
-      console.log(`Connecting to streaming endpoint at ${this.region}.agiliumtrade.ai...`);
-      try {
-        await this.connection.connect();
-        console.log('✓ Connected to streaming endpoint');
-      } catch (connectError) {
-        if (errorHandler.isNetworkError(connectError) || errorHandler.isMetaApiError(connectError)) {
-          errorHandler.handleMetaApiError(connectError, 'Streaming Connect');
-          this.isDemoMode = true;
-          throw new Error('MetaAPI streaming unavailable. Using demo mode.');
-        }
-        const errorMessage = connectError instanceof Error ? connectError.message : 'Unknown error';
-        console.error('Connection error:', errorMessage);
-
-        if (errorMessage.includes('not connected to broker') || errorMessage.includes('region')) {
-          throw new Error(
-            `MetaAPI connection failed: ${errorMessage}. ` +
-            `Please check: 1) Account is deployed and connected to broker in MetaAPI dashboard, ` +
-            `2) Correct region is set (current: ${this.region}). ` +
-            `Available regions: new-york, london, singapore.`
-          );
-        }
-
-        throw new Error(`Failed to connect to MetaApi streaming endpoint: ${errorMessage}`);
-      }
-
-      console.log('Waiting for synchronization...');
-      try {
-        await this.connection.waitSynchronized({ timeoutInSeconds: 300 });
-        console.log('✓ Synchronization completed');
-      } catch (syncError) {
-        const syncMessage = syncError instanceof Error ? syncError.message : 'Unknown error';
-
-        if (syncMessage.includes('TimeoutError') || syncMessage.includes('not connected to broker')) {
-          throw new Error(
-            `Synchronization failed: ${syncMessage}. ` +
-            `This usually means the account is not properly connected to the broker. ` +
-            `Please verify in MetaAPI dashboard that your account shows 'Connected' status.`
-          );
-        }
-
-        console.warn('⚠️ Synchronization timeout, attempting to continue:', syncError);
-      }
 
       this.isInitialized = true;
       this.isInitializing = false;
       this.initializationError = null;
-      console.log('✅ MetaApi initialized successfully with streaming connection');
-      console.log('Connection ready for live market data streaming');
+      console.log('✅ MetaAPI connection verified successfully');
+      console.log('Backend functions will handle all MetaAPI operations securely');
     } catch (error) {
       this.isInitializing = false;
       this.initializationError = error as Error;
@@ -745,35 +622,10 @@ class MetaApiService {
     });
   }
 
-  private async fetchToken(): Promise<string> {
-    if (this.tokenFetchPromise) {
-      return this.tokenFetchPromise;
-    }
-
-    this.tokenFetchPromise = tokenManager.getToken(this.accountId)
-      .finally(() => {
-        this.tokenFetchPromise = null;
-      });
-
-    return this.tokenFetchPromise;
-  }
-
-  async refreshToken(): Promise<void> {
-    try {
-      console.log('Refreshing MetaAPI token...');
-      tokenManager.clearCache(this.accountId);
-      this.token = await this.fetchToken();
-      console.log('✓ Token refreshed successfully');
-
-      if (this.isInitialized) {
-        console.log('Re-initializing connection with new token...');
-        await this.disconnect();
-        await this.initialize();
-      }
-    } catch (error) {
-      console.error('Failed to refresh token:', error);
-      throw error;
-    }
+  async verifyConnection(): Promise<any> {
+    const res = await fetch('/.netlify/functions/verify-metaapi-account', { method: 'GET' });
+    if (!res.ok) throw new Error(`Verify failed: ${res.status}`);
+    return res.json();
   }
 
   async disconnect(): Promise<void> {
