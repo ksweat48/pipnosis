@@ -20,23 +20,14 @@ export const handler = async () => {
 
     const metaApi = new MetaApi(adminToken, { region });
 
-    // ✅ Correct endpoint for narrowing in your SDK
-    const response = await metaApi.tokenManagementApi.narrowDownAuthToken({
+    // ✅ VALID narrowing format for SDK v29.3.1
+    const token = await metaApi.tokenManagementApi.createNarrowAccessToken({
       application: 'mt-client-api',
-      accessRules: [
-        {
-          application: 'mt-client-api',
-          resources: [
-            {
-              type: 'account',
-              id: accountId
-            }
-          ]
-        }
+      resources: [
+        { type: 'account', id: accountId }
       ]
     });
 
-    const token = response.token;
     console.log('✅ Narrow token successfully generated');
 
     return {
