@@ -42,7 +42,6 @@ class MarketDataService {
   private maxReconnectAttempts = 5;
   private isInitialized = false;
   private initializationAttempted = false;
-  private isDemoMode = false;
   private symbolsInitialized: Set<string> = new Set();
   private chartDataCache: Map<string, { data: ChartCandleData[], volumeData: any[], timestamp: number }> = new Map();
   private readonly CHART_CACHE_TTL = 30000;
@@ -56,8 +55,8 @@ class MarketDataService {
   ): Promise<CandleData[]> {
     const effectiveLimit = quickLoad ? Math.min(100, limit) : limit;
     let apiCandles: CandleData[] = [];
-    // Always attempt to fetch live data when not in demo mode
-    let shouldFetchApi = !this.isDemoMode;
+    // Always fetch live data for charts
+    let shouldFetchApi = true;
 
     if (useCache) {
       const cachedCandles = await marketDataCache.getCachedCandles(
@@ -82,22 +81,12 @@ class MarketDataService {
           recommendation: cacheValidation.shouldUseCacheOnly ? 'USE CACHE' : 'FETCH FROM API'
         });
 
-        // In production/preview, prioritize live data unless explicitly using quickLoad
-        if (cacheValidation.shouldUseCacheOnly && quickLoad) {
-          shouldFetchApi = false;
-          apiCandles = cachedCandles;
-          console.log(`✅ Quick load: Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
-        } else if (!cacheValidation.shouldUseCacheOnly && !this.isDemoMode) {
-          console.log(`🔄 Fetching fresh data: ${cacheValidation.reason}`);
-        } else if (this.isDemoMode && cachedCandles.length > 0) {
-          apiCandles = cachedCandles;
-          shouldFetchApi = false;
-          console.log(`💾 Demo mode: Using ${cachedCandles.length} cached candles for ${symbol} ${timeframe}`);
-        }
+        // In production, always fetch live data for charts
+        console.log(`🔄 Fetching fresh live data: ${cacheValidation.reason}`);
       }
     }
 
-    if (shouldFetchApi && !this.isDemoMode) {
+    if (shouldFetchApi) {
       try {
         const endTime = new Date();
         const startTime = utilCalculateStartTime(timeframe, limit, endTime);
@@ -143,18 +132,8 @@ class MarketDataService {
 
         console.log(`📡 Fetched ${apiCandles.length} candles from MetaAPI for ${symbol} ${timeframe}`);
       } catch (error) {
-        console.error('Error fetching from MetaAPI:', error);
-        const cachedCandles = await marketDataCache.getCachedCandles(
-          symbol,
-          timeframe,
-          limit
-        );
-        if (cachedCandles.length > 0) {
-          apiCandles = cachedCandles;
-          console.log(`⚠️ MetaApi error, using ${cachedCandles.length} cached candles`);
-        } else {
-          throw error;
-        }
+        console.error('Error fetching live data from MetaAPI:', error);
+        throw new Error(`Failed to fetch live market data: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
 
@@ -202,13 +181,11 @@ class MarketDataService {
       Promise.resolve().then(async () => {
         await multiTimeframeAggregator.initialize(symbol);
         console.log(`✅ Initialized multi-timeframe aggregation for ${symbol}`);
-        if (!this.isDemoMode) {
-          timeframeBackfillService.checkAndBackfillAllTimeframes(symbol, timeframe).catch(err => {
-            console.warn('Background backfill check failed:', err);
-          });
-        }
+        timeframeBackfillService.checkAndBackfillAllTimeframes(symbol, timeframe).catch(err => {
+          console.warn('Background backfill check failed:', err);
+        });
       });
-    } else if (!this.isDemoMode) {
+    } else {
       Promise.resolve().then(() => {
         timeframeBackfillService.checkAndBackfillTimeframe(symbol, timeframe).catch(err => {
           console.warn('Timeframe backfill check failed:', err);
@@ -505,7 +482,6 @@ class MarketDataService {
     try {
       await metaApiService.initialize();
       this.isInitialized = true;
-      this.isDemoMode = false;
 
       dbHealthMonitor.startMonitoring();
       candleCompletionService.start();
@@ -515,15 +491,7 @@ class MarketDataService {
       console.log('🔄 Candle completion service active');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-      if (errorMessage.includes('not configured') || errorMessage.includes('demo mode')) {
-        this.isDemoMode = true;
-        console.warn('⚠️ Running in demo mode with cached data only');
-      } else {
-        console.error('❌ Failed to initialize MetaApi:', errorMessage);
-        this.isDemoMode = true;
-      }
-
+      console.error('❌ Failed to initialize MetaApi:', errorMessage);
       dbHealthMonitor.startMonitoring();
       throw error;
     }
@@ -555,7 +523,7 @@ class MarketDataService {
       limit
     );
 
-    if (candles.length === 0 && !this.isDemoMode) {
+    if (candles.length === 0) {
       const fetchedCandles = await this.getHistoricalData(symbol, timeframe, limit, true, false);
       return fetchedCandles;
     }
@@ -735,8 +703,8 @@ class MarketDataService {
 
       console.log(`📊 Current state: ${currentCandles.length} candles, ${beforeCompleteness.toFixed(1)}% complete, ${currentValidation.gaps} gaps`);
 
-      if (!this.isInitialized || this.isDemoMode) {
-        console.log('⚠️ MetaAPI not available, can only validate existing data');
+      if (!this.isInitialized) {
+        console.log('⚠️ MetaAPI not initialized, can only validate existing data');
         const validationResult = dataValidator.validateCandleSequence(currentCandles, timeframe);
 
         if (!validationResult.isValid) {
@@ -748,7 +716,7 @@ class MarketDataService {
             candlesFetched: 0,
             gapsFilled: 0,
             completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
-            message: `Repaired ${validationResult.errors.length} invalid candles (MetaAPI unavailable for fetching missing data)`
+            message: `Repaired ${validationResult.errors.length} invalid candles (MetaAPI not initialized)`
           };
         }
 
@@ -757,7 +725,7 @@ class MarketDataService {
           candlesFetched: 0,
           gapsFilled: 0,
           completenessImprovement: { before: beforeCompleteness, after: beforeCompleteness },
-          message: 'MetaAPI not available. Cannot fetch missing candles.'
+          message: 'MetaAPI not initialized. Cannot fetch missing candles.'
         };
       }
 

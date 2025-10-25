@@ -61,7 +61,6 @@ class MetaApiService {
   private region: string;
   private synchronizationListeners: Map<string, MarketDataListener> = new Map();
   private isListenerRegistered = false;
-  private isDemoMode = false;
   private latestPrices: Map<string, { bid: number; ask: number; timestamp: number }> = new Map();
   private readonly PRICE_CACHE_TTL = 60000;
 
@@ -89,7 +88,6 @@ class MetaApiService {
   constructor() {
     this.accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID || '';
     this.region = import.meta.env.VITE_METAAPI_REGION || 'new-york';
-    this.isDemoMode = false;
   }
 
   private convertToApiTimeframe(timeframe: Timeframe): ApiTimeframe {
@@ -232,8 +230,8 @@ class MetaApiService {
     startTime?: Date,
     limit: number = 500
   ): Promise<CandleData[]> {
-    if (this.isDemoMode || this.initializationError) {
-      throw this.initializationError || new Error('MetaApi not available in demo mode');
+    if (this.initializationError) {
+      throw this.initializationError;
     }
     await this.ensureInitialized();
 
@@ -513,8 +511,8 @@ class MetaApiService {
     symbol: string,
     listener: MarketDataListener
   ): Promise<void> {
-    if (this.isDemoMode || this.initializationError) {
-      throw this.initializationError || new Error('MetaApi not available in demo mode');
+    if (this.initializationError) {
+      throw this.initializationError;
     }
     await this.ensureInitialized();
 
@@ -558,8 +556,8 @@ class MetaApiService {
   }
 
   async getSymbolPrice(symbol: string): Promise<{ bid: number; ask: number }> {
-    if (this.isDemoMode || this.initializationError) {
-      throw this.initializationError || new Error('MetaApi not available in demo mode');
+    if (this.initializationError) {
+      throw this.initializationError;
     }
     await this.ensureInitialized();
 

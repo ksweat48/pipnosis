@@ -217,11 +217,8 @@ class TimeframeBackfillService {
         console.log(`💾 Stored ${candles.length} candles for ${task.symbol} ${task.timeframe}`);
       }
     } catch (error) {
-      if (error instanceof Error && error.message.includes('demo mode')) {
-        console.warn(`⚠️ Cannot backfill in demo mode: ${task.symbol} ${task.timeframe}`);
-      } else {
-        throw error;
-      }
+      console.error(`❌ Backfill failed for ${task.symbol} ${task.timeframe}:`, error);
+      throw error;
     }
   }
 
