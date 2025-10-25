@@ -20,21 +20,24 @@ export const handler = async () => {
 
     const metaApi = new MetaApi(adminToken, { region });
 
-    const response = await metaApi.tokenManagementApi.narrowDownTokenResources([
-      {
-        application: 'mt-client-api',
-        resources: [
-          {
-            type: 'account',
-            id: accountId,
-            permissions: ['read', 'trade']
-          }
-        ]
-      }
-    ]);
+    // ✅ Correct endpoint for narrowing in your SDK
+    const response = await metaApi.tokenManagementApi.narrowDownAuthToken({
+      application: 'mt-client-api',
+      accessRules: [
+        {
+          application: 'mt-client-api',
+          resources: [
+            {
+              type: 'account',
+              id: accountId
+            }
+          ]
+        }
+      ]
+    });
 
     const token = response.token;
-    console.log('✅ Token successfully generated');
+    console.log('✅ Narrow token successfully generated');
 
     return {
       statusCode: 200,
