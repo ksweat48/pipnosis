@@ -20,15 +20,20 @@ export const handler = async () => {
 
     const metaApi = new MetaApi(adminToken, { region });
 
-    // ✅ VALID narrowing format for SDK v29.3.1
-    const token = await metaApi.tokenManagementApi.createNarrowAccessToken({
+    // ✅ CORRECT v29 API — Generate narrowed READ + TRADE token
+    const response = await metaApi.accessTokenApi.narrowToken({
       application: 'mt-client-api',
       resources: [
-        { type: 'account', id: accountId }
+        {
+          type: 'account',
+          id: accountId,
+          permissions: ['trade']   // ✅ allows both READ + TRADE
+        }
       ]
     });
 
-    console.log('✅ Narrow token successfully generated');
+    const token = response.token;
+    console.log('✅ Token successfully generated');
 
     return {
       statusCode: 200,
