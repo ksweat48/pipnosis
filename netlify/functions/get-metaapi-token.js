@@ -22,7 +22,7 @@ export const handler = async () => {
 
     const response = await metaApi.tokenManagementApi.narrowDownTokenResources([
       {
-        application: 'trading-account-management-api',
+        application: 'mt-client-api',
         resources: [
           {
             type: 'account',
