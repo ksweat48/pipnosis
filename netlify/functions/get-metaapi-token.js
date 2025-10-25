@@ -20,14 +20,14 @@ export const handler = async () => {
 
     const metaApi = new MetaApi(adminToken, { region });
 
-    // ✅ CORRECT v29 API — Generate narrowed READ + TRADE token
-    const response = await metaApi.accessTokenApi.narrowToken({
+    // ✅ Correct v29 method: narrowToken (NOT accessTokenApi)
+    const response = await metaApi.tokenManagementApi.narrowToken({
       application: 'mt-client-api',
       resources: [
         {
           type: 'account',
           id: accountId,
-          permissions: ['trade']   // ✅ allows both READ + TRADE
+          permissions: ['trade']   // ✅ read + trade access
         }
       ]
     });
