@@ -1,4 +1,4 @@
-import fetch from 'node-fetch';
+// No imports needed for fetch on Node 18+
 
 // CORS headers
 const corsHeaders = {
