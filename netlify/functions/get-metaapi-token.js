@@ -1,72 +1,45 @@
-// Allow MetaAPI SSL even if cert chain is outdated
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+import MetaApi from 'metaapi.cloud-sdk';
 
-// CORS headers
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-};
-
-export const handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers: corsHeaders };
-  }
-
-  console.info("MetaAPI token generation request received");
+export const handler = async () => {
+  console.log('MetaAPI token generation request received');
 
   const adminToken = process.env.METAAPI_ADMIN_TOKEN;
   const accountId = process.env.METAAPI_ACCOUNT_ID;
-  const region = process.env.METAAPI_REGION || "new-york";
+  const region = process.env.METAAPI_REGION || 'new-york';
 
-  // Manual safety check (no validator, no supabase)
   if (!adminToken || !accountId) {
-    console.error("Missing MetaAPI environment variables");
+    console.error('Missing required MetaAPI env vars');
     return {
       statusCode: 500,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: 'Missing MetaAPI environment variables' })
+      body: JSON.stringify({ error: 'Missing METAAPI_ADMIN_TOKEN or METAAPI_ACCOUNT_ID' })
     };
   }
 
   try {
-    const url = `https://mt-provisioning-api-v1.${region}.metaapi.cloud/users/current/tokens`;
+    console.log(`Requesting narrow token for account: ${accountId} in region: ${region}`);
 
-    console.info(`Requesting MetaAPI token from: ${url}`);
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'auth-token': adminToken,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ accountId })
+    const metaApi = new MetaApi(adminToken, { region });
+    const response = await metaApi.tokenManagementApi.narrowDownTokenResources({
+      accounts: [{ id: accountId }]
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`MetaAPI returned error:`, errText);
-      return {
-        statusCode: response.status,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'MetaAPI request failed', details: errText })
-      };
-    }
+    const token = response?.token || response;
 
-    const data = await response.json();
-    console.info("✅ MetaAPI token successfully generated");
-
+    console.log('✅ Token successfully generated');
     return {
       statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify(data)
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
     };
 
-  } catch (err) {
-    console.error("❌ Unexpected token generation error:", err);
+  } catch (error) {
+    console.error('❌ Failed to generate MetaAPI token:', error);
     return {
       statusCode: 500,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: 'Unexpected MetaAPI token error', details: err.message })
+      body: JSON.stringify({
+        error: 'Failed to generate MetaAPI token',
+        details: error.message
+      })
     };
   }
 };
