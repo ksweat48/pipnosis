@@ -29,15 +29,17 @@ export const handler = async (event) => {
   }
 
   try {
-    const url = `https://mt-provisioning-api-v1.${region}.metaapi.cloud/users/current/accounts/${accountId}/token`;
+    const url = `https://mt-provisioning-api-v1.${region}.metaapi.cloud/users/current/tokens`;
 
     console.info(`Requesting MetaAPI token from: ${url}`);
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'auth-token': adminToken
-      }
+        'auth-token': adminToken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ accountId })
     });
 
     if (!response.ok) {
