@@ -19,11 +19,17 @@ export const handler = async () => {
     console.log(`Requesting narrow token for account: ${accountId} in region: ${region}`);
 
     const metaApi = new MetaApi(adminToken, { region });
-    const response = await metaApi.tokenManagementApi.narrowDownTokenResources({
-      accounts: [{ id: accountId }]
-    });
 
-    const token = response?.token || response;
+    // ✅ Correct access rule format
+    const response = await metaApi.tokenManagementApi.narrowDownTokenResources([
+      {
+        type: 'account',
+        id: accountId,
+        permissions: ['read', 'trade']
+      }
+    ]);
+
+    const token = response.token;
 
     console.log('✅ Token successfully generated');
     return {
