@@ -20,18 +20,18 @@ export const handler = async () => {
 
     const metaApi = new MetaApi(adminToken, { region });
 
-    // ✅ Correct access rule format
     const response = await metaApi.tokenManagementApi.narrowDownTokenResources([
       {
         type: 'account',
         id: accountId,
+        entity: 'account',
         permissions: ['read', 'trade']
       }
     ]);
 
     const token = response.token;
-
     console.log('✅ Token successfully generated');
+
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
