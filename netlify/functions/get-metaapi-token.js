@@ -1,4 +1,5 @@
-// No imports needed for fetch on Node 18+
+// Allow MetaAPI SSL even if cert chain is outdated
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 // CORS headers
 const corsHeaders = {
