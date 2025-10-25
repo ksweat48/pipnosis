@@ -230,14 +230,8 @@ class MetaApiService {
     startTime?: Date,
     limit: number = 500
   ): Promise<CandleData[]> {
-    if (this.initializationError) {
-      throw this.initializationError;
-    }
-    await this.ensureInitialized();
-
-    if (!this.account) {
-      throw new Error('MetaApi account not initialized');
-    }
+    console.warn(`[metaapi] getHistoricalCandles called - WebSocket streaming disabled. Historical data should be fetched via backend or cached data.`);
+    throw new Error('Direct SDK historical candles disabled. Use cached data or backend functions.');
 
     const cacheKey = `${symbol}-${timeframe}-${limit}`;
     const cached = this.candleCache.get(cacheKey);
@@ -511,34 +505,8 @@ class MetaApiService {
     symbol: string,
     listener: MarketDataListener
   ): Promise<void> {
-    if (this.initializationError) {
-      throw this.initializationError;
-    }
-    await this.ensureInitialized();
-
-    if (!this.connection) {
-      throw new Error('Connection not established');
-    }
-
-    try {
-      if (typeof this.connection.subscribeToMarketData !== 'function') {
-        console.error('Connection object:', this.connection);
-        throw new Error('Invalid connection type: subscribeToMarketData method not available. Ensure streaming connection is used.');
-      }
-
-      if (!this.isListenerRegistered) {
-        const completeListener = this.createCompleteSynchronizationListener();
-        this.connection.addSynchronizationListener(completeListener);
-        this.isListenerRegistered = true;
-      }
-
-      this.synchronizationListeners.set(symbol, listener);
-
-      await this.connection.subscribeToMarketData(symbol);
-    } catch (error) {
-      console.error(`Failed to subscribe to market data for ${symbol}:`, error);
-      throw error;
-    }
+    console.warn(`[metaapi] subscribeToMarketData called for ${symbol} - WebSocket streaming disabled, using polling instead`);
+    return;
   }
 
   async unsubscribeFromMarketData(symbol: string): Promise<void> {

@@ -367,12 +367,15 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   useEffect(() => {
     if (isConnected) {
       subscribeToLiveData();
+      marketDataService.startLiveFeed(symbol, timeframe);
+      console.log(`🔄 Started polling live feed for ${symbol} ${timeframe}`);
     }
 
     return () => {
       if (listenerRef.current) {
         marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
       }
+      marketDataService.stopLiveFeed(symbol, timeframe);
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current);
         updateIntervalRef.current = null;

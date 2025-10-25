@@ -10,6 +10,7 @@ import { dataQualityMonitor } from './data-quality-monitor';
 import { multiTimeframeAggregator } from './multi-timeframe-aggregator';
 import { timeframeBackfillService } from './timeframe-backfill';
 import { marketHoursService } from './market-hours';
+import { LivePricePolling, Tick } from './livePricePolling';
 
 export interface MarketDataListener {
   onCandleUpdate?: (candle: CandleData) => void;
@@ -45,6 +46,9 @@ class MarketDataService {
   private symbolsInitialized: Set<string> = new Set();
   private chartDataCache: Map<string, { data: ChartCandleData[], volumeData: any[], timestamp: number }> = new Map();
   private readonly CHART_CACHE_TTL = 30000;
+  private livePollers: Map<string, LivePricePolling> = new Map();
+  private tickDebounceTimers: Map<string, NodeJS.Timeout> = new Map();
+  private readonly TICK_DEBOUNCE_MS = 150;
 
   async getHistoricalData(
     symbol: string,
@@ -87,54 +91,8 @@ class MarketDataService {
     }
 
     if (shouldFetchApi) {
-      try {
-        const endTime = new Date();
-        const startTime = utilCalculateStartTime(timeframe, limit, endTime);
-
-        const liveCandles = await metaApiService.getHistoricalCandles(
-          symbol,
-          timeframe,
-          startTime,
-          effectiveLimit
-        );
-
-        if (!quickLoad) {
-          const validationResult = dataValidator.validateCandleSequence(liveCandles, timeframe);
-          dataValidator.logValidationResults(validationResult, `${symbol} ${timeframe} API data`);
-
-          const cacheKey = `${symbol}_${timeframe}`;
-          const metrics: DataQualityMetrics = {
-            errorCount: validationResult.isValid ? 0 : validationResult.errors.length,
-            warningCount: validationResult.warnings.length,
-            repairedCount: 0,
-            totalCandles: liveCandles.length,
-            lastUpdate: new Date()
-          };
-
-          if (!validationResult.isValid) {
-            console.log(`🔧 Auto-repairing ${liveCandles.length} candles for ${symbol} ${timeframe}...`);
-            const beforeRepair = liveCandles.length;
-            apiCandles = dataValidator.validateAndRepairCandleSequence(liveCandles, timeframe, false);
-            metrics.repairedCount = beforeRepair;
-            console.log(`✅ Candles repaired and ready for use`);
-          } else {
-            apiCandles = liveCandles;
-          }
-
-          this.dataQualityMetrics.set(cacheKey, metrics);
-        } else {
-          apiCandles = liveCandles;
-        }
-
-        if (apiCandles.length > 0 && useCache) {
-          await marketDataCache.saveCandles(apiCandles, true);
-        }
-
-        console.log(`📡 Fetched ${apiCandles.length} candles from MetaAPI for ${symbol} ${timeframe}`);
-      } catch (error) {
-        console.error('Error fetching live data from MetaAPI:', error);
-        throw new Error(`Failed to fetch live market data: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      console.log(`📦 Using cached data only for ${symbol} ${timeframe} (live API fetch via polling)`);
+      apiCandles = [];
     }
 
     const recentLiveCandles = await marketDataCache.getCompleteCandles(
@@ -502,6 +460,7 @@ class MarketDataService {
   }
 
   async disconnect(): Promise<void> {
+    this.stopAllLiveFeeds();
     this.activeSubscriptions.clear();
     this.reconnectAttempts.clear();
     this.symbolsInitialized.clear();
@@ -678,6 +637,114 @@ class MarketDataService {
     } else {
       this.dataQualityMetrics.clear();
     }
+  }
+
+  startLiveFeed(symbol: string, timeframe: Timeframe = 'M5'): void {
+    const key = `${symbol}_${timeframe}`;
+
+    if (this.livePollers.has(key)) {
+      console.log(`Live feed already active for ${symbol} ${timeframe}`);
+      return;
+    }
+
+    const poller = new LivePricePolling(symbol, 2000);
+
+    poller.onTick((tick: Tick) => {
+      this.handlePollingTick(symbol, timeframe, tick);
+    });
+
+    poller.start();
+    this.livePollers.set(key, poller);
+
+    console.log(`✅ Started live feed polling for ${symbol} ${timeframe} (2s interval)`);
+  }
+
+  stopLiveFeed(symbol: string, timeframe: Timeframe = 'M5'): void {
+    const key = `${symbol}_${timeframe}`;
+    const poller = this.livePollers.get(key);
+
+    if (poller) {
+      poller.stop();
+      this.livePollers.delete(key);
+      console.log(`⏹️ Stopped live feed polling for ${symbol} ${timeframe}`);
+    }
+
+    const debounceTimer = this.tickDebounceTimers.get(key);
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      this.tickDebounceTimers.delete(key);
+    }
+  }
+
+  stopAllLiveFeeds(): void {
+    this.livePollers.forEach((poller, key) => {
+      poller.stop();
+      console.log(`⏹️ Stopped live feed polling for ${key}`);
+    });
+    this.livePollers.clear();
+
+    this.tickDebounceTimers.forEach((timer) => clearTimeout(timer));
+    this.tickDebounceTimers.clear();
+  }
+
+  private handlePollingTick(symbol: string, timeframe: Timeframe, tick: Tick): void {
+    const key = `${symbol}_${timeframe}`;
+
+    const existingTimer = this.tickDebounceTimers.get(key);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const mid = (tick.bid + tick.ask) / 2;
+        const tickTime = new Date(tick.time);
+
+        const updatedCandle = await marketDataCache.updateLiveCandle(
+          symbol,
+          timeframe,
+          mid,
+          tickTime
+        );
+
+        if (updatedCandle) {
+          const listeners = this.activeSubscriptions.get(key);
+          if (listeners) {
+            listeners.forEach(listener => {
+              if (listener.onCandleUpdate) {
+                listener.onCandleUpdate(updatedCandle);
+              }
+            });
+          }
+
+          const tickData: TickData = {
+            symbol: tick.symbol,
+            bid: tick.bid,
+            ask: tick.ask,
+            time: tickTime,
+            brokerTime: tick.time
+          };
+
+          if (listeners) {
+            listeners.forEach(listener => {
+              if (listener.onTick) {
+                listener.onTick(tickData);
+              }
+            });
+          }
+        }
+      } catch (error) {
+        console.error(`Error handling polling tick for ${symbol} ${timeframe}:`, error);
+      }
+    }, this.TICK_DEBOUNCE_MS);
+
+    this.tickDebounceTimers.set(key, timer);
+  }
+
+  isLiveFeedActive(symbol: string, timeframe: Timeframe = 'M5'): boolean {
+    const key = `${symbol}_${timeframe}`;
+    const poller = this.livePollers.get(key);
+    return poller ? poller.isActive() : false;
   }
 
   async fetchAndFillMissingCandles(

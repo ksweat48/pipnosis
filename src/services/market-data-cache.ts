@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { CandleData, Timeframe } from './metaapi';
 import { dataValidator } from './data-validator';
 import { dbHealthMonitor } from './db-health-monitor';
+import { getCandleOpenTime } from './candle-utils';
 
 interface MarketDataRow {
   id?: string;
@@ -161,6 +162,102 @@ class MarketDataCache {
     } catch (error) {
       console.error('Error in getCompleteCandles:', error);
       return [];
+    }
+  }
+
+  async updateLiveCandle(
+    symbol: string,
+    timeframe: Timeframe,
+    price: number,
+    timestamp: Date = new Date()
+  ): Promise<CandleData | null> {
+    try {
+      const candleOpenTime = getCandleOpenTime(timestamp, timeframe);
+      const candleOpenTimeISO = candleOpenTime.toISOString();
+
+      const { data: existing, error: fetchError } = await supabase
+        .from('market_data')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('timeframe', timeframe)
+        .eq('timestamp', candleOpenTimeISO)
+        .eq('is_complete', false)
+        .maybeSingle();
+
+      if (fetchError) {
+        console.error('Error fetching incomplete candle:', fetchError);
+        return null;
+      }
+
+      let row: MarketDataRow;
+
+      if (existing) {
+        row = {
+          symbol,
+          timeframe,
+          timestamp: candleOpenTimeISO,
+          open: parseFloat(existing.open),
+          high: Math.max(parseFloat(existing.high), price),
+          low: Math.min(parseFloat(existing.low), price),
+          close: price,
+          volume: existing.volume || 0,
+          tick_volume: (existing.tick_volume || 0) + 1,
+          spread: existing.spread || 0,
+          broker_time: existing.broker_time,
+          data_source: 'live_tick',
+          is_complete: false,
+          completed_at: null
+        };
+      } else {
+        row = {
+          symbol,
+          timeframe,
+          timestamp: candleOpenTimeISO,
+          open: price,
+          high: price,
+          low: price,
+          close: price,
+          volume: 0,
+          tick_volume: 1,
+          spread: 0,
+          broker_time: timestamp.toISOString(),
+          data_source: 'live_tick',
+          is_complete: false,
+          completed_at: null
+        };
+      }
+
+      const { error: upsertError } = await supabase
+        .from('market_data')
+        .upsert(row, {
+          onConflict: 'symbol,timeframe,timestamp',
+          ignoreDuplicates: false
+        });
+
+      if (upsertError) {
+        console.error('Error upserting live candle:', upsertError);
+        dbHealthMonitor.recordExternalWriteFailure(upsertError.message);
+        return null;
+      }
+
+      dbHealthMonitor.recordExternalWriteSuccess();
+
+      return {
+        symbol,
+        timeframe,
+        time: candleOpenTime,
+        brokerTime: row.broker_time || '',
+        open: row.open,
+        high: row.high,
+        low: row.low,
+        close: row.close,
+        tickVolume: row.tick_volume,
+        spread: row.spread,
+        volume: row.volume
+      };
+    } catch (error) {
+      console.error('Exception in updateLiveCandle:', error);
+      return null;
     }
   }
 
