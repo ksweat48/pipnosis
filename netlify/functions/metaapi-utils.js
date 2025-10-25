@@ -1,5 +1,5 @@
 // MetaAPI Utility Module for Serverless Functions
-// Simplified version for essential functionality
+// Fully patched and includes proper narrowed token support
 
 /**
  * Initialize MetaAPI SDK with proper Node.js imports
@@ -9,10 +9,8 @@ function initializeMetaApiSDK() {
     let MetaApi;
 
     try {
-      // First attempt: Try the /node export explicitly
       const nodeModule = require('metaapi.cloud-sdk/node');
       MetaApi = nodeModule.default || nodeModule.MetaApi || nodeModule;
-
       if (MetaApi && typeof MetaApi === 'function') {
         console.log('✓ MetaAPI SDK loaded via /node export');
         return MetaApi;
@@ -22,10 +20,8 @@ function initializeMetaApiSDK() {
     }
 
     try {
-      // Second attempt: Try the main dist path (CommonJS)
       const distModule = require('metaapi.cloud-sdk/dist');
       MetaApi = distModule.default || distModule.MetaApi || distModule;
-
       if (MetaApi && typeof MetaApi === 'function') {
         console.log('✓ MetaAPI SDK loaded via /dist export');
         return MetaApi;
@@ -35,10 +31,8 @@ function initializeMetaApiSDK() {
     }
 
     try {
-      // Third attempt: Default require
       const mainModule = require('metaapi.cloud-sdk');
       MetaApi = mainModule.default || mainModule.MetaApi || mainModule;
-
       if (MetaApi && typeof MetaApi === 'function') {
         console.log('✓ MetaAPI SDK loaded via default export');
         return MetaApi;
@@ -47,7 +41,6 @@ function initializeMetaApiSDK() {
       console.error('Failed to load MetaAPI SDK from default export:', mainErr.message);
     }
 
-    // If we get here, none of the methods worked
     throw new Error('MetaAPI SDK constructor not found in any export path');
 
   } catch (error) {
@@ -58,21 +51,16 @@ function initializeMetaApiSDK() {
 
 /**
  * Create a MetaAPI client instance
- * @param {string} token - MetaAPI token (admin or narrowed)
- * @param {Object} options - Configuration options
- * @returns {Object} MetaAPI client instance
  */
 function createMetaApiClient(token, options = {}) {
   if (!token) {
     throw new Error('Token is required to create MetaAPI client');
   }
-
   if (typeof token !== 'string' || token.length < 10) {
     throw new Error('Invalid token format');
   }
 
   const MetaApi = initializeMetaApiSDK();
-
   const defaultOptions = {
     application: 'Pipnosis',
     requestTimeout: 30000,
@@ -86,35 +74,46 @@ function createMetaApiClient(token, options = {}) {
   };
 
   const config = { ...defaultOptions, ...options };
+  const client = new MetaApi(token, config);
+  console.log('✓ MetaAPI client created successfully');
+  return client;
+}
 
-  try {
-    const client = new MetaApi(token, config);
-    console.log('✓ MetaAPI client created successfully');
-    return client;
-  } catch (error) {
-    console.error('Failed to create MetaAPI client:', error);
-    throw new Error(`Client creation failed: ${error.message}`);
+/**
+ * ✅ NEW — Generate a narrowed token for a specific account
+ */
+async function generateNarrowToken(metaApi, accountId) {
+  if (!accountId) throw new Error('Account ID is required for token narrowing');
+
+  const response = await metaApi.tokenManagementApi.narrowDownTokenResources([
+    {
+      application: 'mt-client-api',
+      resources: [
+        {
+          type: 'account',
+          id: accountId,
+          permissions: ['read', 'trade']
+        }
+      ]
+    }
+  ]);
+
+  if (!response || !response.token) {
+    throw new Error('MetaAPI did not return a narrowed token');
   }
+
+  return response.token;
 }
 
 /**
  * Verify account access with a token
- * @param {string} token - MetaAPI token
- * @param {string} accountId - Account ID to verify
- * @param {string} region - MetaAPI region
- * @returns {Promise<Object>} Account information
  */
 async function verifyAccount(token, accountId, region = 'new-york') {
-  if (!token) {
-    throw new Error('Token is required');
-  }
-
-  if (!accountId) {
-    throw new Error('Account ID is required');
-  }
+  if (!token) throw new Error('Token is required');
+  if (!accountId) throw new Error('Account ID is required');
 
   const endpoint = `${region}.agiliumtrade.ai`;
-  console.log(`Verifying account ${accountId} in ${region} region`);
+  console.log(`Verifying account ${accountId} in ${region}`);
 
   const metaApi = createMetaApiClient(token, {
     domain: endpoint,
@@ -125,8 +124,6 @@ async function verifyAccount(token, accountId, region = 'new-york') {
   if (!metaApi.metatraderAccountApi) {
     throw new Error('MetaAPI client does not have metatraderAccountApi');
   }
-
-  console.log(`Calling MetaAPI getAccount API at ${endpoint}...`);
 
   const account = await metaApi.metatraderAccountApi.getAccount(accountId);
 
@@ -145,8 +142,7 @@ async function verifyAccount(token, accountId, region = 'new-york') {
 }
 
 /**
- * Get detailed SDK information for debugging
- * @returns {Object} SDK information
+ * SDK debug info helper
  */
 function getSDKInfo() {
   try {
@@ -172,5 +168,6 @@ module.exports = {
   initializeMetaApiSDK,
   createMetaApiClient,
   verifyAccount,
-  getSDKInfo
+  getSDKInfo,
+  generateNarrowToken // ✅ exported
 };
