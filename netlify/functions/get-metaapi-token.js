@@ -20,14 +20,14 @@ export const handler = async () => {
 
     const metaApi = new MetaApi(adminToken, { region });
 
+    // ✅ Correct payload for mt-client-api
     const response = await metaApi.tokenManagementApi.narrowDownTokenResources([
       {
         application: 'mt-client-api',
-        resources: [
+        accessRules: [
           {
             type: 'account',
-            id: accountId,
-            permissions: ['read', 'trade']
+            id: accountId
           }
         ]
       }
