@@ -1,6 +1,12 @@
 // netlify/functions/get-metaapi-token.js
 /* eslint-disable no-console */
-const MetaApi = require('metaapi.cloud-sdk');
+// Try both modern and fallback exports
+let MetaApi = require('metaapi.cloud-sdk').MetaApi || require('metaapi.cloud-sdk').default;
+
+if (!MetaApi) {
+  throw new Error('MetaApi class not found in metaapi.cloud-sdk exports');
+}
+
 
 function listMethods(obj) {
   if (!obj) return [];
