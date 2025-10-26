@@ -697,13 +697,23 @@ class MarketDataService {
 
     const timer = setTimeout(async () => {
       try {
-        const mid = (tick.bid + tick.ask) / 2;
+        const price = tick.mid !== undefined
+          ? tick.mid
+          : (tick.bid !== undefined && tick.ask !== undefined
+              ? (tick.bid + tick.ask) / 2
+              : undefined);
+
+        if (price === undefined) {
+          console.warn('[handlePollingTick] No valid price data in tick:', tick);
+          return;
+        }
+
         const tickTime = new Date(tick.time);
 
         const updatedCandle = await marketDataCache.updateLiveCandle(
           symbol,
           timeframe,
-          mid,
+          price,
           tickTime
         );
 

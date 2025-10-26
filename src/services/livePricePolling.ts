@@ -2,8 +2,11 @@ export type Tick = {
   symbol: string;
   bid: number;
   ask: number;
+  mid?: number;
+  spread?: number;
   time: string;
-  source: 'sdk:getSymbolPrice' | 'sdk:getTick' | 'rest' | string;
+  connectionState?: string;
+  source?: string;
 };
 
 type Listener = (t: Tick) => void;
@@ -14,6 +17,7 @@ export class LivePricePolling {
   private timer: number | null = null;
   private listeners: Set<Listener> = new Set();
   private isRunning = false;
+  private failCount = 0;
 
   constructor(symbol: string, intervalMs = 2000) {
     this.symbol = symbol.toUpperCase();
@@ -29,6 +33,7 @@ export class LivePricePolling {
     if (this.timer || this.isRunning) return;
 
     this.isRunning = true;
+    this.failCount = 0;
     const tick = async () => {
       if (!this.isRunning) return;
 
@@ -36,13 +41,24 @@ export class LivePricePolling {
         const url = `/.netlify/functions/get-latest-price?symbol=${encodeURIComponent(this.symbol)}`;
         const res = await fetch(url, { cache: 'no-store' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
         const data = (await res.json()) as Tick;
+
+        if (data.mid === undefined && data.bid !== undefined && data.ask !== undefined) {
+          data.mid = (data.bid + data.ask) / 2;
+        }
+
         this.listeners.forEach((l) => l(data));
+        this.failCount = 0;
       } catch (e) {
+        this.failCount++;
         console.warn('[LivePricePolling] fetch failed:', (e as Error)?.message);
       } finally {
         if (this.isRunning) {
-          this.timer = window.setTimeout(tick, this.intervalMs);
+          const backoff = Math.min(15000, this.failCount * 1000);
+          const jitter = Math.floor(Math.random() * 300);
+          const delay = this.intervalMs + backoff + jitter;
+          this.timer = window.setTimeout(tick, delay);
         }
       }
     };
@@ -55,6 +71,7 @@ export class LivePricePolling {
       window.clearTimeout(this.timer);
       this.timer = null;
     }
+    this.failCount = 0;
   }
 
   updateSymbol(symbol: string): void {
