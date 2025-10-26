@@ -150,8 +150,8 @@ exports.handler = async (event) => {
 
   try {
     const adminToken = process.env.METAAPI_ADMIN_TOKEN;
-    const accountId  = process.env.METAAPI_ACCOUNT_ID;
-    const region     = process.env.METAAPI_REGION || 'new-york';
+    const accountId  = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
+    const region     = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'new-york';
 
     if (!adminToken || !accountId) {
       console.error('[get-latest-price] Missing env vars', { hasAdmin: !!adminToken, hasAccount: !!accountId });
