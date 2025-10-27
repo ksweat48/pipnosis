@@ -195,117 +195,136 @@ exports.handler = async (event) => {
   let messageCount = 0;
   const startTime = Date.now();
 
+  const encoder = new TextEncoder();
+
   return {
     statusCode: 200,
     headers: CORS,
-    body: (async function* () {
-      try {
-        yield `data: ${JSON.stringify({ type: 'connected', symbols, timestamp: new Date().toISOString() })}\n\n`;
+    body: new ReadableStream({
+      async start(controller) {
+        let priceInterval = null;
 
-        await updateConnectionHealth(supabase, 'connecting');
-        const connection = await getOrCreateConnection();
-        await updateConnectionHealth(supabase, 'connected');
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', symbols, timestamp: new Date().toISOString() })}\n\n`));
 
-        for (const symbol of symbols) {
-          await subscribeToSymbol(connection, symbol);
-        }
+          await updateConnectionHealth(supabase, 'connecting');
+          const connection = await getOrCreateConnection();
+          await updateConnectionHealth(supabase, 'connected');
 
-        const priceListener = (symbolPrice) => {
-          const { symbol, bid, ask, time } = symbolPrice;
-
-          if (symbols.includes(symbol.toUpperCase())) {
-            const priceData = {
-              symbol,
-              bid,
-              ask,
-              mid: (bid + ask) / 2,
-              spread: ask - bid,
-              time,
-              source: 'metaapi-ws',
-              timestamp: new Date().toISOString()
-            };
-
-            lastPriceUpdate[symbol] = priceData;
-            messageCount++;
-
-            storePriceInSupabase(supabase, symbol, bid, ask, time, 'metaapi-ws').catch(err => {
-              console.error('[stream-prices] Failed to store price:', err);
-            });
+          for (const symbol of symbols) {
+            await subscribeToSymbol(connection, symbol);
           }
-        };
 
-        connection.addSynchronizationListener({
-          onSymbolPriceUpdated: priceListener
-        });
+          const priceListener = (symbolPrice) => {
+            const { symbol, bid, ask, time } = symbolPrice;
 
-        console.log('[stream-prices] Streaming started, waiting for price updates...');
+            if (symbols.includes(symbol.toUpperCase())) {
+              const priceData = {
+                symbol,
+                bid,
+                ask,
+                mid: (bid + ask) / 2,
+                spread: ask - bid,
+                time,
+                source: 'metaapi-ws',
+                timestamp: new Date().toISOString()
+              };
 
-        heartbeatId = setInterval(() => {
-          const runtime = Math.floor((Date.now() - startTime) / 1000);
-          const heartbeat = {
-            type: 'heartbeat',
-            timestamp: new Date().toISOString(),
-            runtime,
-            messageCount,
-            isHealthy: connection?.healthMonitor?.healthStatus?.isHealthy || false
+              lastPriceUpdate[symbol] = priceData;
+              messageCount++;
+
+              storePriceInSupabase(supabase, symbol, bid, ask, time, 'metaapi-ws').catch(err => {
+                console.error('[stream-prices] Failed to store price:', err);
+              });
+            }
           };
 
-          try {
-            yield `data: ${JSON.stringify(heartbeat)}\n\n`;
-          } catch (err) {
-            console.error('[stream-prices] Heartbeat error:', err);
-          }
-        }, 10000);
+          connection.addSynchronizationListener({
+            onSymbolPriceUpdated: priceListener
+          });
 
-        cleanupId = setInterval(async () => {
-          try {
-            await supabase.rpc('cleanup_old_realtime_prices');
-          } catch (err) {
-            console.error('[stream-prices] Cleanup error:', err);
-          }
-        }, 300000);
+          console.log('[stream-prices] Streaming started, waiting for price updates...');
 
-        const priceInterval = setInterval(() => {
-          for (const symbol of symbols) {
-            if (lastPriceUpdate[symbol]) {
-              const age = Date.now() - new Date(lastPriceUpdate[symbol].timestamp).getTime();
-              if (age < 5000) {
-                try {
-                  yield `data: ${JSON.stringify({ type: 'price', ...lastPriceUpdate[symbol] })}\n\n`;
-                } catch (err) {
-                  console.error('[stream-prices] Price broadcast error:', err);
+          heartbeatId = setInterval(() => {
+            const runtime = Math.floor((Date.now() - startTime) / 1000);
+            const heartbeat = {
+              type: 'heartbeat',
+              timestamp: new Date().toISOString(),
+              runtime,
+              messageCount,
+              isHealthy: connection?.healthMonitor?.healthStatus?.isHealthy || false
+            };
+
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(heartbeat)}\n\n`));
+            } catch (err) {
+              console.error('[stream-prices] Heartbeat error:', err);
+            }
+          }, 10000);
+
+          cleanupId = setInterval(async () => {
+            try {
+              await supabase.rpc('cleanup_old_realtime_prices');
+            } catch (err) {
+              console.error('[stream-prices] Cleanup error:', err);
+            }
+          }, 300000);
+
+          priceInterval = setInterval(() => {
+            for (const symbol of symbols) {
+              if (lastPriceUpdate[symbol]) {
+                const age = Date.now() - new Date(lastPriceUpdate[symbol].timestamp).getTime();
+                if (age < 5000) {
+                  try {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'price', ...lastPriceUpdate[symbol] })}\n\n`));
+                  } catch (err) {
+                    console.error('[stream-prices] Price broadcast error:', err);
+                  }
                 }
               }
             }
+          }, 500);
+
+          timeoutId = setTimeout(() => {
+            console.log('[stream-prices] Stream timeout after 9 minutes, closing...');
+            if (priceInterval) clearInterval(priceInterval);
+            controller.close();
+          }, 540000);
+
+          await new Promise((resolve) => {
+            setTimeout(resolve, 540000);
+          });
+
+        } catch (err) {
+          console.error('[stream-prices] Stream error:', err.message);
+          await updateConnectionHealth(supabase, 'error', err.message);
+
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              type: 'error',
+              error: err.message,
+              timestamp: new Date().toISOString()
+            })}\n\n`));
+          } catch (enqueueErr) {
+            console.error('[stream-prices] Failed to enqueue error:', enqueueErr);
           }
-        }, 500);
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
+          if (heartbeatId) clearInterval(heartbeatId);
+          if (cleanupId) clearInterval(cleanupId);
+          if (priceInterval) clearInterval(priceInterval);
 
-        timeoutId = setTimeout(() => {
-          console.log('[stream-prices] Stream timeout after 9 minutes, closing...');
-          clearInterval(priceInterval);
-        }, 540000);
+          console.log('[stream-prices] Stream ended, sent', messageCount, 'price updates');
 
-        await new Promise((resolve) => {
-          setTimeout(resolve, 540000);
-        });
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'closed', timestamp: new Date().toISOString() })}\n\n`));
+          } catch (enqueueErr) {
+            console.error('[stream-prices] Failed to enqueue close message:', enqueueErr);
+          }
 
-      } catch (err) {
-        console.error('[stream-prices] Stream error:', err.message);
-        await updateConnectionHealth(supabase, 'error', err.message);
-
-        yield `data: ${JSON.stringify({
-          type: 'error',
-          error: err.message,
-          timestamp: new Date().toISOString()
-        })}\n\n`;
-      } finally {
-        if (timeoutId) clearTimeout(timeoutId);
-        if (heartbeatId) clearInterval(heartbeatId);
-        if (cleanupId) clearInterval(cleanupId);
-
-        console.log('[stream-prices] Stream ended, sent', messageCount, 'price updates');
-        yield `data: ${JSON.stringify({ type: 'closed', timestamp: new Date().toISOString() })}\n\n`;
+          controller.close();
+        }
       }
-    })()
+    })
   };
 };
