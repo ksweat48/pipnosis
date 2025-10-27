@@ -25,6 +25,18 @@
 [functions."get-latest-price"]
   timeout = 26
 
+[functions."stream-prices"]
+  timeout = 540
+
+[functions."get-live-price"]
+  timeout = 26
+
+[functions."get-metaapi-token"]
+  timeout = 26
+
+[functions."connection-health"]
+  timeout = 26
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
