@@ -82,39 +82,6 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
   const realtimePrice = useRealtimePrice(symbol);
 
-  useEffect(() => {
-    if (realtimePrice.price) {
-      setCurrentPrice(realtimePrice.price.mid);
-      setBidAskSpread(realtimePrice.price.spread);
-      setIsConnected(realtimePrice.isConnected);
-      setDataSource(realtimePrice.isConnected ? 'live' : 'cache');
-
-      const tick: TickData = {
-        symbol: realtimePrice.price.symbol,
-        bid: realtimePrice.price.bid,
-        ask: realtimePrice.price.ask,
-        time: new Date(realtimePrice.price.time),
-        brokerTime: realtimePrice.price.time,
-      };
-
-      const candleOpenTime = getCandleOpenTime(tick.time, timeframe);
-      const candleState = candleStateManager.updateCandleWithTick(symbol, timeframe, tick, candleOpenTime);
-
-      if (candleState) {
-        const chartCandle: CandlestickData<Time> = {
-          time: Math.floor(candleState.timestamp.getTime() / 1000) as Time,
-          open: candleState.open,
-          high: candleState.high,
-          low: candleState.low,
-          close: candleState.close,
-        };
-
-        pendingUpdateRef.current = chartCandle;
-        scheduleRender();
-      }
-    }
-  }, [realtimePrice, symbol, timeframe, scheduleRender]);
-
   const applyPendingUpdate = useCallback(() => {
     const pendingUpdate = pendingUpdateRef.current;
     const pendingVolume = pendingVolumeUpdateRef.current;
@@ -178,6 +145,39 @@ export const MarketChart: React.FC<MarketChartProps> = ({
       applyPendingUpdate();
     });
   }, [applyPendingUpdate]);
+
+  useEffect(() => {
+    if (realtimePrice.price) {
+      setCurrentPrice(realtimePrice.price.mid);
+      setBidAskSpread(realtimePrice.price.spread);
+      setIsConnected(realtimePrice.isConnected);
+      setDataSource(realtimePrice.isConnected ? 'live' : 'cache');
+
+      const tick: TickData = {
+        symbol: realtimePrice.price.symbol,
+        bid: realtimePrice.price.bid,
+        ask: realtimePrice.price.ask,
+        time: new Date(realtimePrice.price.time),
+        brokerTime: realtimePrice.price.time,
+      };
+
+      const candleOpenTime = getCandleOpenTime(tick.time, timeframe);
+      const candleState = candleStateManager.updateCandleWithTick(symbol, timeframe, tick, candleOpenTime);
+
+      if (candleState) {
+        const chartCandle: CandlestickData<Time> = {
+          time: Math.floor(candleState.timestamp.getTime() / 1000) as Time,
+          open: candleState.open,
+          high: candleState.high,
+          low: candleState.low,
+          close: candleState.close,
+        };
+
+        pendingUpdateRef.current = chartCandle;
+        scheduleRender();
+      }
+    }
+  }, [realtimePrice, symbol, timeframe, scheduleRender]);
 
   const loadHistoricalData = useCallback(async () => {
     setIsLoading(true);
