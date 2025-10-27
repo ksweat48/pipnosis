@@ -161,8 +161,9 @@ export const MarketChart: React.FC<MarketChartProps> = ({
         brokerTime: realtimePrice.price.time,
       };
 
+      const tickPrice = (tick.bid + tick.ask) / 2;
       const candleOpenTime = getCandleOpenTime(tick.time, timeframe);
-      const candleState = candleStateManager.updateCandleWithTick(symbol, timeframe, tick, candleOpenTime);
+      const candleState = candleStateManager.updateCandleWithTick(symbol, timeframe, tickPrice, candleOpenTime);
 
       if (candleState) {
         const chartCandle: CandlestickData<Time> = {
