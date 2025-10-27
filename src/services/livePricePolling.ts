@@ -7,9 +7,38 @@ export type Tick = {
   time: string;
   connectionState?: string;
   source?: string;
+  cached?: boolean;
 };
 
 type Listener = (t: Tick) => void;
+
+type NestedPriceResponse = {
+  ok: boolean;
+  data: {
+    [symbol: string]: {
+      bid?: number;
+      ask?: number;
+      mid?: number;
+      time?: string;
+      error?: string;
+      source?: string;
+      cached?: boolean;
+    };
+  };
+  timestamp: string;
+};
+
+type FlatPriceResponse = {
+  symbol: string;
+  bid?: number;
+  ask?: number;
+  mid?: number;
+  time?: string;
+  source?: string;
+  cached?: boolean;
+  error?: string;
+  timestamp?: string;
+};
 
 export class LivePricePolling {
   private symbol: string;
@@ -42,13 +71,20 @@ export class LivePricePolling {
         const res = await fetch(url, { cache: 'no-store' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        const data = (await res.json()) as Tick;
+        const rawData = await res.json();
 
-        if (data.mid === undefined && data.bid !== undefined && data.ask !== undefined) {
-          data.mid = (data.bid + data.ask) / 2;
+        const parsedTick = this.parseResponse(rawData);
+
+        if (!parsedTick) {
+          console.warn('[LivePricePolling] Could not parse response:', rawData);
+          throw new Error('Invalid response format');
         }
 
-        this.listeners.forEach((l) => l(data));
+        if (parsedTick.cached) {
+          console.log(`[LivePricePolling] Using cached price for ${this.symbol} from ${parsedTick.time}`);
+        }
+
+        this.listeners.forEach((l) => l(parsedTick));
         this.failCount = 0;
       } catch (e) {
         this.failCount++;
@@ -63,6 +99,105 @@ export class LivePricePolling {
       }
     };
     tick();
+  }
+
+  private parseResponse(data: any): Tick | null {
+    if (data.error && typeof data.error === 'string') {
+      console.error('[LivePricePolling] Server returned error:', data.error);
+      return null;
+    }
+
+    if (this.isFlatResponse(data)) {
+      return this.parseFlatResponse(data);
+    }
+
+    if (this.isNestedResponse(data)) {
+      return this.parseNestedResponse(data);
+    }
+
+    if (typeof data.bid === 'number' && typeof data.ask === 'number') {
+      const mid = data.mid ?? (data.bid + data.ask) / 2;
+      return {
+        symbol: data.symbol || this.symbol,
+        bid: data.bid,
+        ask: data.ask,
+        mid,
+        time: data.time || new Date().toISOString(),
+        source: data.source || 'unknown',
+        cached: data.cached || false,
+      };
+    }
+
+    return null;
+  }
+
+  private isFlatResponse(data: any): data is FlatPriceResponse {
+    return (
+      typeof data === 'object' &&
+      data !== null &&
+      'symbol' in data &&
+      (typeof data.bid === 'number' || typeof data.ask === 'number')
+    );
+  }
+
+  private isNestedResponse(data: any): data is NestedPriceResponse {
+    return (
+      typeof data === 'object' &&
+      data !== null &&
+      'data' in data &&
+      typeof data.data === 'object' &&
+      data.data !== null
+    );
+  }
+
+  private parseFlatResponse(data: FlatPriceResponse): Tick | null {
+    if (!data.bid || !data.ask) {
+      console.error('[LivePricePolling] Flat response missing bid/ask:', data);
+      return null;
+    }
+
+    const mid = data.mid ?? (data.bid + data.ask) / 2;
+
+    return {
+      symbol: data.symbol || this.symbol,
+      bid: data.bid,
+      ask: data.ask,
+      mid,
+      time: data.time || new Date().toISOString(),
+      source: data.source || 'metaapi',
+      cached: data.cached || false,
+    };
+  }
+
+  private parseNestedResponse(data: NestedPriceResponse): Tick | null {
+    const symbolData = data.data[this.symbol];
+
+    if (!symbolData) {
+      console.error(`[LivePricePolling] No data for symbol ${this.symbol} in nested response`);
+      return null;
+    }
+
+    if (symbolData.error) {
+      console.error(`[LivePricePolling] Symbol ${this.symbol} has error:`, symbolData.error);
+      return null;
+    }
+
+    if (!symbolData.bid || !symbolData.ask) {
+      console.error(`[LivePricePolling] Symbol ${this.symbol} missing bid/ask:`, symbolData);
+      return null;
+    }
+
+    const mid = symbolData.mid ?? (symbolData.bid + symbolData.ask) / 2;
+
+    return {
+      symbol: this.symbol,
+      bid: symbolData.bid,
+      ask: symbolData.ask,
+      mid,
+      time: symbolData.time || data.timestamp || new Date().toISOString(),
+      source: symbolData.source || 'metaapi',
+      cached: symbolData.cached || false,
+    };
   }
 
   stop(): void {
