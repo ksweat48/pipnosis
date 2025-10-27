@@ -22,6 +22,9 @@
 [functions."verify-metaapi-account"]
   timeout = 26
 
+[functions."get-latest-price"]
+  timeout = 26
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
