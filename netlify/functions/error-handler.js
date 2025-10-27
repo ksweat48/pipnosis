@@ -139,9 +139,10 @@ function validateRequiredEnvVars(vars, logger = null) {
 }
 
 function validateMetaAPIRegion(region, logger = null) {
-  const validRegions = ['new-york', 'london', 'singapore'];
+  const validRegions = ['new-york', 'london', 'singapore', 'cloud-g1', 'cloud-g2', 'cloud-g3'];
+  const isCloudRegion = region && region.startsWith('cloud-');
 
-  if (!validRegions.includes(region)) {
+  if (!validRegions.includes(region) && !isCloudRegion) {
     const message = `Invalid MetaAPI region: ${region}`;
 
     if (logger) {
@@ -154,7 +155,7 @@ function validateMetaAPIRegion(region, logger = null) {
     throw new ValidationError(message, {
       provided: region,
       valid: validRegions,
-      hint: 'Region must be one of: new-york, london, singapore'
+      hint: 'Region must be one of: new-york, london, singapore, or cloud-g1, cloud-g2, cloud-g3'
     });
   }
 }

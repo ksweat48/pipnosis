@@ -15,9 +15,13 @@ const RETRY_DELAY = 1000;
 class MetaApiRestClient {
   constructor(token, options = {}) {
     this.token = token;
-    this.region = options.region || 'london';
+    this.region = options.region || 'cloud-g2';
     this.timeout = options.timeout || DEFAULT_TIMEOUT;
-    this.baseUrl = `https://mt-client-api-v1.${this.region}.agiliumtrade.ai`;
+
+    // Support both legacy regions (london, new-york, singapore) and cloud regions (cloud-g1, cloud-g2, etc)
+    const isCloudRegion = this.region.startsWith('cloud-');
+    const regionPart = isCloudRegion ? this.region : this.region;
+    this.baseUrl = `https://mt-client-api-v1.${regionPart}.agiliumtrade.ai`;
   }
 
   async makeRequest(method, path, body = null, retryCount = 0) {

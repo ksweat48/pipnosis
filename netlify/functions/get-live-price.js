@@ -20,7 +20,7 @@ function httpRes(statusCode, body) {
 async function getPriceFromMetaApi(symbol, logger) {
   const token = process.env.METAAPI_ADMIN_TOKEN;
   const accountId = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
-  const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
+  const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'cloud-g2';
 
   if (!token || !accountId) {
     throw new Error('MetaAPI credentials not configured');

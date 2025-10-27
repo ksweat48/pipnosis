@@ -26,7 +26,7 @@ exports.handler = async (event) => {
   try {
     const token = process.env.METAAPI_ADMIN_TOKEN || process.env.VITE_METAAPI_ADMIN_TOKEN;
     const accountId = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
-    const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
+    const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'cloud-g2';
 
     logger.info('Environment check', {
       hasToken: !!token,

@@ -28,7 +28,7 @@ exports.handler = async (event) => {
 
   const adminToken = process.env.METAAPI_ADMIN_TOKEN;
   const accountId = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
-  const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
+  const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'cloud-g2';
 
   if (!adminToken || !accountId) {
     logger.error('Missing credentials', { hasToken: !!adminToken, hasAccountId: !!accountId });
@@ -42,7 +42,8 @@ exports.handler = async (event) => {
   try {
     logger.info('Verifying MetaAPI account via REST API', {
       region,
-      accountId: accountId.substring(0, 8) + '...'
+      accountId: accountId.substring(0, 8) + '...',
+      baseUrl: `https://mt-client-api-v1.${region}.agiliumtrade.ai`
     });
 
     const client = createRestClient(adminToken, { region, timeout: 10000 });
