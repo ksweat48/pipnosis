@@ -20,43 +20,50 @@ exports.handler = async (event) => {
     const token = process.env.METAAPI_ADMIN_TOKEN;
     const accountId = process.env.METAAPI_ACCOUNT_ID;
     const region = process.env.METAAPI_REGION || 'london';
-    const symbol = (new URL(event.rawUrl).searchParams.get('symbol') || 'EURUSD')
-      .trim()
-      .toUpperCase();
 
     if (!token || !accountId) {
-      return httpRes(500, { error: 'MetaAPI configuration missing' });
+      return httpRes(500, { error: 'MetaAPI not configured (Missing token or accountId)' });
     }
 
-    const url = `https://mt-client-api-v1.agiliumtrade.ai/users/current/accounts/${accountId}/symbols/${symbol}/tick`;
+    const urlObj = new URL(event.rawUrl);
+    const symbol = (urlObj.searchParams.get('symbol') || 'EURUSD').trim().toUpperCase();
 
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
+    // ✅ REST API call directly to MetaAPI
+    const restUrl = `https://mt-client-api-v1.agiliumtrade.ai/users/current/accounts/${accountId}/symbols/${symbol}/tick`;
+
+    const response = await fetch(restUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+      method: 'GET',
     });
 
-    const json = await res.json();
+    const json = await response.json();
 
-    if (!res.ok || !json.bid || !json.ask) {
+    if (!response.ok || !json.bid || !json.ask) {
       return httpRes(502, {
-        error: 'Bad price payload from MetaAPI',
+        error: 'Invalid tick data',
         raw: json
       });
     }
 
+    const bid = Number(json.bid);
+    const ask = Number(json.ask);
+    const mid = (bid + ask) / 2;
+    const spread = ask - bid;
+
     return httpRes(200, {
       ok: true,
       symbol,
-      bid: Number(json.bid),
-      ask: Number(json.ask),
-      time: json.time || new Date().toISOString(),
+      bid,
+      ask,
+      mid,
+      spread,
+      timestamp: json.time || json.timestamp || new Date().toISOString(),
       source: 'metaapi',
-      region,
       connection: 'polling'
     });
+
   } catch (err) {
-    return httpRes(500, { error: 'Internal error', message: err.message });
+    console.error('[get-latest-price] ERROR', err);
+    return httpRes(500, { error: err.message || 'Internal error' });
   }
 };
