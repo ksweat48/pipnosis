@@ -41,26 +41,21 @@ export default defineConfig({
     assetsInlineLimit: 4096,
     // Ignore TypeScript errors during build
     emptyOutDir: true,
-    // CRITICAL FIX: CSP-compatible terser options to prevent eval usage
+    // Optimized terser options - preserves timer functions
     terserOptions: {
       compress: {
         drop_console: false,
         drop_debugger: true,
-        // CRITICAL: Disable eval-based optimizations
-        unsafe: false,
-        unsafe_comps: false,
-        unsafe_Function: false,
-        unsafe_math: false,
-        unsafe_symbols: false,
-        unsafe_methods: false,
-        unsafe_proto: false,
-        unsafe_regexp: false,
-        unsafe_undefined: false,
+        // Preserve timer function structure
+        keep_fnames: /setTimeout|setInterval|clearTimeout|clearInterval/,
+        passes: 2,
       },
       mangle: {
         safari10: true,
+        // Don't mangle timer-related properties
+        reserved: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', '_onTimeout'],
+        properties: false,
       },
-      // CRITICAL: Ensure no eval is generated
       format: {
         comments: false,
       },

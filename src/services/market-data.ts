@@ -204,6 +204,28 @@ class MarketDataService {
 
   async getCurrentPrice(symbol: string): Promise<{ bid: number; ask: number }> {
     try {
+      // First try to get from realtime_prices table (fresh data)
+      const { supabase } = await import('@/lib/supabase');
+      const { data, error } = await supabase
+        .from('realtime_prices')
+        .select('bid, ask, created_at')
+        .eq('symbol', symbol.toUpperCase())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!error && data) {
+        const age = Date.now() - new Date(data.created_at).getTime();
+        // Use cached price if less than 10 seconds old
+        if (age < 10000) {
+          return {
+            bid: parseFloat(data.bid),
+            ask: parseFloat(data.ask),
+          };
+        }
+      }
+
+      // Fallback to MetaAPI if no recent price
       return await metaApiService.getSymbolPrice(symbol);
     } catch (error) {
       console.error(`Error getting current price for ${symbol}:`, error);
