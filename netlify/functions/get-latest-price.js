@@ -28,8 +28,8 @@ exports.handler = async (event) => {
     const urlObj = new URL(event.rawUrl);
     const symbol = (urlObj.searchParams.get('symbol') || 'EURUSD').trim().toUpperCase();
 
-    // ✅ REST API call directly to MetaAPI
-    const restUrl = `https://mt-client-api-v1.agiliumtrade.ai/users/current/accounts/${accountId}/symbols/${symbol}/tick`;
+    // ✅ REST API call directly to MetaAPI with region support
+    const restUrl = `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/symbols/${symbol}/tick`;
 
     const response = await fetch(restUrl, {
       headers: { Authorization: `Bearer ${token}` },
