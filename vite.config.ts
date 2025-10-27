@@ -23,8 +23,7 @@ export default defineConfig({
           vendor: ['react', 'react-dom'],
           router: ['react-router-dom'],
           ui: ['lucide-react'],
-          supabase: ['@supabase/supabase-js'],
-          metaapi: ['metaapi.cloud-sdk']
+          supabase: ['@supabase/supabase-js']
         },
         entryFileNames: `assets/[name]-[hash].js`,
         chunkFileNames: `assets/[name]-[hash].js`,

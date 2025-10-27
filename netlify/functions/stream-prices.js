@@ -1,5 +1,7 @@
 /* eslint-disable */
 const { createClient } = require('@supabase/supabase-js');
+const { createLogger } = require('./function-logger.js');
+const { createRestClient } = require('./metaapi-rest-client.js');
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -11,30 +13,17 @@ const CORS = {
   'X-Accel-Buffering': 'no'
 };
 
-let metaApiInstance = null;
-let activeConnection = null;
-let connectionPromise = null;
-let lastPriceUpdate = {};
-let isConnecting = false;
-
-function resolveMetaApiCtor() {
-  try {
-    const m = require('metaapi.cloud-sdk');
-    return m.default || m.MetaApi || m;
-  } catch (e) {
-    throw new Error('MetaApi SDK not installed: ' + e.message);
-  }
-}
-
 async function updateConnectionHealth(supabase, status, errorMessage = null) {
   try {
-    const { error } = await supabase.rpc('update_connection_health', {
-      p_status: status,
-      p_last_message_at: new Date().toISOString(),
-      p_error_message: errorMessage,
-      p_region: process.env.METAAPI_REGION || 'london',
-      p_account_id: process.env.METAAPI_ACCOUNT_ID || ''
-    });
+    const { error } = await supabase
+      .from('connection_health_status')
+      .insert({
+        endpoint: 'stream-prices',
+        status: status,
+        error_message: errorMessage,
+        region: process.env.METAAPI_REGION || 'london',
+        account_id: process.env.METAAPI_ACCOUNT_ID || ''
+      });
 
     if (error) {
       console.error('[stream-prices] Failed to update connection health:', error);
@@ -44,7 +33,7 @@ async function updateConnectionHealth(supabase, status, errorMessage = null) {
   }
 }
 
-async function storePriceInSupabase(supabase, symbol, bid, ask, brokerTime, source = 'metaapi-ws') {
+async function storePriceInSupabase(supabase, symbol, bid, ask, brokerTime, source = 'metaapi-rest-polling') {
   try {
     const mid = (bid + ask) / 2;
     const spread = ask - bid;
@@ -67,95 +56,36 @@ async function storePriceInSupabase(supabase, symbol, bid, ask, brokerTime, sour
   }
 }
 
-async function getOrCreateConnection() {
-  if (activeConnection && activeConnection.healthMonitor?.healthStatus?.isHealthy) {
-    console.log('[stream-prices] Reusing existing healthy connection');
-    return activeConnection;
-  }
+async function fetchPricesViaREST(restClient, accountId, symbols) {
+  const prices = {};
 
-  if (connectionPromise) {
-    console.log('[stream-prices] Waiting for existing connection attempt');
-    return await connectionPromise;
-  }
-
-  connectionPromise = (async () => {
+  for (const symbol of symbols) {
     try {
-      isConnecting = true;
-      const token = process.env.METAAPI_ADMIN_TOKEN;
-      const accountId = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
-      const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
+      const priceData = await restClient.getSymbolPrice(accountId, symbol);
 
-      if (!token || !accountId) {
-        throw new Error('MetaAPI credentials not configured');
+      if (priceData && priceData.bid && priceData.ask) {
+        prices[symbol] = {
+          symbol,
+          bid: priceData.bid,
+          ask: priceData.ask,
+          mid: (priceData.bid + priceData.ask) / 2,
+          spread: priceData.ask - priceData.bid,
+          time: priceData.time || new Date().toISOString(),
+          source: 'metaapi-rest-polling',
+          timestamp: new Date().toISOString()
+        };
       }
-
-      console.log('[stream-prices] Creating new MetaAPI connection...');
-      console.log('[stream-prices] Region:', region);
-      console.log('[stream-prices] Account:', accountId ? accountId.substring(0, 8) + '...' : 'MISSING');
-
-      const MetaApi = resolveMetaApiCtor();
-
-      if (!metaApiInstance) {
-        metaApiInstance = new MetaApi(token, {
-          application: 'pipnosis-ai-trading',
-          domain: 'agiliumtrade.ai',
-          region: region,
-          requestTimeout: 60000,
-          retryOpts: {
-            retries: 5,
-            minDelayInSeconds: 1,
-            maxDelayInSeconds: 30
-          }
-        });
-      }
-
-      const account = await metaApiInstance.metatraderAccountApi.getAccount(accountId);
-      console.log('[stream-prices] Account state:', account.state);
-      console.log('[stream-prices] Connection status:', account.connectionStatus);
-
-      if (account.state !== 'DEPLOYED') {
-        throw new Error(`Account not deployed. Current state: ${account.state}`);
-      }
-
-      const connection = account.getRPCConnection();
-      console.log('[stream-prices] Connecting to terminal...');
-      await connection.connect();
-
-      console.log('[stream-prices] Waiting for synchronization (timeout: 20s)...');
-      await connection.waitSynchronized({ timeoutInSeconds: 20 });
-
-      console.log('[stream-prices] Connection established and synchronized');
-      activeConnection = connection;
-      isConnecting = false;
-      connectionPromise = null;
-
-      return connection;
     } catch (err) {
-      console.error('[stream-prices] Connection failed:', err.message);
-      isConnecting = false;
-      connectionPromise = null;
-      activeConnection = null;
-      throw err;
+      console.error(`[stream-prices] Failed to fetch ${symbol}:`, err.message);
     }
-  })();
-
-  return await connectionPromise;
-}
-
-async function subscribeToSymbol(connection, symbol) {
-  try {
-    console.log('[stream-prices] Subscribing to', symbol);
-    await connection.subscribeToMarketData(symbol, [
-      { type: 'quotes', intervalInMilliseconds: 0 }
-    ]);
-    console.log('[stream-prices] Successfully subscribed to', symbol);
-  } catch (err) {
-    console.error('[stream-prices] Failed to subscribe to', symbol, ':', err.message);
-    throw err;
   }
+
+  return prices;
 }
 
 exports.handler = async (event) => {
+  const logger = createLogger('stream-prices');
+
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
@@ -174,6 +104,9 @@ exports.handler = async (event) => {
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const token = process.env.METAAPI_ADMIN_TOKEN;
+  const accountId = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
+  const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
 
   if (!supabaseUrl || !supabaseKey) {
     return {
@@ -183,173 +116,165 @@ exports.handler = async (event) => {
     };
   }
 
+  if (!token || !accountId) {
+    return {
+      statusCode: 500,
+      headers: CORS,
+      body: JSON.stringify({ error: 'MetaAPI credentials not configured' })
+    };
+  }
+
   const supabase = createClient(supabaseUrl, supabaseKey);
   const urlObj = new URL(event.rawUrl);
   const symbols = (urlObj.searchParams.get('symbols') || 'EURUSD').split(',').map(s => s.trim().toUpperCase());
 
-  console.log('[stream-prices] Starting price stream for:', symbols.join(', '));
-
-  let timeoutId;
-  let heartbeatId;
-  let cleanupId;
-  let messageCount = 0;
-  const startTime = Date.now();
+  logger.info('Starting price stream via REST polling', { symbols });
 
   const encoder = new TextEncoder();
-
-  const connectionTest = async () => {
-    try {
-      const testConnection = await getOrCreateConnection();
-      return testConnection !== null;
-    } catch (err) {
-      console.error('[stream-prices] Connection test failed:', err.message);
-      return false;
-    }
-  };
+  let messageCount = 0;
+  const startTime = Date.now();
 
   return {
     statusCode: 200,
     headers: CORS,
     body: new ReadableStream({
       async start(controller) {
-        let priceInterval = null;
-        let connectionSuccessful = false;
+        let pollingInterval = null;
+        let heartbeatInterval = null;
+        let cleanupInterval = null;
+        let restClient = null;
+        let isActive = true;
 
         try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'starting', symbols, timestamp: new Date().toISOString() })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+            type: 'starting',
+            symbols,
+            method: 'rest-polling',
+            timestamp: new Date().toISOString()
+          })}\n\n`));
 
           await updateConnectionHealth(supabase, 'connecting');
 
-          const connectionTimeout = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Connection timeout after 25s')), 25000)
-          );
+          restClient = createRestClient(token, { region, timeout: 5000 });
 
-          const connection = await Promise.race([
-            getOrCreateConnection(),
-            connectionTimeout
-          ]);
+          const testPrice = await restClient.getSymbolPrice(accountId, symbols[0]);
 
-          connectionSuccessful = true;
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', symbols, timestamp: new Date().toISOString() })}\n\n`));
-          await updateConnectionHealth(supabase, 'connected');
-
-          for (const symbol of symbols) {
-            await subscribeToSymbol(connection, symbol);
+          if (!testPrice || !testPrice.bid) {
+            throw new Error('Failed to fetch initial price');
           }
 
-          const priceListener = (symbolPrice) => {
-            const { symbol, bid, ask, time } = symbolPrice;
+          logger.success('REST connection established');
 
-            if (symbols.includes(symbol.toUpperCase())) {
-              const priceData = {
-                symbol,
-                bid,
-                ask,
-                mid: (bid + ask) / 2,
-                spread: ask - bid,
-                time,
-                source: 'metaapi-ws',
-                timestamp: new Date().toISOString()
-              };
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+            type: 'connected',
+            symbols,
+            method: 'rest-polling',
+            timestamp: new Date().toISOString()
+          })}\n\n`));
 
-              lastPriceUpdate[symbol] = priceData;
-              messageCount++;
+          await updateConnectionHealth(supabase, 'connected');
 
-              storePriceInSupabase(supabase, symbol, bid, ask, time, 'metaapi-ws').catch(err => {
-                console.error('[stream-prices] Failed to store price:', err);
-              });
+          pollingInterval = setInterval(async () => {
+            if (!isActive) return;
+
+            try {
+              const prices = await fetchPricesViaREST(restClient, accountId, symbols);
+
+              for (const [symbol, priceData] of Object.entries(prices)) {
+                messageCount++;
+
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                  type: 'price',
+                  ...priceData
+                })}\n\n`));
+
+                await storePriceInSupabase(
+                  supabase,
+                  priceData.symbol,
+                  priceData.bid,
+                  priceData.ask,
+                  priceData.time,
+                  'metaapi-rest-polling'
+                );
+              }
+            } catch (err) {
+              logger.error('Polling error', { error: err.message });
             }
-          };
+          }, 1000);
 
-          connection.addSynchronizationListener({
-            onSymbolPriceUpdated: priceListener
-          });
+          heartbeatInterval = setInterval(() => {
+            if (!isActive) return;
 
-          console.log('[stream-prices] Streaming started, waiting for price updates...');
-
-          heartbeatId = setInterval(() => {
             const runtime = Math.floor((Date.now() - startTime) / 1000);
             const heartbeat = {
               type: 'heartbeat',
               timestamp: new Date().toISOString(),
               runtime,
               messageCount,
-              isHealthy: connection?.healthMonitor?.healthStatus?.isHealthy || false
+              method: 'rest-polling'
             };
 
             try {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(heartbeat)}\n\n`));
             } catch (err) {
-              console.error('[stream-prices] Heartbeat error:', err);
+              logger.error('Heartbeat error', { error: err.message });
             }
           }, 10000);
 
-          cleanupId = setInterval(async () => {
+          cleanupInterval = setInterval(async () => {
+            if (!isActive) return;
+
             try {
-              await supabase.rpc('cleanup_old_realtime_prices');
+              const cutoffTime = new Date(Date.now() - 300000).toISOString();
+              await supabase
+                .from('realtime_prices')
+                .delete()
+                .lt('created_at', cutoffTime);
             } catch (err) {
-              console.error('[stream-prices] Cleanup error:', err);
+              logger.error('Cleanup error', { error: err.message });
             }
           }, 300000);
 
-          priceInterval = setInterval(() => {
-            for (const symbol of symbols) {
-              if (lastPriceUpdate[symbol]) {
-                const age = Date.now() - new Date(lastPriceUpdate[symbol].timestamp).getTime();
-                if (age < 5000) {
-                  try {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'price', ...lastPriceUpdate[symbol] })}\n\n`));
-                  } catch (err) {
-                    console.error('[stream-prices] Price broadcast error:', err);
-                  }
-                }
-              }
-            }
-          }, 500);
-
-          timeoutId = setTimeout(() => {
-            console.log('[stream-prices] Stream timeout after 9 minutes, closing...');
-            if (priceInterval) clearInterval(priceInterval);
-            controller.close();
-          }, 540000);
-
           await new Promise((resolve) => {
-            setTimeout(resolve, 540000);
+            setTimeout(() => {
+              isActive = false;
+              resolve();
+            }, 540000);
           });
 
         } catch (err) {
-          console.error('[stream-prices] Stream error:', err.message);
+          logger.error('Stream error', { error: err.message });
           await updateConnectionHealth(supabase, 'error', err.message);
 
           const errorDetails = {
             type: 'error',
             error: err.message,
-            code: err.code,
-            connectionSuccessful,
+            method: 'rest-polling',
             timestamp: new Date().toISOString()
           };
 
           try {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorDetails)}\n\n`));
           } catch (enqueueErr) {
-            console.error('[stream-prices] Failed to enqueue error:', enqueueErr);
-          }
-
-          if (!connectionSuccessful) {
-            console.error('[stream-prices] Connection never succeeded, DNS or network issue likely');
+            logger.error('Failed to enqueue error', { error: enqueueErr.message });
           }
         } finally {
-          if (timeoutId) clearTimeout(timeoutId);
-          if (heartbeatId) clearInterval(heartbeatId);
-          if (cleanupId) clearInterval(cleanupId);
-          if (priceInterval) clearInterval(priceInterval);
+          isActive = false;
 
-          console.log('[stream-prices] Stream ended, sent', messageCount, 'price updates');
+          if (pollingInterval) clearInterval(pollingInterval);
+          if (heartbeatInterval) clearInterval(heartbeatInterval);
+          if (cleanupInterval) clearInterval(cleanupInterval);
+
+          logger.info('Stream ended', { messageCount, runtime: Math.floor((Date.now() - startTime) / 1000) });
 
           try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'closed', timestamp: new Date().toISOString() })}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              type: 'closed',
+              messageCount,
+              timestamp: new Date().toISOString()
+            })}\n\n`));
           } catch (enqueueErr) {
-            console.error('[stream-prices] Failed to enqueue close message:', enqueueErr);
+            logger.error('Failed to enqueue close message', { error: enqueueErr.message });
           }
 
           controller.close();

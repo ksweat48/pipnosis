@@ -1,5 +1,6 @@
 /* eslint-disable */
 const { createLogger } = require('./function-logger.js');
+const { createRestClient } = require('./metaapi-rest-client.js');
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -15,15 +16,6 @@ function httpRes(statusCode, body) {
   };
 }
 
-function resolveMetaApiCtor() {
-  try {
-    const m = require('metaapi.cloud-sdk');
-    return m.default || m.MetaApi || m;
-  } catch (e) {
-    throw new Error('MetaApi SDK not installed: ' + e.message);
-  }
-}
-
 exports.handler = async (event) => {
   const logger = createLogger('test-metaapi-connection');
 
@@ -32,17 +24,16 @@ exports.handler = async (event) => {
   }
 
   try {
-    logger.info('Starting MetaAPI connection diagnostics');
+    logger.info('Starting MetaAPI REST connection diagnostics');
 
     const diagnostics = {
       timestamp: new Date().toISOString(),
       environment: {},
-      dns: {},
-      metaapi: {},
+      rest_api: {},
+      account: {},
       errors: []
     };
 
-    // Check environment variables
     const token = process.env.METAAPI_ADMIN_TOKEN;
     const accountId = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
     const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
@@ -61,83 +52,107 @@ exports.handler = async (event) => {
       return httpRes(500, diagnostics);
     }
 
-    // Test DNS resolution
-    logger.info('Testing DNS resolution for MetaAPI domains');
-    const dns = require('dns').promises;
+    logger.info('Testing REST API connection');
 
     try {
-      const provisioningHost = 'mt-provisioning-api-v1.agiliumtrade.ai';
-      logger.info('Resolving', provisioningHost);
-      const addresses = await dns.resolve4(provisioningHost);
-      diagnostics.dns.provisioning = {
-        host: provisioningHost,
-        resolved: true,
-        addresses: addresses,
-        error: null
-      };
-      logger.info('DNS resolved', { host: provisioningHost, addresses });
-    } catch (dnsError) {
-      diagnostics.dns.provisioning = {
-        host: 'mt-provisioning-api-v1.agiliumtrade.ai',
-        resolved: false,
-        addresses: [],
-        error: dnsError.message
-      };
-      diagnostics.errors.push(`DNS resolution failed: ${dnsError.message}`);
-      logger.error('DNS resolution failed', { error: dnsError.message });
-    }
+      const client = createRestClient(token, { region, timeout: 10000 });
 
-    // Test MetaAPI connection
-    logger.info('Testing MetaAPI SDK initialization');
-    try {
-      const MetaApi = resolveMetaApiCtor();
+      const healthCheck = await client.healthCheck();
+      diagnostics.rest_api.health = healthCheck;
 
-      const metaApi = new MetaApi(token, {
-        application: 'pipnosis-ai-trading',
-        domain: 'agiliumtrade.ai',
-        region: region,
-        requestTimeout: 15000
-      });
+      logger.info('Health check completed', healthCheck);
 
-      logger.info('MetaAPI SDK initialized, fetching account info');
+      if (!healthCheck.healthy) {
+        diagnostics.errors.push(`Health check failed: ${healthCheck.error}`);
+      }
 
-      const account = await metaApi.metatraderAccountApi.getAccount(accountId);
+      logger.info('Fetching account information');
+      const account = await client.getAccountInformation(accountId);
 
-      diagnostics.metaapi = {
-        sdkInitialized: true,
-        accountFound: true,
-        accountId: accountId.substring(0, 8) + '...',
-        accountName: account.name,
-        accountState: account.state,
-        connectionStatus: account.connectionStatus,
+      diagnostics.account = {
+        found: true,
+        id: account._id || account.id,
+        name: account.name,
+        state: account.state,
         platform: account.platform,
         server: account.server,
         region: account.region,
-        error: null
+        connectionStatus: account.connectionStatus
       };
 
-      logger.success('MetaAPI connection test successful', diagnostics.metaapi);
+      logger.info('Account info retrieved', diagnostics.account);
 
       if (account.state !== 'DEPLOYED') {
         diagnostics.errors.push(`Account not deployed: ${account.state}`);
       }
 
-    } catch (metaApiError) {
-      diagnostics.metaapi = {
-        sdkInitialized: false,
-        accountFound: false,
-        error: metaApiError.message,
-        stack: metaApiError.stack
+      try {
+        logger.info('Fetching account state');
+        const state = await client.getAccountState(accountId);
+
+        diagnostics.account.connected = state.connected;
+        diagnostics.account.synchronized = state.synchronized;
+        diagnostics.account.brokerTime = state.brokerTime;
+
+        logger.info('Account state retrieved', {
+          connected: state.connected,
+          synchronized: state.synchronized
+        });
+
+        if (!state.connected) {
+          diagnostics.errors.push('Account not connected');
+        }
+
+        if (!state.synchronized) {
+          diagnostics.errors.push('Account not synchronized');
+        }
+      } catch (stateErr) {
+        diagnostics.errors.push(`Failed to get account state: ${stateErr.message}`);
+        logger.error('State fetch failed', { error: stateErr.message });
+      }
+
+      try {
+        logger.info('Testing price fetch for EURUSD');
+        const priceData = await client.getSymbolPrice(accountId, 'EURUSD');
+
+        diagnostics.price_test = {
+          success: true,
+          symbol: 'EURUSD',
+          bid: priceData.bid,
+          ask: priceData.ask,
+          time: priceData.time
+        };
+
+        logger.success('Price fetch successful', diagnostics.price_test);
+      } catch (priceErr) {
+        diagnostics.price_test = {
+          success: false,
+          error: priceErr.message
+        };
+        diagnostics.errors.push(`Price fetch failed: ${priceErr.message}`);
+        logger.error('Price fetch failed', { error: priceErr.message });
+      }
+
+    } catch (apiErr) {
+      diagnostics.rest_api = {
+        error: apiErr.message,
+        statusCode: apiErr.statusCode
       };
-      diagnostics.errors.push(`MetaAPI error: ${metaApiError.message}`);
-      logger.error('MetaAPI test failed', {
-        error: metaApiError.message,
-        code: metaApiError.code
+      diagnostics.errors.push(`REST API error: ${apiErr.message}`);
+      logger.error('REST API test failed', {
+        error: apiErr.message,
+        statusCode: apiErr.statusCode
       });
     }
 
     const statusCode = diagnostics.errors.length > 0 ? 500 : 200;
     diagnostics.ok = diagnostics.errors.length === 0;
+    diagnostics.method = 'rest-api';
+
+    logger.success('Diagnostics complete', {
+      ok: diagnostics.ok,
+      errorCount: diagnostics.errors.length
+    });
 
     await logger.saveToDatabase(statusCode, logger.getExecutionTime(), null, diagnostics, null);
 

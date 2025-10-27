@@ -1,6 +1,7 @@
 /* eslint-disable */
 const { createClient } = require('@supabase/supabase-js');
 const { createLogger } = require('./function-logger.js');
+const { createRestClient } = require('./metaapi-rest-client.js');
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -16,29 +17,7 @@ function httpRes(statusCode, body) {
   };
 }
 
-function resolveMetaApiCtor() {
-  try {
-    const m = require('metaapi.cloud-sdk');
-    return m.default || m.MetaApi || m;
-  } catch (e) {
-    throw new Error('MetaApi SDK not installed: ' + e.message);
-  }
-}
-
-let metaApiInstance = null;
-let accountCache = null;
-let connectionCache = null;
-let lastConnectionCheck = 0;
-const CONNECTION_CACHE_TTL = 60000;
-
-async function getMetaApiConnection(logger) {
-  const now = Date.now();
-
-  if (connectionCache && (now - lastConnectionCheck) < CONNECTION_CACHE_TTL) {
-    logger.debug('Using cached MetaAPI connection');
-    return connectionCache;
-  }
-
+async function getPriceFromMetaApi(symbol, logger) {
   const token = process.env.METAAPI_ADMIN_TOKEN;
   const accountId = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
   const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
@@ -47,87 +26,32 @@ async function getMetaApiConnection(logger) {
     throw new Error('MetaAPI credentials not configured');
   }
 
-  logger.info('Creating MetaAPI connection', { region, accountId: accountId ? accountId.substring(0, 8) + '...' : 'MISSING' });
+  logger.info('Fetching price via MetaAPI REST', { symbol, region });
 
-  const MetaApi = resolveMetaApiCtor();
+  const client = createRestClient(token, { region, timeout: 8000 });
 
-  if (!metaApiInstance) {
-    metaApiInstance = new MetaApi(token, {
-      application: 'pipnosis-ai-trading',
-      domain: 'agiliumtrade.ai',
-      region: region,
-      requestTimeout: 30000
-    });
+  const priceData = await client.getSymbolPrice(accountId, symbol);
+
+  if (!priceData || !priceData.bid || !priceData.ask) {
+    throw new Error('Price data not available');
   }
 
-  if (!accountCache) {
-    accountCache = await metaApiInstance.metatraderAccountApi.getAccount(accountId);
-  }
-
-  logger.info('Account status', {
-    state: accountCache.state,
-    connectionStatus: accountCache.connectionStatus
+  logger.success('Price fetched from MetaAPI REST', {
+    symbol,
+    bid: priceData.bid,
+    ask: priceData.ask
   });
 
-  if (accountCache.state !== 'DEPLOYED') {
-    throw new Error(`Account not deployed. State: ${accountCache.state}`);
-  }
-
-  const connection = accountCache.getRPCConnection();
-
-  if (!connectionCache) {
-    logger.info('Connecting to MetaAPI terminal...');
-    await connection.connect();
-    logger.info('Waiting for synchronization (timeout: 60s)...');
-    await connection.waitSynchronized({ timeoutInSeconds: 60 });
-    logger.success('Connection synchronized and ready');
-  }
-
-  connectionCache = connection;
-  lastConnectionCheck = now;
-
-  return connection;
-}
-
-async function getPriceFromMetaApi(symbol, logger) {
-  try {
-    const connection = await getMetaApiConnection(logger);
-
-    logger.info('Fetching price via MetaAPI RPC', { symbol });
-
-    await connection.subscribeToMarketData(symbol, [
-      { type: 'quotes' }
-    ]);
-
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const terminalState = connection.terminalState;
-    const price = terminalState.price(symbol);
-
-    if (!price || !price.bid || !price.ask) {
-      throw new Error('Price data not available yet');
-    }
-
-    logger.success('Price fetched from MetaAPI', {
-      symbol,
-      bid: price.bid,
-      ask: price.ask
-    });
-
-    return {
-      symbol,
-      bid: price.bid,
-      ask: price.ask,
-      mid: (price.bid + price.ask) / 2,
-      spread: price.ask - price.bid,
-      time: price.time || new Date().toISOString(),
-      source: 'metaapi-rpc',
-      cached: false
-    };
-  } catch (err) {
-    logger.error('MetaAPI RPC failed', { error: err.message });
-    throw err;
-  }
+  return {
+    symbol,
+    bid: priceData.bid,
+    ask: priceData.ask,
+    mid: (priceData.bid + priceData.ask) / 2,
+    spread: priceData.ask - priceData.bid,
+    time: priceData.time || new Date().toISOString(),
+    source: 'metaapi-rest',
+    cached: false
+  };
 }
 
 async function getPriceFromSupabase(symbol, logger, supabase) {
@@ -152,7 +76,9 @@ async function getPriceFromSupabase(symbol, logger, supabase) {
   }
 
   const age = Date.now() - new Date(data.created_at).getTime();
-  logger.info('Found cached price', { symbol, age: Math.floor(age / 1000) + 's' });
+  const ageSeconds = Math.floor(age / 1000);
+
+  logger.info('Found cached price', { symbol, ageSeconds });
 
   return {
     symbol,
@@ -164,7 +90,8 @@ async function getPriceFromSupabase(symbol, logger, supabase) {
     timestamp: data.created_at,
     source: 'supabase-cache',
     cached: true,
-    age
+    age,
+    ageSeconds
   };
 }
 

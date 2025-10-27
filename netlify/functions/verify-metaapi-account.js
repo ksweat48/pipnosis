@@ -1,63 +1,103 @@
-// verify-metaapi-account.js (CommonJS)
+const { createRestClient } = require('./metaapi-rest-client.js');
+const { createLogger } = require('./function-logger.js');
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-function resolveMetaApiCtor() {
-  try {
-    const m = require('metaapi.cloud-sdk');
-    return m.default || m.MetaApi || m;
-  } catch (e) {
-    throw new Error('MetaApi SDK is not installed or could not be required');
-  }
+function httpRes(statusCode, body) {
+  return {
+    statusCode,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
 }
 
 exports.handler = async (event) => {
+  const logger = createLogger('verify-metaapi-account');
+
   if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers: corsHeaders, body: '' };
+    return httpRes(204, {});
   }
+
   if (event.httpMethod !== 'GET') {
-    return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: 'Method not allowed' }) };
+    return httpRes(405, { error: 'Method not allowed' });
   }
+
   const adminToken = process.env.METAAPI_ADMIN_TOKEN;
-  const accountId  = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
-  const region     = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
+  const accountId = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
+  const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
 
   if (!adminToken || !accountId) {
-    return {
-      statusCode: 500,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: 'Missing METAAPI_ADMIN_TOKEN or METAAPI_ACCOUNT_ID' })
-    };
+    logger.error('Missing credentials', { hasToken: !!adminToken, hasAccountId: !!accountId });
+    await logger.saveToDatabase(500, logger.getExecutionTime(), null, null, new Error('Missing credentials'));
+    return httpRes(500, {
+      ok: false,
+      error: 'Missing METAAPI_ADMIN_TOKEN or METAAPI_ACCOUNT_ID'
+    });
   }
 
   try {
-    const MetaApi = resolveMetaApiCtor();
-    const metaApi = new MetaApi(adminToken, { region });
-    const account = await metaApi.metatraderAccountApi.getAccount(accountId);
+    logger.info('Verifying MetaAPI account via REST API', {
+      region,
+      accountId: accountId.substring(0, 8) + '...'
+    });
 
-    return {
-      statusCode: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ok: true,
-        id: account.id,
-        name: account.name,
-        state: account.state,
-        region: account.region,
-        server: account.server,
-        platform: account.platform,
-        connectionStatus: account.connectionStatus
-      })
+    const client = createRestClient(adminToken, { region, timeout: 10000 });
+
+    const account = await client.getAccountInformation(accountId);
+
+    logger.info('Account info retrieved', {
+      state: account.state,
+      connectionStatus: account.connectionStatus,
+      platform: account.platform
+    });
+
+    let state = null;
+    try {
+      state = await client.getAccountState(accountId);
+      logger.info('Account state retrieved', {
+        connected: state.connected,
+        synchronized: state.synchronized
+      });
+    } catch (stateErr) {
+      logger.warn('Could not fetch account state', { error: stateErr.message });
+    }
+
+    const response = {
+      ok: true,
+      id: account._id || account.id,
+      name: account.name,
+      state: account.state,
+      region: account.region,
+      server: account.server,
+      platform: account.platform,
+      connectionStatus: account.connectionStatus,
+      connected: state?.connected || false,
+      synchronized: state?.synchronized || false,
+      method: 'rest-api'
     };
+
+    logger.success('Account verified successfully');
+    await logger.saveToDatabase(200, logger.getExecutionTime(), { accountId }, response, null);
+
+    return httpRes(200, response);
+
   } catch (err) {
-    console.error('verify-metaapi-account failed:', err);
-    return {
-      statusCode: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ok: false, error: err.message })
-    };
+    logger.error('Verification failed', {
+      message: err.message,
+      statusCode: err.statusCode,
+      stack: err.stack
+    });
+
+    await logger.saveToDatabase(500, logger.getExecutionTime(), { accountId }, null, err);
+
+    return httpRes(500, {
+      ok: false,
+      error: err.message,
+      details: err.statusCode ? `HTTP ${err.statusCode}` : 'Connection failed'
+    });
   }
 };
