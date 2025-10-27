@@ -47,7 +47,7 @@ export function validateEnvironment(): EnvironmentValidation {
   }
 
   if (!metaApiRegion) {
-    warnings.push('VITE_METAAPI_REGION is not defined - defaulting to new-york');
+    warnings.push('VITE_METAAPI_REGION is not defined - defaulting to london');
   }
 
   const isValid = errors.length === 0;
@@ -80,7 +80,7 @@ export function logEnvironmentStatus(): void {
     console.log('Supabase URL:', validation.config?.supabaseUrl);
     console.log('Supabase Key:', validation.config?.supabaseAnonKey ? '✓ Present' : '✗ Missing');
     console.log('MetaAPI Account:', validation.config?.metaApiAccountId ? '✓ Present' : '✗ Missing');
-    console.log('MetaAPI Region:', validation.config?.metaApiRegion || 'new-york (default)');
+    console.log('MetaAPI Region:', validation.config?.metaApiRegion || 'london (default)');
     console.log('Token Mode: Secure token service (Netlify function)');
   } else {
     console.error('❌ Environment validation: FAILED');

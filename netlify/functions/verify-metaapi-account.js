@@ -22,8 +22,8 @@ exports.handler = async (event) => {
     return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
   const adminToken = process.env.METAAPI_ADMIN_TOKEN;
-  const accountId  = process.env.METAAPI_ACCOUNT_ID;
-  const region     = process.env.METAAPI_REGION || 'new-york';
+  const accountId  = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
+  const region     = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
 
   if (!adminToken || !accountId) {
     return {

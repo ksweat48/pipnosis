@@ -40,14 +40,14 @@ async function getMetaApiConnection(logger) {
   }
 
   const token = process.env.METAAPI_ADMIN_TOKEN;
-  const accountId = process.env.METAAPI_ACCOUNT_ID;
-  const region = process.env.METAAPI_REGION || 'london';
+  const accountId = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
+  const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
 
   if (!token || !accountId) {
     throw new Error('MetaAPI credentials not configured');
   }
 
-  logger.info('Creating MetaAPI connection', { region, accountId: accountId.substring(0, 8) + '...' });
+  logger.info('Creating MetaAPI connection', { region, accountId: accountId ? accountId.substring(0, 8) + '...' : 'MISSING' });
 
   const MetaApi = resolveMetaApiCtor();
 
@@ -78,9 +78,9 @@ async function getMetaApiConnection(logger) {
   if (!connectionCache) {
     logger.info('Connecting to MetaAPI terminal...');
     await connection.connect();
-    logger.info('Waiting for synchronization...');
-    await connection.waitSynchronized();
-    logger.success('Connection synchronized');
+    logger.info('Waiting for synchronization (timeout: 60s)...');
+    await connection.waitSynchronized({ timeoutInSeconds: 60 });
+    logger.success('Connection synchronized and ready');
   }
 
   connectionCache = connection;

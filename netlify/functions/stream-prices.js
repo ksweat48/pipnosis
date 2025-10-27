@@ -82,8 +82,8 @@ async function getOrCreateConnection() {
     try {
       isConnecting = true;
       const token = process.env.METAAPI_ADMIN_TOKEN;
-      const accountId = process.env.METAAPI_ACCOUNT_ID;
-      const region = process.env.METAAPI_REGION || 'london';
+      const accountId = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
+      const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
 
       if (!token || !accountId) {
         throw new Error('MetaAPI credentials not configured');
@@ -91,7 +91,7 @@ async function getOrCreateConnection() {
 
       console.log('[stream-prices] Creating new MetaAPI connection...');
       console.log('[stream-prices] Region:', region);
-      console.log('[stream-prices] Account:', accountId.substring(0, 8) + '...');
+      console.log('[stream-prices] Account:', accountId ? accountId.substring(0, 8) + '...' : 'MISSING');
 
       const MetaApi = resolveMetaApiCtor();
 
@@ -121,8 +121,8 @@ async function getOrCreateConnection() {
       console.log('[stream-prices] Connecting to terminal...');
       await connection.connect();
 
-      console.log('[stream-prices] Waiting for synchronization...');
-      await connection.waitSynchronized();
+      console.log('[stream-prices] Waiting for synchronization (timeout: 90s)...');
+      await connection.waitSynchronized({ timeoutInSeconds: 90 });
 
       console.log('[stream-prices] Connection established and synchronized');
       activeConnection = connection;

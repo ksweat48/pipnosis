@@ -87,7 +87,7 @@ class MetaApiService {
 
   constructor() {
     this.accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID || '';
-    this.region = import.meta.env.VITE_METAAPI_REGION || 'new-york';
+    this.region = import.meta.env.VITE_METAAPI_REGION || 'london';
   }
 
   private convertToApiTimeframe(timeframe: Timeframe): ApiTimeframe {
@@ -153,13 +153,19 @@ class MetaApiService {
 
       // Verify account via backend (secure, uses admin token server-side)
       console.log('Verifying MetaAPI connection via backend...');
+      console.log(`Expected Region: ${this.region}`);
+      console.log(`Account ID: ${this.accountId.substring(0, 8)}...`);
+
       try {
         const response = await fetch('/.netlify/functions/verify-metaapi-account', {
-          method: 'GET'
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
         });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+          const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
           throw new Error(errorData.error || 'Account verification failed');
         }
 
@@ -168,23 +174,27 @@ class MetaApiService {
           throw new Error(result.error || 'Account verification failed');
         }
 
-        console.log(`✓ MetaAPI account verified`);
-        console.log(`Account: ${result.name} (${result.id})`);
-        console.log(`Platform: ${result.platform}`);
-        console.log(`Region: ${result.region}`);
-        console.log(`Server: ${result.server}`);
-        console.log(`State: ${result.state}`);
-        console.log(`Connection: ${result.connectionStatus}`);
+        console.log(`✅ MetaAPI account verified successfully`);
+        console.log(`   Account: ${result.name} (${result.id})`);
+        console.log(`   Platform: ${result.platform}`);
+        console.log(`   Region: ${result.region}`);
+        console.log(`   Server: ${result.server}`);
+        console.log(`   State: ${result.state}`);
+        console.log(`   Connection Status: ${result.connectionStatus}`);
 
-        // Backend verification successful - frontend streaming not used
-        // All MetaAPI operations should go through backend functions
+        // Verify region matches
+        if (result.region && result.region !== this.region) {
+          console.warn(`⚠️ Region mismatch: Expected ${this.region}, got ${result.region}`);
+        }
+
+        // Backend verification successful - all MetaAPI operations go through backend
       } catch (apiError) {
         const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
         if (errorHandler.isNetworkError(apiError) || errorHandler.isMetaApiError(apiError)) {
           errorHandler.handleMetaApiError(apiError, 'Account Verification');
         }
-        console.error('Failed to verify MetaAPI account:', errorMessage);
-        throw new Error('MetaAPI account verification failed. Check backend configuration.');
+        console.error('❌ Failed to verify MetaAPI account:', errorMessage);
+        throw new Error(`MetaAPI account verification failed: ${errorMessage}`);
       }
 
 
