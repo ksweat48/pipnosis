@@ -121,8 +121,8 @@ async function getOrCreateConnection() {
       console.log('[stream-prices] Connecting to terminal...');
       await connection.connect();
 
-      console.log('[stream-prices] Waiting for synchronization (timeout: 90s)...');
-      await connection.waitSynchronized({ timeoutInSeconds: 90 });
+      console.log('[stream-prices] Waiting for synchronization (timeout: 20s)...');
+      await connection.waitSynchronized({ timeoutInSeconds: 20 });
 
       console.log('[stream-prices] Connection established and synchronized');
       activeConnection = connection;
@@ -197,18 +197,40 @@ exports.handler = async (event) => {
 
   const encoder = new TextEncoder();
 
+  const connectionTest = async () => {
+    try {
+      const testConnection = await getOrCreateConnection();
+      return testConnection !== null;
+    } catch (err) {
+      console.error('[stream-prices] Connection test failed:', err.message);
+      return false;
+    }
+  };
+
   return {
     statusCode: 200,
     headers: CORS,
     body: new ReadableStream({
       async start(controller) {
         let priceInterval = null;
+        let connectionSuccessful = false;
 
         try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', symbols, timestamp: new Date().toISOString() })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'starting', symbols, timestamp: new Date().toISOString() })}\n\n`));
 
           await updateConnectionHealth(supabase, 'connecting');
-          const connection = await getOrCreateConnection();
+
+          const connectionTimeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Connection timeout after 25s')), 25000)
+          );
+
+          const connection = await Promise.race([
+            getOrCreateConnection(),
+            connectionTimeout
+          ]);
+
+          connectionSuccessful = true;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', symbols, timestamp: new Date().toISOString() })}\n\n`));
           await updateConnectionHealth(supabase, 'connected');
 
           for (const symbol of symbols) {
@@ -299,14 +321,22 @@ exports.handler = async (event) => {
           console.error('[stream-prices] Stream error:', err.message);
           await updateConnectionHealth(supabase, 'error', err.message);
 
+          const errorDetails = {
+            type: 'error',
+            error: err.message,
+            code: err.code,
+            connectionSuccessful,
+            timestamp: new Date().toISOString()
+          };
+
           try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-              type: 'error',
-              error: err.message,
-              timestamp: new Date().toISOString()
-            })}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorDetails)}\n\n`));
           } catch (enqueueErr) {
             console.error('[stream-prices] Failed to enqueue error:', enqueueErr);
+          }
+
+          if (!connectionSuccessful) {
+            console.error('[stream-prices] Connection never succeeded, DNS or network issue likely');
           }
         } finally {
           if (timeoutId) clearTimeout(timeoutId);

@@ -169,18 +169,18 @@ async function getPriceFromSupabase(symbol, logger, supabase) {
 }
 
 async function getPriceFromCandleFallback(symbol, logger, supabase) {
-  logger.info('Falling back to candle data', { symbol });
+  logger.info('Falling back to market data', { symbol });
 
   const { data, error } = await supabase
-    .from('candles')
-    .select('close, high, low, time')
+    .from('market_data')
+    .select('close, high, low, timestamp, timeframe')
     .eq('symbol', symbol)
-    .order('time', { ascending: false })
+    .order('timestamp', { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (error || !data) {
-    logger.error('Candle fallback failed', { error: error?.message });
+    logger.error('Market data fallback failed', { error: error?.message });
     throw new Error('No fallback data available');
   }
 
@@ -193,9 +193,10 @@ async function getPriceFromCandleFallback(symbol, logger, supabase) {
     ask: close + estimatedSpread / 2,
     mid: close,
     spread: estimatedSpread,
-    time: data.time,
-    source: 'candle-fallback',
-    cached: true
+    time: data.timestamp,
+    source: 'market-data-fallback',
+    cached: true,
+    timeframe: data.timeframe
   };
 }
 
