@@ -1,3 +1,5 @@
+import { getGlobalPriceStream, type PriceTick, type ConnectionStatus } from './realtimePriceStream';
+
 export type Tick = {
   symbol: string;
   bid: number;
@@ -47,6 +49,10 @@ export class LivePricePolling {
   private listeners: Set<Listener> = new Set();
   private isRunning = false;
   private failCount = 0;
+  private useStreaming = true;
+  private streamUnsubscribe: (() => void) | null = null;
+  private statusUnsubscribe: (() => void) | null = null;
+  private streamFailureTimeout: number | null = null;
 
   constructor(symbol: string, intervalMs = 2000) {
     this.symbol = symbol.toUpperCase();
@@ -59,15 +65,95 @@ export class LivePricePolling {
   }
 
   start(): void {
-    if (this.timer || this.isRunning) return;
+    if (this.isRunning) return;
 
     this.isRunning = true;
     this.failCount = 0;
+
+    if (this.useStreaming) {
+      this.startStreaming();
+    } else {
+      this.startPolling();
+    }
+  }
+
+  private startStreaming(): void {
+    console.log('[LivePricePolling] Starting WebSocket stream for', this.symbol);
+
+    const stream = getGlobalPriceStream(this.symbol);
+
+    this.streamUnsubscribe = stream.onPrice(this.symbol, (priceTick: PriceTick) => {
+      const tick: Tick = {
+        symbol: priceTick.symbol,
+        bid: priceTick.bid,
+        ask: priceTick.ask,
+        mid: priceTick.mid,
+        spread: priceTick.spread,
+        time: priceTick.time,
+        source: priceTick.source,
+        cached: priceTick.cached
+      };
+
+      this.listeners.forEach((l) => l(tick));
+      this.failCount = 0;
+
+      if (this.streamFailureTimeout) {
+        clearTimeout(this.streamFailureTimeout);
+        this.streamFailureTimeout = null;
+      }
+    });
+
+    this.statusUnsubscribe = stream.onStatus((status: ConnectionStatus) => {
+      if (status.state === 'error' || status.state === 'disconnected') {
+        console.warn('[LivePricePolling] Stream unhealthy, setting fallback timer');
+
+        if (!this.streamFailureTimeout) {
+          this.streamFailureTimeout = window.setTimeout(() => {
+            console.log('[LivePricePolling] Stream failed, falling back to polling');
+            this.fallbackToPolling();
+          }, 15000);
+        }
+      } else if (status.state === 'connected') {
+        if (this.streamFailureTimeout) {
+          clearTimeout(this.streamFailureTimeout);
+          this.streamFailureTimeout = null;
+        }
+      }
+    });
+
+    stream.start();
+  }
+
+  private fallbackToPolling(): void {
+    console.log('[LivePricePolling] Switching to REST polling fallback');
+    this.useStreaming = false;
+
+    if (this.streamUnsubscribe) {
+      this.streamUnsubscribe();
+      this.streamUnsubscribe = null;
+    }
+
+    if (this.statusUnsubscribe) {
+      this.statusUnsubscribe();
+      this.statusUnsubscribe = null;
+    }
+
+    if (this.streamFailureTimeout) {
+      clearTimeout(this.streamFailureTimeout);
+      this.streamFailureTimeout = null;
+    }
+
+    this.startPolling();
+  }
+
+  private startPolling(): void {
+    console.log('[LivePricePolling] Starting REST polling for', this.symbol);
+
     const tick = async () => {
       if (!this.isRunning) return;
 
       try {
-        const url = `/.netlify/functions/get-latest-price?symbol=${encodeURIComponent(this.symbol)}`;
+        const url = `/.netlify/functions/get-live-price?symbol=${encodeURIComponent(this.symbol)}`;
         const res = await fetch(url, { cache: 'no-store' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -202,10 +288,27 @@ export class LivePricePolling {
 
   stop(): void {
     this.isRunning = false;
+
     if (this.timer) {
       window.clearTimeout(this.timer);
       this.timer = null;
     }
+
+    if (this.streamUnsubscribe) {
+      this.streamUnsubscribe();
+      this.streamUnsubscribe = null;
+    }
+
+    if (this.statusUnsubscribe) {
+      this.statusUnsubscribe();
+      this.statusUnsubscribe = null;
+    }
+
+    if (this.streamFailureTimeout) {
+      clearTimeout(this.streamFailureTimeout);
+      this.streamFailureTimeout = null;
+    }
+
     this.failCount = 0;
   }
 
