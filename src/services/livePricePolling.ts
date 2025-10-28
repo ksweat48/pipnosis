@@ -66,12 +66,11 @@ export class LivePricePolling {
     if (!this.isActive) return;
 
     try {
-      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/forex-price`;
+      const functionUrl = `/.netlify/functions/forex-price`;
 
       const response = await fetch(`${functionUrl}?symbol=${this.symbol}`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
           'Content-Type': 'application/json',
         },
       });

@@ -11,9 +11,10 @@ import { multiTimeframeAggregator } from './multi-timeframe-aggregator';
 import { timeframeBackfillService } from './timeframe-backfill';
 import { marketHoursService } from './market-hours';
 import { CandleData, TickData, Timeframe } from '../types/market-data';
-import { LivePricePolling } from './livePricePolling';
+import { PriceStreamManager, ConnectionStatus } from './price-stream-manager';
 
 export type { TickData, CandleData, Timeframe } from '../types/market-data';
+export type { ConnectionStatus } from './price-stream-manager';
 
 export interface MarketDataListener {
   onCandleUpdate?: (candle: CandleData) => void;
@@ -52,7 +53,7 @@ class MarketDataService {
   private symbolsInitialized: Set<string> = new Set();
   private chartDataCache: Map<string, { data: ChartCandleData[], volumeData: any[], timestamp: number }> = new Map();
   private readonly CHART_CACHE_TTL = 30000;
-  private livePollers: Map<string, LivePricePolling> = new Map();
+  private priceStreamManagers: Map<string, PriceStreamManager> = new Map();
   private tickDebounceTimers: Map<string, NodeJS.Timeout> = new Map();
   private readonly TICK_DEBOUNCE_MS = 150;
 
@@ -670,31 +671,35 @@ class MarketDataService {
   startLiveFeed(symbol: string, timeframe: Timeframe = 'M5'): void {
     const key = `${symbol}_${timeframe}`;
 
-    if (this.livePollers.has(key)) {
+    if (this.priceStreamManagers.has(key)) {
       console.log(`Live feed already active for ${symbol} ${timeframe}`);
       return;
     }
 
-    const poller = new LivePricePolling(symbol, 2000);
+    const streamManager = new PriceStreamManager(symbol);
 
-    poller.onTick((tick: Tick) => {
-      this.handlePollingTick(symbol, timeframe, tick);
+    streamManager.onPrice((tick) => {
+      this.handleStreamTick(symbol, timeframe, tick);
     });
 
-    poller.start();
-    this.livePollers.set(key, poller);
+    streamManager.onStatusChange((status: ConnectionStatus) => {
+      console.log(`[MarketData] Connection status for ${symbol}: ${status.connectionType} (${status.quality})`);
+    });
 
-    console.log(`✅ Started live feed polling for ${symbol} ${timeframe} (2s interval)`);
+    streamManager.start();
+    this.priceStreamManagers.set(key, streamManager);
+
+    console.log(`✅ Started price stream for ${symbol} ${timeframe} (WebSocket with polling fallback)`);
   }
 
   stopLiveFeed(symbol: string, timeframe: Timeframe = 'M5'): void {
     const key = `${symbol}_${timeframe}`;
-    const poller = this.livePollers.get(key);
+    const streamManager = this.priceStreamManagers.get(key);
 
-    if (poller) {
-      poller.stop();
-      this.livePollers.delete(key);
-      console.log(`⏹️ Stopped live feed polling for ${symbol} ${timeframe}`);
+    if (streamManager) {
+      streamManager.stop();
+      this.priceStreamManagers.delete(key);
+      console.log(`⏹️ Stopped price stream for ${symbol} ${timeframe}`);
     }
 
     const debounceTimer = this.tickDebounceTimers.get(key);
@@ -705,17 +710,17 @@ class MarketDataService {
   }
 
   stopAllLiveFeeds(): void {
-    this.livePollers.forEach((poller, key) => {
-      poller.stop();
-      console.log(`⏹️ Stopped live feed polling for ${key}`);
+    this.priceStreamManagers.forEach((manager, key) => {
+      manager.stop();
+      console.log(`⏹️ Stopped price stream for ${key}`);
     });
-    this.livePollers.clear();
+    this.priceStreamManagers.clear();
 
     this.tickDebounceTimers.forEach((timer) => clearTimeout(timer));
     this.tickDebounceTimers.clear();
   }
 
-  private handlePollingTick(symbol: string, timeframe: Timeframe, tick: Tick): void {
+  private handleStreamTick(symbol: string, timeframe: Timeframe, tick: any): void {
     const key = `${symbol}_${timeframe}`;
 
     const existingTimer = this.tickDebounceTimers.get(key);
@@ -725,14 +730,10 @@ class MarketDataService {
 
     const timer = setTimeout(async () => {
       try {
-        const price = tick.mid !== undefined
-          ? tick.mid
-          : (tick.bid !== undefined && tick.ask !== undefined
-              ? (tick.bid + tick.ask) / 2
-              : undefined);
+        const price = tick.mid;
 
-        if (price === undefined) {
-          console.warn('[handlePollingTick] No valid price data in tick:', tick);
+        if (price === undefined || price === 0) {
+          console.warn('[handleStreamTick] No valid price data in tick:', tick);
           return;
         }
 
@@ -772,7 +773,7 @@ class MarketDataService {
           }
         }
       } catch (error) {
-        console.error(`Error handling polling tick for ${symbol} ${timeframe}:`, error);
+        console.error(`Error handling stream tick for ${symbol} ${timeframe}:`, error);
       }
     }, this.TICK_DEBOUNCE_MS);
 
@@ -781,8 +782,14 @@ class MarketDataService {
 
   isLiveFeedActive(symbol: string, timeframe: Timeframe = 'M5'): boolean {
     const key = `${symbol}_${timeframe}`;
-    const poller = this.livePollers.get(key);
-    return poller ? poller.isActive() : false;
+    const streamManager = this.priceStreamManagers.get(key);
+    return streamManager ? streamManager.getStatus().isConnected : false;
+  }
+
+  getStreamStatus(symbol: string, timeframe: Timeframe = 'M5'): ConnectionStatus | null {
+    const key = `${symbol}_${timeframe}`;
+    const streamManager = this.priceStreamManagers.get(key);
+    return streamManager ? streamManager.getStatus() : null;
   }
 
   async fetchAndFillMissingCandles(

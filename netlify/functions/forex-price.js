@@ -2,7 +2,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'authorization, content-type, x-client-info, apikey',
   'Access-Control-Allow-Methods': 'GET, OPTIONS'
 };
 

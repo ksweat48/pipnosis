@@ -4,6 +4,7 @@ import { CandlestickChart } from './CandlestickChart';
 import { AIAnalysisPanel } from './AIAnalysisPanel';
 import { RealAIAnalysisPanel } from './RealAIAnalysisPanel';
 import { DataHealthIndicator } from './DataHealthIndicator';
+import { ConnectionHealthMonitor } from './ConnectionHealthMonitor';
 import { AutoTradingAnalysisPanel } from './AutoTradingAnalysisPanel';
 import { ChartAutoTradingIndicator } from './ChartAutoTradingIndicator';
 import { FxFlowScalperPanel } from './FxFlowScalperPanel';
@@ -784,7 +785,10 @@ export const MarketChart: React.FC<MarketChartProps> = ({
                 )}
               </button>
             )}
-            <DataHealthIndicator />
+            <div className="flex items-center gap-2">
+              <ConnectionHealthMonitor symbol={symbol} timeframe={timeframe} />
+              <DataHealthIndicator />
+            </div>
           </div>
         </div>
       </div>
