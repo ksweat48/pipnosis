@@ -13,7 +13,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, c
   const [settings, setSettings] = useState({
     // Trading Pairs Selection
     pairSelectionMode: 'ai-choose', // 'ai-choose' or 'manual'
-    selectedPairs: ['EURUSD', 'GBPUSD', 'US30'],
+    selectedPairs: ['EURUSD', 'XAUUSD', 'GBPUSD'],
     expandedScan: false, // Enable Tier 2 pairs
 
     // Trading Objective
@@ -40,22 +40,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, c
   const tradingPairs = {
     tier1: [
       { symbol: 'EURUSD', name: 'Euro / US Dollar', spread: 'Low', liquidity: 'High' },
+      { symbol: 'XAUUSD', name: 'Gold / US Dollar', spread: 'Medium', liquidity: 'High' },
       { symbol: 'GBPUSD', name: 'British Pound / USD', spread: 'Low', liquidity: 'High' },
-      { symbol: 'USDJPY', name: 'US Dollar / Japanese Yen', spread: 'Low', liquidity: 'High' },
-      { symbol: 'USDCHF', name: 'US Dollar / Swiss Franc', spread: 'Low', liquidity: 'High' },
-      { symbol: 'AUDUSD', name: 'Australian Dollar / USD', spread: 'Medium', liquidity: 'High' },
-      { symbol: 'USDCAD', name: 'US Dollar / Canadian Dollar', spread: 'Medium', liquidity: 'High' },
-      { symbol: 'NZDUSD', name: 'New Zealand Dollar / USD', spread: 'Medium', liquidity: 'Medium' },
       { symbol: 'US30', name: 'US 30 (Dow Jones)', spread: 'Low', liquidity: 'High' }
     ],
     tier2: [
+      { symbol: 'USDJPY', name: 'US Dollar / Japanese Yen', spread: 'Low', liquidity: 'High', reason: 'Safe haven currency' },
       { symbol: 'EURJPY', name: 'Euro / Japanese Yen', spread: 'Medium', liquidity: 'Medium', reason: 'Trend-following potential' },
       { symbol: 'GBPJPY', name: 'British Pound / Japanese Yen', spread: 'Medium', liquidity: 'Medium', reason: 'High volatility (breakouts)' },
-      { symbol: 'EURGBP', name: 'Euro / British Pound', spread: 'Low', liquidity: 'High', reason: 'Mean reversion' },
-      { symbol: 'XAUUSD', name: 'Gold / US Dollar', spread: 'Medium', liquidity: 'High', reason: 'Clear behavior patterns' },
-      { symbol: 'USDMXN', name: 'US Dollar / Mexican Peso', spread: 'High', liquidity: 'Low', reason: 'Highly directional' },
-      { symbol: 'USDZAR', name: 'US Dollar / South African Rand', spread: 'High', liquidity: 'Low', reason: 'High pip value' },
-      { symbol: 'BTCUSD', name: 'Bitcoin / US Dollar', spread: 'High', liquidity: 'Medium', reason: 'Crypto volatility' }
+      { symbol: 'AUDUSD', name: 'Australian Dollar / USD', spread: 'Medium', liquidity: 'High', reason: 'Commodity correlation' }
     ]
   };
 
@@ -76,7 +69,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, c
         };
       } else {
         // Add pair if not selected and under limit
-        if (currentPairs.length < 3) {
+        if (currentPairs.length < 4) {
           return {
             ...prev,
             selectedPairs: [...currentPairs, pair]
@@ -165,7 +158,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, c
                     onChange={(e) => handleSettingChange('pairSelectionMode', e.target.value)}
                     className="text-emerald-500 focus:ring-emerald-500"
                   />
-                  <span className="text-white">I want to choose my 3 trading pairs</span>
+                  <span className="text-white">I want to choose my 4 trading pairs</span>
                 </label>
               </div>
 
@@ -198,7 +191,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, c
                 <div className="p-4 bg-slate-900 rounded-lg border border-slate-600">
                   <div className="mb-3">
                     <p className="text-sm text-slate-300 mb-2">
-                      Select up to 3 trading pairs ({settings.selectedPairs.length}/3 selected)
+                      Select up to 4 trading pairs ({settings.selectedPairs.length}/4 selected)
                     </p>
                     {settings.selectedPairs.length > 0 && (
                       <div className="flex flex-wrap gap-2 mb-3">

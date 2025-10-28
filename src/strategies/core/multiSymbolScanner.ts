@@ -5,11 +5,7 @@ import { marketDataService } from '../../services/market-data';
 import { Timeframe } from '../../services/metaapi';
 
 const MAJOR_PAIRS = [
-  'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF',
-  'AUDUSD', 'USDCAD', 'NZDUSD',
-  'EURJPY', 'GBPJPY', 'EURGBP',
-  'AUDJPY', 'EURAUD', 'EURCHF',
-  'AUDNZD', 'NZDJPY', 'GBPAUD'
+  'EURUSD', 'XAUUSD', 'GBPUSD', 'US30'
 ];
 
 export class MultiSymbolScanner {

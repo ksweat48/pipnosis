@@ -80,7 +80,7 @@ class AutoTradingScanner {
         // Use loaded preferences or fallback to defaults
         const effectivePreferences = preferences || {
           user_id: userId,
-          preferred_pairs: ['EURUSD', 'GBPUSD', 'XAUUSD'],
+          preferred_pairs: ['EURUSD', 'XAUUSD', 'GBPUSD', 'US30'],
           min_confidence_threshold: 75,
           risk_tolerance: 'medium',
           auto_trading_enabled: true,
@@ -233,7 +233,7 @@ class AutoTradingScanner {
 
       console.log('[AutoTradingScanner.startAutoTrading] Performing initial scan...');
       // Perform an immediate initial scan
-      await this.performScan(userId, preferences || { preferred_pairs: ['EURUSD', 'GBPUSD', 'XAUUSD'], min_confidence_threshold: 75 });
+      await this.performScan(userId, preferences || { preferred_pairs: ['EURUSD', 'XAUUSD', 'GBPUSD', 'US30'], min_confidence_threshold: 75 });
 
       console.log('╔═══════════════════════════════════════════════════════════════════════╗');
       console.log('║              ✅ AUTO TRADING STARTED SUCCESSFULLY                      ║');
@@ -499,10 +499,10 @@ Status: ${isWithinHours ? '✓ Within trading hours' : '⚠️ Outside trading h
 
       console.log('[AutoTradingScanner] Step 6: Starting predictive multi-pair analysis...');
       console.log(`[AutoTradingScanner] Account balance: $${accountBalance}`);
-      console.log(`[AutoTradingScanner] Symbols to scan: ${preferences.preferred_pairs?.join(', ') || 'EURUSD, GBPUSD, XAUUSD'}`);
+      console.log(`[AutoTradingScanner] Symbols to scan: ${preferences.preferred_pairs?.join(', ') || 'EURUSD, XAUUSD, GBPUSD, US30'}`);
       console.log(`[AutoTradingScanner] 🔑 Passing Session ID to predictive scanner: ${sessionId}`);
 
-      const symbols = preferences.preferred_pairs || ['EURUSD', 'GBPUSD', 'XAUUSD'];
+      const symbols = preferences.preferred_pairs || ['EURUSD', 'XAUUSD', 'GBPUSD', 'US30'];
 
       if (!sessionId) {
         console.error('[AutoTradingScanner] ❌ CRITICAL: Cannot perform scan without session ID!');

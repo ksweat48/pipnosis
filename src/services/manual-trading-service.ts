@@ -61,7 +61,7 @@ class ManualTradingService {
       }
 
       const userPreferences = await this.getUserTradingPreferences(request.userId);
-      const symbols = userPreferences?.preferred_pairs || ['EURUSD', 'GBPUSD', 'XAUUSD'];
+      const symbols = userPreferences?.preferred_pairs || ['EURUSD', 'XAUUSD', 'GBPUSD', 'US30'];
 
       const analysisRequest: AIAnalysisRequest = {
         userId: request.userId,
@@ -199,7 +199,7 @@ class ManualTradingService {
           .insert({
             user_id: userId,
             risk_tolerance: 'medium',
-            preferred_pairs: ['EURUSD', 'GBPUSD', 'XAUUSD'],
+            preferred_pairs: ['EURUSD', 'XAUUSD', 'GBPUSD', 'US30'],
             max_position_size: 1.0,
             default_risk_per_trade: 2.0,
             auto_trading_enabled: false,

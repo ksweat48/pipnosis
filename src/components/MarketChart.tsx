@@ -78,7 +78,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const isUserInteractingRef = useRef<boolean>(false);
   const updateIntervalRef = useRef<number | null>(null);
 
-  const availablePairs = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA', 'JPM'];
+  const availablePairs = ['EURUSD', 'XAUUSD', 'GBPUSD', 'US30'];
 
   const realtimePrice = useRealtimePrice(symbol);
 
