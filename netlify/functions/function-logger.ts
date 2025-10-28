@@ -58,19 +58,19 @@ export class FunctionLogger {
 
     switch (level) {
       case 'error':
-        console.error(`${prefix} ❌ ${message}`, details ? details : '');
+        console.error(`${prefix} [ERROR] ${message}`, details ? details : '');
         break;
       case 'warn':
-        console.warn(`${prefix} ⚠️  ${message}`, details ? details : '');
+        console.warn(`${prefix} [WARN] ${message}`, details ? details : '');
         break;
       case 'info':
-        console.log(`${prefix} ℹ️  ${message}`, details ? details : '');
+        console.log(`${prefix} [INFO] ${message}`, details ? details : '');
         break;
       case 'debug':
-        console.log(`${prefix} 🔍 ${message}`, details ? details : '');
+        console.log(`${prefix} [DEBUG] ${message}`, details ? details : '');
         break;
       case 'success':
-        console.log(`${prefix} ✅ ${message}`, details ? details : '');
+        console.log(`${prefix} [OK] ${message}`, details ? details : '');
         break;
       default:
         console.log(`${prefix} ${message}`, details ? details : '');
