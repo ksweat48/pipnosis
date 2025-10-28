@@ -151,7 +151,6 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
         autoScale: true,
         mode: 0,
         invertScale: false,
-        drawTicks: true,
       },
       timeScale: {
         borderColor: 'rgba(255, 255, 255, 0.2)',

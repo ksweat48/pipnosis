@@ -1,19 +1,6 @@
 import React from 'react';
 import { TrendingUp, Shield, Zap, DollarSign, Target, AlertTriangle, Loader } from 'lucide-react';
-
-interface StrategyOption {
-  id: string;
-  name: string;
-  risk: 'low' | 'medium' | 'high';
-  tradeType: string;
-  entry: string;
-  stopLoss: string;
-  takeProfit: string;
-  lotSize: number;
-  estimatedGain: number;
-  feasible: boolean;
-  reasoning: string;
-}
+import { StrategyOption } from '../types/strategy';
 
 interface StrategyOptionsProps {
   options: StrategyOption[];

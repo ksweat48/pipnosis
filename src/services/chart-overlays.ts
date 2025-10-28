@@ -159,12 +159,14 @@ class ChartOverlayService {
     try {
       const regressionValues = calculateLinearRegression(candles, period);
 
-      return regressionValues.map((val, index) => ({
-        time: Math.floor(candles[period - 1 + index].time instanceof Date
-          ? candles[period - 1 + index].time.getTime() / 1000
-          : (candles[period - 1 + index].time as any)) as Time,
-        value: val.value
-      }));
+      return regressionValues.map((val, index) => {
+        const candleTime = candles[period - 1 + index].time;
+        const timeMs = candleTime instanceof Date ? candleTime.getTime() : new Date(candleTime).getTime();
+        return {
+          time: Math.floor(timeMs / 1000) as Time,
+          value: val.value
+        };
+      });
     } catch (error) {
       console.error('Error calculating Signal Line:', error);
       return [];

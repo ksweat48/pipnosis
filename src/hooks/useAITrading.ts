@@ -5,7 +5,7 @@ import { useUserBalance } from './useUserBalance';
 
 export const useAITrading = () => {
   const { user } = useAuth();
-  const { balance } = useUserBalance();
+  const { balance } = useUserBalance(user?.id || null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<ManualTradeResponse | null>(null);

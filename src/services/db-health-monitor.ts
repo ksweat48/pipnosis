@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import TinyEmitter from 'tiny-emitter';
+import { TinyEmitter } from 'tiny-emitter';
 
 export type DatabaseHealthStatus = 'healthy' | 'degraded' | 'critical' | 'unknown';
 

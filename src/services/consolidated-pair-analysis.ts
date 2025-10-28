@@ -78,7 +78,7 @@ class ConsolidatedPairAnalysisService {
       emaSlopeDirection,
       trendStrengthPercent: trendStrength,
       priceStructureTag: advancedPattern?.type || 'Unknown',
-      structureConfidence: advancedPattern?.confidence || 'LOW',
+      structureConfidence: (advancedPattern?.confidence as 'LOW' | 'MODERATE' | 'HIGH') || 'LOW',
       candlePatternName: candlePattern?.type || 'None',
       candlePatternDirection: candlePattern?.direction?.toUpperCase() as 'BULLISH' | 'BEARISH' | 'NEUTRAL' || 'NEUTRAL',
       candlePatternConfidence: candlePattern?.strength === 'Strong' ? 'HIGH' : candlePattern?.strength === 'Moderate' ? 'MODERATE' : 'LOW',

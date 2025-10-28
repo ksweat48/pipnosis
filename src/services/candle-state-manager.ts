@@ -140,13 +140,15 @@ class CandleStateManager {
     return map[timeframe] || 15;
   }
 
-  updateCandleWithCandleData(candle: CandleData): CandleState {
-    const key = this.getCandleKey(candle.symbol, candle.timeframe as Timeframe);
-    const candleOpenTime = getCandleOpenTime(candle.time, candle.timeframe as Timeframe);
+  updateCandleWithCandleData(candle: CandleData, symbol?: string, timeframe?: Timeframe): CandleState {
+    const candleSymbol = candle.symbol || symbol || 'UNKNOWN';
+    const candleTimeframe = candle.timeframe || timeframe || 'M15';
+    const key = this.getCandleKey(candleSymbol, candleTimeframe);
+    const candleOpenTime = getCandleOpenTime(candle.time, candleTimeframe);
 
     const candleState: CandleState = {
-      symbol: candle.symbol,
-      timeframe: candle.timeframe as Timeframe,
+      symbol: candleSymbol,
+      timeframe: candleTimeframe,
       open: candle.open,
       high: candle.high,
       low: candle.low,

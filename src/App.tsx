@@ -36,32 +36,7 @@ import { runDatabaseDiagnostics, logDiagnostics } from './lib/database-diagnosti
 import { verifyDatabaseSetup } from './lib/migration-checker';
 import { connectionValidator } from './lib/connection-validator';
 import { dbHealthMonitor } from './services/db-health-monitor';
-
-interface StrategyOption {
-  id: string;
-  name: string;
-  risk: string;
-  symbol: string;
-  action: string;
-  entry: string;
-  stopLoss: string;
-  takeProfit: string;
-  lotSize: number;
-  estimatedGain: string;
-  riskRewardRatio?: number;
-  feasible: boolean;
-  reasoning: string;
-  confidence: string;
-}
-
-interface Notification {
-  id: string;
-  type: 'info' | 'success' | 'error' | 'warning';
-  title: string;
-  message: string;
-  timestamp: string;
-  read: boolean;
-}
+import { StrategyOption, Notification } from './types/strategy';
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -128,12 +103,16 @@ const Dashboard: React.FC = () => {
       if (opportunities.length > 0) {
         const bestOpportunity = opportunities[0];
 
-        const transformedStrategy = {
+        const riskLevel = (promptAnalysis.riskTolerance === 'low' || promptAnalysis.riskTolerance === 'medium' || promptAnalysis.riskTolerance === 'high')
+          ? promptAnalysis.riskTolerance
+          : 'medium';
+
+        const transformedStrategy: StrategyOption = {
           id: `opportunity-${Date.now()}`,
           name: `${bestOpportunity.signal.symbol} ${bestOpportunity.signal.direction} Trade`,
-          risk: promptAnalysis.riskTolerance,
+          risk: riskLevel as 'low' | 'medium' | 'high',
           symbol: bestOpportunity.signal.symbol,
-          action: bestOpportunity.signal.direction.toLowerCase(),
+          action: bestOpportunity.signal.direction.toLowerCase() as 'buy' | 'sell',
           entry: bestOpportunity.signal.entryPrice.toFixed(5),
           stopLoss: bestOpportunity.signal.stopLoss.toFixed(5),
           takeProfit: bestOpportunity.signal.takeProfit.toFixed(5),
@@ -286,7 +265,7 @@ const Dashboard: React.FC = () => {
       name: `${opportunity.symbol} ${opportunity.signal.direction} Trade`,
       risk: 'medium',
       symbol: opportunity.symbol,
-      action: opportunity.signal.direction.toLowerCase(),
+      action: opportunity.signal.direction.toLowerCase() as 'buy' | 'sell',
       entry: opportunity.signal.entryPrice.toFixed(5),
       stopLoss: opportunity.signal.stopLoss.toFixed(5),
       takeProfit: opportunity.signal.takeProfit.toFixed(5),
