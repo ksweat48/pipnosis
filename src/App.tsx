@@ -18,6 +18,7 @@ import { AdminDashboard } from './pages/AdminDashboard';
 import { AuthPage } from './pages/AuthPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import TestMetaApiToken from './pages/TestMetaApiToken';
+import TestMetaApiDirect from './pages/TestMetaApiDirect';
 import { ActivePositions } from './components/ActivePositions';
 import { TradeConfirmationModal } from './components/TradeConfirmationModal';
 import { ConfigurationStatus } from './components/ConfigurationStatus';
@@ -486,6 +487,7 @@ const AppRoutes: React.FC = () => {
       />
       <Route path="/waitlist" element={<LandingPage />} />
       <Route path="/test-metaapi" element={<TestMetaApiToken />} />
+      <Route path="/test-metaapi-direct" element={<TestMetaApiDirect />} />
       <Route
         path="/admin/dashboard"
         element={
