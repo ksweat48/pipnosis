@@ -139,7 +139,7 @@ function validateRequiredEnvVars(vars, logger = null) {
 }
 
 function validateMetaAPIRegion(region, logger = null) {
-  const validRegions = ['new-york', 'london', 'singapore', 'cloud-g1', 'cloud-g2', 'cloud-g3'];
+  const validRegions = ['new-york', 'london', 'singapore', 'tokyo'];
   const isCloudRegion = region && region.startsWith('cloud-');
 
   if (!validRegions.includes(region) && !isCloudRegion) {
@@ -155,7 +155,7 @@ function validateMetaAPIRegion(region, logger = null) {
     throw new ValidationError(message, {
       provided: region,
       valid: validRegions,
-      hint: 'Region must be one of: new-york, london, singapore, or cloud-g1, cloud-g2, cloud-g3'
+      hint: 'Region must be one of: new-york, london, singapore, tokyo'
     });
   }
 }

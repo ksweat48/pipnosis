@@ -21,7 +21,7 @@ async function updateConnectionHealth(supabase, status, errorMessage = null) {
         endpoint: 'stream-prices',
         status: status,
         error_message: errorMessage,
-        region: process.env.METAAPI_REGION || 'cloud-g2',
+        region: process.env.METAAPI_REGION || 'london',
         account_id: process.env.METAAPI_ACCOUNT_ID || ''
       });
 
@@ -106,7 +106,7 @@ exports.handler = async (event) => {
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const token = process.env.METAAPI_ADMIN_TOKEN;
   const accountId = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
-  const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'cloud-g2';
+  const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
 
   if (!supabaseUrl || !supabaseKey) {
     return {

@@ -16,7 +16,7 @@ const TOKEN_GENERATION_TIMEOUT_MS = 14000; // 14 seconds
 const FUNCTION_TIMEOUT_MS = 25700; // 25.7 seconds (safety buffer before 26s Netlify limit)
 
 // Multi-region fallback order
-const REGIONS = ['cloud-g2', 'cloud-g1', 'new-york', 'london', 'singapore'];
+const REGIONS = ['new-york', 'london', 'singapore', 'tokyo'];
 
 function resolveMetaApiCtor() {
   try {
@@ -217,7 +217,7 @@ exports.handler = async (event) => {
     // Environment validation
     const adminToken = process.env.METAAPI_ADMIN_TOKEN;
     const accountId = process.env.METAAPI_ACCOUNT_ID || process.env.VITE_METAAPI_ACCOUNT_ID;
-    const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'cloud-g2';
+    const region = process.env.METAAPI_REGION || process.env.VITE_METAAPI_REGION || 'london';
 
     if (!adminToken) {
       return {
