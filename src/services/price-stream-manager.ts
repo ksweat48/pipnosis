@@ -191,8 +191,15 @@ export class PriceStreamManager {
         if (!connected) {
           this.handleWebSocketDisconnect();
         } else {
-          console.log(`[PriceStreamManager] WebSocket connected for ${this.symbol}`);
+          console.log(`[PriceStreamManager] Socket.IO connected for ${this.symbol}`);
           this.currentStrategy = 'websocket';
+
+          if (this.pollingStream) {
+            console.log(`[PriceStreamManager] Stopping polling - Socket.IO active`);
+            this.pollingStream.stop();
+            this.pollingStream = null;
+          }
+
           this.notifyStatusChange();
         }
       });

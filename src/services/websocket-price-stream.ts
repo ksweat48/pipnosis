@@ -1,3 +1,5 @@
+import { io, Socket } from 'socket.io-client';
+
 interface WebSocketTickData {
   symbol: string;
   bid: number;
@@ -12,13 +14,14 @@ type ConnectionCallback = (connected: boolean) => void;
 type ErrorCallback = (error: Error) => void;
 
 export class WebSocketPriceStream {
-  private ws: WebSocket | null = null;
+  private socket: Socket | null = null;
   private symbol: string;
   private accountId: string;
   private token: string;
   private region: string;
   private isConnecting: boolean = false;
   private isConnected: boolean = false;
+  private isAuthenticated: boolean = false;
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 10;
   private reconnectTimeout: NodeJS.Timeout | null = null;
@@ -69,50 +72,94 @@ export class WebSocketPriceStream {
     }
 
     this.isConnecting = true;
-    console.log(`[WebSocketPriceStream] Connecting to ${this.symbol} via MetaAPI WebSocket (${this.region})`);
+    console.log(`[WebSocketPriceStream] Connecting to ${this.symbol} via MetaAPI Socket.IO (${this.region})`);
 
     try {
-      const wsUrl = `wss://mt-client-api-v1.${this.region}.agiliumtrade.ai`;
+      const socketUrl = `https://mt-client-api-v1.${this.region}.agiliumtrade.ai`;
 
-      this.ws = new WebSocket(wsUrl);
+      this.socket = io(socketUrl, {
+        path: '/ws',
+        reconnection: false,
+        transports: ['websocket', 'polling'],
+        query: {
+          'auth-token': this.token
+        }
+      });
 
-      this.ws.onopen = () => {
-        console.log(`[WebSocketPriceStream] WebSocket connection opened for ${this.symbol}`);
+      this.socket.on('connect', () => {
+        console.log(`[WebSocketPriceStream] Socket.IO connection opened for ${this.symbol}`);
         this.isConnecting = false;
         this.isConnected = true;
         this.reconnectAttempts = 0;
-
-        this.authenticate();
-        this.startHeartbeat();
         this.notifyConnectionChange(true);
-      };
+      });
 
-      this.ws.onmessage = (event) => {
-        this.handleMessage(event.data);
-      };
+      this.socket.on('synchronization', (data: any) => {
+        if (data.type === 'authenticated') {
+          console.log(`[WebSocketPriceStream] Authentication successful for ${this.symbol}`);
+          this.isAuthenticated = true;
+          this.startHeartbeat();
+          this.subscribeToPrice();
+        }
+      });
 
-      this.ws.onerror = (error) => {
-        console.error(`[WebSocketPriceStream] WebSocket error for ${this.symbol}:`, error);
+      this.socket.on('tick', (data: any) => {
+        this.handlePriceTick(data);
+      });
+
+      this.socket.on('quote', (data: any) => {
+        this.handlePriceTick(data);
+      });
+
+      this.socket.on('prices', (data: any) => {
+        if (Array.isArray(data)) {
+          data.forEach((tick: any) => this.handlePriceTick(tick));
+        } else {
+          this.handlePriceTick(data);
+        }
+      });
+
+      this.socket.on('response', (data: any) => {
+        if (data.type === 'response') {
+          console.log(`[WebSocketPriceStream] Received response:`, data);
+        }
+      });
+
+      this.socket.on('pong', () => {
+        this.lastHeartbeat = Date.now();
+      });
+
+      this.socket.on('error', (error: any) => {
+        console.error(`[WebSocketPriceStream] Socket.IO error for ${this.symbol}:`, error);
         this.isConnecting = false;
-        this.notifyError(new Error('WebSocket connection error'));
-      };
+        this.notifyError(new Error(error?.message || 'Socket.IO connection error'));
+      });
 
-      this.ws.onclose = (event) => {
-        console.log(`[WebSocketPriceStream] WebSocket closed for ${this.symbol}. Code: ${event.code}, Reason: ${event.reason}`);
+      this.socket.on('connect_error', (error: any) => {
+        console.error(`[WebSocketPriceStream] Connection error for ${this.symbol}:`, error.message);
+        this.isConnecting = false;
+        this.isConnected = false;
+        this.notifyError(new Error(`Connection failed: ${error.message}`));
+        this.scheduleReconnect();
+      });
+
+      this.socket.on('disconnect', (reason: string) => {
+        console.log(`[WebSocketPriceStream] Socket.IO disconnected for ${this.symbol}. Reason: ${reason}`);
         this.isConnected = false;
         this.isConnecting = false;
+        this.isAuthenticated = false;
         this.stopHeartbeat();
         this.notifyConnectionChange(false);
 
-        if (event.code !== 1000) {
+        if (reason !== 'io client disconnect') {
           this.scheduleReconnect();
         }
-      };
+      });
 
     } catch (error) {
       this.isConnecting = false;
       this.isConnected = false;
-      console.error(`[WebSocketPriceStream] Failed to create WebSocket connection:`, error);
+      console.error(`[WebSocketPriceStream] Failed to create Socket.IO connection:`, error);
       this.notifyError(error as Error);
       this.scheduleReconnect();
     }
@@ -128,13 +175,15 @@ export class WebSocketPriceStream {
       this.reconnectTimeout = null;
     }
 
-    if (this.ws) {
-      this.ws.close(1000, 'Client disconnect');
-      this.ws = null;
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      this.socket.disconnect();
+      this.socket = null;
     }
 
     this.isConnected = false;
     this.isConnecting = false;
+    this.isAuthenticated = false;
     this.reconnectAttempts = 0;
   }
 
@@ -150,78 +199,27 @@ export class WebSocketPriceStream {
 
   getConnectionStatus(): { connected: boolean; reconnectAttempts: number } {
     return {
-      connected: this.isConnected,
+      connected: this.isConnected && this.isAuthenticated,
       reconnectAttempts: this.reconnectAttempts
     };
   }
 
-  private authenticate(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return;
-    }
-
-    const authMessage = {
-      type: 'authenticate',
-      token: this.token,
-      accountId: this.accountId
-    };
-
-    console.log(`[WebSocketPriceStream] Sending authentication for ${this.symbol}`);
-    this.ws.send(JSON.stringify(authMessage));
-
-    setTimeout(() => {
-      this.subscribeToPrice();
-    }, 1000);
-  }
-
   private subscribeToPrice(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (!this.socket || !this.socket.connected || !this.isAuthenticated) {
+      console.warn(`[WebSocketPriceStream] Cannot subscribe - not connected or authenticated`);
       return;
     }
 
-    const subscribeMessage = {
-      type: 'subscribe',
+    const subscribeRequest = {
+      type: 'subscribeToMarketData',
       symbol: this.symbol,
-      subscriptions: ['quotes']
+      subscriptions: [
+        { type: 'quotes' }
+      ]
     };
 
     console.log(`[WebSocketPriceStream] Subscribing to price updates for ${this.symbol}`);
-    this.ws.send(JSON.stringify(subscribeMessage));
-  }
-
-  private handleMessage(data: string): void {
-    try {
-      const message = JSON.parse(data);
-
-      if (message.type === 'authenticated') {
-        console.log(`[WebSocketPriceStream] Authentication successful for ${this.symbol}`);
-        return;
-      }
-
-      if (message.type === 'subscribed') {
-        console.log(`[WebSocketPriceStream] Subscription confirmed for ${this.symbol}`);
-        return;
-      }
-
-      if (message.type === 'quote' || message.type === 'tick') {
-        this.handlePriceTick(message);
-        return;
-      }
-
-      if (message.type === 'heartbeat' || message.type === 'pong') {
-        this.lastHeartbeat = Date.now();
-        return;
-      }
-
-      if (message.type === 'error') {
-        console.error(`[WebSocketPriceStream] Server error:`, message.error);
-        this.notifyError(new Error(message.error || 'Unknown server error'));
-        return;
-      }
-
-    } catch (error) {
-      console.error(`[WebSocketPriceStream] Failed to parse message:`, error);
-    }
+    this.socket.emit('request', subscribeRequest);
   }
 
   private handlePriceTick(data: any): void {
@@ -261,7 +259,7 @@ export class WebSocketPriceStream {
     this.lastHeartbeat = Date.now();
 
     this.heartbeatInterval = setInterval(() => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      if (!this.socket || !this.socket.connected) {
         return;
       }
 
@@ -274,8 +272,7 @@ export class WebSocketPriceStream {
         return;
       }
 
-      const pingMessage = { type: 'ping' };
-      this.ws.send(JSON.stringify(pingMessage));
+      this.socket.emit('ping');
     }, this.HEARTBEAT_INTERVAL);
   }
 

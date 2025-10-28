@@ -65,7 +65,7 @@ export const ConnectionHealthMonitor: React.FC<ConnectionHealthMonitorProps> = (
     }
 
     if (status.connectionType === 'websocket') {
-      return 'WebSocket';
+      return 'Socket.IO';
     }
 
     return 'Polling';
@@ -176,7 +176,7 @@ export const ConnectionHealthMonitor: React.FC<ConnectionHealthMonitorProps> = (
             {status.connectionType === 'polling' && (
               <div className="mt-3 pt-3 border-t border-white/10">
                 <p className="text-xs text-yellow-400 mb-2">
-                  WebSocket unavailable, using polling fallback
+                  Socket.IO unavailable, using polling fallback
                 </p>
                 <button
                   onClick={() => {

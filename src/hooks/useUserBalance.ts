@@ -19,62 +19,107 @@ export function useUserBalance(userId: string | null) {
 
     let channel: any = null;
     let isSubscribed = false;
+    let retryCount = 0;
+    const MAX_RETRIES = 3;
+    let retryTimeout: NodeJS.Timeout | null = null;
 
-    try {
-      channel = supabase
-        .channel('balance_changes')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'user_profiles',
-            filter: `id=eq.${userId}`
-          },
-          (payload) => {
-            if (payload.new && 'account_balance' in payload.new) {
-              setBalance(parseFloat(payload.new.account_balance as string));
-            }
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'trade_records',
-            filter: `user_id=eq.${userId}`
-          },
-          () => {
+    const setupChannel = () => {
+      if (retryCount >= MAX_RETRIES) {
+        console.warn('[useUserBalance] Max retry attempts reached, falling back to polling');
+        const pollingInterval = setInterval(() => {
+          if (userId) {
+            fetchBalance();
             fetchOpenPositions();
           }
-        );
+        }, 10000);
 
-      channel.subscribe((status: string) => {
-        if (status === 'SUBSCRIBED') {
-          isSubscribed = true;
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.warn(`Balance realtime subscription issue: ${status}`);
-          isSubscribed = false;
-        } else if (status === 'CLOSED') {
-          isSubscribed = false;
+        return () => {
+          clearInterval(pollingInterval);
+        };
+      }
+
+      try {
+        channel = supabase
+          .channel(`balance_changes_${userId}_${Date.now()}`)
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'user_profiles',
+              filter: `id=eq.${userId}`
+            },
+            (payload) => {
+              if (payload.new && 'account_balance' in payload.new) {
+                setBalance(parseFloat(payload.new.account_balance as string));
+              }
+            }
+          )
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'trade_records',
+              filter: `user_id=eq.${userId}`
+            },
+            () => {
+              fetchOpenPositions();
+            }
+          );
+
+        channel.subscribe((status: string) => {
+          if (status === 'SUBSCRIBED') {
+            isSubscribed = true;
+            retryCount = 0;
+            console.log('[useUserBalance] Realtime subscription active');
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn(`[useUserBalance] Subscription ${status}, will retry in ${(retryCount + 1) * 2}s`);
+            isSubscribed = false;
+
+            if (channel) {
+              supabase.removeChannel(channel).catch(() => {});
+              channel = null;
+            }
+
+            retryCount++;
+            const retryDelay = retryCount * 2000;
+            retryTimeout = setTimeout(() => {
+              setupChannel();
+            }, retryDelay);
+          } else if (status === 'CLOSED') {
+            isSubscribed = false;
+            console.log('[useUserBalance] Channel closed');
+          }
+        });
+      } catch (error) {
+        console.warn('[useUserBalance] Failed to setup realtime subscription:', error);
+        retryCount++;
+        if (retryCount < MAX_RETRIES) {
+          retryTimeout = setTimeout(() => {
+            setupChannel();
+          }, retryCount * 2000);
         }
-      });
-    } catch (error) {
-      console.warn('Failed to setup realtime subscription for balance:', error);
-    }
+      }
+    };
+
+    setupChannel();
 
     return () => {
-      if (channel && isSubscribed) {
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+      }
+
+      if (channel) {
         try {
           const channelState = channel.state;
           if (channelState === 'joined' || channelState === 'joining') {
             supabase.removeChannel(channel).catch((err: any) => {
-              console.warn('Error removing balance channel:', err);
+              console.warn('[useUserBalance] Error removing balance channel:', err);
             });
           }
         } catch (error) {
-          console.warn('Error during balance channel cleanup:', error);
+          console.warn('[useUserBalance] Error during balance channel cleanup:', error);
         }
       }
     };
