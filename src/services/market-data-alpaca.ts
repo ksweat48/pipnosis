@@ -1,30 +1,9 @@
 import { alpacaAPI, AlpacaBar } from './alpaca-api';
 import { alpacaStream, AlpacaQuote } from './alpaca-stream';
 import { supabase } from '../lib/supabase';
+import { TickData, CandleData, MarketDataListener, Timeframe } from '../types/market-data';
 
-export interface TickData {
-  symbol: string;
-  bid: number;
-  ask: number;
-  time: Date;
-  brokerTime: string;
-}
-
-export interface CandleData {
-  time: Date;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-  tickVolume?: number;
-}
-
-export interface MarketDataListener {
-  id: string;
-  onTick?: (tick: TickData) => void;
-  onCandle?: (candle: CandleData) => void;
-}
+export type { TickData, CandleData, MarketDataListener, Timeframe };
 
 const timeframeMap: Record<string, string> = {
   'M1': '1Min',
@@ -70,7 +49,7 @@ class MarketDataServiceAlpaca {
 
   async getHistoricalData(
     symbol: string,
-    timeframe: string,
+    timeframe: Timeframe,
     limit: number = 100,
     skipCache: boolean = false,
     skipBackfill: boolean = false
@@ -96,7 +75,7 @@ class MarketDataServiceAlpaca {
     }
   }
 
-  async getLatestCandle(symbol: string, timeframe: string): Promise<CandleData | null> {
+  async getLatestCandle(symbol: string, timeframe: Timeframe): Promise<CandleData | null> {
     try {
       const candles = await this.getHistoricalData(symbol, timeframe, 1);
       return candles[0] || null;

@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { Timeframe } from './metaapi';
+import { Timeframe } from '../types/market-data';
 import { timeframeToMinutes } from './candle-utils';
 
 class CandleCompletionService {

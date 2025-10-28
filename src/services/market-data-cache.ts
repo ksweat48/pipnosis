@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { CandleData, Timeframe } from './metaapi';
+import { CandleData, Timeframe } from '../types/market-data';
 import { dataValidator } from './data-validator';
 import { dbHealthMonitor } from './db-health-monitor';
 import { getCandleOpenTime } from './candle-utils';

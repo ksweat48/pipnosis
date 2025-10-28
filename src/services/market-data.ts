@@ -1,4 +1,4 @@
-import { metaApiService, CandleData, Timeframe, TickData } from './metaapi';
+import { metaApiService } from './metaapi-stub';
 import { marketDataCache } from './market-data-cache';
 import { candleCompletionService } from './candle-completion';
 import { Time } from 'lightweight-charts';
@@ -10,7 +10,6 @@ import { dataQualityMonitor } from './data-quality-monitor';
 import { multiTimeframeAggregator } from './multi-timeframe-aggregator';
 import { timeframeBackfillService } from './timeframe-backfill';
 import { marketHoursService } from './market-hours';
-import { LivePricePolling, Tick } from './livePricePolling';
 
 export interface MarketDataListener {
   onCandleUpdate?: (candle: CandleData) => void;
@@ -18,7 +17,7 @@ export interface MarketDataListener {
   onError?: (error: Error) => void;
 }
 
-export type { TickData } from './metaapi';
+export type { TickData } from '../types/market-data';
 
 export interface ChartCandleData {
   time: Time;

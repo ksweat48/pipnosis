@@ -11,8 +11,7 @@ import { StrategyPerformanceWidget } from './StrategyPerformanceWidget';
 import { AutoTradingPanel } from './AutoTradingPanel';
 import { useAutoTradingStatus } from '../hooks/useAutoTradingStatus';
 import { CandlestickData, Time, HistogramData } from 'lightweight-charts';
-import { marketDataService, MarketDataListener, TickData } from '../services/market-data';
-import { Timeframe, CandleData } from '../services/metaapi';
+import { marketDataServiceAlpaca as marketDataService, MarketDataListener, TickData, CandleData, Timeframe } from '../services/market-data-alpaca';
 import { getCandleOpenTime, isNewCandlePeriod } from '../services/candle-utils';
 import { marketHoursService } from '../services/market-hours';
 import { candleStateManager } from '../services/candle-state-manager';
@@ -78,7 +77,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const isUserInteractingRef = useRef<boolean>(false);
   const updateIntervalRef = useRef<number | null>(null);
 
-  const availablePairs = ['EURUSD', 'GBPUSD', 'XAUUSD', 'US30'];
+  const availablePairs = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA', 'JPM'];
 
   const realtimePrice = useRealtimePrice(symbol);
 

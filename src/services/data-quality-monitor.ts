@@ -1,4 +1,4 @@
-import { Timeframe, TickData } from './metaapi';
+import { Timeframe, TickData } from '../types/market-data';
 import TinyEmitter from 'tiny-emitter';
 
 export type DataQualityScore = 'excellent' | 'good' | 'fair' | 'poor' | 'critical';

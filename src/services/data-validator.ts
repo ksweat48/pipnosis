@@ -1,4 +1,4 @@
-import { CandleData, Timeframe } from './metaapi';
+import { CandleData, Timeframe } from '../types/market-data';
 import { validateOHLC, validateCandleSequence, timeframeToMinutes } from './candle-utils';
 
 export interface ValidationResult {

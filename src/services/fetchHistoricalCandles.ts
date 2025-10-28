@@ -1,5 +1,6 @@
+import { metaApiService } from './metaapi-stub';
 import { supabase } from '../lib/supabase';
-import { metaApiService, CandleData, Timeframe } from './metaapi';
+import { CandleData, Timeframe } from '../types/market-data';
 
 /**
  * Supported timeframes for historical data fetching

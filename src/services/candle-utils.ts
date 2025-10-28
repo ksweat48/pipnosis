@@ -1,4 +1,4 @@
-import { Timeframe } from './metaapi';
+import { Timeframe } from '../types/market-data';
 
 export function timeframeToMinutes(timeframe: Timeframe): number {
   const map: Record<Timeframe, number> = {

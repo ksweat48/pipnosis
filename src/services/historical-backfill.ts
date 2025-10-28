@@ -1,5 +1,6 @@
+import { metaApiService } from './metaapi-stub';
 import { supabase } from '../lib/supabase';
-import { CandleData, Timeframe, metaApiService } from './metaapi';
+import { CandleData, Timeframe } from '../types/market-data';
 import { marketDataCache } from './market-data-cache';
 import { gapDetectionService, DateGap } from './gap-detection';
 import { dataValidator } from './data-validator';

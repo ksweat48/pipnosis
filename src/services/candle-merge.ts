@@ -1,4 +1,4 @@
-import { CandleData, Timeframe } from './metaapi';
+import { CandleData, Timeframe } from '../types/market-data';
 import { getCandleOpenTime } from './candle-utils';
 import { marketHoursService } from './market-hours';
 

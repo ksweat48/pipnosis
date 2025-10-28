@@ -1,4 +1,4 @@
-import { Timeframe, CandleData, TickData } from './metaapi';
+import { Timeframe, CandleData, TickData } from '../types/market-data';
 import { candleStateManager } from './candle-state-manager';
 import { marketDataCache } from './market-data-cache';
 import { getCandleOpenTime } from './candle-utils';

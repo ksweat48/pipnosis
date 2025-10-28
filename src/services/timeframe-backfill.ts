@@ -1,6 +1,6 @@
-import { Timeframe, CandleData } from './metaapi';
+import { metaApiService } from './metaapi-stub';
+import { Timeframe, CandleData } from '../types/market-data';
 import { marketDataCache } from './market-data-cache';
-import { metaApiService } from './metaapi';
 import { marketHoursService } from './market-hours';
 
 interface BackfillTask {

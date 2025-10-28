@@ -3,7 +3,7 @@ import { marketDataService } from './market-data';
 import { consolidatedPairAnalysisService } from './consolidated-pair-analysis';
 import { aiPairPredictionService, PairPrediction } from './ai-pair-prediction';
 import { thoughtProcessLogger } from './thought-process-logger';
-import { Timeframe } from './metaapi';
+import { Timeframe } from '../types/market-data';
 
 export interface PredictiveScanResult {
   opportunityFound: boolean;

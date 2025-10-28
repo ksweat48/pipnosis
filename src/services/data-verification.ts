@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { Timeframe, CandleData } from './metaapi';
+import { Timeframe, CandleData } from '../types/market-data';
 import { gapDetectionService } from './gap-detection';
 import { dataValidator } from './data-validator';
 

@@ -3,7 +3,7 @@ import { marketDataService } from './market-data';
 import { FxFlowScalperV2, MultiTimeframeCandles } from '@/strategies/core/fxFlowScalperV2';
 import { analyzeMarket, AiMarketSummary } from '@/lib/aiMarketEngine';
 import { Candle } from '@/lib/indicators';
-import { Timeframe } from './metaapi';
+import { Timeframe } from '../types/market-data';
 import { thoughtProcessLogger } from './thought-process-logger';
 
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
