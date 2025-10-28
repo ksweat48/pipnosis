@@ -45,16 +45,30 @@ class DatabaseHealthMonitor extends TinyEmitter {
   private readonly ERROR_RATE_WINDOW = 100;
   private recentOperations: boolean[] = [];
   private isMonitoring = false;
+  private isPaused = false;
+  private pauseUntil: Date | null = null;
 
   startMonitoring(): void {
     if (this.isMonitoring) return;
 
     this.isMonitoring = true;
+    this.isPaused = false;
+    this.pauseUntil = null;
     console.log('🔍 Starting database health monitoring...');
 
     this.performHealthCheck();
 
     this.checkInterval = window.setInterval(() => {
+      if (this.isPaused && this.pauseUntil && new Date() < this.pauseUntil) {
+        return;
+      }
+
+      if (this.isPaused && this.pauseUntil && new Date() >= this.pauseUntil) {
+        console.log('🔄 Resuming database health monitoring after pause');
+        this.isPaused = false;
+        this.pauseUntil = null;
+      }
+
       this.performHealthCheck();
     }, this.CHECK_INTERVAL_MS);
   }
@@ -65,7 +79,15 @@ class DatabaseHealthMonitor extends TinyEmitter {
       this.checkInterval = null;
     }
     this.isMonitoring = false;
+    this.isPaused = false;
+    this.pauseUntil = null;
     console.log('🛑 Stopped database health monitoring');
+  }
+
+  pauseMonitoring(durationMs: number = 60000): void {
+    this.isPaused = true;
+    this.pauseUntil = new Date(Date.now() + durationMs);
+    console.log(`⏸️ Pausing database health monitoring for ${durationMs / 1000}s`);
   }
 
   getMetrics(): DatabaseHealthMetrics {
@@ -105,12 +127,25 @@ class DatabaseHealthMonitor extends TinyEmitter {
 
     if (this.metrics.status === 'critical') {
       this.emit('health-critical', this.metrics);
-      console.error('🚨 Database health CRITICAL:', this.metrics);
+      console.error('🚨 Database health CRITICAL:', {
+        consecutiveFailures: this.metrics.consecutiveFailures,
+        errorRate: this.metrics.errorRate.toFixed(1) + '%',
+        lastError: this.metrics.lastError
+      });
+
+      if (this.metrics.consecutiveFailures >= 5) {
+        this.pauseMonitoring(120000);
+      }
     } else if (this.metrics.status === 'degraded') {
       this.emit('health-degraded', this.metrics);
-      console.warn('⚠️ Database health DEGRADED:', this.metrics);
+      console.warn('⚠️ Database health DEGRADED:', {
+        consecutiveFailures: this.metrics.consecutiveFailures,
+        errorRate: this.metrics.errorRate.toFixed(1) + '%'
+      });
     } else if (this.metrics.status === 'healthy') {
-      console.log('✅ Database health check passed');
+      if (this.metrics.consecutiveFailures === 0 && this.recentOperations.length > 0) {
+        console.log('✅ Database health check passed');
+      }
     }
   }
 

@@ -29,6 +29,7 @@ export function useRealtimePrice(symbol: string): RealtimePriceState {
 
   const channelRef = useRef<RealtimeChannel | null>(null);
   const isMountedRef = useRef(true);
+  const isSubscribedRef = useRef(false);
 
   const updatePrice = useCallback((newPrice: RealtimePrice) => {
     if (!isMountedRef.current) return;
@@ -110,11 +111,13 @@ export function useRealtimePrice(symbol: string): RealtimePriceState {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           console.log(`[useRealtimePrice] Subscribed to ${upperSymbol}`);
+          isSubscribedRef.current = true;
           if (isMountedRef.current) {
             setState(prev => ({ ...prev, isConnected: true }));
           }
         } else if (status === 'CHANNEL_ERROR') {
           console.error(`[useRealtimePrice] Subscription error for ${upperSymbol}`);
+          isSubscribedRef.current = false;
           if (isMountedRef.current) {
             setState(prev => ({
               ...prev,
@@ -124,6 +127,7 @@ export function useRealtimePrice(symbol: string): RealtimePriceState {
           }
         } else if (status === 'CLOSED') {
           console.log(`[useRealtimePrice] Channel closed for ${upperSymbol}`);
+          isSubscribedRef.current = false;
           if (isMountedRef.current) {
             setState(prev => ({ ...prev, isConnected: false }));
           }
@@ -135,9 +139,21 @@ export function useRealtimePrice(symbol: string): RealtimePriceState {
     return () => {
       isMountedRef.current = false;
       console.log(`[useRealtimePrice] Unsubscribing from ${upperSymbol}`);
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
+
+      const currentChannel = channelRef.current;
+      if (currentChannel && isSubscribedRef.current) {
+        try {
+          const channelState = currentChannel.state;
+          if (channelState === 'joined' || channelState === 'joining') {
+            supabase.removeChannel(currentChannel).catch((err) => {
+              console.warn(`[useRealtimePrice] Error removing channel for ${upperSymbol}:`, err);
+            });
+          }
+        } catch (err) {
+          console.warn(`[useRealtimePrice] Error during cleanup for ${upperSymbol}:`, err);
+        }
         channelRef.current = null;
+        isSubscribedRef.current = false;
       }
     };
   }, [symbol, fetchLatestPrice, updatePrice]);

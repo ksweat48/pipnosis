@@ -18,6 +18,7 @@ export function useUserBalance(userId: string | null) {
     fetchOpenPositions();
 
     let channel: any = null;
+    let isSubscribed = false;
 
     try {
       channel = supabase
@@ -50,8 +51,13 @@ export function useUserBalance(userId: string | null) {
         );
 
       channel.subscribe((status: string) => {
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        if (status === 'SUBSCRIBED') {
+          isSubscribed = true;
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           console.warn(`Balance realtime subscription issue: ${status}`);
+          isSubscribed = false;
+        } else if (status === 'CLOSED') {
+          isSubscribed = false;
         }
       });
     } catch (error) {
@@ -59,11 +65,16 @@ export function useUserBalance(userId: string | null) {
     }
 
     return () => {
-      if (channel) {
+      if (channel && isSubscribed) {
         try {
-          supabase.removeChannel(channel);
+          const channelState = channel.state;
+          if (channelState === 'joined' || channelState === 'joining') {
+            supabase.removeChannel(channel).catch((err: any) => {
+              console.warn('Error removing balance channel:', err);
+            });
+          }
         } catch (error) {
-          console.warn('Error removing channel:', error);
+          console.warn('Error during balance channel cleanup:', error);
         }
       }
     };

@@ -34,11 +34,21 @@ export const ConfigurationStatus: React.FC = () => {
       if (metaapiConfigured) {
         try {
           const res = await fetch('/.netlify/functions/verify-metaapi-account', { method: 'GET' });
-          const data = await res.json();
-          metaapiVerified = data.ok === true;
 
-          if (metaapiVerified) {
-            connectionMode = 'live';
+          if (!res.ok) {
+            console.warn(`MetaAPI verification returned ${res.status}`);
+          } else {
+            const contentType = res.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              const data = await res.json();
+              metaapiVerified = data.ok === true;
+
+              if (metaapiVerified) {
+                connectionMode = 'live';
+              }
+            } else {
+              console.warn('MetaAPI verification returned non-JSON response');
+            }
           }
         } catch (error) {
           console.warn('MetaAPI verification check failed:', error);
@@ -48,17 +58,27 @@ export const ConfigurationStatus: React.FC = () => {
       if (!metaapiVerified && supabaseConfigured) {
         try {
           const priceRes = await fetch('/.netlify/functions/get-live-price?symbol=EURUSD');
-          const priceData = await priceRes.json();
 
-          if (priceData.ok && priceData.source === 'supabase-cache') {
-            connectionMode = 'degraded';
-            setStatus(prev => ({
-              ...prev,
-              lastDataUpdate: priceData.timestamp,
-              cacheAge: priceData.ageSeconds
-            }));
-          } else if (priceData.ok && priceData.source === 'market-data-fallback') {
-            connectionMode = 'degraded';
+          if (!priceRes.ok) {
+            console.warn(`Price check returned ${priceRes.status}`);
+          } else {
+            const contentType = priceRes.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              const priceData = await priceRes.json();
+
+              if (priceData.ok && priceData.source === 'supabase-cache') {
+                connectionMode = 'degraded';
+                setStatus(prev => ({
+                  ...prev,
+                  lastDataUpdate: priceData.timestamp,
+                  cacheAge: priceData.ageSeconds
+                }));
+              } else if (priceData.ok && priceData.source === 'market-data-fallback') {
+                connectionMode = 'degraded';
+              }
+            } else {
+              console.warn('Price check returned non-JSON response');
+            }
           }
         } catch (error) {
           console.warn('Price check failed:', error);
