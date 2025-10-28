@@ -154,21 +154,22 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // Test 1: Get Account Info
+    // Test 1: Get Account Info (uses Provisioning API - no region needed)
     console.log('[TEST] TEST 1: Get Account Info');
-    console.log(`URL: https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}`);
+    console.log(`URL: https://mt-provisioning-api-v1.agiliumtrade.ai/users/current/accounts/${accountId}`);
 
     const accountInfo = await makeRequest(
-      `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}`,
+      `https://mt-provisioning-api-v1.agiliumtrade.ai/users/current/accounts/${accountId}`,
       token
     );
 
     console.log('[OK] TEST 1 PASSED - Account found!');
     console.log('Account Info:', JSON.stringify(accountInfo, null, 2));
 
-    // Test 2: Get Account Symbols
+    // Test 2: Get Account Symbols (uses Client API - requires region)
     console.log('');
     console.log('[TEST] TEST 2: Get Symbols');
+    console.log(`URL: https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/symbols`);
 
     const symbols = await makeRequest(
       `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/symbols`,
@@ -178,9 +179,10 @@ exports.handler = async (event, context) => {
     console.log('[OK] TEST 2 PASSED - Symbols retrieved!');
     console.log(`Found ${symbols.length} symbols`);
 
-    // Test 3: Get Current Price for EURUSD
+    // Test 3: Get Current Price for EURUSD (uses Client API - requires region)
     console.log('');
     console.log('[TEST] TEST 3: Get EURUSD Price');
+    console.log(`URL: https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/symbols/EURUSD/current-price`);
 
     const price = await makeRequest(
       `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/symbols/EURUSD/current-price`,

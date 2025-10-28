@@ -43,7 +43,8 @@ exports.handler = async (event) => {
     logger.info('Verifying MetaAPI account via REST API', {
       region,
       accountId: accountId.substring(0, 8) + '...',
-      baseUrl: `https://mt-client-api-v1.${region}.agiliumtrade.ai`
+      provisioningUrl: 'https://mt-provisioning-api-v1.agiliumtrade.ai',
+      clientUrl: `https://mt-client-api-v1.${region}.agiliumtrade.ai`
     });
 
     const client = createRestClient(adminToken, { region, timeout: 10000 });

@@ -2,7 +2,9 @@
 /**
  * MetaAPI REST Client
  * Direct REST API implementation to replace the MetaAPI SDK
- * Uses working mt-client-api-v1 endpoints that don't have DNS issues
+ * Uses correct MetaAPI endpoints:
+ * - mt-provisioning-api-v1 for account management (no region)
+ * - mt-client-api-v1 for trading and market data (with region)
  */
 
 const https = require('https');
@@ -18,15 +20,22 @@ class MetaApiRestClient {
     this.region = options.region || 'london';
     this.timeout = options.timeout || DEFAULT_TIMEOUT;
 
-    // Support geographic regions (london, new-york, singapore, tokyo)
+    // Provisioning API: Account management (no region)
+    this.provisioningUrl = 'https://mt-provisioning-api-v1.agiliumtrade.ai';
+
+    // Client API: Trading and market data (with region)
     const isCloudRegion = this.region.startsWith('cloud-');
     const regionPart = isCloudRegion ? this.region : this.region;
-    this.baseUrl = `https://mt-client-api-v1.${regionPart}.agiliumtrade.ai`;
+    this.clientUrl = `https://mt-client-api-v1.${regionPart}.agiliumtrade.ai`;
+
+    // Default to client URL for backward compatibility
+    this.baseUrl = this.clientUrl;
   }
 
-  async makeRequest(method, path, body = null, retryCount = 0) {
+  async makeRequest(method, path, body = null, retryCount = 0, useProvisioning = false) {
     return new Promise((resolve, reject) => {
-      const url = new URL(path, this.baseUrl);
+      const baseUrl = useProvisioning ? this.provisioningUrl : this.baseUrl;
+      const url = new URL(path, baseUrl);
 
       const options = {
         method: method,
@@ -97,7 +106,7 @@ class MetaApiRestClient {
 
   async getAccountInformation(accountId) {
     const path = `/users/current/accounts/${accountId}`;
-    return await this.makeRequest('GET', path);
+    return await this.makeRequest('GET', path, null, 0, true);
   }
 
   async getAccountState(accountId) {
@@ -146,14 +155,16 @@ class MetaApiRestClient {
       return {
         healthy: true,
         region: this.region,
-        baseUrl: this.baseUrl,
+        clientUrl: this.clientUrl,
+        provisioningUrl: this.provisioningUrl,
         timestamp: new Date().toISOString()
       };
     } catch (err) {
       return {
         healthy: false,
         region: this.region,
-        baseUrl: this.baseUrl,
+        clientUrl: this.clientUrl,
+        provisioningUrl: this.provisioningUrl,
         error: err.message,
         timestamp: new Date().toISOString()
       };
