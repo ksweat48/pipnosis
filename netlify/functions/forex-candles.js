@@ -1,0 +1,149 @@
+const { createClient } = require('@supabase/supabase-js');
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS'
+};
+
+function getTimeframeMinutes(timeframe) {
+  const map = {
+    'M1': 1,
+    'M5': 5,
+    'M15': 15,
+    'M30': 30,
+    'H1': 60,
+    'H4': 240,
+    'D1': 1440
+  };
+  return map[timeframe] || 15;
+}
+
+async function getMetaApiCandles(symbol, timeframe, limit) {
+  const token = process.env.METAAPI_TOKEN;
+  const accountId = process.env.METAAPI_ACCOUNT_ID;
+  const region = process.env.METAAPI_REGION || 'new-york';
+
+  if (!token || !accountId) {
+    throw new Error('MetaAPI credentials not configured. Set METAAPI_TOKEN and METAAPI_ACCOUNT_ID');
+  }
+
+  const startTime = new Date();
+  startTime.setHours(startTime.getHours() - (limit * getTimeframeMinutes(timeframe) / 60));
+
+  const url = `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles`;
+
+  console.log(`Fetching ${limit} ${timeframe} candles for ${symbol} from MetaAPI (${region})`);
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'auth-token': token,
+      'Content-Type': 'application/json'
+    },
+    timeout: 15000
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`MetaAPI error: ${response.status} - ${errorText}`);
+  }
+
+  const candles = await response.json();
+
+  if (!Array.isArray(candles)) {
+    throw new Error('Invalid candle data from MetaAPI');
+  }
+
+  return candles.slice(-limit).map(candle => ({
+    symbol,
+    timeframe,
+    open_time: candle.time,
+    close_time: new Date(new Date(candle.time).getTime() + getTimeframeMinutes(timeframe) * 60000).toISOString(),
+    open: parseFloat(candle.open),
+    high: parseFloat(candle.high),
+    low: parseFloat(candle.low),
+    close: parseFloat(candle.close),
+    volume: parseFloat(candle.tickVolume || 0)
+  }));
+}
+
+async function saveCandlesToDatabase(candles) {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.warn('Supabase not configured - skipping database save');
+    return;
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
+  const { error } = await supabase
+    .from('forex_candles')
+    .upsert(candles, {
+      onConflict: 'symbol,timeframe,open_time',
+      ignoreDuplicates: false
+    });
+
+  if (error) {
+    console.error('Failed to save candles to database:', error.message);
+  } else {
+    console.log(`Saved ${candles.length} candles to database`);
+  }
+}
+
+exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: CORS_HEADERS,
+      body: ''
+    };
+  }
+
+  try {
+    const params = new URLSearchParams(event.rawUrl.split('?')[1]);
+    const symbol = params.get('symbol') || 'EURUSD';
+    const timeframe = params.get('timeframe') || 'M15';
+    const limit = parseInt(params.get('limit') || '100', 10);
+
+    console.log(`Requesting ${limit} ${timeframe} candles for ${symbol}`);
+
+    const candles = await getMetaApiCandles(symbol, timeframe, limit);
+
+    await saveCandlesToDatabase(candles);
+
+    return {
+      statusCode: 200,
+      headers: {
+        ...CORS_HEADERS,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        success: true,
+        data: {
+          symbol,
+          timeframe,
+          count: candles.length,
+          candles
+        }
+      })
+    };
+
+  } catch (error) {
+    console.error('Error fetching candles:', error.message);
+
+    return {
+      statusCode: 500,
+      headers: {
+        ...CORS_HEADERS,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        success: false,
+        error: error.message
+      })
+    };
+  }
+};
