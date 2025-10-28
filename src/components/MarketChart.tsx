@@ -11,7 +11,7 @@ import { StrategyPerformanceWidget } from './StrategyPerformanceWidget';
 import { AutoTradingPanel } from './AutoTradingPanel';
 import { useAutoTradingStatus } from '../hooks/useAutoTradingStatus';
 import { CandlestickData, Time, HistogramData } from 'lightweight-charts';
-import { marketDataServiceAlpaca as marketDataService, MarketDataListener, TickData, CandleData, Timeframe } from '../services/market-data-alpaca';
+import { marketDataService, MarketDataListener, TickData, CandleData, Timeframe } from '../services/market-data';
 import { getCandleOpenTime, isNewCandlePeriod } from '../services/candle-utils';
 import { marketHoursService } from '../services/market-hours';
 import { candleStateManager } from '../services/candle-state-manager';
