@@ -1,0 +1,20 @@
+
+> pipnosis-ai-trading@1.0.0 build
+> vite build
+
+vite v5.4.19 building for production...
+transforming...
+✓ 1667 modules transformed.
+rendering chunks...
+[plugin:vite:reporter] [plugin vite:reporter] 
+(!) /tmp/cc-agent/58035261/project/src/lib/supabase.ts is dynamically imported by /tmp/cc-agent/58035261/project/src/services/market-data.ts but also statically imported by /tmp/cc-agent/58035261/project/src/components/AIThoughtProcessPanel.tsx, /tmp/cc-agent/58035261/project/src/components/AutoTradingPanel.tsx, /tmp/cc-agent/58035261/project/src/components/AutoTradingThoughtThread.tsx, /tmp/cc-agent/58035261/project/src/components/ConfigurationStatus.tsx, /tmp/cc-agent/58035261/project/src/components/RefreshScheduleManager.tsx, /tmp/cc-agent/58035261/project/src/hooks/useAPI.ts, /tmp/cc-agent/58035261/project/src/hooks/useAuth.ts, /tmp/cc-agent/58035261/project/src/hooks/useAutoTradingStatus.ts, /tmp/cc-agent/58035261/project/src/hooks/useChartPreferences.ts, /tmp/cc-agent/58035261/project/src/hooks/useRealtimePrice.ts, /tmp/cc-agent/58035261/project/src/hooks/useUserBalance.ts, /tmp/cc-agent/58035261/project/src/lib/connection-validator.ts, /tmp/cc-agent/58035261/project/src/lib/database-diagnostics.ts, /tmp/cc-agent/58035261/project/src/lib/migration-checker.ts, /tmp/cc-agent/58035261/project/src/pages/AdminDashboard.tsx, /tmp/cc-agent/58035261/project/src/services/ai-pair-prediction.ts, /tmp/cc-agent/58035261/project/src/services/ai-trading-engine.ts, /tmp/cc-agent/58035261/project/src/services/auto-trading-persistence.ts, /tmp/cc-agent/58035261/project/src/services/auto-trading-scanner.ts, /tmp/cc-agent/58035261/project/src/services/candle-completion.ts, /tmp/cc-agent/58035261/project/src/services/candle-state-manager.ts, /tmp/cc-agent/58035261/project/src/services/db-health-monitor.ts, /tmp/cc-agent/58035261/project/src/services/extended-search.ts, /tmp/cc-agent/58035261/project/src/services/gap-detection.ts, /tmp/cc-agent/58035261/project/src/services/historical-backfill.ts, /tmp/cc-agent/58035261/project/src/services/manual-trading-service.ts, /tmp/cc-agent/58035261/project/src/services/market-data-cache.ts, /tmp/cc-agent/58035261/project/src/services/marketAnalysisService.ts, /tmp/cc-agent/58035261/project/src/services/realtimePriceStream.ts, /tmp/cc-agent/58035261/project/src/services/simulated-trading.ts, /tmp/cc-agent/58035261/project/src/services/supabase-data.ts, /tmp/cc-agent/58035261/project/src/services/thought-process-logger.ts, /tmp/cc-agent/58035261/project/src/strategies/core/shadowTradingEngine.ts, /tmp/cc-agent/58035261/project/src/strategies/services/strategyService.ts, dynamic import will not move module into another chunk.
+
+computing gzip size...
+dist/index.html                     0.80 kB │ gzip:   0.39 kB
+dist/assets/index-BfurPvzU.css     66.07 kB │ gzip:  10.65 kB
+dist/assets/ui-BH_Z6AhR.js         13.82 kB │ gzip:   4.92 kB
+dist/assets/router-N-KmPIb9.js     17.40 kB │ gzip:   6.55 kB
+dist/assets/supabase-ByqCaJYm.js  118.08 kB │ gzip:  31.58 kB
+dist/assets/vendor-BYZTXt0D.js    140.17 kB │ gzip:  44.97 kB
+dist/assets/index-D0UU1Ker.js     784.04 kB │ gzip: 198.27 kB
+✓ built in 17.25s

@@ -22,11 +22,16 @@ exports.handler = async (event, context) => {
     return { statusCode: 200, headers, body: '' };
   }
 
+  // Initialize variables outside try block for proper scoping
+  let token = null;
+  let tokenSource = 'not_checked';
+  let requestBody = null;
+  let accountId = null;
+  let region = 'london';
+
   try {
     // Priority 1: Check for manual token from POST body
-    let token = null;
-    let tokenSource = 'unknown';
-    let requestBody = null;
+    tokenSource = 'unknown';
 
     if (event.httpMethod === 'POST' && event.body) {
       try {
@@ -57,14 +62,14 @@ exports.handler = async (event, context) => {
 
     // Get account ID and region with proper fallback pattern
     // Priority: Manual input > Backend vars > Frontend vars (fallback)
-    const accountId = (requestBody && requestBody.accountId) ||
-                     process.env.METAAPI_ACCOUNT_ID ||
-                     process.env.VITE_METAAPI_ACCOUNT_ID;
+    accountId = (requestBody && requestBody.accountId) ||
+                process.env.METAAPI_ACCOUNT_ID ||
+                process.env.VITE_METAAPI_ACCOUNT_ID;
 
-    const region = (requestBody && requestBody.region) ||
-                   process.env.METAAPI_REGION ||
-                   process.env.VITE_METAAPI_REGION ||
-                   'london';
+    region = (requestBody && requestBody.region) ||
+             process.env.METAAPI_REGION ||
+             process.env.VITE_METAAPI_REGION ||
+             'london';
 
     // Determine source for diagnostic reporting
     let accountIdSource = 'unknown';
@@ -222,9 +227,15 @@ exports.handler = async (event, context) => {
     console.error('='.repeat(80));
     console.error('[FAIL] RED LIGHT - TEST FAILED!');
     console.error('='.repeat(80));
-    console.error('Error:', error.message);
-    console.error('Status Code:', error.statusCode);
-    console.error('Response:', error.response);
+    console.error('Error:', error.message || String(error));
+    console.error('Error Stack:', error.stack);
+
+    if (error.statusCode) {
+      console.error('Status Code:', error.statusCode);
+    }
+    if (error.response) {
+      console.error('Response:', error.response);
+    }
 
     return {
       statusCode: 500,
@@ -234,15 +245,26 @@ exports.handler = async (event, context) => {
         test: 'DIRECT_METAAPI_CONNECTION',
         result: '[FAIL] RED LIGHT - MetaAPI connection failed!',
         error: {
-          message: error.message,
-          statusCode: error.statusCode,
-          response: error.response
+          message: error.message || String(error),
+          stack: error.stack,
+          statusCode: error.statusCode || null,
+          response: error.response || null,
+          type: error.constructor.name
         },
         diagnostics: {
-          tokenSource: tokenSource,
+          tokenSource: tokenSource || 'not_initialized',
+          tokenPresent: !!token,
           tokenLength: token ? token.length : 0,
-          region: region,
-          accountId: accountId
+          region: region || 'not_set',
+          accountId: accountId || 'not_set',
+          environmentVariables: {
+            METAAPI_ADMIN_TOKEN: !!process.env.METAAPI_ADMIN_TOKEN,
+            METAAPI_TOKEN: !!process.env.METAAPI_TOKEN,
+            METAAPI_ACCOUNT_ID: !!process.env.METAAPI_ACCOUNT_ID,
+            METAAPI_REGION: !!process.env.METAAPI_REGION,
+            VITE_METAAPI_ACCOUNT_ID: !!process.env.VITE_METAAPI_ACCOUNT_ID,
+            VITE_METAAPI_REGION: !!process.env.VITE_METAAPI_REGION
+          }
         }
       })
     };
