@@ -11,6 +11,7 @@ import { multiTimeframeAggregator } from './multi-timeframe-aggregator';
 import { timeframeBackfillService } from './timeframe-backfill';
 import { marketHoursService } from './market-hours';
 import { CandleData, TickData, Timeframe } from '../types/market-data';
+import { LivePricePolling } from './livePricePolling';
 
 export type { TickData, CandleData, Timeframe } from '../types/market-data';
 
@@ -18,12 +19,6 @@ export interface MarketDataListener {
   onCandleUpdate?: (candle: CandleData) => void;
   onTick?: (tick: TickData) => void;
   onError?: (error: Error) => void;
-}
-
-interface LivePricePolling {
-  intervalId: NodeJS.Timeout;
-  symbol: string;
-  isPolling: boolean;
 }
 
 interface Tick {
