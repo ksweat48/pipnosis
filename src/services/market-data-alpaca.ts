@@ -132,6 +132,10 @@ class MarketDataServiceAlpaca {
       source: 'alpaca'
     };
   }
+
+  stopLiveFeed(symbol: string, timeframe: Timeframe): void {
+    console.log(`[MarketDataAlpaca] Stopping live feed for ${symbol} ${timeframe}`);
+  }
 }
 
 export const marketDataServiceAlpaca = new MarketDataServiceAlpaca();
