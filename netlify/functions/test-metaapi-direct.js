@@ -23,26 +23,70 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // Get credentials from environment
-    const token = process.env.METAAPI_TOKEN;
-    const accountId = process.env.VITE_METAAPI_ACCOUNT_ID;
-    const region = process.env.VITE_METAAPI_REGION || 'london';
+    // Priority 1: Check for manual token from POST body
+    let token = null;
+    let tokenSource = 'unknown';
+    let requestBody = null;
+
+    if (event.httpMethod === 'POST' && event.body) {
+      try {
+        requestBody = JSON.parse(event.body);
+        if (requestBody.token) {
+          token = requestBody.token;
+          tokenSource = 'manual_input';
+          console.log('🔑 Token source: Manual input from request body');
+        }
+      } catch (e) {
+        console.log('⚠️ Failed to parse request body:', e.message);
+      }
+    }
+
+    // Priority 2: Check for METAAPI_ADMIN_TOKEN (current standard)
+    if (!token && process.env.METAAPI_ADMIN_TOKEN) {
+      token = process.env.METAAPI_ADMIN_TOKEN;
+      tokenSource = 'METAAPI_ADMIN_TOKEN';
+      console.log('🔑 Token source: METAAPI_ADMIN_TOKEN environment variable');
+    }
+
+    // Priority 3: Check for METAAPI_TOKEN (legacy fallback)
+    if (!token && process.env.METAAPI_TOKEN) {
+      token = process.env.METAAPI_TOKEN;
+      tokenSource = 'METAAPI_TOKEN';
+      console.log('🔑 Token source: METAAPI_TOKEN environment variable (legacy)');
+    }
+
+    // Get account ID and region
+    const accountId = (requestBody && requestBody.accountId) || process.env.VITE_METAAPI_ACCOUNT_ID;
+    const region = (requestBody && requestBody.region) || process.env.VITE_METAAPI_REGION || 'london';
 
     console.log('📋 Environment Check:');
-    console.log(`  Token: ${token ? '✓ Present (length: ' + token.length + ')' : '✗ Missing'}`);
+    console.log(`  Token Source: ${tokenSource}`);
+    console.log(`  Token: ${token ? '✓ Present (length: ' + token.length + ', preview: ' + token.substring(0, 4) + '...' + token.substring(token.length - 4) + ')' : '✗ Missing'}`);
     console.log(`  Account ID: ${accountId || '✗ Missing'}`);
     console.log(`  Region: ${region}`);
     console.log('');
 
     if (!token) {
+      console.log('❌ Token Check Failed');
+      console.log('  Checked sources:');
+      console.log('    1. POST request body (manual input)');
+      console.log('    2. METAAPI_ADMIN_TOKEN environment variable');
+      console.log('    3. METAAPI_TOKEN environment variable');
+      console.log('  All sources returned: NOT FOUND');
+
       return {
         statusCode: 500,
         headers,
         body: JSON.stringify({
           success: false,
           test: 'DIRECT_METAAPI_CONNECTION',
-          error: 'METAAPI_TOKEN not found in environment variables',
-          result: '🔴 RED LIGHT - Token missing'
+          error: 'No MetaAPI token found in any source (manual input, METAAPI_ADMIN_TOKEN, or METAAPI_TOKEN)',
+          result: '🔴 RED LIGHT - Token missing',
+          tokenSources: {
+            manual_input: 'Not provided',
+            METAAPI_ADMIN_TOKEN: process.env.METAAPI_ADMIN_TOKEN ? 'Present' : 'Missing',
+            METAAPI_TOKEN: process.env.METAAPI_TOKEN ? 'Present' : 'Missing'
+          }
         })
       };
     }
@@ -113,7 +157,9 @@ exports.handler = async (event, context) => {
           symbolCount: symbols.length,
           currentPrice: price,
           region: region,
-          accountId: accountId
+          accountId: accountId,
+          tokenSource: tokenSource,
+          tokenLength: token.length
         }
       })
     };
@@ -138,6 +184,12 @@ exports.handler = async (event, context) => {
           message: error.message,
           statusCode: error.statusCode,
           response: error.response
+        },
+        diagnostics: {
+          tokenSource: tokenSource,
+          tokenLength: token ? token.length : 0,
+          region: region,
+          accountId: accountId
         }
       })
     };
