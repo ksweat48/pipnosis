@@ -30,6 +30,7 @@ export const ConfigurationStatus: React.FC = () => {
 
       let metaapiVerified = false;
       let connectionMode: 'live' | 'degraded' | 'offline' = 'offline';
+      let isPollingMode = false;
 
       if (metaapiConfigured) {
         try {
@@ -52,6 +53,25 @@ export const ConfigurationStatus: React.FC = () => {
           }
         } catch (error) {
           console.warn('MetaAPI verification check failed:', error);
+        }
+      }
+
+      // Check if we're in polling mode (even if WebSocket verification failed)
+      // Polling mode is still a valid connected state
+      if (!metaapiVerified) {
+        try {
+          // Check if the forex-price endpoint is working (indicates polling is active)
+          const pollingCheck = await fetch('/.netlify/functions/forex-price?symbol=EURUSD', { method: 'GET' });
+          if (pollingCheck.ok) {
+            const pollingData = await pollingCheck.json();
+            if (pollingData.success) {
+              console.log('✅ Polling mode is active and working');
+              isPollingMode = true;
+              connectionMode = 'degraded'; // Polling is degraded but functional
+            }
+          }
+        } catch (pollingError) {
+          console.warn('Polling check failed:', pollingError);
         }
       }
 
@@ -88,7 +108,7 @@ export const ConfigurationStatus: React.FC = () => {
       setStatus({
         supabase: supabaseConfigured,
         metaapi: metaapiConfigured,
-        metaapiVerified,
+        metaapiVerified: metaapiVerified || isPollingMode,
         connectionMode
       });
 
@@ -156,15 +176,15 @@ export const ConfigurationStatus: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2">
-                {status.metaapiVerified ? (
+                {status.metaapiVerified && !isDegraded ? (
                   <CheckCircle className="w-4 h-4 text-emerald-400" />
                 ) : isDegraded ? (
-                  <Clock className="w-4 h-4 text-yellow-400" />
+                  <CheckCircle className="w-4 h-4 text-yellow-400" />
                 ) : (
                   <XCircle className="w-4 h-4 text-red-400" />
                 )}
                 <span className="text-white/70">
-                  MetaApi: {status.metaapiVerified ? 'Live Connection' : isDegraded ? 'Using Cached Data' : 'Not Connected'}
+                  MetaApi: {status.metaapiVerified && !isDegraded ? 'Connected (WebSocket)' : isDegraded ? 'Connected (Polling)' : 'Not Connected'}
                 </span>
               </div>
 
@@ -181,7 +201,7 @@ export const ConfigurationStatus: React.FC = () => {
           {isDegraded && (
             <div className="mt-3 p-2 bg-yellow-400/10 rounded border border-yellow-400/20">
               <p className="text-yellow-200 text-xs">
-                Live connection unavailable. Using cached market data. Charts and prices may be delayed.
+                WebSocket connection unavailable. Using REST API polling for real-time prices. Slightly higher latency than WebSocket.
               </p>
             </div>
           )}

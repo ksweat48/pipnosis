@@ -28,7 +28,7 @@ export class PriceStreamManager {
   private pollingStream: LivePricePolling | null = null;
   private currentStrategy: 'websocket' | 'polling' | 'none' = 'none';
   private websocketFailures: number = 0;
-  private readonly MAX_WEBSOCKET_FAILURES = 3;
+  private readonly MAX_WEBSOCKET_FAILURES = 5;
   private retryWebSocketTimeout: NodeJS.Timeout | null = null;
   private readonly WEBSOCKET_RETRY_INTERVAL = 300000;
   private lastTickTime: Date | null = null;
@@ -152,15 +152,17 @@ export class PriceStreamManager {
     const region = import.meta.env.VITE_METAAPI_REGION;
 
     if (!accountId || !region) {
-      console.warn(`[PriceStreamManager] WebSocket unavailable: missing credentials`);
+      console.warn(`[PriceStreamManager] ⚠️ WebSocket unavailable: missing credentials`);
+      console.warn(`[PriceStreamManager] accountId=${accountId ? 'set' : 'MISSING'}, region=${region || 'MISSING'}`);
       return false;
     }
 
     if (this.websocketFailures >= this.MAX_WEBSOCKET_FAILURES) {
-      console.log(`[PriceStreamManager] WebSocket disabled due to repeated failures (${this.websocketFailures})`);
+      console.log(`[PriceStreamManager] ⚠️ WebSocket disabled due to repeated failures (${this.websocketFailures}/${this.MAX_WEBSOCKET_FAILURES})`);
       return false;
     }
 
+    console.log(`[PriceStreamManager] ✅ WebSocket credentials verified: region=${region}, accountId=${accountId.substring(0, 8)}...`);
     return true;
   }
 
@@ -168,12 +170,53 @@ export class PriceStreamManager {
     const accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID;
     const region = import.meta.env.VITE_METAAPI_REGION || 'new-york';
 
+    const timestamp = new Date().toISOString();
+    console.log(`[PriceStreamManager] [${timestamp}] Starting WebSocket connection for ${this.symbol}`);
+    console.log(`[PriceStreamManager] Using region: ${region}, accountId: ${accountId?.substring(0, 8)}...`);
+
     try {
+      console.log(`[PriceStreamManager] Fetching MetaAPI token from backend...`);
       const tokenResponse = await fetch('/.netlify/functions/get-metaapi-token');
+
+      if (!tokenResponse.ok) {
+        throw new Error(`Token fetch failed with status ${tokenResponse.status}`);
+      }
+
       const tokenData = await tokenResponse.json();
+      console.log(`[PriceStreamManager] Token fetch result: success=${tokenData.success}`);
 
       if (!tokenData.success || !tokenData.token) {
         throw new Error('Failed to get MetaAPI token');
+      }
+
+      console.log(`[PriceStreamManager] Token retrieved successfully, length: ${tokenData.token.length}`);
+
+      // Validate token format (should be a JWT)
+      if (!tokenData.token.startsWith('eyJ')) {
+        throw new Error('Invalid token format - does not appear to be a JWT');
+      }
+
+      // Check if token is expired by decoding the JWT payload
+      try {
+        const tokenParts = tokenData.token.split('.');
+        if (tokenParts.length === 3) {
+          const payload = JSON.parse(atob(tokenParts[1]));
+          const expirationTime = payload.exp * 1000; // Convert to milliseconds
+          const currentTime = Date.now();
+          const timeUntilExpiry = expirationTime - currentTime;
+
+          if (timeUntilExpiry <= 0) {
+            console.error(`[PriceStreamManager] Token has expired`);
+            throw new Error('MetaAPI token is expired');
+          } else if (timeUntilExpiry < 300000) { // Less than 5 minutes
+            console.warn(`[PriceStreamManager] ⚠️ Token expires soon: ${Math.floor(timeUntilExpiry / 60000)} minutes`);
+          } else {
+            console.log(`[PriceStreamManager] Token is valid, expires in ${Math.floor(timeUntilExpiry / 3600000)} hours`);
+          }
+        }
+      } catch (tokenDecodeError) {
+        console.warn(`[PriceStreamManager] Could not decode token for validation:`, tokenDecodeError);
+        // Continue anyway - the token might still work
       }
 
       this.websocketStream = new WebSocketPriceStream(
@@ -188,10 +231,14 @@ export class PriceStreamManager {
       });
 
       this.websocketStream.onConnectionChange((connected) => {
+        const timestamp = new Date().toISOString();
         if (!connected) {
+          console.log(`[PriceStreamManager] [${timestamp}] ❌ WebSocket disconnected for ${this.symbol}`);
           this.handleWebSocketDisconnect();
         } else {
-          console.log(`[PriceStreamManager] Socket.IO connected for ${this.symbol}`);
+          console.log(`[PriceStreamManager] [${timestamp}] ✅ Socket.IO connected for ${this.symbol}`);
+          console.log(`[PriceStreamManager] Resetting failure count (was ${this.websocketFailures})`);
+          this.websocketFailures = 0; // Reset on successful connection
           this.currentStrategy = 'websocket';
 
           if (this.pollingStream) {
@@ -212,7 +259,10 @@ export class PriceStreamManager {
       await this.websocketStream.connect();
 
     } catch (error) {
-      console.error(`[PriceStreamManager] Failed to start WebSocket:`, error);
+      const timestamp = new Date().toISOString();
+      console.error(`[PriceStreamManager] [${timestamp}] ❌ Failed to start WebSocket:`);
+      console.error(`[PriceStreamManager] Error details:`, error instanceof Error ? error.message : JSON.stringify(error));
+      console.error(`[PriceStreamManager] This was attempt ${this.websocketFailures + 1}`);
       this.handleWebSocketError(error as Error);
     }
   }
@@ -266,26 +316,33 @@ export class PriceStreamManager {
   }
 
   private handleWebSocketDisconnect(): void {
-    console.warn(`[PriceStreamManager] WebSocket disconnected for ${this.symbol}`);
+    const timestamp = new Date().toISOString();
+    console.warn(`[PriceStreamManager] [${timestamp}] ⚠️ WebSocket disconnected for ${this.symbol}`);
     this.websocketFailures++;
+    console.log(`[PriceStreamManager] Failure count: ${this.websocketFailures}/${this.MAX_WEBSOCKET_FAILURES}`);
 
     if (this.websocketFailures >= this.MAX_WEBSOCKET_FAILURES) {
-      console.log(`[PriceStreamManager] Switching to polling mode after ${this.websocketFailures} failures`);
+      console.log(`[PriceStreamManager] ➡️ Switching to polling mode after ${this.websocketFailures} failures`);
       this.startPolling();
     }
   }
 
   private handleWebSocketError(error: Error): void {
-    console.error(`[PriceStreamManager] WebSocket error for ${this.symbol}:`, error.message);
+    const timestamp = new Date().toISOString();
+    console.error(`[PriceStreamManager] [${timestamp}] ❌ WebSocket error for ${this.symbol}:`, error.message);
     this.websocketFailures++;
+    console.log(`[PriceStreamManager] Failure count: ${this.websocketFailures}/${this.MAX_WEBSOCKET_FAILURES}`);
 
     if (this.websocketFailures >= this.MAX_WEBSOCKET_FAILURES) {
-      console.log(`[PriceStreamManager] Permanent fallback to polling mode`);
+      console.log(`[PriceStreamManager] [${timestamp}] ➡️ Permanent fallback to polling mode after ${this.websocketFailures} failures`);
       if (this.websocketStream) {
+        console.log(`[PriceStreamManager] Disconnecting failed WebSocket stream...`);
         this.websocketStream.disconnect();
         this.websocketStream = null;
       }
       this.startPolling();
+    } else {
+      console.log(`[PriceStreamManager] WebSocket will retry (${this.MAX_WEBSOCKET_FAILURES - this.websocketFailures} attempts remaining)`);
     }
   }
 

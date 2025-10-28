@@ -23,7 +23,7 @@ export class WebSocketPriceStream {
   private isConnected: boolean = false;
   private isAuthenticated: boolean = false;
   private reconnectAttempts: number = 0;
-  private maxReconnectAttempts: number = 10;
+  private maxReconnectAttempts: number = 20;
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private lastHeartbeat: number = 0;
@@ -72,10 +72,14 @@ export class WebSocketPriceStream {
     }
 
     this.isConnecting = true;
-    console.log(`[WebSocketPriceStream] Connecting to ${this.symbol} via MetaAPI Socket.IO (${this.region})`);
+    const timestamp = new Date().toISOString();
+    console.log(`[WebSocketPriceStream] [${timestamp}] Connecting to ${this.symbol} via MetaAPI Socket.IO`);
+    console.log(`[WebSocketPriceStream] Configuration: region=${this.region}, accountId=${this.accountId}`);
 
     try {
       const socketUrl = `https://mt-client-api-v1.${this.region}.agiliumtrade.ai`;
+      console.log(`[WebSocketPriceStream] Socket.IO URL: ${socketUrl}/ws`);
+      console.log(`[WebSocketPriceStream] Token length: ${this.token.length} chars, Token prefix: ${this.token.substring(0, 20)}...`);
 
       this.socket = io(socketUrl, {
         path: '/ws',
@@ -87,7 +91,9 @@ export class WebSocketPriceStream {
       });
 
       this.socket.on('connect', () => {
-        console.log(`[WebSocketPriceStream] Socket.IO connection opened for ${this.symbol}`);
+        const timestamp = new Date().toISOString();
+        console.log(`[WebSocketPriceStream] [${timestamp}] ✅ Socket.IO connection opened for ${this.symbol}`);
+        console.log(`[WebSocketPriceStream] Socket ID: ${this.socket?.id}, Transport: ${this.socket?.io.engine.transport.name}`);
         this.isConnecting = false;
         this.isConnected = true;
         this.reconnectAttempts = 0;
@@ -95,11 +101,15 @@ export class WebSocketPriceStream {
       });
 
       this.socket.on('synchronization', (data: any) => {
+        const timestamp = new Date().toISOString();
+        console.log(`[WebSocketPriceStream] [${timestamp}] Synchronization event:`, JSON.stringify(data));
         if (data.type === 'authenticated') {
-          console.log(`[WebSocketPriceStream] Authentication successful for ${this.symbol}`);
+          console.log(`[WebSocketPriceStream] [${timestamp}] ✅ Authentication successful for ${this.symbol}`);
           this.isAuthenticated = true;
           this.startHeartbeat();
           this.subscribeToPrice();
+        } else {
+          console.log(`[WebSocketPriceStream] Synchronization type: ${data.type}`);
         }
       });
 
@@ -130,13 +140,23 @@ export class WebSocketPriceStream {
       });
 
       this.socket.on('error', (error: any) => {
-        console.error(`[WebSocketPriceStream] Socket.IO error for ${this.symbol}:`, error);
+        const timestamp = new Date().toISOString();
+        console.error(`[WebSocketPriceStream] [${timestamp}] ❌ Socket.IO error for ${this.symbol}:`);
+        console.error(`[WebSocketPriceStream] Error type: ${error?.type || 'unknown'}`);
+        console.error(`[WebSocketPriceStream] Error message: ${error?.message || JSON.stringify(error)}`);
+        console.error(`[WebSocketPriceStream] Connection state - isConnected: ${this.isConnected}, isConnecting: ${this.isConnecting}, isAuthenticated: ${this.isAuthenticated}`);
         this.isConnecting = false;
         this.notifyError(new Error(error?.message || 'Socket.IO connection error'));
       });
 
       this.socket.on('connect_error', (error: any) => {
-        console.error(`[WebSocketPriceStream] Connection error for ${this.symbol}:`, error.message);
+        const timestamp = new Date().toISOString();
+        console.error(`[WebSocketPriceStream] [${timestamp}] ❌ Connection error for ${this.symbol}`);
+        console.error(`[WebSocketPriceStream] Error message: ${error.message}`);
+        console.error(`[WebSocketPriceStream] Error type: ${error.type}`);
+        console.error(`[WebSocketPriceStream] Error description: ${error.description || 'N/A'}`);
+        console.error(`[WebSocketPriceStream] Reconnect attempt: ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts}`);
+        console.error(`[WebSocketPriceStream] Socket URL: https://mt-client-api-v1.${this.region}.agiliumtrade.ai/ws`);
         this.isConnecting = false;
         this.isConnected = false;
         this.notifyError(new Error(`Connection failed: ${error.message}`));
@@ -144,7 +164,11 @@ export class WebSocketPriceStream {
       });
 
       this.socket.on('disconnect', (reason: string) => {
-        console.log(`[WebSocketPriceStream] Socket.IO disconnected for ${this.symbol}. Reason: ${reason}`);
+        const timestamp = new Date().toISOString();
+        console.log(`[WebSocketPriceStream] [${timestamp}] ⚠️ Socket.IO disconnected for ${this.symbol}`);
+        console.log(`[WebSocketPriceStream] Disconnect reason: ${reason}`);
+        console.log(`[WebSocketPriceStream] Was authenticated: ${this.isAuthenticated}`);
+        console.log(`[WebSocketPriceStream] Reconnect attempts so far: ${this.reconnectAttempts}`);
         this.isConnected = false;
         this.isConnecting = false;
         this.isAuthenticated = false;
@@ -152,14 +176,20 @@ export class WebSocketPriceStream {
         this.notifyConnectionChange(false);
 
         if (reason !== 'io client disconnect') {
+          console.log(`[WebSocketPriceStream] Will attempt reconnection...`);
           this.scheduleReconnect();
+        } else {
+          console.log(`[WebSocketPriceStream] Client-initiated disconnect - no reconnection`);
         }
       });
 
     } catch (error) {
+      const timestamp = new Date().toISOString();
       this.isConnecting = false;
       this.isConnected = false;
-      console.error(`[WebSocketPriceStream] Failed to create Socket.IO connection:`, error);
+      console.error(`[WebSocketPriceStream] [${timestamp}] ❌ Failed to create Socket.IO connection`);
+      console.error(`[WebSocketPriceStream] Exception: ${error instanceof Error ? error.message : JSON.stringify(error)}`);
+      console.error(`[WebSocketPriceStream] Stack trace:`, error instanceof Error ? error.stack : 'N/A');
       this.notifyError(error as Error);
       this.scheduleReconnect();
     }
@@ -206,7 +236,8 @@ export class WebSocketPriceStream {
 
   private subscribeToPrice(): void {
     if (!this.socket || !this.socket.connected || !this.isAuthenticated) {
-      console.warn(`[WebSocketPriceStream] Cannot subscribe - not connected or authenticated`);
+      console.warn(`[WebSocketPriceStream] ⚠️ Cannot subscribe - not connected or authenticated`);
+      console.warn(`[WebSocketPriceStream] State: socket=${!!this.socket}, connected=${this.socket?.connected}, authenticated=${this.isAuthenticated}`);
       return;
     }
 
@@ -218,7 +249,9 @@ export class WebSocketPriceStream {
       ]
     };
 
-    console.log(`[WebSocketPriceStream] Subscribing to price updates for ${this.symbol}`);
+    const timestamp = new Date().toISOString();
+    console.log(`[WebSocketPriceStream] [${timestamp}] 📡 Subscribing to price updates for ${this.symbol}`);
+    console.log(`[WebSocketPriceStream] Subscription request:`, JSON.stringify(subscribeRequest));
     this.socket.emit('request', subscribeRequest);
   }
 
@@ -285,17 +318,34 @@ export class WebSocketPriceStream {
 
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error(`[WebSocketPriceStream] Max reconnection attempts reached for ${this.symbol}`);
+      const timestamp = new Date().toISOString();
+      console.error(`[WebSocketPriceStream] [${timestamp}] ❌ Max reconnection attempts (${this.maxReconnectAttempts}) reached for ${this.symbol}`);
+      console.error(`[WebSocketPriceStream] Configuration used: region=${this.region}, accountId=${this.accountId}`);
+      console.error(`[WebSocketPriceStream] Giving up on WebSocket, will use polling fallback`);
       this.notifyError(new Error('Max reconnection attempts reached'));
       return;
     }
 
     this.reconnectAttempts++;
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30000);
 
-    console.log(`[WebSocketPriceStream] Scheduling reconnect for ${this.symbol} in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    // Exponential backoff with longer delays: 1s, 2s, 4s, 8s, 15s, 30s, 60s, then cap at 60s
+    let delay: number;
+    if (this.reconnectAttempts <= 4) {
+      delay = 1000 * Math.pow(2, this.reconnectAttempts - 1); // 1s, 2s, 4s, 8s
+    } else if (this.reconnectAttempts <= 6) {
+      delay = 15000; // 15s for attempts 5-6
+    } else if (this.reconnectAttempts <= 10) {
+      delay = 30000; // 30s for attempts 7-10
+    } else {
+      delay = 60000; // 60s for attempts 11+
+    }
+
+    const timestamp = new Date().toISOString();
+    console.log(`[WebSocketPriceStream] [${timestamp}] 🔄 Scheduling reconnect for ${this.symbol}`);
+    console.log(`[WebSocketPriceStream] Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms (${(delay / 1000).toFixed(0)}s)`);
 
     this.reconnectTimeout = setTimeout(() => {
+      console.log(`[WebSocketPriceStream] Executing reconnect attempt ${this.reconnectAttempts}...`);
       this.connect();
     }, delay);
   }
