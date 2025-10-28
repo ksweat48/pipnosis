@@ -55,15 +55,45 @@ exports.handler = async (event, context) => {
       console.log('[KEY] Token source: METAAPI_TOKEN environment variable (legacy)');
     }
 
-    // Get account ID and region
-    const accountId = (requestBody && requestBody.accountId) || process.env.VITE_METAAPI_ACCOUNT_ID;
-    const region = (requestBody && requestBody.region) || process.env.VITE_METAAPI_REGION || 'london';
+    // Get account ID and region with proper fallback pattern
+    // Priority: Manual input > Backend vars > Frontend vars (fallback)
+    const accountId = (requestBody && requestBody.accountId) ||
+                     process.env.METAAPI_ACCOUNT_ID ||
+                     process.env.VITE_METAAPI_ACCOUNT_ID;
+
+    const region = (requestBody && requestBody.region) ||
+                   process.env.METAAPI_REGION ||
+                   process.env.VITE_METAAPI_REGION ||
+                   'london';
+
+    // Determine source for diagnostic reporting
+    let accountIdSource = 'unknown';
+    if (requestBody && requestBody.accountId) {
+      accountIdSource = 'manual_input';
+    } else if (process.env.METAAPI_ACCOUNT_ID) {
+      accountIdSource = 'METAAPI_ACCOUNT_ID (backend)';
+    } else if (process.env.VITE_METAAPI_ACCOUNT_ID) {
+      accountIdSource = 'VITE_METAAPI_ACCOUNT_ID (fallback - not recommended for production)';
+    }
+
+    let regionSource = 'unknown';
+    if (requestBody && requestBody.region) {
+      regionSource = 'manual_input';
+    } else if (process.env.METAAPI_REGION) {
+      regionSource = 'METAAPI_REGION (backend)';
+    } else if (process.env.VITE_METAAPI_REGION) {
+      regionSource = 'VITE_METAAPI_REGION (fallback)';
+    } else {
+      regionSource = 'default (london)';
+    }
 
     console.log('[INFO] Environment Check:');
     console.log(`  Token Source: ${tokenSource}`);
     console.log(`  Token: ${token ? '[OK] Present (length: ' + token.length + ', preview: ' + token.substring(0, 4) + '...' + token.substring(token.length - 4) + ')' : '[X] Missing'}`);
     console.log(`  Account ID: ${accountId || '[X] Missing'}`);
+    console.log(`  Account ID Source: ${accountIdSource}`);
     console.log(`  Region: ${region}`);
+    console.log(`  Region Source: ${regionSource}`);
     console.log('');
 
     if (!token) {
@@ -86,20 +116,35 @@ exports.handler = async (event, context) => {
             manual_input: 'Not provided',
             METAAPI_ADMIN_TOKEN: process.env.METAAPI_ADMIN_TOKEN ? 'Present' : 'Missing',
             METAAPI_TOKEN: process.env.METAAPI_TOKEN ? 'Present' : 'Missing'
-          }
+          },
+          recommendation: 'Add METAAPI_ADMIN_TOKEN to Netlify environment variables'
         })
       };
     }
 
     if (!accountId) {
+      console.log('[FAIL] Account ID Check Failed');
+      console.log('  Checked sources:');
+      console.log('    1. POST request body (manual input)');
+      console.log('    2. METAAPI_ACCOUNT_ID (backend variable)');
+      console.log('    3. VITE_METAAPI_ACCOUNT_ID (frontend variable - fallback)');
+      console.log('  All sources returned: NOT FOUND');
+
       return {
         statusCode: 500,
         headers,
         body: JSON.stringify({
           success: false,
           test: 'DIRECT_METAAPI_CONNECTION',
-          error: 'VITE_METAAPI_ACCOUNT_ID not found in environment variables',
-          result: '[FAIL] RED LIGHT - Account ID missing'
+          error: 'Account ID not found in any environment variable',
+          result: '[FAIL] RED LIGHT - Account ID missing',
+          accountIdSources: {
+            manual_input: 'Not provided',
+            METAAPI_ACCOUNT_ID: process.env.METAAPI_ACCOUNT_ID ? 'Present' : 'Missing',
+            VITE_METAAPI_ACCOUNT_ID: process.env.VITE_METAAPI_ACCOUNT_ID ? 'Present' : 'Missing'
+          },
+          recommendation: 'Add METAAPI_ACCOUNT_ID to Netlify environment variables (not just VITE_METAAPI_ACCOUNT_ID)',
+          explanation: 'VITE_ prefixed variables are only available during build time. Netlify functions need non-prefixed variables at runtime.'
         })
       };
     }
@@ -160,6 +205,14 @@ exports.handler = async (event, context) => {
           accountId: accountId,
           tokenSource: tokenSource,
           tokenLength: token.length
+        },
+        configuration: {
+          accountIdSource: accountIdSource,
+          regionSource: regionSource,
+          usingFallback: accountIdSource.includes('fallback') || regionSource.includes('fallback'),
+          recommendation: accountIdSource.includes('fallback') ?
+            'Add METAAPI_ACCOUNT_ID and METAAPI_REGION to Netlify environment variables for production reliability' :
+            'Configuration looks good'
         }
       })
     };

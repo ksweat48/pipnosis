@@ -14,6 +14,24 @@ interface TestResult {
   result: string;
   details?: any;
   error?: any;
+  configuration?: any;
+  accountIdSources?: any;
+  recommendation?: string;
+  explanation?: string;
+}
+
+interface EnvDiagnostic {
+  success: boolean;
+  timestamp: string;
+  environment: string;
+  status: {
+    fullyConfigured: boolean;
+    usingFallback: boolean;
+    criticalIssues: number;
+  };
+  variables: any;
+  recommendations: any[];
+  guide: any;
 }
 
 export default function TestMetaApiDirect() {
@@ -24,6 +42,42 @@ export default function TestMetaApiDirect() {
   const [manualRegion, setManualRegion] = useState('london');
   const [useManualToken, setUseManualToken] = useState(false);
   const [showToken, setShowToken] = useState(false);
+  const [envDiagnostic, setEnvDiagnostic] = useState<EnvDiagnostic | null>(null);
+  const [loadingEnv, setLoadingEnv] = useState(false);
+  const [showEnvDetails, setShowEnvDetails] = useState(false);
+
+  const checkEnvironment = async () => {
+    setLoadingEnv(true);
+    try {
+      console.log('🔍 Checking environment configuration...');
+      const response = await fetch('/.netlify/functions/check-environment');
+      const data = await response.json();
+      console.log('Environment diagnostic:', data);
+      setEnvDiagnostic(data);
+      setShowEnvDetails(true);
+    } catch (error: any) {
+      console.error('Failed to check environment:', error);
+      setEnvDiagnostic({
+        success: false,
+        timestamp: new Date().toISOString(),
+        environment: 'unknown',
+        status: {
+          fullyConfigured: false,
+          usingFallback: false,
+          criticalIssues: 1
+        },
+        variables: {},
+        recommendations: [{
+          severity: 'critical',
+          issue: 'Failed to check environment',
+          details: error.message
+        }],
+        guide: {}
+      });
+    } finally {
+      setLoadingEnv(false);
+    }
+  };
 
   const runTest = async (useManual: boolean = false) => {
     setTesting(true);
@@ -86,6 +140,134 @@ export default function TestMetaApiDirect() {
           <p className="text-gray-400 mt-1">
             <strong>Process of Elimination:</strong> If this shows 🟢 GREEN = Pipnosis code issue. If 🔴 RED = MetaAPI issue.
           </p>
+        </div>
+
+        {/* Environment Diagnostic Section */}
+        <div className="mb-8 bg-gray-800 rounded-lg p-6 border-2 border-blue-600">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-6 h-6 text-blue-500" />
+              <h2 className="text-xl font-bold">Environment Configuration Check</h2>
+            </div>
+            <button
+              onClick={checkEnvironment}
+              disabled={loadingEnv}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              {loadingEnv ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Checking...
+                </>
+              ) : (
+                'Check Environment'
+              )}
+            </button>
+          </div>
+
+          <p className="text-gray-400 text-sm mb-4">
+            Run this diagnostic to see which environment variables are available to Netlify functions in production.
+          </p>
+
+          {envDiagnostic && (
+            <div className="mt-4 space-y-4">
+              {/* Status Summary */}
+              <div className={`p-4 rounded-lg border-2 ${
+                envDiagnostic.status.fullyConfigured
+                  ? 'bg-green-900/20 border-green-500'
+                  : 'bg-red-900/20 border-red-500'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-lg">
+                      {envDiagnostic.status.fullyConfigured ? '✅ Fully Configured' : '❌ Configuration Issues'}
+                    </h3>
+                    <p className="text-sm mt-1">
+                      Environment: {envDiagnostic.environment} |
+                      Critical Issues: {envDiagnostic.status.criticalIssues} |
+                      Using Fallback: {envDiagnostic.status.usingFallback ? 'Yes' : 'No'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowEnvDetails(!showEnvDetails)}
+                    className="text-sm text-blue-400 hover:text-blue-300"
+                  >
+                    {showEnvDetails ? 'Hide Details' : 'Show Details'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Recommendations */}
+              {envDiagnostic.recommendations && envDiagnostic.recommendations.length > 0 && (
+                <div className="bg-yellow-900/20 border border-yellow-600 rounded-lg p-4">
+                  <h4 className="font-bold mb-2 text-yellow-400">⚠️ Recommendations:</h4>
+                  <div className="space-y-3">
+                    {envDiagnostic.recommendations.map((rec, idx) => (
+                      <div key={idx} className="text-sm">
+                        <p className="font-semibold text-yellow-300">{rec.issue}</p>
+                        {rec.variables && (
+                          <p className="text-yellow-200 ml-4">Missing: {rec.variables.join(', ')}</p>
+                        )}
+                        <p className="text-gray-300 ml-4">{rec.solution}</p>
+                        {rec.details && <p className="text-gray-400 ml-4 italic">{rec.details}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Detailed View */}
+              {showEnvDetails && envDiagnostic.variables && (
+                <div className="bg-gray-900 rounded-lg p-4 space-y-4">
+                  <div>
+                    <h4 className="font-bold mb-2 text-blue-400">Backend Variables (Netlify Functions):</h4>
+                    {envDiagnostic.variables.metaapi?.backend && (
+                      <div className="space-y-2 ml-4">
+                        {Object.entries(envDiagnostic.variables.metaapi.backend).map(([key, info]: [string, any]) => (
+                          <div key={key} className="flex items-center gap-2">
+                            <span className={info.present ? 'text-green-400' : 'text-red-400'}>
+                              {info.present ? '✓' : '✗'}
+                            </span>
+                            <span className="font-mono text-sm">{key}</span>
+                            {info.value && <span className="text-gray-500 text-xs">({info.value})</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <h4 className="font-bold mb-2 text-purple-400">Frontend Variables (Build-time only):</h4>
+                    {envDiagnostic.variables.metaapi?.frontend && (
+                      <div className="space-y-2 ml-4">
+                        {Object.entries(envDiagnostic.variables.metaapi.frontend).map(([key, info]: [string, any]) => (
+                          <div key={key} className="flex items-center gap-2">
+                            <span className={info.present ? 'text-green-400' : 'text-red-400'}>
+                              {info.present ? '✓' : '✗'}
+                            </span>
+                            <span className="font-mono text-sm">{key}</span>
+                            {info.value && <span className="text-gray-500 text-xs">({info.value})</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {envDiagnostic.guide && (
+                    <div className="mt-4 p-4 bg-blue-900/20 border border-blue-600 rounded">
+                      <h4 className="font-bold mb-2 text-blue-300">💡 {envDiagnostic.guide.title}</h4>
+                      {envDiagnostic.guide.sections?.map((section: any, idx: number) => (
+                        <div key={idx} className="mt-3">
+                          <p className="font-semibold text-blue-200">{section.heading}</p>
+                          <p className="text-sm text-gray-300 ml-4">{section.explanation}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Manual Token Input Section */}
@@ -244,6 +426,25 @@ export default function TestMetaApiDirect() {
                 <h3 className="text-xl font-bold mb-4 text-green-400">✅ Connection Details</h3>
 
                 <div className="space-y-4">
+                  {/* Configuration Status */}
+                  {testResult.configuration && (
+                    <div className={`p-4 rounded ${
+                      testResult.configuration.usingFallback
+                        ? 'bg-yellow-900/20 border border-yellow-600'
+                        : 'bg-green-900/20 border border-green-600'
+                    }`}>
+                      <h4 className="font-semibold mb-2">Configuration Status</h4>
+                      <div className="space-y-1 text-sm">
+                        <p><strong>Account ID Source:</strong> {testResult.configuration.accountIdSource}</p>
+                        <p><strong>Region Source:</strong> {testResult.configuration.regionSource}</p>
+                        <p><strong>Using Fallback:</strong> {testResult.configuration.usingFallback ? 'Yes ⚠️' : 'No ✅'}</p>
+                        <p className={testResult.configuration.usingFallback ? 'text-yellow-300 mt-2' : 'text-green-300 mt-2'}>
+                          <strong>Recommendation:</strong> {testResult.configuration.recommendation}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Account Info */}
                   <div>
                     <h4 className="font-semibold text-gray-300 mb-2">Account Information</h4>
@@ -294,12 +495,39 @@ export default function TestMetaApiDirect() {
                 <h3 className="text-xl font-bold mb-4 text-red-400">❌ Error Details</h3>
 
                 <div className="space-y-4">
+                  {/* Show account ID sources if available */}
+                  {testResult.accountIdSources && (
+                    <div className="bg-blue-900/20 border border-blue-600 rounded p-4">
+                      <h4 className="font-semibold text-blue-300 mb-2">Account ID Sources Checked:</h4>
+                      <div className="space-y-1 text-sm ml-4">
+                        {Object.entries(testResult.accountIdSources).map(([source, status]: [string, any]) => (
+                          <p key={source}>
+                            <span className="font-mono">{source}:</span>{' '}
+                            <span className={status === 'Present' ? 'text-green-400' : 'text-red-400'}>
+                              {status}
+                            </span>
+                          </p>
+                        ))}
+                      </div>
+                      {testResult.explanation && (
+                        <p className="text-yellow-200 text-sm mt-3 italic">{testResult.explanation}</p>
+                      )}
+                    </div>
+                  )}
+
                   <div>
                     <h4 className="font-semibold text-gray-300 mb-2">Error Message</h4>
                     <p className="bg-gray-900 p-4 rounded text-red-400">
-                      {testResult.error.message}
+                      {testResult.error.message || testResult.error}
                     </p>
                   </div>
+
+                  {testResult.recommendation && (
+                    <div className="bg-yellow-900/20 border border-yellow-600 rounded p-4">
+                      <h4 className="font-semibold text-yellow-300 mb-2">💡 Recommendation:</h4>
+                      <p className="text-yellow-100">{testResult.recommendation}</p>
+                    </div>
+                  )}
 
                   {testResult.error.statusCode && (
                     <div>
