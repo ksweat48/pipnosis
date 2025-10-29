@@ -168,7 +168,7 @@ export class PriceStreamManager {
 
   private async startWebSocket(): Promise<void> {
     const accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID;
-    const region = import.meta.env.VITE_METAAPI_REGION || 'new-york';
+    const region = import.meta.env.VITE_METAAPI_REGION || 'london';
 
     const timestamp = new Date().toISOString();
     console.log(`[PriceStreamManager] [${timestamp}] Starting WebSocket connection for ${this.symbol}`);

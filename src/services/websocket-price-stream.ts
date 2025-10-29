@@ -34,7 +34,7 @@ export class WebSocketPriceStream {
   private connectionCallbacks: Set<ConnectionCallback> = new Set();
   private errorCallbacks: Set<ErrorCallback> = new Set();
 
-  constructor(symbol: string, accountId: string, token: string, region: string = 'new-york') {
+  constructor(symbol: string, accountId: string, token: string, region: string = 'london') {
     this.symbol = symbol;
     this.accountId = accountId;
     this.token = token;
@@ -84,9 +84,19 @@ export class WebSocketPriceStream {
       this.socket = io(socketUrl, {
         path: '/ws',
         reconnection: false,
-        transports: ['websocket', 'polling'],
+        transports: ['polling', 'websocket'],
+        upgrade: true,
+        rememberUpgrade: true,
+        timeout: 10000,
         query: {
           'auth-token': this.token
+        },
+        transportOptions: {
+          polling: {
+            extraHeaders: {
+              'auth-token': this.token
+            }
+          }
         }
       });
 
