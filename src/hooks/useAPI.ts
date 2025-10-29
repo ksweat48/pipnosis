@@ -5,7 +5,10 @@ export interface MarketData {
   symbol: string;
   bid: number;
   ask: number;
-  timestamp: string;
+  broker_time: string;
+  created_at: string;
+  mid?: number;
+  spread?: number;
 }
 
 export function usePromptAnalysis() {
@@ -56,7 +59,7 @@ export function useMarketData(symbol: string = 'EURUSD') {
         .from('realtime_prices')
         .select('*')
         .eq('symbol', symbol)
-        .order('timestamp', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -65,11 +68,14 @@ export function useMarketData(symbol: string = 'EURUSD') {
       if (data) {
         setMarketData({
           symbol: data.symbol,
-          bid: data.bid,
-          ask: data.ask,
-          timestamp: data.timestamp
+          bid: parseFloat(data.bid),
+          ask: parseFloat(data.ask),
+          broker_time: data.broker_time,
+          created_at: data.created_at,
+          mid: data.mid ? parseFloat(data.mid) : undefined,
+          spread: data.spread ? parseFloat(data.spread) : undefined
         });
-        setLastUpdated(new Date(data.timestamp));
+        setLastUpdated(new Date(data.broker_time || data.created_at));
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to fetch market data';
