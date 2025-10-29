@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineStyle } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, LineStyle, LineSeries } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
 import { TrendingUp, Activity, AlertCircle } from 'lucide-react';
 
@@ -54,7 +54,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       },
     });
 
-    const lineSeries = chart.addLineSeries({
+    const lineSeries = chart.addSeries(LineSeries, {
       color: '#10b981',
       lineWidth: 2,
       priceLineVisible: true,
@@ -95,7 +95,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
         if (dbError) {
           console.error('Database error:', dbError);
-          setError('Unable to load price data');
+          console.error('Error details:', JSON.stringify(dbError, null, 2));
+          setError(`Unable to load price data: ${dbError.message || 'Unknown error'}`);
           setIsLoading(false);
           return;
         }
@@ -114,7 +115,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
           setPriceChange(((latestPrice - firstPrice) / firstPrice) * 100);
           setLastUpdate(new Date());
         } else {
-          setError('No price data available for this symbol');
+          console.warn('No price data found for symbol:', symbol);
+          setError('Waiting for price data... The price feed will start shortly.');
         }
 
         setIsLoading(false);
