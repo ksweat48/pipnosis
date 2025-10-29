@@ -20,6 +20,9 @@ import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { ActivePositions } from './components/ActivePositions';
 import { TradeConfirmationModal } from './components/TradeConfirmationModal';
 import { ConfigurationStatus } from './components/ConfigurationStatus';
+import { ManualTradePanel } from './components/ManualTradePanel';
+import { BalanceDisplay } from './components/BalanceDisplay';
+import { positionMonitorService } from './services/position-monitor';
 import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { AITradingConsole } from './components/AITradingConsole';
@@ -60,6 +63,7 @@ const Dashboard: React.FC = () => {
   } | null>(null);
   const [activeSearchSessionId, setActiveSearchSessionId] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [positionRefreshTrigger, setPositionRefreshTrigger] = useState(0);
 
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
   const [shouldScrollToStrategy, setShouldScrollToStrategy] = useState(false);
@@ -79,6 +83,11 @@ const Dashboard: React.FC = () => {
       }, 100);
     }
   }, [shouldScrollToStrategy, strategyOptions]);
+
+  useEffect(() => {
+    positionMonitorService.start();
+    return () => positionMonitorService.stop();
+  }, []);
 
   const handlePromptSubmit = async (prompt: string) => {
     if (!user) return;
@@ -220,6 +229,7 @@ const Dashboard: React.FC = () => {
       if (result.success) {
         refreshBalance();
         refreshPositions();
+        setPositionRefreshTrigger(prev => prev + 1);
       }
     } catch (error) {
       console.error('Trade execution failed:', error);
@@ -357,6 +367,16 @@ const Dashboard: React.FC = () => {
               tradeLines={activeTradeLines}
             />
           </div>
+
+          {/* Manual Trading Panel */}
+          <ManualTradePanel
+            symbol={selectedSymbol}
+            onTradeExecuted={() => {
+              refreshBalance();
+              refreshPositions();
+              setPositionRefreshTrigger(prev => prev + 1);
+            }}
+          />
           
           {/* AI Trading Console - New ChatGPT Integration */}
           <AITradingConsole />
@@ -397,7 +417,7 @@ const Dashboard: React.FC = () => {
         {/* Dashboard Grid */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8 mt-8 sm:mt-12 lg:mt-16">
           <div className="xl:col-span-2 space-y-6 sm:space-y-8">
-            <ActivePositions />
+            <ActivePositions refreshTrigger={positionRefreshTrigger} />
 
             <TradingDashboard
               todayPnL={totalPnL}
