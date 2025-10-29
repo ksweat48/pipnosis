@@ -428,17 +428,51 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
     aiPriceLinesRef.current = [];
 
     if (vwapData && vwapData.length > 0 && vwapSeriesRef.current) {
-      vwapSeriesRef.current.setData(vwapData);
-      const latestVwap = vwapData[vwapData.length - 1];
-      setVwapCurrentValue(latestVwap.value);
-      console.log('[Chart] VWAP line data set:', vwapData.length, 'points');
+      try {
+        const validVwapData = vwapData.filter(point =>
+          point &&
+          point.time !== null &&
+          point.time !== undefined &&
+          point.value !== null &&
+          point.value !== undefined &&
+          isFinite(point.value) &&
+          isFinite(point.time as number)
+        );
+
+        if (validVwapData.length > 0) {
+          vwapSeriesRef.current.setData(validVwapData);
+          const latestVwap = validVwapData[validVwapData.length - 1];
+          if (latestVwap && isFinite(latestVwap.value)) {
+            setVwapCurrentValue(latestVwap.value);
+          }
+          console.log('[Chart] VWAP line data set:', validVwapData.length, 'points');
+        } else {
+          console.warn('[Chart] No valid VWAP data points to render');
+        }
+      } catch (err) {
+        console.error('[Chart] Error setting VWAP data:', err);
+      }
     } else if (aiAnalysis?.vwap && vwapSeriesRef.current && data.length > 0) {
-      const fallbackVwapData: LineData<Time>[] = data.map(candle => ({
-        time: candle.time,
-        value: aiAnalysis.vwap!
-      }));
-      vwapSeriesRef.current.setData(fallbackVwapData);
-      setVwapCurrentValue(aiAnalysis.vwap);
+      try {
+        const fallbackVwapData: LineData<Time>[] = data
+          .filter(candle =>
+            candle &&
+            candle.time !== null &&
+            candle.time !== undefined &&
+            isFinite(candle.time as number)
+          )
+          .map(candle => ({
+            time: candle.time,
+            value: aiAnalysis.vwap!
+          }));
+
+        if (fallbackVwapData.length > 0 && isFinite(aiAnalysis.vwap!)) {
+          vwapSeriesRef.current.setData(fallbackVwapData);
+          setVwapCurrentValue(aiAnalysis.vwap);
+        }
+      } catch (err) {
+        console.error('[Chart] Error setting fallback VWAP data:', err);
+      }
     }
 
     if (aiAnalysis.sessionMarkers && aiAnalysis.sessionMarkers.length > 0) {
@@ -474,32 +508,61 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
     });
 
     try {
+      const validateLineData = (data: LineData<Time>[]): LineData<Time>[] => {
+        return data.filter(point =>
+          point &&
+          point.time !== null &&
+          point.time !== undefined &&
+          point.value !== null &&
+          point.value !== undefined &&
+          isFinite(point.value) &&
+          isFinite(point.time as number)
+        );
+      };
+
       if (emaData.ema5 && emaData.ema5.length > 0 && ema5SeriesRef.current) {
-        const sortedEma5 = [...emaData.ema5].sort((a, b) => (a.time as number) - (b.time as number));
-        ema5SeriesRef.current.setData(sortedEma5);
-        console.log('[CandlestickChart] EMA5 updated with', sortedEma5.length, 'points');
+        const validEma5 = validateLineData(emaData.ema5);
+        if (validEma5.length > 0) {
+          const sortedEma5 = validEma5.sort((a, b) => (a.time as number) - (b.time as number));
+          ema5SeriesRef.current.setData(sortedEma5);
+          console.log('[CandlestickChart] EMA5 updated with', sortedEma5.length, 'points');
+        }
       }
       if (emaData.ema9 && emaData.ema9.length > 0 && ema9SeriesRef.current) {
-        const sortedEma9 = [...emaData.ema9].sort((a, b) => (a.time as number) - (b.time as number));
-        ema9SeriesRef.current.setData(sortedEma9);
-        console.log('[CandlestickChart] EMA9 updated with', sortedEma9.length, 'points');
+        const validEma9 = validateLineData(emaData.ema9);
+        if (validEma9.length > 0) {
+          const sortedEma9 = validEma9.sort((a, b) => (a.time as number) - (b.time as number));
+          ema9SeriesRef.current.setData(sortedEma9);
+          console.log('[CandlestickChart] EMA9 updated with', sortedEma9.length, 'points');
+        }
       }
       if (emaData.ema21 && emaData.ema21.length > 0 && ema21SeriesRef.current) {
-        const sortedEma21 = [...emaData.ema21].sort((a, b) => (a.time as number) - (b.time as number));
-        ema21SeriesRef.current.setData(sortedEma21);
-        const latestEma21 = sortedEma21[sortedEma21.length - 1];
-        setEma21CurrentValue(latestEma21.value);
-        console.log('[CandlestickChart] EMA21 updated with', sortedEma21.length, 'points');
+        const validEma21 = validateLineData(emaData.ema21);
+        if (validEma21.length > 0) {
+          const sortedEma21 = validEma21.sort((a, b) => (a.time as number) - (b.time as number));
+          ema21SeriesRef.current.setData(sortedEma21);
+          const latestEma21 = sortedEma21[sortedEma21.length - 1];
+          if (latestEma21 && isFinite(latestEma21.value)) {
+            setEma21CurrentValue(latestEma21.value);
+          }
+          console.log('[CandlestickChart] EMA21 updated with', sortedEma21.length, 'points');
+        }
       }
       if (emaData.ema50 && emaData.ema50.length > 0 && ema50SeriesRef.current) {
-        const sortedEma50 = [...emaData.ema50].sort((a, b) => (a.time as number) - (b.time as number));
-        ema50SeriesRef.current.setData(sortedEma50);
-        console.log('[CandlestickChart] EMA50 updated with', sortedEma50.length, 'points');
+        const validEma50 = validateLineData(emaData.ema50);
+        if (validEma50.length > 0) {
+          const sortedEma50 = validEma50.sort((a, b) => (a.time as number) - (b.time as number));
+          ema50SeriesRef.current.setData(sortedEma50);
+          console.log('[CandlestickChart] EMA50 updated with', sortedEma50.length, 'points');
+        }
       }
       if (emaData.ema200 && emaData.ema200.length > 0 && ema200SeriesRef.current) {
-        const sortedEma200 = [...emaData.ema200].sort((a, b) => (a.time as number) - (b.time as number));
-        ema200SeriesRef.current.setData(sortedEma200);
-        console.log('[CandlestickChart] EMA200 updated with', sortedEma200.length, 'points');
+        const validEma200 = validateLineData(emaData.ema200);
+        if (validEma200.length > 0) {
+          const sortedEma200 = validEma200.sort((a, b) => (a.time as number) - (b.time as number));
+          ema200SeriesRef.current.setData(sortedEma200);
+          console.log('[CandlestickChart] EMA200 updated with', sortedEma200.length, 'points');
+        }
       }
     } catch (err) {
       console.error('[CandlestickChart] Error updating EMA series:', err);

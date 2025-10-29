@@ -489,23 +489,64 @@ export const MarketChart: React.FC<MarketChartProps> = ({
 
           const vwapData: LineData<Time>[] = [];
           for (let i = 0; i < candles.length; i++) {
+            if (!candleData[i] || candleData[i].time === null || candleData[i].time === undefined) {
+              console.warn(`[MarketChart] Skipping VWAP calculation at index ${i}: invalid candleData`);
+              continue;
+            }
+
             const subset = candles.slice(Math.max(0, i - 49), i + 1);
             if (subset.length >= 2) {
               try {
                 const vwapValue = calculateVWAP(subset, subset.length);
-                if (isFinite(vwapValue) && vwapValue > 0) {
+                const candleTime = candleData[i].time as number;
+
+                if (
+                  isFinite(vwapValue) &&
+                  vwapValue > 0 &&
+                  isFinite(candleTime) &&
+                  candleTime !== null &&
+                  candleTime !== undefined
+                ) {
                   vwapData.push({
-                    time: (candleData[i].time as number) as Time,
+                    time: candleTime as Time,
                     value: vwapValue
                   });
+                } else {
+                  console.warn(`[MarketChart] Invalid VWAP data at index ${i}: value=${vwapValue}, time=${candleTime}`);
                 }
               } catch (err) {
                 console.error(`[MarketChart] Error calculating VWAP at index ${i}:`, err);
               }
             }
           }
-          setVwapChartData(vwapData);
-          console.log('[MarketChart] VWAP chart data calculated:', vwapData.length, 'points');
+
+          const validVwapData = vwapData.filter(point => {
+            const isValid =
+              point !== null &&
+              point !== undefined &&
+              point.time !== null &&
+              point.time !== undefined &&
+              point.value !== null &&
+              point.value !== undefined &&
+              isFinite(point.value) &&
+              isFinite(point.time as number) &&
+              point.value > 0;
+
+            if (!isValid) {
+              console.warn('[MarketChart] Filtered out invalid VWAP point:', point);
+            }
+            return isValid;
+          });
+
+          const sortedVwapData = validVwapData.sort((a, b) => (a.time as number) - (b.time as number));
+
+          if (sortedVwapData.length > 0) {
+            setVwapChartData(sortedVwapData);
+            console.log('[MarketChart] VWAP chart data calculated:', sortedVwapData.length, 'valid points');
+          } else {
+            console.warn('[MarketChart] No valid VWAP data points generated');
+            setVwapChartData([]);
+          }
         } catch (err) {
           console.error('[MarketChart] Failed to calculate EMA data:', err);
         }
