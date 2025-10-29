@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineStyle, LineSeries } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, LineStyle } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
 import { TrendingUp, Activity, AlertCircle } from 'lucide-react';
 
@@ -13,15 +13,25 @@ interface MarketChartProps {
   };
 }
 
-interface PriceData {
+interface CandlestickData {
   time: number;
-  value: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+interface RealtimePrice {
+  bid: string;
+  ask: string;
+  broker_time: string;
+  created_at: string;
 }
 
 export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const lineSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [priceChange, setPriceChange] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -44,7 +54,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       height: 400,
       timeScale: {
         timeVisible: true,
-        secondsVisible: true,
+        secondsVisible: false,
       },
       rightPriceScale: {
         borderColor: '#374151',
@@ -54,15 +64,17 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       },
     });
 
-    const lineSeries = chart.addSeries(LineSeries, {
-      color: '#10b981',
-      lineWidth: 2,
-      priceLineVisible: true,
-      lastValueVisible: true,
+    const candlestickSeries = chart.addCandlestickSeries({
+      upColor: '#10b981',
+      downColor: '#ef4444',
+      borderUpColor: '#10b981',
+      borderDownColor: '#ef4444',
+      wickUpColor: '#10b981',
+      wickDownColor: '#ef4444',
     });
 
     chartRef.current = chart;
-    lineSeriesRef.current = lineSeries;
+    candlestickSeriesRef.current = candlestickSeries;
 
     const handleResize = () => {
       if (chartContainerRef.current) {
@@ -78,8 +90,55 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     };
   }, []);
 
+  const aggregateToCandles = (prices: RealtimePrice[], intervalMinutes: number = 1): CandlestickData[] => {
+    if (prices.length === 0) return [];
+
+    const candleMap = new Map<number, { open: number; high: number; low: number; close: number; prices: number[] }>();
+
+    prices.forEach((price) => {
+      const bid = parseFloat(price.bid);
+      const ask = parseFloat(price.ask);
+
+      if (isNaN(bid) || isNaN(ask) || bid <= 0 || ask <= 0) {
+        return;
+      }
+
+      const midPrice = (bid + ask) / 2;
+      const timestamp = new Date(price.broker_time || price.created_at).getTime();
+      const candleTime = Math.floor(timestamp / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60);
+
+      if (!candleMap.has(candleTime)) {
+        candleMap.set(candleTime, {
+          open: midPrice,
+          high: midPrice,
+          low: midPrice,
+          close: midPrice,
+          prices: [midPrice],
+        });
+      } else {
+        const candle = candleMap.get(candleTime)!;
+        candle.high = Math.max(candle.high, midPrice);
+        candle.low = Math.min(candle.low, midPrice);
+        candle.close = midPrice;
+        candle.prices.push(midPrice);
+      }
+    });
+
+    const candles: CandlestickData[] = Array.from(candleMap.entries())
+      .map(([time, data]) => ({
+        time: time / 1000,
+        open: data.open,
+        high: data.high,
+        low: data.low,
+        close: data.close,
+      }))
+      .sort((a, b) => a.time - b.time);
+
+    return candles;
+  };
+
   useEffect(() => {
-    if (!lineSeriesRef.current) return;
+    if (!candlestickSeriesRef.current) return;
 
     const fetchPriceHistory = async () => {
       try {
@@ -91,29 +150,30 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
           .select('bid, ask, broker_time, created_at')
           .eq('symbol', symbol)
           .order('created_at', { ascending: true })
-          .limit(100);
+          .limit(500);
 
         if (dbError) {
           console.error('Database error:', dbError);
-          console.error('Error details:', JSON.stringify(dbError, null, 2));
           setError(`Unable to load price data: ${dbError.message || 'Unknown error'}`);
           setIsLoading(false);
           return;
         }
 
         if (data && data.length > 0) {
-          const priceData: PriceData[] = data.map((item) => ({
-            time: Math.floor(new Date(item.broker_time || item.created_at).getTime() / 1000),
-            value: (parseFloat(item.bid) + parseFloat(item.ask)) / 2,
-          }));
+          const candleData = aggregateToCandles(data as RealtimePrice[], 1);
 
-          lineSeriesRef.current?.setData(priceData);
+          if (candleData.length > 0) {
+            candlestickSeriesRef.current?.setData(candleData);
 
-          const latestPrice = priceData[priceData.length - 1].value;
-          const firstPrice = priceData[0].value;
-          setCurrentPrice(latestPrice);
-          setPriceChange(((latestPrice - firstPrice) / firstPrice) * 100);
-          setLastUpdate(new Date());
+            const latestCandle = candleData[candleData.length - 1];
+            const firstCandle = candleData[0];
+            setCurrentPrice(latestCandle.close);
+            setPriceChange(((latestCandle.close - firstCandle.open) / firstCandle.open) * 100);
+            setLastUpdate(new Date());
+          } else {
+            console.warn('No valid candle data after aggregation');
+            setError('Waiting for price data... The price feed will start shortly.');
+          }
         } else {
           console.warn('No price data found for symbol:', symbol);
           setError('Waiting for price data... The price feed will start shortly.');
@@ -140,17 +200,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
           filter: `symbol=eq.${symbol}`,
         },
         (payload) => {
-          const newData = payload.new as any;
-          const midPrice = (parseFloat(newData.bid) + parseFloat(newData.ask)) / 2;
-          const timestamp = Math.floor(new Date(newData.broker_time || newData.created_at).getTime() / 1000);
-
-          lineSeriesRef.current?.update({
-            time: timestamp,
-            value: midPrice,
-          });
-
-          setCurrentPrice(midPrice);
-          setLastUpdate(new Date());
+          fetchPriceHistory();
         }
       )
       .subscribe();
@@ -169,7 +219,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     const { entry, stopLoss, takeProfit } = tradeLines;
 
     if (entry) {
-      lineSeriesRef.current?.createPriceLine({
+      candlestickSeriesRef.current?.createPriceLine({
         price: entry,
         color: '#3b82f6',
         lineWidth: 2,
@@ -180,7 +230,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     }
 
     if (stopLoss) {
-      lineSeriesRef.current?.createPriceLine({
+      candlestickSeriesRef.current?.createPriceLine({
         price: stopLoss,
         color: '#ef4444',
         lineWidth: 2,
@@ -191,7 +241,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     }
 
     if (takeProfit) {
-      lineSeriesRef.current?.createPriceLine({
+      candlestickSeriesRef.current?.createPriceLine({
         price: takeProfit,
         color: '#10b981',
         lineWidth: 2,
