@@ -46,6 +46,24 @@ class CandleStateManager {
       }
 
       if (data) {
+        const candleTimestamp = new Date(data.timestamp);
+        const now = Date.now();
+        const candleAge = now - candleTimestamp.getTime();
+
+        // Reject candles older than 1 hour - they're stale
+        if (candleAge > 3600000) {
+          console.warn(`⚠️ Rejecting stale candle state for ${symbol} ${timeframe}: ${candleTimestamp.toISOString()} (age: ${(candleAge/1000/60).toFixed(1)} minutes)`);
+          console.log(`   Will start fresh candle on next tick`);
+          return null;
+        }
+
+        // Reject candles with timestamps in the future (clock sync issues)
+        if (candleTimestamp.getTime() > now + 60000) {
+          console.warn(`⚠️ Rejecting future-dated candle state for ${symbol} ${timeframe}: ${candleTimestamp.toISOString()}`);
+          console.log(`   Current time: ${new Date().toISOString()}`);
+          return null;
+        }
+
         const candleState: CandleState = {
           symbol: data.symbol,
           timeframe: data.timeframe as Timeframe,
@@ -53,7 +71,7 @@ class CandleStateManager {
           high: parseFloat(data.high),
           low: parseFloat(data.low),
           close: parseFloat(data.close),
-          timestamp: new Date(data.timestamp),
+          timestamp: candleTimestamp,
           isComplete: true,
           tickCount: data.tick_volume || 0,
           lastUpdate: new Date(data.updated_at || data.created_at)
@@ -61,9 +79,11 @@ class CandleStateManager {
 
         this.currentCandles.set(key, candleState);
         console.log(`Initialized candle state for ${symbol} ${timeframe}:`, candleState.timestamp.toISOString());
+        console.log(`   Candle age: ${(candleAge/1000).toFixed(1)}s, Price: ${candleState.close.toFixed(5)}`);
         return candleState;
       }
 
+      console.log(`No existing candle state found for ${symbol} ${timeframe}, will create new on first tick`);
       return null;
     } catch (error) {
       console.error('Error in initializeCandleState:', error);
@@ -76,7 +96,24 @@ class CandleStateManager {
     timeframe: Timeframe,
     tickPrice: number,
     tickTime: Date
-  ): CandleState {
+  ): CandleState | null {
+    // Validate tick timestamp
+    const now = Date.now();
+    const tickTimestamp = tickTime.getTime();
+
+    // Reject ticks with timestamps in the future (allow 1 minute grace for clock skew)
+    if (tickTimestamp > now + 60000) {
+      console.warn(`[CandleStateManager] Rejecting tick with future timestamp: ${tickTime.toISOString()} (current: ${new Date().toISOString()})`);
+      return null;
+    }
+
+    // Reject ticks older than 1 hour
+    const tickAge = now - tickTimestamp;
+    if (tickAge > 3600000) {
+      console.warn(`[CandleStateManager] Rejecting old tick: ${tickTime.toISOString()} (age: ${(tickAge/1000).toFixed(0)}s)`);
+      return null;
+    }
+
     const key = this.getCandleKey(symbol, timeframe);
     const candleOpenTime = getCandleOpenTime(tickTime, timeframe);
 

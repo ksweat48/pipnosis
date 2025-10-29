@@ -65,6 +65,8 @@ export class LivePricePolling {
   private async fetchPrice(): Promise<void> {
     if (!this.isActive) return;
 
+    const fetchStart = Date.now();
+
     try {
       const functionUrl = `/.netlify/functions/forex-price`;
 
@@ -89,15 +91,39 @@ export class LivePricePolling {
 
       if (data && data.bid && data.ask) {
         const mid = (data.bid + data.ask) / 2;
+
+        // Use server timestamp if available, otherwise use current time
+        const tickTime = data.timestamp ? new Date(data.timestamp) : new Date();
+
+        // Validate timestamp is reasonable (not in future, not older than 1 hour)
+        const now = Date.now();
+        const tickTimestamp = tickTime.getTime();
+        const age = now - tickTimestamp;
+
+        if (tickTimestamp > now + 60000) {
+          console.warn(`[LivePricePolling] Rejecting tick with future timestamp: ${tickTime.toISOString()}`);
+          return;
+        }
+
+        if (age > 3600000) {
+          console.warn(`[LivePricePolling] Rejecting tick older than 1 hour: ${tickTime.toISOString()} (age: ${(age/1000).toFixed(0)}s)`);
+          return;
+        }
+
         const tick: TickData = {
           price: mid,
-          time: new Date(data.timestamp || Date.now()),
+          time: tickTime,
           bid: data.bid,
           ask: data.ask,
           spread: data.ask - data.bid,
         };
 
         this.consecutiveErrors = 0;
+
+        const latency = Date.now() - fetchStart;
+        if (latency > 1000) {
+          console.warn(`[LivePricePolling] High latency: ${latency}ms for ${this.symbol}`);
+        }
 
         this.tickCallbacks.forEach(callback => {
           try {
@@ -106,6 +132,8 @@ export class LivePricePolling {
             console.error('[LivePricePolling] Error in tick callback:', err);
           }
         });
+      } else {
+        console.warn(`[LivePricePolling] Invalid price data received:`, data);
       }
 
     } catch (error) {

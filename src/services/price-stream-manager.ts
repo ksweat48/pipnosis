@@ -39,7 +39,11 @@ export class PriceStreamManager {
   private readonly MAX_BUFFER_SIZE = 10;
   private isConnecting: boolean = false;
   private connectionStartTime: number | null = null;
-  private readonly MIN_CONNECTION_TIME = 2000; // Minimum time before allowing disconnect
+  private readonly MIN_CONNECTION_TIME = 2000;
+
+  // FORCE POLLING MODE - Temporarily disable WebSocket for reliability
+  private readonly FORCE_POLLING_MODE = true;
+  private readonly POLLING_INTERVAL_MS = 1500; // Minimum time before allowing disconnect
 
   private priceCallbacks: Set<PriceCallback> = new Set();
   private statusCallbacks: Set<StatusCallback> = new Set();
@@ -67,6 +71,18 @@ export class PriceStreamManager {
   async start(): Promise<void> {
     const timestamp = new Date().toISOString();
     console.log(`[PriceStreamManager] [${timestamp}] Starting price stream for ${this.symbol}`);
+
+    if (this.FORCE_POLLING_MODE) {
+      console.log(`[PriceStreamManager] 🔒 FORCE_POLLING_MODE ENABLED - WebSocket bypassed for reliability`);
+      console.log(`[PriceStreamManager] Using HTTP polling at ${this.POLLING_INTERVAL_MS}ms intervals`);
+      this.isConnecting = true;
+      this.connectionStartTime = Date.now();
+      this.startBufferFlush();
+      this.startPolling();
+      this.isConnecting = false;
+      return;
+    }
+
     console.log(`[PriceStreamManager] Evaluating connection strategy...`);
 
     this.isConnecting = true;
@@ -309,9 +325,10 @@ export class PriceStreamManager {
   }
 
   private startPolling(): void {
-    console.log(`[PriceStreamManager] Starting polling fallback for ${this.symbol}`);
+    const intervalMs = this.FORCE_POLLING_MODE ? this.POLLING_INTERVAL_MS : 2000;
+    console.log(`[PriceStreamManager] Starting polling for ${this.symbol} at ${intervalMs}ms interval`);
 
-    this.pollingStream = new LivePricePolling(this.symbol, 2000);
+    this.pollingStream = new LivePricePolling(this.symbol, intervalMs);
 
     this.pollingStream.onTick((tick) => {
       this.handlePollingTick(tick);

@@ -55,7 +55,7 @@ class MarketDataService {
   private readonly CHART_CACHE_TTL = 30000;
   private priceStreamManagers: Map<string, PriceStreamManager> = new Map();
   private tickDebounceTimers: Map<string, NodeJS.Timeout> = new Map();
-  private readonly TICK_DEBOUNCE_MS = 150;
+  private readonly TICK_DEBOUNCE_MS = 50; // Reduced from 150ms for faster updates
 
   async getHistoricalData(
     symbol: string,
@@ -740,8 +740,20 @@ class MarketDataService {
         // Use tick.time directly - it's already a Date object
         const tickTime = tick.time instanceof Date ? tick.time : new Date(tick.time);
 
-        // Log tick details for debugging
-        console.log(`[handleStreamTick] ${symbol} ${timeframe}: price=${price.toFixed(5)}, time=${tickTime.toISOString()}`);
+        // Validate tick timestamp before processing
+        const now = Date.now();
+        const tickTimestamp = tickTime.getTime();
+
+        if (tickTimestamp > now + 60000) {
+          console.warn(`[handleStreamTick] Rejecting future tick: ${tickTime.toISOString()}`);
+          return;
+        }
+
+        const tickAge = now - tickTimestamp;
+        if (tickAge > 3600000) {
+          console.warn(`[handleStreamTick] Rejecting old tick: ${tickTime.toISOString()} (age: ${(tickAge/1000).toFixed(0)}s)`);
+          return;
+        }
 
         const updatedCandle = await marketDataCache.updateLiveCandle(
           symbol,
@@ -751,8 +763,6 @@ class MarketDataService {
         );
 
         if (updatedCandle) {
-          console.log(`[handleStreamTick] Candle updated: open=${updatedCandle.open.toFixed(5)}, close=${updatedCandle.close.toFixed(5)}, time=${updatedCandle.time.toISOString()}`);
-
           const listeners = this.activeSubscriptions.get(key);
           if (listeners) {
             listeners.forEach(listener => {
@@ -777,8 +787,6 @@ class MarketDataService {
               }
             });
           }
-        } else {
-          console.warn(`[handleStreamTick] updateLiveCandle returned null for ${symbol} ${timeframe}`);
         }
       } catch (error) {
         console.error(`Error handling stream tick for ${symbol} ${timeframe}:`, error);
