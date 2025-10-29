@@ -1,5 +1,6 @@
 import { WebSocketPriceStream, isSocketIOAvailable } from './websocket-price-stream';
 import { LivePricePolling } from './livePricePolling';
+import { realtimePriceWriter } from './realtime-price-writer';
 
 export interface PriceTickData {
   symbol: string;
@@ -336,6 +337,10 @@ export class PriceStreamManager {
       source: 'websocket'
     };
 
+    realtimePriceWriter.writeTick(priceTick).catch(err => {
+      console.error('[PriceStreamManager] Failed to write tick to database:', err);
+    });
+
     this.addToBuffer(priceTick);
     this.lastTickTime = new Date();
   }
@@ -350,6 +355,10 @@ export class PriceStreamManager {
       time: tick.time,
       source: 'polling'
     };
+
+    realtimePriceWriter.writeTick(priceTick).catch(err => {
+      console.error('[PriceStreamManager] Failed to write tick to database:', err);
+    });
 
     this.addToBuffer(priceTick);
     this.lastTickTime = new Date();

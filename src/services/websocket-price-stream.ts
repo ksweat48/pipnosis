@@ -60,6 +60,13 @@ export class WebSocketPriceStream {
   private tickWatchdogInterval: NodeJS.Timeout | null = null;
   private readonly TICK_WATCHDOG_INTERVAL = 10000;
   private readonly TICK_TIMEOUT = 15000;
+  private subscriptionConfirmed: boolean = false;
+  private subscriptionTimeout: NodeJS.Timeout | null = null;
+  private readonly SUBSCRIPTION_TIMEOUT_MS = 10000;
+  private tickCount: number = 0;
+  private tickRateTimer: NodeJS.Timeout | null = null;
+  private ticksInLastMinute: number = 0;
+  private readonly TICK_RATE_INTERVAL = 60000;
 
   private tickCallbacks: Set<TickCallback> = new Set();
   private connectionCallbacks: Set<ConnectionCallback> = new Set();
@@ -151,9 +158,12 @@ export class WebSocketPriceStream {
         this.isAuthenticated = true;
         this.reconnectAttempts = 0;
         this.lastTickReceived = Date.now();
+        this.tickCount = 0;
+        this.ticksInLastMinute = 0;
         this.notifyConnectionChange(true);
         this.startHeartbeat();
         this.startTickWatchdog();
+        this.startTickRateMonitor();
         this.subscribeToPrice();
       });
 
@@ -264,13 +274,20 @@ export class WebSocketPriceStream {
 
   disconnect(): void {
     console.log(`[WebSocketPriceStream] Disconnecting from ${this.symbol}`);
+    console.log(`[WebSocketPriceStream] Final stats: ${this.tickCount} ticks received during this connection`);
 
     this.stopHeartbeat();
     this.stopTickWatchdog();
+    this.stopTickRateMonitor();
 
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
+    }
+
+    if (this.subscriptionTimeout) {
+      clearTimeout(this.subscriptionTimeout);
+      this.subscriptionTimeout = null;
     }
 
     if (this.socket) {
@@ -282,7 +299,10 @@ export class WebSocketPriceStream {
     this.isConnected = false;
     this.isConnecting = false;
     this.isAuthenticated = false;
+    this.subscriptionConfirmed = false;
     this.reconnectAttempts = 0;
+    this.tickCount = 0;
+    this.ticksInLastMinute = 0;
   }
 
   changeSymbol(newSymbol: string): void {
@@ -325,7 +345,21 @@ export class WebSocketPriceStream {
     console.log(`[WebSocketPriceStream] Using accountId: ${this.accountId}`);
     console.log(`[WebSocketPriceStream] Socket connected: ${this.socket.connected}, authenticated: ${this.isAuthenticated}`);
 
-    // Set up one-time acknowledgment listener for this specific request
+    if (this.subscriptionTimeout) {
+      clearTimeout(this.subscriptionTimeout);
+    }
+
+    this.subscriptionTimeout = setTimeout(() => {
+      if (!this.subscriptionConfirmed) {
+        const errorTimestamp = new Date().toISOString();
+        console.error(`[WebSocketPriceStream] [${errorTimestamp}] ❌ SUBSCRIPTION TIMEOUT - No confirmation after ${this.SUBSCRIPTION_TIMEOUT_MS / 1000}s`);
+        console.error(`[WebSocketPriceStream] The server may not be accepting subscriptions`);
+        console.error(`[WebSocketPriceStream] Attempting to resubscribe...`);
+
+        this.subscribeToPrice();
+      }
+    }, this.SUBSCRIPTION_TIMEOUT_MS);
+
     const ackTimeout = setTimeout(() => {
       console.warn(`[WebSocketPriceStream] ⚠️ No acknowledgment received for subscription request after 5 seconds`);
       console.warn(`[WebSocketPriceStream] This may indicate the server is not processing the subscription`);
@@ -333,8 +367,19 @@ export class WebSocketPriceStream {
 
     this.socket.emit('request', subscribeRequest, (ack: any) => {
       clearTimeout(ackTimeout);
-      const timestamp = new Date().toISOString();
-      console.log(`[WebSocketPriceStream] [${timestamp}] ✅ Subscription acknowledgment received:`, ack);
+      const ackTimestamp = new Date().toISOString();
+
+      if (ack && ack.type === 'response') {
+        this.subscriptionConfirmed = true;
+        if (this.subscriptionTimeout) {
+          clearTimeout(this.subscriptionTimeout);
+          this.subscriptionTimeout = null;
+        }
+        console.log(`[WebSocketPriceStream] [${ackTimestamp}] ✅ Subscription CONFIRMED for ${this.symbol}`);
+        console.log(`[WebSocketPriceStream] Acknowledgment details:`, ack);
+      } else {
+        console.log(`[WebSocketPriceStream] [${ackTimestamp}] 📩 Subscription acknowledgment received:`, ack);
+      }
     });
 
     console.log(`[WebSocketPriceStream] Subscription request emitted, waiting for confirmation...`);
@@ -433,13 +478,16 @@ export class WebSocketPriceStream {
     };
 
     this.lastTickReceived = Date.now();
+    this.tickCount++;
+    this.ticksInLastMinute++;
 
-    console.log(`[WebSocketPriceStream] [${timestamp}] ✅ TICK PROCESSED:`, {
+    console.log(`[WebSocketPriceStream] [${timestamp}] ✅ TICK #${this.tickCount} PROCESSED:`, {
       symbol: tick.symbol,
       bid: tick.bid.toFixed(5),
       ask: tick.ask.toFixed(5),
       mid: tick.mid.toFixed(5),
       spread: tick.spread.toFixed(5),
+      totalTicks: this.tickCount,
       callbackCount: this.tickCallbacks.size
     });
 
@@ -509,6 +557,35 @@ export class WebSocketPriceStream {
     if (this.tickWatchdogInterval) {
       clearInterval(this.tickWatchdogInterval);
       this.tickWatchdogInterval = null;
+    }
+  }
+
+  private startTickRateMonitor(): void {
+    if (this.tickRateTimer) {
+      clearInterval(this.tickRateTimer);
+    }
+
+    this.tickRateTimer = setInterval(() => {
+      const tickRate = this.ticksInLastMinute;
+      const timestamp = new Date().toISOString();
+
+      console.log(`[WebSocketPriceStream] [${timestamp}] 📊 TICK RATE REPORT for ${this.symbol}:`);
+      console.log(`[WebSocketPriceStream] Ticks in last minute: ${tickRate}`);
+      console.log(`[WebSocketPriceStream] Total ticks since connection: ${this.tickCount}`);
+      console.log(`[WebSocketPriceStream] Average rate: ${(tickRate / 60).toFixed(2)} ticks/second`);
+
+      if (tickRate === 0 && this.isConnected && this.subscriptionConfirmed) {
+        console.warn(`[WebSocketPriceStream] ⚠️ NO TICKS RECEIVED in the last minute despite being connected and subscribed!`);
+      }
+
+      this.ticksInLastMinute = 0;
+    }, this.TICK_RATE_INTERVAL);
+  }
+
+  private stopTickRateMonitor(): void {
+    if (this.tickRateTimer) {
+      clearInterval(this.tickRateTimer);
+      this.tickRateTimer = null;
     }
   }
 
