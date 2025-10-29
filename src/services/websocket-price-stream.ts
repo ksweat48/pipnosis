@@ -1,5 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 
+// Using Socket.IO v2.x for compatibility with MetaAPI server (v2.x)
+// MetaAPI server at mt-client-api-v1.*.agiliumtrade.ai runs Socket.IO v2.x
 interface WebSocketTickData {
   symbol: string;
   bid: number;
