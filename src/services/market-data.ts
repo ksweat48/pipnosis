@@ -737,7 +737,11 @@ class MarketDataService {
           return;
         }
 
-        const tickTime = new Date(tick.time);
+        // Use tick.time directly - it's already a Date object
+        const tickTime = tick.time instanceof Date ? tick.time : new Date(tick.time);
+
+        // Log tick details for debugging
+        console.log(`[handleStreamTick] ${symbol} ${timeframe}: price=${price.toFixed(5)}, time=${tickTime.toISOString()}`);
 
         const updatedCandle = await marketDataCache.updateLiveCandle(
           symbol,
@@ -747,6 +751,8 @@ class MarketDataService {
         );
 
         if (updatedCandle) {
+          console.log(`[handleStreamTick] Candle updated: open=${updatedCandle.open.toFixed(5)}, close=${updatedCandle.close.toFixed(5)}, time=${updatedCandle.time.toISOString()}`);
+
           const listeners = this.activeSubscriptions.get(key);
           if (listeners) {
             listeners.forEach(listener => {
@@ -771,6 +777,8 @@ class MarketDataService {
               }
             });
           }
+        } else {
+          console.warn(`[handleStreamTick] updateLiveCandle returned null for ${symbol} ${timeframe}`);
         }
       } catch (error) {
         console.error(`Error handling stream tick for ${symbol} ${timeframe}:`, error);

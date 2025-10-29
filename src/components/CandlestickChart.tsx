@@ -360,9 +360,23 @@ const CandlestickChartComponent: React.FC<CandlestickChartProps> = ({
       if (!processingRef.current) {
         processingRef.current = true;
         requestAnimationFrame(() => {
-          if (candlestickSeriesRef.current) {
+          if (candlestickSeriesRef.current && data.length > 0) {
             try {
-              candlestickSeriesRef.current.update(lastCandle);
+              const currentLastCandle = data[data.length - 1];
+              const seriesData = candlestickSeriesRef.current.data();
+
+              if (seriesData && seriesData.length > 0) {
+                const lastSeriesTime = seriesData[seriesData.length - 1].time as number;
+                const newTime = currentLastCandle.time as number;
+
+                if (newTime >= lastSeriesTime) {
+                  candlestickSeriesRef.current.update(currentLastCandle);
+                } else {
+                  console.warn(`Chart: Skipping update - new time (${newTime}) is older than last series time (${lastSeriesTime})`);
+                }
+              } else {
+                candlestickSeriesRef.current.update(currentLastCandle);
+              }
             } catch (err) {
               console.warn('Chart update failed, using setData:', err);
               const sortedData = [...data].sort((a, b) => (a.time as number) - (b.time as number));

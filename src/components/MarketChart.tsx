@@ -418,7 +418,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({
         updateIntervalRef.current = null;
       }
     };
-  }, [symbol, timeframe, isConnected, subscribeToLiveData]);
+  }, [symbol, timeframe, isConnected]);
 
   const displayPrice = currentPrice || (candleData.length > 0 ? candleData[candleData.length - 1].close : 0);
   const [openPrice, setOpenPrice] = useState<number>(0);
