@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineStyle } from 'lightweight-charts';
+import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
 import { TrendingUp, Activity, AlertCircle } from 'lucide-react';
 
@@ -64,7 +64,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       },
     });
 
-    const candlestickSeries = chart.addCandlestickSeries({
+    const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#10b981',
       downColor: '#ef4444',
       borderUpColor: '#10b981',
