@@ -1,4 +1,4 @@
-import { io, Socket } from 'socket.io-client';
+import io from 'socket.io-client';
 
 interface WebSocketTickData {
   symbol: string;
@@ -14,7 +14,7 @@ type ConnectionCallback = (connected: boolean) => void;
 type ErrorCallback = (error: Error) => void;
 
 export class WebSocketPriceStream {
-  private socket: Socket | null = null;
+  private socket: SocketIOClient.Socket | null = null;
   private symbol: string;
   private accountId: string;
   private token: string;
