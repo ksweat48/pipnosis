@@ -12,18 +12,25 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['lucide-react'],
+    include: ['socket.io-client'],
   },
   build: {
     // Production optimizations
     minify: 'terser',
     sourcemap: false,
+    commonjsOptions: {
+      transformMixedEsModules: true,
+      include: [/node_modules/],
+      exclude: [],
+    },
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom'],
           router: ['react-router-dom'],
           ui: ['lucide-react'],
-          supabase: ['@supabase/supabase-js']
+          supabase: ['@supabase/supabase-js'],
+          socketio: ['socket.io-client']
         },
         entryFileNames: `assets/[name]-[hash].js`,
         chunkFileNames: `assets/[name]-[hash].js`,

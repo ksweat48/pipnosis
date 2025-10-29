@@ -1,12 +1,25 @@
-import { io, Socket } from 'socket.io-client';
+import ioClient from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
 // Using Socket.IO v2.x for compatibility with MetaAPI server (v2.x)
 // MetaAPI server at mt-client-api-v1.*.agiliumtrade.ai runs Socket.IO v2.x
 
+// Extract io function - handle both default and named exports
+const io = (typeof ioClient === 'function' ? ioClient : (ioClient as any).default) || (window as any).io;
+
 // Check if Socket.IO is available
 export function isSocketIOAvailable(): boolean {
   try {
-    return typeof io === 'function';
+    // Check both the imported io and window.io (CDN fallback)
+    const ioFunction = io || (window as any).io;
+    const isAvailable = typeof ioFunction === 'function';
+
+    if (!isAvailable) {
+      console.error('[WebSocketPriceStream] Socket.IO client library is not available');
+      console.error('[WebSocketPriceStream] Checked: module import and window.io');
+    }
+
+    return isAvailable;
   } catch (error) {
     console.error('[WebSocketPriceStream] Socket.IO is not available:', error);
     return false;
