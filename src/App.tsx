@@ -24,6 +24,7 @@ import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { AITradingConsole } from './components/AITradingConsole';
 import { SearchStatusPanel } from './components/SearchStatusPanel';
+import { GlobalPollingStatus } from './components/GlobalPollingStatus';
 import { usePromptAnalysis, useMarketData } from './hooks/useAPI';
 import { simulatedTradingService } from './services/simulated-trading';
 import { promptValidationService } from './services/prompt-validation';
@@ -36,6 +37,7 @@ import { runDatabaseDiagnostics, logDiagnostics } from './lib/database-diagnosti
 import { verifyDatabaseSetup } from './lib/migration-checker';
 import { connectionValidator } from './lib/connection-validator';
 import { dbHealthMonitor } from './services/db-health-monitor';
+import { globalPollingCoordinator } from './services/global-polling-coordinator';
 import { StrategyOption, Notification } from './types/strategy';
 
 const Dashboard: React.FC = () => {
@@ -344,6 +346,9 @@ const Dashboard: React.FC = () => {
           {/* Configuration Status */}
           <ConfigurationStatus />
 
+          {/* Global Polling Status */}
+          <GlobalPollingStatus />
+
           {/* Market Chart Section */}
           <div className="glass-card p-4 sm:p-6 lg:p-8">
             <MarketChart
@@ -517,6 +522,18 @@ export default function App() {
           dbHealthMonitor.startMonitoring();
         }, 5000);
 
+        setTimeout(async () => {
+          console.log('🚀 Initializing global polling coordinator for all forex pairs...');
+          try {
+            await globalPollingCoordinator.initialize();
+            console.log('✅ Global polling coordinator initialized successfully');
+
+            globalPollingCoordinator.startStatusLogging(60000);
+          } catch (error) {
+            console.error('❌ Failed to initialize global polling coordinator:', error);
+          }
+        }, 6000);
+
         setDbValidated(true);
       } catch (error) {
         console.error('Startup diagnostics error (non-blocking):', error);
@@ -528,6 +545,11 @@ export default function App() {
 
     return () => {
       dbHealthMonitor.stopMonitoring();
+
+      console.log('🛑 Shutting down global polling coordinator...');
+      globalPollingCoordinator.shutdown().catch(err => {
+        console.error('Error shutting down polling coordinator:', err);
+      });
     };
   }, []);
 
