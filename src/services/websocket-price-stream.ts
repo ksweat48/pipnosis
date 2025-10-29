@@ -56,6 +56,10 @@ export class WebSocketPriceStream {
   private readonly HEARTBEAT_INTERVAL = 30000;
   private readonly HEARTBEAT_TIMEOUT = 60000;
   private requestId: number = 0;
+  private lastTickReceived: number = 0;
+  private tickWatchdogInterval: NodeJS.Timeout | null = null;
+  private readonly TICK_WATCHDOG_INTERVAL = 10000;
+  private readonly TICK_TIMEOUT = 15000;
 
   private tickCallbacks: Set<TickCallback> = new Set();
   private connectionCallbacks: Set<ConnectionCallback> = new Set();
@@ -132,16 +136,30 @@ export class WebSocketPriceStream {
         transports: ['websocket', 'polling']
       });
 
+      // Add catch-all event listener to capture ALL events from MetaAPI
+      this.socket.onAny((eventName: string, ...args: any[]) => {
+        console.log(`[WebSocketPriceStream] 📨 RAW EVENT from MetaAPI:`, {
+          event: eventName,
+          symbol: this.symbol,
+          argsCount: args.length,
+          data: args
+        });
+      });
+
       this.socket.on('connect', () => {
         const timestamp = new Date().toISOString();
         console.log(`[WebSocketPriceStream] [${timestamp}] ✅ Socket.IO connection established for ${this.symbol}`);
         console.log(`[WebSocketPriceStream] Socket ID: ${this.socket?.id}`);
+        console.log(`[WebSocketPriceStream] Connected to URL: ${socketUrl}`);
+        console.log(`[WebSocketPriceStream] Transport: ${this.socket?.io?.engine?.transport?.name}`);
         this.isConnecting = false;
         this.isConnected = true;
         this.isAuthenticated = true;
         this.reconnectAttempts = 0;
+        this.lastTickReceived = Date.now();
         this.notifyConnectionChange(true);
         this.startHeartbeat();
+        this.startTickWatchdog();
         this.subscribeToPrice();
       });
 
@@ -156,11 +174,24 @@ export class WebSocketPriceStream {
       });
 
       this.socket.on('response', (data: any) => {
-        console.log(`[WebSocketPriceStream] Received response:`, data);
+        const timestamp = new Date().toISOString();
+        console.log(`[WebSocketPriceStream] [${timestamp}] 📬 Received 'response' event:`, {
+          type: data?.type,
+          requestId: data?.requestId,
+          hasData: !!data,
+          fullData: data
+        });
         this.handleMessage(data);
       });
 
       this.socket.on('prices', (data: any) => {
+        const timestamp = new Date().toISOString();
+        console.log(`[WebSocketPriceStream] [${timestamp}] 💰 'prices' event received:`, {
+          isArray: Array.isArray(data),
+          hasPricesArray: data?.prices && Array.isArray(data.prices),
+          dataType: typeof data,
+          data: data
+        });
         if (Array.isArray(data)) {
           data.forEach((tick: any) => this.handlePriceTick(tick));
         } else if (data.prices && Array.isArray(data.prices)) {
@@ -171,14 +202,20 @@ export class WebSocketPriceStream {
       });
 
       this.socket.on('tick', (data: any) => {
+        const timestamp = new Date().toISOString();
+        console.log(`[WebSocketPriceStream] [${timestamp}] 📊 'tick' event received:`, data);
         this.handlePriceTick(data);
       });
 
       this.socket.on('quote', (data: any) => {
+        const timestamp = new Date().toISOString();
+        console.log(`[WebSocketPriceStream] [${timestamp}] 📈 'quote' event received:`, data);
         this.handlePriceTick(data);
       });
 
       this.socket.on('price', (data: any) => {
+        const timestamp = new Date().toISOString();
+        console.log(`[WebSocketPriceStream] [${timestamp}] 💲 'price' event received:`, data);
         this.handlePriceTick(data);
       });
 
@@ -235,6 +272,7 @@ export class WebSocketPriceStream {
     console.log(`[WebSocketPriceStream] Disconnecting from ${this.symbol}`);
 
     this.stopHeartbeat();
+    this.stopTickWatchdog();
 
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
@@ -290,24 +328,46 @@ export class WebSocketPriceStream {
     const timestamp = new Date().toISOString();
     console.log(`[WebSocketPriceStream] [${timestamp}] 📡 Subscribing to price updates for ${this.symbol}`);
     console.log(`[WebSocketPriceStream] Subscription request:`, JSON.stringify(subscribeRequest));
+    console.log(`[WebSocketPriceStream] Using accountId: ${this.accountId}`);
+    console.log(`[WebSocketPriceStream] Socket connected: ${this.socket.connected}, authenticated: ${this.isAuthenticated}`);
 
-    this.socket.emit('request', subscribeRequest);
+    // Set up one-time acknowledgment listener for this specific request
+    const ackTimeout = setTimeout(() => {
+      console.warn(`[WebSocketPriceStream] ⚠️ No acknowledgment received for subscription request after 5 seconds`);
+      console.warn(`[WebSocketPriceStream] This may indicate the server is not processing the subscription`);
+    }, 5000);
+
+    this.socket.emit('request', subscribeRequest, (ack: any) => {
+      clearTimeout(ackTimeout);
+      const timestamp = new Date().toISOString();
+      console.log(`[WebSocketPriceStream] [${timestamp}] ✅ Subscription acknowledgment received:`, ack);
+    });
+
+    console.log(`[WebSocketPriceStream] Subscription request emitted, waiting for confirmation...`);
   }
 
   private handleMessage(data: any): void {
+    const timestamp = new Date().toISOString();
+
     if (!data || typeof data !== 'object') {
+      console.warn(`[WebSocketPriceStream] [${timestamp}] ⚠️ handleMessage received invalid data:`, data);
       return;
     }
 
+    console.log(`[WebSocketPriceStream] [${timestamp}] 📥 handleMessage processing:`, {
+      type: data.type,
+      hasSymbol: !!data.symbol,
+      symbol: data.symbol,
+      keys: Object.keys(data)
+    });
+
     if (data.type === 'authenticated' || (data.type === 'response' && data.authenticated)) {
-      const timestamp = new Date().toISOString();
       console.log(`[WebSocketPriceStream] [${timestamp}] ✅ Authentication confirmed by server for ${this.symbol}`);
       this.isAuthenticated = true;
       return;
     }
 
     if (data.type === 'authenticationError' || (data.type === 'error' && !this.isAuthenticated)) {
-      const timestamp = new Date().toISOString();
       console.error(`[WebSocketPriceStream] [${timestamp}] ❌ Authentication failed for ${this.symbol}`);
       console.error(`[WebSocketPriceStream] Error details:`, JSON.stringify(data));
       this.notifyError(new Error('Authentication failed'));
@@ -316,32 +376,51 @@ export class WebSocketPriceStream {
     }
 
     if (data.type === 'tick' || data.type === 'quote' || data.type === 'price') {
+      console.log(`[WebSocketPriceStream] [${timestamp}] 🎯 Price data detected in message, forwarding to handlePriceTick`);
       this.handlePriceTick(data);
       return;
     }
 
     if (data.type === 'prices' && Array.isArray(data.prices)) {
+      console.log(`[WebSocketPriceStream] [${timestamp}] 🎯 Prices array detected (${data.prices.length} items), forwarding to handlePriceTick`);
       data.prices.forEach((tick: any) => this.handlePriceTick(tick));
       return;
     }
 
     if (data.type === 'response') {
-      console.log(`[WebSocketPriceStream] Received response:`, data);
+      console.log(`[WebSocketPriceStream] [${timestamp}] 📩 Generic response received:`, data);
       return;
     }
 
     if (data.type === 'error') {
-      console.error(`[WebSocketPriceStream] Server error:`, data);
+      console.error(`[WebSocketPriceStream] [${timestamp}] ❌ Server error:`, data);
       return;
     }
+
+    console.log(`[WebSocketPriceStream] [${timestamp}] ❔ Unhandled message type: ${data.type}`);
   }
 
   private handlePriceTick(data: any): void {
+    const timestamp = new Date().toISOString();
+
+    console.log(`[WebSocketPriceStream] [${timestamp}] 🎯 handlePriceTick called:`, {
+      hasSymbol: !!data.symbol,
+      symbol: data.symbol,
+      expectedSymbol: this.symbol,
+      hasBid: !!data.bid,
+      hasAsk: !!data.ask,
+      bid: data.bid,
+      ask: data.ask,
+      rawData: data
+    });
+
     if (!data.symbol || data.symbol !== this.symbol) {
+      console.warn(`[WebSocketPriceStream] [${timestamp}] ⚠️ Tick rejected - symbol mismatch: got ${data.symbol}, expected ${this.symbol}`);
       return;
     }
 
     if (!data.bid || !data.ask) {
+      console.warn(`[WebSocketPriceStream] [${timestamp}] ⚠️ Tick rejected - missing bid/ask:`, { bid: data.bid, ask: data.ask });
       return;
     }
 
@@ -359,9 +438,21 @@ export class WebSocketPriceStream {
       time: new Date(data.time || data.timestamp || Date.now())
     };
 
+    this.lastTickReceived = Date.now();
+
+    console.log(`[WebSocketPriceStream] [${timestamp}] ✅ TICK PROCESSED:`, {
+      symbol: tick.symbol,
+      bid: tick.bid.toFixed(5),
+      ask: tick.ask.toFixed(5),
+      mid: tick.mid.toFixed(5),
+      spread: tick.spread.toFixed(5),
+      callbackCount: this.tickCallbacks.size
+    });
+
     this.tickCallbacks.forEach(callback => {
       try {
         callback(tick);
+        console.log(`[WebSocketPriceStream] [${timestamp}] 📤 Tick callback executed successfully`);
       } catch (err) {
         console.error('[WebSocketPriceStream] Error in tick callback:', err);
       }
@@ -395,6 +486,35 @@ export class WebSocketPriceStream {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
+    }
+  }
+
+  private startTickWatchdog(): void {
+    this.stopTickWatchdog();
+    this.lastTickReceived = Date.now();
+
+    this.tickWatchdogInterval = setInterval(() => {
+      const timeSinceLastTick = Date.now() - this.lastTickReceived;
+      const timestamp = new Date().toISOString();
+
+      if (timeSinceLastTick > this.TICK_TIMEOUT) {
+        console.error(`[WebSocketPriceStream] [${timestamp}] ❌ TICK TIMEOUT for ${this.symbol}`);
+        console.error(`[WebSocketPriceStream] No ticks received for ${(timeSinceLastTick / 1000).toFixed(1)}s`);
+        console.error(`[WebSocketPriceStream] Connection appears dead despite being connected: ${this.isConnected}`);
+        console.error(`[WebSocketPriceStream] Triggering reconnection to restore data stream...`);
+
+        this.disconnect();
+        this.scheduleReconnect();
+      } else {
+        console.log(`[WebSocketPriceStream] [${timestamp}] 💚 Tick watchdog OK: last tick ${(timeSinceLastTick / 1000).toFixed(1)}s ago`);
+      }
+    }, this.TICK_WATCHDOG_INTERVAL);
+  }
+
+  private stopTickWatchdog(): void {
+    if (this.tickWatchdogInterval) {
+      clearInterval(this.tickWatchdogInterval);
+      this.tickWatchdogInterval = null;
     }
   }
 
