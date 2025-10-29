@@ -136,15 +136,9 @@ export class WebSocketPriceStream {
         transports: ['websocket', 'polling']
       });
 
-      // Add catch-all event listener to capture ALL events from MetaAPI
-      this.socket.onAny((eventName: string, ...args: any[]) => {
-        console.log(`[WebSocketPriceStream] 📨 RAW EVENT from MetaAPI:`, {
-          event: eventName,
-          symbol: this.symbol,
-          argsCount: args.length,
-          data: args
-        });
-      });
+      // Note: socket.onAny() is only available in Socket.IO v3.0+
+      // We're using v2.5.0 for MetaAPI server compatibility
+      // All relevant events are captured by specific handlers below
 
       this.socket.on('connect', () => {
         const timestamp = new Date().toISOString();
