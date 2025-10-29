@@ -2,6 +2,17 @@ import { io, Socket } from 'socket.io-client';
 
 // Using Socket.IO v2.x for compatibility with MetaAPI server (v2.x)
 // MetaAPI server at mt-client-api-v1.*.agiliumtrade.ai runs Socket.IO v2.x
+
+// Check if Socket.IO is available
+export function isSocketIOAvailable(): boolean {
+  try {
+    return typeof io === 'function';
+  } catch (error) {
+    console.error('[WebSocketPriceStream] Socket.IO is not available:', error);
+    return false;
+  }
+}
+
 interface WebSocketTickData {
   symbol: string;
   bid: number;
@@ -74,15 +85,30 @@ export class WebSocketPriceStream {
       return;
     }
 
+    // Check if Socket.IO is available before attempting connection
+    if (!isSocketIOAvailable()) {
+      const error = new Error('Socket.IO client library is not available in the browser. This may be due to a build or bundling issue.');
+      console.error(`[WebSocketPriceStream] ❌ ${error.message}`);
+      console.error(`[WebSocketPriceStream] Please ensure socket.io-client is properly installed and bundled.`);
+      this.notifyError(error);
+      return;
+    }
+
     this.isConnecting = true;
     const timestamp = new Date().toISOString();
     console.log(`[WebSocketPriceStream] [${timestamp}] Connecting to ${this.symbol} via Socket.IO`);
+    console.log(`[WebSocketPriceStream] Socket.IO availability check: PASSED`);
     console.log(`[WebSocketPriceStream] Configuration: region=${this.region}, accountId=${this.accountId}`);
 
     try {
       const socketUrl = `https://mt-client-api-v1.${this.region}.agiliumtrade.ai`;
       console.log(`[WebSocketPriceStream] Socket.IO URL: ${socketUrl}`);
       console.log(`[WebSocketPriceStream] Token length: ${this.token.length} chars, Token prefix: ${this.token.substring(0, 20)}...`);
+      console.log(`[WebSocketPriceStream] Initializing Socket.IO connection with io() function...`);
+
+      if (typeof io !== 'function') {
+        throw new Error('Socket.IO io() function is not available - library may not be loaded correctly');
+      }
 
       this.socket = io(socketUrl, {
         path: '/ws',

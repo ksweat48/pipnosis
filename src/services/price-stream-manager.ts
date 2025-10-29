@@ -1,4 +1,4 @@
-import { WebSocketPriceStream } from './websocket-price-stream';
+import { WebSocketPriceStream, isSocketIOAvailable } from './websocket-price-stream';
 import { LivePricePolling } from './livePricePolling';
 
 export interface PriceTickData {
@@ -61,15 +61,19 @@ export class PriceStreamManager {
   }
 
   async start(): Promise<void> {
-    console.log(`[PriceStreamManager] Starting price stream for ${this.symbol}`);
+    const timestamp = new Date().toISOString();
+    console.log(`[PriceStreamManager] [${timestamp}] Starting price stream for ${this.symbol}`);
+    console.log(`[PriceStreamManager] Evaluating connection strategy...`);
 
     this.startBufferFlush();
 
     const useWebSocket = this.shouldUseWebSocket();
 
     if (useWebSocket) {
+      console.log(`[PriceStreamManager] ✅ Strategy selected: WEBSOCKET (real-time Socket.IO)`);
       await this.startWebSocket();
     } else {
+      console.log(`[PriceStreamManager] ⚠️ Strategy selected: POLLING (fallback mode)`);
       this.startPolling();
     }
   }
@@ -148,6 +152,14 @@ export class PriceStreamManager {
   }
 
   private shouldUseWebSocket(): boolean {
+    // First check if Socket.IO is available in the browser
+    if (!isSocketIOAvailable()) {
+      console.warn(`[PriceStreamManager] ❌ WebSocket unavailable: Socket.IO client library not loaded`);
+      console.warn(`[PriceStreamManager] This may indicate a build/bundling issue`);
+      console.warn(`[PriceStreamManager] Falling back to polling mode`);
+      return false;
+    }
+
     const accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID;
     const region = import.meta.env.VITE_METAAPI_REGION;
 
@@ -162,6 +174,7 @@ export class PriceStreamManager {
       return false;
     }
 
+    console.log(`[PriceStreamManager] ✅ Socket.IO available: YES`);
     console.log(`[PriceStreamManager] ✅ WebSocket credentials verified: region=${region}, accountId=${accountId.substring(0, 8)}...`);
     return true;
   }

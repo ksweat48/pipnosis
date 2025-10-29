@@ -87,7 +87,11 @@ async function getCachedPrice(symbol: string): Promise<{ bid: number; ask: numbe
 }
 
 export const handler: Handler = async (event) => {
+  console.log('[get-live-price] Function invoked');
+  console.log('[get-live-price] HTTP Method:', event.httpMethod);
+
   if (event.httpMethod === 'OPTIONS') {
+    console.log('[get-live-price] Handling OPTIONS preflight request');
     return {
       statusCode: 200,
       headers: CORS_HEADERS,
@@ -100,6 +104,9 @@ export const handler: Handler = async (event) => {
     const symbol = params.get('symbol') || 'EURUSD';
 
     console.log(`[get-live-price] Request for ${symbol}`);
+    console.log(`[get-live-price] Env check - METAAPI_TOKEN: ${process.env.METAAPI_TOKEN ? 'SET' : 'MISSING'}`);
+    console.log(`[get-live-price] Env check - METAAPI_ACCOUNT_ID: ${process.env.METAAPI_ACCOUNT_ID || 'MISSING'}`);
+    console.log(`[get-live-price] Env check - METAAPI_REGION: ${process.env.METAAPI_REGION || 'MISSING'}`);
 
     let priceData;
     let ok = true;
@@ -133,7 +140,9 @@ export const handler: Handler = async (event) => {
     };
 
   } catch (error) {
-    console.error('[get-live-price] Error:', error);
+    console.error('[get-live-price] ERROR:', error);
+    console.error('[get-live-price] Error type:', error instanceof Error ? error.constructor.name : typeof error);
+    console.error('[get-live-price] Error message:', error instanceof Error ? error.message : String(error));
 
     return {
       statusCode: 200,

@@ -5,7 +5,11 @@ const CORS_HEADERS = {
 };
 
 exports.handler = async (event) => {
+  console.log('[get-metaapi-token] Function invoked');
+  console.log('[get-metaapi-token] HTTP Method:', event.httpMethod);
+
   if (event.httpMethod === 'OPTIONS') {
+    console.log('[get-metaapi-token] Handling OPTIONS preflight request');
     return {
       statusCode: 200,
       headers: CORS_HEADERS,
@@ -15,8 +19,10 @@ exports.handler = async (event) => {
 
   try {
     const token = process.env.METAAPI_TOKEN;
+    console.log('[get-metaapi-token] Token check:', token ? `Found (${token.length} chars)` : 'MISSING');
 
     if (!token) {
+      console.error('[get-metaapi-token] ERROR: MetaAPI token not configured in environment');
       return {
         statusCode: 500,
         headers: {
@@ -30,6 +36,7 @@ exports.handler = async (event) => {
       };
     }
 
+    console.log('[get-metaapi-token] Success: Returning token to client');
     return {
       statusCode: 200,
       headers: {
