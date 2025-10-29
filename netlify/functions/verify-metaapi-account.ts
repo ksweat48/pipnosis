@@ -16,7 +16,6 @@ interface MetaApiAccount {
 async function verifyMetaApiConnection(): Promise<{ ok: boolean; account?: MetaApiAccount; error?: string }> {
   const token = process.env.METAAPI_TOKEN;
   const accountId = process.env.METAAPI_ACCOUNT_ID;
-  const region = process.env.METAAPI_REGION || 'new-york';
 
   if (!token || !accountId) {
     return {
@@ -25,10 +24,11 @@ async function verifyMetaApiConnection(): Promise<{ ok: boolean; account?: MetaA
     };
   }
 
-  const url = `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}`;
+  // Use the Provisioning API (not the Streaming API) to get account information
+  const url = `https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}`;
 
   try {
-    console.log(`[verify-metaapi-account] Checking account ${accountId} in ${region}`);
+    console.log(`[verify-metaapi-account] Checking account ${accountId} via Provisioning API`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);

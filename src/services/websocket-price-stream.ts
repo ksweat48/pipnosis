@@ -76,9 +76,9 @@ export class WebSocketPriceStream {
     console.log(`[WebSocketPriceStream] Configuration: region=${this.region}, accountId=${this.accountId}`);
 
     try {
-      // MetaAPI requires auth-token as query parameter during handshake
-      const wsUrl = `wss://mt-client-api-v1.${this.region}.agiliumtrade.ai/?auth-token=${encodeURIComponent(this.token)}`;
-      console.log(`[WebSocketPriceStream] WebSocket URL: wss://mt-client-api-v1.${this.region}.agiliumtrade.ai/?auth-token=***`);
+      // Connect to MetaAPI WebSocket endpoint without auth-token in URL
+      const wsUrl = `wss://mt-client-api-v1.${this.region}.agiliumtrade.ai/`;
+      console.log(`[WebSocketPriceStream] WebSocket URL: wss://mt-client-api-v1.${this.region}.agiliumtrade.ai/`);
       console.log(`[WebSocketPriceStream] Token length: ${this.token.length} chars, Token prefix: ${this.token.substring(0, 20)}...`);
 
       this.ws = new WebSocket(wsUrl);
@@ -87,13 +87,13 @@ export class WebSocketPriceStream {
         const timestamp = new Date().toISOString();
         console.log(`[WebSocketPriceStream] [${timestamp}] ✅ WebSocket connection opened for ${this.symbol}`);
         console.log(`[WebSocketPriceStream] Ready state: ${this.ws?.readyState}`);
-        console.log(`[WebSocketPriceStream] Authentication via query parameter - waiting for confirmation...`);
+        console.log(`[WebSocketPriceStream] Sending authentication message...`);
         this.isConnecting = false;
         this.isConnected = true;
         this.reconnectAttempts = 0;
 
-        // Authentication happens via query parameter, no separate auth message needed
-        // Wait for server confirmation before subscribing
+        // Send authentication message after connection opens
+        this.authenticate();
       };
 
       this.ws.onmessage = (event) => {
@@ -187,25 +187,33 @@ export class WebSocketPriceStream {
   }
 
   private authenticate(): void {
-    // Authentication now happens via query parameter during WebSocket handshake
-    // This method is deprecated but kept for backward compatibility
-    // If we reach here, authentication already succeeded via URL parameter
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       console.warn(`[WebSocketPriceStream] ⚠️ Cannot authenticate - WebSocket not open`);
       return;
     }
 
     const timestamp = new Date().toISOString();
-    console.log(`[WebSocketPriceStream] [${timestamp}] ✅ Authentication via query parameter (no separate message needed)`);
+    console.log(`[WebSocketPriceStream] [${timestamp}] Sending authentication message`);
     console.log(`[WebSocketPriceStream] Account ID: ${this.accountId}`);
 
-    // Mark as authenticated since connection was established (auth-token in URL)
-    this.isAuthenticated = true;
-    this.notifyConnectionChange(true);
-    this.startHeartbeat();
+    // Send authentication message with auth-token
+    const authMessage = {
+      type: 'authenticate',
+      'auth-token': this.token,
+      requestId: this.generateRequestId()
+    };
 
-    // Immediately subscribe to price updates
-    this.subscribeToPrice();
+    console.log(`[WebSocketPriceStream] Auth message type: ${authMessage.type}, requestId: ${authMessage.requestId}`);
+    this.send(authMessage);
+
+    // Set a timeout for authentication response
+    setTimeout(() => {
+      if (!this.isAuthenticated && this.isConnected) {
+        console.warn(`[WebSocketPriceStream] Authentication timeout - no response from server`);
+        this.disconnect();
+        this.scheduleReconnect();
+      }
+    }, 10000);
   }
 
   private subscribeToPrice(): void {
