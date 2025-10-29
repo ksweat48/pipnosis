@@ -77,6 +77,8 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   const lastRenderTimeRef = useRef<number>(0);
   const isUserInteractingRef = useRef<boolean>(false);
   const updateIntervalRef = useRef<number | null>(null);
+  const liveFeedStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isLiveFeedActiveRef = useRef<boolean>(false);
 
   const availablePairs = ['EURUSD', 'XAUUSD', 'GBPUSD', 'US30'];
 
@@ -384,6 +386,12 @@ export const MarketChart: React.FC<MarketChartProps> = ({
     initializeService();
 
     return () => {
+      // Clear connection timeout on unmount
+      if (liveFeedStartTimeoutRef.current) {
+        clearTimeout(liveFeedStartTimeoutRef.current);
+        liveFeedStartTimeoutRef.current = null;
+      }
+
       if (listenerRef.current) {
         marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
       }
@@ -402,23 +410,57 @@ export const MarketChart: React.FC<MarketChartProps> = ({
   }, [loadHistoricalData]);
 
   useEffect(() => {
+    // Clear any pending connection timeout
+    if (liveFeedStartTimeoutRef.current) {
+      clearTimeout(liveFeedStartTimeoutRef.current);
+      liveFeedStartTimeoutRef.current = null;
+    }
+
     if (isConnected) {
-      subscribeToLiveData();
-      marketDataService.startLiveFeed(symbol, timeframe);
-      console.log(`🔄 Started polling live feed for ${symbol} ${timeframe}`);
+      console.log(`🔄 Scheduling live feed start for ${symbol} ${timeframe}...`);
+
+      // Add a small delay to allow any previous cleanup to complete
+      // and prevent race conditions during rapid re-renders
+      liveFeedStartTimeoutRef.current = setTimeout(() => {
+        // Double-check we still want to connect (component might have unmounted)
+        if (isLiveFeedActiveRef.current) {
+          console.log(`⏭️ Skipping duplicate live feed start for ${symbol} ${timeframe}`);
+          return;
+        }
+
+        subscribeToLiveData();
+        marketDataService.startLiveFeed(symbol, timeframe);
+        isLiveFeedActiveRef.current = true;
+        console.log(`✅ Started polling live feed for ${symbol} ${timeframe}`);
+      }, 300); // 300ms delay to allow cleanup to complete
     }
 
     return () => {
-      if (listenerRef.current) {
-        marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
+      console.log(`🧹 Cleanup triggered for ${symbol} ${timeframe}`);
+
+      // Cancel any pending connection
+      if (liveFeedStartTimeoutRef.current) {
+        clearTimeout(liveFeedStartTimeoutRef.current);
+        liveFeedStartTimeoutRef.current = null;
+        console.log(`🚫 Cancelled pending live feed start for ${symbol} ${timeframe}`);
       }
-      marketDataService.stopLiveFeed(symbol, timeframe);
+
+      // Only stop if we actually started
+      if (isLiveFeedActiveRef.current) {
+        if (listenerRef.current) {
+          marketDataService.unsubscribeFromSymbol(symbol, timeframe, listenerRef.current);
+        }
+        marketDataService.stopLiveFeed(symbol, timeframe);
+        isLiveFeedActiveRef.current = false;
+        console.log(`⏹️ Stopped live feed for ${symbol} ${timeframe}`);
+      }
+
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current);
         updateIntervalRef.current = null;
       }
     };
-  }, [symbol, timeframe, isConnected]);
+  }, [symbol, timeframe, isConnected, subscribeToLiveData]);
 
   const displayPrice = currentPrice || (candleData.length > 0 ? candleData[candleData.length - 1].close : 0);
   const [openPrice, setOpenPrice] = useState<number>(0);

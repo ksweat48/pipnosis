@@ -36,6 +36,9 @@ export class PriceStreamManager {
   private bufferFlushInterval: NodeJS.Timeout | null = null;
   private readonly BUFFER_FLUSH_MS = 100;
   private readonly MAX_BUFFER_SIZE = 10;
+  private isConnecting: boolean = false;
+  private connectionStartTime: number | null = null;
+  private readonly MIN_CONNECTION_TIME = 2000; // Minimum time before allowing disconnect
 
   private priceCallbacks: Set<PriceCallback> = new Set();
   private statusCallbacks: Set<StatusCallback> = new Set();
@@ -65,6 +68,8 @@ export class PriceStreamManager {
     console.log(`[PriceStreamManager] [${timestamp}] Starting price stream for ${this.symbol}`);
     console.log(`[PriceStreamManager] Evaluating connection strategy...`);
 
+    this.isConnecting = true;
+    this.connectionStartTime = Date.now();
     this.startBufferFlush();
 
     const useWebSocket = this.shouldUseWebSocket();
@@ -76,9 +81,30 @@ export class PriceStreamManager {
       console.log(`[PriceStreamManager] ⚠️ Strategy selected: POLLING (fallback mode)`);
       this.startPolling();
     }
+
+    this.isConnecting = false;
   }
 
   stop(): void {
+    // Prevent stopping while connection is in progress
+    if (this.isConnecting) {
+      console.warn(`[PriceStreamManager] ⚠️ Cannot stop ${this.symbol}: Connection in progress. Deferring stop...`);
+      // Defer the stop until connection completes
+      setTimeout(() => this.stop(), 500);
+      return;
+    }
+
+    // Prevent stopping too soon after connection started
+    if (this.connectionStartTime) {
+      const timeSinceStart = Date.now() - this.connectionStartTime;
+      if (timeSinceStart < this.MIN_CONNECTION_TIME) {
+        const waitTime = this.MIN_CONNECTION_TIME - timeSinceStart;
+        console.warn(`[PriceStreamManager] ⚠️ Connection for ${this.symbol} is too recent (${timeSinceStart}ms). Waiting ${waitTime}ms before stopping...`);
+        setTimeout(() => this.stop(), waitTime);
+        return;
+      }
+    }
+
     console.log(`[PriceStreamManager] Stopping price stream for ${this.symbol}`);
 
     this.stopBufferFlush();
@@ -99,6 +125,7 @@ export class PriceStreamManager {
     }
 
     this.currentStrategy = 'none';
+    this.connectionStartTime = null;
     this.notifyStatusChange();
   }
 
