@@ -76,8 +76,9 @@ export class WebSocketPriceStream {
     console.log(`[WebSocketPriceStream] Configuration: region=${this.region}, accountId=${this.accountId}`);
 
     try {
-      const wsUrl = `wss://mt-client-api-v1.${this.region}.agiliumtrade.ai`;
-      console.log(`[WebSocketPriceStream] WebSocket URL: ${wsUrl}`);
+      // MetaAPI requires auth-token as query parameter during handshake
+      const wsUrl = `wss://mt-client-api-v1.${this.region}.agiliumtrade.ai/?auth-token=${encodeURIComponent(this.token)}`;
+      console.log(`[WebSocketPriceStream] WebSocket URL: wss://mt-client-api-v1.${this.region}.agiliumtrade.ai/?auth-token=***`);
       console.log(`[WebSocketPriceStream] Token length: ${this.token.length} chars, Token prefix: ${this.token.substring(0, 20)}...`);
 
       this.ws = new WebSocket(wsUrl);
@@ -86,11 +87,13 @@ export class WebSocketPriceStream {
         const timestamp = new Date().toISOString();
         console.log(`[WebSocketPriceStream] [${timestamp}] ✅ WebSocket connection opened for ${this.symbol}`);
         console.log(`[WebSocketPriceStream] Ready state: ${this.ws?.readyState}`);
+        console.log(`[WebSocketPriceStream] Authentication via query parameter - waiting for confirmation...`);
         this.isConnecting = false;
         this.isConnected = true;
         this.reconnectAttempts = 0;
 
-        this.authenticate();
+        // Authentication happens via query parameter, no separate auth message needed
+        // Wait for server confirmation before subscribing
       };
 
       this.ws.onmessage = (event) => {
@@ -184,24 +187,25 @@ export class WebSocketPriceStream {
   }
 
   private authenticate(): void {
+    // Authentication now happens via query parameter during WebSocket handshake
+    // This method is deprecated but kept for backward compatibility
+    // If we reach here, authentication already succeeded via URL parameter
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       console.warn(`[WebSocketPriceStream] ⚠️ Cannot authenticate - WebSocket not open`);
       return;
     }
 
-    const authMessage = {
-      type: 'authenticate',
-      accountId: this.accountId,
-      token: this.token,
-      application: 'MetaApi',
-      requestId: this.generateRequestId()
-    };
-
     const timestamp = new Date().toISOString();
-    console.log(`[WebSocketPriceStream] [${timestamp}] 🔐 Sending authentication for ${this.symbol}`);
+    console.log(`[WebSocketPriceStream] [${timestamp}] ✅ Authentication via query parameter (no separate message needed)`);
     console.log(`[WebSocketPriceStream] Account ID: ${this.accountId}`);
 
-    this.send(authMessage);
+    // Mark as authenticated since connection was established (auth-token in URL)
+    this.isAuthenticated = true;
+    this.notifyConnectionChange(true);
+    this.startHeartbeat();
+
+    // Immediately subscribe to price updates
+    this.subscribeToPrice();
   }
 
   private subscribeToPrice(): void {
@@ -233,14 +237,25 @@ export class WebSocketPriceStream {
       return;
     }
 
+    // Handle authentication confirmation from server
     if (data.type === 'authenticated' || (data.type === 'response' && data.authenticated)) {
       const timestamp = new Date().toISOString();
-      console.log(`[WebSocketPriceStream] [${timestamp}] ✅ Authentication successful for ${this.symbol}`);
+      console.log(`[WebSocketPriceStream] [${timestamp}] ✅ Authentication confirmed by server for ${this.symbol}`);
       this.isAuthenticated = true;
       this.notifyConnectionChange(true);
       this.startHeartbeat();
       this.subscribeToPrice();
       return;
+    }
+
+    // If we receive any message and haven't authenticated yet, assume auth succeeded
+    if (!this.isAuthenticated && data.type && data.type !== 'error' && data.type !== 'authenticationError') {
+      const timestamp = new Date().toISOString();
+      console.log(`[WebSocketPriceStream] [${timestamp}] ✅ Receiving messages - authentication implicit via query parameter`);
+      this.isAuthenticated = true;
+      this.notifyConnectionChange(true);
+      this.startHeartbeat();
+      this.subscribeToPrice();
     }
 
     if (data.type === 'authenticationError' || (data.type === 'error' && !this.isAuthenticated)) {
