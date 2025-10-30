@@ -284,20 +284,36 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
     const intervalMinutes = chartPreferencesService.getTimeframeMinutes(timeframe);
     const candleTime = Math.floor(timestamp / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60);
+    const candleTimeSeconds = candleTime / 1000;
+
+    if (historicalCandlesRef.current.length > 0) {
+      const lastHistoricalTime = historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time;
+      if (candleTimeSeconds < lastHistoricalTime) {
+        return;
+      }
+    }
 
     if (!currentCandleRef.current || currentCandleRef.current.startTime !== candleTime) {
       if (currentCandleRef.current && historicalCandlesRef.current) {
-        historicalCandlesRef.current = [...historicalCandlesRef.current, {
+        const completedCandle = {
           time: currentCandleRef.current.time,
           open: currentCandleRef.current.open,
           high: currentCandleRef.current.high,
           low: currentCandleRef.current.low,
           close: currentCandleRef.current.close
-        }];
+        };
+
+        const lastHistoricalTime = historicalCandlesRef.current.length > 0
+          ? historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time
+          : 0;
+
+        if (completedCandle.time > lastHistoricalTime) {
+          historicalCandlesRef.current = [...historicalCandlesRef.current, completedCandle];
+        }
       }
 
       currentCandleRef.current = {
-        time: candleTime / 1000,
+        time: candleTimeSeconds,
         open: newPrice,
         high: newPrice,
         low: newPrice,
@@ -318,14 +334,18 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       close: currentCandleRef.current.close
     };
 
-    candlestickSeriesRef.current.update(updatedCandle);
+    try {
+      candlestickSeriesRef.current.update(updatedCandle);
 
-    const allCandles = [...historicalCandlesRef.current, updatedCandle];
-    updateIndicators(allCandles);
+      const allCandles = [...historicalCandlesRef.current, updatedCandle];
+      updateIndicators(allCandles);
 
-    setCurrentPrice(newPrice);
-    setLastUpdate(new Date());
-    setIsLive(true);
+      setCurrentPrice(newPrice);
+      setLastUpdate(new Date());
+      setIsLive(true);
+    } catch (chartError) {
+      console.error('Chart update error:', chartError);
+    }
   };
 
   const fetchNewPrices = async () => {
@@ -351,13 +371,22 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       }
 
       if (data && data.length > 0) {
-        data.forEach((price: RealtimePrice) => {
+        const validPrices = data.filter((price: RealtimePrice) => {
           const bid = parseFloat(price.bid);
           const ask = parseFloat(price.ask);
+          return !isNaN(bid) && !isNaN(ask) && bid > 0 && ask > 0;
+        });
 
-          if (!isNaN(bid) && !isNaN(ask) && bid > 0 && ask > 0) {
-            const midPrice = (bid + ask) / 2;
-            const timestamp = new Date(price.broker_time || price.created_at).getTime();
+        const seenTimestamps = new Set<number>();
+
+        validPrices.forEach((price: RealtimePrice) => {
+          const bid = parseFloat(price.bid);
+          const ask = parseFloat(price.ask);
+          const midPrice = (bid + ask) / 2;
+          const timestamp = new Date(price.broker_time || price.created_at).getTime();
+
+          if (!seenTimestamps.has(timestamp)) {
+            seenTimestamps.add(timestamp);
             updateCurrentCandle(midPrice, timestamp);
           }
         });

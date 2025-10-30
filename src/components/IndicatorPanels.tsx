@@ -93,11 +93,14 @@ export function RSIPanel({ data }: RSIPanelProps) {
 
   useEffect(() => {
     if (lineSeriesRef.current && data.length > 0) {
-      lineSeriesRef.current.setData(data);
+      const validData = data.filter(d => d.value !== null && d.value !== undefined && !isNaN(d.value));
+      if (validData.length > 0) {
+        lineSeriesRef.current.setData(validData);
+      }
     }
   }, [data]);
 
-  const currentRSI = data.length > 0 ? data[data.length - 1].value : null;
+  const currentRSI = data.length > 0 && data[data.length - 1].value !== null ? data[data.length - 1].value : null;
 
   return (
     <div className="bg-gray-800 rounded-lg p-4">
@@ -114,7 +117,13 @@ export function RSIPanel({ data }: RSIPanelProps) {
           </div>
         )}
       </div>
-      <div ref={containerRef} className="rounded overflow-hidden" />
+      {data.length < 14 ? (
+        <div className="h-[120px] flex items-center justify-center text-gray-500 text-xs">
+          Calculating RSI... (need 14+ candles)
+        </div>
+      ) : (
+        <div ref={containerRef} className="rounded overflow-hidden" />
+      )}
     </div>
   );
 }
@@ -182,11 +191,14 @@ export function ATRPanel({ data }: ATRPanelProps) {
 
   useEffect(() => {
     if (lineSeriesRef.current && data.length > 0) {
-      lineSeriesRef.current.setData(data);
+      const validData = data.filter(d => d.value !== null && d.value !== undefined && !isNaN(d.value));
+      if (validData.length > 0) {
+        lineSeriesRef.current.setData(validData);
+      }
     }
   }, [data]);
 
-  const currentATR = data.length > 0 ? data[data.length - 1].value : null;
+  const currentATR = data.length > 0 && data[data.length - 1].value !== null ? data[data.length - 1].value : null;
 
   return (
     <div className="bg-gray-800 rounded-lg p-4">
@@ -201,7 +213,13 @@ export function ATRPanel({ data }: ATRPanelProps) {
           </div>
         )}
       </div>
-      <div ref={containerRef} className="rounded overflow-hidden" />
+      {data.length < 14 ? (
+        <div className="h-[120px] flex items-center justify-center text-gray-500 text-xs">
+          Calculating ATR... (need 14+ candles)
+        </div>
+      ) : (
+        <div ref={containerRef} className="rounded overflow-hidden" />
+      )}
     </div>
   );
 }
@@ -269,12 +287,22 @@ export function VolumePanel({ data }: VolumePanelProps) {
 
   useEffect(() => {
     if (histogramSeriesRef.current && data.length > 0) {
-      const histogramData = data.map(d => ({
-        time: d.time,
-        value: d.volume,
-        color: d.isAboveAverage ? '#10b981' : '#6b7280'
-      }));
-      histogramSeriesRef.current.setData(histogramData);
+      const validData = data.filter(d =>
+        d.volume !== null &&
+        d.volume !== undefined &&
+        !isNaN(d.volume) &&
+        d.time !== null &&
+        d.time !== undefined
+      );
+
+      if (validData.length > 0) {
+        const histogramData = validData.map(d => ({
+          time: d.time,
+          value: d.volume,
+          color: d.isAboveAverage ? '#10b981' : '#6b7280'
+        }));
+        histogramSeriesRef.current.setData(histogramData);
+      }
     }
   }, [data]);
 
@@ -293,7 +321,13 @@ export function VolumePanel({ data }: VolumePanelProps) {
           Avg: {avgVolume.toFixed(2)}
         </div>
       </div>
-      <div ref={containerRef} className="rounded overflow-hidden" />
+      {data.length === 0 ? (
+        <div className="h-[120px] flex items-center justify-center text-gray-500 text-xs">
+          Loading volume data...
+        </div>
+      ) : (
+        <div ref={containerRef} className="rounded overflow-hidden" />
+      )}
     </div>
   );
 }
