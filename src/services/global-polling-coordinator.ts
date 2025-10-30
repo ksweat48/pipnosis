@@ -68,19 +68,29 @@ class GlobalPollingCoordinator {
         if (data.ok && data.bid && data.ask) {
           const bid = parseFloat(data.bid);
           const ask = parseFloat(data.ask);
+          const mid = (bid + ask) / 2;
+          const spread = ask - bid;
 
-          await supabase
+          const { error: insertError } = await supabase
             .from('realtime_prices')
             .insert({
               symbol: symbol,
-              bid: bid.toString(),
-              ask: ask.toString(),
-              broker_time: data.timestamp || new Date().toISOString()
+              bid: bid,
+              ask: ask,
+              mid: mid,
+              spread: spread,
+              broker_time: data.timestamp || new Date().toISOString(),
+              source: data.source || 'polling'
             });
 
-          status.lastPrice = { bid, ask };
-          status.lastPoll = new Date();
-          status.errorCount = 0;
+          if (insertError) {
+            console.error(`❌ Failed to insert price for ${symbol}:`, insertError);
+            status.errorCount++;
+          } else {
+            status.lastPrice = { bid, ask };
+            status.lastPoll = new Date();
+            status.errorCount = 0;
+          }
         } else {
           console.warn(`⚠️ Invalid price data for ${symbol}:`, data);
           status.errorCount++;

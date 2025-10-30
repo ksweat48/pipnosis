@@ -26,31 +26,45 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
 
   console.log(`[get-live-price] Fetching ${symbol} from MetaAPI (${region})`);
 
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'auth-token': token,
-      'Content-Type': 'application/json'
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'auth-token': token,
+        'Content-Type': 'application/json'
+      },
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`MetaAPI error: ${response.status} - ${errorText}`);
     }
-  });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`MetaAPI error: ${response.status} - ${errorText}`);
+    const data: MetaApiPrice = await response.json();
+
+    if (!data.bid || !data.ask) {
+      throw new Error('Invalid price data from MetaAPI');
+    }
+
+    return {
+      bid: parseFloat(String(data.bid)),
+      ask: parseFloat(String(data.ask)),
+      timestamp: data.time || new Date().toISOString(),
+      source: 'metaapi-live'
+    };
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('MetaAPI request timeout after 8 seconds');
+    }
+    throw error;
   }
-
-  const data: MetaApiPrice = await response.json();
-
-  if (!data.bid || !data.ask) {
-    throw new Error('Invalid price data from MetaAPI');
-  }
-
-  return {
-    bid: parseFloat(String(data.bid)),
-    ask: parseFloat(String(data.ask)),
-    timestamp: data.time || new Date().toISOString(),
-    source: 'metaapi-live'
-  };
 }
 
 async function getCachedPrice(symbol: string): Promise<{ bid: number; ask: number; timestamp: string; source: string; ageSeconds: number } | null> {
@@ -63,10 +77,13 @@ async function getCachedPrice(symbol: string): Promise<{ bid: number; ask: numbe
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
+  const thirtySecondsAgo = new Date(Date.now() - 30000).toISOString();
+
   const { data, error } = await supabase
     .from('realtime_prices')
     .select('bid, ask, broker_time, created_at')
     .eq('symbol', symbol.toUpperCase())
+    .gte('created_at', thirtySecondsAgo)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
