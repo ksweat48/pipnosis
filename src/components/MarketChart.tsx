@@ -73,10 +73,31 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         secondsVisible: false,
       },
       rightPriceScale: {
-        borderColor: '#374151',
+        visible: true,
+        borderVisible: true,
+        borderColor: '#4b5563',
+        scaleMargins: {
+          top: 0.1,
+          bottom: 0.1,
+        },
+        autoScale: true,
+        alignLabels: true,
+        mode: 0,
       },
       crosshair: {
         mode: 1,
+        vertLine: {
+          width: 1,
+          color: '#6b7280',
+          style: 2,
+          labelBackgroundColor: '#374151',
+        },
+        horzLine: {
+          width: 1,
+          color: '#6b7280',
+          style: 2,
+          labelBackgroundColor: '#374151',
+        },
       },
     });
 
@@ -87,6 +108,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       borderDownColor: '#ef4444',
       wickUpColor: '#10b981',
       wickDownColor: '#ef4444',
+      priceFormat: {
+        type: 'price',
+        precision: 5,
+        minMove: 0.00001,
+      },
+      lastValueVisible: true,
+      priceLineVisible: true,
     });
 
     chartRef.current = chart;

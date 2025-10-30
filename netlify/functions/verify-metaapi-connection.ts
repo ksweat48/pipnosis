@@ -6,58 +6,6 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'GET, OPTIONS'
 };
 
-interface AccountInfo {
-  id: string;
-  name: string;
-  type: string;
-  login: string;
-  platform: string;
-  state: string;
-  connectionStatus: string;
-  region: string;
-}
-
-async function getAccountInfo(accountId: string, token: string, region: string): Promise<AccountInfo> {
-  const url = `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}`;
-
-  console.log(`[verify-connection] Fetching account info from: ${url}`);
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'auth-token': token,
-        'Content-Type': 'application/json'
-      },
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    console.log(`[verify-connection] Account info response status: ${response.status}`);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[verify-connection] Error response:`, errorText);
-      throw new Error(`MetaAPI HTTP ${response.status}: ${errorText}`);
-    }
-
-    const data = await response.json();
-    console.log(`[verify-connection] Account info:`, data);
-
-    return data;
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Account info request timeout after 10 seconds');
-    }
-    throw error;
-  }
-}
-
 async function testPriceEndpoint(symbol: string, accountId: string, token: string, region: string): Promise<any> {
   const url = `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/symbols/${symbol}/current-price`;
 
@@ -135,8 +83,6 @@ export const handler: Handler = async (event) => {
       throw new Error('MetaAPI credentials not configured');
     }
 
-    const accountInfo = await getAccountInfo(accountId, token, region);
-
     const testSymbol = 'EURUSD';
     const priceTest = await testPriceEndpoint(testSymbol, accountId, token, region);
 
@@ -148,38 +94,23 @@ export const handler: Handler = async (event) => {
         accountId: accountId,
         region: region
       },
-      account: {
-        id: accountInfo.id,
-        name: accountInfo.name,
-        type: accountInfo.type,
-        login: accountInfo.login,
-        platform: accountInfo.platform,
-        state: accountInfo.state,
-        connectionStatus: accountInfo.connectionStatus
-      },
       priceEndpointTest: {
         symbol: testSymbol,
         status: priceTest.status,
         ok: priceTest.ok,
-        data: priceTest.data
+        data: priceTest.data,
+        hasValidPrice: priceTest.ok && priceTest.data?.bid && priceTest.data?.ask
       },
       issues: [] as string[],
       recommendations: [] as string[]
     };
 
-    if (accountInfo.state !== 'DEPLOYED') {
-      diagnostics.issues.push(`Account is in '${accountInfo.state}' state, not 'DEPLOYED'`);
-      diagnostics.recommendations.push('Deploy the MetaAPI account to enable market data access');
-    }
-
-    if (accountInfo.connectionStatus !== 'CONNECTED') {
-      diagnostics.issues.push(`Account connection status is '${accountInfo.connectionStatus}', not 'CONNECTED'`);
-      diagnostics.recommendations.push('Ensure the trading account is connected to the broker');
-    }
-
     if (!priceTest.ok) {
       diagnostics.issues.push('Price endpoint test failed');
-      diagnostics.recommendations.push('Check account permissions and market data subscription');
+      diagnostics.recommendations.push('Check MetaAPI account status and market data subscription');
+    } else if (!priceTest.data?.bid || !priceTest.data?.ask) {
+      diagnostics.issues.push('Price endpoint returned invalid data');
+      diagnostics.recommendations.push('Verify account has access to market data');
     }
 
     const isHealthy = diagnostics.issues.length === 0;
