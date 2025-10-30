@@ -29,6 +29,15 @@ interface RealtimePrice {
   created_at: string;
 }
 
+interface CurrentCandle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  startTime: number;
+}
+
 export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -39,6 +48,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>(() => chartPreferencesService.getTimeframe(symbol));
+  const [isLive, setIsLive] = useState(false);
+
+  const currentCandleRef = useRef<CurrentCandle | null>(null);
+  const lastFetchTimeRef = useRef<string | null>(null);
+  const historicalCandlesRef = useRef<CandlestickData[]>([]);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -139,62 +153,168 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     return candles;
   };
 
+  const updateCurrentCandle = (newPrice: number, timestamp: number) => {
+    if (!candlestickSeriesRef.current) return;
+
+    const intervalMinutes = chartPreferencesService.getTimeframeMinutes(timeframe);
+    const candleTime = Math.floor(timestamp / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60);
+
+    if (!currentCandleRef.current || currentCandleRef.current.startTime !== candleTime) {
+      if (currentCandleRef.current && historicalCandlesRef.current) {
+        historicalCandlesRef.current = [...historicalCandlesRef.current, {
+          time: currentCandleRef.current.time,
+          open: currentCandleRef.current.open,
+          high: currentCandleRef.current.high,
+          low: currentCandleRef.current.low,
+          close: currentCandleRef.current.close
+        }];
+      }
+
+      currentCandleRef.current = {
+        time: candleTime / 1000,
+        open: newPrice,
+        high: newPrice,
+        low: newPrice,
+        close: newPrice,
+        startTime: candleTime
+      };
+    } else {
+      currentCandleRef.current.high = Math.max(currentCandleRef.current.high, newPrice);
+      currentCandleRef.current.low = Math.min(currentCandleRef.current.low, newPrice);
+      currentCandleRef.current.close = newPrice;
+    }
+
+    const updatedCandle: CandlestickData = {
+      time: currentCandleRef.current.time,
+      open: currentCandleRef.current.open,
+      high: currentCandleRef.current.high,
+      low: currentCandleRef.current.low,
+      close: currentCandleRef.current.close
+    };
+
+    candlestickSeriesRef.current.update(updatedCandle);
+
+    setCurrentPrice(newPrice);
+    setLastUpdate(new Date());
+    setIsLive(true);
+  };
+
+  const fetchNewPrices = async () => {
+    try {
+      let query = supabase
+        .from('realtime_prices')
+        .select('bid, ask, broker_time, created_at')
+        .eq('symbol', symbol)
+        .order('created_at', { ascending: true });
+
+      if (lastFetchTimeRef.current) {
+        query = query.gt('created_at', lastFetchTimeRef.current);
+      } else {
+        const dataLimit = chartPreferencesService.getDataLimit(timeframe);
+        query = query.limit(dataLimit);
+      }
+
+      const { data, error: dbError } = await query;
+
+      if (dbError) {
+        console.error('Database error:', dbError);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        data.forEach((price: RealtimePrice) => {
+          const bid = parseFloat(price.bid);
+          const ask = parseFloat(price.ask);
+
+          if (!isNaN(bid) && !isNaN(ask) && bid > 0 && ask > 0) {
+            const midPrice = (bid + ask) / 2;
+            const timestamp = new Date(price.broker_time || price.created_at).getTime();
+            updateCurrentCandle(midPrice, timestamp);
+          }
+        });
+
+        lastFetchTimeRef.current = data[data.length - 1].created_at;
+        setError(null);
+      }
+    } catch (err) {
+      console.error('Failed to fetch new prices:', err);
+    }
+  };
+
+  const initializeChart = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const dataLimit = chartPreferencesService.getDataLimit(timeframe);
+      const { data, error: dbError } = await supabase
+        .from('realtime_prices')
+        .select('bid, ask, broker_time, created_at')
+        .eq('symbol', symbol)
+        .order('created_at', { ascending: true })
+        .limit(dataLimit);
+
+      if (dbError) {
+        console.error('Database error:', dbError);
+        setError(`Unable to load price data: ${dbError.message || 'Unknown error'}`);
+        setIsLoading(false);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        const intervalMinutes = chartPreferencesService.getTimeframeMinutes(timeframe);
+        const candleData = aggregateToCandles(data as RealtimePrice[], intervalMinutes);
+
+        if (candleData.length > 0) {
+          historicalCandlesRef.current = candleData.slice(0, -1);
+
+          candlestickSeriesRef.current?.setData(historicalCandlesRef.current);
+
+          const lastCandle = candleData[candleData.length - 1];
+          const latestPrice = data[data.length - 1];
+          const timestamp = new Date(latestPrice.broker_time || latestPrice.created_at).getTime();
+
+          currentCandleRef.current = {
+            ...lastCandle,
+            startTime: lastCandle.time * 1000
+          };
+
+          candlestickSeriesRef.current?.update(lastCandle);
+
+          const firstCandle = candleData[0];
+          setCurrentPrice(lastCandle.close);
+          setPriceChange(((lastCandle.close - firstCandle.open) / firstCandle.open) * 100);
+          setLastUpdate(new Date());
+
+          lastFetchTimeRef.current = data[data.length - 1].created_at;
+        } else {
+          console.warn('No valid candle data after aggregation');
+          setError('Waiting for price data... The price feed will start shortly.');
+        }
+      } else {
+        console.warn('No price data found for symbol:', symbol);
+        setError('Waiting for price data... The price feed will start shortly.');
+      }
+
+      setIsLoading(false);
+    } catch (err) {
+      console.error('Failed to initialize chart:', err);
+      setError('Failed to load chart data');
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!candlestickSeriesRef.current) return;
 
-    const fetchPriceHistory = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
+    currentCandleRef.current = null;
+    lastFetchTimeRef.current = null;
+    historicalCandlesRef.current = [];
 
-        const dataLimit = chartPreferencesService.getDataLimit(timeframe);
-        const { data, error: dbError } = await supabase
-          .from('realtime_prices')
-          .select('bid, ask, broker_time, created_at')
-          .eq('symbol', symbol)
-          .order('created_at', { ascending: true })
-          .limit(dataLimit);
-
-        if (dbError) {
-          console.error('Database error:', dbError);
-          setError(`Unable to load price data: ${dbError.message || 'Unknown error'}`);
-          setIsLoading(false);
-          return;
-        }
-
-        if (data && data.length > 0) {
-          const intervalMinutes = chartPreferencesService.getTimeframeMinutes(timeframe);
-          const candleData = aggregateToCandles(data as RealtimePrice[], intervalMinutes);
-
-          if (candleData.length > 0) {
-            candlestickSeriesRef.current?.setData(candleData);
-
-            const latestCandle = candleData[candleData.length - 1];
-            const firstCandle = candleData[0];
-            setCurrentPrice(latestCandle.close);
-            setPriceChange(((latestCandle.close - firstCandle.open) / firstCandle.open) * 100);
-            setLastUpdate(new Date());
-          } else {
-            console.warn('No valid candle data after aggregation');
-            setError('Waiting for price data... The price feed will start shortly.');
-          }
-        } else {
-          console.warn('No price data found for symbol:', symbol);
-          setError('Waiting for price data... The price feed will start shortly.');
-        }
-
-        setIsLoading(false);
-      } catch (err) {
-        console.error('Failed to fetch price history:', err);
-        setError('Failed to load chart data');
-        setIsLoading(false);
-      }
-    };
-
-    fetchPriceHistory();
+    initializeChart();
 
     const subscription = supabase
-      .channel(`realtime_prices_${symbol}`)
+      .channel(`realtime_prices_chart_${symbol}`)
       .on(
         'postgres_changes',
         {
@@ -203,14 +323,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
           table: 'realtime_prices',
           filter: `symbol=eq.${symbol}`,
         },
-        (payload) => {
-          fetchPriceHistory();
+        () => {
+          fetchNewPrices();
         }
       )
       .subscribe();
 
-    const pollIntervalMs = chartPreferencesService.getPollInterval(timeframe);
-    const pollInterval = setInterval(fetchPriceHistory, pollIntervalMs);
+    const pollInterval = setInterval(fetchNewPrices, 5000);
 
     return () => {
       subscription.unsubscribe();
@@ -350,11 +469,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         <div ref={chartContainerRef} className="rounded-lg overflow-hidden" />
       </div>
 
-      {lastUpdate && (
-        <div className="text-xs text-white/50 text-right">
-          Last updated: {lastUpdate.toLocaleTimeString()}
-        </div>
-      )}
+      <div className="flex items-center justify-between text-xs">
+        {lastUpdate && (
+          <div className="text-white/50">
+            Last updated: {lastUpdate.toLocaleTimeString()}
+          </div>
+        )}
+        {isLive && (
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+            <span className="text-emerald-500 font-medium">Market Data: Live</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
