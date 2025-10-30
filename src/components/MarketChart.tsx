@@ -149,7 +149,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       lineWidth: 2,
       lastValueVisible: false,
       priceLineVisible: false,
-      title: 'VWAP',
     });
 
     const ema20Series = chart.addSeries(LineSeries, {
@@ -157,7 +156,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       lineWidth: 1,
       lastValueVisible: false,
       priceLineVisible: false,
-      title: 'EMA 20',
     });
 
     const ema50Series = chart.addSeries(LineSeries, {
@@ -165,7 +163,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       lineWidth: 1,
       lastValueVisible: false,
       priceLineVisible: false,
-      title: 'EMA 50',
     });
 
     const ema200Series = chart.addSeries(LineSeries, {
@@ -173,7 +170,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       lineWidth: 2,
       lastValueVisible: false,
       priceLineVisible: false,
-      title: 'EMA 200',
     });
 
     chartRef.current = chart;
