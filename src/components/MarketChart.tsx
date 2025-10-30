@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle, LineSeries } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
-import { TrendingUp, Activity, AlertCircle, Clock } from 'lucide-react';
+import { TrendingUp, Activity, AlertCircle, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { chartPreferencesService, Timeframe } from '@/services/chart-preferences';
 import {
   calculateVWAP,
@@ -76,6 +76,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const [ema20Value, setEma20Value] = useState<number | null>(null);
   const [ema50Value, setEma50Value] = useState<number | null>(null);
   const [ema200Value, setEma200Value] = useState<number | null>(null);
+  const [showIndicators, setShowIndicators] = useState(() => {
+    const saved = localStorage.getItem(`indicators-visible-${symbol}`);
+    return saved !== null ? saved === 'true' : true;
+  });
 
   const currentCandleRef = useRef<CurrentCandle | null>(null);
   const lastFetchTimeRef = useRef<string | null>(null);
@@ -518,7 +522,15 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const handleSymbolChangeInternal = (newSymbol: string) => {
     const savedTimeframe = chartPreferencesService.getTimeframe(newSymbol);
     setTimeframe(savedTimeframe);
+    const saved = localStorage.getItem(`indicators-visible-${newSymbol}`);
+    setShowIndicators(saved !== null ? saved === 'true' : true);
     onSymbolChange(newSymbol);
+  };
+
+  const toggleIndicators = () => {
+    const newValue = !showIndicators;
+    setShowIndicators(newValue);
+    localStorage.setItem(`indicators-visible-${symbol}`, String(newValue));
   };
 
   return (
@@ -645,14 +657,32 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <RSIPanel data={rsiData} />
-        <ATRPanel data={atrData} />
-      </div>
+      <div className="mt-4">
+        <button
+          onClick={toggleIndicators}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg border border-gray-700 transition-all mb-4"
+        >
+          <span className="text-sm font-medium">
+            {showIndicators ? 'Hide' : 'Show'} Technical Indicators
+          </span>
+          {showIndicators ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </button>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <VolumePanel data={volumeData} />
-        <PatternDetectionPanel patterns={patternData} />
+        <div
+          className={`transition-all duration-300 ease-in-out overflow-hidden ${
+            showIndicators ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
+          }`}
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <RSIPanel data={rsiData} />
+            <ATRPanel data={atrData} />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+            <VolumePanel data={volumeData} />
+            <PatternDetectionPanel patterns={patternData} />
+          </div>
+        </div>
       </div>
     </div>
   );
