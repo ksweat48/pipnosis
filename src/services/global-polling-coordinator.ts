@@ -29,6 +29,37 @@ class GlobalPollingCoordinator {
 
     console.log('🚀 Initializing global polling coordinator for all forex pairs...');
 
+    console.log('🔍 Verifying MetaAPI connection before starting polling...');
+    try {
+      const verifyResponse = await fetch('/.netlify/functions/verify-metaapi-connection');
+      const verifyData = await verifyResponse.json();
+
+      console.log('📡 MetaAPI Connection Status:', verifyData);
+
+      if (!verifyData.healthy) {
+        console.error('❌ MetaAPI connection is not healthy:', verifyData.diagnostics);
+        if (verifyData.diagnostics?.issues) {
+          verifyData.diagnostics.issues.forEach((issue: string) => {
+            console.error(`  - ${issue}`);
+          });
+        }
+        if (verifyData.diagnostics?.recommendations) {
+          console.log('💡 Recommendations:');
+          verifyData.diagnostics.recommendations.forEach((rec: string) => {
+            console.log(`  - ${rec}`);
+          });
+        }
+        console.warn('⚠️ Proceeding with polling initialization despite connection issues...');
+      } else {
+        console.log('✅ MetaAPI connection verified successfully');
+        console.log(`   Account State: ${verifyData.diagnostics?.account?.state}`);
+        console.log(`   Connection Status: ${verifyData.diagnostics?.account?.connectionStatus}`);
+      }
+    } catch (verifyError) {
+      console.error('❌ Failed to verify MetaAPI connection:', verifyError);
+      console.warn('⚠️ Proceeding with polling initialization anyway...');
+    }
+
     for (const symbol of this.FOREX_PAIRS) {
       this.pollStatus.set(symbol, {
         symbol,

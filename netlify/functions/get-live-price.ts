@@ -24,7 +24,12 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
 
   const url = `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/symbols/${symbol}/current-price`;
 
-  console.log(`[get-live-price] Fetching ${symbol} from MetaAPI (${region})`);
+  console.log(`[get-live-price] Fetching ${symbol} from MetaAPI`);
+  console.log(`[get-live-price] URL: ${url}`);
+  console.log(`[get-live-price] Region: ${region}`);
+  console.log(`[get-live-price] Account ID: ${accountId}`);
+  console.log(`[get-live-price] Token present: ${token ? 'YES' : 'NO'}`);
+  console.log(`[get-live-price] Token length: ${token ? token.length : 0}`);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
@@ -41,12 +46,18 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
 
     clearTimeout(timeoutId);
 
+    console.log(`[get-live-price] Response status: ${response.status}`);
+    console.log(`[get-live-price] Response ok: ${response.ok}`);
+    console.log(`[get-live-price] Response headers:`, Object.fromEntries(response.headers.entries()));
+
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`MetaAPI error: ${response.status} - ${errorText}`);
+      console.error(`[get-live-price] MetaAPI error response body:`, errorText);
+      throw new Error(`MetaAPI HTTP ${response.status}: ${errorText}`);
     }
 
     const data: MetaApiPrice = await response.json();
+    console.log(`[get-live-price] Price data received:`, data);
 
     if (!data.bid || !data.ask) {
       throw new Error('Invalid price data from MetaAPI');
