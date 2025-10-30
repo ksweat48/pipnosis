@@ -72,6 +72,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const [volumeData, setVolumeData] = useState<VolumeData[]>([]);
   const [patternData, setPatternData] = useState<PatternDetection[]>([]);
 
+  const [vwapValue, setVwapValue] = useState<number | null>(null);
+  const [ema20Value, setEma20Value] = useState<number | null>(null);
+  const [ema50Value, setEma50Value] = useState<number | null>(null);
+  const [ema200Value, setEma200Value] = useState<number | null>(null);
+
   const currentCandleRef = useRef<CurrentCandle | null>(null);
   const lastFetchTimeRef = useRef<string | null>(null);
   const historicalCandlesRef = useRef<CandlestickData[]>([]);
@@ -142,7 +147,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     const vwapSeries = chart.addSeries(LineSeries, {
       color: '#3b82f6',
       lineWidth: 2,
-      lastValueVisible: true,
+      lastValueVisible: false,
       priceLineVisible: false,
       title: 'VWAP',
     });
@@ -150,7 +155,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     const ema20Series = chart.addSeries(LineSeries, {
       color: '#10b981',
       lineWidth: 1,
-      lastValueVisible: true,
+      lastValueVisible: false,
       priceLineVisible: false,
       title: 'EMA 20',
     });
@@ -158,7 +163,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     const ema50Series = chart.addSeries(LineSeries, {
       color: '#f59e0b',
       lineWidth: 1,
-      lastValueVisible: true,
+      lastValueVisible: false,
       priceLineVisible: false,
       title: 'EMA 50',
     });
@@ -166,7 +171,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     const ema200Series = chart.addSeries(LineSeries, {
       color: '#ef4444',
       lineWidth: 2,
-      lastValueVisible: true,
+      lastValueVisible: false,
       priceLineVisible: false,
       title: 'EMA 200',
     });
@@ -253,15 +258,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
     if (vwapSeriesRef.current && vwap.length > 0) {
       vwapSeriesRef.current.setData(vwap);
+      setVwapValue(vwap[vwap.length - 1].value);
     }
     if (ema20SeriesRef.current && ema20.length > 0) {
       ema20SeriesRef.current.setData(ema20);
+      setEma20Value(ema20[ema20.length - 1].value);
     }
     if (ema50SeriesRef.current && ema50.length > 0) {
       ema50SeriesRef.current.setData(ema50);
+      setEma50Value(ema50[ema50.length - 1].value);
     }
     if (ema200SeriesRef.current && ema200.length > 0) {
       ema200SeriesRef.current.setData(ema200);
+      setEma200Value(ema200[ema200.length - 1].value);
     }
 
     setRsiData(rsi);
@@ -584,6 +593,41 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
               <AlertCircle className="text-red-500 mx-auto mb-3" size={32} />
               <p className="text-white font-semibold mb-2">Chart Error</p>
               <p className="text-white/70 text-sm">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {!isLoading && !error && (vwapValue || ema20Value || ema50Value || ema200Value) && (
+          <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-20 bg-gray-900/80 backdrop-blur-sm px-4 py-2 rounded-lg border border-gray-700 shadow-lg">
+            <div className="flex items-center gap-4 text-xs font-medium">
+              {vwapValue && (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                  <span className="text-gray-400">VWAP</span>
+                  <span className="text-blue-400">{vwapValue.toFixed(5)}</span>
+                </div>
+              )}
+              {ema20Value && (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                  <span className="text-gray-400">EMA 20</span>
+                  <span className="text-emerald-400">{ema20Value.toFixed(5)}</span>
+                </div>
+              )}
+              {ema50Value && (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+                  <span className="text-gray-400">EMA 50</span>
+                  <span className="text-amber-400">{ema50Value.toFixed(5)}</span>
+                </div>
+              )}
+              {ema200Value && (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                  <span className="text-gray-400">EMA 200</span>
+                  <span className="text-red-400">{ema200Value.toFixed(5)}</span>
+                </div>
+              )}
             </div>
           </div>
         )}
