@@ -4,7 +4,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 import { Header } from './components/Header';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { PromptInput } from './components/PromptInput';
 import { MarketChart } from './components/MarketChart';
 import { StrategyOptions } from './components/StrategyOptions';
 import { TradingDashboard } from './components/TradingDashboard';
@@ -21,21 +20,18 @@ import { ActivePositions } from './components/ActivePositions';
 import { TradeConfirmationModal } from './components/TradeConfirmationModal';
 import { ConfigurationStatus } from './components/ConfigurationStatus';
 import { ManualTradePanel } from './components/ManualTradePanel';
-import { BalanceDisplay } from './components/BalanceDisplay';
 import { positionMonitorService } from './services/position-monitor';
 import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { AITradingConsole } from './components/AITradingConsole';
 import { SearchStatusPanel } from './components/SearchStatusPanel';
 import { GlobalPollingStatus } from './components/GlobalPollingStatus';
-import { usePromptAnalysis, useMarketData } from './hooks/useAPI';
+import { usePromptAnalysis } from './hooks/useAPI';
 import { simulatedTradingService } from './services/simulated-trading';
 import { promptValidationService } from './services/prompt-validation';
 import { extendedSearchService } from './services/extended-search';
 import { multiSymbolScanner } from './strategies/core/multiSymbolScanner';
-import { strategyService } from './strategies';
 import { logEnvironmentStatus } from './lib/env-validator';
-import { supabase } from './lib/supabase';
 import { runDatabaseDiagnostics, logDiagnostics } from './lib/database-diagnostics';
 import { verifyDatabaseSetup } from './lib/migration-checker';
 import { connectionValidator } from './lib/connection-validator';
@@ -68,9 +64,8 @@ const Dashboard: React.FC = () => {
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
   const [shouldScrollToStrategy, setShouldScrollToStrategy] = useState(false);
 
-  const { analyzePrompt, isAnalyzing, error: aiError } = usePromptAnalysis();
+  const { isAnalyzing } = usePromptAnalysis();
   const { balance: accountBalance, totalPnL, openPositionsCount, refreshBalance, refreshPositions } = useUserBalance(user?.id || null);
-  const { marketData, isLoading: marketLoading, error: marketError, lastUpdated, refetch } = useMarketData();
 
   useEffect(() => {
     if (shouldScrollToStrategy && strategyOptions.length > 0 && strategyOptionsRef.current) {
