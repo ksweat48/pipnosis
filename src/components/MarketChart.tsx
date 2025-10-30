@@ -3,6 +3,18 @@ import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle } from
 import { supabase } from '@/lib/supabase';
 import { TrendingUp, Activity, AlertCircle, Clock } from 'lucide-react';
 import { chartPreferencesService, Timeframe } from '@/services/chart-preferences';
+import {
+  calculateVWAP,
+  calculateEMA,
+  calculateRSI,
+  calculateATR,
+  calculateVolumeMetrics,
+  detectCandlePatterns,
+  IndicatorResult,
+  VolumeData,
+  PatternDetection
+} from '@/utils/technicalIndicators';
+import { RSIPanel, ATRPanel, VolumePanel, PatternDetectionPanel } from '@/components/IndicatorPanels';
 
 interface MarketChartProps {
   symbol: string;
@@ -42,6 +54,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const vwapSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const ema20SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const ema50SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const ema200SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [priceChange, setPriceChange] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -49,6 +66,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>(() => chartPreferencesService.getTimeframe(symbol));
   const [isLive, setIsLive] = useState(false);
+
+  const [rsiData, setRsiData] = useState<IndicatorResult[]>([]);
+  const [atrData, setAtrData] = useState<IndicatorResult[]>([]);
+  const [volumeData, setVolumeData] = useState<VolumeData[]>([]);
+  const [patternData, setPatternData] = useState<PatternDetection[]>([]);
 
   const currentCandleRef = useRef<CurrentCandle | null>(null);
   const lastFetchTimeRef = useRef<string | null>(null);
@@ -117,8 +139,44 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       priceLineVisible: true,
     });
 
+    const vwapSeries = chart.addLineSeries({
+      color: '#3b82f6',
+      lineWidth: 2,
+      lastValueVisible: true,
+      priceLineVisible: false,
+      title: 'VWAP',
+    });
+
+    const ema20Series = chart.addLineSeries({
+      color: '#10b981',
+      lineWidth: 1,
+      lastValueVisible: true,
+      priceLineVisible: false,
+      title: 'EMA 20',
+    });
+
+    const ema50Series = chart.addLineSeries({
+      color: '#f59e0b',
+      lineWidth: 1,
+      lastValueVisible: true,
+      priceLineVisible: false,
+      title: 'EMA 50',
+    });
+
+    const ema200Series = chart.addLineSeries({
+      color: '#ef4444',
+      lineWidth: 2,
+      lastValueVisible: true,
+      priceLineVisible: false,
+      title: 'EMA 200',
+    });
+
     chartRef.current = chart;
     candlestickSeriesRef.current = candlestickSeries;
+    vwapSeriesRef.current = vwapSeries;
+    ema20SeriesRef.current = ema20Series;
+    ema50SeriesRef.current = ema50Series;
+    ema200SeriesRef.current = ema200Series;
 
     const handleResize = () => {
       if (chartContainerRef.current) {
@@ -181,6 +239,37 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     return candles;
   };
 
+  const updateIndicators = (candles: CandlestickData[]) => {
+    if (candles.length === 0) return;
+
+    const vwap = calculateVWAP(candles);
+    const ema20 = calculateEMA(candles, 20);
+    const ema50 = calculateEMA(candles, 50);
+    const ema200 = calculateEMA(candles, 200);
+    const rsi = calculateRSI(candles, 14);
+    const atr = calculateATR(candles, 14);
+    const volume = calculateVolumeMetrics(candles);
+    const patterns = detectCandlePatterns(candles, vwap);
+
+    if (vwapSeriesRef.current && vwap.length > 0) {
+      vwapSeriesRef.current.setData(vwap);
+    }
+    if (ema20SeriesRef.current && ema20.length > 0) {
+      ema20SeriesRef.current.setData(ema20);
+    }
+    if (ema50SeriesRef.current && ema50.length > 0) {
+      ema50SeriesRef.current.setData(ema50);
+    }
+    if (ema200SeriesRef.current && ema200.length > 0) {
+      ema200SeriesRef.current.setData(ema200);
+    }
+
+    setRsiData(rsi);
+    setAtrData(atr);
+    setVolumeData(volume);
+    setPatternData(patterns);
+  };
+
   const updateCurrentCandle = (newPrice: number, timestamp: number) => {
     if (!candlestickSeriesRef.current) return;
 
@@ -221,6 +310,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     };
 
     candlestickSeriesRef.current.update(updatedCandle);
+
+    const allCandles = [...historicalCandlesRef.current, updatedCandle];
+    updateIndicators(allCandles);
 
     setCurrentPrice(newPrice);
     setLastUpdate(new Date());
@@ -308,6 +400,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
           };
 
           candlestickSeriesRef.current?.update(lastCandle);
+
+          updateIndicators(candleData);
 
           const firstCandle = candleData[0];
           setCurrentPrice(lastCandle.close);
@@ -509,6 +603,16 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
             <span className="text-emerald-500 font-medium">Market Data: Live</span>
           </div>
         )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+        <RSIPanel data={rsiData} />
+        <ATRPanel data={atrData} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+        <VolumePanel data={volumeData} />
+        <PatternDetectionPanel patterns={patternData} />
       </div>
     </div>
   );
