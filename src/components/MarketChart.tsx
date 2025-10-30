@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle } from 'lightweight-charts';
+import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle, LineSeries } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
 import { TrendingUp, Activity, AlertCircle, Clock } from 'lucide-react';
 import { chartPreferencesService, Timeframe } from '@/services/chart-preferences';
@@ -139,7 +139,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       priceLineVisible: true,
     });
 
-    const vwapSeries = chart.addLineSeries({
+    const vwapSeries = chart.addSeries(LineSeries, {
       color: '#3b82f6',
       lineWidth: 2,
       lastValueVisible: true,
@@ -147,7 +147,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       title: 'VWAP',
     });
 
-    const ema20Series = chart.addLineSeries({
+    const ema20Series = chart.addSeries(LineSeries, {
       color: '#10b981',
       lineWidth: 1,
       lastValueVisible: true,
@@ -155,7 +155,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       title: 'EMA 20',
     });
 
-    const ema50Series = chart.addLineSeries({
+    const ema50Series = chart.addSeries(LineSeries, {
       color: '#f59e0b',
       lineWidth: 1,
       lastValueVisible: true,
@@ -163,7 +163,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       title: 'EMA 50',
     });
 
-    const ema200Series = chart.addLineSeries({
+    const ema200Series = chart.addSeries(LineSeries, {
       color: '#ef4444',
       lineWidth: 2,
       lastValueVisible: true,

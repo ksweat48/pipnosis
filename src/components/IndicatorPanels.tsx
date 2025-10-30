@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineStyle } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, LineStyle, LineSeries, HistogramSeries } from 'lightweight-charts';
 import { IndicatorResult, VolumeData, PatternDetection, CandlePattern } from '@/utils/technicalIndicators';
 import { TrendingUp, TrendingDown, Activity, BarChart3 } from 'lucide-react';
 
@@ -40,7 +40,7 @@ export function RSIPanel({ data }: RSIPanelProps) {
       },
     });
 
-    const lineSeries = chart.addLineSeries({
+    const lineSeries = chart.addSeries(LineSeries, {
       color: '#8b5cf6',
       lineWidth: 2,
       lastValueVisible: true,
@@ -156,7 +156,7 @@ export function ATRPanel({ data }: ATRPanelProps) {
       },
     });
 
-    const lineSeries = chart.addLineSeries({
+    const lineSeries = chart.addSeries(LineSeries, {
       color: '#f59e0b',
       lineWidth: 2,
       lastValueVisible: true,
@@ -243,7 +243,7 @@ export function VolumePanel({ data }: VolumePanelProps) {
       },
     });
 
-    const histogramSeries = chart.addHistogramSeries({
+    const histogramSeries = chart.addSeries(HistogramSeries, {
       priceFormat: {
         type: 'volume',
       },
