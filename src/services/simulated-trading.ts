@@ -123,13 +123,15 @@ class SimulatedTradingService {
         position.symbol
       );
 
+      const closedAt = new Date().toISOString();
+
       const { error: updateError } = await supabase
         .from('simulated_positions')
         .update({
           status: 'closed',
           current_price: currentPrice,
           current_pnl: pnl,
-          closed_at: new Date().toISOString(),
+          closed_at: closedAt,
           close_reason: 'manual'
         })
         .eq('id', positionId);
@@ -160,6 +162,25 @@ class SimulatedTradingService {
           balance_after: newBalance,
           position_id: positionId,
           description: `Position closed: ${position.symbol} ${position.position_type} ${position.lot_size} lots`
+        });
+
+      await supabase
+        .from('trade_history')
+        .insert({
+          user_id: userId,
+          position_id: positionId,
+          symbol: position.symbol,
+          position_type: position.position_type,
+          lot_size: position.lot_size,
+          entry_price: position.entry_price,
+          exit_price: currentPrice,
+          stop_loss: position.stop_loss,
+          take_profit: position.take_profit,
+          profit_loss: pnl,
+          opened_at: position.opened_at,
+          closed_at: closedAt,
+          close_reason: 'manual',
+          strategy_name: null
         });
 
       return {

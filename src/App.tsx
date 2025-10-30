@@ -9,7 +9,7 @@ import { MarketChart } from './components/MarketChart';
 import { StrategyOptions } from './components/StrategyOptions';
 import { TradingDashboard } from './components/TradingDashboard';
 import { NotificationCenter } from './components/NotificationCenter';
-import { TradeJournal } from './components/TradeJournal';
+import { TradeHistory } from './components/TradeHistory';
 import { TradingKPIs } from './components/TradingKPIs';
 import { TradingLaws } from './components/TradingLaws';
 import { LandingPage } from './components/LandingPage';
@@ -265,9 +265,6 @@ const Dashboard: React.FC = () => {
     setNotifications(notifications.filter(n => n.id !== id));
   };
 
-  const handleJournalReaction = async (entryId: string, reaction: 'thumbs-up' | 'explain-more') => {
-    console.log('Journal reaction:', entryId, reaction);
-  };
 
   const handleSearchComplete = async (opportunity: any) => {
     if (!opportunity) return;
@@ -429,7 +426,7 @@ const Dashboard: React.FC = () => {
           </div>
 
           <div className="space-y-6 sm:space-y-8">
-            <TradeJournal onReaction={handleJournalReaction} />
+            <TradeHistory />
             <TradingLaws />
           </div>
         </div>

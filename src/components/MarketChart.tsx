@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
-import { TrendingUp, Activity, AlertCircle } from 'lucide-react';
+import { TrendingUp, Activity, AlertCircle, Clock } from 'lucide-react';
+import { chartPreferencesService, Timeframe } from '@/services/chart-preferences';
 
 interface MarketChartProps {
   symbol: string;
@@ -37,6 +38,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [timeframe, setTimeframe] = useState<Timeframe>(() => chartPreferencesService.getTimeframe(symbol));
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -90,7 +92,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     };
   }, []);
 
-  const aggregateToCandles = (prices: RealtimePrice[], intervalMinutes: number = 1): CandlestickData[] => {
+  const aggregateToCandles = (prices: RealtimePrice[], intervalMinutes: number): CandlestickData[] => {
     if (prices.length === 0) return [];
 
     const candleMap = new Map<number, { open: number; high: number; low: number; close: number; prices: number[] }>();
@@ -145,12 +147,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         setIsLoading(true);
         setError(null);
 
+        const dataLimit = chartPreferencesService.getDataLimit(timeframe);
         const { data, error: dbError } = await supabase
           .from('realtime_prices')
           .select('bid, ask, broker_time, created_at')
           .eq('symbol', symbol)
           .order('created_at', { ascending: true })
-          .limit(500);
+          .limit(dataLimit);
 
         if (dbError) {
           console.error('Database error:', dbError);
@@ -160,7 +163,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         }
 
         if (data && data.length > 0) {
-          const candleData = aggregateToCandles(data as RealtimePrice[], 1);
+          const intervalMinutes = chartPreferencesService.getTimeframeMinutes(timeframe);
+          const candleData = aggregateToCandles(data as RealtimePrice[], intervalMinutes);
 
           if (candleData.length > 0) {
             candlestickSeriesRef.current?.setData(candleData);
@@ -205,13 +209,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       )
       .subscribe();
 
-    const pollInterval = setInterval(fetchPriceHistory, 10000);
+    const pollIntervalMs = chartPreferencesService.getPollInterval(timeframe);
+    const pollInterval = setInterval(fetchPriceHistory, pollIntervalMs);
 
     return () => {
       subscription.unsubscribe();
       clearInterval(pollInterval);
     };
-  }, [symbol]);
+  }, [symbol, timeframe]);
 
   useEffect(() => {
     if (!chartRef.current || !tradeLines) return;
@@ -257,37 +262,69 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'
   ];
 
+  const TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'D1', 'W1'];
+
+  const handleTimeframeChange = (newTimeframe: Timeframe) => {
+    setTimeframe(newTimeframe);
+    chartPreferencesService.setTimeframe(symbol, newTimeframe);
+  };
+
+  const handleSymbolChangeInternal = (newSymbol: string) => {
+    const savedTimeframe = chartPreferencesService.getTimeframe(newSymbol);
+    setTimeframe(savedTimeframe);
+    onSymbolChange(newSymbol);
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <TrendingUp className="text-emerald-500" size={24} />
-          <select
-            value={symbol}
-            onChange={(e) => onSymbolChange(e.target.value)}
-            className="bg-gray-800 text-white px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
-          >
-            {FOREX_PAIRS.map(pair => (
-              <option key={pair} value={pair}>{pair}</option>
-            ))}
-          </select>
-        </div>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <TrendingUp className="text-emerald-500" size={24} />
+            <select
+              value={symbol}
+              onChange={(e) => handleSymbolChangeInternal(e.target.value)}
+              className="bg-gray-800 text-white px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+            >
+              {FOREX_PAIRS.map(pair => (
+                <option key={pair} value={pair}>{pair}</option>
+              ))}
+            </select>
+          </div>
 
-        {currentPrice && (
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <div className="text-2xl font-bold text-white">
-                {currentPrice.toFixed(5)}
-              </div>
-              <div className={`text-sm flex items-center gap-1 ${
-                priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
-              }`}>
-                <Activity size={14} />
-                {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
+          {currentPrice && (
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <div className="text-2xl font-bold text-white">
+                  {currentPrice.toFixed(5)}
+                </div>
+                <div className={`text-sm flex items-center gap-1 ${
+                  priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
+                }`}>
+                  <Activity size={14} />
+                  {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 overflow-x-auto pb-2">
+          <Clock className="text-gray-500 w-4 h-4 flex-shrink-0" />
+          {TIMEFRAMES.map((tf) => (
+            <button
+              key={tf}
+              onClick={() => handleTimeframeChange(tf)}
+              className={`px-3 py-1.5 rounded text-sm font-medium transition-all flex-shrink-0 ${
+                timeframe === tf
+                  ? 'bg-emerald-600 text-white shadow-lg'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white border border-gray-700'
+              }`}
+            >
+              {tf}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="relative">
