@@ -19,12 +19,11 @@ import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { ActivePositions } from './components/ActivePositions';
 import { TradeConfirmationModal } from './components/TradeConfirmationModal';
 import { ConfigurationStatus } from './components/ConfigurationStatus';
-import { ManualTradePanel } from './components/ManualTradePanel';
 import { positionMonitorService } from './services/position-monitor';
 import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
-import { AITradingConsole } from './components/AITradingConsole';
 import { SearchStatusPanel } from './components/SearchStatusPanel';
+import { TradingModeToggle } from './components/TradingModeToggle';
 import { GlobalPollingStatus } from './components/GlobalPollingStatus';
 import { usePromptAnalysis } from './hooks/useAPI';
 import { simulatedTradingService } from './services/simulated-trading';
@@ -360,8 +359,8 @@ const Dashboard: React.FC = () => {
             />
           </div>
 
-          {/* Manual Trading Panel */}
-          <ManualTradePanel
+          {/* Trading Mode Toggle - Manual & AI Trading */}
+          <TradingModeToggle
             symbol={selectedSymbol}
             onTradeExecuted={() => {
               refreshBalance();
@@ -369,9 +368,6 @@ const Dashboard: React.FC = () => {
               setPositionRefreshTrigger(prev => prev + 1);
             }}
           />
-          
-          {/* AI Trading Console - New ChatGPT Integration */}
-          <AITradingConsole />
 
           {/* Extended Search Status Panel */}
           {activeSearchSessionId && isSearching && (

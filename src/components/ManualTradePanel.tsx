@@ -229,11 +229,8 @@ export function ManualTradePanel({ symbol, onTradeExecuted }: ManualTradePanelPr
   const riskCalculationSell = calculateRisk('sell');
 
   return (
-    <div className="bg-gray-900 rounded-lg border border-gray-700 shadow-lg">
-      <div
-        className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-800 transition-colors"
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
+    <div className="bg-gray-900">
+      <div className="flex items-center justify-between p-4 bg-gray-800/30">
         <div className="flex items-center space-x-2">
           <DollarSign className="w-5 h-5 text-green-400" />
           <h2 className="text-lg font-semibold text-white">Manual Trading</h2>
@@ -241,12 +238,17 @@ export function ManualTradePanel({ symbol, onTradeExecuted }: ManualTradePanelPr
         </div>
         <div className="flex items-center space-x-4">
           <span className="text-sm text-gray-400">Balance: ${balance.toFixed(2)}</span>
-          {isExpanded ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="text-gray-400 hover:text-white transition-colors"
+          >
+            {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+          </button>
         </div>
       </div>
 
       {isExpanded && (
-        <div className="p-4 border-t border-gray-700 space-y-4">
+        <div className="p-4 space-y-4">
           {livePrice && (
             <div className="grid grid-cols-3 gap-4 p-3 bg-gray-800 rounded">
               <div className="text-center">
