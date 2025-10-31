@@ -66,6 +66,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>(() => chartPreferencesService.getTimeframe(symbol));
   const [isLive, setIsLive] = useState(false);
+  const [systemStatus, setSystemStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
+  const [marketStatus, setMarketStatus] = useState<'live' | 'delayed' | 'offline'>('live');
 
   const [rsiData, setRsiData] = useState<IndicatorResult[]>([]);
   const [atrData, setAtrData] = useState<IndicatorResult[]>([]);
@@ -566,17 +568,39 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     <div className="space-y-4">
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <TrendingUp className="text-emerald-500" size={24} />
-            <select
-              value={symbol}
-              onChange={(e) => handleSymbolChangeInternal(e.target.value)}
-              className="bg-gray-800 text-white px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
-            >
-              {FOREX_PAIRS.map(pair => (
-                <option key={pair} value={pair}>{pair}</option>
-              ))}
-            </select>
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-3">
+              <TrendingUp className="text-emerald-500" size={24} />
+              <select
+                value={symbol}
+                onChange={(e) => handleSymbolChangeInternal(e.target.value)}
+                className="bg-gray-800 text-white px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+              >
+                {FOREX_PAIRS.map(pair => (
+                  <option key={pair} value={pair}>{pair}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className={`w-2 h-2 rounded-full ${
+                  systemStatus === 'connected' ? 'bg-green-500 animate-pulse' :
+                  systemStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' :
+                  'bg-red-500'
+                }`}></div>
+                <span className="text-xs font-medium text-gray-300">System</span>
+              </div>
+
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className={`w-2 h-2 rounded-full ${
+                  marketStatus === 'live' ? 'bg-green-500 animate-pulse' :
+                  marketStatus === 'delayed' ? 'bg-yellow-500 animate-pulse' :
+                  'bg-red-500'
+                }`}></div>
+                <span className="text-xs font-medium text-gray-300">Market</span>
+              </div>
+            </div>
           </div>
 
           {currentPrice && (
@@ -676,12 +700,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         {lastUpdate && (
           <div className="text-white/50">
             Last updated: {lastUpdate.toLocaleTimeString()}
-          </div>
-        )}
-        {isLive && (
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-            <span className="text-emerald-500 font-medium">Market Data: Live</span>
           </div>
         )}
       </div>

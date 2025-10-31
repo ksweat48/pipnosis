@@ -18,13 +18,11 @@ import { AuthPage } from './pages/AuthPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { ActivePositions } from './components/ActivePositions';
 import { TradeConfirmationModal } from './components/TradeConfirmationModal';
-import { ConfigurationStatus } from './components/ConfigurationStatus';
 import { positionMonitorService } from './services/position-monitor';
 import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { SearchStatusPanel } from './components/SearchStatusPanel';
 import { TradingModeToggle } from './components/TradingModeToggle';
-import { GlobalPollingStatus } from './components/GlobalPollingStatus';
 import { usePromptAnalysis } from './hooks/useAPI';
 import { simulatedTradingService } from './services/simulated-trading';
 import { promptValidationService } from './services/prompt-validation';
@@ -344,12 +342,6 @@ const Dashboard: React.FC = () => {
             onDismiss={handleDismissNotification}
             isCollapsible={true}
           />
-          {/* Configuration Status */}
-          <ConfigurationStatus />
-
-          {/* Global Polling Status */}
-          <GlobalPollingStatus />
-
           {/* Market Chart Section */}
           <div className="glass-card p-4 sm:p-6 lg:p-8">
             <MarketChart
