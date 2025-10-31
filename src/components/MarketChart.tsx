@@ -4,6 +4,14 @@ import { supabase } from '@/lib/supabase';
 import { TrendingUp, Activity, AlertCircle, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { chartPreferencesService, Timeframe } from '@/services/chart-preferences';
 import {
+  fetchCompleteChartData,
+  fetchRecentRealtimePrices,
+  aggregatePricesToCurrentCandle,
+  getTimeframeMinutes,
+  CandleData,
+  RealtimePrice as RealtimePriceType
+} from '@/services/candle-data-service';
+import {
   calculateVWAP,
   calculateEMA,
   calculateRSI,
@@ -24,21 +32,6 @@ interface MarketChartProps {
     stopLoss?: number;
     takeProfit?: number;
   };
-}
-
-interface CandlestickData {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-}
-
-interface RealtimePrice {
-  bid: string;
-  ask: string;
-  broker_time: string;
-  created_at: string;
 }
 
 interface CurrentCandle {
@@ -85,7 +78,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
   const currentCandleRef = useRef<CurrentCandle | null>(null);
   const lastFetchTimeRef = useRef<string | null>(null);
-  const historicalCandlesRef = useRef<CandlestickData[]>([]);
+  const historicalCandlesRef = useRef<CandleData[]>([]);
+  const updateQueueRef = useRef<number[]>([]);
+  const isUpdatingRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -199,54 +194,17 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     };
   }, []);
 
-  const aggregateToCandles = (prices: RealtimePrice[], intervalMinutes: number): CandlestickData[] => {
-    if (prices.length === 0) return [];
+  const updateIndicatorsDebounced = (candles: CandleData[]) => {
+    if (isUpdatingRef.current) return;
 
-    const candleMap = new Map<number, { open: number; high: number; low: number; close: number; prices: number[] }>();
-
-    prices.forEach((price) => {
-      const bid = parseFloat(price.bid);
-      const ask = parseFloat(price.ask);
-
-      if (isNaN(bid) || isNaN(ask) || bid <= 0 || ask <= 0) {
-        return;
-      }
-
-      const midPrice = (bid + ask) / 2;
-      const timestamp = new Date(price.broker_time || price.created_at).getTime();
-      const candleTime = Math.floor(timestamp / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60);
-
-      if (!candleMap.has(candleTime)) {
-        candleMap.set(candleTime, {
-          open: midPrice,
-          high: midPrice,
-          low: midPrice,
-          close: midPrice,
-          prices: [midPrice],
-        });
-      } else {
-        const candle = candleMap.get(candleTime)!;
-        candle.high = Math.max(candle.high, midPrice);
-        candle.low = Math.min(candle.low, midPrice);
-        candle.close = midPrice;
-        candle.prices.push(midPrice);
-      }
+    isUpdatingRef.current = true;
+    requestAnimationFrame(() => {
+      updateIndicators(candles);
+      isUpdatingRef.current = false;
     });
-
-    const candles: CandlestickData[] = Array.from(candleMap.entries())
-      .map(([time, data]) => ({
-        time: time / 1000,
-        open: data.open,
-        high: data.high,
-        low: data.low,
-        close: data.close,
-      }))
-      .sort((a, b) => a.time - b.time);
-
-    return candles;
   };
 
-  const updateIndicators = (candles: CandlestickData[]) => {
+  const updateIndicators = (candles: CandleData[]) => {
     if (candles.length === 0) return;
 
     const vwap = calculateVWAP(candles);
@@ -284,7 +242,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const updateCurrentCandle = (newPrice: number, timestamp: number) => {
     if (!candlestickSeriesRef.current) return;
 
-    const intervalMinutes = chartPreferencesService.getTimeframeMinutes(timeframe);
+    const intervalMinutes = getTimeframeMinutes(timeframe);
     const candleTime = Math.floor(timestamp / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60);
     const candleTimeSeconds = candleTime / 1000;
 
@@ -297,7 +255,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
     if (!currentCandleRef.current || currentCandleRef.current.startTime !== candleTime) {
       if (currentCandleRef.current && historicalCandlesRef.current) {
-        const completedCandle = {
+        const completedCandle: CandleData = {
           time: currentCandleRef.current.time,
           open: currentCandleRef.current.open,
           high: currentCandleRef.current.high,
@@ -328,7 +286,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       currentCandleRef.current.close = newPrice;
     }
 
-    const updatedCandle: CandlestickData = {
+    const updatedCandle: CandleData = {
       time: currentCandleRef.current.time,
       open: currentCandleRef.current.open,
       high: currentCandleRef.current.high,
@@ -339,8 +297,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     try {
       candlestickSeriesRef.current.update(updatedCandle);
 
-      const allCandles = [...historicalCandlesRef.current, updatedCandle];
-      updateIndicators(allCandles);
+      updateQueueRef.current.push(newPrice);
+      if (updateQueueRef.current.length >= 5) {
+        const allCandles = [...historicalCandlesRef.current, updatedCandle];
+        updateIndicatorsDebounced(allCandles);
+        updateQueueRef.current = [];
+      }
 
       setCurrentPrice(newPrice);
       setLastUpdate(new Date());
@@ -352,49 +314,21 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
   const fetchNewPrices = async () => {
     try {
-      let query = supabase
-        .from('realtime_prices')
-        .select('bid, ask, broker_time, created_at')
-        .eq('symbol', symbol)
-        .order('created_at', { ascending: true });
+      const intervalMinutes = getTimeframeMinutes(timeframe);
+      const recentPrices = await fetchRecentRealtimePrices(symbol, intervalMinutes * 2);
 
-      if (lastFetchTimeRef.current) {
-        query = query.gt('created_at', lastFetchTimeRef.current);
-      } else {
-        const dataLimit = chartPreferencesService.getDataLimit(timeframe);
-        query = query.limit(dataLimit);
-      }
+      if (recentPrices.length > 0) {
+        const latestPrice = recentPrices[recentPrices.length - 1];
+        const bid = parseFloat(latestPrice.bid);
+        const ask = parseFloat(latestPrice.ask);
 
-      const { data, error: dbError } = await query;
-
-      if (dbError) {
-        console.error('Database error:', dbError);
-        return;
-      }
-
-      if (data && data.length > 0) {
-        const validPrices = data.filter((price: RealtimePrice) => {
-          const bid = parseFloat(price.bid);
-          const ask = parseFloat(price.ask);
-          return !isNaN(bid) && !isNaN(ask) && bid > 0 && ask > 0;
-        });
-
-        const seenTimestamps = new Set<number>();
-
-        validPrices.forEach((price: RealtimePrice) => {
-          const bid = parseFloat(price.bid);
-          const ask = parseFloat(price.ask);
+        if (!isNaN(bid) && !isNaN(ask) && bid > 0 && ask > 0) {
           const midPrice = (bid + ask) / 2;
-          const timestamp = new Date(price.broker_time || price.created_at).getTime();
-
-          if (!seenTimestamps.has(timestamp)) {
-            seenTimestamps.add(timestamp);
-            updateCurrentCandle(midPrice, timestamp);
-          }
-        });
-
-        lastFetchTimeRef.current = data[data.length - 1].created_at;
-        setError(null);
+          const timestamp = new Date(latestPrice.broker_time || latestPrice.created_at).getTime();
+          updateCurrentCandle(midPrice, timestamp);
+          lastFetchTimeRef.current = latestPrice.created_at;
+          setError(null);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch new prices:', err);
@@ -407,55 +341,42 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       setError(null);
 
       const dataLimit = chartPreferencesService.getDataLimit(timeframe);
-      const { data, error: dbError } = await supabase
-        .from('realtime_prices')
-        .select('bid, ask, broker_time, created_at')
-        .eq('symbol', symbol)
-        .order('created_at', { ascending: true })
-        .limit(dataLimit);
+      const chartData = await fetchCompleteChartData(symbol, timeframe, dataLimit);
 
-      if (dbError) {
-        console.error('Database error:', dbError);
-        setError(`Unable to load price data: ${dbError.message || 'Unknown error'}`);
+      if (chartData.historical.length === 0 && !chartData.current) {
+        console.warn('No candle data found for symbol:', symbol);
+        setError('Waiting for price data... The price feed will start shortly.');
         setIsLoading(false);
         return;
       }
 
-      if (data && data.length > 0) {
-        const intervalMinutes = chartPreferencesService.getTimeframeMinutes(timeframe);
-        const candleData = aggregateToCandles(data as RealtimePrice[], intervalMinutes);
+      historicalCandlesRef.current = chartData.historical;
 
-        if (candleData.length > 0) {
-          historicalCandlesRef.current = candleData.slice(0, -1);
+      candlestickSeriesRef.current?.setData(chartData.historical);
 
-          candlestickSeriesRef.current?.setData(historicalCandlesRef.current);
+      if (chartData.current) {
+        currentCandleRef.current = {
+          ...chartData.current,
+          startTime: chartData.current.time * 1000
+        };
+        candlestickSeriesRef.current?.update(chartData.current);
+      }
 
-          const lastCandle = candleData[candleData.length - 1];
-          const latestPrice = data[data.length - 1];
-          const timestamp = new Date(latestPrice.broker_time || latestPrice.created_at).getTime();
+      const allCandles = chartData.current
+        ? [...chartData.historical, chartData.current]
+        : chartData.historical;
 
-          currentCandleRef.current = {
-            ...lastCandle,
-            startTime: lastCandle.time * 1000
-          };
+      if (allCandles.length > 0) {
+        const lastCandle = allCandles[allCandles.length - 1];
+        const firstCandle = allCandles[0];
 
-          candlestickSeriesRef.current?.update(lastCandle);
+        setCurrentPrice(lastCandle.close);
+        setPriceChange(((lastCandle.close - firstCandle.open) / firstCandle.open) * 100);
+        setLastUpdate(new Date());
 
-          updateIndicators(candleData);
-
-          const firstCandle = candleData[0];
-          setCurrentPrice(lastCandle.close);
-          setPriceChange(((lastCandle.close - firstCandle.open) / firstCandle.open) * 100);
-          setLastUpdate(new Date());
-
-          lastFetchTimeRef.current = data[data.length - 1].created_at;
-        } else {
-          console.warn('No valid candle data after aggregation');
-          setError('Waiting for price data... The price feed will start shortly.');
-        }
-      } else {
-        console.warn('No price data found for symbol:', symbol);
-        setError('Waiting for price data... The price feed will start shortly.');
+        requestAnimationFrame(() => {
+          updateIndicators(allCandles);
+        });
       }
 
       setIsLoading(false);
