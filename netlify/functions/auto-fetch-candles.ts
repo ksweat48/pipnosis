@@ -1,10 +1,10 @@
-import { Handler, schedule } from '@netlify/functions';
+import type { Handler } from '@netlify/functions';
 
 const WATCHLIST_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD'];
 const TIMEFRAME = 'M15';
 const CANDLE_LIMIT = 100;
 
-const handler: Handler = async (event, context) => {
+export const handler: Handler = async (event, context) => {
   console.log('[Auto Fetch] Starting automated candle fetch...');
 
   const results = [];
@@ -75,7 +75,3 @@ const handler: Handler = async (event, context) => {
     })
   };
 };
-
-const scheduledHandler = schedule('*/15 * * * *', handler);
-
-export { handler, scheduledHandler };

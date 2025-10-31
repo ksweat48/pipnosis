@@ -37,7 +37,9 @@ class AIMarketEngine {
   private readonly MIN_CALL_INTERVAL_MS = 3 * 60 * 1000;
 
   constructor() {
-    this.apiKey = import.meta.env.VITE_OPENAI_API_KEY || '';
+    this.apiKey = typeof import.meta !== 'undefined' && import.meta.env
+      ? import.meta.env.VITE_OPENAI_API_KEY || ''
+      : process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
   }
 
   private canMakeApiCall(): { allowed: boolean; reason?: string } {

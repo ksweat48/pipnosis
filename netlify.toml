@@ -16,6 +16,9 @@
   timeout = 600
   schedule = "0 2 * * *"
 
+[functions."auto-fetch-candles"]
+  timeout = 300
+
 [functions."connection-health"]
   timeout = 26
 
