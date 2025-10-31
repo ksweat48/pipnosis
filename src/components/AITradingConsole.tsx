@@ -25,30 +25,6 @@ export function AITradingConsole() {
           <GoalSessionDashboard />
         </div>
       </div>
-
-      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6">
-        <h4 className="text-lg font-semibold text-white mb-4">How AI Trading Works</h4>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="space-y-2">
-            <h5 className="text-sm font-semibold text-blue-400">Set Your Goal</h5>
-            <p className="text-xs text-gray-400 leading-relaxed">
-              Tell the AI what you want to achieve using natural language or quick templates.
-            </p>
-          </div>
-          <div className="space-y-2">
-            <h5 className="text-sm font-semibold text-blue-400">AI Analyzes & Acts</h5>
-            <p className="text-xs text-gray-400 leading-relaxed">
-              The AI continuously scans markets and forecasts opportunities to reach your goal.
-            </p>
-          </div>
-          <div className="space-y-2">
-            <h5 className="text-sm font-semibold text-blue-400">Track Progress</h5>
-            <p className="text-xs text-gray-400 leading-relaxed">
-              Monitor real-time updates, insights, and performance until your goal is achieved.
-            </p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
