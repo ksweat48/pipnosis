@@ -79,17 +79,43 @@ async function saveCandlesToDatabase(candles) {
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  const { error } = await supabase
+  // Save to forex_candles (original table)
+  const { error: forexError } = await supabase
     .from('forex_candles')
     .upsert(candles, {
       onConflict: 'symbol,timeframe,open_time',
       ignoreDuplicates: false
     });
 
-  if (error) {
-    console.error('Failed to save candles to database:', error.message);
+  if (forexError) {
+    console.error('Failed to save candles to forex_candles:', forexError.message);
   } else {
-    console.log(`Saved ${candles.length} candles to database`);
+    console.log(`Saved ${candles.length} candles to forex_candles`);
+  }
+
+  // Also save to market_data (for AI scanner)
+  const marketDataCandles = candles.map(c => ({
+    symbol: c.symbol,
+    timeframe: c.timeframe,
+    timestamp: c.open_time,
+    open: c.open,
+    high: c.high,
+    low: c.low,
+    close: c.close,
+    volume: c.volume
+  }));
+
+  const { error: marketDataError } = await supabase
+    .from('market_data')
+    .upsert(marketDataCandles, {
+      onConflict: 'symbol,timeframe,timestamp',
+      ignoreDuplicates: false
+    });
+
+  if (marketDataError) {
+    console.error('Failed to save candles to market_data:', marketDataError.message);
+  } else {
+    console.log(`Saved ${marketDataCandles.length} candles to market_data`);
   }
 }
 

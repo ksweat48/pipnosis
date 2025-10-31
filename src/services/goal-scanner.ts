@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { forecastEngine, MarketConditions } from './forecast-engine';
 import { goalSessionManager } from './goal-session-manager';
+import { tradeExecutionEngine } from './trade-execution-engine';
 
 export interface ScanResult {
   symbol: string;
@@ -43,7 +44,7 @@ class GoalScanner {
         return [];
       }
 
-      const watchlist = session.data.watchlist || ['XAUUSD', 'EURUSD', 'GBPUSD'];
+      const watchlist = session.data.watchlist || ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD'];
       const results: ScanResult[] = [];
 
       for (const symbol of watchlist) {
@@ -55,6 +56,29 @@ class GoalScanner {
       const nextScanTime = new Date(lastScanTime.getTime() + session.data.scan_interval_minutes * 60 * 1000);
 
       await goalSessionManager.updateScanTime(sessionId, lastScanTime, nextScanTime);
+
+      const validSetups = results.filter(r => r.hasValidSetup);
+
+      if (validSetups.length > 0) {
+        console.log(`[Goal Scanner] Found ${validSetups.length} valid setup(s), evaluating for execution...`);
+
+        for (const setup of validSetups) {
+          const signal = await this.evaluateSignal(sessionId, setup, session.data);
+          if (signal) {
+            const executionResult = await tradeExecutionEngine.executeSignal(
+              signal,
+              userId,
+              session.data.auto_execute
+            );
+
+            if (executionResult.success) {
+              console.log(`[Goal Scanner] Trade signal processed: ${executionResult.message}`);
+            } else {
+              console.warn(`[Goal Scanner] Signal execution failed: ${executionResult.error}`);
+            }
+          }
+        }
+      }
 
       await goalSessionManager.addAIMessage(
         sessionId,

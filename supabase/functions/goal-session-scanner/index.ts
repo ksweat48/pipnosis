@@ -144,7 +144,7 @@ Deno.serve(async (req: Request) => {
 });
 
 async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
-  const watchlist = session.watchlist || ['XAUUSD', 'EURUSD', 'GBPUSD'];
+  const watchlist = session.watchlist || ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD'];
   const results: ScanResult[] = [];
 
   for (const symbol of watchlist) {
@@ -184,12 +184,34 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
     };
 
     if (setup.hasValidSetup) {
+      const riskAmount = calculateRiskAmount(session);
+      const stopDistance = Math.abs(setup.entry - setup.stopLoss);
+      const positionSize = stopDistance > 0 ? riskAmount / stopDistance : 0.01;
+      const riskReward = Math.abs(setup.takeProfit - setup.entry) / stopDistance;
+      const expectedProfit = Math.abs((setup.takeProfit - setup.entry) * positionSize);
+
+      const tradeResult = await supabase.from('goal_session_trades').insert({
+        goal_session_id: session.id,
+        symbol,
+        direction: setup.direction || 'buy',
+        entry_price: setup.entry,
+        stop_loss: setup.stopLoss,
+        take_profit: setup.takeProfit,
+        position_size: positionSize,
+        status: session.auto_execute ? 'open' : 'pending',
+        opened_at: session.auto_execute ? new Date().toISOString() : null,
+      }).select().single();
+
+      const tradeMessage = session.auto_execute
+        ? `Trade executed on ${symbol}! ${setup.direction?.toUpperCase()} at ${setup.entry.toFixed(5)}. ${setup.setupType} with ${setup.confidence}% confidence. Stop Loss: ${setup.stopLoss.toFixed(5)}, Take Profit: ${setup.takeProfit.toFixed(5)}. R:R = ${riskReward.toFixed(2)}`
+        : `Trade signal detected on ${symbol}! ${setup.setupType} setup with ${setup.confidence}% confidence. ${setup.reasoning}. Awaiting your confirmation to execute.`;
+
       await supabase.from('goal_ai_conversations').insert({
         goal_session_id: session.id,
         user_id: session.user_id,
         role: 'ai',
-        message: `Valid setup detected: ${setup.reasoning}`,
-        context: { setup },
+        message: tradeMessage,
+        context: { setup, trade: tradeResult.data },
         sentiment: 'encouraging',
         technical_data: technicalData,
         market_snapshot: marketSnapshot,
@@ -200,50 +222,22 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
         user_id: session.user_id,
         notification_type: 'signal',
         priority: 'urgent',
-        title: `Trade Signal: ${symbol}`,
-        message: setup.reasoning || 'Setup detected',
-        data: { setup },
+        title: `${session.auto_execute ? 'Trade Executed' : 'Trade Signal'}: ${symbol}`,
+        message: `${setup.setupType}: Entry ${setup.entry.toFixed(5)}, SL ${setup.stopLoss.toFixed(5)}, TP ${setup.takeProfit.toFixed(5)}`,
+        data: { setup, trade: tradeResult.data, riskReward, expectedProfit },
         channels: ['in_app', 'email'],
       }).select().single();
 
-      if (notificationResult.data) {
-        await fetch(`${supabaseUrl}/functions/v1/send-goal-email`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-          },
-          body: JSON.stringify({
-            userId: session.user_id,
-            notificationId: notificationResult.data.id,
-            sessionId: session.id,
-            emailType: 'trade_signal',
-            data: {
-              symbol,
-              direction: setup.direction || 'buy',
-              confidence: setup.confidence,
-              setupType: setup.setupType,
-              entryPrice: setup.entry,
-              stopLoss: setup.stopLoss,
-              takeProfit: setup.takeProfit,
-              riskReward: Math.abs((setup.takeProfit - setup.entry) / (setup.entry - setup.stopLoss)),
-              expectedProfit: 0,
-              reasoning: setup.reasoning,
-            },
-          }),
-        }).catch(err => console.error('Email send failed:', err));
-      }
-
       await supabase
         .from('goal_sessions')
-        .update({ status: 'trade_pending' })
+        .update({ status: session.auto_execute ? 'in_trade' : 'trade_pending' })
         .eq('id', session.id);
     }
   }
 
   const validSetups = results.filter(r => r.hasValidSetup);
   const summaryMessage = validSetups.length > 0
-    ? `Found ${validSetups.length} valid setup(s). Review signals to proceed.`
+    ? `Found ${validSetups.length} valid setup(s). ${session.auto_execute ? 'Trades executed.' : 'Review signals to proceed.'}`
     : 'No valid setups found. Continuing scheduled scans...';
 
   const overallMarketSnapshot = {
@@ -402,4 +396,15 @@ function determineVolatility(atr: number, price: number): string {
   if (atrPercent < 0.1) return 'low';
   if (atrPercent > 0.3) return 'high';
   return 'medium';
+}
+
+function calculateRiskAmount(session: any): number {
+  const balance = session.starting_balance || 10000;
+  const riskPercentages: Record<string, number> = {
+    low: 0.01,
+    medium: 0.02,
+    high: 0.03,
+  };
+  const riskPercent = riskPercentages[session.risk_mode] || 0.02;
+  return balance * riskPercent;
 }

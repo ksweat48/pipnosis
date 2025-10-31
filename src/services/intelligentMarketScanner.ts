@@ -201,7 +201,7 @@ class IntelligentMarketScanner {
 
   async getDefaultConfig(): Promise<ScannerConfig> {
     return {
-      symbols: ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD'],
+      symbols: ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'],
       timeframe: 'M15',
       minTechnicalScore: 65,
       requireAIValidation: true,

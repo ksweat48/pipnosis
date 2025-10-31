@@ -175,7 +175,7 @@ class GoalScannerTrigger {
       try {
         const { data, error } = await supabase
           .from('market_data')
-          .select('timestamp', { count: 'exact' })
+          .select('timestamp')
           .eq('symbol', symbol)
           .eq('timeframe', '15m')
           .order('timestamp', { ascending: false })

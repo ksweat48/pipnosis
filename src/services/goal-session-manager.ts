@@ -130,7 +130,7 @@ class GoalSessionManager {
           starting_balance: startingBalance,
           scan_interval_minutes: scanInterval,
           auto_execute: config.autoExecute ?? false,
-          watchlist: config.watchlist ?? ['XAUUSD', 'EURUSD', 'GBPUSD'],
+          watchlist: config.watchlist ?? ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD'],
           end_time: endTime,
           next_scan_time: nextScanTime,
         })
