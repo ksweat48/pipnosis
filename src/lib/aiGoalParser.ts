@@ -159,7 +159,7 @@ Respond with ONLY valid JSON in this format:
     const timeframeDays = timeframe.includes('week') ? 7 : timeframe.includes('month') ? 30 : 1;
     const estimatedTrades = Math.ceil(baseTradesPerDay * timeframeDays * riskMultipliers[riskMode]);
 
-    const watchlist = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY'];
+    const watchlist = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
 
     return {
       config: {

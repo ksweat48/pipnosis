@@ -60,7 +60,7 @@ export async function refreshBatchSchedules(): Promise<BatchRefreshResult> {
 
     const results: RefreshResult[] = [];
 
-    const commonSymbols = ['EURUSD', 'GBPUSD', 'USDJPY'];
+    const commonSymbols = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
     const timeframes: ('5m' | '15m' | '1h')[] = ['5m', '15m', '1h'];
 
     for (const symbol of commonSymbols) {

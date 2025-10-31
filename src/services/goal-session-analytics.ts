@@ -148,9 +148,10 @@ class GoalSessionAnalytics {
   }
 
   inferPatternFromTrade(trade: any): string {
-    const symbols = ['XAUUSD', 'EURUSD', 'GBPUSD'];
+    const symbols = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD'];
 
     if (trade.symbol === 'XAUUSD') return 'Gold momentum trades';
+    if (trade.symbol === 'US30') return 'US30 index breakout strategy';
     if (trade.symbol === 'EURUSD') return 'EUR/USD trend following';
     if (trade.symbol === 'GBPUSD') return 'GBP/USD volatility plays';
 

@@ -15,8 +15,8 @@ class GlobalPollingCoordinator {
   private statusLoggingInterval: NodeJS.Timeout | null = null;
 
   private readonly FOREX_PAIRS = [
-    'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD',
-    'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'
+    'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF',
+    'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'
   ];
 
   private readonly POLL_INTERVAL = 5000;

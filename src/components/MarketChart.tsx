@@ -539,8 +539,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   }, [tradeLines]);
 
   const FOREX_PAIRS = [
-    'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD',
-    'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'
+    'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF',
+    'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'
   ];
 
   const TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'D1', 'W1'];

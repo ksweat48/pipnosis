@@ -9,7 +9,7 @@ interface PromptAnalysis {
 class MultiSymbolScanner {
   async analyzePrompt(prompt: string): Promise<PromptAnalysis> {
     return {
-      symbols: ['EURUSD', 'GBPUSD', 'USDJPY'],
+      symbols: ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'],
       riskTolerance: 'medium',
       timeframe: '1H'
     };
