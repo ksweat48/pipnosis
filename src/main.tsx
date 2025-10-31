@@ -6,6 +6,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { errorHandler } from '@/lib/error-handler';
 import App from './App.tsx';
 import './index.css';
+import './utils/scanner-test';
 
 console.log('Application initializing...');
 console.log('Supabase URL:', import.meta.env.VITE_SUPABASE_URL);
