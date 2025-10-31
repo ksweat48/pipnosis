@@ -583,6 +583,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
             </div>
 
             <div className="flex items-center gap-3">
+              <Clock className="text-gray-500" size={20} />
+              <select
+                value={timeframe}
+                onChange={(e) => handleTimeframeChange(e.target.value as Timeframe)}
+                className="bg-gray-800 text-white px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+              >
+                {TIMEFRAMES.map(tf => (
+                  <option key={tf} value={tf}>{tf}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/50 rounded-lg border border-gray-700">
                 <div className={`w-2 h-2 rounded-full ${
                   systemStatus === 'connected' ? 'bg-green-500 animate-pulse' :
@@ -618,23 +631,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
               </div>
             </div>
           )}
-        </div>
-
-        <div className="flex items-center gap-2 overflow-x-auto pb-2">
-          <Clock className="text-gray-500 w-4 h-4 flex-shrink-0" />
-          {TIMEFRAMES.map((tf) => (
-            <button
-              key={tf}
-              onClick={() => handleTimeframeChange(tf)}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition-all flex-shrink-0 ${
-                timeframe === tf
-                  ? 'bg-emerald-600 text-white shadow-lg'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white border border-gray-700'
-              }`}
-            >
-              {tf}
-            </button>
-          ))}
         </div>
       </div>
 
