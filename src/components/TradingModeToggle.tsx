@@ -9,7 +9,7 @@ interface TradingModeToggleProps {
 }
 
 export function TradingModeToggle({ symbol, onTradeExecuted }: TradingModeToggleProps) {
-  const [activeMode, setActiveMode] = useState<'manual' | 'ai'>('manual');
+  const [activeMode, setActiveMode] = useState<'manual' | 'ai'>('ai');
 
   return (
     <div className="bg-gray-900 rounded-lg border border-gray-700 shadow-lg overflow-hidden">

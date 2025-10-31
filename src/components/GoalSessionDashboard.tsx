@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, Play } from 'lucide-react';
+import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2 } from 'lucide-react';
 import { goalSessionManager, GoalSession } from '../services/goal-session-manager';
 import { goalNotificationSystem } from '../services/goal-notifications';
 import { useAuth } from '../hooks/useAuth';
+import { MarketAnalysisStream } from './MarketAnalysisStream';
 
 export const GoalSessionDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -213,26 +214,98 @@ export const GoalSessionDashboard: React.FC = () => {
         )}
       </div>
 
+      {activeSession && (
+        <MarketAnalysisStream
+          sessionId={activeSession.id}
+          watchlist={activeSession.watchlist}
+        />
+      )}
+
       {conversations.length > 0 && (
         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
           <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
             <Activity className="w-5 h-5 text-blue-400" />
-            AI Updates
+            AI Analysis Updates
           </h4>
-          <div className="space-y-3 max-h-64 overflow-y-auto">
+          <div className="space-y-3 max-h-96 overflow-y-auto">
             {conversations.slice(-10).reverse().map((convo) => (
               <div
                 key={convo.id}
-                className={`p-3 rounded-lg ${
-                  convo.role === 'ai' ? 'bg-blue-900/20 border-l-2 border-blue-500' : 'bg-gray-700'
+                className={`p-4 rounded-lg ${
+                  convo.role === 'ai' ? 'bg-blue-900/20 border-l-4 border-blue-500' : 'bg-gray-700'
                 }`}
               >
-                <div className="flex items-start justify-between">
-                  <p className="text-sm text-gray-300">{convo.message}</p>
-                  <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1">
+                    <p className="text-sm text-gray-200 leading-relaxed">{convo.message}</p>
+                  </div>
+                  <span className="text-xs text-gray-500 whitespace-nowrap ml-3">
                     {new Date(convo.created_at).toLocaleTimeString()}
                   </span>
                 </div>
+
+                {convo.technical_data && Object.keys(convo.technical_data).length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-700">
+                    <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+                      <BarChart2 className="w-3 h-3" />
+                      <span>Technical Data:</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {convo.technical_data.ema20 && (
+                        <div>
+                          <span className="text-gray-500">EMA20:</span>
+                          <span className="text-gray-300 ml-1 font-mono">{convo.technical_data.ema20.toFixed(5)}</span>
+                        </div>
+                      )}
+                      {convo.technical_data.ema50 && (
+                        <div>
+                          <span className="text-gray-500">EMA50:</span>
+                          <span className="text-gray-300 ml-1 font-mono">{convo.technical_data.ema50.toFixed(5)}</span>
+                        </div>
+                      )}
+                      {convo.technical_data.vwap && (
+                        <div>
+                          <span className="text-gray-500">VWAP:</span>
+                          <span className="text-gray-300 ml-1 font-mono">{convo.technical_data.vwap.toFixed(5)}</span>
+                        </div>
+                      )}
+                      {convo.technical_data.atr && (
+                        <div>
+                          <span className="text-gray-500">ATR:</span>
+                          <span className="text-gray-300 ml-1 font-mono">{convo.technical_data.atr.toFixed(5)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {convo.market_snapshot && Object.keys(convo.market_snapshot).length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-gray-700">
+                    <div className="flex items-center gap-4 text-xs">
+                      {convo.market_snapshot.trend && (
+                        <div>
+                          <span className="text-gray-500">Trend:</span>
+                          <span className={`ml-1 font-semibold capitalize ${
+                            convo.market_snapshot.trend === 'bullish' ? 'text-green-400' :
+                            convo.market_snapshot.trend === 'bearish' ? 'text-red-400' : 'text-gray-400'
+                          }`}>{convo.market_snapshot.trend}</span>
+                        </div>
+                      )}
+                      {convo.market_snapshot.volatility && (
+                        <div>
+                          <span className="text-gray-500">Volatility:</span>
+                          <span className="ml-1 font-semibold text-yellow-400 capitalize">{convo.market_snapshot.volatility}</span>
+                        </div>
+                      )}
+                      {convo.market_snapshot.confidence && (
+                        <div>
+                          <span className="text-gray-500">Confidence:</span>
+                          <span className="ml-1 font-semibold text-blue-400">{convo.market_snapshot.confidence}%</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

@@ -26,27 +26,24 @@ export function AITradingConsole() {
         </div>
       </div>
 
-      <div className="bg-gradient-to-r from-blue-900/20 to-cyan-900/20 border border-blue-700/50 rounded-lg p-6">
-        <h4 className="text-lg font-semibold text-blue-400 mb-3">How AI Trading Works</h4>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <div className="text-2xl font-bold text-blue-400 mb-2">1</div>
-            <h5 className="text-sm font-semibold text-white mb-1">Set Your Goal</h5>
-            <p className="text-xs text-gray-400">
+      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6">
+        <h4 className="text-lg font-semibold text-white mb-4">How AI Trading Works</h4>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="space-y-2">
+            <h5 className="text-sm font-semibold text-blue-400">Set Your Goal</h5>
+            <p className="text-xs text-gray-400 leading-relaxed">
               Tell the AI what you want to achieve using natural language or quick templates.
             </p>
           </div>
-          <div>
-            <div className="text-2xl font-bold text-blue-400 mb-2">2</div>
-            <h5 className="text-sm font-semibold text-white mb-1">AI Analyzes & Acts</h5>
-            <p className="text-xs text-gray-400">
+          <div className="space-y-2">
+            <h5 className="text-sm font-semibold text-blue-400">AI Analyzes & Acts</h5>
+            <p className="text-xs text-gray-400 leading-relaxed">
               The AI continuously scans markets and forecasts opportunities to reach your goal.
             </p>
           </div>
-          <div>
-            <div className="text-2xl font-bold text-blue-400 mb-2">3</div>
-            <h5 className="text-sm font-semibold text-white mb-1">Track Progress</h5>
-            <p className="text-xs text-gray-400">
+          <div className="space-y-2">
+            <h5 className="text-sm font-semibold text-blue-400">Track Progress</h5>
+            <p className="text-xs text-gray-400 leading-relaxed">
               Monitor real-time updates, insights, and performance until your goal is achieved.
             </p>
           </div>

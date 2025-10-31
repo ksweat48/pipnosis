@@ -16,6 +16,15 @@ interface ScanResult {
   takeProfit?: number;
   confidence?: number;
   reasoning?: string;
+  ema20?: number;
+  ema50?: number;
+  vwap?: number;
+  atr?: number;
+  currentPrice?: number;
+  trend?: string;
+  volatility?: string;
+  distanceFromVWAP?: number;
+  direction?: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -159,6 +168,21 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
     const setup = analyzeSetup(symbol, candles, session);
     results.push(setup);
 
+    const technicalData = {
+      ema20: setup.ema20,
+      ema50: setup.ema50,
+      vwap: setup.vwap,
+      atr: setup.atr,
+      currentPrice: setup.currentPrice,
+    };
+
+    const marketSnapshot = {
+      trend: setup.trend,
+      volatility: setup.volatility,
+      confidence: setup.confidence,
+      distanceFromVWAP: setup.distanceFromVWAP,
+    };
+
     if (setup.hasValidSetup) {
       await supabase.from('goal_ai_conversations').insert({
         goal_session_id: session.id,
@@ -167,9 +191,11 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
         message: `Valid setup detected: ${setup.reasoning}`,
         context: { setup },
         sentiment: 'encouraging',
+        technical_data: technicalData,
+        market_snapshot: marketSnapshot,
       });
 
-      await supabase.from('goal_notifications').insert({
+      const notificationResult = await supabase.from('goal_notifications').insert({
         goal_session_id: session.id,
         user_id: session.user_id,
         notification_type: 'signal',
@@ -177,8 +203,36 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
         title: `Trade Signal: ${symbol}`,
         message: setup.reasoning || 'Setup detected',
         data: { setup },
-        channels: ['in_app'],
-      });
+        channels: ['in_app', 'email'],
+      }).select().single();
+
+      if (notificationResult.data) {
+        await fetch(`${supabaseUrl}/functions/v1/send-goal-email`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          },
+          body: JSON.stringify({
+            userId: session.user_id,
+            notificationId: notificationResult.data.id,
+            sessionId: session.id,
+            emailType: 'trade_signal',
+            data: {
+              symbol,
+              direction: setup.direction || 'buy',
+              confidence: setup.confidence,
+              setupType: setup.setupType,
+              entryPrice: setup.entry,
+              stopLoss: setup.stopLoss,
+              takeProfit: setup.takeProfit,
+              riskReward: Math.abs((setup.takeProfit - setup.entry) / (setup.entry - setup.stopLoss)),
+              expectedProfit: 0,
+              reasoning: setup.reasoning,
+            },
+          }),
+        }).catch(err => console.error('Email send failed:', err));
+      }
 
       await supabase
         .from('goal_sessions')
@@ -192,6 +246,17 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
     ? `Found ${validSetups.length} valid setup(s). Review signals to proceed.`
     : 'No valid setups found. Continuing scheduled scans...';
 
+  const overallMarketSnapshot = {
+    totalSymbols: results.length,
+    validSetups: validSetups.length,
+    avgConfidence: results.reduce((sum, r) => sum + (r.confidence || 0), 0) / results.length,
+    marketConditions: results.map(r => ({
+      symbol: r.symbol,
+      trend: r.trend,
+      volatility: r.volatility,
+    })),
+  };
+
   await supabase.from('goal_ai_conversations').insert({
     goal_session_id: session.id,
     user_id: session.user_id,
@@ -199,6 +264,7 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
     message: summaryMessage,
     context: { scanResults: results },
     sentiment: 'neutral',
+    market_snapshot: overallMarketSnapshot,
   });
 
   return results;
@@ -216,6 +282,9 @@ function analyzeSetup(symbol: string, candles: any[], session: any): ScanResult 
 
   const priceToVwap = ((currentPrice - vwap) / currentPrice) * 100;
 
+  const trend = determineTrend(recentCandles);
+  const volatility = determineVolatility(atr, currentPrice);
+
   let hasValidSetup = false;
   let setupType = '';
   let entry = currentPrice;
@@ -223,10 +292,12 @@ function analyzeSetup(symbol: string, candles: any[], session: any): ScanResult 
   let takeProfit = 0;
   let confidence = 0;
   let reasoning = '';
+  let direction = 'buy';
 
   if (Math.abs(priceToVwap) < 0.1 && ema20 > ema50) {
     hasValidSetup = true;
     setupType = 'VWAP Bounce Long';
+    direction = 'buy';
     entry = currentPrice;
     stopLoss = currentPrice - (atr * 1.5);
     takeProfit = currentPrice + (atr * 2.5);
@@ -235,6 +306,7 @@ function analyzeSetup(symbol: string, candles: any[], session: any): ScanResult 
   } else if (Math.abs(priceToVwap) < 0.1 && ema20 < ema50) {
     hasValidSetup = true;
     setupType = 'VWAP Rejection Short';
+    direction = 'sell';
     entry = currentPrice;
     stopLoss = currentPrice + (atr * 1.5);
     takeProfit = currentPrice - (atr * 2.5);
@@ -257,6 +329,15 @@ function analyzeSetup(symbol: string, candles: any[], session: any): ScanResult 
     takeProfit,
     confidence,
     reasoning,
+    ema20,
+    ema50,
+    vwap,
+    atr,
+    currentPrice,
+    trend,
+    volatility,
+    distanceFromVWAP: priceToVwap,
+    direction,
   };
 }
 
@@ -305,4 +386,20 @@ function calculateATR(candles: any[], period: number = 14): number {
   }
 
   return trs.slice(-period).reduce((sum, tr) => sum + tr, 0) / period;
+}
+
+function determineTrend(candles: any[]): string {
+  if (!candles || candles.length < 20) return 'sideways';
+  const prices = candles.map((c: any) => c.close);
+  const change = ((prices[prices.length - 1] - prices[0]) / prices[0]) * 100;
+  if (change > 0.5) return 'bullish';
+  if (change < -0.5) return 'bearish';
+  return 'sideways';
+}
+
+function determineVolatility(atr: number, price: number): string {
+  const atrPercent = (atr / price) * 100;
+  if (atrPercent < 0.1) return 'low';
+  if (atrPercent > 0.3) return 'high';
+  return 'medium';
 }
