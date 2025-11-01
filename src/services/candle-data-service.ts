@@ -147,7 +147,7 @@ export function aggregatePricesToCurrentCandle(
   });
 
   return {
-    time: currentCandleTime / 1000,
+    time: Math.floor(currentCandleTime / 1000),
     open: midPrices[0],
     high: Math.max(...midPrices),
     low: Math.min(...midPrices),
@@ -170,8 +170,11 @@ export async function fetchCompleteChartData(
   let finalHistorical = historicalCandles;
   if (currentCandle && historicalCandles.length > 0) {
     const lastHistoricalTime = historicalCandles[historicalCandles.length - 1].time;
-    if (currentCandle.time === lastHistoricalTime) {
-      finalHistorical = historicalCandles.slice(0, -1);
+    if (currentCandle.time <= lastHistoricalTime) {
+      return {
+        historical: historicalCandles,
+        current: null,
+      };
     }
   }
 

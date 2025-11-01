@@ -244,11 +244,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
     const intervalMinutes = getTimeframeMinutes(timeframe);
     const candleTime = Math.floor(timestamp / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60);
-    const candleTimeSeconds = candleTime / 1000;
+    const candleTimeSeconds = Math.floor(candleTime / 1000);
 
     if (historicalCandlesRef.current.length > 0) {
       const lastHistoricalTime = historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time;
-      if (candleTimeSeconds < lastHistoricalTime) {
+      if (candleTimeSeconds <= lastHistoricalTime) {
         return;
       }
     }
@@ -350,21 +350,35 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         return;
       }
 
-      historicalCandlesRef.current = chartData.historical;
+      const sortedHistorical = [...chartData.historical].sort((a, b) => a.time - b.time);
+      const uniqueHistorical = sortedHistorical.filter((candle, index, array) => {
+        if (index === 0) return true;
+        return candle.time > array[index - 1].time;
+      });
 
-      candlestickSeriesRef.current?.setData(chartData.historical);
+      historicalCandlesRef.current = uniqueHistorical;
 
-      if (chartData.current) {
-        currentCandleRef.current = {
-          ...chartData.current,
-          startTime: chartData.current.time * 1000
-        };
-        candlestickSeriesRef.current?.update(chartData.current);
+      if (candlestickSeriesRef.current) {
+        candlestickSeriesRef.current.setData(uniqueHistorical);
       }
 
-      const allCandles = chartData.current
-        ? [...chartData.historical, chartData.current]
-        : chartData.historical;
+      if (chartData.current) {
+        const lastHistoricalTime = uniqueHistorical.length > 0
+          ? uniqueHistorical[uniqueHistorical.length - 1].time
+          : 0;
+
+        if (chartData.current.time > lastHistoricalTime) {
+          currentCandleRef.current = {
+            ...chartData.current,
+            startTime: chartData.current.time * 1000
+          };
+          candlestickSeriesRef.current?.update(chartData.current);
+        }
+      }
+
+      const allCandles = currentCandleRef.current
+        ? [...uniqueHistorical, currentCandleRef.current]
+        : uniqueHistorical;
 
       if (allCandles.length > 0) {
         const lastCandle = allCandles[allCandles.length - 1];
