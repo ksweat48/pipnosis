@@ -31,7 +31,6 @@ export function SettingsPage() {
   const [passwordUpdating, setPasswordUpdating] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const [selectedSymbol, setSelectedSymbol] = useState('XAUUSD');
   const [indicatorVisibility, setIndicatorVisibility] = useState<IndicatorVisibility>({
     vwap: true,
     ema20: true,
@@ -40,11 +39,6 @@ export function SettingsPage() {
   });
   const [savingIndicators, setSavingIndicators] = useState(false);
   const [indicatorMessage, setIndicatorMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  const FOREX_PAIRS = [
-    'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF',
-    'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'
-  ];
 
   useEffect(() => {
     if (user) {
@@ -57,7 +51,7 @@ export function SettingsPage() {
     if (user) {
       loadIndicatorPreferences();
     }
-  }, [selectedSymbol, user]);
+  }, [user]);
 
   const loadUserData = async () => {
     try {
@@ -92,7 +86,7 @@ export function SettingsPage() {
 
   const loadIndicatorPreferences = async () => {
     try {
-      const visibility = await chartPreferencesService.getIndicatorVisibility(selectedSymbol);
+      const visibility = await chartPreferencesService.getIndicatorVisibility();
       setIndicatorVisibility(visibility);
     } catch (error) {
       console.error('Error loading indicator preferences:', error);
@@ -130,11 +124,11 @@ export function SettingsPage() {
       setSavingIndicators(true);
       setIndicatorMessage(null);
 
-      await chartPreferencesService.setIndicatorVisibility(selectedSymbol, indicatorVisibility);
+      await chartPreferencesService.setIndicatorVisibility(indicatorVisibility);
 
       setIndicatorMessage({
         type: 'success',
-        text: `Chart display preferences saved for ${selectedSymbol}!`
+        text: 'Chart display preferences saved globally for all trading pairs!'
       });
 
       setTimeout(() => {
@@ -389,23 +383,8 @@ export function SettingsPage() {
               </div>
 
               <p className="text-sm text-gray-400 mb-6">
-                Control which indicators are displayed on your charts. Note: All indicators remain active for AI analysis regardless of visibility settings.
+                Control which indicators are displayed on your charts across all trading pairs. Note: All indicators remain active for AI analysis regardless of visibility settings.
               </p>
-
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Select Symbol
-                </label>
-                <select
-                  value={selectedSymbol}
-                  onChange={(e) => setSelectedSymbol(e.target.value)}
-                  className="w-full px-4 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  {FOREX_PAIRS.map(pair => (
-                    <option key={pair} value={pair}>{pair}</option>
-                  ))}
-                </select>
-              </div>
 
               {indicatorMessage && (
                 <div

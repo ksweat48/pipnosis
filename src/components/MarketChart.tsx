@@ -222,8 +222,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     const volume = calculateVolumeMetrics(candles);
     const patterns = detectCandlePatterns(candles, vwap);
 
-    if (vwapSeriesRef.current && vwap.length > 0) {
-      if (indicatorVisibility.vwap) {
+    if (vwapSeriesRef.current) {
+      if (indicatorVisibility.vwap && vwap.length > 0) {
         vwapSeriesRef.current.setData(vwap);
         setVwapValue(vwap[vwap.length - 1].value);
       } else {
@@ -231,8 +231,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         setVwapValue(null);
       }
     }
-    if (ema20SeriesRef.current && ema20.length > 0) {
-      if (indicatorVisibility.ema20) {
+    if (ema20SeriesRef.current) {
+      if (indicatorVisibility.ema20 && ema20.length > 0) {
         ema20SeriesRef.current.setData(ema20);
         setEma20Value(ema20[ema20.length - 1].value);
       } else {
@@ -240,8 +240,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         setEma20Value(null);
       }
     }
-    if (ema50SeriesRef.current && ema50.length > 0) {
-      if (indicatorVisibility.ema50) {
+    if (ema50SeriesRef.current) {
+      if (indicatorVisibility.ema50 && ema50.length > 0) {
         ema50SeriesRef.current.setData(ema50);
         setEma50Value(ema50[ema50.length - 1].value);
       } else {
@@ -249,8 +249,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         setEma50Value(null);
       }
     }
-    if (ema200SeriesRef.current && ema200.length > 0) {
-      if (indicatorVisibility.ema200) {
+    if (ema200SeriesRef.current) {
+      if (indicatorVisibility.ema200 && ema200.length > 0) {
         ema200SeriesRef.current.setData(ema200);
         setEma200Value(ema200[ema200.length - 1].value);
       } else {
@@ -430,7 +430,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   useEffect(() => {
     const loadVisibilityPreferences = async () => {
       try {
-        const visibility = await chartPreferencesService.getIndicatorVisibility(symbol);
+        const visibility = await chartPreferencesService.getIndicatorVisibility();
         setIndicatorVisibility(visibility);
       } catch (error) {
         console.error('Failed to load indicator visibility preferences:', error);
@@ -438,7 +438,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     };
 
     loadVisibilityPreferences();
-  }, [symbol]);
+  }, []);
 
   useEffect(() => {
     if (!candlestickSeriesRef.current) return;
