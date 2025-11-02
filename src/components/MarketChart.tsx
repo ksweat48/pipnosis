@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle, LineSeries } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
 import { TrendingUp, Activity, AlertCircle, Clock, ChevronDown, ChevronUp } from 'lucide-react';
-import { chartPreferencesService, Timeframe } from '@/services/chart-preferences';
+import { chartPreferencesService, Timeframe, type IndicatorVisibility } from '@/services/chart-preferences';
 import {
   fetchCompleteChartData,
   fetchRecentRealtimePrices,
@@ -74,6 +74,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const [showIndicators, setShowIndicators] = useState(() => {
     const saved = localStorage.getItem(`indicators-visible-${symbol}`);
     return saved !== null ? saved === 'true' : true;
+  });
+  const [indicatorVisibility, setIndicatorVisibility] = useState<IndicatorVisibility>({
+    vwap: true,
+    ema20: true,
+    ema50: true,
+    ema200: true
   });
 
   const currentCandleRef = useRef<CurrentCandle | null>(null);
@@ -217,20 +223,40 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     const patterns = detectCandlePatterns(candles, vwap);
 
     if (vwapSeriesRef.current && vwap.length > 0) {
-      vwapSeriesRef.current.setData(vwap);
-      setVwapValue(vwap[vwap.length - 1].value);
+      if (indicatorVisibility.vwap) {
+        vwapSeriesRef.current.setData(vwap);
+        setVwapValue(vwap[vwap.length - 1].value);
+      } else {
+        vwapSeriesRef.current.setData([]);
+        setVwapValue(null);
+      }
     }
     if (ema20SeriesRef.current && ema20.length > 0) {
-      ema20SeriesRef.current.setData(ema20);
-      setEma20Value(ema20[ema20.length - 1].value);
+      if (indicatorVisibility.ema20) {
+        ema20SeriesRef.current.setData(ema20);
+        setEma20Value(ema20[ema20.length - 1].value);
+      } else {
+        ema20SeriesRef.current.setData([]);
+        setEma20Value(null);
+      }
     }
     if (ema50SeriesRef.current && ema50.length > 0) {
-      ema50SeriesRef.current.setData(ema50);
-      setEma50Value(ema50[ema50.length - 1].value);
+      if (indicatorVisibility.ema50) {
+        ema50SeriesRef.current.setData(ema50);
+        setEma50Value(ema50[ema50.length - 1].value);
+      } else {
+        ema50SeriesRef.current.setData([]);
+        setEma50Value(null);
+      }
     }
     if (ema200SeriesRef.current && ema200.length > 0) {
-      ema200SeriesRef.current.setData(ema200);
-      setEma200Value(ema200[ema200.length - 1].value);
+      if (indicatorVisibility.ema200) {
+        ema200SeriesRef.current.setData(ema200);
+        setEma200Value(ema200[ema200.length - 1].value);
+      } else {
+        ema200SeriesRef.current.setData([]);
+        setEma200Value(null);
+      }
     }
 
     setRsiData(rsi);
@@ -402,6 +428,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   };
 
   useEffect(() => {
+    const loadVisibilityPreferences = async () => {
+      try {
+        const visibility = await chartPreferencesService.getIndicatorVisibility(symbol);
+        setIndicatorVisibility(visibility);
+      } catch (error) {
+        console.error('Failed to load indicator visibility preferences:', error);
+      }
+    };
+
+    loadVisibilityPreferences();
+  }, [symbol]);
+
+  useEffect(() => {
     if (!candlestickSeriesRef.current) return;
 
     currentCandleRef.current = null;
@@ -433,6 +472,15 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       clearInterval(pollInterval);
     };
   }, [symbol, timeframe]);
+
+  useEffect(() => {
+    if (historicalCandlesRef.current.length > 0) {
+      const allCandles = currentCandleRef.current
+        ? [...historicalCandlesRef.current, currentCandleRef.current]
+        : historicalCandlesRef.current;
+      updateIndicators(allCandles);
+    }
+  }, [indicatorVisibility]);
 
   useEffect(() => {
     if (!chartRef.current || !tradeLines) return;

@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { supabase } from '@/lib/supabase';
-import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle } from 'lucide-react';
+import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity } from 'lucide-react';
 import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
+import { chartPreferencesService, type IndicatorVisibility } from '@/services/chart-preferences';
 
 export function SettingsPage() {
   const { user, updatePassword } = useAuth();
@@ -30,11 +31,33 @@ export function SettingsPage() {
   const [passwordUpdating, setPasswordUpdating] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [selectedSymbol, setSelectedSymbol] = useState('XAUUSD');
+  const [indicatorVisibility, setIndicatorVisibility] = useState<IndicatorVisibility>({
+    vwap: true,
+    ema20: true,
+    ema50: true,
+    ema200: true
+  });
+  const [savingIndicators, setSavingIndicators] = useState(false);
+  const [indicatorMessage, setIndicatorMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const FOREX_PAIRS = [
+    'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF',
+    'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'
+  ];
+
   useEffect(() => {
     if (user) {
       loadUserData();
+      loadIndicatorPreferences();
     }
   }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      loadIndicatorPreferences();
+    }
+  }, [selectedSymbol, user]);
 
   const loadUserData = async () => {
     try {
@@ -67,6 +90,15 @@ export function SettingsPage() {
     }
   };
 
+  const loadIndicatorPreferences = async () => {
+    try {
+      const visibility = await chartPreferencesService.getIndicatorVisibility(selectedSymbol);
+      setIndicatorVisibility(visibility);
+    } catch (error) {
+      console.error('Error loading indicator preferences:', error);
+    }
+  };
+
   const handleSavePreferences = async () => {
     try {
       setSaving(true);
@@ -91,6 +123,39 @@ export function SettingsPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveIndicatorPreferences = async () => {
+    try {
+      setSavingIndicators(true);
+      setIndicatorMessage(null);
+
+      await chartPreferencesService.setIndicatorVisibility(selectedSymbol, indicatorVisibility);
+
+      setIndicatorMessage({
+        type: 'success',
+        text: `Chart display preferences saved for ${selectedSymbol}!`
+      });
+
+      setTimeout(() => {
+        setIndicatorMessage(null);
+      }, 3000);
+    } catch (error) {
+      console.error('Error saving indicator preferences:', error);
+      setIndicatorMessage({
+        type: 'error',
+        text: 'Failed to save chart display preferences. Please try again.'
+      });
+    } finally {
+      setSavingIndicators(false);
+    }
+  };
+
+  const handleIndicatorToggle = (indicator: keyof IndicatorVisibility) => {
+    setIndicatorVisibility(prev => ({
+      ...prev,
+      [indicator]: !prev[indicator]
+    }));
   };
 
   const formatDate = (dateString: string) => {
@@ -311,6 +376,159 @@ export function SettingsPage() {
                     <>
                       <Save size={18} />
                       <span>Save Preferences</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <Activity size={20} className="text-emerald-400" />
+                <h2 className="text-xl font-semibold text-white">Chart Display</h2>
+              </div>
+
+              <p className="text-sm text-gray-400 mb-6">
+                Control which indicators are displayed on your charts. Note: All indicators remain active for AI analysis regardless of visibility settings.
+              </p>
+
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Select Symbol
+                </label>
+                <select
+                  value={selectedSymbol}
+                  onChange={(e) => setSelectedSymbol(e.target.value)}
+                  className="w-full px-4 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  {FOREX_PAIRS.map(pair => (
+                    <option key={pair} value={pair}>{pair}</option>
+                  ))}
+                </select>
+              </div>
+
+              {indicatorMessage && (
+                <div
+                  className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
+                    indicatorMessage.type === 'success'
+                      ? 'bg-green-900/20 border border-green-700/30 text-green-400'
+                      : 'bg-red-900/20 border border-red-700/30 text-red-400'
+                  }`}
+                >
+                  {indicatorMessage.type === 'success' ? (
+                    <CheckCircle size={20} />
+                  ) : (
+                    <AlertCircle size={20} />
+                  )}
+                  <span>{indicatorMessage.text}</span>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center gap-3">
+                    <div className="w-4 h-4 rounded-full bg-blue-500"></div>
+                    <div>
+                      <div className="text-white font-medium">VWAP</div>
+                      <div className="text-xs text-gray-400">Volume Weighted Average Price</div>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={indicatorVisibility.vwap}
+                      onChange={() => handleIndicatorToggle('vwap')}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center gap-3">
+                    <div className="w-4 h-4 rounded-full bg-emerald-500"></div>
+                    <div>
+                      <div className="text-white font-medium">EMA 20</div>
+                      <div className="text-xs text-gray-400">20-period Exponential Moving Average</div>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={indicatorVisibility.ema20}
+                      onChange={() => handleIndicatorToggle('ema20')}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center gap-3">
+                    <div className="w-4 h-4 rounded-full bg-amber-500"></div>
+                    <div>
+                      <div className="text-white font-medium">EMA 50</div>
+                      <div className="text-xs text-gray-400">50-period Exponential Moving Average</div>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={indicatorVisibility.ema50}
+                      onChange={() => handleIndicatorToggle('ema50')}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center gap-3">
+                    <div className="w-4 h-4 rounded-full bg-red-500"></div>
+                    <div>
+                      <div className="text-white font-medium">EMA 200</div>
+                      <div className="text-xs text-gray-400">200-period Exponential Moving Average</div>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={indicatorVisibility.ema200}
+                      onChange={() => handleIndicatorToggle('ema200')}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="mt-6 p-4 bg-blue-900/20 border border-blue-700/30 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <AlertCircle size={18} className="text-blue-400 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-blue-300">
+                    <p className="font-medium mb-1">Important Note</p>
+                    <p className="text-blue-300/80">
+                      These settings only control chart display. All technical indicators continue to be calculated and used by the AI trading system for market analysis and trade decisions.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={handleSaveIndicatorPreferences}
+                  disabled={savingIndicators}
+                  className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
+                >
+                  {savingIndicators ? (
+                    <>
+                      <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save size={18} />
+                      <span>Save Display Settings</span>
                     </>
                   )}
                 </button>
