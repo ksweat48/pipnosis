@@ -578,7 +578,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
                 systemStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' :
                 'bg-red-500'
               }`}></div>
-              <span className="text-xs font-medium text-gray-300">System</span>
+              <span className="hidden sm:inline text-xs font-medium text-gray-300">System</span>
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 bg-gray-800/50 rounded-lg border border-gray-700">
@@ -587,7 +587,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
                 marketStatus === 'delayed' ? 'bg-yellow-500 animate-pulse' :
                 'bg-red-500'
               }`}></div>
-              <span className="text-xs font-medium text-gray-300">Market</span>
+              <span className="hidden sm:inline text-xs font-medium text-gray-300">Market</span>
             </div>
           </div>
 
