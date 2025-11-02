@@ -19,7 +19,7 @@ export function NavigationMenu() {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <nav className="bg-gray-900/50 backdrop-blur-sm border-b border-gray-800">
+    <nav className="bg-gray-900/50 backdrop-blur-sm border-b border-gray-800 relative z-[9999]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-8">
@@ -75,10 +75,10 @@ export function NavigationMenu() {
                 {showProfileMenu && (
                   <>
                     <div
-                      className="fixed inset-0 z-[9998]"
+                      className="fixed inset-0 z-[10000]"
                       onClick={() => setShowProfileMenu(false)}
                     />
-                    <div className="absolute right-0 mt-2 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] overflow-hidden">
+                    <div className="absolute right-0 mt-2 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[10001] overflow-hidden">
                       <div className="p-4 border-b border-gray-700 bg-gray-900/50">
                         <div className="text-white font-medium">{user.email}</div>
                         <div className="text-gray-400 text-sm mt-1">

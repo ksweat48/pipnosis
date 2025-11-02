@@ -569,7 +569,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         </div>
       </div>
 
-      <div className="relative">
+      <div className="relative isolate">
         {isLoading && (
           <div className="absolute inset-0 bg-gray-800/50 rounded-lg flex items-center justify-center z-10">
             <div className="text-center">

@@ -312,7 +312,7 @@ export function TradePage() {
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
       <NavigationMenu />
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12 relative z-0">
         <div className="space-y-6 sm:space-y-8 lg:space-y-12">
           <NotificationCenter
             notifications={notifications}
@@ -321,7 +321,7 @@ export function TradePage() {
             isCollapsible={true}
           />
 
-          <div className="glass-card p-4 sm:p-6 lg:p-8">
+          <div className="glass-card p-4 sm:p-6 lg:p-8 relative z-0">
             <MarketChart
               symbol={selectedSymbol}
               onSymbolChange={handleSymbolChange}
