@@ -54,7 +54,7 @@ export function TradingModeToggle({ symbol, onTradeExecuted }: TradingModeToggle
             />
           </div>
         ) : (
-          <div className="animate-fadeIn p-4">
+          <div className="animate-fadeIn">
             <AITradingConsole />
           </div>
         )}
