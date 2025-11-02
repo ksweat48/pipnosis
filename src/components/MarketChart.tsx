@@ -78,8 +78,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const [indicatorVisibility, setIndicatorVisibility] = useState<IndicatorVisibility>({
     vwap: true,
     ema20: true,
-    ema50: true,
-    ema200: true
+    ema50: false,
+    ema200: false
   });
 
   const currentCandleRef = useRef<CurrentCandle | null>(null);
@@ -438,6 +438,17 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     };
 
     loadVisibilityPreferences();
+
+    const handlePreferenceChange = (event: CustomEvent) => {
+      const newVisibility = event.detail as IndicatorVisibility;
+      setIndicatorVisibility(newVisibility);
+    };
+
+    window.addEventListener('indicator-preferences-changed', handlePreferenceChange as EventListener);
+
+    return () => {
+      window.removeEventListener('indicator-preferences-changed', handlePreferenceChange as EventListener);
+    };
   }, []);
 
   useEffect(() => {

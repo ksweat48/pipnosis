@@ -142,8 +142,8 @@ class ChartPreferencesService {
     return {
       vwap: true,
       ema20: true,
-      ema50: true,
-      ema200: true
+      ema50: false,
+      ema200: false
     };
   }
 
@@ -228,6 +228,10 @@ class ChartPreferencesService {
 
       if (error) {
         console.error('Error saving indicator preferences to database:', error);
+      } else {
+        window.dispatchEvent(new CustomEvent('indicator-preferences-changed', {
+          detail: visibility
+        }));
       }
     } catch (error) {
       console.error('Error in setIndicatorVisibility:', error);

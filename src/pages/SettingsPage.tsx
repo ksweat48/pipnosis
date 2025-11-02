@@ -34,8 +34,8 @@ export function SettingsPage() {
   const [indicatorVisibility, setIndicatorVisibility] = useState<IndicatorVisibility>({
     vwap: true,
     ema20: true,
-    ema50: true,
-    ema200: true
+    ema50: false,
+    ema200: false
   });
   const [savingIndicators, setSavingIndicators] = useState(false);
   const [indicatorMessage, setIndicatorMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
