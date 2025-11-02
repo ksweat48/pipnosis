@@ -1,12 +1,12 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { TrendingUp, History, BarChart3, User, Settings, LogOut } from 'lucide-react';
+import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 
 export function NavigationMenu() {
   const location = useLocation();
-  const { user, signOut } = useAuth();
+  const { user, isAdmin, signOut } = useAuth();
   const { balance, totalPnL, openPositionsCount } = useUserBalance(user?.id || null);
   const [showProfileMenu, setShowProfileMenu] = React.useState(false);
 
@@ -98,6 +98,17 @@ export function NavigationMenu() {
                           <Settings size={18} />
                           <span>Settings</span>
                         </Link>
+
+                        {isAdmin && (
+                          <Link
+                            to="/kpis"
+                            onClick={() => setShowProfileMenu(false)}
+                            className="w-full flex items-center gap-3 px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/20 rounded transition-colors"
+                          >
+                            <Target size={18} />
+                            <span>KPIs</span>
+                          </Link>
+                        )}
 
                         <button
                           onClick={() => {

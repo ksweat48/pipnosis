@@ -8,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, adminOnly = false }: ProtectedRouteProps) {
-  const { user, loading } = useAuth();
+  const { user, loading, isAdmin } = useAuth();
 
   if (loading) {
     return (
@@ -20,6 +20,10 @@ export function ProtectedRoute({ children, adminOnly = false }: ProtectedRoutePr
 
   if (!user) {
     return <Navigate to="/auth" replace />;
+  }
+
+  if (adminOnly && !isAdmin) {
+    return <Navigate to="/trade" replace />;
   }
 
   return <>{children}</>;
