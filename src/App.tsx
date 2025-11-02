@@ -6,10 +6,9 @@ import { Header } from './components/Header';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { MarketChart } from './components/MarketChart';
 import { StrategyOptions } from './components/StrategyOptions';
-import { TradingDashboard } from './components/TradingDashboard';
+import { Analysis } from './components/Analysis';
 import { NotificationCenter } from './components/NotificationCenter';
 import { TradeHistory } from './components/TradeHistory';
-import { TradingKPIs } from './components/TradingKPIs';
 import { TradingLaws } from './components/TradingLaws';
 import { LandingPage } from './components/LandingPage';
 import { PublicLandingPage } from './components/PublicLandingPage';
@@ -399,13 +398,11 @@ const Dashboard: React.FC = () => {
           <div className="xl:col-span-2 space-y-6 sm:space-y-8">
             <ActivePositions refreshTrigger={positionRefreshTrigger} />
 
-            <TradingDashboard
+            <Analysis
               todayPnL={totalPnL}
               weeklyPnL={totalPnL}
               totalBalance={accountBalance}
             />
-
-            <TradingKPIs />
           </div>
 
           <div className="space-y-6 sm:space-y-8">

@@ -6,11 +6,11 @@ interface Props {
   totalBalance: number;
 }
 
-export function TradingDashboard({ todayPnL, weeklyPnL, totalBalance }: Props) {
+export function Analysis({ todayPnL, weeklyPnL, totalBalance }: Props) {
   return (
     <div className="glass-card p-6">
-      <h3 className="text-xl font-bold text-white mb-4">Trading Dashboard</h3>
-      <div className="grid grid-cols-3 gap-4">
+      <h3 className="text-xl font-bold text-white mb-4">Analysis</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="bg-gray-800 p-4 rounded">
           <div className="text-gray-400 text-sm">Balance</div>
           <div className="text-white text-2xl font-bold">${totalBalance.toFixed(2)}</div>
@@ -22,6 +22,14 @@ export function TradingDashboard({ todayPnL, weeklyPnL, totalBalance }: Props) {
         <div className="bg-gray-800 p-4 rounded">
           <div className="text-gray-400 text-sm">Weekly P&L</div>
           <div className={`text-2xl font-bold ${weeklyPnL >= 0 ? 'text-green-500' : 'text-red-500'}`}>${weeklyPnL.toFixed(2)}</div>
+        </div>
+        <div className="bg-gray-800 p-4 rounded">
+          <div className="text-gray-400 text-sm">Win Rate</div>
+          <div className="text-white text-2xl font-bold">0%</div>
+        </div>
+        <div className="bg-gray-800 p-4 rounded">
+          <div className="text-gray-400 text-sm">Total Trades</div>
+          <div className="text-white text-2xl font-bold">0</div>
         </div>
       </div>
     </div>
