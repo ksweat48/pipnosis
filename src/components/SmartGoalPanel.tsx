@@ -92,8 +92,8 @@ export const SmartGoalPanel: React.FC = () => {
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-      <div className="flex items-center gap-3 mb-6">
+    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+      <div className="flex items-center gap-3 mb-4">
         <div className="p-2 bg-blue-600 rounded-lg">
           <Target className="w-6 h-6 text-white" />
         </div>
