@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { getForexMarketStatus } from '@/utils/marketHours';
 
 interface PollStatus {
   symbol: string;
@@ -8,11 +9,25 @@ interface PollStatus {
   isPolling: boolean;
 }
 
+export interface CoordinatorStatus {
+  isRunning: boolean;
+  isPaused: boolean;
+  pauseReason: 'market_closed' | 'manual' | null;
+  marketOpen: boolean;
+  lastSuccessfulPoll: Date | null;
+  activePairs: number;
+  totalPairs: number;
+}
+
 class GlobalPollingCoordinator {
   private initialized = false;
   private pollIntervals: Map<string, NodeJS.Timeout> = new Map();
   private pollStatus: Map<string, PollStatus> = new Map();
   private statusLoggingInterval: NodeJS.Timeout | null = null;
+  private marketCheckInterval: NodeJS.Timeout | null = null;
+  private isPaused = false;
+  private pauseReason: 'market_closed' | 'manual' | null = null;
+  private listeners: Set<(status: CoordinatorStatus) => void> = new Set();
 
   private readonly FOREX_PAIRS = [
     'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF',
@@ -20,6 +35,7 @@ class GlobalPollingCoordinator {
   ];
 
   private readonly POLL_INTERVAL = 5000;
+  private readonly MARKET_CHECK_INTERVAL = 60000;
 
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -28,6 +44,9 @@ class GlobalPollingCoordinator {
     }
 
     console.log('🚀 Initializing global polling coordinator for all forex pairs...');
+
+    const marketStatus = getForexMarketStatus();
+    console.log(`📊 Current Market Status: ${marketStatus.status}`);
 
     console.log('🔍 Verifying MetaAPI connection before starting polling...');
     try {
@@ -68,12 +87,40 @@ class GlobalPollingCoordinator {
         errorCount: 0,
         isPolling: false
       });
-
-      this.startPollingForSymbol(symbol);
     }
+
+    if (marketStatus.isOpen) {
+      console.log('✅ Market is open, starting polling...');
+      this.startAllPolling();
+    } else {
+      console.log('⏸️ Market is closed, polling will start when market opens');
+      this.isPaused = true;
+      this.pauseReason = 'market_closed';
+    }
+
+    this.startMarketStatusMonitoring();
 
     this.initialized = true;
     console.log(`✅ Global polling coordinator initialized for ${this.FOREX_PAIRS.length} pairs`);
+    this.notifyListeners();
+  }
+
+  private startAllPolling(): void {
+    console.log(`🔄 Starting polling for all ${this.FOREX_PAIRS.length} forex pairs...`);
+    for (const symbol of this.FOREX_PAIRS) {
+      this.startPollingForSymbol(symbol);
+    }
+    this.isPaused = false;
+    this.pauseReason = null;
+    this.notifyListeners();
+  }
+
+  private stopAllPolling(): void {
+    console.log('⏸️ Stopping all polling...');
+    for (const symbol of this.FOREX_PAIRS) {
+      this.stopPollingForSymbol(symbol);
+    }
+    this.notifyListeners();
   }
 
   private startPollingForSymbol(symbol: string): void {
@@ -83,6 +130,10 @@ class GlobalPollingCoordinator {
     }
 
     const pollFunction = async () => {
+      if (this.isPaused) {
+        return;
+      }
+
       const status = this.pollStatus.get(symbol);
       if (!status) return;
 
@@ -121,6 +172,7 @@ class GlobalPollingCoordinator {
             status.lastPrice = { bid, ask };
             status.lastPoll = new Date();
             status.errorCount = 0;
+            this.notifyListeners();
           }
         } else {
           console.warn(`⚠️ Invalid price data for ${symbol}:`, data);
@@ -155,6 +207,30 @@ class GlobalPollingCoordinator {
     }
   }
 
+  private startMarketStatusMonitoring(): void {
+    if (this.marketCheckInterval) {
+      clearInterval(this.marketCheckInterval);
+    }
+
+    this.marketCheckInterval = setInterval(() => {
+      const marketStatus = getForexMarketStatus();
+
+      if (marketStatus.isOpen && this.isPaused && this.pauseReason === 'market_closed') {
+        console.log('🟢 Market opened! Resuming polling...');
+        this.isPaused = false;
+        this.pauseReason = null;
+        this.startAllPolling();
+      } else if (!marketStatus.isOpen && !this.isPaused) {
+        console.log('🔴 Market closed! Pausing polling...');
+        this.isPaused = true;
+        this.pauseReason = 'market_closed';
+        this.stopAllPolling();
+      }
+    }, this.MARKET_CHECK_INTERVAL);
+
+    console.log(`✅ Market status monitoring started (checking every ${this.MARKET_CHECK_INTERVAL / 1000}s)`);
+  }
+
   async shutdown(): Promise<void> {
     console.log('🛑 Shutting down global polling coordinator...');
 
@@ -165,6 +241,11 @@ class GlobalPollingCoordinator {
     if (this.statusLoggingInterval) {
       clearInterval(this.statusLoggingInterval);
       this.statusLoggingInterval = null;
+    }
+
+    if (this.marketCheckInterval) {
+      clearInterval(this.marketCheckInterval);
+      this.marketCheckInterval = null;
     }
 
     this.pollStatus.clear();
@@ -202,6 +283,65 @@ class GlobalPollingCoordinator {
 
   isInitialized(): boolean {
     return this.initialized;
+  }
+
+  getCoordinatorStatus(): CoordinatorStatus {
+    const marketStatus = getForexMarketStatus();
+    let lastSuccessfulPoll: Date | null = null;
+    let activePairs = 0;
+
+    this.pollStatus.forEach(status => {
+      if (status.lastPrice !== null) {
+        activePairs++;
+        if (!lastSuccessfulPoll || status.lastPoll > lastSuccessfulPoll) {
+          lastSuccessfulPoll = status.lastPoll;
+        }
+      }
+    });
+
+    return {
+      isRunning: this.initialized,
+      isPaused: this.isPaused,
+      pauseReason: this.pauseReason,
+      marketOpen: marketStatus.isOpen,
+      lastSuccessfulPoll,
+      activePairs,
+      totalPairs: this.FOREX_PAIRS.length
+    };
+  }
+
+  onStatusChange(callback: (status: CoordinatorStatus) => void): () => void {
+    this.listeners.add(callback);
+    callback(this.getCoordinatorStatus());
+    return () => {
+      this.listeners.delete(callback);
+    };
+  }
+
+  private notifyListeners(): void {
+    const status = this.getCoordinatorStatus();
+    this.listeners.forEach(listener => listener(status));
+  }
+
+  pausePolling(): void {
+    if (!this.isPaused) {
+      console.log('⏸️ Manually pausing polling...');
+      this.isPaused = true;
+      this.pauseReason = 'manual';
+      this.stopAllPolling();
+    }
+  }
+
+  resumePolling(): void {
+    if (this.isPaused && this.pauseReason === 'manual') {
+      console.log('▶️ Manually resuming polling...');
+      const marketStatus = getForexMarketStatus();
+      if (marketStatus.isOpen) {
+        this.startAllPolling();
+      } else {
+        console.warn('⚠️ Cannot resume polling: Market is currently closed');
+      }
+    }
   }
 }
 
