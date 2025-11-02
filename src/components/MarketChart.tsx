@@ -552,7 +552,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
               {/* Mobile: Price as separate label */}
               {currentPrice && (
                 <div className="sm:hidden px-3 py-1.5 bg-gray-800/50 rounded-lg border border-gray-700">
-                  <div className="text-right">
+                  <div className="flex items-center gap-2">
                     <div className="text-sm font-bold text-white">
                       {currentPrice.toFixed(5)}
                     </div>
@@ -571,7 +571,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
           {/* Desktop: Price on the right side */}
           {currentPrice && (
             <div className="hidden sm:flex items-center gap-4">
-              <div className="text-right">
+              <div className="flex items-center gap-3">
                 <div className="text-2xl font-bold text-white">
                   {currentPrice.toFixed(5)}
                 </div>
