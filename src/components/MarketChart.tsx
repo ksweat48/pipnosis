@@ -526,9 +526,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
                   <option key={tf} value={tf}>{tf}</option>
                 ))}
               </select>
-            </div>
 
-            <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/50 rounded-lg border border-gray-700">
                 <div className={`w-2 h-2 rounded-full ${
                   systemStatus === 'connected' ? 'bg-green-500 animate-pulse' :
@@ -546,6 +544,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
                 }`}></div>
                 <span className="text-xs font-medium text-gray-300">Market</span>
               </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+
 
               {/* Mobile: Price as separate label */}
               {currentPrice && (
