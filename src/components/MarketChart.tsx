@@ -596,28 +596,24 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
                 <div className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full bg-blue-500"></div>
                   <span className="text-gray-400">VWAP</span>
-                  <span className="text-blue-400">{vwapValue.toFixed(5)}</span>
                 </div>
               )}
               {ema20Value && (
                 <div className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
                   <span className="text-gray-400">EMA 20</span>
-                  <span className="text-emerald-400">{ema20Value.toFixed(5)}</span>
                 </div>
               )}
               {ema50Value && (
                 <div className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full bg-amber-500"></div>
                   <span className="text-gray-400">EMA 50</span>
-                  <span className="text-amber-400">{ema50Value.toFixed(5)}</span>
                 </div>
               )}
               {ema200Value && (
                 <div className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full bg-red-500"></div>
                   <span className="text-gray-400">EMA 200</span>
-                  <span className="text-red-400">{ema200Value.toFixed(5)}</span>
                 </div>
               )}
             </div>
