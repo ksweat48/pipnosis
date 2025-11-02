@@ -505,7 +505,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-3">
-              <TrendingUp className="text-emerald-500" size={24} />
               <select
                 value={symbol}
                 onChange={(e) => handleSymbolChangeInternal(e.target.value)}
@@ -518,7 +517,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
             </div>
 
             <div className="flex items-center gap-3">
-              <Clock className="text-gray-500" size={20} />
               <select
                 value={timeframe}
                 onChange={(e) => handleTimeframeChange(e.target.value as Timeframe)}
