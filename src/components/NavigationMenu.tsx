@@ -90,15 +90,14 @@ export function NavigationMenu() {
                       </div>
 
                       <div className="p-2">
-                        <button
-                          onClick={() => {
-                            setShowProfileMenu(false);
-                          }}
+                        <Link
+                          to="/settings"
+                          onClick={() => setShowProfileMenu(false)}
                           className="w-full flex items-center gap-3 px-3 py-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors"
                         >
                           <Settings size={18} />
                           <span>Settings</span>
-                        </button>
+                        </Link>
 
                         <button
                           onClick={() => {

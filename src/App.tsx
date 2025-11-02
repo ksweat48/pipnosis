@@ -10,6 +10,7 @@ import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { TradePage } from './pages/TradePage';
 import { HistoryPage } from './pages/HistoryPage';
 import { AnalysisPage } from './pages/AnalysisPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { logEnvironmentStatus } from './lib/env-validator';
@@ -69,6 +70,14 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute>
             <AnalysisPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <SettingsPage />
           </ProtectedRoute>
         }
       />
