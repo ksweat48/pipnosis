@@ -23,6 +23,7 @@ import {
   PatternDetection
 } from '@/utils/technicalIndicators';
 import { RSIPanel, ATRPanel, VolumePanel, PatternDetectionPanel } from '@/components/IndicatorPanels';
+import { getForexMarketStatus, type MarketStatus } from '@/utils/marketHours';
 
 interface MarketChartProps {
   symbol: string;
@@ -61,6 +62,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const [isLive, setIsLive] = useState(false);
   const [systemStatus, setSystemStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
   const [marketStatus, setMarketStatus] = useState<'live' | 'delayed' | 'offline'>('live');
+  const [forexMarketStatus, setForexMarketStatus] = useState<MarketStatus>(() => getForexMarketStatus());
 
   const [rsiData, setRsiData] = useState<IndicatorResult[]>([]);
   const [atrData, setAtrData] = useState<IndicatorResult[]>([]);
@@ -87,6 +89,17 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const historicalCandlesRef = useRef<CandleData[]>([]);
   const updateQueueRef = useRef<number[]>([]);
   const isUpdatingRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    const updateMarketStatus = () => {
+      setForexMarketStatus(getForexMarketStatus());
+    };
+
+    updateMarketStatus();
+    const interval = setInterval(updateMarketStatus, 60000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -609,6 +622,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
                 <div className="text-2xl font-bold text-white">
                   {currentPrice.toFixed(5)}
                 </div>
+                <div className={`px-3 py-1 rounded-lg text-sm font-semibold ${
+                  forexMarketStatus.isOpen
+                    ? 'bg-green-500/20 text-green-400 border border-green-500/50'
+                    : 'bg-red-500/20 text-red-400 border border-red-500/50'
+                }`}>
+                  {forexMarketStatus.status}
+                </div>
                 <div className={`text-sm flex items-center gap-1 ${
                   priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
                 }`}>
@@ -625,6 +645,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
           <div className="sm:hidden flex items-center justify-center gap-3 px-3 py-2 bg-gray-800/50 rounded-lg border border-gray-700">
             <div className="text-lg font-bold text-white">
               {currentPrice.toFixed(5)}
+            </div>
+            <div className={`px-2.5 py-0.5 rounded-lg text-xs font-semibold ${
+              forexMarketStatus.isOpen
+                ? 'bg-green-500/20 text-green-400 border border-green-500/50'
+                : 'bg-red-500/20 text-red-400 border border-red-500/50'
+            }`}>
+              {forexMarketStatus.status}
             </div>
             <div className={`text-sm flex items-center gap-1 ${
               priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
