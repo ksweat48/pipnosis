@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { supabase } from '@/lib/supabase';
-import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save } from 'lucide-react';
+import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle } from 'lucide-react';
+import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
 
 export function SettingsPage() {
-  const { user } = useAuth();
+  const { user, updatePassword } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<any>(null);
@@ -15,6 +16,19 @@ export function SettingsPage() {
     goalNotifications: true,
     weeklyReports: false,
   });
+
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [showPasswords, setShowPasswords] = useState({
+    current: false,
+    new: false,
+    confirm: false,
+  });
+  const [passwordUpdating, setPasswordUpdating] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -86,6 +100,54 @@ export function SettingsPage() {
       day: 'numeric',
     });
   };
+
+  const handlePasswordUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordMessage(null);
+
+    if (!passwordData.currentPassword) {
+      setPasswordMessage({ type: 'error', text: 'Please enter your current password' });
+      return;
+    }
+
+    const validation = validatePassword(passwordData.newPassword);
+    if (!validation.isValid) {
+      setPasswordMessage({ type: 'error', text: validation.errors[0] });
+      return;
+    }
+
+    if (!passwordsMatch(passwordData.newPassword, passwordData.confirmPassword)) {
+      setPasswordMessage({ type: 'error', text: 'Passwords do not match' });
+      return;
+    }
+
+    try {
+      setPasswordUpdating(true);
+      const { error } = await updatePassword(passwordData.currentPassword, passwordData.newPassword);
+
+      if (error) {
+        setPasswordMessage({ type: 'error', text: error.message || 'Failed to update password' });
+      } else {
+        setPasswordMessage({ type: 'success', text: 'Password updated successfully! A confirmation email has been sent.' });
+        setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+
+        setTimeout(() => {
+          setPasswordMessage(null);
+        }, 5000);
+      }
+    } catch (error) {
+      setPasswordMessage({ type: 'error', text: 'An unexpected error occurred' });
+    } finally {
+      setPasswordUpdating(false);
+    }
+  };
+
+  const passwordValidation = validatePassword(passwordData.newPassword);
+  const passwordStrengthColor = {
+    weak: 'bg-red-500',
+    medium: 'bg-yellow-500',
+    strong: 'bg-green-500',
+  }[passwordValidation.strength];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
@@ -253,6 +315,171 @@ export function SettingsPage() {
                   )}
                 </button>
               </div>
+            </div>
+
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <Lock size={20} className="text-emerald-400" />
+                <h2 className="text-xl font-semibold text-white">Security</h2>
+              </div>
+
+              {passwordMessage && (
+                <div
+                  className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
+                    passwordMessage.type === 'success'
+                      ? 'bg-green-900/20 border border-green-700/30 text-green-400'
+                      : 'bg-red-900/20 border border-red-700/30 text-red-400'
+                  }`}
+                >
+                  {passwordMessage.type === 'success' ? (
+                    <CheckCircle size={20} />
+                  ) : (
+                    <AlertCircle size={20} />
+                  )}
+                  <span>{passwordMessage.text}</span>
+                </div>
+              )}
+
+              <form onSubmit={handlePasswordUpdate} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Current Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPasswords.current ? 'text' : 'password'}
+                      value={passwordData.currentPassword}
+                      onChange={(e) =>
+                        setPasswordData({ ...passwordData, currentPassword: e.target.value })
+                      }
+                      disabled={passwordUpdating}
+                      className="w-full px-4 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                      placeholder="Enter current password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowPasswords({ ...showPasswords, current: !showPasswords.current })
+                      }
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
+                    >
+                      {showPasswords.current ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    New Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPasswords.new ? 'text' : 'password'}
+                      value={passwordData.newPassword}
+                      onChange={(e) =>
+                        setPasswordData({ ...passwordData, newPassword: e.target.value })
+                      }
+                      disabled={passwordUpdating}
+                      className="w-full px-4 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                      placeholder="Enter new password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowPasswords({ ...showPasswords, new: !showPasswords.new })
+                      }
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
+                    >
+                      {showPasswords.new ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+
+                  {passwordData.newPassword && (
+                    <div className="mt-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full transition-all ${passwordStrengthColor}`}
+                            style={{
+                              width:
+                                passwordValidation.strength === 'weak'
+                                  ? '33%'
+                                  : passwordValidation.strength === 'medium'
+                                  ? '66%'
+                                  : '100%',
+                            }}
+                          />
+                        </div>
+                        <span className="text-xs text-gray-400 capitalize">
+                          {passwordValidation.strength}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-2 text-xs text-gray-400 space-y-1">
+                    <p>Password must contain:</p>
+                    <ul className="list-disc list-inside space-y-1">
+                      <li className={passwordData.newPassword.length >= 8 ? 'text-green-400' : ''}>
+                        At least 8 characters
+                      </li>
+                      <li className={/[A-Z]/.test(passwordData.newPassword) ? 'text-green-400' : ''}>
+                        At least one uppercase letter
+                      </li>
+                      <li className={/[0-9]/.test(passwordData.newPassword) ? 'text-green-400' : ''}>
+                        At least one number
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Confirm New Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPasswords.confirm ? 'text' : 'password'}
+                      value={passwordData.confirmPassword}
+                      onChange={(e) =>
+                        setPasswordData({ ...passwordData, confirmPassword: e.target.value })
+                      }
+                      disabled={passwordUpdating}
+                      className="w-full px-4 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                      placeholder="Confirm new password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowPasswords({ ...showPasswords, confirm: !showPasswords.confirm })
+                      }
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
+                    >
+                      {showPasswords.confirm ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4">
+                  <button
+                    type="submit"
+                    disabled={passwordUpdating}
+                    className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
+                  >
+                    {passwordUpdating ? (
+                      <>
+                        <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
+                        <span>Updating...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock size={18} />
+                        <span>Update Password</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
