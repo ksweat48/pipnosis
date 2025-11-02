@@ -158,100 +158,100 @@ export const GoalSessionDashboard: React.FC = () => {
 
   if (!activeSession) {
     return (
-      <div className="bg-gray-800 rounded-lg p-12 border border-gray-700 min-h-[500px] flex items-center justify-center">
+      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
         <div className="text-center">
-          <Target className="w-24 h-24 text-gray-600 mx-auto mb-6" />
-          <p className="text-2xl text-gray-400 mb-2">No active goal session</p>
-          <p className="text-lg text-gray-500 mt-2">Create a new goal to get started</p>
+          <Target className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+          <p className="text-gray-400">No active goal session</p>
+          <p className="text-sm text-gray-500 mt-1">Create a new goal to get started</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-8 border border-gray-700 min-h-[500px]">
-        <div className="flex items-start justify-between mb-8">
-          <div className="flex items-center gap-4">
-            <div className={`p-3 bg-gray-700 rounded-lg ${getStatusColor(activeSession.status)}`}>
+    <div className="space-y-4">
+      <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-6 border border-gray-700">
+        <div className="flex items-start justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 bg-gray-700 rounded-lg ${getStatusColor(activeSession.status)}`}>
               {getStatusIcon(activeSession.status)}
             </div>
             <div>
-              <h3 className="text-2xl font-bold text-white">Active Goal Session</h3>
-              <p className="text-base text-gray-400 capitalize">{activeSession.status.replace('_', ' ')}</p>
+              <h3 className="text-lg font-bold text-white">Active Goal Session</h3>
+              <p className="text-sm text-gray-400 capitalize">{activeSession.status.replace('_', ' ')}</p>
               {scanStatus.message && (
-                <p className="text-sm text-gray-500 mt-1">{scanStatus.message}</p>
+                <p className="text-xs text-gray-500 mt-1">{scanStatus.message}</p>
               )}
             </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-2">
             <button
               onClick={() => setShowDiagnostics(!showDiagnostics)}
-              className="px-5 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-base font-medium text-white transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium text-white transition-colors flex items-center gap-2"
             >
-              <Database className="w-5 h-5" />
+              <Database className="w-4 h-4" />
               {showDiagnostics ? 'Hide' : 'Show'} Diagnostics
             </button>
             <button
               onClick={handleManualScan}
               disabled={scanStatus.isScanning}
-              className="px-5 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg text-base font-medium text-white transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg text-sm font-medium text-white transition-colors flex items-center gap-2"
             >
               {scanStatus.isScanning ? (
                 <>
-                  <RefreshCw className="w-5 h-5 animate-spin" />
+                  <RefreshCw className="w-4 h-4 animate-spin" />
                   Scanning...
                 </>
               ) : (
                 <>
-                  <Zap className="w-5 h-5" />
+                  <Zap className="w-4 h-4" />
                   Scan Now
                 </>
               )}
             </button>
             <button
               onClick={handleStopSession}
-              className="px-5 py-3 bg-red-600 hover:bg-red-700 rounded-lg text-base font-medium text-white transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium text-white transition-colors flex items-center gap-2"
             >
-              <Pause className="w-5 h-5" />
+              <Pause className="w-4 h-4" />
               Stop Session
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-gray-700/50 rounded-lg p-6">
-            <div className="text-base text-gray-400 mb-2">Target</div>
-            <div className="text-3xl font-bold text-white">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-gray-700/50 rounded-lg p-4">
+            <div className="text-sm text-gray-400 mb-1">Target</div>
+            <div className="text-2xl font-bold text-white">
               ${activeSession.target_value.toFixed(0)}
             </div>
           </div>
-          <div className="bg-gray-700/50 rounded-lg p-6">
-            <div className="text-base text-gray-400 mb-2">Progress</div>
-            <div className="text-3xl font-bold text-blue-400">
+          <div className="bg-gray-700/50 rounded-lg p-4">
+            <div className="text-sm text-gray-400 mb-1">Progress</div>
+            <div className="text-2xl font-bold text-blue-400">
               ${activeSession.current_progress.toFixed(2)}
             </div>
           </div>
-          <div className="bg-gray-700/50 rounded-lg p-6">
-            <div className="text-base text-gray-400 mb-2">Completion</div>
-            <div className="text-3xl font-bold text-green-400">
+          <div className="bg-gray-700/50 rounded-lg p-4">
+            <div className="text-sm text-gray-400 mb-1">Completion</div>
+            <div className="text-2xl font-bold text-green-400">
               {activeSession.progress_percentage.toFixed(1)}%
             </div>
           </div>
-          <div className="bg-gray-700/50 rounded-lg p-6">
-            <div className="text-base text-gray-400 mb-2">Time Left</div>
-            <div className="text-xl font-bold text-orange-400">
+          <div className="bg-gray-700/50 rounded-lg p-4">
+            <div className="text-sm text-gray-400 mb-1">Time Left</div>
+            <div className="text-lg font-bold text-orange-400">
               {formatTimeRemaining(activeSession.end_time || '')}
             </div>
           </div>
         </div>
 
-        <div className="mb-8">
-          <div className="flex justify-between text-base mb-3">
+        <div className="mb-6">
+          <div className="flex justify-between text-sm mb-2">
             <span className="text-gray-400">Goal Progress</span>
             <span className="text-white font-medium">{activeSession.progress_percentage.toFixed(1)}%</span>
           </div>
-          <div className="w-full bg-gray-700 rounded-full h-4 overflow-hidden">
+          <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
             <div
               className="bg-gradient-to-r from-blue-500 to-green-500 h-full transition-all duration-500"
               style={{ width: `${Math.min(activeSession.progress_percentage, 100)}%` }}
@@ -260,18 +260,18 @@ export const GoalSessionDashboard: React.FC = () => {
         </div>
 
         {progress && progress.stats && (
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-3 gap-4">
             <div className="text-center">
-              <div className="text-3xl font-bold text-white">{progress.stats.totalTrades}</div>
-              <div className="text-sm text-gray-400 mt-1">Total Trades</div>
+              <div className="text-2xl font-bold text-white">{progress.stats.totalTrades}</div>
+              <div className="text-xs text-gray-400">Total Trades</div>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-bold text-green-400">{progress.stats.winRate.toFixed(0)}%</div>
-              <div className="text-sm text-gray-400 mt-1">Win Rate</div>
+              <div className="text-2xl font-bold text-green-400">{progress.stats.winRate.toFixed(0)}%</div>
+              <div className="text-xs text-gray-400">Win Rate</div>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-bold text-blue-400">${progress.stats.bestTrade.toFixed(2)}</div>
-              <div className="text-sm text-gray-400 mt-1">Best Trade</div>
+              <div className="text-2xl font-bold text-blue-400">${progress.stats.bestTrade.toFixed(2)}</div>
+              <div className="text-xs text-gray-400">Best Trade</div>
             </div>
           </div>
         )}

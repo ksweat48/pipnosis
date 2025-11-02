@@ -92,27 +92,27 @@ export const SmartGoalPanel: React.FC = () => {
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg p-8 border border-gray-700 min-h-[500px]">
-      <div className="flex items-center gap-4 mb-8">
-        <div className="p-3 bg-blue-600 rounded-lg">
-          <Target className="w-8 h-8 text-white" />
+    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="p-2 bg-blue-600 rounded-lg">
+          <Target className="w-6 h-6 text-white" />
         </div>
         <div>
-          <h2 className="text-3xl font-bold text-white">Smart Goal Mode</h2>
-          <p className="text-base text-gray-400">Tell me your trading goal and I'll make it happen</p>
+          <h2 className="text-xl font-bold text-white">Smart Goal Mode</h2>
+          <p className="text-sm text-gray-400">Tell me your trading goal and I'll make it happen</p>
         </div>
       </div>
 
-      <div className="space-y-6">
-        <div className="grid grid-cols-2 gap-4">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-2">
           {GOAL_TEMPLATES.map((template, index) => (
             <button
               key={index}
               onClick={() => handleTemplateClick(template)}
-              className="px-6 py-5 bg-gray-700 hover:bg-gray-600 rounded-lg text-left transition-colors border border-gray-600 hover:border-blue-500"
+              className="px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-left transition-colors border border-gray-600 hover:border-blue-500"
             >
-              <div className="text-base font-medium text-white">{template.label}</div>
-              <div className="text-sm text-gray-400 mt-2">{template.prompt}</div>
+              <div className="text-sm font-medium text-white">{template.label}</div>
+              <div className="text-xs text-gray-400 mt-1">{template.prompt}</div>
             </button>
           ))}
         </div>
@@ -123,18 +123,18 @@ export const SmartGoalPanel: React.FC = () => {
             value={goalPrompt}
             onChange={(e) => setGoalPrompt(e.target.value)}
             placeholder="e.g., 'Make me $100 today' or 'Earn 3% this week'"
-            className="w-full px-6 py-5 bg-gray-700 border border-gray-600 rounded-lg text-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
+            className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
           />
-          <TrendingUp className="absolute right-4 top-5 w-6 h-6 text-gray-500" />
+          <TrendingUp className="absolute right-3 top-3 w-5 h-5 text-gray-500" />
         </div>
 
         {parsedGoal && (
-          <div className="bg-gray-700 rounded-lg p-6 border border-green-600">
-            <div className="flex items-start gap-4">
-              <AlertCircle className="w-6 h-6 text-green-400 mt-0.5" />
+          <div className="bg-gray-700 rounded-lg p-4 border border-green-600">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-green-400 mt-0.5" />
               <div className="flex-1">
-                <div className="text-lg font-medium text-green-400 mb-4">Goal Understood!</div>
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="text-sm font-medium text-green-400 mb-2">Goal Understood!</div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
                   <div>
                     <span className="text-gray-400">Type:</span>
                     <span className="text-white ml-2">{parsedGoal.goalType === 'profit_target' ? 'Profit Target' : 'Percentage Gain'}</span>
@@ -162,19 +162,19 @@ export const SmartGoalPanel: React.FC = () => {
         <div>
           <button
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="text-base text-blue-400 hover:text-blue-300"
+            className="text-sm text-blue-400 hover:text-blue-300"
           >
             {showAdvanced ? 'Hide' : 'Show'} Advanced Options
           </button>
 
           {showAdvanced && (
-            <div className="mt-4 space-y-4 p-6 bg-gray-700 rounded-lg">
+            <div className="mt-3 space-y-3 p-4 bg-gray-700 rounded-lg">
               <div>
-                <label className="block text-base font-medium text-gray-300 mb-3">Risk Mode</label>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Risk Mode</label>
                 <select
                   value={customConfig.riskMode}
                   onChange={(e) => setCustomConfig({ ...customConfig, riskMode: e.target.value as any })}
-                  className="w-full px-4 py-3 bg-gray-600 border border-gray-500 rounded text-base text-white"
+                  className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-white"
                 >
                   <option value="low">Low Risk (80% confidence threshold)</option>
                   <option value="medium">Medium Risk (70% confidence threshold)</option>
@@ -183,14 +183,14 @@ export const SmartGoalPanel: React.FC = () => {
               </div>
 
               <div>
-                <label className="flex items-center gap-3">
+                <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
                     checked={customConfig.autoExecute}
                     onChange={(e) => setCustomConfig({ ...customConfig, autoExecute: e.target.checked })}
-                    className="w-5 h-5 text-blue-600 bg-gray-600 border-gray-500 rounded"
+                    className="w-4 h-4 text-blue-600 bg-gray-600 border-gray-500 rounded"
                   />
-                  <span className="text-base text-gray-300">Auto-execute trades (requires approval first time)</span>
+                  <span className="text-sm text-gray-300">Auto-execute trades (requires approval first time)</span>
                 </label>
               </div>
             </div>
@@ -198,7 +198,7 @@ export const SmartGoalPanel: React.FC = () => {
         </div>
 
         {error && (
-          <div className="bg-red-900/30 border border-red-600 rounded-lg p-4 text-base text-red-400">
+          <div className="bg-red-900/30 border border-red-600 rounded-lg p-3 text-sm text-red-400">
             {error}
           </div>
         )}
@@ -206,16 +206,16 @@ export const SmartGoalPanel: React.FC = () => {
         <button
           onClick={handleCreateSession}
           disabled={!parsedGoal || loading}
-          className="w-full py-5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium text-lg text-white transition-colors flex items-center justify-center gap-3"
+          className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium text-white transition-colors flex items-center justify-center gap-2"
         >
           {loading ? (
             <>
-              <Loader2 className="w-6 h-6 animate-spin" />
+              <Loader2 className="w-5 h-5 animate-spin" />
               Activating AI Goal Mode...
             </>
           ) : (
             <>
-              <Target className="w-6 h-6" />
+              <Target className="w-5 h-5" />
               Start Goal Session
             </>
           )}

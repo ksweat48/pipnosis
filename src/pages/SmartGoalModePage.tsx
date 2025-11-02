@@ -5,7 +5,7 @@ import { GoalSessionDashboard } from '../components/GoalSessionDashboard';
 export const SmartGoalModePage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
-      <div className="max-w-7xl mx-auto px-6 py-6">
+      <div className="max-w-full mx-auto px-2 py-6">
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">Smart Goal Mode</h1>
           <p className="text-gray-400 text-lg">
@@ -13,12 +13,12 @@ export const SmartGoalModePage: React.FC = () => {
           </p>
         </div>
 
-        <div className="space-y-6">
-          <div className="w-full">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="lg:col-span-1">
             <SmartGoalPanel />
           </div>
 
-          <div className="w-full">
+          <div className="lg:col-span-1">
             <GoalSessionDashboard />
           </div>
         </div>
