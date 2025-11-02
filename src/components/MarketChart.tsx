@@ -547,12 +547,30 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
                   'bg-red-500'
                 }`}></div>
                 <span className="text-xs font-medium text-gray-300">Market</span>
+
+                {/* Mobile: Price next to Market label */}
+                {currentPrice && (
+                  <div className="sm:hidden flex items-center gap-2 ml-2 pl-2 border-l border-gray-600">
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-white">
+                        {currentPrice.toFixed(5)}
+                      </div>
+                      <div className={`text-xs flex items-center gap-0.5 ${
+                        priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
+                      }`}>
+                        <Activity size={10} />
+                        {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
+          {/* Desktop: Price on the right side */}
           {currentPrice && (
-            <div className="flex items-center gap-4">
+            <div className="hidden sm:flex items-center gap-4">
               <div className="text-right">
                 <div className="text-2xl font-bold text-white">
                   {currentPrice.toFixed(5)}
