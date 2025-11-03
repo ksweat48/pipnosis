@@ -58,6 +58,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [priceUpdateFlash, setPriceUpdateFlash] = useState(false);
+  const [updateCount, setUpdateCount] = useState(0);
+  const [debugInfo, setDebugInfo] = useState<string>('');
   const [timeframe, setTimeframe] = useState<Timeframe>(() => chartPreferencesService.getTimeframe(symbol));
   const [isLive, setIsLive] = useState(false);
   const [systemStatus, setSystemStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
@@ -336,6 +339,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     try {
       candlestickSeriesRef.current.update(updatedCandle);
 
+      if (chartRef.current) {
+        chartRef.current.timeScale().scrollToRealTime();
+      }
+
       updateQueueRef.current.push(newPrice);
       if (updateQueueRef.current.length >= 5) {
         const allCandles = [...historicalCandlesRef.current, updatedCandle];
@@ -346,6 +353,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       setCurrentPrice(newPrice);
       setLastUpdate(new Date());
       setIsLive(true);
+      setUpdateCount(prev => prev + 1);
+
+      setPriceUpdateFlash(true);
+      setTimeout(() => setPriceUpdateFlash(false), 300);
+
+      console.log(`[Chart Update] ${symbol} - Price: ${newPrice.toFixed(5)}, Time: ${new Date(timestamp).toISOString()}`);
+      setDebugInfo(`Candle Time: ${new Date(currentCandleRef.current.time * 1000).toLocaleTimeString()}, Updates: ${updateCount + 1}`);
     } catch (chartError) {
       console.error('Chart update error:', chartError);
     }
@@ -364,10 +378,15 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         if (!isNaN(bid) && !isNaN(ask) && bid > 0 && ask > 0) {
           const midPrice = (bid + ask) / 2;
           const timestamp = new Date(latestPrice.broker_time || latestPrice.created_at).getTime();
+
+          console.log(`[Price Fetch] ${symbol} - New prices: ${recentPrices.length}, Latest: ${midPrice.toFixed(5)}, Time: ${new Date(timestamp).toLocaleTimeString()}`);
+
           updateCurrentCandle(midPrice, timestamp);
           lastFetchTimeRef.current = latestPrice.created_at;
           setError(null);
         }
+      } else {
+        console.log(`[Price Fetch] ${symbol} - No new prices found`);
       }
     } catch (err) {
       console.error('Failed to fetch new prices:', err);
@@ -427,8 +446,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         setPriceChange(((lastCandle.close - firstCandle.open) / firstCandle.open) * 100);
         setLastUpdate(new Date());
 
+        console.log(`[Chart Init] ${symbol} - Loaded ${uniqueHistorical.length} historical candles, Current: ${currentCandleRef.current ? 'Yes' : 'No'}`);
+        console.log(`[Chart Init] Latest candle time: ${new Date(lastCandle.time * 1000).toLocaleString()}`);
+
         requestAnimationFrame(() => {
           updateIndicators(allCandles);
+          if (chartRef.current) {
+            chartRef.current.timeScale().scrollToRealTime();
+          }
         });
       }
 
@@ -573,6 +598,26 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
   return (
     <div className="space-y-4">
+      {/* Real-time Update Status Bar */}
+      {updateCount > 0 && (
+        <div className="bg-gradient-to-r from-emerald-500/10 to-green-500/10 border border-emerald-500/30 rounded-lg p-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <div className="absolute inset-0 bg-emerald-500 rounded-full animate-ping opacity-75"></div>
+              <div className="relative w-3 h-3 bg-emerald-500 rounded-full"></div>
+            </div>
+            <div>
+              <div className="text-sm font-medium text-emerald-400">Live Price Updates Active</div>
+              <div className="text-xs text-white/60">Chart is receiving real-time market data</div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-lg font-bold text-emerald-400">{updateCount}</div>
+            <div className="text-xs text-white/60">updates</div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2 sm:gap-3">
@@ -619,7 +664,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
           {currentPrice && (
             <div className="hidden sm:flex items-center gap-4">
               <div className="flex items-center gap-3">
-                <div className="text-2xl font-bold text-white">
+                <div className={`text-2xl font-bold text-white transition-all duration-300 ${
+                  priceUpdateFlash ? 'scale-110 text-emerald-400' : ''
+                }`}>
                   {currentPrice.toFixed(5)}
                 </div>
                 <div className={`px-3 py-1 rounded-lg text-sm font-semibold ${
@@ -643,7 +690,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         {/* Mobile: Price below controls */}
         {currentPrice && (
           <div className="sm:hidden flex items-center justify-center gap-3 px-3 py-2 bg-gray-800/50 rounded-lg border border-gray-700">
-            <div className="text-lg font-bold text-white">
+            <div className={`text-lg font-bold text-white transition-all duration-300 ${
+              priceUpdateFlash ? 'scale-110 text-emerald-400' : ''
+            }`}>
               {currentPrice.toFixed(5)}
             </div>
             <div className={`px-2.5 py-0.5 rounded-lg text-xs font-semibold ${
@@ -717,10 +766,24 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         <div ref={chartContainerRef} className="rounded-lg overflow-hidden" />
       </div>
 
-      <div className="flex items-center justify-between text-xs">
-        {lastUpdate && (
-          <div className="text-white/50">
-            Last updated: {lastUpdate.toLocaleTimeString()}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+        <div className="flex items-center gap-4">
+          {lastUpdate && (
+            <div className="text-white/50 flex items-center gap-2">
+              <Clock size={12} />
+              Last updated: {lastUpdate.toLocaleTimeString()}
+            </div>
+          )}
+          {updateCount > 0 && (
+            <div className="text-emerald-500/70 flex items-center gap-1">
+              <TrendingUp size={12} />
+              {updateCount} updates
+            </div>
+          )}
+        </div>
+        {debugInfo && (
+          <div className="text-blue-400/70 font-mono text-xs">
+            {debugInfo}
           </div>
         )}
       </div>
