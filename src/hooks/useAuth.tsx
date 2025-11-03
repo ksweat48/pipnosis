@@ -22,21 +22,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    const fetchUserProfile = async (userId: string) => {
+    const fetchUserRole = async (userId: string) => {
       try {
         const { data, error } = await supabase
-          .from('user_profiles')
-          .select('is_admin')
-          .eq('id', userId)
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', userId)
           .maybeSingle();
 
         if (!error && data) {
-          setIsAdmin(data.is_admin || false);
+          setIsAdmin(data.role === 'admin');
         } else {
           setIsAdmin(false);
         }
       } catch (error) {
-        console.error('Error fetching user profile:', error);
+        console.error('Error fetching user role:', error);
         setIsAdmin(false);
       }
     };
@@ -45,7 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchUserProfile(session.user.id);
+        fetchUserRole(session.user.id);
       }
       setLoading(false);
     });
@@ -55,7 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          await fetchUserProfile(session.user.id);
+          await fetchUserRole(session.user.id);
         } else {
           setIsAdmin(false);
         }

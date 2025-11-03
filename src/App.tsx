@@ -100,6 +100,14 @@ const AppRoutes: React.FC = () => {
         }
       />
       <Route
+        path="/admin"
+        element={
+          <ProtectedRoute adminOnly={true}>
+            <AdminDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/kpis"
         element={
           <ProtectedRoute adminOnly={true}>
