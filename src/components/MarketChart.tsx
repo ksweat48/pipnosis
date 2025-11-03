@@ -94,7 +94,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const updateQueueRef = useRef<number[]>([]);
   const isUpdatingRef = useRef<boolean>(false);
   const userInteractedRef = useRef<boolean>(false);
-  const interactionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const updateMarketStatus = () => {
@@ -207,14 +206,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
     const handleUserInteraction = () => {
       userInteractedRef.current = true;
-
-      if (interactionTimeoutRef.current) {
-        clearTimeout(interactionTimeoutRef.current);
-      }
-
-      interactionTimeoutRef.current = setTimeout(() => {
-        userInteractedRef.current = false;
-      }, 30000);
     };
 
     const timeScale = chart.timeScale();
@@ -230,9 +221,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      if (interactionTimeoutRef.current) {
-        clearTimeout(interactionTimeoutRef.current);
-      }
       chart.remove();
     };
   }, []);
@@ -656,16 +644,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     localStorage.setItem(`indicators-visible-${symbol}`, String(newValue));
   };
 
-  const resetToLive = () => {
-    userInteractedRef.current = false;
-    if (interactionTimeoutRef.current) {
-      clearTimeout(interactionTimeoutRef.current);
-    }
-    if (chartRef.current) {
-      chartRef.current.timeScale().scrollToRealTime();
-    }
-  };
-
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-4">
@@ -708,15 +686,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
               }`}></div>
               <span className="hidden sm:inline text-xs font-medium text-gray-300">Market</span>
             </div>
-
-            <button
-              onClick={resetToLive}
-              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded-lg transition-all flex items-center gap-1.5"
-              title="Reset to live view and enable auto-scroll"
-            >
-              <Activity size={14} />
-              <span className="hidden sm:inline">Reset to Live</span>
-            </button>
           </div>
 
           {/* Desktop: Price on the right side */}
