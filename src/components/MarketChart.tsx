@@ -333,7 +333,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
         if (completedCandle.time > lastHistoricalTime) {
           historicalCandlesRef.current = [...historicalCandlesRef.current, completedCandle];
-          console.log(`[Chart] Candle completed at ${new Date(completedCandle.time * 1000).toISOString()} - Backend aggregation will save this`);
+          console.log(`[Chart] Candle completed at ${new Date(completedCandle.time * 1000).toISOString()} - Saving to database...`);
+
+          candlePersistenceService.saveCompletedCandle(symbol, timeframe, completedCandle)
+            .then(result => {
+              if (result.success) {
+                console.log(`[Chart] ✓ Candle saved successfully: ${result.candleTime}`);
+              } else {
+                console.error(`[Chart] ✗ Failed to save candle: ${result.error}`);
+              }
+            })
+            .catch(err => {
+              console.error(`[Chart] ✗ Error saving candle:`, err);
+            });
         }
       }
 

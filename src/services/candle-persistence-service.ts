@@ -1,4 +1,4 @@
-import { supabase, isCurrentUserAdmin } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { Timeframe } from '@/services/chart-preferences';
 import { CandleData } from '@/services/candle-data-service';
 
@@ -63,15 +63,6 @@ class CandlePersistenceService {
     candle: CandleData
   ): Promise<SaveCandleResult> {
     try {
-      const userIsAdmin = await isCurrentUserAdmin();
-      if (!userIsAdmin) {
-        console.warn('[CandlePersistence] User is not admin, candle save skipped');
-        return {
-          success: false,
-          error: 'Admin privileges required to save candle data'
-        };
-      }
-
       if (!candle.open || !candle.high || !candle.low || !candle.close || !candle.time) {
         return {
           success: false,
