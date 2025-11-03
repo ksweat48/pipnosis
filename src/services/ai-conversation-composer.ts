@@ -112,7 +112,7 @@ export class AIConversationComposer {
 
   composeEducationalInsight(topic: 'risk_management' | 'pattern_recognition' | 'market_timing' | 'psychology'): string {
     const insights = {
-      risk_management: 'Risk management tip: Never risk more than 2% of your account on a single trade. This ensures you can weather losing streaks and stay in the game.',
+      risk_management: 'Risk management tip: Risk allocation is key to success. Low risk mode uses 3% per trade, medium uses 5%, and high uses 10%. Choose based on your confidence and capital preservation goals.',
       pattern_recognition: 'Pattern insight: The best setups often come when price tests a key level multiple times. This shows respect for that level and increases probability of a bounce.',
       market_timing: 'Timing matters: Major forex pairs are most active during London and New York sessions. Volatility = opportunity.',
       psychology: 'Trading psychology: The hardest part of trading is doing nothing when there are no good setups. Patience is a skill that separates profitable traders from the rest.',

@@ -176,9 +176,9 @@ export const SmartGoalPanel: React.FC = () => {
                   onChange={(e) => setCustomConfig({ ...customConfig, riskMode: e.target.value as any })}
                   className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-white"
                 >
-                  <option value="low">Low Risk (80% confidence threshold)</option>
-                  <option value="medium">Medium Risk (70% confidence threshold)</option>
-                  <option value="high">High Risk (60% confidence threshold)</option>
+                  <option value="low">Low Risk (3% capital per trade, 80% confidence)</option>
+                  <option value="medium">Medium Risk (5% capital per trade, 70% confidence)</option>
+                  <option value="high">High Risk (10% capital per trade, 60% confidence)</option>
                 </select>
               </div>
 

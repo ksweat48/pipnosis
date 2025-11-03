@@ -361,12 +361,12 @@ class GoalScanner {
   calculateRiskAmount(sessionConfig: any): number {
     const balance = sessionConfig.starting_balance;
     const riskPercentages = {
-      low: 0.01,
-      medium: 0.02,
-      high: 0.03,
+      low: 0.03,
+      medium: 0.05,
+      high: 0.10,
     };
 
-    const riskPercent = riskPercentages[sessionConfig.risk_mode as keyof typeof riskPercentages] || 0.02;
+    const riskPercent = riskPercentages[sessionConfig.risk_mode as keyof typeof riskPercentages] || 0.05;
     return balance * riskPercent;
   }
 }
