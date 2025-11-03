@@ -99,14 +99,14 @@ export async function fetchRecentRealtimePrices(
   minutesBack: number = 60
 ): Promise<RealtimePrice[]> {
   try {
-    const startTime = new Date();
-    startTime.setMinutes(startTime.getMinutes() - minutesBack);
+    const nowUtc = new Date();
+    const startTimeUtc = new Date(nowUtc.getTime() - minutesBack * 60 * 1000);
 
     const { data, error } = await supabase
       .from('realtime_prices')
       .select('bid, ask, broker_time, created_at')
       .eq('symbol', symbol)
-      .gte('created_at', startTime.toISOString())
+      .gte('created_at', startTimeUtc.toISOString())
       .order('created_at', { ascending: true });
 
     if (error) {
@@ -121,6 +121,15 @@ export async function fetchRecentRealtimePrices(
   }
 }
 
+function parseUtcTimestamp(timeString: string): number {
+  const date = new Date(timeString);
+  if (isNaN(date.getTime())) {
+    console.warn(`Invalid timestamp: ${timeString}, using current time`);
+    return Date.now();
+  }
+  return date.getTime();
+}
+
 export function aggregatePricesToCurrentCandle(
   prices: RealtimePrice[],
   timeframe: Timeframe
@@ -128,14 +137,17 @@ export function aggregatePricesToCurrentCandle(
   if (prices.length === 0) return null;
 
   const intervalMinutes = getTimeframeMinutes(timeframe);
+  const intervalMs = intervalMinutes * 60 * 1000;
+
   const latestPrice = prices[prices.length - 1];
-  const latestTimestamp = new Date(latestPrice.broker_time || latestPrice.created_at).getTime();
-  const currentCandleTime = Math.floor(latestTimestamp / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60);
+  const latestTimestampUtc = parseUtcTimestamp(latestPrice.broker_time || latestPrice.created_at);
+
+  const currentCandleTimeMs = Math.floor(latestTimestampUtc / intervalMs) * intervalMs;
 
   const relevantPrices = prices.filter((price) => {
-    const timestamp = new Date(price.broker_time || price.created_at).getTime();
-    const candleTime = Math.floor(timestamp / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60);
-    return candleTime === currentCandleTime;
+    const timestampUtc = parseUtcTimestamp(price.broker_time || price.created_at);
+    const candleTimeMs = Math.floor(timestampUtc / intervalMs) * intervalMs;
+    return candleTimeMs === currentCandleTimeMs;
   });
 
   if (relevantPrices.length === 0) return null;
@@ -147,7 +159,7 @@ export function aggregatePricesToCurrentCandle(
   });
 
   return {
-    time: Math.floor(currentCandleTime / 1000),
+    time: Math.floor(currentCandleTimeMs / 1000),
     open: midPrices[0],
     high: Math.max(...midPrices),
     low: Math.min(...midPrices),
@@ -160,17 +172,35 @@ export async function fetchCompleteChartData(
   timeframe: Timeframe,
   limit: number = 500
 ): Promise<{ historical: CandleData[]; current: CandleData | null }> {
+  console.log(`[ChartData] Fetching complete data for ${symbol} ${timeframe}, limit: ${limit}`);
+
   const [historicalCandles, recentPrices] = await Promise.all([
     fetchPreAggregatedCandles(symbol, timeframe, limit),
     fetchRecentRealtimePrices(symbol, getTimeframeMinutes(timeframe) * 2),
   ]);
 
+  console.log(`[ChartData] Loaded ${historicalCandles.length} historical candles, ${recentPrices.length} recent prices`);
+
+  if (historicalCandles.length > 0) {
+    const lastHistorical = historicalCandles[historicalCandles.length - 1];
+    console.log(`[ChartData] Last historical candle: ${new Date(lastHistorical.time * 1000).toISOString()} - Close: ${lastHistorical.close}`);
+  }
+
   const currentCandle = aggregatePricesToCurrentCandle(recentPrices, timeframe);
+
+  if (currentCandle) {
+    console.log(`[ChartData] Current candle aggregated: ${new Date(currentCandle.time * 1000).toISOString()} - OHLC: ${currentCandle.open}/${currentCandle.high}/${currentCandle.low}/${currentCandle.close}`);
+  }
 
   let finalHistorical = historicalCandles;
   if (currentCandle && historicalCandles.length > 0) {
     const lastHistoricalTime = historicalCandles[historicalCandles.length - 1].time;
-    if (currentCandle.time <= lastHistoricalTime) {
+
+    if (currentCandle.time === lastHistoricalTime) {
+      console.log(`[ChartData] Current candle matches last historical - replacing with aggregated data`);
+      finalHistorical = [...historicalCandles.slice(0, -1)];
+    } else if (currentCandle.time < lastHistoricalTime) {
+      console.warn(`[ChartData] Current candle time ${currentCandle.time} < last historical ${lastHistoricalTime} - ignoring current`);
       return {
         historical: historicalCandles,
         current: null,

@@ -11,6 +11,7 @@ import {
   CandleData,
   RealtimePrice as RealtimePriceType
 } from '@/services/candle-data-service';
+import { candlePersistenceService } from '@/services/candle-persistence-service';
 import {
   calculateVWAP,
   calculateEMA,
@@ -282,7 +283,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   };
 
   const updateCurrentCandle = (newPrice: number, timestamp: number) => {
-    console.log(`[updateCurrentCandle] Called with price: ${newPrice.toFixed(5)}, timestamp: ${new Date(timestamp).toISOString()}`);
+    const timestampUtc = new Date(timestamp);
+    console.log(`[updateCurrentCandle] Called with price: ${newPrice.toFixed(5)}, timestamp UTC: ${timestampUtc.toISOString()}`);
 
     if (!candlestickSeriesRef.current) {
       console.warn('[updateCurrentCandle] Candlestick series not ready');
@@ -290,7 +292,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     }
 
     const intervalMinutes = getTimeframeMinutes(timeframe);
-    const candleTime = Math.floor(timestamp / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60 * 1000);
+    const intervalMs = intervalMinutes * 60 * 1000;
+    const candleTime = Math.floor(timestamp / intervalMs) * intervalMs;
     const candleTimeSeconds = Math.floor(candleTime / 1000);
 
     console.log(`[updateCurrentCandle] Candle time: ${new Date(candleTimeSeconds * 1000).toISOString()}`);
@@ -320,6 +323,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
         if (completedCandle.time > lastHistoricalTime) {
           historicalCandlesRef.current = [...historicalCandlesRef.current, completedCandle];
+
+          console.log(`[Chart] Candle completed at ${new Date(completedCandle.time * 1000).toISOString()}, queuing for save`);
+          candlePersistenceService.queueCandleForSave(symbol, timeframe, completedCandle);
         }
       }
 
@@ -397,12 +403,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
           if (!isNaN(bid) && !isNaN(ask) && bid > 0 && ask > 0) {
             const midPrice = (bid + ask) / 2;
-            const timestamp = new Date(latestPrice.broker_time || latestPrice.created_at).getTime();
+            const timestampUtc = new Date(latestPrice.broker_time || latestPrice.created_at).getTime();
 
-            console.log(`[Price Fetch] ${symbol} - ✓ Updating chart with price: ${midPrice.toFixed(5)} at ${new Date(timestamp).toLocaleTimeString()}`);
+            console.log(`[Price Fetch] ${symbol} - ✓ Updating chart with price: ${midPrice.toFixed(5)} at ${new Date(timestampUtc).toISOString()}`);
             console.log(`[Price Fetch] ${symbol} - Bid: ${bid.toFixed(5)}, Ask: ${ask.toFixed(5)}, Spread: ${(ask - bid).toFixed(5)}`);
 
-            updateCurrentCandle(midPrice, timestamp);
+            updateCurrentCandle(midPrice, timestampUtc);
             lastFetchTimeRef.current = latestPrice.created_at;
             setError(null);
           } else {
@@ -551,6 +557,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     return () => {
       subscription.unsubscribe();
       clearInterval(pollInterval);
+
+      candlePersistenceService.flushPending(symbol, timeframe);
     };
   }, [symbol, timeframe]);
 
