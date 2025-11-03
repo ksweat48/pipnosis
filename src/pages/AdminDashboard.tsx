@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Header } from '@/components/Header';
+import { NavigationMenu } from '@/components/NavigationMenu';
 import { DataManagementPanel } from '@/components/DataManagementPanel';
 import { CandleAggregatorStatus } from '@/components/CandleAggregatorStatus';
 import { Database, BarChart3, Settings } from 'lucide-react';
@@ -11,7 +11,7 @@ export function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
-      <Header />
+      <NavigationMenu />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         <h1 className="text-3xl font-bold text-white mb-6">Admin Dashboard</h1>
 
