@@ -282,15 +282,24 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   };
 
   const updateCurrentCandle = (newPrice: number, timestamp: number) => {
-    if (!candlestickSeriesRef.current) return;
+    console.log(`[updateCurrentCandle] Called with price: ${newPrice.toFixed(5)}, timestamp: ${new Date(timestamp).toISOString()}`);
+
+    if (!candlestickSeriesRef.current) {
+      console.warn('[updateCurrentCandle] Candlestick series not ready');
+      return;
+    }
 
     const intervalMinutes = getTimeframeMinutes(timeframe);
     const candleTime = Math.floor(timestamp / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60);
     const candleTimeSeconds = Math.floor(candleTime / 1000);
 
+    console.log(`[updateCurrentCandle] Candle time: ${new Date(candleTimeSeconds * 1000).toISOString()}`);
+
     if (historicalCandlesRef.current.length > 0) {
       const lastHistoricalTime = historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time;
+      console.log(`[updateCurrentCandle] Last historical time: ${new Date(lastHistoricalTime * 1000).toISOString()}`);
       if (candleTimeSeconds <= lastHistoricalTime) {
+        console.warn(`[updateCurrentCandle] Skipping - candle time ${candleTimeSeconds} <= last historical ${lastHistoricalTime}`);
         return;
       }
     }
@@ -368,28 +377,45 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const fetchNewPrices = async () => {
     try {
       const intervalMinutes = getTimeframeMinutes(timeframe);
-      const recentPrices = await fetchRecentRealtimePrices(symbol, intervalMinutes * 2);
+      const lookbackMinutes = Math.max(intervalMinutes * 2, 5);
+      const recentPrices = await fetchRecentRealtimePrices(symbol, lookbackMinutes);
+
+      console.log(`[Price Fetch] ${symbol} - Fetched ${recentPrices.length} prices from last ${lookbackMinutes} minutes`);
 
       if (recentPrices.length > 0) {
-        const latestPrice = recentPrices[recentPrices.length - 1];
-        const bid = parseFloat(latestPrice.bid);
-        const ask = parseFloat(latestPrice.ask);
+        let newPrices = recentPrices;
 
-        if (!isNaN(bid) && !isNaN(ask) && bid > 0 && ask > 0) {
-          const midPrice = (bid + ask) / 2;
-          const timestamp = new Date(latestPrice.broker_time || latestPrice.created_at).getTime();
+        if (lastFetchTimeRef.current) {
+          newPrices = recentPrices.filter(p => p.created_at > lastFetchTimeRef.current!);
+          console.log(`[Price Fetch] ${symbol} - Filtered to ${newPrices.length} new prices since ${new Date(lastFetchTimeRef.current).toLocaleTimeString()}`);
+        }
 
-          console.log(`[Price Fetch] ${symbol} - New prices: ${recentPrices.length}, Latest: ${midPrice.toFixed(5)}, Time: ${new Date(timestamp).toLocaleTimeString()}`);
+        if (newPrices.length > 0) {
+          const latestPrice = newPrices[newPrices.length - 1];
+          const bid = parseFloat(latestPrice.bid);
+          const ask = parseFloat(latestPrice.ask);
 
-          updateCurrentCandle(midPrice, timestamp);
-          lastFetchTimeRef.current = latestPrice.created_at;
-          setError(null);
+          if (!isNaN(bid) && !isNaN(ask) && bid > 0 && ask > 0) {
+            const midPrice = (bid + ask) / 2;
+            const timestamp = new Date(latestPrice.broker_time || latestPrice.created_at).getTime();
+
+            console.log(`[Price Fetch] ${symbol} - ✓ Updating chart with price: ${midPrice.toFixed(5)} at ${new Date(timestamp).toLocaleTimeString()}`);
+            console.log(`[Price Fetch] ${symbol} - Bid: ${bid.toFixed(5)}, Ask: ${ask.toFixed(5)}, Spread: ${(ask - bid).toFixed(5)}`);
+
+            updateCurrentCandle(midPrice, timestamp);
+            lastFetchTimeRef.current = latestPrice.created_at;
+            setError(null);
+          } else {
+            console.warn(`[Price Fetch] ${symbol} - Invalid price values: bid=${bid}, ask=${ask}`);
+          }
+        } else {
+          console.log(`[Price Fetch] ${symbol} - No NEW prices since last fetch`);
         }
       } else {
-        console.log(`[Price Fetch] ${symbol} - No new prices found`);
+        console.warn(`[Price Fetch] ${symbol} - No prices found in database for last ${lookbackMinutes} minutes`);
       }
     } catch (err) {
-      console.error('Failed to fetch new prices:', err);
+      console.error(`[Price Fetch] ${symbol} - Error:`, err);
     }
   };
 
@@ -498,6 +524,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
     initializeChart();
 
+    console.log(`[Chart Subscription] Setting up real-time subscription for ${symbol}...`);
+
     const subscription = supabase
       .channel(`realtime_prices_chart_${symbol}`)
       .on(
@@ -508,12 +536,16 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
           table: 'realtime_prices',
           filter: `symbol=eq.${symbol}`,
         },
-        () => {
+        (payload) => {
+          console.log(`[Chart Subscription] ${symbol} - INSERT event received:`, payload);
           fetchNewPrices();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log(`[Chart Subscription] ${symbol} - Subscription status:`, status);
+      });
 
+    console.log(`[Chart Polling] Starting 5-second polling interval for ${symbol}`);
     const pollInterval = setInterval(fetchNewPrices, 5000);
 
     return () => {
