@@ -156,11 +156,19 @@ exports.handler = async (event) => {
     };
   }
 
+  // Extract parameters outside try block so they're accessible in catch block
+  let symbol = 'EURUSD';
+  let timeframe = 'M15';
+  let limit = 100;
+
   try {
-    const params = new URLSearchParams(event.rawUrl.split('?')[1]);
-    const symbol = params.get('symbol') || 'EURUSD';
-    const timeframe = params.get('timeframe') || 'M15';
-    const limit = parseInt(params.get('limit') || '100', 10);
+    // Safely extract query parameters
+    const queryString = event.rawUrl ? event.rawUrl.split('?')[1] : event.queryStringParameters;
+    const params = new URLSearchParams(queryString);
+
+    symbol = params.get('symbol') || 'EURUSD';
+    timeframe = params.get('timeframe') || 'M15';
+    limit = parseInt(params.get('limit') || '100', 10);
 
     console.log(`Requesting ${limit} ${timeframe} candles for ${symbol}`);
 
@@ -187,6 +195,7 @@ exports.handler = async (event) => {
 
   } catch (error) {
     console.error('Error fetching candles:', error.message);
+    console.error('Full error:', error);
 
     // Return appropriate status code based on error type
     const statusCode = error.status === 404 ? 404 : 500;
@@ -202,8 +211,8 @@ exports.handler = async (event) => {
         success: false,
         error: error.message,
         errorCode,
-        symbol: params.get('symbol'),
-        timeframe: params.get('timeframe')
+        symbol,
+        timeframe
       })
     };
   }
