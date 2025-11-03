@@ -42,6 +42,9 @@ const TIMEFRAMES = [
   { name: 'M15', minutes: 15 },
   { name: 'M30', minutes: 30 },
   { name: 'H1', minutes: 60 },
+  { name: 'H4', minutes: 240 },
+  { name: 'D1', minutes: 1440 },
+  { name: 'W1', minutes: 10080 },
 ];
 
 const FOREX_PAIRS = [
@@ -67,8 +70,8 @@ Deno.serve(async (req: Request) => {
     console.log('🚀 Starting candle aggregation job...');
 
     const now = new Date();
-    const lookbackMinutes = 15;
-    const startTimeUtc = new Date(now.getTime() - lookbackMinutes * 60 * 1000);
+    const lookbackHours = 24;
+    const startTimeUtc = new Date(now.getTime() - lookbackHours * 60 * 60 * 1000);
 
     console.log(`📊 Aggregating from ${startTimeUtc.toISOString()} to ${now.toISOString()}`);
 
@@ -83,7 +86,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!realtimePrices || realtimePrices.length === 0) {
-      console.log('⚠️ No tick data found in the last 15 minutes');
+      console.log('⚠️ No tick data found in the last 24 hours');
 
       await logAggregation(supabase, {
         status: 'success',
