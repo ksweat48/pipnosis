@@ -299,6 +299,39 @@ class PositionMonitorService {
         })
         .eq('id', position.id);
 
+      const { data: goalTrade } = await supabase
+        .from('goal_session_trades')
+        .select('id, goal_session_id')
+        .eq('simulated_position_id', position.id)
+        .eq('status', 'open')
+        .maybeSingle();
+
+      if (goalTrade) {
+        console.log(`[PositionMonitor] Syncing closure to goal_session_trade ${goalTrade.id}`);
+        await supabase
+          .from('goal_session_trades')
+          .update({
+            status: 'closed',
+            exit_price: closePrice,
+            profit_loss: pnl,
+            closed_at: new Date().toISOString()
+          })
+          .eq('id', goalTrade.id);
+
+        const { data: otherTrades } = await supabase
+          .from('goal_session_trades')
+          .select('id')
+          .eq('goal_session_id', goalTrade.goal_session_id)
+          .eq('status', 'open');
+
+        if (!otherTrades || otherTrades.length === 0) {
+          await supabase
+            .from('goal_sessions')
+            .update({ status: 'scanning' })
+            .eq('id', goalTrade.goal_session_id);
+        }
+      }
+
       const { data: profile } = await supabase
         .from('user_profiles')
         .select('demo_balance')

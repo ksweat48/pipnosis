@@ -5,11 +5,18 @@ import { AuthProvider } from '@/hooks/useAuth';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { errorHandler } from '@/lib/error-handler';
 import { initializeAutomatedRefresh } from '@/services/automated-refresh-service';
+import { positionMonitorService } from '@/services/position-monitor';
+import { tradeLifecycleManager } from '@/services/trade-lifecycle-manager';
 import App from './App.tsx';
 import './index.css';
 import './utils/scanner-test';
 
 initializeAutomatedRefresh();
+
+console.log('[AI Trading] Starting position monitoring services...');
+positionMonitorService.start();
+tradeLifecycleManager.startMonitoring(5000);
+console.log('[AI Trading] Monitoring services started successfully');
 
 console.log('Application initializing...');
 console.log('Supabase URL:', import.meta.env.VITE_SUPABASE_URL);

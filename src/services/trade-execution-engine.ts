@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { goalSessionManager } from './goal-session-manager';
+import { simulatedTradingService } from './simulated-trading';
 
 export interface TradeSignal {
   sessionId: string;
@@ -177,6 +178,23 @@ class TradeExecutionEngine {
   ): Promise<TradeExecutionResult> {
     console.log(`[Trade Execution] Executing live trade for ${signal.symbol}...`);
 
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('demo_balance')
+      .eq('id', userId)
+      .single();
+
+    const currentBalance = parseFloat(profile?.demo_balance || '10000');
+    const requiredMargin = signal.positionSize * 1000;
+
+    if (currentBalance < requiredMargin) {
+      return {
+        success: false,
+        error: 'Insufficient balance',
+        message: `Insufficient demo balance. Required: $${requiredMargin.toFixed(2)}, Available: $${currentBalance.toFixed(2)}`
+      };
+    }
+
     const { data: trade, error } = await supabase
       .from('goal_session_trades')
       .insert({
@@ -201,6 +219,36 @@ class TradeExecutionEngine {
         message: 'Failed to save trade to database'
       };
     }
+
+    console.log(`[Trade Execution] Creating simulated position for ${signal.symbol}...`);
+    const simulatedResult = await simulatedTradingService.executeTrade({
+      symbol: signal.symbol,
+      action: signal.direction,
+      lotSize: signal.positionSize,
+      entry: signal.entryPrice,
+      stopLoss: signal.stopLoss,
+      takeProfit: signal.takeProfit,
+      strategy: 'ai_goal'
+    }, userId);
+
+    if (!simulatedResult.success) {
+      console.error('[Trade Execution] Failed to create simulated position:', simulatedResult.error);
+      await supabase
+        .from('goal_session_trades')
+        .update({ status: 'rejected' })
+        .eq('id', trade.id);
+
+      return {
+        success: false,
+        error: simulatedResult.message,
+        message: 'Failed to create simulated position'
+      };
+    }
+
+    await supabase
+      .from('goal_session_trades')
+      .update({ simulated_position_id: simulatedResult.position?.id })
+      .eq('id', trade.id);
 
     await supabase
       .from('goal_sessions')
@@ -258,11 +306,49 @@ class TradeExecutionEngine {
         };
       }
 
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('demo_balance')
+        .eq('id', userId)
+        .single();
+
+      const currentBalance = parseFloat(profile?.demo_balance || '10000');
+      const requiredMargin = trade.position_size * 1000;
+
+      if (currentBalance < requiredMargin) {
+        return {
+          success: false,
+          error: 'Insufficient balance',
+          message: `Insufficient demo balance. Required: $${requiredMargin.toFixed(2)}, Available: $${currentBalance.toFixed(2)}`
+        };
+      }
+
+      console.log(`[Trade Execution] Creating simulated position for confirmed trade ${trade.symbol}...`);
+      const simulatedResult = await simulatedTradingService.executeTrade({
+        symbol: trade.symbol,
+        action: trade.direction,
+        lotSize: trade.position_size,
+        entry: trade.entry_price,
+        stopLoss: trade.stop_loss,
+        takeProfit: trade.take_profit,
+        strategy: 'ai_goal'
+      }, userId);
+
+      if (!simulatedResult.success) {
+        console.error('[Trade Execution] Failed to create simulated position:', simulatedResult.error);
+        return {
+          success: false,
+          error: simulatedResult.message,
+          message: 'Failed to create simulated position'
+        };
+      }
+
       const { error: updateError } = await supabase
         .from('goal_session_trades')
         .update({
           status: 'open',
-          opened_at: new Date().toISOString()
+          opened_at: new Date().toISOString(),
+          simulated_position_id: simulatedResult.position?.id
         })
         .eq('id', tradeId);
 
