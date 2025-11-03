@@ -6,7 +6,10 @@ interface PollStatus {
   lastPoll: Date;
   lastPrice: { bid: number; ask: number } | null;
   errorCount: number;
+  successCount: number;
   isPolling: boolean;
+  lastError: string | null;
+  lastSuccessfulPoll: Date | null;
 }
 
 export interface CoordinatorStatus {
@@ -17,6 +20,17 @@ export interface CoordinatorStatus {
   lastSuccessfulPoll: Date | null;
   activePairs: number;
   totalPairs: number;
+  totalSuccesses: number;
+  totalErrors: number;
+  pairStatuses: Array<{
+    symbol: string;
+    status: 'active' | 'stale' | 'error' | 'starting';
+    lastPrice: { bid: number; ask: number } | null;
+    lastError: string | null;
+    errorCount: number;
+    successCount: number;
+    lastSuccessfulPoll: Date | null;
+  }>;
 }
 
 class GlobalPollingCoordinator {
@@ -51,31 +65,49 @@ class GlobalPollingCoordinator {
     console.log('🔍 Verifying MetaAPI connection before starting polling...');
     try {
       const verifyResponse = await fetch('/.netlify/functions/verify-metaapi-connection');
-      const verifyData = await verifyResponse.json();
 
-      console.log('📡 MetaAPI Connection Status:', verifyData);
-
-      if (!verifyData.healthy) {
-        console.error('❌ MetaAPI connection is not healthy:', verifyData.diagnostics);
-        if (verifyData.diagnostics?.issues) {
-          verifyData.diagnostics.issues.forEach((issue: string) => {
-            console.error(`  - ${issue}`);
-          });
-        }
-        if (verifyData.diagnostics?.recommendations) {
-          console.log('💡 Recommendations:');
-          verifyData.diagnostics.recommendations.forEach((rec: string) => {
-            console.log(`  - ${rec}`);
-          });
-        }
-        console.warn('⚠️ Proceeding with polling initialization despite connection issues...');
+      if (!verifyResponse.ok) {
+        console.error(`❌ MetaAPI verification failed: HTTP ${verifyResponse.status}`);
+        const errorText = await verifyResponse.text();
+        console.error('Error details:', errorText);
+        console.warn('⚠️ Proceeding with polling initialization despite verification failure...');
       } else {
-        console.log('✅ MetaAPI connection verified successfully');
-        console.log(`   Account State: ${verifyData.diagnostics?.account?.state}`);
-        console.log(`   Connection Status: ${verifyData.diagnostics?.account?.connectionStatus}`);
+        const verifyData = await verifyResponse.json();
+        console.log('📡 MetaAPI Connection Status:', verifyData);
+
+        if (!verifyData.healthy) {
+          console.error('❌ MetaAPI connection is not healthy:', verifyData.diagnostics);
+          if (verifyData.diagnostics?.issues) {
+            console.error('🔴 Issues detected:');
+            verifyData.diagnostics.issues.forEach((issue: string) => {
+              console.error(`  - ${issue}`);
+            });
+          }
+          if (verifyData.diagnostics?.recommendations) {
+            console.log('💡 Recommendations:');
+            verifyData.diagnostics.recommendations.forEach((rec: string) => {
+              console.log(`  - ${rec}`);
+            });
+          }
+          console.warn('⚠️ Proceeding with polling initialization despite connection issues...');
+        } else {
+          console.log('✅ MetaAPI connection verified successfully');
+          if (verifyData.diagnostics?.account) {
+            console.log(`   Account ID: ${verifyData.diagnostics.account.id || 'N/A'}`);
+            console.log(`   Account State: ${verifyData.diagnostics.account.state || 'N/A'}`);
+            console.log(`   Connection Status: ${verifyData.diagnostics.account.connectionStatus || 'N/A'}`);
+            console.log(`   Account Type: ${verifyData.diagnostics.account.type || 'N/A'}`);
+          } else {
+            console.warn('⚠️ Account diagnostics not available in response');
+          }
+        }
       }
     } catch (verifyError) {
       console.error('❌ Failed to verify MetaAPI connection:', verifyError);
+      if (verifyError instanceof Error) {
+        console.error('Error message:', verifyError.message);
+        console.error('Error stack:', verifyError.stack);
+      }
       console.warn('⚠️ Proceeding with polling initialization anyway...');
     }
 
@@ -85,7 +117,10 @@ class GlobalPollingCoordinator {
         lastPoll: new Date(),
         lastPrice: null,
         errorCount: 0,
-        isPolling: false
+        successCount: 0,
+        isPolling: false,
+        lastError: null,
+        lastSuccessfulPoll: null
       });
     }
 
@@ -145,7 +180,19 @@ class GlobalPollingCoordinator {
 
       try {
         const response = await fetch(`/.netlify/functions/get-live-price?symbol=${symbol}`);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`❌ [${symbol}] HTTP ${response.status}: ${errorText}`);
+          status.errorCount++;
+          status.lastError = `HTTP ${response.status}: ${errorText.substring(0, 100)}`;
+          status.isPolling = false;
+          this.notifyListeners();
+          return;
+        }
+
         const data = await response.json();
+        console.log(`📊 [${symbol}] Response:`, data);
 
         if (data.ok && data.bid && data.ask) {
           const bid = parseFloat(data.bid);
@@ -166,21 +213,38 @@ class GlobalPollingCoordinator {
             });
 
           if (insertError) {
-            console.error(`❌ Failed to insert price for ${symbol}:`, insertError);
+            console.error(`❌ [${symbol}] DB Insert Error:`, insertError);
             status.errorCount++;
+            status.lastError = `DB: ${insertError.message}`;
           } else {
+            console.log(`✅ [${symbol}] Price updated: ${bid}/${ask}`);
             status.lastPrice = { bid, ask };
             status.lastPoll = new Date();
+            status.lastSuccessfulPoll = new Date();
+            status.successCount++;
             status.errorCount = 0;
+            status.lastError = null;
             this.notifyListeners();
           }
         } else {
-          console.warn(`⚠️ Invalid price data for ${symbol}:`, data);
+          console.warn(`⚠️ [${symbol}] Invalid data:`, {
+            ok: data.ok,
+            bid: data.bid,
+            ask: data.ask,
+            error: data.error,
+            message: data.message,
+            fullResponse: data
+          });
           status.errorCount++;
+          status.lastError = data.error || data.message || 'Invalid price data';
+          this.notifyListeners();
         }
       } catch (error) {
-        console.error(`❌ Failed to poll ${symbol}:`, error);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`❌ [${symbol}] Poll failed:`, error);
         status.errorCount++;
+        status.lastError = errorMsg;
+        this.notifyListeners();
       } finally {
         status.isPolling = false;
       }
@@ -289,14 +353,48 @@ class GlobalPollingCoordinator {
     const marketStatus = getForexMarketStatus();
     let lastSuccessfulPoll: Date | null = null;
     let activePairs = 0;
+    let totalSuccesses = 0;
+    let totalErrors = 0;
+    const pairStatuses: CoordinatorStatus['pairStatuses'] = [];
 
     this.pollStatus.forEach(status => {
-      if (status.lastPrice !== null) {
-        activePairs++;
-        if (!lastSuccessfulPoll || status.lastPoll > lastSuccessfulPoll) {
-          lastSuccessfulPoll = status.lastPoll;
+      totalSuccesses += status.successCount;
+      totalErrors += status.errorCount;
+
+      let pairStatus: 'active' | 'stale' | 'error' | 'starting' = 'starting';
+
+      if (status.successCount > 0) {
+        const timeSinceLastSuccess = status.lastSuccessfulPoll
+          ? Date.now() - status.lastSuccessfulPoll.getTime()
+          : Infinity;
+
+        if (timeSinceLastSuccess < 15000) {
+          pairStatus = 'active';
+          activePairs++;
+        } else if (timeSinceLastSuccess < 60000) {
+          pairStatus = 'stale';
+        } else {
+          pairStatus = 'error';
+        }
+      } else if (status.errorCount > 3) {
+        pairStatus = 'error';
+      }
+
+      if (status.lastSuccessfulPoll) {
+        if (!lastSuccessfulPoll || status.lastSuccessfulPoll > lastSuccessfulPoll) {
+          lastSuccessfulPoll = status.lastSuccessfulPoll;
         }
       }
+
+      pairStatuses.push({
+        symbol: status.symbol,
+        status: pairStatus,
+        lastPrice: status.lastPrice,
+        lastError: status.lastError,
+        errorCount: status.errorCount,
+        successCount: status.successCount,
+        lastSuccessfulPoll: status.lastSuccessfulPoll
+      });
     });
 
     return {
@@ -306,7 +404,10 @@ class GlobalPollingCoordinator {
       marketOpen: marketStatus.isOpen,
       lastSuccessfulPoll,
       activePairs,
-      totalPairs: this.FOREX_PAIRS.length
+      totalPairs: this.FOREX_PAIRS.length,
+      totalSuccesses,
+      totalErrors,
+      pairStatuses
     };
   }
 
@@ -342,6 +443,28 @@ class GlobalPollingCoordinator {
         console.warn('⚠️ Cannot resume polling: Market is currently closed');
       }
     }
+  }
+
+  restartPolling(): void {
+    console.log('🔄 Restarting all polling...');
+    this.stopAllPolling();
+
+    // Reset error counts
+    this.pollStatus.forEach(status => {
+      status.errorCount = 0;
+      status.lastError = null;
+    });
+
+    setTimeout(() => {
+      const marketStatus = getForexMarketStatus();
+      if (marketStatus.isOpen) {
+        this.startAllPolling();
+      } else {
+        console.warn('⚠️ Market is currently closed');
+        this.isPaused = true;
+        this.pauseReason = 'market_closed';
+      }
+    }, 1000);
   }
 }
 
