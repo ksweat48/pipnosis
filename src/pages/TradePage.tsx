@@ -364,6 +364,8 @@ export function TradePage() {
             />
           </div>
 
+          <ActivePositions refreshTrigger={positionRefreshTrigger} />
+
           <TradingModeToggle
             symbol={selectedSymbol}
             onTradeExecuted={() => {
@@ -401,8 +403,6 @@ export function TradePage() {
               isExecuting={isExecuting}
             />
           </div>
-
-          <ActivePositions refreshTrigger={positionRefreshTrigger} />
         </div>
 
         {selectedStrategy && (
