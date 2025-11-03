@@ -11,6 +11,7 @@ import {
   CandleData,
   RealtimePrice as RealtimePriceType
 } from '@/services/candle-data-service';
+import { detectAndBackfillGaps } from '@/services/candle-backfill-service';
 import { candlePersistenceService } from '@/services/candle-persistence-service';
 import {
   calculateVWAP,
@@ -62,6 +63,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const [priceUpdateFlash, setPriceUpdateFlash] = useState(false);
   const [updateCount, setUpdateCount] = useState(0);
   const [debugInfo, setDebugInfo] = useState<string>('');
+  const [dataQualityWarning, setDataQualityWarning] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>(() => chartPreferencesService.getTimeframe(symbol));
   const [isLive, setIsLive] = useState(false);
   const [systemStatus, setSystemStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
@@ -331,9 +333,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
         if (completedCandle.time > lastHistoricalTime) {
           historicalCandlesRef.current = [...historicalCandlesRef.current, completedCandle];
-
-          console.log(`[Chart] Candle completed at ${new Date(completedCandle.time * 1000).toISOString()}, queuing for save`);
-          candlePersistenceService.queueCandleForSave(symbol, timeframe, completedCandle);
+          console.log(`[Chart] Candle completed at ${new Date(completedCandle.time * 1000).toISOString()} - Backend aggregation will save this`);
         }
       }
 
@@ -454,10 +454,30 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         return candle.time > array[index - 1].time;
       });
 
-      historicalCandlesRef.current = uniqueHistorical;
+      console.log(`[Chart Init] Checking for data gaps in ${uniqueHistorical.length} candles...`);
+      const { candles: backfilledCandles, backfillResult } = await detectAndBackfillGaps(
+        symbol,
+        timeframe,
+        uniqueHistorical
+      );
+
+      if (backfillResult.gapsFilled > 0) {
+        console.log(`[Chart Init] ✓ Backfilled ${backfillResult.gapsFilled} gaps, created ${backfillResult.candlesCreated} candles`);
+        setDataQualityWarning(`Data gaps detected and backfilled from tick data. ${backfillResult.candlesCreated} missing candles restored.`);
+
+        setTimeout(() => setDataQualityWarning(null), 10000);
+      } else {
+        setDataQualityWarning(null);
+      }
+
+      if (backfillResult.errors.length > 0) {
+        console.warn('[Chart Init] Backfill errors:', backfillResult.errors);
+      }
+
+      historicalCandlesRef.current = backfilledCandles;
 
       if (candlestickSeriesRef.current) {
-        candlestickSeriesRef.current.setData(uniqueHistorical);
+        candlestickSeriesRef.current.setData(backfilledCandles);
       }
 
       if (chartData.current) {
@@ -739,6 +759,18 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
           </div>
         )}
       </div>
+
+      {dataQualityWarning && (
+        <div className="mb-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="text-yellow-500 flex-shrink-0 mt-0.5" size={18} />
+            <div>
+              <p className="text-yellow-500 text-sm font-medium">Data Quality Notice</p>
+              <p className="text-yellow-400/80 text-xs mt-1">{dataQualityWarning}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="relative isolate">
         {isLoading && (
