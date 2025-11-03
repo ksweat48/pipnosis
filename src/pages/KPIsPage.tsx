@@ -228,6 +228,26 @@ export function KPIsPage() {
           Last updated: {lastRefresh.toLocaleString()}
         </div>
 
+        <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6 mb-8">
+          <div className="flex items-center gap-3 mb-6">
+            <Settings size={24} className="text-blue-400" />
+            <div>
+              <h2 className="text-2xl font-bold text-white">System Performance & API Management</h2>
+              <p className="text-gray-400 mt-1">Monitor and configure real-time data polling and API usage</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1">
+              <GlobalPollingStatus />
+            </div>
+            <div className="lg:col-span-2 space-y-6">
+              <PollingPreferences />
+              <CPUCreditDashboard />
+            </div>
+          </div>
+        </div>
+
         {metrics ? (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -419,26 +439,6 @@ export function KPIsPage() {
                     )}
                   </tbody>
                 </table>
-              </div>
-            </div>
-
-            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6 mb-8">
-              <div className="flex items-center gap-3 mb-6">
-                <Settings size={24} className="text-blue-400" />
-                <div>
-                  <h2 className="text-2xl font-bold text-white">System Performance & API Management</h2>
-                  <p className="text-gray-400 mt-1">Monitor and configure real-time data polling and API usage</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-1">
-                  <GlobalPollingStatus />
-                </div>
-                <div className="lg:col-span-2 space-y-6">
-                  <PollingPreferences />
-                  <CPUCreditDashboard />
-                </div>
               </div>
             </div>
           </>
