@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Header } from '@/components/Header';
 import { DataManagementPanel } from '@/components/DataManagementPanel';
+import { CandleAggregatorStatus } from '@/components/CandleAggregatorStatus';
 import { Database, BarChart3, Settings } from 'lucide-react';
 
 type AdminTab = 'data' | 'analytics' | 'settings';
@@ -50,7 +51,12 @@ export function AdminDashboard() {
           </button>
         </div>
 
-        {activeTab === 'data' && <DataManagementPanel />}
+        {activeTab === 'data' && (
+          <div className="space-y-6">
+            <CandleAggregatorStatus />
+            <DataManagementPanel />
+          </div>
+        )}
 
         {activeTab === 'analytics' && (
           <div className="glass-card p-6">

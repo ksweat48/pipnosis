@@ -15,6 +15,7 @@ import {
 } from '@/services/candle-data-service';
 import { detectAndBackfillGaps } from '@/services/candle-backfill-service';
 import { candlePersistenceService } from '@/services/candle-persistence-service';
+import { backgroundCandleAggregator } from '@/services/background-candle-aggregator';
 import {
   calculateVWAP,
   calculateEMA,
@@ -294,100 +295,35 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     setPatternData(patterns);
   };
 
-  const updateCurrentCandle = (newPrice: number, timestamp: number) => {
-    const timestampUtc = new Date(timestamp);
-    console.log(`[updateCurrentCandle] Called with price: ${newPrice.toFixed(5)}, timestamp UTC: ${timestampUtc.toISOString()}`);
-
+  const updateCurrentCandleFromAggregator = (candle: CandleData) => {
     if (!candlestickSeriesRef.current) {
-      console.warn('[updateCurrentCandle] Candlestick series not ready');
       return;
     }
 
-    const intervalMinutes = getTimeframeMinutes(timeframe);
-    const intervalMs = intervalMinutes * 60 * 1000;
-    const candleTime = Math.floor(timestamp / intervalMs) * intervalMs;
-    const candleTimeSeconds = Math.floor(candleTime / 1000);
+    const lastHistoricalTime = historicalCandlesRef.current.length > 0
+      ? historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time
+      : 0;
 
-    console.log(`[updateCurrentCandle] Candle time: ${new Date(candleTimeSeconds * 1000).toISOString()}`);
-
-    if (historicalCandlesRef.current.length > 0) {
-      const lastHistoricalTime = historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time;
-      console.log(`[updateCurrentCandle] Last historical time: ${new Date(lastHistoricalTime * 1000).toISOString()}`);
-      if (candleTimeSeconds <= lastHistoricalTime) {
-        console.warn(`[updateCurrentCandle] Skipping - candle time ${candleTimeSeconds} <= last historical ${lastHistoricalTime}`);
-        return;
-      }
+    if (candle.time <= lastHistoricalTime) {
+      return;
     }
-
-    if (!currentCandleRef.current || currentCandleRef.current.startTime !== candleTime) {
-      if (currentCandleRef.current && historicalCandlesRef.current) {
-        const completedCandle: CandleData = {
-          time: currentCandleRef.current.time,
-          open: currentCandleRef.current.open,
-          high: currentCandleRef.current.high,
-          low: currentCandleRef.current.low,
-          close: currentCandleRef.current.close
-        };
-
-        const lastHistoricalTime = historicalCandlesRef.current.length > 0
-          ? historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time
-          : 0;
-
-        if (completedCandle.time > lastHistoricalTime) {
-          historicalCandlesRef.current = [...historicalCandlesRef.current, completedCandle];
-          console.log(`[Chart] Candle completed at ${new Date(completedCandle.time * 1000).toISOString()} - Saving to database...`);
-
-          candlePersistenceService.saveCompletedCandle(symbol, timeframe, completedCandle)
-            .then(result => {
-              if (result.success) {
-                console.log(`[Chart] ✓ Candle saved successfully: ${result.candleTime}`);
-              } else {
-                console.error(`[Chart] ✗ Failed to save candle: ${result.error}`);
-              }
-            })
-            .catch(err => {
-              console.error(`[Chart] ✗ Error saving candle:`, err);
-            });
-        }
-      }
-
-      currentCandleRef.current = {
-        time: candleTimeSeconds,
-        open: newPrice,
-        high: newPrice,
-        low: newPrice,
-        close: newPrice,
-        startTime: candleTime
-      };
-    } else {
-      currentCandleRef.current.high = Math.max(currentCandleRef.current.high, newPrice);
-      currentCandleRef.current.low = Math.min(currentCandleRef.current.low, newPrice);
-      currentCandleRef.current.close = newPrice;
-    }
-
-    const updatedCandle: CandleData = {
-      time: currentCandleRef.current.time,
-      open: currentCandleRef.current.open,
-      high: currentCandleRef.current.high,
-      low: currentCandleRef.current.low,
-      close: currentCandleRef.current.close
-    };
 
     try {
-      candlestickSeriesRef.current.update(updatedCandle);
+      candlestickSeriesRef.current.update(candle);
 
       if (chartRef.current && !userInteractedRef.current) {
         chartRef.current.timeScale().scrollToRealTime();
       }
 
-      updateQueueRef.current.push(newPrice);
+      const allCandles = [...historicalCandlesRef.current, candle];
       if (updateQueueRef.current.length >= 5) {
-        const allCandles = [...historicalCandlesRef.current, updatedCandle];
         updateIndicatorsDebounced(allCandles);
         updateQueueRef.current = [];
+      } else {
+        updateQueueRef.current.push(candle.close);
       }
 
-      setCurrentPrice(newPrice);
+      setCurrentPrice(candle.close);
       setLastUpdate(new Date());
       setIsLive(true);
       setUpdateCount(prev => prev + 1);
@@ -395,57 +331,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       setPriceUpdateFlash(true);
       setTimeout(() => setPriceUpdateFlash(false), 300);
 
-      console.log(`[Chart Update] ${symbol} - Price: ${newPrice.toFixed(5)}, Time: ${new Date(timestamp).toISOString()}`);
-      setDebugInfo(`Candle Time: ${new Date(currentCandleRef.current.time * 1000).toLocaleTimeString()}, Updates: ${updateCount + 1}`);
+      setDebugInfo(`Candle Time: ${new Date(candle.time * 1000).toLocaleTimeString()}, Updates: ${updateCount + 1}`);
     } catch (chartError) {
-      console.error('Chart update error:', chartError);
+      console.error('[Chart] Update error:', chartError);
     }
   };
 
-  const fetchNewPrices = async () => {
-    try {
-      const intervalMinutes = getTimeframeMinutes(timeframe);
-      const lookbackMinutes = Math.max(intervalMinutes * 2, 5);
-      const recentPrices = await fetchRecentRealtimePrices(symbol, lookbackMinutes);
-
-      console.log(`[Price Fetch] ${symbol} - Fetched ${recentPrices.length} prices from last ${lookbackMinutes} minutes`);
-
-      if (recentPrices.length > 0) {
-        let newPrices = recentPrices;
-
-        if (lastFetchTimeRef.current) {
-          newPrices = recentPrices.filter(p => p.created_at > lastFetchTimeRef.current!);
-          console.log(`[Price Fetch] ${symbol} - Filtered to ${newPrices.length} new prices since ${new Date(lastFetchTimeRef.current).toLocaleTimeString()}`);
-        }
-
-        if (newPrices.length > 0) {
-          const latestPrice = newPrices[newPrices.length - 1];
-          const bid = parseFloat(latestPrice.bid);
-          const ask = parseFloat(latestPrice.ask);
-
-          if (!isNaN(bid) && !isNaN(ask) && bid > 0 && ask > 0) {
-            const midPrice = (bid + ask) / 2;
-            const timestampUtc = new Date(latestPrice.broker_time || latestPrice.created_at).getTime();
-
-            console.log(`[Price Fetch] ${symbol} - ✓ Updating chart with price: ${midPrice.toFixed(5)} at ${new Date(timestampUtc).toISOString()}`);
-            console.log(`[Price Fetch] ${symbol} - Bid: ${bid.toFixed(5)}, Ask: ${ask.toFixed(5)}, Spread: ${(ask - bid).toFixed(5)}`);
-
-            updateCurrentCandle(midPrice, timestampUtc);
-            lastFetchTimeRef.current = latestPrice.created_at;
-            setError(null);
-          } else {
-            console.warn(`[Price Fetch] ${symbol} - Invalid price values: bid=${bid}, ask=${ask}`);
-          }
-        } else {
-          console.log(`[Price Fetch] ${symbol} - No NEW prices since last fetch`);
-        }
-      } else {
-        console.warn(`[Price Fetch] ${symbol} - No prices found in database for last ${lookbackMinutes} minutes`);
-      }
-    } catch (err) {
-      console.error(`[Price Fetch] ${symbol} - Error:`, err);
-    }
-  };
 
   const initializeChart = async () => {
     try {
@@ -572,41 +463,25 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
     initializeChart();
 
-    console.log(`[Chart Subscription] Setting up real-time subscription for ${symbol}...`);
+    console.log(`[Chart] Subscribing to background aggregator for ${symbol} ${timeframe}`);
 
-    const subscription = supabase
-      .channel(`realtime_prices_chart_${symbol}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'realtime_prices',
-          filter: `symbol=eq.${symbol}`,
-        },
-        (payload) => {
-          console.log(`[Chart Subscription] ${symbol} - INSERT event received:`, payload);
-          fetchNewPrices();
-        }
-      )
-      .subscribe((status) => {
-        console.log(`[Chart Subscription] ${symbol} - Subscription status:`, status);
-      });
+    const unsubscribe = backgroundCandleAggregator.onCandleUpdate((updateSymbol, updateTimeframe, candle) => {
+      if (updateSymbol === symbol && updateTimeframe === timeframe) {
+        updateCurrentCandleFromAggregator(candle);
+      }
+    });
 
     globalPollingCoordinator.setSymbolViewed(symbol, true);
 
-    const strategy = pollingConfigService.getStrategy();
-    const pollingInterval = strategy.highInterval;
-
-    console.log(`[Chart Polling] Starting ${pollingInterval}ms polling interval for ${symbol} (viewed symbol)`);
-    const pollInterval = setInterval(fetchNewPrices, pollingInterval);
+    const currentCandle = backgroundCandleAggregator.getCurrentCandle(symbol, timeframe);
+    if (currentCandle) {
+      console.log(`[Chart] Loaded current candle from aggregator:`, currentCandle);
+      updateCurrentCandleFromAggregator(currentCandle);
+    }
 
     return () => {
-      subscription.unsubscribe();
-      clearInterval(pollInterval);
-
+      unsubscribe();
       globalPollingCoordinator.setSymbolViewed(symbol, false);
-      candlePersistenceService.flushPending(symbol, timeframe);
     };
   }, [symbol, timeframe]);
 

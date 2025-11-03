@@ -20,6 +20,7 @@ import { verifyDatabaseSetup } from './lib/migration-checker';
 import { connectionValidator } from './lib/connection-validator';
 import { dbHealthMonitor } from './services/db-health-monitor';
 import { globalPollingCoordinator } from './services/global-polling-coordinator';
+import { backgroundCandleAggregator } from './services/background-candle-aggregator';
 
 
 const AppRoutes: React.FC = () => {
@@ -173,6 +174,18 @@ export default function App() {
           }
         }, 6000);
 
+        setTimeout(async () => {
+          console.log('🚀 Starting background candle aggregator...');
+          try {
+            await backgroundCandleAggregator.start();
+            console.log('✅ Background candle aggregator started successfully');
+            const status = backgroundCandleAggregator.getStatus();
+            console.log(`📊 Aggregator Status: ${status.symbols} symbols × ${status.timeframes} timeframes = ${status.totalCombinations} combinations`);
+          } catch (error) {
+            console.error('❌ Failed to start background candle aggregator:', error);
+          }
+        }, 7000);
+
         setDbValidated(true);
       } catch (error) {
         console.error('Startup diagnostics error (non-blocking):', error);
@@ -184,6 +197,11 @@ export default function App() {
 
     return () => {
       dbHealthMonitor.stopMonitoring();
+
+      console.log('🛑 Shutting down background candle aggregator...');
+      backgroundCandleAggregator.stop().catch(err => {
+        console.error('Error shutting down background aggregator:', err);
+      });
 
       console.log('🛑 Shutting down global polling coordinator...');
       globalPollingCoordinator.shutdown().catch(err => {
