@@ -177,8 +177,8 @@ export const SmartGoalPanel: React.FC = () => {
                   className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-white"
                 >
                   <option value="low">Low Risk (3% capital per trade, 80% confidence)</option>
-                  <option value="medium">Medium Risk (5% capital per trade, 70% confidence)</option>
-                  <option value="high">High Risk (10% capital per trade, 60% confidence)</option>
+                  <option value="medium">Medium Risk (5% capital per trade, 75% confidence)</option>
+                  <option value="high">High Risk (10% capital per trade, 70% confidence)</option>
                 </select>
               </div>
 

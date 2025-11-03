@@ -216,8 +216,8 @@ class IntelligentMarketScanner {
   ): Promise<ScannerConfig> {
     const riskConfig = {
       low: { minScore: 80, maxSignals: 1, requireAI: true },
-      medium: { minScore: 70, maxSignals: 2, requireAI: true },
-      high: { minScore: 60, maxSignals: 3, requireAI: true }
+      medium: { minScore: 75, maxSignals: 2, requireAI: true },
+      high: { minScore: 70, maxSignals: 3, requireAI: true }
     };
 
     const config = riskConfig[riskMode];

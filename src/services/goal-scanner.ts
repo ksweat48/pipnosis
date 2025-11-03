@@ -224,10 +224,10 @@ class GoalScanner {
   getRiskThreshold(riskMode: string): number {
     const thresholds = {
       low: 80,
-      medium: 70,
-      high: 60,
+      medium: 75,
+      high: 70,
     };
-    return thresholds[riskMode as keyof typeof thresholds] || 70;
+    return thresholds[riskMode as keyof typeof thresholds] || 75;
   }
 
   calculateEMA(prices: number[], period: number): number {
