@@ -78,11 +78,11 @@ class TradeExecutionEngine {
 
     const riskThresholds = {
       low: 80,
-      medium: 70,
-      high: 60
+      medium: 75,
+      high: 70
     };
 
-    const threshold = riskThresholds[session.risk_mode as keyof typeof riskThresholds] || 70;
+    const threshold = riskThresholds[session.risk_mode as keyof typeof riskThresholds] || 75;
     if (signal.confidence < threshold) {
       return {
         valid: false,
