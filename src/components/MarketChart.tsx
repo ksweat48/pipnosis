@@ -630,26 +630,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
   return (
     <div className="space-y-4">
-      {/* Real-time Update Status Bar */}
-      {updateCount > 0 && (
-        <div className="bg-gradient-to-r from-emerald-500/10 to-green-500/10 border border-emerald-500/30 rounded-lg p-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="absolute inset-0 bg-emerald-500 rounded-full animate-ping opacity-75"></div>
-              <div className="relative w-3 h-3 bg-emerald-500 rounded-full"></div>
-            </div>
-            <div>
-              <div className="text-sm font-medium text-emerald-400">Live Price Updates Active</div>
-              <div className="text-xs text-white/60">Chart is receiving real-time market data</div>
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="text-lg font-bold text-emerald-400">{updateCount}</div>
-            <div className="text-xs text-white/60">updates</div>
-          </div>
-        </div>
-      )}
-
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2 sm:gap-3">
