@@ -9,7 +9,6 @@ import { SearchStatusPanel } from '@/components/SearchStatusPanel';
 import { StrategyOptions } from '@/components/StrategyOptions';
 import { ActivePositions } from '@/components/ActivePositions';
 import { TradeConfirmationModal } from '@/components/TradeConfirmationModal';
-import { GlobalPollingStatus } from '@/components/GlobalPollingStatus';
 import { positionMonitorService } from '@/services/position-monitor';
 import { usePromptAnalysis } from '@/hooks/useAPI';
 import { simulatedTradingService } from '@/services/simulated-trading';
@@ -315,8 +314,6 @@ export function TradePage() {
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12 relative z-0">
         <div className="space-y-6 sm:space-y-8 lg:space-y-12">
-          <GlobalPollingStatus />
-
           <NotificationCenter
             notifications={notifications}
             onMarkAsRead={handleMarkAsRead}
