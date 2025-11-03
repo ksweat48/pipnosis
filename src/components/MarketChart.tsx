@@ -290,7 +290,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     }
 
     const intervalMinutes = getTimeframeMinutes(timeframe);
-    const candleTime = Math.floor(timestamp / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60);
+    const candleTime = Math.floor(timestamp / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60 * 1000);
     const candleTimeSeconds = Math.floor(candleTime / 1000);
 
     console.log(`[updateCurrentCandle] Candle time: ${new Date(candleTimeSeconds * 1000).toISOString()}`);
