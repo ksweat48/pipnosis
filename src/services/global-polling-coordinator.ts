@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { getForexMarketStatus } from '@/utils/marketHours';
+import { areFunctionsAvailable, isWebContainer, logEnvironmentInfo } from '@/lib/environment';
 
 interface PollStatus {
   symbol: string;
@@ -64,6 +65,17 @@ class GlobalPollingCoordinator {
     }
 
     console.log('🚀 Initializing global polling coordinator for all forex pairs...');
+    logEnvironmentInfo();
+
+    if (!areFunctionsAvailable()) {
+      console.warn('⚠️ Netlify Functions not available in this environment');
+      console.log('ℹ️ Live polling requires production environment (pipnosis.com or *.netlify.app)');
+      console.log('ℹ️ In development, the app will use cached price data from Supabase');
+      this.initialized = true;
+      this.isPaused = true;
+      this.pauseReason = 'manual';
+      return;
+    }
 
     const marketStatus = getForexMarketStatus();
     console.log(`📊 Current Market Status: ${marketStatus.status}`);
@@ -75,7 +87,14 @@ class GlobalPollingCoordinator {
       if (!verifyResponse.ok) {
         console.error(`❌ MetaAPI verification failed: HTTP ${verifyResponse.status}`);
         const errorText = await verifyResponse.text();
-        console.error('Error details:', errorText);
+
+        if (errorText.includes('<!doctype') || errorText.includes('<html')) {
+          console.error('❌ Received HTML instead of JSON - Function endpoint not found');
+          console.error('ℹ️ This usually means Netlify Functions are not deployed or accessible');
+          console.error('ℹ️ Check that functions are being built and deployed in your Netlify configuration');
+        } else {
+          console.error('Error details:', errorText.substring(0, 500));
+        }
         console.warn('⚠️ Proceeding with polling initialization despite verification failure...');
       } else {
         const verifyData = await verifyResponse.json();
@@ -112,7 +131,12 @@ class GlobalPollingCoordinator {
       console.error('❌ Failed to verify MetaAPI connection:', verifyError);
       if (verifyError instanceof Error) {
         console.error('Error message:', verifyError.message);
-        console.error('Error stack:', verifyError.stack);
+
+        if (verifyError.message.includes('JSON')) {
+          console.error('💡 Tip: The function returned HTML instead of JSON');
+          console.error('💡 Make sure Netlify Functions are deployed and accessible');
+          console.error('💡 Check the Netlify deploy logs for function build errors');
+        }
       }
       console.warn('⚠️ Proceeding with polling initialization anyway...');
     }
@@ -196,10 +220,17 @@ class GlobalPollingCoordinator {
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error(`❌ [${symbol}] HTTP ${response.status}: ${errorText}`);
+
+          if (errorText.includes('<!doctype') || errorText.includes('<html')) {
+            console.error(`❌ [${symbol}] HTTP ${response.status}: Function endpoint not found (received HTML)`);
+            status.lastError = 'Function endpoint not found - check Netlify deployment';
+          } else {
+            console.error(`❌ [${symbol}] HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+            status.lastError = `HTTP ${response.status}: ${errorText.substring(0, 100)}`;
+          }
+
           status.errorCount++;
           status.consecutiveErrors++;
-          status.lastError = `HTTP ${response.status}: ${errorText.substring(0, 100)}`;
 
           this.applyBackoff(status);
 
@@ -266,10 +297,17 @@ class GlobalPollingCoordinator {
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error(`❌ [${symbol}] Poll failed:`, error);
+
+        if (errorMsg.includes('JSON') || errorMsg.includes('<!doctype')) {
+          console.error(`❌ [${symbol}] Function returned HTML instead of JSON - endpoint not deployed`);
+          status.lastError = 'Function not deployed - check Netlify build logs';
+        } else {
+          console.error(`❌ [${symbol}] Poll failed:`, errorMsg);
+          status.lastError = errorMsg;
+        }
+
         status.errorCount++;
         status.consecutiveErrors++;
-        status.lastError = errorMsg;
 
         this.applyBackoff(status);
         this.notifyListeners();

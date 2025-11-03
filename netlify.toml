@@ -8,6 +8,13 @@
 
 [functions]
   node_bundler = "esbuild"
+  directory = "netlify/functions"
+
+[functions."get-live-price"]
+  timeout = 10
+
+[functions."verify-metaapi-connection"]
+  timeout = 10
 
 [functions."refresh-candles"]
   timeout = 600
@@ -21,6 +28,11 @@
 
 [functions."connection-health"]
   timeout = 26
+
+[[redirects]]
+  from = "/.netlify/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
 
 [[redirects]]
   from = "/*"
