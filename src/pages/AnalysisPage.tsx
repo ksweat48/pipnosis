@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
+import { GlobalPollingStatus } from '@/components/GlobalPollingStatus';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 import { supabase } from '@/lib/supabase';
@@ -127,6 +128,10 @@ export function AnalysisPage() {
       <NavigationMenu />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+        <div className="mb-6">
+          <GlobalPollingStatus />
+        </div>
+
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold text-white mb-2">Performance Analysis</h2>

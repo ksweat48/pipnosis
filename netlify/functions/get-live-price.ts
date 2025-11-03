@@ -48,19 +48,42 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
 
     console.log(`[get-live-price] Response status: ${response.status}`);
     console.log(`[get-live-price] Response ok: ${response.ok}`);
-    console.log(`[get-live-price] Response headers:`, Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[get-live-price] MetaAPI error response body:`, errorText);
-      throw new Error(`MetaAPI HTTP ${response.status}: ${errorText}`);
+
+      let errorDetail = errorText;
+      if (response.status === 401) {
+        errorDetail = 'Invalid or expired MetaAPI token';
+      } else if (response.status === 403) {
+        errorDetail = 'Access forbidden - check account permissions';
+      } else if (response.status === 404) {
+        errorDetail = `Symbol ${symbol} not found or account not connected`;
+      } else if (response.status === 429) {
+        errorDetail = 'Rate limit exceeded - too many requests';
+      } else if (response.status >= 500) {
+        errorDetail = 'MetaAPI server error - service may be down';
+      }
+
+      throw new Error(`MetaAPI HTTP ${response.status}: ${errorDetail}`);
     }
 
     const data: MetaApiPrice = await response.json();
-    console.log(`[get-live-price] Price data received:`, data);
+    console.log(`[get-live-price] Price data received for ${symbol}:`, {
+      bid: data.bid,
+      ask: data.ask,
+      hasTime: !!data.time
+    });
 
     if (!data.bid || !data.ask) {
-      throw new Error('Invalid price data from MetaAPI');
+      console.error(`[get-live-price] Invalid price data:`, data);
+      throw new Error(`Invalid price data from MetaAPI: bid=${data.bid}, ask=${data.ask}`);
+    }
+
+    if (isNaN(data.bid) || isNaN(data.ask)) {
+      console.error(`[get-live-price] Price values are NaN:`, data);
+      throw new Error(`Invalid numeric values: bid=${data.bid}, ask=${data.ask}`);
     }
 
     return {
@@ -72,8 +95,10 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('MetaAPI request timeout after 8 seconds');
+      console.error(`[get-live-price] Request timeout for ${symbol} after 8 seconds`);
+      throw new Error(`MetaAPI request timeout after 8 seconds for ${symbol}`);
     }
+    console.error(`[get-live-price] Fetch error for ${symbol}:`, error);
     throw error;
   }
 }
@@ -130,29 +155,39 @@ export const handler: Handler = async (event) => {
   try {
     const params = new URLSearchParams(event.rawUrl?.split('?')[1] || '');
     const symbol = params.get('symbol') || 'EURUSD';
+    const requestId = Math.random().toString(36).substring(7);
 
-    console.log(`[get-live-price] Request for ${symbol}`);
-    console.log(`[get-live-price] Env check - METAAPI_TOKEN: ${process.env.METAAPI_TOKEN ? 'SET' : 'MISSING'}`);
-    console.log(`[get-live-price] Env check - METAAPI_ACCOUNT_ID: ${process.env.METAAPI_ACCOUNT_ID || 'MISSING'}`);
-    console.log(`[get-live-price] Env check - METAAPI_REGION: ${process.env.METAAPI_REGION || 'MISSING'}`);
+    console.log(`[get-live-price][${requestId}] ========== NEW REQUEST ==========`);
+    console.log(`[get-live-price][${requestId}] Symbol: ${symbol}`);
+    console.log(`[get-live-price][${requestId}] Env check - METAAPI_TOKEN: ${process.env.METAAPI_TOKEN ? 'SET' : 'MISSING'}`);
+    console.log(`[get-live-price][${requestId}] Env check - METAAPI_ACCOUNT_ID: ${process.env.METAAPI_ACCOUNT_ID || 'MISSING'}`);
+    console.log(`[get-live-price][${requestId}] Env check - METAAPI_REGION: ${process.env.METAAPI_REGION || 'MISSING'}`);
 
     let priceData;
     let ok = true;
+    let fetchMethod = 'unknown';
 
     try {
+      console.log(`[get-live-price][${requestId}] Attempting to fetch live price from MetaAPI...`);
       priceData = await getMetaApiPrice(symbol);
-      console.log(`[get-live-price] Live price fetched successfully`);
+      fetchMethod = 'metaapi-live';
+      console.log(`[get-live-price][${requestId}] ✓ Live price fetched successfully: ${priceData.bid}/${priceData.ask}`);
     } catch (metaError) {
-      console.warn(`[get-live-price] MetaAPI failed, trying cache:`, metaError);
+      console.warn(`[get-live-price][${requestId}] ✗ MetaAPI failed:`, metaError instanceof Error ? metaError.message : String(metaError));
+      console.log(`[get-live-price][${requestId}] Attempting to use cached price...`);
 
       const cached = await getCachedPrice(symbol);
       if (cached) {
         priceData = cached;
-        console.log(`[get-live-price] Using cached price (${cached.ageSeconds}s old)`);
+        fetchMethod = 'cache';
+        console.log(`[get-live-price][${requestId}] ✓ Using cached price (${cached.ageSeconds}s old): ${priceData.bid}/${priceData.ask}`);
       } else {
+        console.error(`[get-live-price][${requestId}] ✗ No cached data available`);
         throw new Error('Unable to fetch live price and no cached data available');
       }
     }
+
+    console.log(`[get-live-price][${requestId}] ========== REQUEST SUCCESS (${fetchMethod}) ==========`);
 
     return {
       statusCode: 200,
@@ -168,9 +203,16 @@ export const handler: Handler = async (event) => {
     };
 
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+
+    console.error('[get-live-price] ========== REQUEST FAILED ==========');
     console.error('[get-live-price] ERROR:', error);
     console.error('[get-live-price] Error type:', error instanceof Error ? error.constructor.name : typeof error);
-    console.error('[get-live-price] Error message:', error instanceof Error ? error.message : String(error));
+    console.error('[get-live-price] Error message:', errorMessage);
+    if (errorStack) {
+      console.error('[get-live-price] Error stack:', errorStack);
+    }
 
     return {
       statusCode: 200,
@@ -180,8 +222,9 @@ export const handler: Handler = async (event) => {
       },
       body: JSON.stringify({
         ok: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        source: 'error'
+        error: errorMessage,
+        source: 'error',
+        timestamp: new Date().toISOString()
       })
     };
   }

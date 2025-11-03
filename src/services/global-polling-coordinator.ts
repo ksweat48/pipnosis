@@ -10,6 +10,9 @@ interface PollStatus {
   isPolling: boolean;
   lastError: string | null;
   lastSuccessfulPoll: Date | null;
+  consecutiveErrors: number;
+  backoffDelay: number;
+  nextRetryTime: Date | null;
 }
 
 export interface CoordinatorStatus {
@@ -50,6 +53,9 @@ class GlobalPollingCoordinator {
 
   private readonly POLL_INTERVAL = 5000;
   private readonly MARKET_CHECK_INTERVAL = 60000;
+  private readonly MAX_BACKOFF_DELAY = 60000;
+  private readonly BASE_BACKOFF_DELAY = 5000;
+  private readonly MAX_CONSECUTIVE_ERRORS = 5;
 
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -120,7 +126,10 @@ class GlobalPollingCoordinator {
         successCount: 0,
         isPolling: false,
         lastError: null,
-        lastSuccessfulPoll: null
+        lastSuccessfulPoll: null,
+        consecutiveErrors: 0,
+        backoffDelay: 0,
+        nextRetryTime: null
       });
     }
 
@@ -176,6 +185,10 @@ class GlobalPollingCoordinator {
         return;
       }
 
+      if (status.nextRetryTime && Date.now() < status.nextRetryTime.getTime()) {
+        return;
+      }
+
       status.isPolling = true;
 
       try {
@@ -185,7 +198,11 @@ class GlobalPollingCoordinator {
           const errorText = await response.text();
           console.error(`❌ [${symbol}] HTTP ${response.status}: ${errorText}`);
           status.errorCount++;
+          status.consecutiveErrors++;
           status.lastError = `HTTP ${response.status}: ${errorText.substring(0, 100)}`;
+
+          this.applyBackoff(status);
+
           status.isPolling = false;
           this.notifyListeners();
           return;
@@ -215,14 +232,19 @@ class GlobalPollingCoordinator {
           if (insertError) {
             console.error(`❌ [${symbol}] DB Insert Error:`, insertError);
             status.errorCount++;
+            status.consecutiveErrors++;
             status.lastError = `DB: ${insertError.message}`;
+
+            this.applyBackoff(status);
           } else {
             console.log(`✅ [${symbol}] Price updated: ${bid}/${ask}`);
             status.lastPrice = { bid, ask };
             status.lastPoll = new Date();
             status.lastSuccessfulPoll = new Date();
             status.successCount++;
-            status.errorCount = 0;
+            status.consecutiveErrors = 0;
+            status.backoffDelay = 0;
+            status.nextRetryTime = null;
             status.lastError = null;
             this.notifyListeners();
           }
@@ -236,14 +258,20 @@ class GlobalPollingCoordinator {
             fullResponse: data
           });
           status.errorCount++;
+          status.consecutiveErrors++;
           status.lastError = data.error || data.message || 'Invalid price data';
+
+          this.applyBackoff(status);
           this.notifyListeners();
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.error(`❌ [${symbol}] Poll failed:`, error);
         status.errorCount++;
+        status.consecutiveErrors++;
         status.lastError = errorMsg;
+
+        this.applyBackoff(status);
         this.notifyListeners();
       } finally {
         status.isPolling = false;
@@ -255,6 +283,21 @@ class GlobalPollingCoordinator {
     this.pollIntervals.set(symbol, interval);
 
     console.log(`✅ Started polling for ${symbol} (every ${this.POLL_INTERVAL}ms)`);
+  }
+
+  private applyBackoff(status: PollStatus): void {
+    if (status.consecutiveErrors >= this.MAX_CONSECUTIVE_ERRORS) {
+      status.backoffDelay = Math.min(
+        this.BASE_BACKOFF_DELAY * Math.pow(2, status.consecutiveErrors - this.MAX_CONSECUTIVE_ERRORS),
+        this.MAX_BACKOFF_DELAY
+      );
+      status.nextRetryTime = new Date(Date.now() + status.backoffDelay);
+
+      console.warn(
+        `⏱️ [${status.symbol}] Applying backoff: ${status.consecutiveErrors} consecutive errors, ` +
+        `waiting ${Math.round(status.backoffDelay / 1000)}s before retry`
+      );
+    }
   }
 
   private stopPollingForSymbol(symbol: string): void {
@@ -449,9 +492,11 @@ class GlobalPollingCoordinator {
     console.log('🔄 Restarting all polling...');
     this.stopAllPolling();
 
-    // Reset error counts
     this.pollStatus.forEach(status => {
       status.errorCount = 0;
+      status.consecutiveErrors = 0;
+      status.backoffDelay = 0;
+      status.nextRetryTime = null;
       status.lastError = null;
     });
 

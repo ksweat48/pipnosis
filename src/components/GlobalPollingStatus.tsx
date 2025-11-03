@@ -180,9 +180,14 @@ export function GlobalPollingStatus() {
                         {pair.lastPrice.bid.toFixed(5)}
                       </span>
                     )}
-                    {pair.lastError && (
-                      <span className="text-red-400 text-[10px] max-w-[120px] truncate" title={pair.lastError}>
+                    {pair.status === 'error' && pair.lastError && (
+                      <span className="text-red-400 text-[10px] max-w-[100px] truncate" title={pair.lastError}>
                         {pair.lastError}
+                      </span>
+                    )}
+                    {pair.status === 'stale' && (
+                      <span className="text-yellow-400 text-[10px]">
+                        Retrying...
                       </span>
                     )}
                     <span className="text-[10px]">
