@@ -14,7 +14,8 @@ function getTimeframeMinutes(timeframe) {
     'M30': 30,
     'H1': 60,
     'H4': 240,
-    'D1': 1440
+    'D1': 1440,
+    'W1': 10080
   };
   return map[timeframe] || 15;
 }
@@ -28,13 +29,27 @@ async function getMetaApiCandles(symbol, timeframe, limit) {
     throw new Error('MetaAPI credentials not configured. Set METAAPI_TOKEN and METAAPI_ACCOUNT_ID');
   }
 
-  const startTime = new Date();
-  startTime.setHours(startTime.getHours() - (limit * getTimeframeMinutes(timeframe) / 60));
+  const now = new Date();
+  const minutesPerCandle = getTimeframeMinutes(timeframe);
+  const totalMinutes = limit * minutesPerCandle;
+
+  const startTime = new Date(now.getTime() - (totalMinutes * 60 * 1000));
+
+  if (startTime > now) {
+    throw new Error(`Invalid date range: startTime (${startTime.toISOString()}) is in the future`);
+  }
+
+  const minDate = new Date('2020-01-01');
+  if (startTime < minDate) {
+    console.warn(`Requested startTime (${startTime.toISOString()}) is too far back, using ${minDate.toISOString()}`);
+    startTime.setTime(minDate.getTime());
+  }
 
   const url = `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles?startTime=${startTime.toISOString()}`;
 
   console.log(`Fetching ${limit} ${timeframe} candles for ${symbol} from MetaAPI (${region})`);
-  console.log(`Start time: ${startTime.toISOString()}`);
+  console.log(`Date range: ${startTime.toISOString()} to ${now.toISOString()}`);
+  console.log(`Request URL: ${url}`);
 
   const response = await fetch(url, {
     method: 'GET',
@@ -47,6 +62,7 @@ async function getMetaApiCandles(symbol, timeframe, limit) {
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error(`MetaAPI error for ${symbol} ${timeframe}:`, errorText);
     throw new Error(`MetaAPI error: ${response.status} - ${errorText}`);
   }
 
@@ -55,6 +71,8 @@ async function getMetaApiCandles(symbol, timeframe, limit) {
   if (!Array.isArray(candles)) {
     throw new Error('Invalid candle data from MetaAPI');
   }
+
+  console.log(`Received ${candles.length} candles from MetaAPI`);
 
   return candles.slice(-limit).map(candle => ({
     symbol,
