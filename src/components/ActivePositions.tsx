@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { simulatedTradingService } from '@/services/simulated-trading';
 import { smartRequestQueue } from '@/services/smart-request-queue';
 import { pollingConfigService } from '@/services/polling-config-service';
+import { tradeAudioNotifications } from '@/services/trade-audio-notifications';
 
 interface Position {
   id: string;
@@ -121,6 +122,7 @@ export function ActivePositions({ refreshTrigger }: ActivePositionsProps) {
       );
 
       if (result.success) {
+        tradeAudioNotifications.playTradeExitSound();
         await fetchPositions();
       } else {
         alert(result.message);
@@ -143,6 +145,7 @@ export function ActivePositions({ refreshTrigger }: ActivePositionsProps) {
 
       const result = await simulatedTradingService.cancelPendingOrder(orderId, user.id);
       if (result.success) {
+        tradeAudioNotifications.playTradeExitSound();
         await fetchPositions();
       } else {
         alert(result.message);
