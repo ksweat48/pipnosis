@@ -1,5 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { simulatedTradingService } from './simulated-trading';
+import { smartRequestQueue } from './smart-request-queue';
+import { globalPollingCoordinator } from './global-polling-coordinator';
 
 interface MonitoredPosition {
   id: string;
@@ -18,14 +20,19 @@ interface MonitoredPosition {
 class PositionMonitorService {
   private intervalId: NodeJS.Timeout | null = null;
   private isRunning = false;
+  private criticalPositionIntervalId: NodeJS.Timeout | null = null;
+  private normalPositionIntervalId: NodeJS.Timeout | null = null;
+  private criticalSymbols: Set<string> = new Set();
 
   start() {
     if (this.isRunning) return;
 
-    console.log('[PositionMonitor] Starting position monitor service');
+    console.log('[PositionMonitor] Starting position monitor service with adaptive polling');
     this.isRunning = true;
+
     this.monitorPositions();
-    this.intervalId = setInterval(() => this.monitorPositions(), 2000);
+    this.criticalPositionIntervalId = setInterval(() => this.monitorCriticalPositions(), 500);
+    this.normalPositionIntervalId = setInterval(() => this.monitorNormalPositions(), 2000);
   }
 
   stop() {
@@ -33,7 +40,16 @@ class PositionMonitorService {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    if (this.criticalPositionIntervalId) {
+      clearInterval(this.criticalPositionIntervalId);
+      this.criticalPositionIntervalId = null;
+    }
+    if (this.normalPositionIntervalId) {
+      clearInterval(this.normalPositionIntervalId);
+      this.normalPositionIntervalId = null;
+    }
     this.isRunning = false;
+    this.criticalSymbols.clear();
     console.log('[PositionMonitor] Stopped position monitor service');
   }
 
@@ -49,62 +65,134 @@ class PositionMonitorService {
         .in('status', ['open', 'pending']);
 
       if (error) throw error;
-      if (!positions || positions.length === 0) return;
+      if (!positions || positions.length === 0) {
+        this.criticalSymbols.clear();
+        return;
+      }
 
       const symbols = Array.from(new Set(positions.map(p => p.symbol)));
-      const prices = await this.fetchPricesForSymbols(symbols);
 
-      for (const position of positions) {
-        const price = prices[position.symbol];
-        if (!price) continue;
+      symbols.forEach(symbol => {
+        globalPollingCoordinator.setSymbolHasPosition(symbol, true);
+      });
 
-        if (position.status === 'open') {
-          await this.updateOpenPosition(position, price);
-        } else if (position.status === 'pending') {
-          await this.checkPendingOrder(position, price);
-        }
-      }
+      this.updateCriticalSymbols(positions);
     } catch (error) {
       console.error('[PositionMonitor] Error monitoring positions:', error);
     }
   }
 
-  private async fetchPricesForSymbols(symbols: string[]): Promise<Record<string, { bid: number; ask: number }>> {
-    const prices: Record<string, { bid: number; ask: number }> = {};
+  private updateCriticalSymbols(positions: MonitoredPosition[]): void {
+    const newCriticalSymbols = new Set<string>();
 
-    await Promise.all(
-      symbols.map(async (symbol) => {
-        try {
-          const response = await fetch(`/.netlify/functions/get-live-price?symbol=${symbol}`);
-          const data = await response.json();
+    for (const position of positions) {
+      if (position.status !== 'open' || !position.entry_price) continue;
 
-          if (data.ok && data.bid && data.ask) {
-            prices[symbol] = {
-              bid: parseFloat(data.bid),
-              ask: parseFloat(data.ask)
-            };
-          }
-        } catch (error) {
-          console.error(`[PositionMonitor] Failed to fetch price for ${symbol}:`, error);
+      const currentPrice = position.current_price || position.entry_price;
+      const distanceToSL = Math.abs(currentPrice - position.stop_loss);
+      const distanceToTP = Math.abs(currentPrice - position.take_profit);
+      const priceRange = Math.abs(position.take_profit - position.stop_loss);
+
+      const isNearSLorTP = (distanceToSL / priceRange < 0.15) || (distanceToTP / priceRange < 0.15);
+
+      if (isNearSLorTP) {
+        newCriticalSymbols.add(position.symbol);
+      }
+    }
+
+    this.criticalSymbols = newCriticalSymbols;
+  }
+
+  private async monitorCriticalPositions(): Promise<void> {
+    if (this.criticalSymbols.size === 0) return;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: positions, error } = await supabase
+        .from('simulated_positions')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'open')
+        .in('symbol', Array.from(this.criticalSymbols));
+
+      if (error) throw error;
+      if (!positions || positions.length === 0) return;
+
+      for (const position of positions) {
+        await this.updatePositionWithPriority(position, 'critical');
+      }
+    } catch (error) {
+      console.error('[PositionMonitor] Error monitoring critical positions:', error);
+    }
+  }
+
+  private async monitorNormalPositions(): Promise<void> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: positions, error } = await supabase
+        .from('simulated_positions')
+        .select('*')
+        .eq('user_id', user.id)
+        .in('status', ['open', 'pending']);
+
+      if (error) throw error;
+      if (!positions || positions.length === 0) return;
+
+      for (const position of positions) {
+        if (position.status === 'open' && !this.criticalSymbols.has(position.symbol)) {
+          await this.updatePositionWithPriority(position, 'high');
+        } else if (position.status === 'pending') {
+          await this.checkPendingOrderWithPriority(position, 'normal');
         }
-      })
-    );
+      }
+    } catch (error) {
+      console.error('[PositionMonitor] Error monitoring normal positions:', error);
+    }
+  }
 
-    return prices;
+  private async updatePositionWithPriority(
+    position: MonitoredPosition,
+    priority: 'critical' | 'high'
+  ): Promise<void> {
+    try {
+      const priceData = await smartRequestQueue.requestPrice(position.symbol, priority);
+      const currentPrice = position.position_type === 'buy' ? priceData.bid : priceData.ask;
+
+      await this.updateOpenPosition(position, { bid: priceData.bid, ask: priceData.ask }, currentPrice);
+    } catch (error) {
+      console.error(`[PositionMonitor] Failed to update position for ${position.symbol}:`, error);
+    }
+  }
+
+  private async checkPendingOrderWithPriority(
+    order: MonitoredPosition,
+    priority: 'normal'
+  ): Promise<void> {
+    try {
+      const priceData = await smartRequestQueue.requestPrice(order.symbol, priority);
+      await this.checkPendingOrder(order, { bid: priceData.bid, ask: priceData.ask });
+    } catch (error) {
+      console.error(`[PositionMonitor] Failed to check pending order for ${order.symbol}:`, error);
+    }
   }
 
   private async updateOpenPosition(
     position: MonitoredPosition,
-    price: { bid: number; ask: number }
+    price: { bid: number; ask: number },
+    currentPrice?: number
   ) {
     if (!position.entry_price) return;
 
-    const currentPrice = position.position_type === 'buy' ? price.bid : price.ask;
+    const actualCurrentPrice = currentPrice || (position.position_type === 'buy' ? price.bid : price.ask);
 
     const pnl = simulatedTradingService.calculatePnL(
       position.position_type,
       position.entry_price,
-      currentPrice,
+      actualCurrentPrice,
       position.lot_size,
       position.symbol
     );
@@ -112,23 +200,23 @@ class PositionMonitorService {
     await supabase
       .from('simulated_positions')
       .update({
-        current_price: currentPrice,
+        current_price: actualCurrentPrice,
         current_pnl: pnl
       })
       .eq('id', position.id);
 
     const shouldCloseAtStopLoss = position.position_type === 'buy'
-      ? currentPrice <= position.stop_loss
-      : currentPrice >= position.stop_loss;
+      ? actualCurrentPrice <= position.stop_loss
+      : actualCurrentPrice >= position.stop_loss;
 
     const shouldCloseAtTakeProfit = position.position_type === 'buy'
-      ? currentPrice >= position.take_profit
-      : currentPrice <= position.take_profit;
+      ? actualCurrentPrice >= position.take_profit
+      : actualCurrentPrice <= position.take_profit;
 
     if (shouldCloseAtStopLoss) {
-      await this.autoClosePosition(position, currentPrice, 'stop_loss');
+      await this.autoClosePosition(position, actualCurrentPrice, 'stop_loss');
     } else if (shouldCloseAtTakeProfit) {
-      await this.autoClosePosition(position, currentPrice, 'take_profit');
+      await this.autoClosePosition(position, actualCurrentPrice, 'take_profit');
     }
   }
 

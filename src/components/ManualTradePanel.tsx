@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, DollarSign, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { smartRequestQueue } from '@/services/smart-request-queue';
+import { pollingConfigService } from '@/services/polling-config-service';
 
 interface LivePrice {
   bid: number;
@@ -30,7 +32,9 @@ export function ManualTradePanel({ symbol, onTradeExecuted }: ManualTradePanelPr
   useEffect(() => {
     fetchBalance();
     fetchLivePrice();
-    const priceInterval = setInterval(fetchLivePrice, 2000);
+    const strategy = pollingConfigService.getStrategy();
+    const interval = strategy.highInterval;
+    const priceInterval = setInterval(fetchLivePrice, interval);
     return () => clearInterval(priceInterval);
   }, [symbol]);
 
@@ -54,30 +58,23 @@ export function ManualTradePanel({ symbol, onTradeExecuted }: ManualTradePanelPr
 
   const fetchLivePrice = async () => {
     try {
-      const response = await fetch(
-        `/.netlify/functions/get-live-price?symbol=${symbol}`
-      );
-      const data = await response.json();
+      const priceData = await smartRequestQueue.requestPrice(symbol, 'high');
 
-      if (data.ok && data.bid && data.ask) {
-        const newBid = parseFloat(data.bid);
-        const newAsk = parseFloat(data.ask);
-        const spread = parseFloat(((newAsk - newBid) * 10000).toFixed(1));
+      const spread = parseFloat(((priceData.spread) * 10000).toFixed(1));
 
-        if (livePrice) {
-          const oldMid = (livePrice.bid + livePrice.ask) / 2;
-          const newMid = (newBid + newAsk) / 2;
-          setPriceDirection(newMid > oldMid ? 'up' : newMid < oldMid ? 'down' : null);
-          setTimeout(() => setPriceDirection(null), 500);
-        }
-
-        setLivePrice({
-          bid: newBid,
-          ask: newAsk,
-          timestamp: data.timestamp,
-          spread
-        });
+      if (livePrice) {
+        const oldMid = (livePrice.bid + livePrice.ask) / 2;
+        const newMid = priceData.mid;
+        setPriceDirection(newMid > oldMid ? 'up' : newMid < oldMid ? 'down' : null);
+        setTimeout(() => setPriceDirection(null), 500);
       }
+
+      setLivePrice({
+        bid: priceData.bid,
+        ask: priceData.ask,
+        timestamp: priceData.timestamp,
+        spread
+      });
     } catch (err) {
       console.error('Failed to fetch live price:', err);
     }

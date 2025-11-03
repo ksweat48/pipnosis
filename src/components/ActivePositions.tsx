@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { X, TrendingUp, TrendingDown, Clock, AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { simulatedTradingService } from '@/services/simulated-trading';
+import { smartRequestQueue } from '@/services/smart-request-queue';
+import { pollingConfigService } from '@/services/polling-config-service';
 
 interface Position {
   id: string;
@@ -44,7 +46,9 @@ export function ActivePositions({ refreshTrigger }: ActivePositionsProps) {
 
     if (symbols.length > 0) {
       fetchLivePrices(symbols);
-      const priceInterval = setInterval(() => fetchLivePrices(symbols), 2000);
+      const strategy = pollingConfigService.getStrategy();
+      const interval = strategy.highInterval;
+      const priceInterval = setInterval(() => fetchLivePrices(symbols), interval);
       return () => clearInterval(priceInterval);
     }
   }, [openPositions, pendingOrders]);
@@ -74,14 +78,11 @@ export function ActivePositions({ refreshTrigger }: ActivePositionsProps) {
     await Promise.all(
       symbols.map(async (symbol) => {
         try {
-          const response = await fetch(`/.netlify/functions/get-live-price?symbol=${symbol}`);
-          const data = await response.json();
-          if (data.ok && data.bid && data.ask) {
-            prices[symbol] = {
-              bid: parseFloat(data.bid),
-              ask: parseFloat(data.ask)
-            };
-          }
+          const priceData = await smartRequestQueue.requestPrice(symbol, 'high');
+          prices[symbol] = {
+            bid: priceData.bid,
+            ask: priceData.ask
+          };
         } catch (error) {
           console.error(`Failed to fetch price for ${symbol}:`, error);
         }

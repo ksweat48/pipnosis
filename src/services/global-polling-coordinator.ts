@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase';
 import { getForexMarketStatus } from '@/utils/marketHours';
 import { areFunctionsAvailable, isWebContainer, logEnvironmentInfo } from '@/lib/environment';
+import { smartRequestQueue } from './smart-request-queue';
+import { pollingConfigService, SymbolPriority } from './polling-config-service';
 
 interface PollStatus {
   symbol: string;
@@ -14,6 +16,9 @@ interface PollStatus {
   consecutiveErrors: number;
   backoffDelay: number;
   nextRetryTime: Date | null;
+  priority: SymbolPriority;
+  currentInterval: number;
+  isViewed: boolean;
 }
 
 export interface CoordinatorStatus {
@@ -52,11 +57,12 @@ class GlobalPollingCoordinator {
     'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'
   ];
 
-  private readonly POLL_INTERVAL = 5000;
   private readonly MARKET_CHECK_INTERVAL = 60000;
   private readonly MAX_BACKOFF_DELAY = 60000;
-  private readonly BASE_BACKOFF_DELAY = 5000;
+  private readonly BASE_BACKOFF_DELAY = 2000;
   private readonly MAX_CONSECUTIVE_ERRORS = 5;
+  private viewedSymbols: Set<string> = new Set();
+  private symbolsWithPositions: Set<string> = new Set();
 
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -141,6 +147,13 @@ class GlobalPollingCoordinator {
       console.warn('⚠️ Proceeding with polling initialization anyway...');
     }
 
+    smartRequestQueue.start();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await pollingConfigService.loadUserConfig(user.id);
+    }
+
     for (const symbol of this.FOREX_PAIRS) {
       this.pollStatus.set(symbol, {
         symbol,
@@ -153,7 +166,10 @@ class GlobalPollingCoordinator {
         lastSuccessfulPoll: null,
         consecutiveErrors: 0,
         backoffDelay: 0,
-        nextRetryTime: null
+        nextRetryTime: null,
+        priority: 'normal',
+        currentInterval: 2000,
+        isViewed: false
       });
     }
 
@@ -191,11 +207,63 @@ class GlobalPollingCoordinator {
     this.notifyListeners();
   }
 
+  setSymbolViewed(symbol: string, isViewed: boolean): void {
+    if (isViewed) {
+      this.viewedSymbols.add(symbol);
+    } else {
+      this.viewedSymbols.delete(symbol);
+    }
+    this.updateSymbolPriority(symbol);
+  }
+
+  setSymbolHasPosition(symbol: string, hasPosition: boolean): void {
+    if (hasPosition) {
+      this.symbolsWithPositions.add(symbol);
+    } else {
+      this.symbolsWithPositions.delete(symbol);
+    }
+    this.updateSymbolPriority(symbol);
+  }
+
+  private updateSymbolPriority(symbol: string): void {
+    const status = this.pollStatus.get(symbol);
+    if (!status) return;
+
+    let newPriority: SymbolPriority = 'normal';
+    let newInterval = pollingConfigService.getIntervalForPriority('normal');
+
+    if (this.symbolsWithPositions.has(symbol)) {
+      newPriority = 'critical';
+      newInterval = pollingConfigService.getIntervalForPriority('critical');
+    } else if (this.viewedSymbols.has(symbol)) {
+      newPriority = 'high';
+      newInterval = pollingConfigService.getIntervalForPriority('high');
+    } else {
+      newPriority = 'low';
+      newInterval = pollingConfigService.getIntervalForPriority('low');
+    }
+
+    if (status.priority !== newPriority || status.currentInterval !== newInterval) {
+      console.log(`[Coordinator] Updating ${symbol}: ${status.priority}->${newPriority}, ${status.currentInterval}ms->${newInterval}ms`);
+      status.priority = newPriority;
+      status.currentInterval = newInterval;
+      status.isViewed = this.viewedSymbols.has(symbol);
+
+      if (this.pollIntervals.has(symbol)) {
+        this.stopPollingForSymbol(symbol);
+        this.startPollingForSymbol(symbol);
+      }
+    }
+  }
+
   private startPollingForSymbol(symbol: string): void {
     if (this.pollIntervals.has(symbol)) {
       console.warn(`⚠️ Polling already active for ${symbol}`);
       return;
     }
+
+    const status = this.pollStatus.get(symbol);
+    if (!status) return;
 
     const pollFunction = async () => {
       if (this.isPaused) {
@@ -216,99 +284,44 @@ class GlobalPollingCoordinator {
       status.isPolling = true;
 
       try {
-        const response = await fetch(`/.netlify/functions/get-live-price?symbol=${symbol}`);
+        const priceData = await smartRequestQueue.requestPrice(symbol, status.priority);
 
-        if (!response.ok) {
-          const errorText = await response.text();
-
-          if (errorText.includes('<!doctype') || errorText.includes('<html')) {
-            console.error(`❌ [${symbol}] HTTP ${response.status}: Function endpoint not found (received HTML)`);
-            status.lastError = 'Function endpoint not found - check Netlify deployment';
-          } else {
-            console.error(`❌ [${symbol}] HTTP ${response.status}: ${errorText.substring(0, 200)}`);
-            status.lastError = `HTTP ${response.status}: ${errorText.substring(0, 100)}`;
-          }
-
-          status.errorCount++;
-          status.consecutiveErrors++;
-
-          this.applyBackoff(status);
-
-          status.isPolling = false;
-          this.notifyListeners();
-          return;
-        }
-
-        const data = await response.json();
-        console.log(`📊 [${symbol}] Response:`, data);
-
-        if (data.ok && data.bid && data.ask) {
-          const bid = parseFloat(data.bid);
-          const ask = parseFloat(data.ask);
-          const mid = (bid + ask) / 2;
-          const spread = ask - bid;
-
-          const { error: insertError } = await supabase
-            .from('realtime_prices')
-            .insert({
-              symbol: symbol,
-              bid: bid,
-              ask: ask,
-              mid: mid,
-              spread: spread,
-              broker_time: data.timestamp || new Date().toISOString(),
-              source: data.source || 'polling'
-            });
-
-          if (insertError) {
-            console.error(`❌ [${symbol}] DB Insert Error:`, insertError);
-            status.errorCount++;
-            status.consecutiveErrors++;
-            status.lastError = `DB: ${insertError.message}`;
-
-            this.applyBackoff(status);
-          } else {
-            console.log(`✅ [${symbol}] Price updated: ${bid}/${ask}`);
-            status.lastPrice = { bid, ask };
-            status.lastPoll = new Date();
-            status.lastSuccessfulPoll = new Date();
-            status.successCount++;
-            status.consecutiveErrors = 0;
-            status.backoffDelay = 0;
-            status.nextRetryTime = null;
-            status.lastError = null;
-            this.notifyListeners();
-          }
-        } else {
-          console.warn(`⚠️ [${symbol}] Invalid data:`, {
-            ok: data.ok,
-            bid: data.bid,
-            ask: data.ask,
-            error: data.error,
-            message: data.message,
-            fullResponse: data
+        const { error: insertError } = await supabase
+          .from('realtime_prices')
+          .insert({
+            symbol: symbol,
+            bid: priceData.bid,
+            ask: priceData.ask,
+            mid: priceData.mid,
+            spread: priceData.spread,
+            broker_time: priceData.timestamp,
+            source: priceData.source
           });
+
+        if (insertError) {
+          console.error(`❌ [${symbol}] DB Insert Error:`, insertError);
           status.errorCount++;
           status.consecutiveErrors++;
-          status.lastError = data.error || data.message || 'Invalid price data';
-
+          status.lastError = `DB: ${insertError.message}`;
           this.applyBackoff(status);
+        } else {
+          console.log(`✅ [${symbol}] Price updated: ${priceData.bid}/${priceData.ask} (${status.priority}, ${status.currentInterval}ms)`);
+          status.lastPrice = { bid: priceData.bid, ask: priceData.ask };
+          status.lastPoll = new Date();
+          status.lastSuccessfulPoll = new Date();
+          status.successCount++;
+          status.consecutiveErrors = 0;
+          status.backoffDelay = 0;
+          status.nextRetryTime = null;
+          status.lastError = null;
           this.notifyListeners();
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-
-        if (errorMsg.includes('JSON') || errorMsg.includes('<!doctype')) {
-          console.error(`❌ [${symbol}] Function returned HTML instead of JSON - endpoint not deployed`);
-          status.lastError = 'Function not deployed - check Netlify build logs';
-        } else {
-          console.error(`❌ [${symbol}] Poll failed:`, errorMsg);
-          status.lastError = errorMsg;
-        }
-
+        console.error(`❌ [${symbol}] Poll failed:`, errorMsg);
+        status.lastError = errorMsg;
         status.errorCount++;
         status.consecutiveErrors++;
-
         this.applyBackoff(status);
         this.notifyListeners();
       } finally {
@@ -317,10 +330,10 @@ class GlobalPollingCoordinator {
     };
 
     pollFunction();
-    const interval = setInterval(pollFunction, this.POLL_INTERVAL);
+    const interval = setInterval(pollFunction, status.currentInterval);
     this.pollIntervals.set(symbol, interval);
 
-    console.log(`✅ Started polling for ${symbol} (every ${this.POLL_INTERVAL}ms)`);
+    console.log(`✅ Started polling for ${symbol} (${status.priority} priority, every ${status.currentInterval}ms)`);
   }
 
   private applyBackoff(status: PollStatus): void {
@@ -393,7 +406,10 @@ class GlobalPollingCoordinator {
       this.marketCheckInterval = null;
     }
 
+    smartRequestQueue.stop();
     this.pollStatus.clear();
+    this.viewedSymbols.clear();
+    this.symbolsWithPositions.clear();
     this.initialized = false;
 
     console.log('✅ Global polling coordinator shutdown complete');
@@ -407,7 +423,7 @@ class GlobalPollingCoordinator {
     this.statusLoggingInterval = setInterval(() => {
       const summary = Array.from(this.pollStatus.entries()).map(([symbol, status]) => {
         const timeSinceLastPoll = Date.now() - status.lastPoll.getTime();
-        const isStale = timeSinceLastPoll > this.POLL_INTERVAL * 3;
+        const isStale = timeSinceLastPoll > status.currentInterval * 3;
 
         return {
           symbol,

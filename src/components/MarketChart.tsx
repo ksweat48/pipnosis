@@ -3,6 +3,8 @@ import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle, LineS
 import { supabase } from '@/lib/supabase';
 import { TrendingUp, Activity, AlertCircle, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { chartPreferencesService, Timeframe, type IndicatorVisibility } from '@/services/chart-preferences';
+import { globalPollingCoordinator } from '@/services/global-polling-coordinator';
+import { pollingConfigService } from '@/services/polling-config-service';
 import {
   fetchCompleteChartData,
   fetchRecentRealtimePrices,
@@ -591,13 +593,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         console.log(`[Chart Subscription] ${symbol} - Subscription status:`, status);
       });
 
-    console.log(`[Chart Polling] Starting 5-second polling interval for ${symbol}`);
-    const pollInterval = setInterval(fetchNewPrices, 5000);
+    globalPollingCoordinator.setSymbolViewed(symbol, true);
+
+    const strategy = pollingConfigService.getStrategy();
+    const pollingInterval = strategy.highInterval;
+
+    console.log(`[Chart Polling] Starting ${pollingInterval}ms polling interval for ${symbol} (viewed symbol)`);
+    const pollInterval = setInterval(fetchNewPrices, pollingInterval);
 
     return () => {
       subscription.unsubscribe();
       clearInterval(pollInterval);
 
+      globalPollingCoordinator.setSymbolViewed(symbol, false);
       candlePersistenceService.flushPending(symbol, timeframe);
     };
   }, [symbol, timeframe]);
