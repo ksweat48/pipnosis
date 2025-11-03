@@ -63,6 +63,15 @@ async function getMetaApiCandles(symbol, timeframe, limit) {
   if (!response.ok) {
     const errorText = await response.text();
     console.error(`MetaAPI error for ${symbol} ${timeframe}:`, errorText);
+
+    // Handle 404 specifically - symbol not available for historical data
+    if (response.status === 404 || errorText.includes('NotFoundError')) {
+      const error = new Error(`Symbol ${symbol} not available for historical data from your broker`);
+      error.code = 'SYMBOL_NOT_AVAILABLE';
+      error.status = 404;
+      throw error;
+    }
+
     throw new Error(`MetaAPI error: ${response.status} - ${errorText}`);
   }
 
@@ -179,15 +188,22 @@ exports.handler = async (event) => {
   } catch (error) {
     console.error('Error fetching candles:', error.message);
 
+    // Return appropriate status code based on error type
+    const statusCode = error.status === 404 ? 404 : 500;
+    const errorCode = error.code || 'UNKNOWN_ERROR';
+
     return {
-      statusCode: 500,
+      statusCode,
       headers: {
         ...CORS_HEADERS,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         success: false,
-        error: error.message
+        error: error.message,
+        errorCode,
+        symbol: params.get('symbol'),
+        timeframe: params.get('timeframe')
       })
     };
   }

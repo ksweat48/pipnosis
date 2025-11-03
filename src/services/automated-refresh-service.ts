@@ -23,7 +23,7 @@ interface RefreshTask {
 class AutomatedRefreshService {
   private config: AutoRefreshConfig = {
     enabled: false,
-    symbols: ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'],
+    symbols: ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'],
     timeframes: ['M1', 'M5', 'M15', 'M30', 'H1', 'D1', 'W1'],
     refreshIntervalMinutes: 60,
     checkMarketHours: true,

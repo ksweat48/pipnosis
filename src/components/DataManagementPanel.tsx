@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Download, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Play, Pause } from 'lucide-react';
+import { Database, Download, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Play, Pause, Search } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { historicalDataService, type ProgressUpdate } from '@/services/historical-data-service';
 import { automatedRefreshService } from '@/services/automated-refresh-service';
+import { symbolValidator } from '@/services/symbol-validator';
 import { Timeframe } from '@/services/chart-preferences';
 
 interface DataCompletenessStatus {
@@ -25,16 +26,19 @@ export function DataManagementPanel() {
   const [selectedTimeframes, setSelectedTimeframes] = useState<Timeframe[]>([]);
   const [daysBack, setDaysBack] = useState<number>(7);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(automatedRefreshService.isEnabled());
+  const [isValidating, setIsValidating] = useState(false);
+  const [symbolAvailability, setSymbolAvailability] = useState<Record<string, { available: boolean; reason?: string }>>({});
 
   const FOREX_PAIRS = [
-    'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF',
-    'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'
+    'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD',
+    'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY', 'XAUUSD', 'US30'
   ];
 
   const TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'D1', 'W1'];
 
   useEffect(() => {
     loadDataStatus();
+    loadSymbolAvailability();
   }, []);
 
   const loadDataStatus = async () => {
@@ -53,6 +57,55 @@ export function DataManagementPanel() {
       console.error('Error loading data status:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadSymbolAvailability = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('symbol_availability')
+        .select('symbol, available_for_historical, error_message');
+
+      if (error) throw error;
+
+      const availability: Record<string, { available: boolean; reason?: string }> = {};
+      data?.forEach((row) => {
+        availability[row.symbol] = {
+          available: row.available_for_historical,
+          reason: row.error_message || undefined
+        };
+      });
+
+      setSymbolAvailability(availability);
+    } catch (error) {
+      console.error('Error loading symbol availability:', error);
+    }
+  };
+
+  const handleValidateSymbols = async () => {
+    setIsValidating(true);
+    try {
+      const results = await symbolValidator.validateMultipleSymbols(FOREX_PAIRS);
+
+      const availability: Record<string, { available: boolean; reason?: string }> = {};
+      results.forEach((result) => {
+        availability[result.symbol] = {
+          available: result.available,
+          reason: result.reason
+        };
+      });
+
+      setSymbolAvailability(availability);
+
+      const availableCount = results.filter(r => r.available).length;
+      const unavailableCount = results.filter(r => !r.available).length;
+
+      alert(`Symbol validation complete:\n✓ ${availableCount} available\n✗ ${unavailableCount} unavailable`);
+    } catch (error) {
+      console.error('Symbol validation error:', error);
+      alert('Symbol validation failed. Check console for details.');
+    } finally {
+      setIsValidating(false);
     }
   };
 
@@ -190,19 +243,31 @@ export function DataManagementPanel() {
                 </button>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                {FOREX_PAIRS.map((symbol) => (
-                  <button
-                    key={symbol}
-                    onClick={() => toggleSymbol(symbol)}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      selectedSymbols.includes(symbol)
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
-                  >
-                    {symbol}
-                  </button>
-                ))}
+                {FOREX_PAIRS.map((symbol) => {
+                  const availability = symbolAvailability[symbol];
+                  const isUnavailable = availability && !availability.available;
+
+                  return (
+                    <button
+                      key={symbol}
+                      onClick={() => toggleSymbol(symbol)}
+                      disabled={isUnavailable}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-all relative ${
+                        isUnavailable
+                          ? 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'
+                          : selectedSymbols.includes(symbol)
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                      title={isUnavailable ? availability.reason : undefined}
+                    >
+                      {symbol}
+                      {isUnavailable && (
+                        <XCircle className="absolute top-1 right-1 text-red-500" size={12} />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -244,6 +309,24 @@ export function DataManagementPanel() {
                 className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
+
+            <button
+              onClick={handleValidateSymbols}
+              disabled={isValidating}
+              className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2"
+            >
+              {isValidating ? (
+                <>
+                  <RefreshCw className="animate-spin" size={18} />
+                  Validating Symbols...
+                </>
+              ) : (
+                <>
+                  <Search size={18} />
+                  Validate Symbol Availability
+                </>
+              )}
+            </button>
 
             <button
               onClick={handleBulkImport}

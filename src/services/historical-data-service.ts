@@ -67,6 +67,21 @@ async function fetchMetaApiCandles(
 
   if (!response.ok) {
     const errorText = await response.text();
+
+    let errorData;
+    try {
+      errorData = JSON.parse(errorText);
+    } catch {
+      errorData = { error: errorText };
+    }
+
+    if (response.status === 404 || errorData.errorCode === 'SYMBOL_NOT_AVAILABLE') {
+      const error: any = new Error(`Symbol ${symbol} not available for historical data`);
+      error.code = 'SYMBOL_NOT_AVAILABLE';
+      error.status = 404;
+      throw error;
+    }
+
     throw new Error(`Failed to fetch candles: ${response.status} - ${errorText}`);
   }
 
@@ -179,11 +194,16 @@ async function fetchAndSaveHistoricalData(
 
     onProgress?.(result);
     return result;
-  } catch (error) {
+  } catch (error: any) {
     result.status = 'failed';
-    result.error = error instanceof Error ? error.message : 'Unknown error';
 
-    console.error(`[HistoricalData] ✗ Failed ${symbol} ${timeframe}:`, result.error);
+    if (error.code === 'SYMBOL_NOT_AVAILABLE') {
+      result.error = `Symbol not available for historical data from your broker`;
+      console.warn(`[HistoricalData] ⚠ Skipping ${symbol} ${timeframe}: Not available from broker`);
+    } else {
+      result.error = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[HistoricalData] ✗ Failed ${symbol} ${timeframe}:`, result.error);
+    }
 
     onProgress?.(result);
     return result;
