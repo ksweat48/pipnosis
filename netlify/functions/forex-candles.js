@@ -31,9 +31,10 @@ async function getMetaApiCandles(symbol, timeframe, limit) {
   const startTime = new Date();
   startTime.setHours(startTime.getHours() - (limit * getTimeframeMinutes(timeframe) / 60));
 
-  const url = `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles`;
+  const url = `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles?startTime=${startTime.toISOString()}`;
 
   console.log(`Fetching ${limit} ${timeframe} candles for ${symbol} from MetaAPI (${region})`);
+  console.log(`Start time: ${startTime.toISOString()}`);
 
   const response = await fetch(url, {
     method: 'GET',
