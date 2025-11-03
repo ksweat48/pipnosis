@@ -132,7 +132,7 @@ export default function App() {
         console.log('Running non-blocking database connection validation...');
 
         const validationTimeout = setTimeout(() => {
-          console.warn('Database validation taking too long, allowing app to load anyway');
+          console.log('[Dev Info] Database validation taking too long, allowing app to load anyway');
           setDbValidated(true);
         }, 3000);
 
@@ -140,9 +140,9 @@ export default function App() {
         clearTimeout(validationTimeout);
 
         if (!validationResult.isValid) {
-          console.warn('Database validation issues (non-blocking):', validationResult.warnings);
+          console.log('[Dev Info] Database validation issues (non-blocking):', validationResult.warnings);
           if (validationResult.errors.length > 0) {
-            console.error('Database errors (app will continue):', validationResult.errors);
+            console.log('[Dev Info] Database errors (app will continue):', validationResult.errors);
           }
         }
 
@@ -152,9 +152,11 @@ export default function App() {
 
         await verifyDatabaseSetup();
 
+        // Silently log database configuration issues for developers only
+        // Users don't need to see these warnings
         if (diagnostics.errors.length > 0) {
-          console.warn('⚠️ Database configuration issues detected (non-blocking). Some features may not work correctly.');
-          console.info('📖 See PRODUCTION_DATABASE_SETUP.md for detailed migration instructions');
+          console.log('[Dev Info] Database configuration issues detected (non-blocking). Some features may not work correctly.');
+          console.log('[Dev Info] See PRODUCTION_DATABASE_SETUP.md for detailed migration instructions');
         }
 
         setTimeout(() => {

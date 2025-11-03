@@ -29,13 +29,14 @@ export async function runDatabaseDiagnostics(): Promise<DiagnosticResult> {
 }
 
 export function logDiagnostics(diagnostics: DiagnosticResult): void {
+  // Log diagnostics silently for developers only - no user-facing warnings
   if (diagnostics.errors.length > 0) {
-    console.error('Diagnostics Errors:', diagnostics.errors);
+    console.log('[Dev Info] Diagnostics Errors:', diagnostics.errors);
   }
   if (diagnostics.warnings.length > 0) {
-    console.warn('Diagnostics Warnings:', diagnostics.warnings);
+    console.log('[Dev Info] Diagnostics Warnings:', diagnostics.warnings);
   }
   if (diagnostics.info.length > 0) {
-    console.info('Diagnostics Info:', diagnostics.info);
+    console.log('[Dev Info] Diagnostics Info:', diagnostics.info);
   }
 }
