@@ -27,6 +27,7 @@ export function TradePage() {
     stopLoss?: number;
     takeProfit?: number;
   }>({});
+  const [currentPositionForSymbol, setCurrentPositionForSymbol] = useState<any>(null);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyOption | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -61,6 +62,38 @@ export function TradePage() {
     positionMonitorService.start();
     return () => positionMonitorService.stop();
   }, []);
+
+  useEffect(() => {
+    const fetchActivePositionForSymbol = async () => {
+      if (!user) return;
+
+      try {
+        const positions = await simulatedTradingService.getOpenPositions(user.id);
+        const positionForSymbol = positions.find(p => p.symbol === selectedSymbol);
+
+        if (positionForSymbol) {
+          setCurrentPositionForSymbol(positionForSymbol);
+          setActiveTradeLines({
+            entry: positionForSymbol.entry_price || undefined,
+            stopLoss: positionForSymbol.stop_loss,
+            takeProfit: positionForSymbol.take_profit
+          });
+        } else {
+          setCurrentPositionForSymbol(null);
+          if (!strategyOptions.length) {
+            setActiveTradeLines({});
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch active position:', error);
+      }
+    };
+
+    fetchActivePositionForSymbol();
+    const interval = setInterval(fetchActivePositionForSymbol, 3000);
+
+    return () => clearInterval(interval);
+  }, [selectedSymbol, user, positionRefreshTrigger, strategyOptions.length]);
 
   const handlePromptSubmit = async (prompt: string) => {
     if (!user) return;
@@ -225,7 +258,9 @@ export function TradePage() {
 
   const handleSymbolChange = (symbol: string) => {
     setSelectedSymbol(symbol);
-    setActiveTradeLines({});
+    if (!currentPositionForSymbol) {
+      setActiveTradeLines({});
+    }
   };
 
   const handleMarkAsRead = (id: string) => {

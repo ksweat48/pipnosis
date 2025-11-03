@@ -57,6 +57,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   const ema20SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const ema50SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const ema200SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const tradeLineRefs = useRef<{
+    entry?: any;
+    stopLoss?: any;
+    takeProfit?: any;
+  }>({});
 
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [priceChange, setPriceChange] = useState<number>(0);
@@ -495,23 +500,36 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
   }, [indicatorVisibility]);
 
   useEffect(() => {
-    if (!chartRef.current || !tradeLines) return;
+    if (!chartRef.current || !candlestickSeriesRef.current || !tradeLines) return;
+
+    if (tradeLineRefs.current.entry) {
+      candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.entry);
+      tradeLineRefs.current.entry = undefined;
+    }
+    if (tradeLineRefs.current.stopLoss) {
+      candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.stopLoss);
+      tradeLineRefs.current.stopLoss = undefined;
+    }
+    if (tradeLineRefs.current.takeProfit) {
+      candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.takeProfit);
+      tradeLineRefs.current.takeProfit = undefined;
+    }
 
     const { entry, stopLoss, takeProfit } = tradeLines;
 
     if (entry) {
-      candlestickSeriesRef.current?.createPriceLine({
+      tradeLineRefs.current.entry = candlestickSeriesRef.current.createPriceLine({
         price: entry,
         color: '#3b82f6',
         lineWidth: 2,
-        lineStyle: LineStyle.Dashed,
+        lineStyle: LineStyle.Solid,
         axisLabelVisible: true,
         title: 'Entry',
       });
     }
 
     if (stopLoss) {
-      candlestickSeriesRef.current?.createPriceLine({
+      tradeLineRefs.current.stopLoss = candlestickSeriesRef.current.createPriceLine({
         price: stopLoss,
         color: '#ef4444',
         lineWidth: 2,
@@ -522,7 +540,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     }
 
     if (takeProfit) {
-      candlestickSeriesRef.current?.createPriceLine({
+      tradeLineRefs.current.takeProfit = candlestickSeriesRef.current.createPriceLine({
         price: takeProfit,
         color: '#10b981',
         lineWidth: 2,
@@ -531,6 +549,20 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         title: 'Take Profit',
       });
     }
+
+    return () => {
+      if (candlestickSeriesRef.current) {
+        if (tradeLineRefs.current.entry) {
+          candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.entry);
+        }
+        if (tradeLineRefs.current.stopLoss) {
+          candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.stopLoss);
+        }
+        if (tradeLineRefs.current.takeProfit) {
+          candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.takeProfit);
+        }
+      }
+    };
   }, [tradeLines]);
 
   const FOREX_PAIRS = [

@@ -3,6 +3,7 @@ import { TrendingUp, TrendingDown, DollarSign, AlertCircle, ChevronDown, Chevron
 import { supabase } from '@/lib/supabase';
 import { smartRequestQueue } from '@/services/smart-request-queue';
 import { pollingConfigService } from '@/services/polling-config-service';
+import { tradeAudioNotifications } from '@/services/trade-audio-notifications';
 
 interface LivePrice {
   bid: number;
@@ -206,6 +207,8 @@ export function ManualTradePanel({ symbol, onTradeExecuted }: ManualTradePanelPr
             position_id: data.id,
             description: `Margin reserved for ${action} ${symbol} ${lotSize} lots`
           });
+
+        tradeAudioNotifications.playTradeEntrySound();
       }
 
       await fetchBalance();
