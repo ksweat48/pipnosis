@@ -8,8 +8,7 @@ const corsHeaders = {
 };
 
 const FOREX_PAIRS = [
-  'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF',
-  'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'
+  'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'
 ];
 
 interface PriceData {
