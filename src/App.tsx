@@ -22,6 +22,7 @@ import { dbHealthMonitor } from './services/db-health-monitor';
 import { globalPollingCoordinator } from './services/global-polling-coordinator';
 import { backgroundCandleAggregator } from './services/background-candle-aggregator';
 import { persistentPricePollingService } from './services/persistent-price-polling-service';
+import { systemLoadMonitor } from './services/system-load-monitor';
 
 
 const AppRoutes: React.FC = () => {
@@ -176,6 +177,16 @@ export default function App() {
             console.error('❌ Failed to initialize global polling coordinator:', error);
           }
         }, 6000);
+
+        setTimeout(() => {
+          console.log('📊 Starting system load monitor...');
+          try {
+            systemLoadMonitor.start();
+            console.log('✅ System load monitor started successfully');
+          } catch (error) {
+            console.error('❌ Failed to start system load monitor:', error);
+          }
+        }, 7000);
 
         setTimeout(async () => {
           console.log('🚀 Starting background candle aggregator...');

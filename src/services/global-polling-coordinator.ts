@@ -53,8 +53,7 @@ class GlobalPollingCoordinator {
   private listeners: Set<(status: CoordinatorStatus) => void> = new Set();
 
   private readonly FOREX_PAIRS = [
-    'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF',
-    'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'
+    'XAUUSD', 'US30', 'EURUSD', 'USDJPY', 'GBPUSD'
   ];
 
   private readonly MARKET_CHECK_INTERVAL = 60000;

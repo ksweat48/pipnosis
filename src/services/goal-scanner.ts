@@ -44,7 +44,7 @@ class GoalScanner {
         return [];
       }
 
-      const watchlist = session.data.watchlist || ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD'];
+      const watchlist = session.data.watchlist || ['XAUUSD', 'US30', 'EURUSD', 'USDJPY', 'GBPUSD'];
       const results: ScanResult[] = [];
 
       for (const symbol of watchlist) {

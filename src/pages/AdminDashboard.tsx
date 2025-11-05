@@ -3,9 +3,10 @@ import { NavigationMenu } from '@/components/NavigationMenu';
 import { DataManagementPanel } from '@/components/DataManagementPanel';
 import { CandleAggregatorStatus } from '@/components/CandleAggregatorStatus';
 import { PersistentPollingStatus } from '@/components/PersistentPollingStatus';
-import { Database, BarChart3, Settings } from 'lucide-react';
+import APIUsageMonitor from '@/components/APIUsageMonitor';
+import { Database, BarChart3, Settings, Activity } from 'lucide-react';
 
-type AdminTab = 'data' | 'analytics' | 'settings';
+type AdminTab = 'data' | 'analytics' | 'api-usage' | 'settings';
 
 export function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<AdminTab>('data');
@@ -27,6 +28,17 @@ export function AdminDashboard() {
           >
             <Database size={18} />
             Data Management
+          </button>
+          <button
+            onClick={() => setActiveTab('api-usage')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+              activeTab === 'api-usage'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            <Activity size={18} />
+            API Usage Monitor
           </button>
           <button
             onClick={() => setActiveTab('analytics')}
@@ -60,6 +72,10 @@ export function AdminDashboard() {
             </div>
             <DataManagementPanel />
           </div>
+        )}
+
+        {activeTab === 'api-usage' && (
+          <APIUsageMonitor />
         )}
 
         {activeTab === 'analytics' && (
