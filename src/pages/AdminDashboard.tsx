@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { DataManagementPanel } from '@/components/DataManagementPanel';
 import { CandleAggregatorStatus } from '@/components/CandleAggregatorStatus';
+import { PersistentPollingStatus } from '@/components/PersistentPollingStatus';
 import { Database, BarChart3, Settings } from 'lucide-react';
 
 type AdminTab = 'data' | 'analytics' | 'settings';
@@ -53,7 +54,10 @@ export function AdminDashboard() {
 
         {activeTab === 'data' && (
           <div className="space-y-6">
-            <CandleAggregatorStatus />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <CandleAggregatorStatus />
+              <PersistentPollingStatus />
+            </div>
             <DataManagementPanel />
           </div>
         )}
