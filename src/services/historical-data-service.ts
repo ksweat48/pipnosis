@@ -61,8 +61,7 @@ async function fetchMetaApiCandles(
   const netlifyUrl = `${window.location.origin}/.netlify/functions/forex-candles`;
   const url = `${netlifyUrl}?symbol=${symbol}&timeframe=${timeframe}&limit=${limit}`;
 
-  console.log(`[HistoricalData] Fetching ${limit} ${timeframe} candles for ${symbol}`);
-
+  // Reduced logging - only log errors
   const response = await fetch(url);
 
   if (!response.ok) {
@@ -188,10 +187,7 @@ async function fetchAndSaveHistoricalData(
     result.candlesSaved = saveResult.saved;
     result.status = 'completed';
 
-    console.log(
-      `[HistoricalData] ✓ Completed ${symbol} ${timeframe}: ${result.candlesSaved} candles saved`
-    );
-
+    // Success - reduced logging
     onProgress?.(result);
     return result;
   } catch (error: any) {

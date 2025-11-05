@@ -221,9 +221,7 @@ class SymbolValidatorService {
 
   private getDefaultWorkingSymbols(): string[] {
     return [
-      'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF',
-      'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP',
-      'EURJPY', 'GBPJPY'
+      'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'
     ];
   }
 }

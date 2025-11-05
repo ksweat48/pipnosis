@@ -66,7 +66,11 @@ export async function backfillGapsFromTicks(
     return result;
   }
 
-  console.log(`[Backfill] Found ${gaps.length} gaps to fill for ${symbol} ${timeframe}`);
+  // Only log if there are significant gaps (more than 10 minutes)
+  const significantGaps = gaps.filter(g => (g.endTime - g.startTime) > 600);
+  if (significantGaps.length > 0) {
+    console.log(`[Backfill] Found ${significantGaps.length} significant gaps for ${symbol} ${timeframe}`);
+  }
 
   const intervalMinutes = getTimeframeMinutes(timeframe);
   const intervalMs = intervalMinutes * 60 * 1000;
@@ -76,7 +80,10 @@ export async function backfillGapsFromTicks(
       const startTimeUtc = new Date(gap.startTime * 1000);
       const endTimeUtc = new Date(gap.endTime * 1000);
 
-      console.log(`[Backfill] Querying ticks from ${startTimeUtc.toISOString()} to ${endTimeUtc.toISOString()}`);
+      // Skip small gaps (less than 10 minutes)
+      if ((gap.endTime - gap.startTime) < 600) {
+        continue;
+      }
 
       const { data: ticks, error: tickError } = await supabase
         .from('realtime_prices')
@@ -93,11 +100,14 @@ export async function backfillGapsFromTicks(
       }
 
       if (!ticks || ticks.length === 0) {
-        console.warn(`[Backfill] No ticks found for gap from ${startTimeUtc.toISOString()} to ${endTimeUtc.toISOString()}`);
+        // Skip warning for empty tick data - common during market close
         continue;
       }
 
-      console.log(`[Backfill] Found ${ticks.length} ticks to aggregate`);
+      // Reduced logging - only log for large datasets
+      if (ticks.length > 100) {
+        console.log(`[Backfill] Processing ${ticks.length} ticks`);
+      }
 
       const candleMap = new Map<number, { midPrices: number[]; tickCount: number }>();
 
@@ -141,7 +151,7 @@ export async function backfillGapsFromTicks(
           backfilledCandles.push(candle);
         }
 
-        console.log(`[Backfill] Created ${backfilledCandles.length} candles from ticks`);
+        // Reduced logging
         result.candlesCreated += backfilledCandles.length;
         result.gapsFilled++;
       }
@@ -152,7 +162,10 @@ export async function backfillGapsFromTicks(
     }
   }
 
-  console.log(`[Backfill] Complete: ${result.gapsFilled} gaps filled, ${result.candlesCreated} candles created`);
+  // Only log summary if gaps were actually filled
+  if (result.gapsFilled > 0) {
+    console.log(`[Backfill] Complete: ${result.gapsFilled} gaps filled, ${result.candlesCreated} candles created`);
+  }
 
   return result;
 }
@@ -199,14 +212,15 @@ export async function detectAndBackfillGaps(
   const gaps = await detectCandleGaps(existingCandles, timeframe);
 
   if (gaps.length === 0) {
-    console.log(`[Backfill] No gaps detected for ${symbol} ${timeframe}`);
+    // Silence - no gaps is good
     return { candles: existingCandles, backfillResult: { success: true, gapsFilled: 0, candlesCreated: 0, errors: [] } };
   }
 
-  console.log(`[Backfill] Detected ${gaps.length} gaps in ${symbol} ${timeframe} data`);
-  gaps.forEach((gap, i) => {
-    console.log(`  Gap ${i + 1}: ${new Date(gap.startTime * 1000).toISOString()} to ${new Date(gap.endTime * 1000).toISOString()} (${gap.missingCandles} candles missing)`);
-  });
+  // Only log significant gaps
+  const significantGaps = gaps.filter(g => g.missingCandles > 10);
+  if (significantGaps.length > 0) {
+    console.log(`[Backfill] Detected ${significantGaps.length} significant gaps in ${symbol} ${timeframe} data`);
+  }
 
   const backfillResult = await backfillGapsFromTicks(symbol, timeframe, gaps);
 

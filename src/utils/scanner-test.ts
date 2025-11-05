@@ -16,7 +16,7 @@ export async function testScannerSetup() {
   console.log('✅ Supabase connected successfully');
 
   console.log('\n2. Checking Market Data...');
-  const symbols = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD'];
+  const symbols = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
   const marketStatus = await goalScannerTrigger.getMarketDataStatus(symbols);
 
   for (const status of marketStatus) {

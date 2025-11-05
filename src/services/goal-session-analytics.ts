@@ -148,12 +148,13 @@ class GoalSessionAnalytics {
   }
 
   inferPatternFromTrade(trade: any): string {
-    const symbols = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD'];
+    const symbols = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
 
     if (trade.symbol === 'XAUUSD') return 'Gold momentum trades';
     if (trade.symbol === 'US30') return 'US30 index breakout strategy';
     if (trade.symbol === 'EURUSD') return 'EUR/USD trend following';
     if (trade.symbol === 'GBPUSD') return 'GBP/USD volatility plays';
+    if (trade.symbol === 'USDJPY') return 'USD/JPY trend trades';
 
     return 'VWAP reversal strategy';
   }
