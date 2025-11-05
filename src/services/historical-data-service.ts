@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { Timeframe } from '@/services/chart-preferences';
+import { symbolValidator } from '@/services/symbol-validator';
 
 interface HistoricalDataFetchOptions {
   symbols: string[];
@@ -172,6 +173,14 @@ async function fetchAndSaveHistoricalData(
   };
 
   try {
+    const validation = await symbolValidator.validateSymbol(symbol);
+    if (!validation.available) {
+      result.status = 'failed';
+      result.error = validation.reason || 'Symbol not available from broker';
+      onProgress?.(result);
+      return result;
+    }
+
     onProgress?.({ ...result, status: 'fetching' });
 
     const minutesPerCandle = getTimeframeMinutes(timeframe);
@@ -195,7 +204,6 @@ async function fetchAndSaveHistoricalData(
 
     if (error.code === 'SYMBOL_NOT_AVAILABLE') {
       result.error = `Symbol not available for historical data from your broker`;
-      console.warn(`[HistoricalData] ⚠ Skipping ${symbol} ${timeframe}: Not available from broker`);
     } else {
       result.error = error instanceof Error ? error.message : 'Unknown error';
       console.error(`[HistoricalData] ✗ Failed ${symbol} ${timeframe}:`, result.error);

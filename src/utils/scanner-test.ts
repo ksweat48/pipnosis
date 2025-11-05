@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { goalScannerTrigger } from '../services/goal-scanner-trigger';
+import { symbolValidator } from '../services/symbol-validator';
 
 export async function testScannerSetup() {
   console.log('===== SCANNER SETUP TEST =====');
@@ -16,7 +17,8 @@ export async function testScannerSetup() {
   console.log('✅ Supabase connected successfully');
 
   console.log('\n2. Checking Market Data...');
-  const symbols = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
+  const symbols = await symbolValidator.getKnownWorkingSymbols();
+  console.log(`Using ${symbols.length} available symbols: ${symbols.join(', ')}`);
   const marketStatus = await goalScannerTrigger.getMarketDataStatus(symbols);
 
   for (const status of marketStatus) {

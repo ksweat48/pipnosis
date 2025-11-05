@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { historicalDataService } from '@/services/historical-data-service';
 import { Timeframe } from '@/services/chart-preferences';
 import { getForexMarketStatus } from '@/utils/marketHours';
+import { symbolValidator } from '@/services/symbol-validator';
 
 interface AutoRefreshConfig {
   enabled: boolean;
@@ -23,7 +24,7 @@ interface RefreshTask {
 class AutomatedRefreshService {
   private config: AutoRefreshConfig = {
     enabled: false,
-    symbols: ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'],
+    symbols: [],
     timeframes: ['M1', 'M5', 'M15', 'M30', 'H1', 'D1', 'W1'],
     refreshIntervalMinutes: 60,
     checkMarketHours: true,
@@ -32,19 +33,43 @@ class AutomatedRefreshService {
   private refreshTimer: NodeJS.Timeout | null = null;
   private tasks: Map<string, RefreshTask> = new Map();
   private isRunning: boolean = false;
+  private unavailableSymbols: Set<string> = new Set();
 
   constructor() {
     this.loadConfig();
+    this.initializeSymbols();
+  }
+
+  private async initializeSymbols() {
+    const availableSymbols = await symbolValidator.getKnownWorkingSymbols();
+    if (this.config.symbols.length === 0 || !this.config.symbols.some(s => availableSymbols.includes(s))) {
+      this.config.symbols = availableSymbols;
+      this.saveConfig();
+    }
   }
 
   private loadConfig() {
     const saved = localStorage.getItem('auto-refresh-config');
     if (saved) {
       try {
-        this.config = JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        this.config = parsed;
+        this.validateAndCleanConfig();
       } catch (error) {
         console.error('Failed to load auto-refresh config:', error);
       }
+    }
+  }
+
+  private async validateAndCleanConfig() {
+    const availableSymbols = await symbolValidator.getKnownWorkingSymbols();
+    const validSymbols = this.config.symbols.filter(s => availableSymbols.includes(s));
+
+    if (validSymbols.length !== this.config.symbols.length) {
+      const removedSymbols = this.config.symbols.filter(s => !validSymbols.includes(s));
+      console.log('[AutoRefresh] Removed unavailable symbols:', removedSymbols.join(', '));
+      this.config.symbols = validSymbols;
+      this.saveConfig();
     }
   }
 
@@ -121,7 +146,13 @@ class AutomatedRefreshService {
   }
 
   private async performRefresh() {
-    for (const symbol of this.config.symbols) {
+    const availableSymbols = await this.getAvailableSymbols();
+
+    for (const symbol of availableSymbols) {
+      if (this.unavailableSymbols.has(symbol)) {
+        continue;
+      }
+
       for (const timeframe of this.config.timeframes) {
         const taskId = `${symbol}-${timeframe}`;
 
@@ -158,6 +189,9 @@ class AutomatedRefreshService {
 
             task.status = 'idle';
             task.nextRun = new Date(Date.now() + this.config.refreshIntervalMinutes * 60 * 1000);
+          } else if (result.error?.includes('not available') || result.error?.includes('Not available')) {
+            this.unavailableSymbols.add(symbol);
+            task.status = 'failed';
           } else {
             await this.logRefreshFailure(symbol, timeframe, result.error || 'Unknown error');
             task.status = 'failed';
@@ -287,6 +321,31 @@ class AutomatedRefreshService {
     return this.config.enabled;
   }
 
+  private async getAvailableSymbols(): Promise<string[]> {
+    try {
+      const { data, error } = await supabase
+        .from('symbol_availability')
+        .select('symbol')
+        .eq('available_for_historical', true);
+
+      if (error) throw error;
+
+      const dbSymbols = data?.map(row => row.symbol) || [];
+      return this.config.symbols.filter(s => dbSymbols.includes(s));
+    } catch (error) {
+      console.error('[AutoRefresh] Failed to get available symbols:', error);
+      return this.config.symbols;
+    }
+  }
+
+  public async refreshSymbolList() {
+    const availableSymbols = await symbolValidator.getKnownWorkingSymbols();
+    this.config.symbols = availableSymbols;
+    this.unavailableSymbols.clear();
+    this.saveConfig();
+    console.log('[AutoRefresh] Refreshed symbol list:', availableSymbols.join(', '));
+  }
+
   public async checkForStaleData() {
     try {
       await supabase.rpc('mark_stale_data');
@@ -308,4 +367,10 @@ export function initializeAutomatedRefresh() {
   setInterval(() => {
     automatedRefreshService.checkForStaleData();
   }, 300000);
+}
+
+export async function cleanupStaleSymbolConfigurations() {
+  console.log('[AutoRefresh] Cleaning up stale symbol configurations...');
+  await automatedRefreshService.refreshSymbolList();
+  console.log('[AutoRefresh] Cleanup complete');
 }
