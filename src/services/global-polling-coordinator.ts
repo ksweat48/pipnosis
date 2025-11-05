@@ -51,6 +51,12 @@ class GlobalPollingCoordinator {
   private isPaused = false;
   private pauseReason: 'market_closed' | 'manual' | null = null;
   private listeners: Set<(status: CoordinatorStatus) => void> = new Set();
+  private isTabVisible = true;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private lastHeartbeat: Date = new Date();
+  private missedHeartbeats = 0;
+  private readonly HEARTBEAT_INTERVAL_MS = 5000;
+  private readonly MAX_MISSED_HEARTBEATS = 3;
 
   private readonly FOREX_PAIRS = [
     'XAUUSD', 'US30', 'EURUSD', 'USDJPY', 'GBPUSD'
@@ -70,7 +76,11 @@ class GlobalPollingCoordinator {
     }
 
     console.log('🚀 Initializing global polling coordinator for all forex pairs...');
+    console.log('📊 Polling will continue regardless of page visibility or navigation');
     logEnvironmentInfo();
+
+    this.setupVisibilityHandling();
+    this.startHeartbeatMonitoring();
 
     if (!areFunctionsAvailable()) {
       console.warn('⚠️ Netlify Functions not available in this environment');
@@ -185,7 +195,124 @@ class GlobalPollingCoordinator {
 
     this.initialized = true;
     console.log(`✅ Global polling coordinator initialized for ${this.FOREX_PAIRS.length} pairs`);
+    console.log('🔄 Polling is persistent and independent of UI state');
     this.notifyListeners();
+  }
+
+  private setupVisibilityHandling(): void {
+    if (typeof document === 'undefined') return;
+
+    const handleVisibilityChange = () => {
+      const wasVisible = this.isTabVisible;
+      this.isTabVisible = !document.hidden;
+
+      if (!wasVisible && this.isTabVisible) {
+        console.log('👁️ Tab became visible - verifying polling status...');
+        this.verifyPollingHealth();
+      } else if (wasVisible && !this.isTabVisible) {
+        console.log('🙈 Tab hidden - polling continues in background');
+        console.log('ℹ️ Note: Browser may throttle timers, heartbeat will detect issues');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', () => {
+      console.log('🔍 Window focused - checking polling health...');
+      this.verifyPollingHealth();
+    });
+
+    console.log('✅ Visibility change handlers installed');
+  }
+
+  private startHeartbeatMonitoring(): void {
+    console.log(`💓 Starting heartbeat monitoring (every ${this.HEARTBEAT_INTERVAL_MS}ms)...`);
+
+    const heartbeat = () => {
+      const now = new Date();
+      const timeSinceLastHeartbeat = now.getTime() - this.lastHeartbeat.getTime();
+      const expectedInterval = this.HEARTBEAT_INTERVAL_MS;
+      const drift = timeSinceLastHeartbeat - expectedInterval;
+
+      if (drift > expectedInterval * 2) {
+        this.missedHeartbeats++;
+        console.warn(
+          `⚠️ Heartbeat drift detected: ${Math.round(drift)}ms ` +
+          `(expected ${expectedInterval}ms). Missed: ${this.missedHeartbeats}/${this.MAX_MISSED_HEARTBEATS}`
+        );
+
+        if (this.missedHeartbeats >= this.MAX_MISSED_HEARTBEATS) {
+          console.error('❌ Multiple missed heartbeats detected - polling may be throttled!');
+          console.log('🔄 Attempting to recover polling...');
+          this.recoverFromThrottling();
+          this.missedHeartbeats = 0;
+        }
+      } else {
+        if (this.missedHeartbeats > 0) {
+          console.log('✅ Heartbeat recovered');
+        }
+        this.missedHeartbeats = 0;
+      }
+
+      this.lastHeartbeat = now;
+    };
+
+    heartbeat();
+    this.heartbeatInterval = setInterval(heartbeat, this.HEARTBEAT_INTERVAL_MS);
+  }
+
+  private recoverFromThrottling(): void {
+    console.log('🔧 Recovering from timer throttling...');
+
+    this.pollStatus.forEach((status, symbol) => {
+      const timeSinceLastSuccess = status.lastSuccessfulPoll
+        ? Date.now() - status.lastSuccessfulPoll.getTime()
+        : Infinity;
+
+      if (timeSinceLastSuccess > status.currentInterval * 5) {
+        console.log(
+          `⚠️ [${symbol}] Stale (${Math.round(timeSinceLastSuccess / 1000)}s), restarting...`
+        );
+        this.stopPollingForSymbol(symbol);
+        setTimeout(() => this.startPollingForSymbol(symbol), 100);
+      }
+    });
+  }
+
+  private verifyPollingHealth(): void {
+    console.log('🔍 Verifying polling health across all pairs...');
+
+    let staleCount = 0;
+    let activeCount = 0;
+    const now = Date.now();
+
+    this.pollStatus.forEach((status, symbol) => {
+      const timeSinceLastSuccess = status.lastSuccessfulPoll
+        ? now - status.lastSuccessfulPoll.getTime()
+        : Infinity;
+
+      if (status.successCount === 0) {
+        console.log(`  [${symbol}] Starting up... (${status.errorCount} errors)`);
+      } else if (timeSinceLastSuccess < 15000) {
+        activeCount++;
+      } else if (timeSinceLastSuccess < 60000) {
+        console.warn(`  [${symbol}] ⚠️ Stale (${Math.round(timeSinceLastSuccess / 1000)}s)`);
+        staleCount++;
+      } else {
+        console.error(`  [${symbol}] ❌ Dead (${Math.round(timeSinceLastSuccess / 1000)}s)`);
+        staleCount++;
+        this.stopPollingForSymbol(symbol);
+        setTimeout(() => this.startPollingForSymbol(symbol), 500);
+      }
+    });
+
+    console.log(
+      `📊 Health check complete: ${activeCount} active, ${staleCount} stale/dead of ${this.FOREX_PAIRS.length} pairs`
+    );
+
+    if (staleCount > this.FOREX_PAIRS.length / 2) {
+      console.error('❌ Majority of pairs are stale - initiating full restart');
+      this.restartPolling();
+    }
   }
 
   private startAllPolling(): void {
@@ -403,6 +530,11 @@ class GlobalPollingCoordinator {
     if (this.marketCheckInterval) {
       clearInterval(this.marketCheckInterval);
       this.marketCheckInterval = null;
+    }
+
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
     }
 
     smartRequestQueue.stop();

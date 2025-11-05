@@ -3,10 +3,11 @@ import { NavigationMenu } from '@/components/NavigationMenu';
 import { DataManagementPanel } from '@/components/DataManagementPanel';
 import { CandleAggregatorStatus } from '@/components/CandleAggregatorStatus';
 import { PersistentPollingStatus } from '@/components/PersistentPollingStatus';
+import { PollingHealthDashboard } from '@/components/PollingHealthDashboard';
 import APIUsageMonitor from '@/components/APIUsageMonitor';
-import { Database, BarChart3, Settings, Activity } from 'lucide-react';
+import { Database, BarChart3, Settings, Activity, Heart } from 'lucide-react';
 
-type AdminTab = 'data' | 'analytics' | 'api-usage' | 'settings';
+type AdminTab = 'data' | 'analytics' | 'api-usage' | 'polling-health' | 'settings';
 
 export function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<AdminTab>('data');
@@ -17,10 +18,21 @@ export function AdminDashboard() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         <h1 className="text-3xl font-bold text-white mb-6">Admin Dashboard</h1>
 
-        <div className="flex gap-2 mb-6">
+        <div className="flex gap-2 mb-6 overflow-x-auto">
+          <button
+            onClick={() => setActiveTab('polling-health')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+              activeTab === 'polling-health'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            <Heart size={18} />
+            Polling Health
+          </button>
           <button
             onClick={() => setActiveTab('data')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
               activeTab === 'data'
                 ? 'bg-emerald-600 text-white'
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
@@ -31,18 +43,18 @@ export function AdminDashboard() {
           </button>
           <button
             onClick={() => setActiveTab('api-usage')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
               activeTab === 'api-usage'
                 ? 'bg-emerald-600 text-white'
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
             }`}
           >
             <Activity size={18} />
-            API Usage Monitor
+            API Usage
           </button>
           <button
             onClick={() => setActiveTab('analytics')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
               activeTab === 'analytics'
                 ? 'bg-emerald-600 text-white'
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
@@ -53,7 +65,7 @@ export function AdminDashboard() {
           </button>
           <button
             onClick={() => setActiveTab('settings')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
               activeTab === 'settings'
                 ? 'bg-emerald-600 text-white'
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
@@ -63,6 +75,10 @@ export function AdminDashboard() {
             Settings
           </button>
         </div>
+
+        {activeTab === 'polling-health' && (
+          <PollingHealthDashboard />
+        )}
 
         {activeTab === 'data' && (
           <div className="space-y-6">

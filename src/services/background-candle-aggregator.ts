@@ -33,6 +33,14 @@ class BackgroundCandleAggregator {
   private saveQueue: Array<{ symbol: string; timeframe: Timeframe; candle: CandleData }> = [];
   private saveInProgress = false;
   private listeners: Set<(symbol: string, timeframe: Timeframe, candle: CandleData) => void> = new Set();
+  private reconnectAttempts = 0;
+  private readonly MAX_RECONNECT_ATTEMPTS = 10;
+  private readonly BASE_RECONNECT_DELAY = 1000;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
+  private lastMessageTime: Date | null = null;
+  private healthCheckInterval: NodeJS.Timeout | null = null;
+  private readonly HEALTH_CHECK_INTERVAL_MS = 15000;
+  private readonly STALE_CONNECTION_THRESHOLD_MS = 60000;
 
   private getCacheKey(symbol: string, timeframe: Timeframe): string {
     return `${symbol}_${timeframe}`;
@@ -227,39 +235,140 @@ class BackgroundCandleAggregator {
     }
 
     console.log('[BackgroundAggregator] 🚀 Starting background candle aggregation for all pairs and timeframes...');
+    console.log('[BackgroundAggregator] 🔄 Auto-reconnection enabled for persistent operation');
 
     await this.initializeCurrentCandles();
-
-    this.subscription = supabase
-      .channel('background_price_aggregation')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'realtime_prices'
-        },
-        (payload) => {
-          const { symbol, bid, ask, broker_time, created_at } = payload.new as any;
-          const timestamp = broker_time || created_at;
-
-          this.processNewPrice(
-            symbol,
-            parseFloat(bid),
-            parseFloat(ask),
-            timestamp
-          );
-        }
-      )
-      .subscribe((status) => {
-        console.log('[BackgroundAggregator] Subscription status:', status);
-        if (status === 'SUBSCRIBED') {
-          this.isRunning = true;
-          console.log('[BackgroundAggregator] ✅ Successfully subscribed to realtime_prices');
-        }
-      });
+    await this.setupRealtimeSubscription();
+    this.startHealthMonitoring();
 
     console.log(`[BackgroundAggregator] Monitoring ${FOREX_PAIRS.length} pairs across ${ALL_TIMEFRAMES.length} timeframes`);
+  }
+
+  private async setupRealtimeSubscription(): Promise<void> {
+    try {
+      if (this.subscription) {
+        await this.subscription.unsubscribe();
+        this.subscription = null;
+      }
+
+      this.subscription = supabase
+        .channel('background_price_aggregation')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'realtime_prices'
+          },
+          (payload) => {
+            this.lastMessageTime = new Date();
+            const { symbol, bid, ask, broker_time, created_at } = payload.new as any;
+            const timestamp = broker_time || created_at;
+
+            this.processNewPrice(
+              symbol,
+              parseFloat(bid),
+              parseFloat(ask),
+              timestamp
+            );
+          }
+        )
+        .subscribe((status, err) => {
+          console.log('[BackgroundAggregator] Subscription status:', status);
+
+          if (status === 'SUBSCRIBED') {
+            this.isRunning = true;
+            this.reconnectAttempts = 0;
+            this.lastMessageTime = new Date();
+            console.log('[BackgroundAggregator] ✅ Successfully subscribed to realtime_prices');
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('[BackgroundAggregator] ❌ Channel error:', err);
+            this.handleConnectionError();
+          } else if (status === 'TIMED_OUT') {
+            console.error('[BackgroundAggregator] ⏱️ Connection timed out');
+            this.handleConnectionError();
+          } else if (status === 'CLOSED') {
+            console.warn('[BackgroundAggregator] 🔌 Connection closed');
+            if (this.isRunning) {
+              this.handleConnectionError();
+            }
+          }
+        });
+    } catch (error) {
+      console.error('[BackgroundAggregator] Failed to setup subscription:', error);
+      this.handleConnectionError();
+    }
+  }
+
+  private handleConnectionError(): void {
+    if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
+      console.error(
+        `[BackgroundAggregator] ❌ Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. ` +
+        'Manual restart required.'
+      );
+      return;
+    }
+
+    this.reconnectAttempts++;
+    const delay = Math.min(
+      this.BASE_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts - 1),
+      30000
+    );
+
+    console.log(
+      `[BackgroundAggregator] 🔄 Attempting reconnection ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} ` +
+      `in ${Math.round(delay / 1000)}s...`
+    );
+
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+    }
+
+    this.reconnectTimeout = setTimeout(async () => {
+      console.log(`[BackgroundAggregator] 🔌 Reconnecting (attempt ${this.reconnectAttempts})...`);
+      await this.setupRealtimeSubscription();
+    }, delay);
+  }
+
+  private startHealthMonitoring(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+    }
+
+    console.log(
+      `[BackgroundAggregator] 💚 Starting health monitoring (every ${this.HEALTH_CHECK_INTERVAL_MS / 1000}s)...`
+    );
+
+    this.healthCheckInterval = setInterval(() => {
+      this.checkConnectionHealth();
+    }, this.HEALTH_CHECK_INTERVAL_MS);
+  }
+
+  private checkConnectionHealth(): void {
+    if (!this.isRunning) {
+      return;
+    }
+
+    const now = Date.now();
+    const timeSinceLastMessage = this.lastMessageTime
+      ? now - this.lastMessageTime.getTime()
+      : Infinity;
+
+    if (timeSinceLastMessage > this.STALE_CONNECTION_THRESHOLD_MS) {
+      console.warn(
+        `[BackgroundAggregator] ⚠️ No messages received for ${Math.round(timeSinceLastMessage / 1000)}s - ` +
+        'connection may be stale'
+      );
+
+      console.log('[BackgroundAggregator] 🔄 Forcing reconnection due to stale connection...');
+      this.handleConnectionError();
+    } else {
+      console.log(
+        `[BackgroundAggregator] ✅ Health check passed ` +
+        `(last message ${Math.round(timeSinceLastMessage / 1000)}s ago, ` +
+        `${this.candleStates.size} active candles)`
+      );
+    }
   }
 
   private async initializeCurrentCandles(): Promise<void> {
@@ -310,6 +419,16 @@ class BackgroundCandleAggregator {
 
     console.log('[BackgroundAggregator] Stopping background aggregation...');
 
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
+
     if (this.subscription) {
       await this.subscription.unsubscribe();
       this.subscription = null;
@@ -327,6 +446,8 @@ class BackgroundCandleAggregator {
 
     this.candleStates.clear();
     this.isRunning = false;
+    this.lastMessageTime = null;
+    this.reconnectAttempts = 0;
 
     console.log('[BackgroundAggregator] ✅ Stopped');
   }
@@ -370,6 +491,10 @@ class BackgroundCandleAggregator {
   }
 
   getStatus() {
+    const timeSinceLastMessage = this.lastMessageTime
+      ? Date.now() - this.lastMessageTime.getTime()
+      : null;
+
     return {
       isRunning: this.isRunning,
       activeCandleStates: this.candleStates.size,
@@ -377,7 +502,11 @@ class BackgroundCandleAggregator {
       listenerCount: this.listeners.size,
       symbols: FOREX_PAIRS.length,
       timeframes: ALL_TIMEFRAMES.length,
-      totalCombinations: FOREX_PAIRS.length * ALL_TIMEFRAMES.length
+      totalCombinations: FOREX_PAIRS.length * ALL_TIMEFRAMES.length,
+      reconnectAttempts: this.reconnectAttempts,
+      lastMessageTime: this.lastMessageTime,
+      timeSinceLastMessageMs: timeSinceLastMessage,
+      connectionHealthy: timeSinceLastMessage !== null && timeSinceLastMessage < this.STALE_CONNECTION_THRESHOLD_MS
     };
   }
 }
