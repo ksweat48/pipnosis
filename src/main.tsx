@@ -4,14 +4,36 @@ import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from '@/hooks/useAuth';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { errorHandler } from '@/lib/error-handler';
-import { initializeAutomatedRefresh } from '@/services/automated-refresh-service';
+import { initializeAutomatedRefresh, automatedRefreshService } from '@/services/automated-refresh-service';
 import { positionMonitorService } from '@/services/position-monitor';
 import { tradeLifecycleManager } from '@/services/trade-lifecycle-manager';
 import App from './App.tsx';
 import './index.css';
 import './utils/scanner-test';
 
+const cleanupStaleLocalStorage = () => {
+  const version = localStorage.getItem('app-config-version');
+  if (version !== '2.0') {
+    console.log('[Startup] Cleaning up stale localStorage configurations...');
+    localStorage.removeItem('auto-refresh-config');
+    localStorage.setItem('app-config-version', '2.0');
+  }
+};
+
+cleanupStaleLocalStorage();
 initializeAutomatedRefresh();
+
+if (typeof window !== 'undefined') {
+  (window as any).refreshSymbols = async () => {
+    const { symbolValidator } = await import('@/services/symbol-validator');
+    const { cleanupStaleSymbolConfigurations } = await import('@/services/automated-refresh-service');
+    console.log('🔄 Refreshing symbol availability...');
+    symbolValidator.clearCache();
+    await cleanupStaleSymbolConfigurations();
+    console.log('✅ Symbol refresh complete. Reload the page to apply changes.');
+  };
+  console.log('💡 Debug utility available: Run refreshSymbols() in console to update symbol list');
+}
 
 console.log('[AI Trading] Starting position monitoring services...');
 positionMonitorService.start();

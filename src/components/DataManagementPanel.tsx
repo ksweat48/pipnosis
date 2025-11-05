@@ -28,16 +28,14 @@ export function DataManagementPanel() {
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(automatedRefreshService.isEnabled());
   const [isValidating, setIsValidating] = useState(false);
   const [symbolAvailability, setSymbolAvailability] = useState<Record<string, { available: boolean; reason?: string }>>({});
-
-  const FOREX_PAIRS = [
-    'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'
-  ];
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
 
   const TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'D1', 'W1'];
 
   useEffect(() => {
     loadDataStatus();
     loadSymbolAvailability();
+    loadAvailableSymbols();
   }, []);
 
   const loadDataStatus = async () => {
@@ -56,6 +54,16 @@ export function DataManagementPanel() {
       console.error('Error loading data status:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadAvailableSymbols = async () => {
+    try {
+      const symbols = await symbolValidator.getKnownWorkingSymbols();
+      setAvailableSymbols(symbols);
+    } catch (error) {
+      console.error('Error loading available symbols:', error);
+      setAvailableSymbols(['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY']);
     }
   };
 
@@ -84,7 +92,7 @@ export function DataManagementPanel() {
   const handleValidateSymbols = async () => {
     setIsValidating(true);
     try {
-      const results = await symbolValidator.validateMultipleSymbols(FOREX_PAIRS);
+      const results = await symbolValidator.validateMultipleSymbols(availableSymbols);
 
       const availability: Record<string, { available: boolean; reason?: string }> = {};
       results.forEach((result) => {
@@ -98,6 +106,11 @@ export function DataManagementPanel() {
 
       const availableCount = results.filter(r => r.available).length;
       const unavailableCount = results.filter(r => !r.available).length;
+
+      const newAvailable = results.filter(r => r.available).map(r => r.symbol);
+      setAvailableSymbols(newAvailable);
+
+      await automatedRefreshService.refreshSymbolList();
 
       alert(`Symbol validation complete:\n✓ ${availableCount} available\n✗ ${unavailableCount} unavailable`);
     } catch (error) {
@@ -148,10 +161,14 @@ export function DataManagementPanel() {
   };
 
   const handleSelectAllSymbols = () => {
-    if (selectedSymbols.length === FOREX_PAIRS.length) {
+    const available = availableSymbols.filter(s =>
+      !symbolAvailability[s] || symbolAvailability[s].available !== false
+    );
+
+    if (selectedSymbols.length === available.length) {
       setSelectedSymbols([]);
     } else {
-      setSelectedSymbols(FOREX_PAIRS);
+      setSelectedSymbols(available);
     }
   };
 
@@ -238,11 +255,13 @@ export function DataManagementPanel() {
                   onClick={handleSelectAllSymbols}
                   className="text-xs text-emerald-500 hover:text-emerald-400"
                 >
-                  {selectedSymbols.length === FOREX_PAIRS.length ? 'Deselect All' : 'Select All'}
+                  {selectedSymbols.length === availableSymbols.filter(s =>
+                    !symbolAvailability[s] || symbolAvailability[s].available !== false
+                  ).length ? 'Deselect All' : 'Select All'}
                 </button>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                {FOREX_PAIRS.map((symbol) => {
+                {availableSymbols.map((symbol) => {
                   const availability = symbolAvailability[symbol];
                   const isUnavailable = availability && !availability.available;
 
