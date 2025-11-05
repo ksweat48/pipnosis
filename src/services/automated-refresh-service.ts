@@ -23,7 +23,7 @@ interface RefreshTask {
 class AutomatedRefreshService {
   private config: AutoRefreshConfig = {
     enabled: false,
-    symbols: ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'],
+    symbols: ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'],
     timeframes: ['M1', 'M5', 'M15', 'M30', 'H1', 'D1', 'W1'],
     refreshIntervalMinutes: 60,
     checkMarketHours: true,
@@ -213,7 +213,7 @@ class AutomatedRefreshService {
         .eq('status', 'fetching')
         .order('started_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (data) {
         const duration = Date.now() - new Date(data.started_at).getTime();
@@ -244,7 +244,7 @@ class AutomatedRefreshService {
         .eq('status', 'fetching')
         .order('started_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (data) {
         const duration = Date.now() - new Date(data.started_at).getTime();
