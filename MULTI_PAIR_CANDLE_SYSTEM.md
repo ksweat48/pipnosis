@@ -7,9 +7,10 @@ The trading platform now features a comprehensive background candle aggregation 
 ## Key Features
 
 ### 1. **Universal Background Aggregation**
-- **All 12 forex pairs** (XAUUSD, US30, EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, USDCAD, NZDUSD, EURGBP, EURJPY, GBPJPY)
+- **5 core forex pairs** (XAUUSD, US30, EURUSD, GBPUSD, USDJPY)
 - **All 8 timeframes** (M1, M5, M15, M30, H1, H4, D1, W1)
-- **96 total combinations** continuously monitored and updated
+- **40 total combinations** continuously monitored and updated
+- Optimized for performance and reduced API costs
 
 ### 2. **Real-Time Synchronization**
 - Single subscription to all `realtime_prices` table inserts
