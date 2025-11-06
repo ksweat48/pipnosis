@@ -71,14 +71,19 @@ Deno.serve(async (req: Request) => {
     const url = new URL(req.url);
     const specificSymbol = url.searchParams.get('symbol');
     const specificTimeframe = url.searchParams.get('timeframe');
-    const daysBack = parseInt(url.searchParams.get('days') || '30', 10);
+    const candleLimit = parseInt(url.searchParams.get('limit') || '200', 10);
+    const daysBack = parseInt(url.searchParams.get('days') || '0', 10);
 
     const symbolsToFetch = specificSymbol ? [specificSymbol] : FOREX_SYMBOLS;
     const timeframesToFetch = specificTimeframe
       ? TIMEFRAMES.filter(tf => tf.name === specificTimeframe)
       : TIMEFRAMES;
 
-    console.log(`📊 Backfilling ${daysBack} days of data for ${symbolsToFetch.length} symbols and ${timeframesToFetch.length} timeframes`);
+    if (daysBack > 0) {
+      console.log(`📊 Backfilling ${daysBack} days of data for ${symbolsToFetch.length} symbols and ${timeframesToFetch.length} timeframes`);
+    } else {
+      console.log(`📊 Backfilling ${candleLimit} candles for ${symbolsToFetch.length} symbols and ${timeframesToFetch.length} timeframes`);
+    }
 
     const results: BackfillResult[] = [];
     let totalCandlesFetched = 0;
@@ -106,7 +111,9 @@ Deno.serve(async (req: Request) => {
             metaapiRegion,
             symbol,
             timeframe.name,
-            daysBack
+            daysBack > 0 ? daysBack : undefined,
+            candleLimit,
+            timeframe.minutes
           );
 
           result.candlesFetched = candles.length;
@@ -206,12 +213,27 @@ async function fetchMetaApiCandles(
   region: string,
   symbol: string,
   timeframe: string,
-  daysBack: number
+  daysBack?: number,
+  candleLimit?: number,
+  timeframeMinutes?: number
 ): Promise<MetaApiCandle[]> {
-  const startTime = new Date();
-  startTime.setDate(startTime.getDate() - daysBack);
+  let startTime: Date;
+
+  if (daysBack !== undefined && daysBack > 0) {
+    startTime = new Date();
+    startTime.setDate(startTime.getDate() - daysBack);
+  } else if (candleLimit && timeframeMinutes) {
+    startTime = new Date();
+    const minutesBack = candleLimit * timeframeMinutes * 1.5;
+    startTime.setMinutes(startTime.getMinutes() - minutesBack);
+  } else {
+    startTime = new Date();
+    startTime.setDate(startTime.getDate() - 30);
+  }
 
   const url = `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles?startTime=${startTime.toISOString()}`;
+
+  console.log(`    Fetching from: ${startTime.toISOString()}`);
 
   const response = await fetch(url, {
     method: 'GET',
@@ -230,6 +252,10 @@ async function fetchMetaApiCandles(
 
   if (!Array.isArray(candles)) {
     throw new Error('Invalid candle data from MetaAPI');
+  }
+
+  if (candleLimit && candles.length > candleLimit) {
+    return candles.slice(-candleLimit);
   }
 
   return candles;
