@@ -141,25 +141,27 @@ export function NavigationMenu() {
           )}
         </div>
 
-        <div className="md:hidden flex items-center gap-1 pb-3">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = isActive(item.path);
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition-all ${
-                  active
-                    ? 'bg-emerald-600 text-white'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
-                }`}
-              >
-                <Icon size={18} />
-                <span className="text-sm font-medium">{item.label}</span>
-              </Link>
-            );
-          })}
+        <div className="md:hidden overflow-x-auto pb-3 -mx-4 px-4 scrollbar-hide">
+          <div className="flex items-center gap-2 min-w-max">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const active = isActive(item.path);
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all whitespace-nowrap flex-shrink-0 ${
+                    active
+                      ? 'bg-emerald-600 text-white'
+                      : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                  }`}
+                >
+                  <Icon size={18} />
+                  <span className="text-sm font-medium">{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
         </div>
       </div>
     </nav>
