@@ -4,7 +4,7 @@ import { useUserBalance } from '@/hooks/useUserBalance';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { MarketChart } from '@/components/MarketChart';
 import { NotificationCenter } from '@/components/NotificationCenter';
-import { TradingModeToggle } from '@/components/TradingModeToggle';
+import { AITradingConsole } from '@/components/AITradingConsole';
 import { SearchStatusPanel } from '@/components/SearchStatusPanel';
 import { StrategyOptions } from '@/components/StrategyOptions';
 import { ActivePositions } from '@/components/ActivePositions';
@@ -361,19 +361,17 @@ export function TradePage() {
               symbol={selectedSymbol}
               onSymbolChange={handleSymbolChange}
               tradeLines={activeTradeLines}
+              onTradeExecuted={() => {
+                refreshBalance();
+                refreshPositions();
+                setPositionRefreshTrigger(prev => prev + 1);
+              }}
             />
           </div>
 
           <ActivePositions refreshTrigger={positionRefreshTrigger} />
 
-          <TradingModeToggle
-            symbol={selectedSymbol}
-            onTradeExecuted={() => {
-              refreshBalance();
-              refreshPositions();
-              setPositionRefreshTrigger(prev => prev + 1);
-            }}
-          />
+          <AITradingConsole />
 
           {activeSearchSessionId && isSearching && (
             <SearchStatusPanel

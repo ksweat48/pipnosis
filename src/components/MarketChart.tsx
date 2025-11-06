@@ -29,6 +29,7 @@ import {
   PatternDetection
 } from '@/utils/technicalIndicators';
 import { RSIPanel, ATRPanel, VolumePanel, PatternDetectionPanel } from '@/components/IndicatorPanels';
+import { ManualTradePanel } from '@/components/ManualTradePanel';
 import { getForexMarketStatus, type MarketStatus } from '@/utils/marketHours';
 
 interface MarketChartProps {
@@ -39,6 +40,7 @@ interface MarketChartProps {
     stopLoss?: number;
     takeProfit?: number;
   };
+  onTradeExecuted?: () => void;
 }
 
 interface CurrentCandle {
@@ -50,7 +52,7 @@ interface CurrentCandle {
   startTime: number;
 }
 
-export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartProps) {
+export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecuted }: MarketChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -837,22 +839,26 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
           className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg border border-gray-700 transition-all mb-4"
         >
           <span className="text-sm font-medium">
-            {showIndicators ? 'Hide' : 'Show'} Technical Indicators
+            {showIndicators ? 'Hide' : 'Show'} Manual Trading & Technical Indicators
           </span>
           {showIndicators ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
         </button>
 
         <div
           className={`transition-all duration-300 ease-in-out overflow-hidden ${
-            showIndicators ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
+            showIndicators ? 'max-h-[3000px] opacity-100' : 'max-h-0 opacity-0'
           }`}
         >
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <RSIPanel data={rsiData} />
-            <ATRPanel data={atrData} />
+          <div className="mb-4">
+            <ManualTradePanel
+              symbol={symbol}
+              onTradeExecuted={onTradeExecuted}
+            />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            <RSIPanel data={rsiData} />
+            <ATRPanel data={atrData} />
             <VolumePanel data={volumeData} />
             <PatternDetectionPanel patterns={patternData} />
           </div>
