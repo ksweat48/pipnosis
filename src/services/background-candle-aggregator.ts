@@ -41,6 +41,8 @@ class BackgroundCandleAggregator {
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private readonly HEALTH_CHECK_INTERVAL_MS = 15000;
   private readonly STALE_CONNECTION_THRESHOLD_MS = 60000;
+  private isReconnecting = false;
+  private subscriptionChannel: string | null = null;
 
   private getCacheKey(symbol: string, timeframe: Timeframe): string {
     return `${symbol}_${timeframe}`;
@@ -246,13 +248,28 @@ class BackgroundCandleAggregator {
 
   private async setupRealtimeSubscription(): Promise<void> {
     try {
+      console.log('[BackgroundAggregator] Setting up realtime subscription...');
+
+      // Properly cleanup existing subscription
       if (this.subscription) {
-        await this.subscription.unsubscribe();
+        console.log('[BackgroundAggregator] Cleaning up existing subscription...');
+        try {
+          await this.subscription.unsubscribe();
+          console.log('[BackgroundAggregator] ✓ Old subscription unsubscribed');
+        } catch (unsubError) {
+          console.warn('[BackgroundAggregator] Error unsubscribing old subscription:', unsubError);
+        }
         this.subscription = null;
+        // Give Supabase time to clean up
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
+      // Generate unique channel name to avoid conflicts
+      this.subscriptionChannel = `background_price_aggregation_${Date.now()}`;
+      console.log(`[BackgroundAggregator] Creating new channel: ${this.subscriptionChannel}`);
+
       this.subscription = supabase
-        .channel('background_price_aggregation')
+        .channel(this.subscriptionChannel)
         .on(
           'postgres_changes',
           {
@@ -274,41 +291,53 @@ class BackgroundCandleAggregator {
           }
         )
         .subscribe((status, err) => {
-          console.log('[BackgroundAggregator] Subscription status:', status);
+          console.log(`[BackgroundAggregator] Subscription status: ${status}`);
 
           if (status === 'SUBSCRIBED') {
             this.isRunning = true;
             this.reconnectAttempts = 0;
+            this.isReconnecting = false;
             this.lastMessageTime = new Date();
             console.log('[BackgroundAggregator] ✅ Successfully subscribed to realtime_prices');
           } else if (status === 'CHANNEL_ERROR') {
             console.error('[BackgroundAggregator] ❌ Channel error:', err);
+            this.isReconnecting = false;
             this.handleConnectionError();
           } else if (status === 'TIMED_OUT') {
             console.error('[BackgroundAggregator] ⏱️ Connection timed out');
+            this.isReconnecting = false;
             this.handleConnectionError();
           } else if (status === 'CLOSED') {
             console.warn('[BackgroundAggregator] 🔌 Connection closed');
-            if (this.isRunning) {
+            if (this.isRunning && !this.isReconnecting) {
               this.handleConnectionError();
             }
           }
         });
     } catch (error) {
       console.error('[BackgroundAggregator] Failed to setup subscription:', error);
+      this.isReconnecting = false;
       this.handleConnectionError();
     }
   }
 
   private handleConnectionError(): void {
-    if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
-      console.error(
-        `[BackgroundAggregator] ❌ Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. ` +
-        'Manual restart required.'
-      );
+    // Prevent concurrent reconnection attempts
+    if (this.isReconnecting) {
+      console.log('[BackgroundAggregator] ⏳ Reconnection already in progress, skipping...');
       return;
     }
 
+    if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
+      console.error(
+        `[BackgroundAggregator] ❌ Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. ` +
+        'Manual restart required. Use forceRestart() to recover.'
+      );
+      this.isRunning = false;
+      return;
+    }
+
+    this.isReconnecting = true;
     this.reconnectAttempts++;
     const delay = Math.min(
       this.BASE_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts - 1),
@@ -326,7 +355,13 @@ class BackgroundCandleAggregator {
 
     this.reconnectTimeout = setTimeout(async () => {
       console.log(`[BackgroundAggregator] 🔌 Reconnecting (attempt ${this.reconnectAttempts})...`);
-      await this.setupRealtimeSubscription();
+      try {
+        await this.setupRealtimeSubscription();
+      } catch (error) {
+        console.error('[BackgroundAggregator] Reconnection attempt failed:', error);
+        this.isReconnecting = false;
+        this.handleConnectionError();
+      }
     }, delay);
   }
 
@@ -490,6 +525,39 @@ class BackgroundCandleAggregator {
     };
   }
 
+  async forceRestart(): Promise<{ success: boolean; message: string }> {
+    console.log('[BackgroundAggregator] 🔧 Force restarting aggregator...');
+
+    try {
+      // Stop everything
+      await this.stop();
+
+      // Reset all state
+      this.reconnectAttempts = 0;
+      this.isReconnecting = false;
+      this.lastMessageTime = null;
+
+      // Wait for cleanup
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Start fresh
+      await this.start();
+
+      console.log('[BackgroundAggregator] ✅ Force restart completed successfully');
+      return {
+        success: true,
+        message: 'Background aggregator restarted successfully'
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[BackgroundAggregator] ❌ Force restart failed:', error);
+      return {
+        success: false,
+        message: `Force restart failed: ${errorMsg}`
+      };
+    }
+  }
+
   getStatus() {
     const timeSinceLastMessage = this.lastMessageTime
       ? Date.now() - this.lastMessageTime.getTime()
@@ -504,9 +572,11 @@ class BackgroundCandleAggregator {
       timeframes: ALL_TIMEFRAMES.length,
       totalCombinations: FOREX_PAIRS.length * ALL_TIMEFRAMES.length,
       reconnectAttempts: this.reconnectAttempts,
+      isReconnecting: this.isReconnecting,
       lastMessageTime: this.lastMessageTime,
       timeSinceLastMessageMs: timeSinceLastMessage,
-      connectionHealthy: timeSinceLastMessage !== null && timeSinceLastMessage < this.STALE_CONNECTION_THRESHOLD_MS
+      connectionHealthy: timeSinceLastMessage !== null && timeSinceLastMessage < this.STALE_CONNECTION_THRESHOLD_MS,
+      subscriptionChannel: this.subscriptionChannel
     };
   }
 }
