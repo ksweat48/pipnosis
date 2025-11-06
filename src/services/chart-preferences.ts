@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 
-type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'D1' | 'W1';
+type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'W1';
 
 interface ChartPreferences {
   [symbol: string]: Timeframe;
@@ -85,6 +85,7 @@ class ChartPreferencesService {
       'M15': 15,
       'M30': 30,
       'H1': 60,
+      'H4': 240,
       'D1': 1440,
       'W1': 10080
     };
@@ -98,8 +99,9 @@ class ChartPreferencesService {
       'M15': 500,
       'M30': 500,
       'H1': 500,
+      'H4': 500,
       'D1': 365,
-      'W1': 200
+      'W1': 260
     };
     return limitMap[timeframe];
   }
@@ -111,8 +113,9 @@ class ChartPreferencesService {
       'M15': 30000,
       'M30': 60000,
       'H1': 120000,
-      'D1': 300000,
-      'W1': 600000
+      'H4': 240000,
+      'D1': 600000,
+      'W1': 1800000
     };
     return intervalMap[timeframe];
   }

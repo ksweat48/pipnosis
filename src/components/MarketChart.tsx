@@ -626,7 +626,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'
   ];
 
-  const TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'D1', 'W1'];
+  const TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
 
   const handleTimeframeChange = (newTimeframe: Timeframe) => {
     setTimeframe(newTimeframe);
