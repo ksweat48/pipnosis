@@ -302,29 +302,6 @@ async function aggregateTimeframe(
       result.candlesCreated = completedCandles.length;
     }
 
-    const { error: marketError } = await supabase
-      .from('market_data')
-      .upsert(
-        completedCandles.map(c => ({
-          symbol: c.symbol,
-          timeframe: c.timeframe,
-          timestamp: c.open_time,
-          open: c.open,
-          high: c.high,
-          low: c.low,
-          close: c.close,
-          volume: c.volume
-        })),
-        {
-          onConflict: 'symbol,timeframe,timestamp',
-          ignoreDuplicates: false
-        }
-      );
-
-    if (marketError) {
-      result.errors.push(`market_data: ${marketError.message}`);
-    }
-
     console.log(`✓ ${symbol} ${timeframe}: ${completedCandles.length} candles from ${result.ticksProcessed} ticks`);
 
   } catch (error) {

@@ -255,27 +255,5 @@ async function saveCandlesToDatabase(
     savedCount = candles.length;
   }
 
-  const marketDataCandles = candles.map(c => ({
-    symbol: c.symbol,
-    timeframe: c.timeframe,
-    timestamp: c.open_time,
-    open: c.open,
-    high: c.high,
-    low: c.low,
-    close: c.close,
-    volume: c.volume
-  }));
-
-  const { error: marketDataError } = await supabase
-    .from('market_data')
-    .upsert(marketDataCandles, {
-      onConflict: 'symbol,timeframe,timestamp',
-      ignoreDuplicates: false
-    });
-
-  if (marketDataError) {
-    result.errors.push(`market_data: ${marketDataError.message}`);
-  }
-
   return savedCount;
 }

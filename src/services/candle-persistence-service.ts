@@ -110,28 +110,6 @@ class CandlePersistenceService {
         };
       }
 
-      const marketDataRecord = {
-        symbol,
-        timeframe,
-        timestamp: openTime.toISOString(),
-        open: candle.open,
-        high: candle.high,
-        low: candle.low,
-        close: candle.close,
-        volume: candle.volume || 0
-      };
-
-      const { error: marketError } = await supabase
-        .from('market_data')
-        .upsert(marketDataRecord, {
-          onConflict: 'symbol,timeframe,timestamp',
-          ignoreDuplicates: false
-        });
-
-      if (marketError) {
-        console.warn('[CandlePersistence] Failed to save to market_data:', marketError);
-      }
-
       console.log(`[CandlePersistence] ✓ Saved completed candle: ${symbol} ${timeframe} at ${openTime.toISOString()}`);
 
       return {

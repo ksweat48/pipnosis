@@ -46,48 +46,29 @@ export async function fetchPreAggregatedCandles(
       .order('open_time', { ascending: false })
       .limit(limit);
 
-    if (!forexError && forexCandles && forexCandles.length > 0) {
-      const candles = forexCandles
-        .map((candle) => ({
-          time: Math.floor(new Date(candle.open_time).getTime() / 1000),
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close,
-          volume: candle.volume,
-        }))
-        .reverse();
-
-      console.log(`Loaded ${candles.length} pre-aggregated candles from forex_candles for ${symbol} ${timeframe}`);
-      return candles;
+    if (forexError) {
+      console.error('Error fetching pre-aggregated candles:', forexError);
+      return [];
     }
 
-    const { data: marketData, error: marketError } = await supabase
-      .from('market_data')
-      .select('timestamp, open, high, low, close, volume')
-      .eq('symbol', symbol)
-      .eq('timeframe', timeframe)
-      .order('timestamp', { ascending: false })
-      .limit(limit);
-
-    if (!marketError && marketData && marketData.length > 0) {
-      const candles = marketData
-        .map((candle) => ({
-          time: Math.floor(new Date(candle.timestamp).getTime() / 1000),
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close,
-          volume: candle.volume,
-        }))
-        .reverse();
-
-      console.log(`Loaded ${candles.length} pre-aggregated candles from market_data for ${symbol} ${timeframe}`);
-      return candles;
+    if (!forexCandles || forexCandles.length === 0) {
+      console.warn(`No pre-aggregated candles found for ${symbol} ${timeframe}`);
+      return [];
     }
 
-    console.warn(`No pre-aggregated candles found for ${symbol} ${timeframe}`);
-    return [];
+    const candles = forexCandles
+      .map((candle) => ({
+        time: Math.floor(new Date(candle.open_time).getTime() / 1000),
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: candle.volume,
+      }))
+      .reverse();
+
+    console.log(`Loaded ${candles.length} pre-aggregated candles from forex_candles for ${symbol} ${timeframe}`);
+    return candles;
   } catch (error) {
     console.error('Error fetching pre-aggregated candles:', error);
     return [];

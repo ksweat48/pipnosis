@@ -102,28 +102,6 @@ class BackgroundCandleAggregator {
         return;
       }
 
-      const marketDataRecord = {
-        symbol,
-        timeframe,
-        timestamp: openTime.toISOString(),
-        open: candle.open,
-        high: candle.high,
-        low: candle.low,
-        close: candle.close,
-        volume: candle.volume
-      };
-
-      const { error: marketError } = await supabase
-        .from('market_data')
-        .upsert(marketDataRecord, {
-          onConflict: 'symbol,timeframe,timestamp',
-          ignoreDuplicates: false
-        });
-
-      if (marketError) {
-        console.warn(`[BackgroundAggregator] Failed to save to market_data ${symbol} ${timeframe}:`, marketError);
-      }
-
       console.log(`[BackgroundAggregator] ✓ Saved ${symbol} ${timeframe} candle at ${openTime.toISOString()} (${candle.tickCount} ticks)`);
     } catch (error) {
       console.error(`[BackgroundAggregator] Error saving ${symbol} ${timeframe}:`, error);

@@ -160,28 +160,6 @@ async function saveCandlesToDatabase(
     throw forexError;
   }
 
-  const marketDataCandles = candles.map((candle) => ({
-    symbol,
-    timeframe,
-    timestamp: candle.time,
-    open: candle.open,
-    high: candle.high,
-    low: candle.low,
-    close: candle.close,
-    volume: candle.tickVolume || 0,
-  }));
-
-  const { error: marketError } = await supabase
-    .from('market_data')
-    .upsert(marketDataCandles, {
-      onConflict: 'symbol,timeframe,timestamp',
-      ignoreDuplicates: false,
-    });
-
-  if (marketError) {
-    console.warn('[HistoricalData] Error saving to market_data:', marketError);
-  }
-
   return {
     saved: forexCount || candles.length,
     errors: 0,
