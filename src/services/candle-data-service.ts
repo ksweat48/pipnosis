@@ -32,17 +32,95 @@ export function getTimeframeMinutes(timeframe: Timeframe): number {
   return TIMEFRAME_MINUTES_MAP[timeframe] || 15;
 }
 
+const TIMEFRAME_MAX_AGE_HOURS: Record<Timeframe, number> = {
+  M1: 24,
+  M5: 48,
+  M15: 72,
+  M30: 168,
+  H1: 336,
+  H4: 720,
+  D1: 2160,
+  W1: 4320,
+};
+
+function getMaxCandleAge(timeframe: Timeframe): number {
+  return TIMEFRAME_MAX_AGE_HOURS[timeframe] || 168;
+}
+
+function filterStaleCandles(
+  candles: CandleData[],
+  timeframe: Timeframe,
+  referenceTime: number = Date.now()
+): { filtered: CandleData[]; removed: number } {
+  if (candles.length === 0) {
+    return { filtered: [], removed: 0 };
+  }
+
+  const maxAgeHours = getMaxCandleAge(timeframe);
+  const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
+  const cutoffTime = Math.floor((referenceTime - maxAgeMs) / 1000);
+
+  const filtered = candles.filter(candle => candle.time >= cutoffTime);
+  const removed = candles.length - filtered.length;
+
+  if (removed > 0) {
+    console.log(
+      `[CandleFilter] Removed ${removed} stale candles older than ${maxAgeHours} hours for timeframe ${timeframe}`
+    );
+  }
+
+  return { filtered, removed };
+}
+
+function validateTimeContinuity(
+  historical: CandleData[],
+  current: CandleData | null,
+  timeframe: Timeframe
+): { isValid: boolean; gapSize?: number; warning?: string } {
+  if (!current || historical.length === 0) {
+    return { isValid: true };
+  }
+
+  const lastHistorical = historical[historical.length - 1];
+  const timeDiff = current.time - lastHistorical.time;
+  const intervalSeconds = getTimeframeMinutes(timeframe) * 60;
+  const maxGapMultiplier = 10;
+
+  if (timeDiff < 0) {
+    return {
+      isValid: false,
+      gapSize: timeDiff,
+      warning: `Current candle is ${Math.abs(timeDiff)}s before last historical candle`
+    };
+  }
+
+  if (timeDiff > intervalSeconds * maxGapMultiplier) {
+    const gapMinutes = Math.floor(timeDiff / 60);
+    return {
+      isValid: false,
+      gapSize: timeDiff,
+      warning: `Large time gap detected: ${gapMinutes} minutes between historical and current data`
+    };
+  }
+
+  return { isValid: true, gapSize: timeDiff };
+}
+
 export async function fetchPreAggregatedCandles(
   symbol: string,
   timeframe: Timeframe,
   limit: number = 500
 ): Promise<CandleData[]> {
   try {
+    const maxAgeHours = getMaxCandleAge(timeframe);
+    const cutoffTime = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000);
+
     const { data: forexCandles, error: forexError } = await supabase
       .from('forex_candles')
       .select('open_time, open, high, low, close, volume')
       .eq('symbol', symbol)
       .eq('timeframe', timeframe)
+      .gte('open_time', cutoffTime.toISOString())
       .order('open_time', { ascending: false })
       .limit(limit);
 
@@ -58,8 +136,12 @@ export async function fetchPreAggregatedCandles(
         }))
         .reverse();
 
-      console.log(`Loaded ${candles.length} pre-aggregated candles from forex_candles for ${symbol} ${timeframe}`);
-      return candles;
+      const { filtered, removed } = filterStaleCandles(candles, timeframe);
+      console.log(
+        `[FetchCandles] Loaded ${filtered.length} candles from forex_candles for ${symbol} ${timeframe} ` +
+        `(${removed} stale candles filtered out)`
+      );
+      return filtered;
     }
 
     const { data: marketData, error: marketError } = await supabase
@@ -67,6 +149,7 @@ export async function fetchPreAggregatedCandles(
       .select('timestamp, open, high, low, close, volume')
       .eq('symbol', symbol)
       .eq('timeframe', timeframe)
+      .gte('timestamp', cutoffTime.toISOString())
       .order('timestamp', { ascending: false })
       .limit(limit);
 
@@ -82,8 +165,12 @@ export async function fetchPreAggregatedCandles(
         }))
         .reverse();
 
-      console.log(`Loaded ${candles.length} pre-aggregated candles from market_data for ${symbol} ${timeframe}`);
-      return candles;
+      const { filtered, removed } = filterStaleCandles(candles, timeframe);
+      console.log(
+        `[FetchCandles] Loaded ${filtered.length} candles from market_data for ${symbol} ${timeframe} ` +
+        `(${removed} stale candles filtered out)`
+      );
+      return filtered;
     }
 
     console.warn(`No pre-aggregated candles found for ${symbol} ${timeframe}`);
@@ -171,7 +258,18 @@ export async function fetchCompleteChartData(
   symbol: string,
   timeframe: Timeframe,
   limit: number = 500
-): Promise<{ historical: CandleData[]; current: CandleData | null }> {
+): Promise<{
+  historical: CandleData[];
+  current: CandleData | null;
+  continuityWarning?: string;
+  dataQuality: {
+    hasData: boolean;
+    historicalCount: number;
+    hasCurrent: boolean;
+    timeContinuityValid: boolean;
+    oldestCandleAge?: number;
+  };
+}> {
   console.log(`[ChartData] Fetching complete data for ${symbol} ${timeframe}, limit: ${limit}`);
 
   const [historicalCandles, recentPrices] = await Promise.all([
@@ -183,6 +281,12 @@ export async function fetchCompleteChartData(
 
   if (historicalCandles.length > 0) {
     const lastHistorical = historicalCandles[historicalCandles.length - 1];
+    const oldestCandle = historicalCandles[0];
+    const ageHours = Math.floor((Date.now() - oldestCandle.time * 1000) / (1000 * 60 * 60));
+    console.log(
+      `[ChartData] Historical range: ${new Date(oldestCandle.time * 1000).toISOString()} to ` +
+      `${new Date(lastHistorical.time * 1000).toISOString()} (${ageHours}h old)`
+    );
     console.log(`[ChartData] Last historical candle: ${new Date(lastHistorical.time * 1000).toISOString()} - Close: ${lastHistorical.close}`);
   }
 
@@ -192,7 +296,18 @@ export async function fetchCompleteChartData(
     console.log(`[ChartData] Current candle aggregated: ${new Date(currentCandle.time * 1000).toISOString()} - OHLC: ${currentCandle.open}/${currentCandle.high}/${currentCandle.low}/${currentCandle.close}`);
   }
 
+  const continuityCheck = validateTimeContinuity(historicalCandles, currentCandle, timeframe);
+
+  if (!continuityCheck.isValid) {
+    console.warn(`[ChartData] ⚠️ Time continuity issue: ${continuityCheck.warning}`);
+  } else if (continuityCheck.gapSize) {
+    const gapMinutes = Math.floor(continuityCheck.gapSize / 60);
+    console.log(`[ChartData] ✓ Time continuity valid (gap: ${gapMinutes} minutes)`);
+  }
+
   let finalHistorical = historicalCandles;
+  let finalCurrent = currentCandle;
+
   if (currentCandle && historicalCandles.length > 0) {
     const lastHistoricalTime = historicalCandles[historicalCandles.length - 1].time;
 
@@ -200,16 +315,29 @@ export async function fetchCompleteChartData(
       console.log(`[ChartData] Current candle matches last historical - replacing with aggregated data`);
       finalHistorical = [...historicalCandles.slice(0, -1)];
     } else if (currentCandle.time < lastHistoricalTime) {
-      console.warn(`[ChartData] Current candle time ${currentCandle.time} < last historical ${lastHistoricalTime} - ignoring current`);
-      return {
-        historical: historicalCandles,
-        current: null,
-      };
+      console.warn(
+        `[ChartData] ⚠️ Current candle (${new Date(currentCandle.time * 1000).toISOString()}) ` +
+        `is before last historical (${new Date(lastHistoricalTime * 1000).toISOString()}) - ` +
+        `rejecting current candle to prevent overlap`
+      );
+      finalCurrent = null;
     }
   }
 
+  const oldestCandleAge = historicalCandles.length > 0
+    ? Math.floor((Date.now() - historicalCandles[0].time * 1000) / (1000 * 60 * 60))
+    : undefined;
+
   return {
     historical: finalHistorical,
-    current: currentCandle,
+    current: finalCurrent,
+    continuityWarning: continuityCheck.isValid ? undefined : continuityCheck.warning,
+    dataQuality: {
+      hasData: historicalCandles.length > 0 || currentCandle !== null,
+      historicalCount: finalHistorical.length,
+      hasCurrent: finalCurrent !== null,
+      timeContinuityValid: continuityCheck.isValid,
+      oldestCandleAge
+    }
   };
 }
