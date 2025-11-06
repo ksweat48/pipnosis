@@ -1,26 +1,33 @@
 /*
-  # Restore Authenticated User Write Access for Live Data
+  # Restore Authenticated User Write Access for Live Data (Updated for Current Schema)
 
   ## Overview
   This migration restores write access for authenticated users to enable real-time
-  data collection while preserving admin-only functions for manual data repair.
+  data collection and live trading operations. This file has been updated to reflect
+  the current database schema after table consolidation.
+
+  ## Current Schema State
+  After the table consolidation migration (20251106024506), the system uses:
+  - `forex_candles` - Single source of truth for all OHLC candle data
+  - `realtime_prices` - Real-time price streaming from MetaAPI
+
+  Obsolete tables that were dropped:
+  - `market_data` (consolidated into forex_candles)
+  - `historical_candles` (consolidated into forex_candles)
+  - `market_data_subscriptions` (no longer needed)
 
   ## Changes
 
-  1. realtime_prices table
-    - Restore INSERT policy for authenticated users (for live price polling)
-    - Keep SELECT policy for all authenticated users
-    - Maintain DELETE policy for cleanup operations
-
-  2. forex_candles table
+  1. forex_candles table
     - Restore INSERT policy for authenticated users (for candle aggregation)
     - Restore UPDATE policy for authenticated users (for candle updates)
     - Keep SELECT policy for all authenticated users
+    - Includes tick_count column support for accurate data tracking
 
-  3. market_data table
-    - Restore INSERT policy for authenticated users (for data sync)
-    - Restore UPDATE policy for authenticated users (for data updates)
+  2. realtime_prices table
+    - Restore INSERT policy for authenticated users (for live price polling)
     - Keep SELECT policy for all authenticated users
+    - Maintain DELETE policy for cleanup operations
 
   ## Security Model
   - Regular authenticated users: Can read and write data during normal operations
@@ -28,11 +35,41 @@
   - Service role: Retains full access for backend operations
 
   ## Rationale
-  The previous admin-only policies broke the live data flow. All authenticated users
-  need write access for the global polling coordinator and real-time data collection
-  to function properly. Admin-only capabilities are implemented via separate database
-  functions that check user roles.
+  The global polling coordinator and real-time data collection systems require
+  authenticated user write access to function properly. Admin-only write policies
+  break the live data flow. Admin-only capabilities are implemented via separate
+  database functions that check user roles using current_user_is_admin().
+
+  ## Post-Consolidation Updates
+  This version removes all references to obsolete tables (market_data, historical_candles)
+  and focuses only on the current working schema. All candle data now flows through
+  the single forex_candles table with proper unique constraints and optimized indexes.
 */
+
+-- =====================================================
+-- forex_candles table policies
+-- =====================================================
+
+-- Drop any admin-only or restrictive policies
+DROP POLICY IF EXISTS "Admins can insert candles" ON forex_candles;
+DROP POLICY IF EXISTS "Admins can update candles" ON forex_candles;
+
+-- Restore authenticated user insert policy (for candle aggregation)
+DROP POLICY IF EXISTS "Authenticated users can insert candles" ON forex_candles;
+CREATE POLICY "Authenticated users can insert candles"
+  ON forex_candles
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
+
+-- Restore authenticated user update policy (for candle updates)
+DROP POLICY IF EXISTS "Authenticated users can update candles" ON forex_candles;
+CREATE POLICY "Authenticated users can update candles"
+  ON forex_candles
+  FOR UPDATE
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
 
 -- =====================================================
 -- realtime_prices table policies
@@ -43,6 +80,7 @@ DROP POLICY IF EXISTS "Admins can insert realtime prices" ON realtime_prices;
 DROP POLICY IF EXISTS "Admins can update realtime prices" ON realtime_prices;
 
 -- Restore authenticated user insert policy (for live price polling from frontend)
+DROP POLICY IF EXISTS "Authenticated users can insert realtime prices" ON realtime_prices;
 CREATE POLICY "Authenticated users can insert realtime prices"
   ON realtime_prices
   FOR INSERT
@@ -58,50 +96,45 @@ CREATE POLICY "Authenticated users can delete old realtime prices"
   USING (created_at < now() - interval '1 hour');
 
 -- =====================================================
--- forex_candles table policies
+-- Schema validation and enhancements
 -- =====================================================
 
--- Drop the admin-only policies
-DROP POLICY IF EXISTS "Admins can insert candles" ON forex_candles;
-DROP POLICY IF EXISTS "Admins can update candles" ON forex_candles;
+-- Ensure forex_candles has tick_count column (added in aggregation system)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'forex_candles' AND column_name = 'tick_count'
+  ) THEN
+    ALTER TABLE forex_candles ADD COLUMN tick_count integer DEFAULT 0;
+  END IF;
+END $$;
 
--- Restore authenticated user insert policy (for candle aggregation)
-CREATE POLICY "Authenticated users can insert candles"
-  ON forex_candles
-  FOR INSERT
-  TO authenticated
-  WITH CHECK (true);
+-- Verify unique constraint exists on forex_candles
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'forex_candles_symbol_timeframe_open_time_key'
+  ) THEN
+    ALTER TABLE forex_candles
+    ADD CONSTRAINT forex_candles_symbol_timeframe_open_time_key
+    UNIQUE(symbol, timeframe, open_time);
+  END IF;
+END $$;
 
--- Restore authenticated user update policy (for candle updates)
-CREATE POLICY "Authenticated users can update candles"
-  ON forex_candles
-  FOR UPDATE
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);
+-- Ensure optimal indexes exist on forex_candles
+CREATE INDEX IF NOT EXISTS idx_forex_candles_symbol_timeframe_open_time
+  ON forex_candles(symbol, timeframe, open_time DESC);
 
--- =====================================================
--- market_data table policies
--- =====================================================
+CREATE INDEX IF NOT EXISTS idx_forex_candles_symbol
+  ON forex_candles(symbol);
 
--- Drop the admin-only policies
-DROP POLICY IF EXISTS "Admins can insert market data" ON market_data;
-DROP POLICY IF EXISTS "Admins can update market data" ON market_data;
+CREATE INDEX IF NOT EXISTS idx_forex_candles_timeframe
+  ON forex_candles(timeframe);
 
--- Restore authenticated user insert policy (for data sync)
-CREATE POLICY "Authenticated users can insert market data"
-  ON market_data
-  FOR INSERT
-  TO authenticated
-  WITH CHECK (true);
-
--- Restore authenticated user update policy (for data updates)
-CREATE POLICY "Authenticated users can update market data"
-  ON market_data
-  FOR UPDATE
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_forex_candles_created_at
+  ON forex_candles(created_at DESC);
 
 -- =====================================================
 -- Admin-Only Repair Functions
@@ -171,6 +204,7 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_result jsonb;
+  v_affected_count integer;
 BEGIN
   -- Check if current user is admin
   IF NOT current_user_is_admin() THEN
@@ -194,21 +228,23 @@ BEGIN
     now()
   );
 
-  -- Mark candles for refresh (application will detect and re-fetch)
-  UPDATE market_data
-  SET needs_refresh = true
+  -- Delete recent candles to trigger re-fetch from MetaAPI
+  DELETE FROM forex_candles
   WHERE symbol = p_symbol
     AND timeframe = p_timeframe
-    AND time >= now() - interval '7 days';
+    AND open_time >= now() - interval '7 days';
+
+  GET DIAGNOSTICS v_affected_count = ROW_COUNT;
 
   v_result := jsonb_build_object(
     'success', true,
     'symbol', p_symbol,
     'timeframe', p_timeframe,
     'count', p_count,
+    'deleted_count', v_affected_count,
     'requested_by', auth.uid(),
     'timestamp', now(),
-    'message', 'Candles marked for refresh. Application will re-fetch from MetaAPI.'
+    'message', 'Candles deleted. Application will re-fetch from MetaAPI on next request.'
   );
 
   RETURN v_result;
@@ -236,11 +272,11 @@ BEGIN
   END IF;
 
   -- Delete candles in the specified range
-  DELETE FROM market_data
+  DELETE FROM forex_candles
   WHERE symbol = p_symbol
     AND timeframe = p_timeframe
-    AND time >= p_start_time
-    AND time <= p_end_time;
+    AND open_time >= p_start_time
+    AND open_time <= p_end_time;
 
   GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
 
@@ -275,6 +311,10 @@ BEGIN
   RETURN v_result;
 END;
 $$;
+
+-- =====================================================
+-- Admin Actions Log Table
+-- =====================================================
 
 -- Create admin actions log table if it doesn't exist
 CREATE TABLE IF NOT EXISTS admin_actions_log (
@@ -317,14 +357,9 @@ CREATE POLICY "System can insert action logs"
   TO authenticated
   WITH CHECK (true);
 
--- Add needs_refresh column to market_data if it doesn't exist
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'market_data' AND column_name = 'needs_refresh'
-  ) THEN
-    ALTER TABLE market_data ADD COLUMN needs_refresh boolean DEFAULT false;
-    CREATE INDEX IF NOT EXISTS idx_market_data_needs_refresh ON market_data(needs_refresh) WHERE needs_refresh = true;
-  END IF;
-END $$;
+-- Add table comment for documentation
+COMMENT ON TABLE forex_candles IS 'Primary table for all historical OHLC candle data. Single source of truth for market candles across all symbols and timeframes. Replaces the obsolete market_data and historical_candles tables.';
+
+COMMENT ON TABLE realtime_prices IS 'Real-time price streaming data from MetaAPI. Stores live bid/ask prices with automatic cleanup of data older than 1 hour.';
+
+COMMENT ON TABLE admin_actions_log IS 'Audit log for admin actions on market data. Tracks repairs, refreshes, and deletions performed by admin users.';
