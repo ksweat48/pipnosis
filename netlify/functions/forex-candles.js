@@ -83,7 +83,22 @@ async function getMetaApiCandles(symbol, timeframe, limit) {
 
   console.log(`Received ${candles.length} candles from MetaAPI`);
 
-  return candles.slice(-limit).map(candle => ({
+  const intervalMs = getTimeframeMinutes(timeframe) * 60 * 1000;
+  const currentCandleStartMs = Math.floor(now.getTime() / intervalMs) * intervalMs;
+  const lastCompletedCandleMs = currentCandleStartMs - intervalMs;
+  const lastCompletedCandle = new Date(lastCompletedCandleMs);
+
+  console.log(`Current candle period starts at: ${new Date(currentCandleStartMs).toISOString()}`);
+  console.log(`Last completed candle time: ${lastCompletedCandle.toISOString()}`);
+
+  const filteredCandles = candles.filter(candle => {
+    const candleTime = new Date(candle.time);
+    return candleTime <= lastCompletedCandle;
+  });
+
+  console.log(`Filtered ${candles.length} -> ${filteredCandles.length} candles (excluded incomplete current period)`);
+
+  return filteredCandles.slice(-limit).map(candle => ({
     symbol,
     timeframe,
     open_time: candle.time,

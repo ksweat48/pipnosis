@@ -167,12 +167,22 @@ export function aggregatePricesToCurrentCandle(
   };
 }
 
+function getCurrentCandleStartTime(timeframe: Timeframe): number {
+  const now = Date.now();
+  const intervalMs = getTimeframeMinutes(timeframe) * 60 * 1000;
+  return Math.floor(now / intervalMs) * intervalMs;
+}
+
 export async function fetchCompleteChartData(
   symbol: string,
   timeframe: Timeframe,
   limit: number = 500
 ): Promise<{ historical: CandleData[]; current: CandleData | null }> {
   console.log(`[ChartData] Fetching complete data for ${symbol} ${timeframe}, limit: ${limit}`);
+
+  const currentCandleStartMs = getCurrentCandleStartTime(timeframe);
+  const currentCandleStartTime = Math.floor(currentCandleStartMs / 1000);
+  console.log(`[ChartData] Current candle period starts at: ${new Date(currentCandleStartMs).toISOString()} (${currentCandleStartTime})`);
 
   const [historicalCandles, recentPrices] = await Promise.all([
     fetchPreAggregatedCandles(symbol, timeframe, limit),
@@ -184,6 +194,7 @@ export async function fetchCompleteChartData(
   if (historicalCandles.length > 0) {
     const lastHistorical = historicalCandles[historicalCandles.length - 1];
     console.log(`[ChartData] Last historical candle: ${new Date(lastHistorical.time * 1000).toISOString()} - Close: ${lastHistorical.close}`);
+    console.log(`[ChartData] Time difference: ${(currentCandleStartTime - lastHistorical.time) / 60} minutes`);
   }
 
   const currentCandle = aggregatePricesToCurrentCandle(recentPrices, timeframe);
@@ -193,23 +204,43 @@ export async function fetchCompleteChartData(
   }
 
   let finalHistorical = historicalCandles;
+  let finalCurrent: CandleData | null = currentCandle;
+
   if (currentCandle && historicalCandles.length > 0) {
     const lastHistoricalTime = historicalCandles[historicalCandles.length - 1].time;
 
     if (currentCandle.time === lastHistoricalTime) {
-      console.log(`[ChartData] Current candle matches last historical - replacing with aggregated data`);
+      console.warn(`[ChartData] WARNING: Current candle overlaps with last historical - removing last historical`);
       finalHistorical = [...historicalCandles.slice(0, -1)];
     } else if (currentCandle.time < lastHistoricalTime) {
-      console.warn(`[ChartData] Current candle time ${currentCandle.time} < last historical ${lastHistoricalTime} - ignoring current`);
+      console.error(`[ChartData] ERROR: Current candle time ${currentCandle.time} < last historical ${lastHistoricalTime}`);
+      console.error(`[ChartData] This indicates historical data includes incomplete candles - ignoring current`);
       return {
         historical: historicalCandles,
         current: null,
       };
+    } else if (currentCandle.time === currentCandleStartTime) {
+      console.log(`[ChartData] ✓ Perfect alignment: Current candle starts exactly where expected`);
+    } else {
+      console.warn(`[ChartData] Current candle time mismatch: got ${currentCandle.time}, expected ${currentCandleStartTime}`);
     }
+
+    const timeDiff = currentCandle.time - lastHistoricalTime;
+    const intervalSeconds = getTimeframeMinutes(timeframe) * 60;
+    if (timeDiff === intervalSeconds) {
+      console.log(`[ChartData] ✓ PERFECT CONTINUITY: Exactly one ${timeframe} interval between historical and live data`);
+    } else if (timeDiff > intervalSeconds) {
+      console.warn(`[ChartData] GAP DETECTED: ${timeDiff / 60} minutes between last historical and current (expected ${intervalSeconds / 60})`);
+    }
+  }
+
+  if (finalHistorical.length > 0 && finalCurrent) {
+    console.log(`[ChartData] Final result: ${finalHistorical.length} historical candles + 1 current candle`);
+    console.log(`[ChartData] Chart range: ${new Date(finalHistorical[0].time * 1000).toISOString()} to ${new Date(finalCurrent.time * 1000).toISOString()}`);
   }
 
   return {
     historical: finalHistorical,
-    current: currentCandle,
+    current: finalCurrent,
   };
 }

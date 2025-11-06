@@ -190,14 +190,23 @@ class BackgroundCandleAggregator {
       return;
     }
 
+    if (isNaN(timestampMs) || timestampMs <= 0) {
+      console.warn(`[BackgroundAggregator] Invalid timestamp for ${symbol}: ${timestamp}`);
+      return;
+    }
+
     for (const timeframe of ALL_TIMEFRAMES) {
       const key = this.getCacheKey(symbol, timeframe);
       const candleTime = this.getCandleTime(timestampMs, timeframe);
       const existingState = this.candleStates.get(key);
 
       if (!existingState || existingState.startTime !== candleTime) {
-        if (existingState) {
+        if (existingState && existingState.startTime < candleTime) {
+          console.log(`[BackgroundAggregator] ${symbol} ${timeframe} - Candle period completed, saving and starting new`);
           this.queueCandleForSave(symbol, timeframe, existingState);
+        } else if (existingState && existingState.startTime > candleTime) {
+          console.warn(`[BackgroundAggregator] ${symbol} ${timeframe} - Received old price, ignoring`);
+          continue;
         }
 
         const newState = this.initializeCandleState(symbol, timeframe, midPrice, timestampMs);
@@ -373,13 +382,18 @@ class BackgroundCandleAggregator {
 
   private async initializeCurrentCandles(): Promise<void> {
     console.log('[BackgroundAggregator] Initializing current candle states from recent prices...');
+    console.log('[BackgroundAggregator] This ensures live candles start from the current period only');
 
     for (const symbol of FOREX_PAIRS) {
       try {
+        const lookbackMinutes = 15;
+        const startTime = new Date(Date.now() - lookbackMinutes * 60 * 1000);
+
         const { data: recentPrices, error } = await supabase
           .from('realtime_prices')
           .select('bid, ask, broker_time, created_at')
           .eq('symbol', symbol)
+          .gte('created_at', startTime.toISOString())
           .order('created_at', { ascending: false })
           .limit(100);
 
@@ -394,7 +408,15 @@ class BackgroundCandleAggregator {
 
         const sortedPrices = recentPrices.reverse();
 
+        const now = Date.now();
         for (const price of sortedPrices) {
+          const priceTime = new Date(price.broker_time || price.created_at).getTime();
+          const ageMinutes = (now - priceTime) / (60 * 1000);
+
+          if (ageMinutes > lookbackMinutes) {
+            continue;
+          }
+
           this.processNewPrice(
             symbol,
             parseFloat(price.bid),
@@ -403,7 +425,12 @@ class BackgroundCandleAggregator {
           );
         }
 
-        console.log(`[BackgroundAggregator] ✓ Initialized ${symbol} with ${recentPrices.length} recent prices`);
+        console.log(`[BackgroundAggregator] ✓ Initialized ${symbol} with ${recentPrices.length} recent prices (last ${lookbackMinutes} min)`);
+
+        const currentStates = this.getAllCurrentCandles(symbol);
+        if (currentStates.size > 0) {
+          console.log(`[BackgroundAggregator]   Active candles for ${symbol}: ${Array.from(currentStates.keys()).join(', ')}`);
+        }
       } catch (error) {
         console.error(`[BackgroundAggregator] Error initializing ${symbol}:`, error);
       }

@@ -54,6 +54,26 @@ function getTimeframeMinutes(timeframe: Timeframe): number {
   return TIMEFRAME_MINUTES_MAP[timeframe] || 15;
 }
 
+function getCurrentCandleStartTime(timeframe: Timeframe): Date {
+  const now = new Date();
+  const intervalMinutes = getTimeframeMinutes(timeframe);
+  const intervalMs = intervalMinutes * 60 * 1000;
+
+  const currentCandleStartMs = Math.floor(now.getTime() / intervalMs) * intervalMs;
+  return new Date(currentCandleStartMs);
+}
+
+function getLastCompletedCandleTime(timeframe: Timeframe): Date {
+  const now = new Date();
+  const intervalMinutes = getTimeframeMinutes(timeframe);
+  const intervalMs = intervalMinutes * 60 * 1000;
+
+  const currentCandleStartMs = Math.floor(now.getTime() / intervalMs) * intervalMs;
+  const lastCompletedCandleMs = currentCandleStartMs - intervalMs;
+
+  return new Date(lastCompletedCandleMs);
+}
+
 async function fetchMetaApiCandles(
   symbol: string,
   timeframe: Timeframe,
@@ -62,7 +82,7 @@ async function fetchMetaApiCandles(
   const netlifyUrl = `${window.location.origin}/.netlify/functions/forex-candles`;
   const url = `${netlifyUrl}?symbol=${symbol}&timeframe=${timeframe}&limit=${limit}`;
 
-  // Reduced logging - only log errors
+  console.log(`[HistoricalData] Fetching ${limit} ${timeframe} candles for ${symbol}`);
   const response = await fetch(url);
 
   if (!response.ok) {
@@ -103,7 +123,17 @@ async function saveCandlesToDatabase(
     return { saved: 0, errors: 0 };
   }
 
-  const forexCandles = candles.map((candle) => ({
+  const lastCompletedTime = getLastCompletedCandleTime(timeframe);
+  console.log(`[HistoricalData] Last completed candle time: ${lastCompletedTime.toISOString()}`);
+
+  const filteredCandles = candles.filter(candle => {
+    const candleTime = new Date(candle.time);
+    return candleTime <= lastCompletedTime;
+  });
+
+  console.log(`[HistoricalData] Filtered ${candles.length} -> ${filteredCandles.length} candles (excluded incomplete candles)`);
+
+  const forexCandles = filteredCandles.map((candle) => ({
     symbol,
     timeframe,
     open_time: candle.time,
@@ -187,6 +217,12 @@ async function fetchAndSaveHistoricalData(
     const candlesPerDay = Math.floor((24 * 60) / minutesPerCandle);
     const totalCandles = Math.min(candlesPerDay * daysBack, 10000);
 
+    const currentCandleStart = getCurrentCandleStartTime(timeframe);
+    const lastCompleted = getLastCompletedCandleTime(timeframe);
+
+    console.log(`[HistoricalData] ${symbol} ${timeframe} - Current candle starts at: ${currentCandleStart.toISOString()}`);
+    console.log(`[HistoricalData] ${symbol} ${timeframe} - Last completed candle: ${lastCompleted.toISOString()}`);
+
     const candles = await fetchMetaApiCandles(symbol, timeframe, totalCandles);
     result.candlesFetched = candles.length;
 
@@ -196,7 +232,11 @@ async function fetchAndSaveHistoricalData(
     result.candlesSaved = saveResult.saved;
     result.status = 'completed';
 
-    // Success - reduced logging
+    if (candles.length > 0) {
+      const lastCandle = candles[candles.length - 1];
+      console.log(`[HistoricalData] ✓ ${symbol} ${timeframe} - Latest saved candle: ${new Date(lastCandle.time).toISOString()}`);
+    }
+
     onProgress?.(result);
     return result;
   } catch (error: any) {

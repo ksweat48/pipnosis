@@ -386,21 +386,44 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
       historicalCandlesRef.current = backfilledCandles;
 
+      if (backfilledCandles.length > 0) {
+        const firstCandle = backfilledCandles[0];
+        const lastCandle = backfilledCandles[backfilledCandles.length - 1];
+        console.log(`[Chart Init] Historical range: ${new Date(firstCandle.time * 1000).toISOString()} to ${new Date(lastCandle.time * 1000).toISOString()}`);
+        console.log(`[Chart Init] Total span: ${((lastCandle.time - firstCandle.time) / 3600).toFixed(1)} hours`);
+      }
+
       if (candlestickSeriesRef.current) {
         candlestickSeriesRef.current.setData(backfilledCandles);
       }
 
       if (chartData.current) {
-        const lastHistoricalTime = uniqueHistorical.length > 0
-          ? uniqueHistorical[uniqueHistorical.length - 1].time
+        const lastHistoricalTime = backfilledCandles.length > 0
+          ? backfilledCandles[backfilledCandles.length - 1].time
           : 0;
 
+        console.log(`[Chart Init] Current candle time: ${new Date(chartData.current.time * 1000).toISOString()}`);
+        console.log(`[Chart Init] Last historical time: ${new Date(lastHistoricalTime * 1000).toISOString()}`);
+
         if (chartData.current.time > lastHistoricalTime) {
+          const timeDiff = chartData.current.time - lastHistoricalTime;
+          const expectedInterval = getTimeframeMinutes(timeframe) * 60;
+
+          if (timeDiff === expectedInterval) {
+            console.log(`[Chart Init] ✓ PERFECT: Current candle follows historical with exact ${timeframe} interval`);
+          } else if (timeDiff > expectedInterval) {
+            console.warn(`[Chart Init] ⚠ GAP: ${timeDiff / 60} minutes between last historical and current (expected ${expectedInterval / 60})`);
+          }
+
           currentCandleRef.current = {
             ...chartData.current,
             startTime: chartData.current.time * 1000
           };
           candlestickSeriesRef.current?.update(chartData.current);
+        } else if (chartData.current.time === lastHistoricalTime) {
+          console.warn(`[Chart Init] ⚠ Current candle matches last historical - this should not happen with proper filtering`);
+        } else {
+          console.error(`[Chart Init] ✗ ERROR: Current candle is older than last historical - data integrity issue`);
         }
       }
 
