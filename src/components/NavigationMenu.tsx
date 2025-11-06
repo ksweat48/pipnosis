@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database } from 'lucide-react';
+import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 
@@ -12,6 +12,7 @@ export function NavigationMenu() {
 
   const navItems = [
     { path: '/trade', label: 'Charts', icon: TrendingUp },
+    { path: '/ai-trade', label: 'AI Trade', icon: Bot },
     { path: '/history', label: 'History', icon: History },
     { path: '/analysis', label: 'Analysis', icon: BarChart3 },
   ];

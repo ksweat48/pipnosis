@@ -8,6 +8,7 @@ import { AdminDashboard } from './pages/AdminDashboard';
 import { AuthPage } from './pages/AuthPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { TradePage } from './pages/TradePage';
+import { AITradePage } from './pages/AITradePage';
 import { HistoryPage } from './pages/HistoryPage';
 import { AnalysisPage } from './pages/AnalysisPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -58,6 +59,14 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute>
             <TradePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/ai-trade"
+        element={
+          <ProtectedRoute>
+            <AITradePage />
           </ProtectedRoute>
         }
       />
