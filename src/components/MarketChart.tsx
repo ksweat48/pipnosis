@@ -366,15 +366,28 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     try {
       setIsLoading(true);
       setError(null);
+      setDataQualityWarning(null);
 
       const dataLimit = chartPreferencesService.getDataLimit(timeframe);
       const chartData = await fetchCompleteChartData(symbol, timeframe, dataLimit);
 
-      if (chartData.historical.length === 0 && !chartData.current) {
+      if (!chartData.dataQuality.hasData) {
         console.warn('No candle data found for symbol:', symbol);
         setError('Waiting for price data... The price feed will start shortly.');
         setIsLoading(false);
         return;
+      }
+
+      if (chartData.continuityWarning) {
+        console.warn(`[Chart Init] Data continuity warning: ${chartData.continuityWarning}`);
+        setDataQualityWarning(chartData.continuityWarning);
+      }
+
+      if (chartData.dataQuality.oldestCandleAge) {
+        const ageHours = chartData.dataQuality.oldestCandleAge;
+        if (ageHours > 48) {
+          console.warn(`[Chart Init] Data is ${ageHours} hours old - may not be current`);
+        }
       }
 
       const sortedHistorical = [...chartData.historical].sort((a, b) => a.time - b.time);
@@ -392,11 +405,21 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
       if (backfillResult.gapsFilled > 0) {
         console.log(`[Chart Init] ✓ Backfilled ${backfillResult.gapsFilled} gaps, created ${backfillResult.candlesCreated} candles`);
-        setDataQualityWarning(`Data gaps detected and backfilled from tick data. ${backfillResult.candlesCreated} missing candles restored.`);
+        const backfillMsg = `Data gaps detected and backfilled from tick data. ${backfillResult.candlesCreated} missing candles restored.`;
 
-        setTimeout(() => setDataQualityWarning(null), 10000);
-      } else {
-        setDataQualityWarning(null);
+        if (chartData.continuityWarning) {
+          setDataQualityWarning(`${chartData.continuityWarning}. ${backfillMsg}`);
+        } else {
+          setDataQualityWarning(backfillMsg);
+        }
+
+        setTimeout(() => {
+          if (chartData.continuityWarning) {
+            setDataQualityWarning(chartData.continuityWarning);
+          } else {
+            setDataQualityWarning(null);
+          }
+        }, 10000);
       }
 
       if (backfillResult.errors.length > 0) {
@@ -410,16 +433,25 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       }
 
       if (chartData.current) {
-        const lastHistoricalTime = uniqueHistorical.length > 0
-          ? uniqueHistorical[uniqueHistorical.length - 1].time
+        const lastHistoricalTime = backfilledCandles.length > 0
+          ? backfilledCandles[backfilledCandles.length - 1].time
           : 0;
 
-        if (chartData.current.time > lastHistoricalTime) {
+        if (chartData.current.time >= lastHistoricalTime) {
           currentCandleRef.current = {
             ...chartData.current,
             startTime: chartData.current.time * 1000
           };
           candlestickSeriesRef.current?.update(chartData.current);
+          console.log(
+            `[Chart Init] ✓ Added current candle at ${new Date(chartData.current.time * 1000).toISOString()}`
+          );
+        } else {
+          console.warn(
+            `[Chart Init] ⚠️ Rejecting current candle - would overlap with historical data ` +
+            `(current: ${new Date(chartData.current.time * 1000).toISOString()}, ` +
+            `last historical: ${new Date(lastHistoricalTime * 1000).toISOString()})`
+          );
         }
       }
 
@@ -435,7 +467,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         setPriceChange(((lastCandle.close - firstCandle.open) / firstCandle.open) * 100);
         setLastUpdate(new Date());
 
-        console.log(`[Chart Init] ${symbol} - Loaded ${uniqueHistorical.length} historical candles, Current: ${currentCandleRef.current ? 'Yes' : 'No'}`);
+        const dataQualitySummary = [
+          `${chartData.dataQuality.historicalCount} historical`,
+          chartData.dataQuality.hasCurrent ? '1 current' : '0 current',
+          `continuity: ${chartData.dataQuality.timeContinuityValid ? '✓' : '✗'}`,
+          chartData.dataQuality.oldestCandleAge ? `${chartData.dataQuality.oldestCandleAge}h old` : ''
+        ].filter(Boolean).join(', ');
+
+        console.log(`[Chart Init] ${symbol} ${timeframe} - ${dataQualitySummary}`);
         console.log(`[Chart Init] Latest candle time: ${new Date(lastCandle.time * 1000).toLocaleString()}`);
 
         requestAnimationFrame(() => {
@@ -723,9 +762,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         <div className="mb-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
           <div className="flex items-start gap-2">
             <AlertCircle className="text-yellow-500 flex-shrink-0 mt-0.5" size={18} />
-            <div>
-              <p className="text-yellow-500 text-sm font-medium">Data Quality Notice</p>
+            <div className="flex-1">
+              <p className="text-yellow-500 text-sm font-medium">Data Quality Warning</p>
               <p className="text-yellow-400/80 text-xs mt-1">{dataQualityWarning}</p>
+              <p className="text-yellow-400/60 text-xs mt-1">Chart will auto-refresh as new data arrives.</p>
             </div>
           </div>
         </div>

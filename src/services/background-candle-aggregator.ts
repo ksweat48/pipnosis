@@ -201,6 +201,15 @@ class BackgroundCandleAggregator {
       return;
     }
 
+    const ageMs = Date.now() - timestampMs;
+    if (ageMs > 24 * 60 * 60 * 1000) {
+      console.warn(
+        `[BackgroundAggregator] Rejecting stale price for ${symbol}: ` +
+        `${Math.floor(ageMs / (1000 * 60 * 60))}h old (${new Date(timestampMs).toISOString()})`
+      );
+      return;
+    }
+
     for (const timeframe of ALL_TIMEFRAMES) {
       const key = this.getCacheKey(symbol, timeframe);
       const candleTime = this.getCandleTime(timestampMs, timeframe);
@@ -208,6 +217,17 @@ class BackgroundCandleAggregator {
 
       if (!existingState || existingState.startTime !== candleTime) {
         if (existingState) {
+          const timeDiff = candleTime - existingState.startTime;
+          const expectedInterval = getTimeframeMinutes(timeframe) * 60 * 1000;
+
+          if (timeDiff < expectedInterval) {
+            console.warn(
+              `[BackgroundAggregator] ⚠️ Time anomaly for ${symbol} ${timeframe}: ` +
+              `new candle ${new Date(candleTime).toISOString()} is before expected next period. Skipping.`
+            );
+            return;
+          }
+
           console.log(
             `[BackgroundAggregator] 🔄 New ${timeframe} period for ${symbol}: ` +
             `saving completed candle at ${new Date(existingState.startTime).toISOString()}`
@@ -450,10 +470,13 @@ class BackgroundCandleAggregator {
 
     for (const symbol of FOREX_PAIRS) {
       try {
+        const cutoffTime = new Date(Date.now() - 2 * 60 * 60 * 1000);
+
         const { data: recentPrices, error } = await supabase
           .from('realtime_prices')
           .select('bid, ask, broker_time, created_at')
           .eq('symbol', symbol)
+          .gte('created_at', cutoffTime.toISOString())
           .order('created_at', { ascending: false })
           .limit(100);
 
@@ -463,10 +486,19 @@ class BackgroundCandleAggregator {
         }
 
         if (!recentPrices || recentPrices.length === 0) {
+          console.log(`[BackgroundAggregator] No recent prices found for ${symbol}`);
           continue;
         }
 
         const sortedPrices = recentPrices.reverse();
+        const oldestPrice = new Date(sortedPrices[0].created_at);
+        const newestPrice = new Date(sortedPrices[sortedPrices.length - 1].created_at);
+        const ageMinutes = Math.floor((Date.now() - oldestPrice.getTime()) / (1000 * 60));
+
+        console.log(
+          `[BackgroundAggregator] Initializing ${symbol} with ${recentPrices.length} prices ` +
+          `(${ageMinutes}m old, range: ${oldestPrice.toISOString()} to ${newestPrice.toISOString()})`
+        );
 
         for (const price of sortedPrices) {
           this.processNewPrice(
