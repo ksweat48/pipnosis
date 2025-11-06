@@ -18,7 +18,7 @@ import sys
 from datetime import datetime, timezone
 from typing import List, Dict, Tuple, Optional
 from dotenv import load_dotenv
-from tvdatafeed import TvDatafeed, Interval
+from tvDatafeed.main import TvDatafeed, Interval
 from supabase import create_client, Client
 import time
 
@@ -40,10 +40,10 @@ TIMEFRAMES = {
 CANDLES_TO_FETCH = 200
 
 SUPABASE_URL = os.getenv('VITE_SUPABASE_URL')
-SUPABASE_KEY = os.getenv('VITE_SUPABASE_ANON_KEY')
+SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    print("❌ Error: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be set in .env")
+    print("❌ Error: VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
     sys.exit(1)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
