@@ -399,11 +399,11 @@ class FlowTraderV2Strategy {
   async getCandles(symbol: string, timeframe: string, limit: number): Promise<Candle[] | null> {
     try {
       const { data, error } = await supabase
-        .from('market_data')
-        .select('timestamp, open, high, low, close, volume')
+        .from('forex_candles')
+        .select('open_time, open, high, low, close, volume')
         .eq('symbol', symbol)
         .eq('timeframe', timeframe)
-        .order('timestamp', { ascending: false })
+        .order('open_time', { ascending: false })
         .limit(limit);
 
       if (error) {

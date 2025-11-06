@@ -64,11 +64,11 @@ class GoalTradeMonitor {
   async evaluateTradeHealth(trade: any): Promise<TradeHealth> {
     try {
       const { data: candles } = await supabase
-        .from('market_data')
+        .from('forex_candles')
         .select('*')
         .eq('symbol', trade.symbol)
-        .eq('timeframe', '5m')
-        .order('timestamp', { ascending: false })
+        .eq('timeframe', 'M5')
+        .order('open_time', { ascending: false })
         .limit(10);
 
       if (!candles || candles.length === 0) {

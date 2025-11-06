@@ -119,10 +119,10 @@ class TradeLifecycleManager {
 
       if (error || !data) {
         const { data: candleData } = await supabase
-          .from('market_data')
-          .select('symbol, close, timestamp')
+          .from('forex_candles')
+          .select('symbol, close, open_time')
           .eq('symbol', symbol)
-          .order('timestamp', { ascending: false })
+          .order('open_time', { ascending: false })
           .limit(1)
           .maybeSingle();
 

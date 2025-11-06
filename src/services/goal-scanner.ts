@@ -98,11 +98,11 @@ class GoalScanner {
   async scanSymbol(symbol: string, sessionConfig: any): Promise<ScanResult> {
     try {
       const { data: candles } = await supabase
-        .from('market_data')
+        .from('forex_candles')
         .select('*')
         .eq('symbol', symbol)
-        .eq('timeframe', '15m')
-        .order('timestamp', { ascending: false })
+        .eq('timeframe', 'M15')
+        .order('open_time', { ascending: false })
         .limit(100);
 
       if (!candles || candles.length < 50) {

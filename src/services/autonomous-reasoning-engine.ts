@@ -219,11 +219,11 @@ Structure: ${regime.structure}
   async detectMarketRegime(symbol: string): Promise<MarketRegime> {
     try {
       const { data: candles } = await supabase
-        .from('market_data')
+        .from('forex_candles')
         .select('high, low, close, volume')
         .eq('symbol', symbol)
-        .eq('timeframe', '15m')
-        .order('timestamp', { ascending: false })
+        .eq('timeframe', 'M15')
+        .order('open_time', { ascending: false })
         .limit(50);
 
       if (!candles || candles.length < 20) {

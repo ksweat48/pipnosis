@@ -57,11 +57,11 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
 
       for (const symbol of watchlist) {
         const { data: candles } = await supabase
-          .from('market_data')
+          .from('forex_candles')
           .select('*')
           .eq('symbol', symbol)
-          .eq('timeframe', '15m')
-          .order('timestamp', { ascending: false })
+          .eq('timeframe', 'M15')
+          .order('open_time', { ascending: false })
           .limit(100);
 
         if (candles && candles.length >= 50) {

@@ -8,10 +8,6 @@ interface SaveCandlesResult {
     saved: number;
     error?: string;
   };
-  marketDataTable: {
-    saved: number;
-    error?: string;
-  };
 }
 
 function createServiceRoleClient(): SupabaseClient {
@@ -38,8 +34,7 @@ export async function saveCandlesToDatabase(
     return {
       success: true,
       candlesSaved: 0,
-      forexCandlesTable: { saved: 0 },
-      marketDataTable: { saved: 0 }
+      forexCandlesTable: { saved: 0 }
     };
   }
 
@@ -48,8 +43,7 @@ export async function saveCandlesToDatabase(
   const result: SaveCandlesResult = {
     success: true,
     candlesSaved: 0,
-    forexCandlesTable: { saved: 0 },
-    marketDataTable: { saved: 0 }
+    forexCandlesTable: { saved: 0 }
   };
 
   console.log(`Saving ${candles.length} candles to database (overwrite: ${overwrite})`);
@@ -78,45 +72,7 @@ export async function saveCandlesToDatabase(
     result.success = false;
   }
 
-  try {
-    const marketDataCandles = candles.map(c => ({
-      symbol: c.symbol,
-      timeframe: c.timeframe,
-      timestamp: c.open_time,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-      volume: c.volume
-    }));
-
-    const { error: marketDataError, count: marketDataCount } = await supabase
-      .from('market_data')
-      .upsert(marketDataCandles, {
-        onConflict: 'symbol,timeframe,timestamp',
-        ignoreDuplicates: !overwrite
-      })
-      .select('*', { count: 'exact', head: true });
-
-    if (marketDataError) {
-      console.error('Failed to save candles to market_data:', marketDataError.message);
-      result.marketDataTable.error = marketDataError.message;
-      result.success = false;
-    } else {
-      result.marketDataTable.saved = marketDataCount || marketDataCandles.length;
-      console.log(`Saved ${result.marketDataTable.saved} candles to market_data`);
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Exception saving to market_data:', errorMessage);
-    result.marketDataTable.error = errorMessage;
-    result.success = false;
-  }
-
-  result.candlesSaved = Math.max(
-    result.forexCandlesTable.saved,
-    result.marketDataTable.saved
-  );
+  result.candlesSaved = result.forexCandlesTable.saved;
 
   console.log(`Database save complete: ${result.candlesSaved} candles saved (success: ${result.success})`);
 
@@ -174,8 +130,7 @@ export async function batchSaveCandles(
     return {
       success: true,
       candlesSaved: 0,
-      forexCandlesTable: { saved: 0 },
-      marketDataTable: { saved: 0 }
+      forexCandlesTable: { saved: 0 }
     };
   }
 
@@ -191,8 +146,7 @@ export async function batchSaveCandles(
   const aggregatedResult: SaveCandlesResult = {
     success: true,
     candlesSaved: 0,
-    forexCandlesTable: { saved: 0 },
-    marketDataTable: { saved: 0 }
+    forexCandlesTable: { saved: 0 }
   };
 
   for (let i = 0; i < batches.length; i++) {
@@ -202,15 +156,11 @@ export async function batchSaveCandles(
 
     aggregatedResult.candlesSaved += batchResult.candlesSaved;
     aggregatedResult.forexCandlesTable.saved += batchResult.forexCandlesTable.saved;
-    aggregatedResult.marketDataTable.saved += batchResult.marketDataTable.saved;
 
     if (!batchResult.success) {
       aggregatedResult.success = false;
       if (batchResult.forexCandlesTable.error) {
         aggregatedResult.forexCandlesTable.error = batchResult.forexCandlesTable.error;
-      }
-      if (batchResult.marketDataTable.error) {
-        aggregatedResult.marketDataTable.error = batchResult.marketDataTable.error;
       }
     }
 
