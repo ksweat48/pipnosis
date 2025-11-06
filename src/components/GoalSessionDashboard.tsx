@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, RefreshCw, Zap, Database } from 'lucide-react';
+import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2 } from 'lucide-react';
 import { goalSessionManager, GoalSession } from '../services/goal-session-manager';
 import { goalNotificationSystem } from '../services/goal-notifications';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
@@ -14,8 +14,6 @@ export const GoalSessionDashboard: React.FC = () => {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanStatus, setScanStatus] = useState<ScanStatus>(goalScannerTrigger.getStatus());
-  const [marketDataStatus, setMarketDataStatus] = useState<MarketDataStatus[]>([]);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   useEffect(() => {
     loadSessionData();
@@ -46,7 +44,6 @@ export const GoalSessionDashboard: React.FC = () => {
   useEffect(() => {
     if (activeSession && activeSession.status === 'scanning') {
       goalScannerTrigger.startPolling(activeSession.id, 60000);
-      loadMarketDataDiagnostics();
     } else {
       goalScannerTrigger.stopPolling();
     }
@@ -77,17 +74,6 @@ export const GoalSessionDashboard: React.FC = () => {
     }
   };
 
-  const loadMarketDataDiagnostics = async () => {
-    if (!activeSession) return;
-    const status = await goalScannerTrigger.getMarketDataStatus(activeSession.watchlist);
-    setMarketDataStatus(status);
-  };
-
-  const handleManualScan = async () => {
-    if (!activeSession) return;
-    await goalScannerTrigger.triggerScan(activeSession.id);
-    await loadMarketDataDiagnostics();
-  };
 
   const handleStopSession = async () => {
     if (!activeSession || !user) return;
@@ -184,39 +170,13 @@ export const GoalSessionDashboard: React.FC = () => {
               )}
             </div>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowDiagnostics(!showDiagnostics)}
-              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium text-white transition-colors flex items-center gap-2"
-            >
-              <Database className="w-4 h-4" />
-              {showDiagnostics ? 'Hide' : 'Show'} Diagnostics
-            </button>
-            <button
-              onClick={handleManualScan}
-              disabled={scanStatus.isScanning}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg text-sm font-medium text-white transition-colors flex items-center gap-2"
-            >
-              {scanStatus.isScanning ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  Scanning...
-                </>
-              ) : (
-                <>
-                  <Zap className="w-4 h-4" />
-                  Scan Now
-                </>
-              )}
-            </button>
-            <button
-              onClick={handleStopSession}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium text-white transition-colors flex items-center gap-2"
-            >
-              <Pause className="w-4 h-4" />
-              Stop Session
-            </button>
-          </div>
+          <button
+            onClick={handleStopSession}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium text-white transition-colors flex items-center gap-2"
+          >
+            <Pause className="w-4 h-4" />
+            Stop Session
+          </button>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -276,74 +236,6 @@ export const GoalSessionDashboard: React.FC = () => {
           </div>
         )}
       </div>
-
-      {showDiagnostics && activeSession && (
-        <div className="bg-gray-800 rounded-lg p-6 border border-blue-700">
-          <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-            <Database className="w-5 h-5 text-blue-400" />
-            Scanner Diagnostics
-          </h4>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gray-700/50 rounded-lg p-3">
-                <div className="text-xs text-gray-400 mb-1">Scanner Status</div>
-                <div className="text-sm font-medium text-white">{scanStatus.isScanning ? 'Running' : 'Idle'}</div>
-              </div>
-              <div className="bg-gray-700/50 rounded-lg p-3">
-                <div className="text-xs text-gray-400 mb-1">Last Scan</div>
-                <div className="text-sm font-medium text-white">
-                  {scanStatus.lastScanTime ? new Date(scanStatus.lastScanTime).toLocaleTimeString() : 'Never'}
-                </div>
-              </div>
-              <div className="bg-gray-700/50 rounded-lg p-3">
-                <div className="text-xs text-gray-400 mb-1">Next Scan</div>
-                <div className="text-sm font-medium text-white">
-                  {activeSession.next_scan_time ? new Date(activeSession.next_scan_time).toLocaleTimeString() : 'Not scheduled'}
-                </div>
-              </div>
-              <div className="bg-gray-700/50 rounded-lg p-3">
-                <div className="text-xs text-gray-400 mb-1">Scan Interval</div>
-                <div className="text-sm font-medium text-white">{activeSession.scan_interval_minutes} minutes</div>
-              </div>
-            </div>
-
-            {marketDataStatus.length > 0 && (
-              <div>
-                <div className="text-sm font-medium text-gray-300 mb-2">Market Data Availability</div>
-                <div className="space-y-2">
-                  {marketDataStatus.map((status) => (
-                    <div key={status.symbol} className="bg-gray-700/50 rounded-lg p-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-sm font-medium text-white">{status.symbol}</div>
-                          <div className="text-xs text-gray-400 mt-1">
-                            {status.candleCount} candles available {status.lastUpdate && `(Last: ${new Date(status.lastUpdate).toLocaleString()})`}
-                          </div>
-                        </div>
-                        <div className={`px-2 py-1 rounded text-xs font-medium ${
-                          status.available ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
-                        }`}>
-                          {status.available ? 'Ready' : 'Insufficient'}
-                        </div>
-                      </div>
-                      {status.error && (
-                        <div className="mt-2 text-xs text-red-400">{status.error}</div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {scanStatus.error && (
-              <div className="bg-red-900/30 border border-red-600 rounded-lg p-3">
-                <div className="text-sm font-medium text-red-400">Scanner Error</div>
-                <div className="text-xs text-gray-300 mt-1">{scanStatus.error}</div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {activeSession && (
         <MarketAnalysisStream
