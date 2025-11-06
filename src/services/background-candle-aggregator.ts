@@ -41,8 +41,6 @@ class BackgroundCandleAggregator {
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private readonly HEALTH_CHECK_INTERVAL_MS = 15000;
   private readonly STALE_CONNECTION_THRESHOLD_MS = 60000;
-  private isReconnecting = false;
-  private subscriptionChannel: string | null = null;
 
   private getCacheKey(symbol: string, timeframe: Timeframe): string {
     return `${symbol}_${timeframe}`;
@@ -174,10 +172,6 @@ class BackgroundCandleAggregator {
   }
 
   private notifyListeners(symbol: string, timeframe: Timeframe, candle: CandleData): void {
-    if (this.listeners.size === 0) {
-      return;
-    }
-
     this.listeners.forEach(listener => {
       try {
         listener(symbol, timeframe, candle);
@@ -196,20 +190,6 @@ class BackgroundCandleAggregator {
       return;
     }
 
-    if (isNaN(timestampMs) || timestampMs <= 0) {
-      console.warn(`[BackgroundAggregator] Invalid timestamp for ${symbol}: ${timestamp}`);
-      return;
-    }
-
-    const ageMs = Date.now() - timestampMs;
-    if (ageMs > 24 * 60 * 60 * 1000) {
-      console.warn(
-        `[BackgroundAggregator] Rejecting stale price for ${symbol}: ` +
-        `${Math.floor(ageMs / (1000 * 60 * 60))}h old (${new Date(timestampMs).toISOString()})`
-      );
-      return;
-    }
-
     for (const timeframe of ALL_TIMEFRAMES) {
       const key = this.getCacheKey(symbol, timeframe);
       const candleTime = this.getCandleTime(timestampMs, timeframe);
@@ -217,30 +197,11 @@ class BackgroundCandleAggregator {
 
       if (!existingState || existingState.startTime !== candleTime) {
         if (existingState) {
-          const timeDiff = candleTime - existingState.startTime;
-          const expectedInterval = getTimeframeMinutes(timeframe) * 60 * 1000;
-
-          if (timeDiff < expectedInterval) {
-            console.warn(
-              `[BackgroundAggregator] ⚠️ Time anomaly for ${symbol} ${timeframe}: ` +
-              `new candle ${new Date(candleTime).toISOString()} is before expected next period. Skipping.`
-            );
-            return;
-          }
-
-          console.log(
-            `[BackgroundAggregator] 🔄 New ${timeframe} period for ${symbol}: ` +
-            `saving completed candle at ${new Date(existingState.startTime).toISOString()}`
-          );
           this.queueCandleForSave(symbol, timeframe, existingState);
         }
 
         const newState = this.initializeCandleState(symbol, timeframe, midPrice, timestampMs);
         this.candleStates.set(key, newState);
-        console.log(
-          `[BackgroundAggregator] 🆕 Initialized new ${timeframe} candle for ${symbol} ` +
-          `at ${new Date(candleTime).toISOString()} | Open: ${midPrice.toFixed(5)}`
-        );
 
         const candleData: CandleData = {
           time: newState.time,
@@ -285,28 +246,13 @@ class BackgroundCandleAggregator {
 
   private async setupRealtimeSubscription(): Promise<void> {
     try {
-      console.log('[BackgroundAggregator] Setting up realtime subscription...');
-
-      // Properly cleanup existing subscription
       if (this.subscription) {
-        console.log('[BackgroundAggregator] Cleaning up existing subscription...');
-        try {
-          await this.subscription.unsubscribe();
-          console.log('[BackgroundAggregator] ✓ Old subscription unsubscribed');
-        } catch (unsubError) {
-          console.warn('[BackgroundAggregator] Error unsubscribing old subscription:', unsubError);
-        }
+        await this.subscription.unsubscribe();
         this.subscription = null;
-        // Give Supabase time to clean up
-        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      // Generate unique channel name to avoid conflicts
-      this.subscriptionChannel = `background_price_aggregation_${Date.now()}`;
-      console.log(`[BackgroundAggregator] Creating new channel: ${this.subscriptionChannel}`);
-
       this.subscription = supabase
-        .channel(this.subscriptionChannel)
+        .channel('background_price_aggregation')
         .on(
           'postgres_changes',
           {
@@ -319,12 +265,6 @@ class BackgroundCandleAggregator {
             const { symbol, bid, ask, broker_time, created_at } = payload.new as any;
             const timestamp = broker_time || created_at;
 
-            console.log(
-              `[BackgroundAggregator] 📥 Realtime price: ${symbol} | ` +
-              `${parseFloat(bid).toFixed(5)}/${parseFloat(ask).toFixed(5)} | ` +
-              `Time: ${timestamp}`
-            );
-
             this.processNewPrice(
               symbol,
               parseFloat(bid),
@@ -334,57 +274,41 @@ class BackgroundCandleAggregator {
           }
         )
         .subscribe((status, err) => {
-          console.log(`[BackgroundAggregator] 📡 Subscription status: ${status}`);
+          console.log('[BackgroundAggregator] Subscription status:', status);
 
           if (status === 'SUBSCRIBED') {
             this.isRunning = true;
             this.reconnectAttempts = 0;
-            this.isReconnecting = false;
             this.lastMessageTime = new Date();
-            console.log(
-              `[BackgroundAggregator] ✅ Successfully subscribed to realtime_prices | ` +
-              `Monitoring ${FOREX_PAIRS.length} symbols across ${ALL_TIMEFRAMES.length} timeframes | ` +
-              `${this.listeners.size} active listeners`
-            );
+            console.log('[BackgroundAggregator] ✅ Successfully subscribed to realtime_prices');
           } else if (status === 'CHANNEL_ERROR') {
             console.error('[BackgroundAggregator] ❌ Channel error:', err);
-            this.isReconnecting = false;
             this.handleConnectionError();
           } else if (status === 'TIMED_OUT') {
             console.error('[BackgroundAggregator] ⏱️ Connection timed out');
-            this.isReconnecting = false;
             this.handleConnectionError();
           } else if (status === 'CLOSED') {
             console.warn('[BackgroundAggregator] 🔌 Connection closed');
-            if (this.isRunning && !this.isReconnecting) {
+            if (this.isRunning) {
               this.handleConnectionError();
             }
           }
         });
     } catch (error) {
       console.error('[BackgroundAggregator] Failed to setup subscription:', error);
-      this.isReconnecting = false;
       this.handleConnectionError();
     }
   }
 
   private handleConnectionError(): void {
-    // Prevent concurrent reconnection attempts
-    if (this.isReconnecting) {
-      console.log('[BackgroundAggregator] ⏳ Reconnection already in progress, skipping...');
-      return;
-    }
-
     if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
       console.error(
         `[BackgroundAggregator] ❌ Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. ` +
-        'Manual restart required. Use forceRestart() to recover.'
+        'Manual restart required.'
       );
-      this.isRunning = false;
       return;
     }
 
-    this.isReconnecting = true;
     this.reconnectAttempts++;
     const delay = Math.min(
       this.BASE_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts - 1),
@@ -402,13 +326,7 @@ class BackgroundCandleAggregator {
 
     this.reconnectTimeout = setTimeout(async () => {
       console.log(`[BackgroundAggregator] 🔌 Reconnecting (attempt ${this.reconnectAttempts})...`);
-      try {
-        await this.setupRealtimeSubscription();
-      } catch (error) {
-        console.error('[BackgroundAggregator] Reconnection attempt failed:', error);
-        this.isReconnecting = false;
-        this.handleConnectionError();
-      }
+      await this.setupRealtimeSubscription();
     }, delay);
   }
 
@@ -445,22 +363,10 @@ class BackgroundCandleAggregator {
       console.log('[BackgroundAggregator] 🔄 Forcing reconnection due to stale connection...');
       this.handleConnectionError();
     } else {
-      const candleStatesPerSymbol = new Map<string, number>();
-      for (const key of this.candleStates.keys()) {
-        const symbol = key.split('_')[0];
-        candleStatesPerSymbol.set(symbol, (candleStatesPerSymbol.get(symbol) || 0) + 1);
-      }
-
-      const statesBreakdown = Array.from(candleStatesPerSymbol.entries())
-        .map(([symbol, count]) => `${symbol}:${count}`)
-        .join(', ');
-
       console.log(
-        `[BackgroundAggregator] 💚 Health OK | ` +
-        `Last msg: ${Math.round(timeSinceLastMessage / 1000)}s ago | ` +
-        `${this.candleStates.size} active candles (${statesBreakdown}) | ` +
-        `${this.listeners.size} listeners | ` +
-        `Queue: ${this.saveQueue.length}`
+        `[BackgroundAggregator] ✅ Health check passed ` +
+        `(last message ${Math.round(timeSinceLastMessage / 1000)}s ago, ` +
+        `${this.candleStates.size} active candles)`
       );
     }
   }
@@ -470,13 +376,10 @@ class BackgroundCandleAggregator {
 
     for (const symbol of FOREX_PAIRS) {
       try {
-        const cutoffTime = new Date(Date.now() - 2 * 60 * 60 * 1000);
-
         const { data: recentPrices, error } = await supabase
           .from('realtime_prices')
           .select('bid, ask, broker_time, created_at')
           .eq('symbol', symbol)
-          .gte('created_at', cutoffTime.toISOString())
           .order('created_at', { ascending: false })
           .limit(100);
 
@@ -486,19 +389,10 @@ class BackgroundCandleAggregator {
         }
 
         if (!recentPrices || recentPrices.length === 0) {
-          console.log(`[BackgroundAggregator] No recent prices found for ${symbol}`);
           continue;
         }
 
         const sortedPrices = recentPrices.reverse();
-        const oldestPrice = new Date(sortedPrices[0].created_at);
-        const newestPrice = new Date(sortedPrices[sortedPrices.length - 1].created_at);
-        const ageMinutes = Math.floor((Date.now() - oldestPrice.getTime()) / (1000 * 60));
-
-        console.log(
-          `[BackgroundAggregator] Initializing ${symbol} with ${recentPrices.length} prices ` +
-          `(${ageMinutes}m old, range: ${oldestPrice.toISOString()} to ${newestPrice.toISOString()})`
-        );
 
         for (const price of sortedPrices) {
           this.processNewPrice(
@@ -596,39 +490,6 @@ class BackgroundCandleAggregator {
     };
   }
 
-  async forceRestart(): Promise<{ success: boolean; message: string }> {
-    console.log('[BackgroundAggregator] 🔧 Force restarting aggregator...');
-
-    try {
-      // Stop everything
-      await this.stop();
-
-      // Reset all state
-      this.reconnectAttempts = 0;
-      this.isReconnecting = false;
-      this.lastMessageTime = null;
-
-      // Wait for cleanup
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Start fresh
-      await this.start();
-
-      console.log('[BackgroundAggregator] ✅ Force restart completed successfully');
-      return {
-        success: true,
-        message: 'Background aggregator restarted successfully'
-      };
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error('[BackgroundAggregator] ❌ Force restart failed:', error);
-      return {
-        success: false,
-        message: `Force restart failed: ${errorMsg}`
-      };
-    }
-  }
-
   getStatus() {
     const timeSinceLastMessage = this.lastMessageTime
       ? Date.now() - this.lastMessageTime.getTime()
@@ -643,11 +504,9 @@ class BackgroundCandleAggregator {
       timeframes: ALL_TIMEFRAMES.length,
       totalCombinations: FOREX_PAIRS.length * ALL_TIMEFRAMES.length,
       reconnectAttempts: this.reconnectAttempts,
-      isReconnecting: this.isReconnecting,
       lastMessageTime: this.lastMessageTime,
       timeSinceLastMessageMs: timeSinceLastMessage,
-      connectionHealthy: timeSinceLastMessage !== null && timeSinceLastMessage < this.STALE_CONNECTION_THRESHOLD_MS,
-      subscriptionChannel: this.subscriptionChannel
+      connectionHealthy: timeSinceLastMessage !== null && timeSinceLastMessage < this.STALE_CONNECTION_THRESHOLD_MS
     };
   }
 }

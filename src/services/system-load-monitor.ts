@@ -143,27 +143,24 @@ class SystemLoadMonitor {
 
   private async recordSnapshotToDatabase(snapshot: LoadSnapshot): Promise<void> {
     try {
-      const { error } = await supabase
-        .from('system_load_metrics')
-        .insert({
-          cpu_credits_used: snapshot.cpuCreditsUsed,
-          cpu_credits_limit: snapshot.cpuCreditsLimit,
-          cpu_usage_percentage: snapshot.cpuUsagePercentage,
-          api_calls_count: snapshot.apiCallsCount,
-          api_calls_per_second: snapshot.apiCallsPerSecond,
-          active_pairs_count: snapshot.activePairsCount,
-          error_count: snapshot.errorCount,
-          error_rate: snapshot.errorRate,
-          request_queue_length: snapshot.requestQueueLength,
-          cache_hit_rate: snapshot.cacheHitRate,
-          db_writes_per_minute: snapshot.dbWritesPerMinute
-        });
+      const { data, error } = await supabase.rpc('record_system_load_snapshot', {
+        p_cpu_credits_used: snapshot.cpuCreditsUsed,
+        p_cpu_credits_limit: snapshot.cpuCreditsLimit,
+        p_api_calls_count: snapshot.apiCallsCount,
+        p_active_pairs_count: snapshot.activePairsCount,
+        p_error_count: snapshot.errorCount,
+        p_request_queue_length: snapshot.requestQueueLength,
+        p_cache_hit_rate: snapshot.cacheHitRate,
+        p_db_writes_per_minute: snapshot.dbWritesPerMinute
+      });
 
       if (error) {
-        console.warn('[LoadMonitor] Could not save metrics to database:', error.message);
+        console.error('[LoadMonitor] Error recording to database:', error);
+      } else {
+        console.log('[LoadMonitor] Snapshot recorded successfully:', snapshot.cpuUsagePercentage.toFixed(2) + '% CPU usage');
       }
     } catch (error) {
-      console.warn('[LoadMonitor] Error recording metrics:', error instanceof Error ? error.message : 'Unknown error');
+      console.error('[LoadMonitor] Error calling RPC:', error);
     }
   }
 

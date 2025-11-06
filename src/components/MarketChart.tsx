@@ -302,7 +302,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
   const updateCurrentCandleFromAggregator = (candle: CandleData) => {
     if (!candlestickSeriesRef.current) {
-      console.log('[Chart Update] ❌ Skipped: candlestick series not initialized');
       return;
     }
 
@@ -310,67 +309,18 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       ? historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time
       : 0;
 
-    const candleTimeStr = new Date(candle.time * 1000).toISOString();
-    const lastHistoricalStr = lastHistoricalTime > 0
-      ? new Date(lastHistoricalTime * 1000).toISOString()
-      : 'none';
-
-    if (candle.time < lastHistoricalTime) {
-      console.log(
-        `[Chart Update] ❌ Rejected: Candle time ${candleTimeStr} is before last historical ${lastHistoricalStr}`
-      );
+    if (candle.time <= lastHistoricalTime) {
       return;
     }
 
-    let shouldRebuildChart = false;
-
-    if (candle.time === lastHistoricalTime) {
-      console.log(
-        `[Chart Update] 🔄 Candle time ${candleTimeStr} matches last historical - updating existing candle in dataset`
-      );
-      historicalCandlesRef.current[historicalCandlesRef.current.length - 1] = candle;
-      shouldRebuildChart = true;
-    } else if (candle.time > lastHistoricalTime) {
-      const expectedNextTime = lastHistoricalTime + (getTimeframeMinutes(timeframe) * 60);
-      const timeDiff = candle.time - lastHistoricalTime;
-
-      if (Math.abs(candle.time - expectedNextTime) < 10) {
-        console.log(`[Chart Update] ➕ New candle period: ${candleTimeStr}`);
-      } else {
-        console.log(
-          `[Chart Update] ⚠️ Time gap: ${timeDiff}s between candles ` +
-          `(expected ${getTimeframeMinutes(timeframe) * 60}s)`
-        );
-      }
-    }
-
     try {
-      if (shouldRebuildChart) {
-        const uniqueCandles = new Map<number, CandleData>();
-        historicalCandlesRef.current.forEach(c => uniqueCandles.set(c.time, c));
-        const dedupedCandles = Array.from(uniqueCandles.values()).sort((a, b) => a.time - b.time);
-
-        candlestickSeriesRef.current.setData(dedupedCandles);
-        console.log(
-          `[Chart Update] 🔧 Rebuilt chart with ${dedupedCandles.length} unique candles | ` +
-          `Latest: ${candleTimeStr} OHLC: ${candle.open.toFixed(5)}/${candle.high.toFixed(5)}/${candle.low.toFixed(5)}/${candle.close.toFixed(5)}`
-        );
-      } else {
-        candlestickSeriesRef.current.update(candle);
-        console.log(
-          `[Chart Update] ✅ Updated candle: ${candleTimeStr} | ` +
-          `OHLC: ${candle.open.toFixed(5)}/${candle.high.toFixed(5)}/${candle.low.toFixed(5)}/${candle.close.toFixed(5)}`
-        );
-      }
+      candlestickSeriesRef.current.update(candle);
 
       if (chartRef.current && !userInteractedRef.current) {
         chartRef.current.timeScale().scrollToRealTime();
       }
 
-      const allCandles = candle.time === lastHistoricalTime
-        ? historicalCandlesRef.current
-        : [...historicalCandlesRef.current, candle];
-
+      const allCandles = [...historicalCandlesRef.current, candle];
       if (updateQueueRef.current.length >= 5) {
         updateIndicatorsDebounced(allCandles);
         updateQueueRef.current = [];
@@ -388,7 +338,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
       setDebugInfo(`Candle Time: ${new Date(candle.time * 1000).toLocaleTimeString()}, Updates: ${updateCount + 1}`);
     } catch (chartError) {
-      console.error('[Chart Update] ❌ Error updating chart:', chartError);
+      console.error('[Chart] Update error:', chartError);
     }
   };
 
@@ -397,47 +347,22 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
     try {
       setIsLoading(true);
       setError(null);
-      setDataQualityWarning(null);
 
       const dataLimit = chartPreferencesService.getDataLimit(timeframe);
       const chartData = await fetchCompleteChartData(symbol, timeframe, dataLimit);
 
-      if (!chartData.dataQuality.hasData) {
+      if (chartData.historical.length === 0 && !chartData.current) {
         console.warn('No candle data found for symbol:', symbol);
         setError('Waiting for price data... The price feed will start shortly.');
         setIsLoading(false);
         return;
       }
 
-      if (chartData.continuityWarning) {
-        console.warn(`[Chart Init] Data continuity warning: ${chartData.continuityWarning}`);
-        setDataQualityWarning(chartData.continuityWarning);
-      }
-
-      if (chartData.dataQuality.oldestCandleAge) {
-        const ageHours = chartData.dataQuality.oldestCandleAge;
-        if (ageHours > 48) {
-          console.warn(`[Chart Init] Data is ${ageHours} hours old - may not be current`);
-        }
-      }
-
       const sortedHistorical = [...chartData.historical].sort((a, b) => a.time - b.time);
-
-      const uniqueMap = new Map<number, CandleData>();
-      sortedHistorical.forEach(candle => {
-        const existing = uniqueMap.get(candle.time);
-        if (!existing || candle.close !== existing.close) {
-          uniqueMap.set(candle.time, candle);
-        }
+      const uniqueHistorical = sortedHistorical.filter((candle, index, array) => {
+        if (index === 0) return true;
+        return candle.time > array[index - 1].time;
       });
-      const uniqueHistorical = Array.from(uniqueMap.values()).sort((a, b) => a.time - b.time);
-
-      if (uniqueHistorical.length !== sortedHistorical.length) {
-        console.log(
-          `[Chart Init] 🧹 Removed ${sortedHistorical.length - uniqueHistorical.length} duplicate candles ` +
-          `(${sortedHistorical.length} → ${uniqueHistorical.length})`
-        );
-      }
 
       console.log(`[Chart Init] Checking for data gaps in ${uniqueHistorical.length} candles...`);
       const { candles: backfilledCandles, backfillResult } = await detectAndBackfillGaps(
@@ -448,21 +373,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
       if (backfillResult.gapsFilled > 0) {
         console.log(`[Chart Init] ✓ Backfilled ${backfillResult.gapsFilled} gaps, created ${backfillResult.candlesCreated} candles`);
-        const backfillMsg = `Data gaps detected and backfilled from tick data. ${backfillResult.candlesCreated} missing candles restored.`;
+        setDataQualityWarning(`Data gaps detected and backfilled from tick data. ${backfillResult.candlesCreated} missing candles restored.`);
 
-        if (chartData.continuityWarning) {
-          setDataQualityWarning(`${chartData.continuityWarning}. ${backfillMsg}`);
-        } else {
-          setDataQualityWarning(backfillMsg);
-        }
-
-        setTimeout(() => {
-          if (chartData.continuityWarning) {
-            setDataQualityWarning(chartData.continuityWarning);
-          } else {
-            setDataQualityWarning(null);
-          }
-        }, 10000);
+        setTimeout(() => setDataQualityWarning(null), 10000);
+      } else {
+        setDataQualityWarning(null);
       }
 
       if (backfillResult.errors.length > 0) {
@@ -476,25 +391,16 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       }
 
       if (chartData.current) {
-        const lastHistoricalTime = backfilledCandles.length > 0
-          ? backfilledCandles[backfilledCandles.length - 1].time
+        const lastHistoricalTime = uniqueHistorical.length > 0
+          ? uniqueHistorical[uniqueHistorical.length - 1].time
           : 0;
 
-        if (chartData.current.time >= lastHistoricalTime) {
+        if (chartData.current.time > lastHistoricalTime) {
           currentCandleRef.current = {
             ...chartData.current,
             startTime: chartData.current.time * 1000
           };
           candlestickSeriesRef.current?.update(chartData.current);
-          console.log(
-            `[Chart Init] ✓ Added current candle at ${new Date(chartData.current.time * 1000).toISOString()}`
-          );
-        } else {
-          console.warn(
-            `[Chart Init] ⚠️ Rejecting current candle - would overlap with historical data ` +
-            `(current: ${new Date(chartData.current.time * 1000).toISOString()}, ` +
-            `last historical: ${new Date(lastHistoricalTime * 1000).toISOString()})`
-          );
         }
       }
 
@@ -510,14 +416,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         setPriceChange(((lastCandle.close - firstCandle.open) / firstCandle.open) * 100);
         setLastUpdate(new Date());
 
-        const dataQualitySummary = [
-          `${chartData.dataQuality.historicalCount} historical`,
-          chartData.dataQuality.hasCurrent ? '1 current' : '0 current',
-          `continuity: ${chartData.dataQuality.timeContinuityValid ? '✓' : '✗'}`,
-          chartData.dataQuality.oldestCandleAge ? `${chartData.dataQuality.oldestCandleAge}h old` : ''
-        ].filter(Boolean).join(', ');
-
-        console.log(`[Chart Init] ${symbol} ${timeframe} - ${dataQualitySummary}`);
+        console.log(`[Chart Init] ${symbol} - Loaded ${uniqueHistorical.length} historical candles, Current: ${currentCandleRef.current ? 'Yes' : 'No'}`);
         console.log(`[Chart Init] Latest candle time: ${new Date(lastCandle.time * 1000).toLocaleString()}`);
 
         requestAnimationFrame(() => {
@@ -569,20 +468,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
     initializeChart();
 
-    console.log(`[Chart] 📡 Subscribing to background aggregator for ${symbol} ${timeframe}`);
+    console.log(`[Chart] Subscribing to background aggregator for ${symbol} ${timeframe}`);
 
     const unsubscribe = backgroundCandleAggregator.onCandleUpdate((updateSymbol, updateTimeframe, candle) => {
       if (updateSymbol === symbol && updateTimeframe === timeframe) {
-        console.log(
-          `[Chart] 📨 Received candle update from aggregator: ${updateSymbol} ${updateTimeframe} ` +
-          `at ${new Date(candle.time * 1000).toISOString()} | Close: ${candle.close.toFixed(5)}`
-        );
         updateCurrentCandleFromAggregator(candle);
-      } else {
-        console.log(
-          `[Chart] ⏭️ Skipped candle update: ${updateSymbol} ${updateTimeframe} ` +
-          `(chart is ${symbol} ${timeframe})`
-        );
       }
     });
 
@@ -590,13 +480,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
     const currentCandle = backgroundCandleAggregator.getCurrentCandle(symbol, timeframe);
     if (currentCandle) {
-      console.log(
-        `[Chart] 🎯 Initial candle from aggregator: ${new Date(currentCandle.time * 1000).toISOString()} | ` +
-        `Close: ${currentCandle.close.toFixed(5)}`
-      );
+      console.log(`[Chart] Loaded current candle from aggregator:`, currentCandle);
       updateCurrentCandleFromAggregator(currentCandle);
-    } else {
-      console.log(`[Chart] ⏳ No current candle available yet from aggregator for ${symbol} ${timeframe}`);
     }
 
     return () => {
@@ -805,10 +690,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         <div className="mb-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
           <div className="flex items-start gap-2">
             <AlertCircle className="text-yellow-500 flex-shrink-0 mt-0.5" size={18} />
-            <div className="flex-1">
-              <p className="text-yellow-500 text-sm font-medium">Data Quality Warning</p>
+            <div>
+              <p className="text-yellow-500 text-sm font-medium">Data Quality Notice</p>
               <p className="text-yellow-400/80 text-xs mt-1">{dataQualityWarning}</p>
-              <p className="text-yellow-400/60 text-xs mt-1">Chart will auto-refresh as new data arrives.</p>
             </div>
           </div>
         </div>
