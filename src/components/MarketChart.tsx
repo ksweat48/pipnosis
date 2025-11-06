@@ -322,24 +322,55 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       return;
     }
 
+    let shouldRebuildChart = false;
+
     if (candle.time === lastHistoricalTime) {
       console.log(
-        `[Chart Update] ⚠️ Candle time ${candleTimeStr} matches last historical - this is the same candle, updating in place`
+        `[Chart Update] 🔄 Candle time ${candleTimeStr} matches last historical - updating existing candle in dataset`
       );
+      historicalCandlesRef.current[historicalCandlesRef.current.length - 1] = candle;
+      shouldRebuildChart = true;
+    } else if (candle.time > lastHistoricalTime) {
+      const expectedNextTime = lastHistoricalTime + (getTimeframeMinutes(timeframe) * 60);
+      const timeDiff = candle.time - lastHistoricalTime;
+
+      if (Math.abs(candle.time - expectedNextTime) < 10) {
+        console.log(`[Chart Update] ➕ New candle period: ${candleTimeStr}`);
+      } else {
+        console.log(
+          `[Chart Update] ⚠️ Time gap: ${timeDiff}s between candles ` +
+          `(expected ${getTimeframeMinutes(timeframe) * 60}s)`
+        );
+      }
     }
 
     try {
-      candlestickSeriesRef.current.update(candle);
-      console.log(
-        `[Chart Update] ✅ Updated candle: ${candleTimeStr} | ` +
-        `OHLC: ${candle.open.toFixed(5)}/${candle.high.toFixed(5)}/${candle.low.toFixed(5)}/${candle.close.toFixed(5)}`
-      );
+      if (shouldRebuildChart) {
+        const uniqueCandles = new Map<number, CandleData>();
+        historicalCandlesRef.current.forEach(c => uniqueCandles.set(c.time, c));
+        const dedupedCandles = Array.from(uniqueCandles.values()).sort((a, b) => a.time - b.time);
+
+        candlestickSeriesRef.current.setData(dedupedCandles);
+        console.log(
+          `[Chart Update] 🔧 Rebuilt chart with ${dedupedCandles.length} unique candles | ` +
+          `Latest: ${candleTimeStr} OHLC: ${candle.open.toFixed(5)}/${candle.high.toFixed(5)}/${candle.low.toFixed(5)}/${candle.close.toFixed(5)}`
+        );
+      } else {
+        candlestickSeriesRef.current.update(candle);
+        console.log(
+          `[Chart Update] ✅ Updated candle: ${candleTimeStr} | ` +
+          `OHLC: ${candle.open.toFixed(5)}/${candle.high.toFixed(5)}/${candle.low.toFixed(5)}/${candle.close.toFixed(5)}`
+        );
+      }
 
       if (chartRef.current && !userInteractedRef.current) {
         chartRef.current.timeScale().scrollToRealTime();
       }
 
-      const allCandles = [...historicalCandlesRef.current, candle];
+      const allCandles = candle.time === lastHistoricalTime
+        ? historicalCandlesRef.current
+        : [...historicalCandlesRef.current, candle];
+
       if (updateQueueRef.current.length >= 5) {
         updateIndicatorsDebounced(allCandles);
         updateQueueRef.current = [];
@@ -391,10 +422,22 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       }
 
       const sortedHistorical = [...chartData.historical].sort((a, b) => a.time - b.time);
-      const uniqueHistorical = sortedHistorical.filter((candle, index, array) => {
-        if (index === 0) return true;
-        return candle.time > array[index - 1].time;
+
+      const uniqueMap = new Map<number, CandleData>();
+      sortedHistorical.forEach(candle => {
+        const existing = uniqueMap.get(candle.time);
+        if (!existing || candle.close !== existing.close) {
+          uniqueMap.set(candle.time, candle);
+        }
       });
+      const uniqueHistorical = Array.from(uniqueMap.values()).sort((a, b) => a.time - b.time);
+
+      if (uniqueHistorical.length !== sortedHistorical.length) {
+        console.log(
+          `[Chart Init] 🧹 Removed ${sortedHistorical.length - uniqueHistorical.length} duplicate candles ` +
+          `(${sortedHistorical.length} → ${uniqueHistorical.length})`
+        );
+      }
 
       console.log(`[Chart Init] Checking for data gaps in ${uniqueHistorical.length} candles...`);
       const { candles: backfilledCandles, backfillResult } = await detectAndBackfillGaps(
