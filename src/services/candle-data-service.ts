@@ -17,6 +17,12 @@ export interface RealtimePrice {
   created_at: string;
 }
 
+export interface CandleValidationResult {
+  isValid: boolean;
+  reason?: string;
+  priceDeviation?: number;
+}
+
 const TIMEFRAME_MINUTES_MAP: Record<Timeframe, number> = {
   M1: 1,
   M5: 5,
@@ -28,8 +34,73 @@ const TIMEFRAME_MINUTES_MAP: Record<Timeframe, number> = {
   W1: 10080,
 };
 
+const MAX_PRICE_DEVIATION_PERCENT = 10;
+
 export function getTimeframeMinutes(timeframe: Timeframe): number {
   return TIMEFRAME_MINUTES_MAP[timeframe] || 15;
+}
+
+export function validateCandleAgainstHistorical(
+  newCandle: CandleData,
+  historicalCandles: CandleData[],
+  symbol: string
+): CandleValidationResult {
+  if (!newCandle || !newCandle.close || newCandle.close <= 0) {
+    return {
+      isValid: false,
+      reason: 'Invalid candle data: missing or zero close price'
+    };
+  }
+
+  if (historicalCandles.length === 0) {
+    return { isValid: true };
+  }
+
+  const lastHistorical = historicalCandles[historicalCandles.length - 1];
+  const recentCandles = historicalCandles.slice(-20);
+
+  const avgPrice = recentCandles.reduce((sum, c) => sum + c.close, 0) / recentCandles.length;
+  const maxPrice = Math.max(...recentCandles.map(c => c.high));
+  const minPrice = Math.min(...recentCandles.map(c => c.low));
+
+  const priceRange = maxPrice - minPrice;
+  const expectedRange = avgPrice * (MAX_PRICE_DEVIATION_PERCENT / 100);
+  const allowedMax = avgPrice + expectedRange;
+  const allowedMin = avgPrice - expectedRange;
+
+  if (newCandle.close > allowedMax || newCandle.close < allowedMin) {
+    const deviation = ((Math.abs(newCandle.close - avgPrice) / avgPrice) * 100).toFixed(2);
+    console.error(
+      `[CandleValidation] ❌ ${symbol} - Price anomaly detected!`,
+      `\n  New candle close: ${newCandle.close}`,
+      `\n  Recent avg price: ${avgPrice.toFixed(5)}`,
+      `\n  Allowed range: ${allowedMin.toFixed(5)} - ${allowedMax.toFixed(5)}`,
+      `\n  Deviation: ${deviation}% (max allowed: ${MAX_PRICE_DEVIATION_PERCENT}%)`,
+      `\n  Last historical: ${lastHistorical.close}`,
+      `\n  Time: ${new Date(newCandle.time * 1000).toISOString()}`
+    );
+
+    return {
+      isValid: false,
+      reason: `Price deviation too large: ${deviation}% (avg: ${avgPrice.toFixed(5)}, new: ${newCandle.close})`,
+      priceDeviation: parseFloat(deviation)
+    };
+  }
+
+  const timeDiff = newCandle.time - lastHistorical.time;
+  if (timeDiff < 0) {
+    return {
+      isValid: false,
+      reason: `New candle time (${newCandle.time}) is before last historical time (${lastHistorical.time})`
+    };
+  }
+
+  console.log(
+    `[CandleValidation] ✓ ${symbol} - Candle validated`,
+    `close: ${newCandle.close}, avg: ${avgPrice.toFixed(5)}, range: ${minPrice.toFixed(5)}-${maxPrice.toFixed(5)}`
+  );
+
+  return { isValid: true };
 }
 
 export async function fetchPreAggregatedCandles(
@@ -113,7 +184,9 @@ function parseUtcTimestamp(timeString: string): number {
 
 export function aggregatePricesToCurrentCandle(
   prices: RealtimePrice[],
-  timeframe: Timeframe
+  timeframe: Timeframe,
+  historicalCandles?: CandleData[],
+  symbol?: string
 ): CandleData | null {
   if (prices.length === 0) return null;
 
@@ -139,13 +212,23 @@ export function aggregatePricesToCurrentCandle(
     return (bid + ask) / 2;
   });
 
-  return {
+  const aggregatedCandle: CandleData = {
     time: Math.floor(currentCandleTimeMs / 1000),
     open: midPrices[0],
     high: Math.max(...midPrices),
     low: Math.min(...midPrices),
     close: midPrices[midPrices.length - 1],
   };
+
+  if (historicalCandles && historicalCandles.length > 0 && symbol) {
+    const validation = validateCandleAgainstHistorical(aggregatedCandle, historicalCandles, symbol);
+    if (!validation.isValid) {
+      console.error(`[ChartData] Rejecting aggregated current candle: ${validation.reason}`);
+      return null;
+    }
+  }
+
+  return aggregatedCandle;
 }
 
 function getCurrentCandleStartTime(timeframe: Timeframe): number {
@@ -178,10 +261,12 @@ export async function fetchCompleteChartData(
     console.log(`[ChartData] Time difference: ${(currentCandleStartTime - lastHistorical.time) / 60} minutes`);
   }
 
-  const currentCandle = aggregatePricesToCurrentCandle(recentPrices, timeframe);
+  const currentCandle = aggregatePricesToCurrentCandle(recentPrices, timeframe, historicalCandles, symbol);
 
   if (currentCandle) {
     console.log(`[ChartData] Current candle aggregated: ${new Date(currentCandle.time * 1000).toISOString()} - OHLC: ${currentCandle.open}/${currentCandle.high}/${currentCandle.low}/${currentCandle.close}`);
+  } else if (recentPrices.length > 0) {
+    console.warn(`[ChartData] Could not aggregate current candle from ${recentPrices.length} recent prices (likely failed validation)`);
   }
 
   let finalHistorical = historicalCandles;

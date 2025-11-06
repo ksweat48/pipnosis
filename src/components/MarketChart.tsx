@@ -10,6 +10,7 @@ import {
   fetchRecentRealtimePrices,
   aggregatePricesToCurrentCandle,
   getTimeframeMinutes,
+  validateCandleAgainstHistorical,
   CandleData,
   RealtimePrice as RealtimePriceType
 } from '@/services/candle-data-service';
@@ -310,7 +311,17 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
       : 0;
 
     if (candle.time <= lastHistoricalTime) {
+      console.warn(`[Chart] Rejecting aggregator candle: time ${candle.time} <= last historical ${lastHistoricalTime}`);
       return;
+    }
+
+    if (historicalCandlesRef.current.length > 0) {
+      const validation = validateCandleAgainstHistorical(candle, historicalCandlesRef.current, symbol);
+      if (!validation.isValid) {
+        console.error(`[Chart] ❌ Rejecting aggregator candle for ${symbol}: ${validation.reason}`);
+        setDataQualityWarning(`Data validation failed: ${validation.reason}. Chart may not update until valid data is received.`);
+        return;
+      }
     }
 
     try {
@@ -427,8 +438,20 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         }
       }
 
-      const allCandles = currentCandleRef.current
-        ? [...uniqueHistorical, currentCandleRef.current]
+      let validatedCurrentCandle: CandleData | null = currentCandleRef.current;
+
+      if (currentCandleRef.current && uniqueHistorical.length > 0) {
+        const validation = validateCandleAgainstHistorical(currentCandleRef.current, uniqueHistorical, symbol);
+        if (!validation.isValid) {
+          console.error(`[Chart Init] ❌ Current candle failed validation: ${validation.reason}`);
+          console.error(`[Chart Init] Excluding current candle from initial chart display`);
+          validatedCurrentCandle = null;
+          setDataQualityWarning(`Initial current candle excluded due to price anomaly. Waiting for valid data.`);
+        }
+      }
+
+      const allCandles = validatedCurrentCandle
+        ? [...uniqueHistorical, validatedCurrentCandle]
         : uniqueHistorical;
 
       if (allCandles.length > 0) {
@@ -439,8 +462,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
         setPriceChange(((lastCandle.close - firstCandle.open) / firstCandle.open) * 100);
         setLastUpdate(new Date());
 
-        console.log(`[Chart Init] ${symbol} - Loaded ${uniqueHistorical.length} historical candles, Current: ${currentCandleRef.current ? 'Yes' : 'No'}`);
+        console.log(`[Chart Init] ${symbol} - Loaded ${uniqueHistorical.length} historical candles, Current: ${validatedCurrentCandle ? 'Yes (validated)' : currentCandleRef.current ? 'No (failed validation)' : 'No'}`);
         console.log(`[Chart Init] Latest candle time: ${new Date(lastCandle.time * 1000).toLocaleString()}`);
+        console.log(`[Chart Init] Price range for indicators: ${Math.min(...allCandles.map(c => c.low)).toFixed(5)} - ${Math.max(...allCandles.map(c => c.high)).toFixed(5)}`);
 
         requestAnimationFrame(() => {
           updateIndicators(allCandles);
@@ -515,8 +539,18 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
 
   useEffect(() => {
     if (historicalCandlesRef.current.length > 0) {
-      const allCandles = currentCandleRef.current
-        ? [...historicalCandlesRef.current, currentCandleRef.current]
+      let validatedCurrentCandle: CandleData | null = currentCandleRef.current;
+
+      if (currentCandleRef.current) {
+        const validation = validateCandleAgainstHistorical(currentCandleRef.current, historicalCandlesRef.current, symbol);
+        if (!validation.isValid) {
+          console.warn(`[Chart] Current candle excluded from indicator recalculation: ${validation.reason}`);
+          validatedCurrentCandle = null;
+        }
+      }
+
+      const allCandles = validatedCurrentCandle
+        ? [...historicalCandlesRef.current, validatedCurrentCandle]
         : historicalCandlesRef.current;
       updateIndicators(allCandles);
     }
