@@ -13,10 +13,31 @@ import './utils/scanner-test';
 
 const cleanupStaleLocalStorage = () => {
   const version = localStorage.getItem('app-config-version');
-  if (version !== '2.0') {
+  if (version !== '3.0') {
     console.log('[Startup] Cleaning up stale localStorage configurations...');
     localStorage.removeItem('auto-refresh-config');
-    localStorage.setItem('app-config-version', '2.0');
+
+    // Clear all chart-related cache data
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (
+        key.includes('chart-') ||
+        key.includes('candle-') ||
+        key.includes('indicators-') ||
+        key.includes('historical-')
+      )) {
+        keysToRemove.push(key);
+      }
+    }
+
+    keysToRemove.forEach(key => {
+      console.log(`[Startup] Clearing cached data: ${key}`);
+      localStorage.removeItem(key);
+    });
+
+    localStorage.setItem('app-config-version', '3.0');
+    console.log('[Startup] All cached candle data cleared - starting fresh');
   }
 };
 

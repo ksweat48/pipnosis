@@ -18,12 +18,21 @@ interface BatchSaveResult {
 class CandlePersistenceService {
   private pendingCandles: Map<string, CandleData[]> = new Map();
   private saveInProgress = false;
+  private saveQueue: Array<{ symbol: string; timeframe: Timeframe; candles: CandleData[] }> = [];
   private readonly BATCH_SIZE = 10;
   private readonly SAVE_INTERVAL_MS = 30000;
   private saveTimer: NodeJS.Timeout | null = null;
 
   constructor() {
+    this.clearAllState();
     this.startAutoSave();
+  }
+
+  private clearAllState(): void {
+    this.pendingCandles.clear();
+    this.saveQueue = [];
+    this.saveInProgress = false;
+    console.log('[CandlePersistence] 🧹 Cleared all pending candle queues');
   }
 
   private startAutoSave() {

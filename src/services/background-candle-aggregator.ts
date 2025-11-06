@@ -221,8 +221,16 @@ class BackgroundCandleAggregator {
       return;
     }
 
+    // Clear any stale in-memory state
+    this.candleStates.clear();
+    this.saveQueue = [];
+    this.lastMessageTime = null;
+    this.reconnectAttempts = 0;
+    console.log('[BackgroundAggregator] 🧹 Cleared all in-memory candle state');
+
     console.log('[BackgroundAggregator] 🚀 Starting background candle aggregation for all pairs and timeframes...');
     console.log('[BackgroundAggregator] 🔄 Auto-reconnection enabled for persistent operation');
+    console.log('[BackgroundAggregator] ✨ Building fresh candles from live data only');
 
     await this.initializeCurrentCandles();
     await this.setupRealtimeSubscription();
