@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, Database, TrendingUp, Clock, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
+import { Activity, Database, TrendingUp, Clock } from 'lucide-react';
 import { backgroundCandleAggregator } from '@/services/background-candle-aggregator';
 import { Timeframe } from '@/services/chart-preferences';
 
@@ -11,12 +11,6 @@ interface AggregatorStatus {
   symbols: number;
   timeframes: number;
   totalCombinations: number;
-  reconnectAttempts: number;
-  isReconnecting: boolean;
-  lastMessageTime: Date | null;
-  timeSinceLastMessageMs: number | null;
-  connectionHealthy: boolean;
-  subscriptionChannel: string | null;
 }
 
 interface SymbolCandlePrices {
@@ -27,8 +21,6 @@ export function CandleAggregatorStatus() {
   const [status, setStatus] = useState<AggregatorStatus | null>(null);
   const [symbolPrices, setSymbolPrices] = useState<Map<string, SymbolCandlePrices>>(new Map());
   const [updateCount, setUpdateCount] = useState(0);
-  const [isRestarting, setIsRestarting] = useState(false);
-  const [restartMessage, setRestartMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     const updateStatus = () => {
@@ -56,112 +48,22 @@ export function CandleAggregatorStatus() {
     };
   }, []);
 
-  const handleForceRestart = async () => {
-    setIsRestarting(true);
-    setRestartMessage(null);
-
-    try {
-      const result = await backgroundCandleAggregator.forceRestart();
-      setRestartMessage({
-        type: result.success ? 'success' : 'error',
-        text: result.message
-      });
-
-      if (result.success) {
-        setUpdateCount(0);
-      }
-
-      setTimeout(() => setRestartMessage(null), 5000);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      setRestartMessage({
-        type: 'error',
-        text: `Restart failed: ${errorMsg}`
-      });
-    } finally {
-      setIsRestarting(false);
-    }
-  };
-
   if (!status) {
     return null;
   }
 
-  const connectionStatusColor = status.connectionHealthy
-    ? 'text-green-400'
-    : status.isReconnecting
-    ? 'text-yellow-400'
-    : 'text-red-400';
-
-  const connectionStatusBg = status.connectionHealthy
-    ? 'bg-green-500/20'
-    : status.isReconnecting
-    ? 'bg-yellow-500/20'
-    : 'bg-red-500/20';
-
   return (
     <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
+      <div className="flex items-center gap-2 mb-4">
         <Database className="text-blue-400" size={20} />
         <h3 className="text-white font-semibold">Background Candle Aggregator</h3>
-
-        <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
+        <div className={`ml-auto flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
           status.isRunning ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
         }`}>
           <div className={`w-2 h-2 rounded-full ${status.isRunning ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
           {status.isRunning ? 'Running' : 'Stopped'}
         </div>
-
-        <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${connectionStatusBg} ${connectionStatusColor}`}>
-          {status.connectionHealthy ? (
-            <CheckCircle size={14} />
-          ) : status.isReconnecting ? (
-            <RefreshCw size={14} className="animate-spin" />
-          ) : (
-            <AlertCircle size={14} />
-          )}
-          {status.connectionHealthy
-            ? 'Connected'
-            : status.isReconnecting
-            ? `Reconnecting ${status.reconnectAttempts}/10`
-            : 'Disconnected'}
-        </div>
-
-        <button
-          onClick={handleForceRestart}
-          disabled={isRestarting}
-          className="ml-auto flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded-lg text-xs font-medium transition-colors"
-        >
-          <RefreshCw size={14} className={isRestarting ? 'animate-spin' : ''} />
-          {isRestarting ? 'Restarting...' : 'Force Restart'}
-        </button>
       </div>
-
-      {restartMessage && (
-        <div className={`mb-4 p-3 rounded-lg text-sm ${
-          restartMessage.type === 'success'
-            ? 'bg-green-500/20 text-green-400 border border-green-500/50'
-            : 'bg-red-500/20 text-red-400 border border-red-500/50'
-        }`}>
-          {restartMessage.text}
-        </div>
-      )}
-
-      {!status.connectionHealthy && !status.isReconnecting && (
-        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={16} />
-            <div>
-              <div className="text-red-400 font-medium mb-1">Connection Lost</div>
-              <div className="text-red-300/80 text-xs">
-                {status.reconnectAttempts >= 10
-                  ? 'Max reconnection attempts reached. Click "Force Restart" to recover.'
-                  : `Last message received ${Math.round((status.timeSinceLastMessageMs || 0) / 1000)}s ago.`}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
         <div className="bg-gray-900/50 rounded-lg p-3">
