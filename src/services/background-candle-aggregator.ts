@@ -174,6 +174,10 @@ class BackgroundCandleAggregator {
   }
 
   private notifyListeners(symbol: string, timeframe: Timeframe, candle: CandleData): void {
+    if (this.listeners.size === 0) {
+      return;
+    }
+
     this.listeners.forEach(listener => {
       try {
         listener(symbol, timeframe, candle);
@@ -192,6 +196,11 @@ class BackgroundCandleAggregator {
       return;
     }
 
+    if (isNaN(timestampMs) || timestampMs <= 0) {
+      console.warn(`[BackgroundAggregator] Invalid timestamp for ${symbol}: ${timestamp}`);
+      return;
+    }
+
     for (const timeframe of ALL_TIMEFRAMES) {
       const key = this.getCacheKey(symbol, timeframe);
       const candleTime = this.getCandleTime(timestampMs, timeframe);
@@ -199,11 +208,19 @@ class BackgroundCandleAggregator {
 
       if (!existingState || existingState.startTime !== candleTime) {
         if (existingState) {
+          console.log(
+            `[BackgroundAggregator] 🔄 New ${timeframe} period for ${symbol}: ` +
+            `saving completed candle at ${new Date(existingState.startTime).toISOString()}`
+          );
           this.queueCandleForSave(symbol, timeframe, existingState);
         }
 
         const newState = this.initializeCandleState(symbol, timeframe, midPrice, timestampMs);
         this.candleStates.set(key, newState);
+        console.log(
+          `[BackgroundAggregator] 🆕 Initialized new ${timeframe} candle for ${symbol} ` +
+          `at ${new Date(candleTime).toISOString()} | Open: ${midPrice.toFixed(5)}`
+        );
 
         const candleData: CandleData = {
           time: newState.time,
@@ -282,6 +299,12 @@ class BackgroundCandleAggregator {
             const { symbol, bid, ask, broker_time, created_at } = payload.new as any;
             const timestamp = broker_time || created_at;
 
+            console.log(
+              `[BackgroundAggregator] 📥 Realtime price: ${symbol} | ` +
+              `${parseFloat(bid).toFixed(5)}/${parseFloat(ask).toFixed(5)} | ` +
+              `Time: ${timestamp}`
+            );
+
             this.processNewPrice(
               symbol,
               parseFloat(bid),
@@ -291,14 +314,18 @@ class BackgroundCandleAggregator {
           }
         )
         .subscribe((status, err) => {
-          console.log(`[BackgroundAggregator] Subscription status: ${status}`);
+          console.log(`[BackgroundAggregator] 📡 Subscription status: ${status}`);
 
           if (status === 'SUBSCRIBED') {
             this.isRunning = true;
             this.reconnectAttempts = 0;
             this.isReconnecting = false;
             this.lastMessageTime = new Date();
-            console.log('[BackgroundAggregator] ✅ Successfully subscribed to realtime_prices');
+            console.log(
+              `[BackgroundAggregator] ✅ Successfully subscribed to realtime_prices | ` +
+              `Monitoring ${FOREX_PAIRS.length} symbols across ${ALL_TIMEFRAMES.length} timeframes | ` +
+              `${this.listeners.size} active listeners`
+            );
           } else if (status === 'CHANNEL_ERROR') {
             console.error('[BackgroundAggregator] ❌ Channel error:', err);
             this.isReconnecting = false;
@@ -398,10 +425,22 @@ class BackgroundCandleAggregator {
       console.log('[BackgroundAggregator] 🔄 Forcing reconnection due to stale connection...');
       this.handleConnectionError();
     } else {
+      const candleStatesPerSymbol = new Map<string, number>();
+      for (const key of this.candleStates.keys()) {
+        const symbol = key.split('_')[0];
+        candleStatesPerSymbol.set(symbol, (candleStatesPerSymbol.get(symbol) || 0) + 1);
+      }
+
+      const statesBreakdown = Array.from(candleStatesPerSymbol.entries())
+        .map(([symbol, count]) => `${symbol}:${count}`)
+        .join(', ');
+
       console.log(
-        `[BackgroundAggregator] ✅ Health check passed ` +
-        `(last message ${Math.round(timeSinceLastMessage / 1000)}s ago, ` +
-        `${this.candleStates.size} active candles)`
+        `[BackgroundAggregator] 💚 Health OK | ` +
+        `Last msg: ${Math.round(timeSinceLastMessage / 1000)}s ago | ` +
+        `${this.candleStates.size} active candles (${statesBreakdown}) | ` +
+        `${this.listeners.size} listeners | ` +
+        `Queue: ${this.saveQueue.length}`
       );
     }
   }
