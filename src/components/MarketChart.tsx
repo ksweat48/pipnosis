@@ -700,18 +700,18 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
                 }`}>
                   {currentPrice.toFixed(5)}
                 </div>
+                <div className={`text-sm flex items-center gap-1 ${
+                  priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
+                }`}>
+                  <Activity size={14} />
+                  {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
+                </div>
                 <div className={`px-3 py-1 rounded-lg text-sm font-semibold ${
                   forexMarketStatus.isOpen
                     ? 'bg-green-500/20 text-green-400 border border-green-500/50'
                     : 'bg-red-500/20 text-red-400 border border-red-500/50'
                 }`}>
                   {forexMarketStatus.status}
-                </div>
-                <div className={`text-sm flex items-center gap-1 ${
-                  priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
-                }`}>
-                  <Activity size={14} />
-                  {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
                 </div>
               </div>
             </div>
@@ -726,18 +726,18 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines }: MarketChartP
             }`}>
               {currentPrice.toFixed(5)}
             </div>
+            <div className={`text-sm flex items-center gap-1 ${
+              priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
+            }`}>
+              <Activity size={12} />
+              {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
+            </div>
             <div className={`px-2.5 py-0.5 rounded-lg text-xs font-semibold ${
               forexMarketStatus.isOpen
                 ? 'bg-green-500/20 text-green-400 border border-green-500/50'
                 : 'bg-red-500/20 text-red-400 border border-red-500/50'
             }`}>
               {forexMarketStatus.status}
-            </div>
-            <div className={`text-sm flex items-center gap-1 ${
-              priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
-            }`}>
-              <Activity size={12} />
-              {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
             </div>
           </div>
         )}
