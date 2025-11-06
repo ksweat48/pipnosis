@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { Timeframe } from '@/services/chart-preferences';
+import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
 import { CandleData } from '@/services/candle-data-service';
 
 interface SaveCandleResult {
@@ -104,15 +104,18 @@ class CandlePersistenceService {
         volume: candle.volume || 0
       };
 
+      const dbTimeframe = appTimeframeToDb(timeframe);
+      const dbCandleRecord = { ...candleRecord, timeframe: dbTimeframe };
+
       const { error: forexError } = await supabase
         .from('forex_candles')
-        .upsert(candleRecord, {
+        .upsert(dbCandleRecord, {
           onConflict: 'symbol,timeframe,open_time',
           ignoreDuplicates: false
         });
 
       if (forexError) {
-        console.error('[CandlePersistence] Failed to save to forex_candles:', forexError);
+        console.error(`[CandlePersistence] Failed to save to forex_candles (${timeframe} -> ${dbTimeframe}):`, forexError);
         return {
           success: false,
           error: forexError.message

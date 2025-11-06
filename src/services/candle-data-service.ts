@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { Timeframe } from '@/services/chart-preferences';
+import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
 
 export interface CandleData {
   time: number;
@@ -109,11 +109,13 @@ export async function fetchPreAggregatedCandles(
   limit: number = 500
 ): Promise<CandleData[]> {
   try {
+    const dbTimeframe = appTimeframeToDb(timeframe);
+
     const { data: forexCandles, error: forexError } = await supabase
       .from('forex_candles')
       .select('open_time, open, high, low, close, volume')
       .eq('symbol', symbol)
-      .eq('timeframe', timeframe)
+      .eq('timeframe', dbTimeframe)
       .order('open_time', { ascending: false })
       .limit(limit);
 
@@ -123,7 +125,7 @@ export async function fetchPreAggregatedCandles(
     }
 
     if (!forexCandles || forexCandles.length === 0) {
-      console.warn(`No pre-aggregated candles found for ${symbol} ${timeframe}`);
+      console.warn(`No pre-aggregated candles found for ${symbol} ${timeframe} (db: ${dbTimeframe})`);
       return [];
     }
 
@@ -138,7 +140,7 @@ export async function fetchPreAggregatedCandles(
       }))
       .reverse();
 
-    console.log(`Loaded ${candles.length} pre-aggregated candles from forex_candles for ${symbol} ${timeframe}`);
+    console.log(`Loaded ${candles.length} pre-aggregated candles from forex_candles for ${symbol} ${timeframe} (db: ${dbTimeframe})`);
     return candles;
   } catch (error) {
     console.error('Error fetching pre-aggregated candles:', error);

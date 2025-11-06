@@ -1,9 +1,38 @@
 import { supabase } from '@/lib/supabase';
 
 type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'W1';
+type DbTimeframe = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | 'd1' | 'w1';
 
 interface ChartPreferences {
   [symbol: string]: Timeframe;
+}
+
+export function appTimeframeToDb(timeframe: Timeframe): DbTimeframe {
+  const mapping: Record<Timeframe, DbTimeframe> = {
+    'M1': '1m',
+    'M5': '5m',
+    'M15': '15m',
+    'M30': '30m',
+    'H1': '1h',
+    'H4': '4h',
+    'D1': 'd1',
+    'W1': 'w1'
+  };
+  return mapping[timeframe];
+}
+
+export function dbTimeframeToApp(dbTimeframe: string): Timeframe {
+  const mapping: Record<string, Timeframe> = {
+    '1m': 'M1',
+    '5m': 'M5',
+    '15m': 'M15',
+    '30m': 'M30',
+    '1h': 'H1',
+    '4h': 'H4',
+    'd1': 'D1',
+    'w1': 'W1'
+  };
+  return mapping[dbTimeframe] || 'M1';
 }
 
 interface IndicatorVisibility {

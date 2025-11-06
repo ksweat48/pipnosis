@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { Timeframe } from '@/services/chart-preferences';
+import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
 import { getTimeframeMinutes, CandleData } from '@/services/candle-data-service';
 
 interface CandleState {
@@ -90,15 +90,18 @@ class BackgroundCandleAggregator {
     };
 
     try {
+      const dbTimeframe = appTimeframeToDb(timeframe);
+      const dbCandleRecord = { ...candleRecord, timeframe: dbTimeframe };
+
       const { error: forexError } = await supabase
         .from('forex_candles')
-        .upsert(candleRecord, {
+        .upsert(dbCandleRecord, {
           onConflict: 'symbol,timeframe,open_time',
           ignoreDuplicates: false
         });
 
       if (forexError) {
-        console.error(`[BackgroundAggregator] Failed to save ${symbol} ${timeframe}:`, forexError);
+        console.error(`[BackgroundAggregator] Failed to save ${symbol} ${timeframe} (db: ${dbTimeframe}):`, forexError);
         return;
       }
 

@@ -222,7 +222,7 @@ Structure: ${regime.structure}
         .from('forex_candles')
         .select('high, low, close, volume')
         .eq('symbol', symbol)
-        .eq('timeframe', 'M15')
+        .eq('timeframe', '15m')
         .order('open_time', { ascending: false })
         .limit(50);
 

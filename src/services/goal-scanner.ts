@@ -101,7 +101,7 @@ class GoalScanner {
         .from('forex_candles')
         .select('*')
         .eq('symbol', symbol)
-        .eq('timeframe', 'M15')
+        .eq('timeframe', '15m')
         .order('open_time', { ascending: false })
         .limit(100);
 

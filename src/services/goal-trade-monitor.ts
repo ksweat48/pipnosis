@@ -67,7 +67,7 @@ class GoalTradeMonitor {
         .from('forex_candles')
         .select('*')
         .eq('symbol', trade.symbol)
-        .eq('timeframe', 'M5')
+        .eq('timeframe', '5m')
         .order('open_time', { ascending: false })
         .limit(10);
 
