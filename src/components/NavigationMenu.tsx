@@ -11,7 +11,7 @@ export function NavigationMenu() {
   const [showProfileMenu, setShowProfileMenu] = React.useState(false);
 
   const navItems = [
-    { path: '/trade', label: 'Trade', icon: TrendingUp },
+    { path: '/trade', label: 'Charts', icon: TrendingUp },
     { path: '/history', label: 'History', icon: History },
     { path: '/analysis', label: 'Analysis', icon: BarChart3 },
   ];
