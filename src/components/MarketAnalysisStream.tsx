@@ -255,15 +255,15 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
               key={snapshot.symbol}
               className="bg-gray-700/50 rounded-lg p-4 border border-gray-600 hover:border-gray-500 transition-colors"
             >
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-3">
+              <div className="flex flex-col md:flex-row md:items-start md:justify-between mb-3 gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <div className="text-xl font-bold text-white">{snapshot.symbol}</div>
                   {getTrendIcon(snapshot.trend)}
                   <div className="text-2xl font-mono font-bold text-blue-400">
                     {snapshot.currentPrice.toFixed(5)}
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="md:text-right">
                   <div className="text-xs text-gray-500 mb-1">Setup Confidence</div>
                   <div className="text-lg font-bold text-white">{snapshot.setupConfidence}%</div>
                 </div>
