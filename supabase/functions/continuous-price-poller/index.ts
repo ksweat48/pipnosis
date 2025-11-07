@@ -20,6 +20,48 @@ interface PriceData {
   timestamp: string;
 }
 
+interface MarketStatus {
+  isOpen: boolean;
+  status: 'Open' | 'Closed';
+  currentTime: string;
+  dayOfWeek: number;
+  hour: number;
+  minute: number;
+}
+
+function getForexMarketStatus(): MarketStatus {
+  const now = new Date();
+
+  const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+
+  const dayOfWeek = estTime.getDay();
+  const hours = estTime.getHours();
+  const minutes = estTime.getMinutes();
+  const totalMinutes = hours * 60 + minutes;
+
+  const fridayCloseTime = 17 * 60;
+  const sundayOpenTime = 17 * 60;
+
+  let isOpen = true;
+
+  if (dayOfWeek === 6) {
+    isOpen = false;
+  } else if (dayOfWeek === 5 && totalMinutes >= fridayCloseTime) {
+    isOpen = false;
+  } else if (dayOfWeek === 0 && totalMinutes < sundayOpenTime) {
+    isOpen = false;
+  }
+
+  return {
+    isOpen,
+    status: isOpen ? 'Open' : 'Closed',
+    currentTime: estTime.toISOString(),
+    dayOfWeek,
+    hour: hours,
+    minute: minutes
+  };
+}
+
 async function fetchPriceFromMetaApi(symbol: string): Promise<PriceData | null> {
   const metaapiToken = Deno.env.get('METAAPI_TOKEN');
   const metaapiAccountId = Deno.env.get('METAAPI_ACCOUNT_ID');
@@ -135,7 +177,46 @@ Deno.serve(async (req: Request) => {
     const action = url.searchParams.get('action') || 'poll';
 
     if (action === 'poll') {
-      console.log(`🔄 Starting price poll for ${FOREX_PAIRS.length} pairs...`);
+      const marketStatus = getForexMarketStatus();
+
+      if (!marketStatus.isOpen) {
+        console.log(`⏸️ Market is CLOSED - Skipping poll (EST: ${marketStatus.currentTime}, Day: ${marketStatus.dayOfWeek}, Hour: ${marketStatus.hour}:${marketStatus.minute})`);
+
+        await supabase
+          .from('price_polling_health')
+          .insert({
+            poll_timestamp: new Date().toISOString(),
+            successful_pairs: 0,
+            failed_pairs: 0,
+            total_duration_ms: 0,
+            error_message: `Market closed - Day ${marketStatus.dayOfWeek}, ${marketStatus.hour}:${String(marketStatus.minute).padStart(2, '0')} EST`
+          });
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: 'Market is closed - polling skipped',
+            marketStatus: marketStatus.status,
+            marketOpen: false,
+            currentTime: marketStatus.currentTime,
+            dayOfWeek: marketStatus.dayOfWeek,
+            hour: marketStatus.hour,
+            minute: marketStatus.minute,
+            nextOpen: marketStatus.dayOfWeek === 6 || (marketStatus.dayOfWeek === 5 && marketStatus.hour >= 17) || (marketStatus.dayOfWeek === 0 && marketStatus.hour < 17)
+              ? 'Sunday 5:00 PM EST'
+              : 'Market is open',
+            timestamp: new Date().toISOString()
+          }),
+          {
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+      }
+
+      console.log(`🔄 Market OPEN - Starting price poll for ${FOREX_PAIRS.length} pairs...`);
       const startTime = Date.now();
 
       const successCount = await pollAllSymbols(supabase);
@@ -143,10 +224,22 @@ Deno.serve(async (req: Request) => {
       const duration = Date.now() - startTime;
       console.log(`✅ Poll complete: ${successCount}/${FOREX_PAIRS.length} pairs updated in ${duration}ms`);
 
+      await supabase
+        .from('price_polling_health')
+        .insert({
+          poll_timestamp: new Date().toISOString(),
+          successful_pairs: successCount,
+          failed_pairs: FOREX_PAIRS.length - successCount,
+          total_duration_ms: duration,
+          error_message: null
+        });
+
       return new Response(
         JSON.stringify({
           success: true,
           message: 'Price polling completed',
+          marketStatus: marketStatus.status,
+          marketOpen: true,
           totalPairs: FOREX_PAIRS.length,
           successfulUpdates: successCount,
           failedUpdates: FOREX_PAIRS.length - successCount,
