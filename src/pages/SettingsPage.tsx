@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { NavigationMenu } from '@/components/NavigationMenu';
-import { ServerSideCandleMonitor } from '@/components/ServerSideCandleMonitor';
 import { supabase } from '@/lib/supabase';
 import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity } from 'lucide-react';
 import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
@@ -678,14 +677,6 @@ export function SettingsPage() {
                   </button>
                 </div>
               </form>
-            </div>
-
-            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-6">
-                <Activity size={20} className="text-emerald-400" />
-                <h2 className="text-xl font-semibold text-white">System Monitoring</h2>
-              </div>
-              <ServerSideCandleMonitor />
             </div>
           </div>
         )}
