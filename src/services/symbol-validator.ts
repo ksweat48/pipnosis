@@ -205,15 +205,20 @@ class SymbolValidatorService {
     try {
       const { data, error } = await supabase
         .from('symbol_availability')
-        .select('symbol')
-        .eq('available_for_historical', true)
+        .select('symbol, available_for_historical')
         .order('symbol');
 
-      if (error || !data) {
+      if (error || !data || data.length === 0) {
         return this.getDefaultWorkingSymbols();
       }
 
-      return data.map(row => row.symbol);
+      const symbols = data.map(row => row.symbol);
+
+      if (symbols.length === 0) {
+        return this.getDefaultWorkingSymbols();
+      }
+
+      return symbols;
     } catch (error) {
       return this.getDefaultWorkingSymbols();
     }

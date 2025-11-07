@@ -19,7 +19,7 @@ interface DataCompletenessStatus {
 }
 
 export function DataManagementPanel() {
-  const [activeTab, setActiveTab] = useState<'historical' | 'monitoring'>('historical');
+  const [activeTab, setActiveTab] = useState<'historical' | 'monitoring'>('monitoring');
   const [statusData, setStatusData] = useState<DataCompletenessStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isBulkImporting, setIsBulkImporting] = useState(false);
