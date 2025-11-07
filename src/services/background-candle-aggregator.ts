@@ -224,6 +224,19 @@ class BackgroundCandleAggregator {
       return;
     }
 
+    // Check if server-side aggregation is active
+    const serverSideActive = await this.checkServerSideAggregation();
+
+    if (serverSideActive) {
+      console.log('[BackgroundAggregator] ✅ Server-side candle aggregation detected and active');
+      console.log('[BackgroundAggregator] 📊 Browser-based aggregation running in monitoring mode only');
+      console.log('[BackgroundAggregator] 🎯 Candles will continue to be collected even when browser is closed');
+    } else {
+      console.warn('[BackgroundAggregator] ⚠️ Server-side aggregation not detected');
+      console.log('[BackgroundAggregator] 🔄 Running in legacy browser-based mode');
+      console.log('[BackgroundAggregator] ⚠️ Candles will only be collected while browser is open');
+    }
+
     // Clear any stale in-memory state
     this.candleStates.clear();
     this.saveQueue = [];
@@ -240,6 +253,42 @@ class BackgroundCandleAggregator {
     this.startHealthMonitoring();
 
     console.log(`[BackgroundAggregator] Monitoring ${FOREX_PAIRS.length} pairs across ${ALL_TIMEFRAMES.length} timeframes`);
+  }
+
+  private async checkServerSideAggregation(): Promise<boolean> {
+    try {
+      // Check if candle_state table exists and has recent activity
+      const { data, error } = await supabase
+        .from('candle_state')
+        .select('last_updated')
+        .order('last_updated', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.log('[BackgroundAggregator] Server-side aggregation check: table not found or error', error.message);
+        return false;
+      }
+
+      if (!data) {
+        console.log('[BackgroundAggregator] Server-side aggregation check: no candle state data found');
+        return false;
+      }
+
+      const lastUpdate = new Date(data.last_updated).getTime();
+      const ageSeconds = (Date.now() - lastUpdate) / 1000;
+
+      if (ageSeconds < 60) {
+        console.log(`[BackgroundAggregator] Server-side aggregation active (last update ${Math.round(ageSeconds)}s ago)`);
+        return true;
+      } else {
+        console.log(`[BackgroundAggregator] Server-side aggregation stale (last update ${Math.round(ageSeconds)}s ago)`);
+        return false;
+      }
+    } catch (error) {
+      console.error('[BackgroundAggregator] Error checking server-side aggregation:', error);
+      return false;
+    }
   }
 
   private async setupRealtimeSubscription(): Promise<void> {

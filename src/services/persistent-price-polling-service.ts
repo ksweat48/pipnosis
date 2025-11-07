@@ -36,6 +36,8 @@ class PersistentPricePollingService {
 
     console.log('[PersistentPricePolling] 🚀 Starting persistent background price polling...');
     console.log(`[PersistentPricePolling] Poll interval: ${this.POLL_INTERVAL_MS}ms`);
+    console.log('[PersistentPricePolling] 📡 This feeds the server-side candle aggregation system');
+    console.log('[PersistentPricePolling] 🎯 Price data enables candle collection even when browser is closed');
 
     this.isRunning = true;
     this.status.isRunning = true;
@@ -49,6 +51,7 @@ class PersistentPricePollingService {
     }, this.POLL_INTERVAL_MS);
 
     console.log('[PersistentPricePolling] ✅ Service started successfully');
+    console.log('[PersistentPricePolling] ℹ️ Note: Database triggers automatically aggregate prices into candles');
     this.notifyListeners();
   }
 
