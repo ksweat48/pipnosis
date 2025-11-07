@@ -12,14 +12,72 @@ export interface IndicatorResult {
   value: number;
 }
 
-export function calculateVWAP(candles: CandleData[]): IndicatorResult[] {
+/**
+ * Calculate Rolling VWAP - uses a fixed lookback window
+ * This makes VWAP responsive to current price action
+ * @param candles - Array of candle data
+ * @param lookbackPeriod - Number of candles to include in rolling window (default: 200)
+ */
+export function calculateVWAP(candles: CandleData[], lookbackPeriod: number = 200): IndicatorResult[] {
   if (candles.length === 0) return [];
 
-  let cumulativeTPV = 0;
-  let cumulativeVolume = 0;
   const results: IndicatorResult[] = [];
 
+  // Use rolling window VWAP instead of cumulative
+  // This makes VWAP responsive to current price action
+  for (let i = 0; i < candles.length; i++) {
+    // Determine the start index for the rolling window
+    const startIdx = Math.max(0, i - lookbackPeriod + 1);
+    const windowCandles = candles.slice(startIdx, i + 1);
+
+    // Calculate VWAP for this window
+    let cumulativeTPV = 0;
+    let cumulativeVolume = 0;
+
+    for (const candle of windowCandles) {
+      const typicalPrice = (candle.high + candle.low + candle.close) / 3;
+      const volume = candle.volume || 1;
+
+      cumulativeTPV += typicalPrice * volume;
+      cumulativeVolume += volume;
+    }
+
+    const vwap = cumulativeTPV / cumulativeVolume;
+
+    results.push({
+      time: candles[i].time,
+      value: vwap
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Calculate Session-Based VWAP - resets at the start of each trading day
+ * Useful for intraday trading strategies
+ * @param candles - Array of candle data
+ */
+export function calculateSessionVWAP(candles: CandleData[]): IndicatorResult[] {
+  if (candles.length === 0) return [];
+
+  const results: IndicatorResult[] = [];
+  let cumulativeTPV = 0;
+  let cumulativeVolume = 0;
+  let currentDay = '';
+
   for (const candle of candles) {
+    // Get the date in YYYY-MM-DD format (UTC)
+    const candleDate = new Date(candle.time * 1000);
+    const dateString = candleDate.toISOString().split('T')[0];
+
+    // Reset VWAP at the start of a new trading day
+    if (dateString !== currentDay) {
+      currentDay = dateString;
+      cumulativeTPV = 0;
+      cumulativeVolume = 0;
+    }
+
     const typicalPrice = (candle.high + candle.low + candle.close) / 3;
     const volume = candle.volume || 1;
 

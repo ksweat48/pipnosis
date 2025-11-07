@@ -85,7 +85,8 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
 
     const ema20 = calculateEMA(prices, 20);
     const ema50 = calculateEMA(prices, 50);
-    const vwap = calculateVWAP(recentCandles.slice(-20));
+    const vwapResults = calculateVWAP(recentCandles.slice(-20), 20);
+    const vwap = vwapResults.length > 0 ? vwapResults[vwapResults.length - 1].value : currentPrice;
     const atr = calculateATR(recentCandles.slice(-14));
 
     const distanceFromVWAP = ((currentPrice - vwap) / currentPrice) * 100;

@@ -248,10 +248,27 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     });
   };
 
+  const getVWAPLookbackPeriod = (tf: Timeframe): number => {
+    // Adjust VWAP lookback based on timeframe to maintain similar time coverage
+    // Shorter timeframes = more candles, longer timeframes = fewer candles
+    const lookbackMap: Record<Timeframe, number> = {
+      'M1': 200,   // 200 minutes = ~3.3 hours
+      'M5': 150,   // 750 minutes = ~12.5 hours
+      'M15': 100,  // 1500 minutes = 25 hours (~1 day)
+      'M30': 75,   // 2250 minutes = 37.5 hours (~1.5 days)
+      'H1': 50,    // 50 hours = ~2 days
+      'H4': 30,    // 120 hours = 5 days
+      'D1': 20,    // 20 days
+      'W1': 12     // 12 weeks = ~3 months
+    };
+    return lookbackMap[tf] || 100;
+  };
+
   const updateIndicators = (candles: CandleData[]) => {
     if (candles.length === 0) return;
 
-    const vwap = calculateVWAP(candles);
+    const vwapLookback = getVWAPLookbackPeriod(timeframe);
+    const vwap = calculateVWAP(candles, vwapLookback);
     const ema20 = calculateEMA(candles, 20);
     const ema50 = calculateEMA(candles, 50);
     const ema200 = calculateEMA(candles, 200);

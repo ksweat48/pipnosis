@@ -243,11 +243,13 @@ class GoalScanner {
     return ema;
   }
 
-  calculateVWAP(candles: any[]): number {
+  calculateVWAP(candles: any[], lookbackPeriod: number = 20): number {
+    // Use only the most recent candles for VWAP to keep it responsive
+    const relevantCandles = candles.slice(-lookbackPeriod);
     let totalVolume = 0;
     let totalPV = 0;
 
-    for (const candle of candles) {
+    for (const candle of relevantCandles) {
       const typical = (candle.high + candle.low + candle.close) / 3;
       const volume = candle.volume || 1;
       totalPV += typical * volume;
