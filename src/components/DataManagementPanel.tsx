@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Download, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Play, Pause, Search } from 'lucide-react';
+import { Database, Download, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Play, Pause, Search, Activity } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { historicalDataService, type ProgressUpdate } from '@/services/historical-data-service';
 import { automatedRefreshService } from '@/services/automated-refresh-service';
 import { symbolValidator } from '@/services/symbol-validator';
 import { Timeframe } from '@/services/chart-preferences';
+import { SystemMonitoringPanel } from './SystemMonitoringPanel';
 
 interface DataCompletenessStatus {
   symbol: string;
@@ -18,6 +19,7 @@ interface DataCompletenessStatus {
 }
 
 export function DataManagementPanel() {
+  const [activeTab, setActiveTab] = useState<'historical' | 'monitoring'>('historical');
   const [statusData, setStatusData] = useState<DataCompletenessStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isBulkImporting, setIsBulkImporting] = useState(false);
@@ -227,6 +229,37 @@ export function DataManagementPanel() {
 
   return (
     <div className="space-y-6">
+      <div className="bg-gray-800 rounded-lg border border-gray-700">
+        <div className="flex border-b border-gray-700">
+          <button
+            onClick={() => setActiveTab('historical')}
+            className={`flex items-center gap-2 px-6 py-4 font-medium transition-all ${
+              activeTab === 'historical'
+                ? 'text-emerald-500 border-b-2 border-emerald-500 bg-gray-900/50'
+                : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/30'
+            }`}
+          >
+            <Database size={20} />
+            Historical Data
+          </button>
+          <button
+            onClick={() => setActiveTab('monitoring')}
+            className={`flex items-center gap-2 px-6 py-4 font-medium transition-all ${
+              activeTab === 'monitoring'
+                ? 'text-emerald-500 border-b-2 border-emerald-500 bg-gray-900/50'
+                : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/30'
+            }`}
+          >
+            <Activity size={20} />
+            System Monitoring
+          </button>
+        </div>
+      </div>
+
+      {activeTab === 'monitoring' ? (
+        <SystemMonitoringPanel />
+      ) : (
+        <div className="space-y-6">
       <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -474,6 +507,8 @@ export function DataManagementPanel() {
           </table>
         </div>
       </div>
+        </div>
+      )}
     </div>
   );
 }
