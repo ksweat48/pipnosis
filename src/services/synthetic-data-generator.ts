@@ -30,6 +30,15 @@ export interface SyntheticDataResult {
   params: GenerationParams;
 }
 
+export interface GenerationProgress {
+  phase: string;
+  candlesGenerated: number;
+  totalEstimated: number;
+  percentComplete: number;
+  timeframe: string;
+  message: string;
+}
+
 class SyntheticDataGeneratorService {
   private readonly DEFAULT_VOLATILITY = 0.0015;
   private readonly HIGH_VOLATILITY = 0.003;
@@ -41,7 +50,8 @@ class SyntheticDataGeneratorService {
     startDate: Date,
     endDate: Date,
     scenario: string = 'mixed',
-    customParams?: Partial<GenerationParams>
+    customParams?: Partial<GenerationParams>,
+    onProgress?: (progress: GenerationProgress) => void
   ): Promise<SyntheticDataResult> {
     console.log(`[Synthetic] Generating data for ${symbol} from ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
@@ -51,10 +61,28 @@ class SyntheticDataGeneratorService {
     const generationRecord = await this.createGenerationRecord(userId, symbol, startDate, endDate, params, scenario);
     const generationId = generationRecord.id;
 
-    const m1Candles = await this.generateM1Candles(symbol, startDate, endDate, params, generationId);
+    onProgress?.({
+      phase: 'initialization',
+      candlesGenerated: 0,
+      totalEstimated: this.estimateTotalCandles(startDate, endDate),
+      percentComplete: 0,
+      timeframe: 'M1',
+      message: 'Starting M1 candle generation...'
+    });
+
+    const m1Candles = await this.generateM1Candles(symbol, startDate, endDate, params, generationId, onProgress);
 
     const allTimeframes = ['M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
-    for (const timeframe of allTimeframes) {
+    for (let i = 0; i < allTimeframes.length; i++) {
+      const timeframe = allTimeframes[i];
+      onProgress?.({
+        phase: 'aggregation',
+        candlesGenerated: m1Candles.length,
+        totalEstimated: m1Candles.length * 7,
+        percentComplete: 70 + (i / allTimeframes.length) * 30,
+        timeframe,
+        message: `Aggregating ${timeframe} candles...`
+      });
       await this.aggregateToTimeframe(m1Candles, symbol, timeframe, generationId);
     }
 
@@ -137,12 +165,22 @@ class SyntheticDataGeneratorService {
     }
   }
 
+  private estimateTotalCandles(startDate: Date, endDate: Date): number {
+    const diffMs = endDate.getTime() - startDate.getTime();
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    const tradingDaysPerWeek = 5;
+    const weekendDays = Math.floor(diffDays / 7) * 2;
+    const tradingDays = diffDays - weekendDays;
+    return Math.floor(tradingDays * 24 * 60);
+  }
+
   private async generateM1Candles(
     symbol: string,
     startDate: Date,
     endDate: Date,
     params: GenerationParams,
-    generationId: string
+    generationId: string,
+    onProgress?: (progress: GenerationProgress) => void
   ): Promise<SyntheticCandle[]> {
     const candles: SyntheticCandle[] = [];
     const basePrice = this.getBasePrice(symbol);
@@ -157,8 +195,29 @@ class SyntheticDataGeneratorService {
 
     let volatilityMultiplier = 1.0;
     let volatilityCycle = 0;
+    const totalEstimated = this.estimateTotalCandles(startDate, endDate);
+    let progressCounter = 0;
+    const progressInterval = 1000;
+
+    console.log(`[Synthetic] Estimating ${totalEstimated} M1 candles for ${symbol}`);
 
     while (currentTime < endTime) {
+      progressCounter++;
+
+      if (progressCounter % progressInterval === 0) {
+        const percentComplete = Math.min(70, (candles.length / totalEstimated) * 70);
+        console.log(`[Synthetic] Generated ${candles.length}/${totalEstimated} M1 candles (${percentComplete.toFixed(1)}%)`);
+        onProgress?.({
+          phase: 'generation',
+          candlesGenerated: candles.length,
+          totalEstimated,
+          percentComplete,
+          timeframe: 'M1',
+          message: `Generating M1 candles... ${candles.length}/${totalEstimated}`
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
       if (this.isWeekend(currentTime)) {
         currentTime = this.skipToMonday(currentTime);
         continue;
@@ -214,7 +273,17 @@ class SyntheticDataGeneratorService {
       currentTime = closeTime;
     }
 
-    await this.saveCandlesToDatabase(candles, symbol, 'M1', generationId);
+    console.log(`[Synthetic] Generated ${candles.length} M1 candles, now saving to database...`);
+    onProgress?.({
+      phase: 'saving',
+      candlesGenerated: candles.length,
+      totalEstimated,
+      percentComplete: 70,
+      timeframe: 'M1',
+      message: `Saving ${candles.length} M1 candles to database...`
+    });
+
+    await this.saveCandlesToDatabase(candles, symbol, 'M1', generationId, onProgress, totalEstimated);
 
     console.log(`[Synthetic] Generated ${candles.length} M1 candles`);
     return candles;
@@ -261,11 +330,16 @@ class SyntheticDataGeneratorService {
     candles: SyntheticCandle[],
     symbol: string,
     timeframe: string,
-    generationId: string
+    generationId: string,
+    onProgress?: (progress: GenerationProgress) => void,
+    totalEstimated?: number
   ): Promise<void> {
     const BATCH_SIZE = 1000;
 
     for (let i = 0; i < candles.length; i += BATCH_SIZE) {
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(candles.length / BATCH_SIZE);
+      console.log(`[Synthetic] Saving batch ${batchNum}/${totalBatches} for ${timeframe}...`);
       const batch = candles.slice(i, i + BATCH_SIZE);
       const records = batch.map(candle => ({
         synthetic_session_id: generationId,
@@ -283,6 +357,20 @@ class SyntheticDataGeneratorService {
         console.error(`[Synthetic] Error saving batch:`, error);
         throw error;
       }
+
+      if (onProgress && totalEstimated) {
+        const percentComplete = 70 + ((i + BATCH_SIZE) / candles.length) * 5;
+        onProgress({
+          phase: 'saving',
+          candlesGenerated: Math.min(i + BATCH_SIZE, candles.length),
+          totalEstimated,
+          percentComplete: Math.min(75, percentComplete),
+          timeframe,
+          message: `Saved ${Math.min(i + BATCH_SIZE, candles.length)}/${candles.length} ${timeframe} candles...`
+        });
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 0));
     }
   }
 
@@ -398,7 +486,8 @@ class SyntheticDataGeneratorService {
     symbol: string,
     startDate: Date,
     endDate: Date,
-    scenario: string = 'mixed'
+    scenario: string = 'mixed',
+    onProgress?: (progress: GenerationProgress) => void
   ): Promise<string> {
     const { data: existing } = await supabase
       .from('synthetic_data_generations')
@@ -417,7 +506,7 @@ class SyntheticDataGeneratorService {
       return existing.id;
     }
 
-    const result = await this.generateSyntheticData(userId, symbol, startDate, endDate, scenario);
+    const result = await this.generateSyntheticData(userId, symbol, startDate, endDate, scenario, undefined, onProgress);
     return result.generationId;
   }
 

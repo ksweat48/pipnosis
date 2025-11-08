@@ -93,7 +93,8 @@ class SyntheticBacktestingEngine {
 
   async runSyntheticBacktest(
     userId: string,
-    config: SyntheticBacktestConfig
+    config: SyntheticBacktestConfig,
+    onProgress?: (progress: any) => void
   ): Promise<SyntheticBacktestResult> {
     this.reset();
     this.userId = userId;
@@ -110,12 +111,14 @@ class SyntheticBacktestingEngine {
 
     if (!config.syntheticGenerationId) {
       console.log('[Synthetic Backtest] Generating synthetic data...');
+      onProgress?.({ phase: 'data_generation', message: 'Generating synthetic market data...', percentComplete: 0 });
       this.syntheticGenerationId = await syntheticDataGenerator.getOrCreateSyntheticData(
         userId,
         config.symbols[0],
         config.startDate,
         config.endDate,
-        config.marketScenario
+        config.marketScenario,
+        onProgress
       );
     } else {
       this.syntheticGenerationId = config.syntheticGenerationId;
@@ -129,6 +132,7 @@ class SyntheticBacktestingEngine {
     await this.updateSessionStatus('running', { started_at: new Date() });
 
     try {
+      onProgress?.({ phase: 'backtesting', message: 'Running backtest analysis...', percentComplete: 80 });
       for (const symbol of config.symbols) {
         console.log(`[Synthetic Backtest] Analyzing ${symbol}...`);
         await this.backtestSymbol(symbol, config);
@@ -136,9 +140,11 @@ class SyntheticBacktestingEngine {
 
       await this.closeAllOpenTrades(config.endDate);
 
+      onProgress?.({ phase: 'finalizing', message: 'Calculating results...', percentComplete: 95 });
       const result = this.calculateResults();
 
       await this.saveBacktestResults(result);
+      onProgress?.({ phase: 'complete', message: 'Backtest complete!', percentComplete: 100 });
 
       const duration = Math.floor((new Date().getTime() - new Date(config.startDate).getTime()) / 1000);
 

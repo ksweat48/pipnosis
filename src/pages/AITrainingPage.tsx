@@ -19,6 +19,7 @@ export default function AITrainingPage() {
   const [useSyntheticData, setUseSyntheticData] = useState(true);
   const [marketScenario, setMarketScenario] = useState('mixed');
   const [syntheticCandles, setSyntheticCandles] = useState<any[]>([]);
+  const [generationProgress, setGenerationProgress] = useState<any>(null);
 
   // Backtest Configuration
   const [sessionName, setSessionName] = useState('');
@@ -43,9 +44,15 @@ export default function AITrainingPage() {
     setDefaultDateRange();
   }, [user]);
 
+  useEffect(() => {
+    // Update date range when switching between synthetic and real data
+    setDefaultDateRange();
+  }, [useSyntheticData]);
+
   const setDefaultDateRange = () => {
     const startDateDefault = new Date();
-    startDateDefault.setMonth(startDateDefault.getMonth() - 3);
+    // For synthetic data, use 1 month by default to reduce generation time
+    startDateDefault.setMonth(startDateDefault.getMonth() - (useSyntheticData ? 1 : 3));
     const endDateDefault = new Date();
 
     setStartDate(startDateDefault.toISOString().split('T')[0]);
@@ -90,14 +97,17 @@ export default function AITrainingPage() {
     setBacktestAborted(false);
     setBacktestError(null);
     setSyntheticCandles([]);
+    setGenerationProgress(null);
 
+    const timeoutDuration = useSyntheticData ? 10 * 60 * 1000 : 5 * 60 * 1000;
     const timeoutId = setTimeout(() => {
       if (backtestLoading) {
-        console.error('[AI Training] Backtest timeout - exceeded 5 minutes');
-        setBacktestError('Backtest timed out after 5 minutes. This may indicate insufficient data or a system issue.');
+        console.error(`[AI Training] Backtest timeout - exceeded ${timeoutDuration / 60000} minutes`);
+        setBacktestError(`Backtest timed out after ${timeoutDuration / 60000} minutes. Try reducing the date range or check console for errors.`);
         setBacktestLoading(false);
+        setGenerationProgress(null);
       }
-    }, 5 * 60 * 1000);
+    }, timeoutDuration);
 
     try {
       if (useSyntheticData) {
@@ -121,7 +131,10 @@ export default function AITrainingPage() {
           marketScenario
         };
 
-        const result = await syntheticBacktestingEngine.runSyntheticBacktest(user.id, config);
+        const result = await syntheticBacktestingEngine.runSyntheticBacktest(user.id, config, (progress) => {
+          setGenerationProgress(progress);
+          console.log('[AI Training] Progress:', progress.message, `${progress.percentComplete.toFixed(1)}%`);
+        });
         setBacktestResult(result);
 
         const { data: candles } = await supabase
@@ -216,6 +229,7 @@ export default function AITrainingPage() {
     setBacktestAborted(true);
     setBacktestLoading(false);
     setBacktestError('Backtest cancelled by user');
+    setGenerationProgress(null);
   };
 
   const handleLoadSession = async (session: any) => {
@@ -447,9 +461,13 @@ export default function AITrainingPage() {
             {useSyntheticData && (
               <div className="space-y-4">
                 <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-xs text-yellow-800">
+                  <p className="text-xs text-yellow-800 mb-2">
                     <strong>Training Mode:</strong> Using AI-generated synthetic market data for testing.
                     This allows training without needing real historical data. Results are for testing only.
+                  </p>
+                  <p className="text-xs text-yellow-800">
+                    <strong>💡 Tip:</strong> For faster generation, use 1-4 weeks of data. Longer periods (3+ months)
+                    can take 2-5 minutes to generate synthetic candles.
                   </p>
                 </div>
 
@@ -540,6 +558,31 @@ export default function AITrainingPage() {
               </button>
             )}
           </div>
+
+          {/* Progress Display */}
+          {backtestLoading && generationProgress && (
+            <div className="mt-4 p-4 bg-blue-50 border-l-4 border-blue-400 rounded">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                <p className="text-sm text-blue-800 font-semibold">{generationProgress.message}</p>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
+                <div
+                  className="bg-blue-600 h-3 rounded-full transition-all duration-300"
+                  style={{ width: `${generationProgress.percentComplete}%` }}
+                ></div>
+              </div>
+              <div className="flex justify-between text-xs text-gray-600">
+                <span>{generationProgress.phase} - {generationProgress.timeframe || ''}</span>
+                <span>{generationProgress.percentComplete.toFixed(1)}%</span>
+              </div>
+              {generationProgress.candlesGenerated > 0 && (
+                <div className="mt-2 text-xs text-gray-600">
+                  Generated: {generationProgress.candlesGenerated.toLocaleString()} / {generationProgress.totalEstimated.toLocaleString()} candles
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Error Display */}
           {backtestError && (
