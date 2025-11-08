@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
 import { backtestingEngine, BacktestConfig, BacktestResult } from '../services/backtesting-engine';
+import { syntheticBacktestingEngine, SyntheticBacktestConfig, SyntheticBacktestResult } from '../services/synthetic-backtesting-engine';
 import { aiCapabilityScorer, CapabilityScoreBreakdown } from '../services/ai-capability-scorer';
 import { backtestDiagnostics } from '../services/backtest-diagnostics';
-import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock } from 'lucide-react';
+import SyntheticEquityCurve from '../components/SyntheticEquityCurve';
+import SyntheticCandlestickChart from '../components/SyntheticCandlestickChart';
+import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock, Sparkles, RefreshCw } from 'lucide-react';
 
 export default function AITrainingPage() {
   const { user } = useAuth();
@@ -13,6 +16,9 @@ export default function AITrainingPage() {
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestAborted, setBacktestAborted] = useState(false);
   const [backtestError, setBacktestError] = useState<string | null>(null);
+  const [useSyntheticData, setUseSyntheticData] = useState(true);
+  const [marketScenario, setMarketScenario] = useState('mixed');
+  const [syntheticCandles, setSyntheticCandles] = useState<any[]>([]);
 
   // Backtest Configuration
   const [sessionName, setSessionName] = useState('');
@@ -24,7 +30,7 @@ export default function AITrainingPage() {
   const [confidenceThreshold, setConfidenceThreshold] = useState(75);
 
   // Results
-  const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
+  const [backtestResult, setBacktestResult] = useState<BacktestResult | SyntheticBacktestResult | null>(null);
   const [capabilityScore, setCapabilityScore] = useState<CapabilityScoreBreakdown | null>(null);
   const [pastSessions, setPastSessions] = useState<any[]>([]);
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
@@ -38,10 +44,9 @@ export default function AITrainingPage() {
   }, [user]);
 
   const setDefaultDateRange = () => {
-    // Use Oct 16 - Nov 7, 2025 (when ALL timeframes have sufficient data)
-    // This is the earliest date range where M5 data exists (needs 500+ candles)
-    const startDateDefault = new Date('2025-10-16T00:00:00Z');
-    const endDateDefault = new Date('2025-11-07T23:59:59Z');
+    const startDateDefault = new Date();
+    startDateDefault.setMonth(startDateDefault.getMonth() - 3);
+    const endDateDefault = new Date();
 
     setStartDate(startDateDefault.toISOString().split('T')[0]);
     setEndDate(endDateDefault.toISOString().split('T')[0]);
@@ -84,8 +89,8 @@ export default function AITrainingPage() {
     setCapabilityScore(null);
     setBacktestAborted(false);
     setBacktestError(null);
+    setSyntheticCandles([]);
 
-    // Timeout protection: auto-abort after 5 minutes
     const timeoutId = setTimeout(() => {
       if (backtestLoading) {
         console.error('[AI Training] Backtest timeout - exceeded 5 minutes');
@@ -95,9 +100,45 @@ export default function AITrainingPage() {
     }, 5 * 60 * 1000);
 
     try {
-      // Run diagnostics first
-      console.log('[AI Training] Running pre-flight diagnostics...');
-      const diagnostics = await backtestDiagnostics.runFullDiagnostics(
+      if (useSyntheticData) {
+        console.log('[AI Training] Running SYNTHETIC backtest with scenario:', marketScenario);
+
+        const config: SyntheticBacktestConfig = {
+          sessionName: `${sessionName} (SYNTHETIC)`,
+          description: `Synthetic ${marketScenario} scenario - Risk: ${riskMode}, Threshold: ${confidenceThreshold}%`,
+          symbols: selectedSymbols,
+          startDate: new Date(startDate),
+          endDate: new Date(endDate),
+          timeframes: ['H1', 'M5', 'M1'],
+          useGPT4Reasoning: false,
+          confidenceThreshold,
+          riskMode,
+          maxConcurrentTrades: 2,
+          initialBalance: 10000,
+          positionSizePercent: 2,
+          commissionPerTrade: 0,
+          slippagePips: 1,
+          marketScenario
+        };
+
+        const result = await syntheticBacktestingEngine.runSyntheticBacktest(user.id, config);
+        setBacktestResult(result);
+
+        const { data: candles } = await supabase
+          .from('synthetic_candles')
+          .select('*')
+          .eq('synthetic_session_id', result.syntheticGenerationId)
+          .eq('symbol', selectedSymbols[0])
+          .eq('timeframe', 'H1')
+          .order('open_time', { ascending: true })
+          .limit(200);
+
+        setSyntheticCandles(candles || []);
+
+        console.log('[AI Training] Synthetic backtest complete!');
+      } else {
+        console.log('[AI Training] Running pre-flight diagnostics...');
+        const diagnostics = await backtestDiagnostics.runFullDiagnostics(
         selectedSymbols,
         new Date(startDate),
         new Date(endDate)
@@ -147,10 +188,11 @@ export default function AITrainingPage() {
       setBacktestResult(result);
       setCapabilityScore(score);
 
-      await loadPastSessions();
+        await loadPastSessions();
 
-      console.log('[AI Training] Backtest complete!');
-      clearTimeout(timeoutId);
+        console.log('[AI Training] Backtest complete!');
+        clearTimeout(timeoutId);
+      }
     } catch (error: any) {
       console.error('[AI Training] Error:', error);
       clearTimeout(timeoutId);
@@ -374,10 +416,72 @@ export default function AITrainingPage() {
                   checked={useGPT4}
                   onChange={(e) => setUseGPT4(e.target.checked)}
                   className="w-5 h-5 text-blue-600"
+                  disabled={useSyntheticData}
                 />
                 <span className="text-sm text-gray-700">Use GPT-4 Reasoning</span>
               </label>
             </div>
+          </div>
+
+          {/* SYNTHETIC DATA CONTROLS */}
+          <div className="mt-6 p-4 bg-gradient-to-r from-purple-50 to-orange-50 border-2 border-purple-200 rounded-lg">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-purple-600" />
+                <h3 className="font-semibold text-gray-900">Synthetic Data Training Mode</h3>
+                <span className="px-2 py-1 bg-purple-600 text-white text-xs font-bold rounded-full">
+                  BETA
+                </span>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useSyntheticData}
+                  onChange={(e) => setUseSyntheticData(e.target.checked)}
+                  className="w-5 h-5 text-purple-600"
+                />
+                <span className="text-sm font-semibold text-gray-900">Enable Synthetic Data</span>
+              </label>
+            </div>
+
+            {useSyntheticData && (
+              <div className="space-y-4">
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-xs text-yellow-800">
+                    <strong>Training Mode:</strong> Using AI-generated synthetic market data for testing.
+                    This allows training without needing real historical data. Results are for testing only.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Market Scenario
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    {[
+                      { value: 'trending_up', label: 'Trending Up', icon: '📈' },
+                      { value: 'trending_down', label: 'Trending Down', icon: '📉' },
+                      { value: 'ranging', label: 'Ranging', icon: '↔️' },
+                      { value: 'high_volatility', label: 'High Volatility', icon: '⚡' },
+                      { value: 'mixed', label: 'Mixed Conditions', icon: '🎲' }
+                    ].map(scenario => (
+                      <button
+                        key={scenario.value}
+                        onClick={() => setMarketScenario(scenario.value)}
+                        className={`p-3 rounded-lg border-2 transition-all ${
+                          marketScenario === scenario.value
+                            ? 'border-purple-500 bg-purple-100 text-purple-900'
+                            : 'border-gray-300 bg-white text-gray-700 hover:border-purple-300'
+                        }`}
+                      >
+                        <div className="text-2xl mb-1">{scenario.icon}</div>
+                        <div className="text-xs font-semibold">{scenario.label}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Symbol Selection */}
@@ -499,15 +603,53 @@ export default function AITrainingPage() {
           </div>
         )}
 
-        {/* Results */}
-        {backtestResult && capabilityScore && (
+        {/* Synthetic Charts - Show for synthetic results with trades */}
+        {backtestResult && 'isSynthetic' in backtestResult && backtestResult.isSynthetic && backtestResult.totalTrades > 0 && (
+          <div className="space-y-6 mb-6">
+            <SyntheticEquityCurve
+              trades={backtestResult.trades}
+              initialBalance={10000}
+              finalBalance={backtestResult.finalBalance}
+              maxDrawdown={backtestResult.maxDrawdown}
+            />
+
+            {syntheticCandles.length > 0 && (
+              <SyntheticCandlestickChart
+                candles={syntheticCandles}
+                trades={backtestResult.trades}
+                symbol={selectedSymbols[0]}
+                timeframe="H1"
+              />
+            )}
+          </div>
+        )}
+
+        {/* Results - Show basic metrics for synthetic, full results for real data */}
+        {backtestResult && backtestResult.totalTrades > 0 && (
           <div className="space-y-6">
-            {/* Capability Score Card */}
-            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg shadow-md p-6 border-2 border-blue-200">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <Target className="w-6 h-6 text-blue-600" />
-                AI Capability Score
-              </h2>
+            {/* Synthetic Mode Banner */}
+            {'isSynthetic' in backtestResult && backtestResult.isSynthetic && (
+              <div className="bg-gradient-to-r from-purple-100 to-orange-100 border-2 border-purple-300 rounded-lg p-4">
+                <div className="flex items-center gap-3">
+                  <Sparkles className="w-6 h-6 text-purple-600" />
+                  <div>
+                    <h3 className="font-bold text-purple-900">SYNTHETIC TRAINING MODE RESULTS</h3>
+                    <p className="text-sm text-purple-800">
+                      These results are from AI-generated market data for training purposes only.
+                      Not representative of real market performance.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Capability Score Card - Only for real data with capability scores */}
+            {capabilityScore && (
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg shadow-md p-6 border-2 border-blue-200">
+                <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <Target className="w-6 h-6 text-blue-600" />
+                  AI Capability Score
+                </h2>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Overall Score */}
@@ -568,6 +710,7 @@ export default function AITrainingPage() {
                 <ScoreBar label="Consistency" score={capabilityScore.profitConsistencyScore} />
               </div>
             </div>
+            )}
 
             {/* Performance Metrics */}
             <div className="bg-white rounded-lg shadow-md p-6">
