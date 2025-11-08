@@ -34,7 +34,20 @@ export default function AITrainingPage() {
   useEffect(() => {
     checkAdminStatus();
     loadPastSessions();
+    setDefaultDateRange();
   }, [user]);
+
+  const setDefaultDateRange = () => {
+    const today = new Date();
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(today.getDate() - 60);
+
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    setStartDate(sixtyDaysAgo.toISOString().split('T')[0]);
+    setEndDate(yesterday.toISOString().split('T')[0]);
+  };
 
   const checkAdminStatus = async () => {
     if (!user) return;

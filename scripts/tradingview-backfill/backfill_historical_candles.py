@@ -2,8 +2,14 @@
 """
 TradingView Historical Data Backfill Script
 
-One-time script to populate forex_candles table with 200 historical candles
+One-time script to populate forex_candles table with up to 5,000 historical candles
 from TradingView for all Pipnosis trading pairs and timeframes.
+
+This provides approximately:
+- 3-5 days of 1-minute data
+- 17 days of 5-minute data
+- 52 days of 15-minute data
+- 90 days (3 months) of 30-minute+ data
 
 Usage:
     python3 backfill_historical_candles.py
@@ -37,7 +43,7 @@ TIMEFRAMES = {
     'W1': Interval.in_weekly,
 }
 
-CANDLES_TO_FETCH = 200
+CANDLES_TO_FETCH = 5000
 
 SUPABASE_URL = os.getenv('VITE_SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY')

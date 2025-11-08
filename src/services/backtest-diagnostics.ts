@@ -122,8 +122,8 @@ export class BacktestDiagnosticsService {
     startDate: Date,
     endDate: Date
   ): Promise<void> {
-    const timeframes = ['1h', '5m', '1m'];
-    const minRequired = { '1h': 50, '5m': 100, '1m': 100 };
+    const timeframes = ['H1', 'M30', 'M15', 'M5', 'M1'];
+    const minRequired = { 'H1': 100, 'M30': 200, 'M15': 300, 'M5': 500, 'M1': 500 };
 
     for (const symbol of symbols) {
       diagnostics.dataAvailability.symbols[symbol] = {};
