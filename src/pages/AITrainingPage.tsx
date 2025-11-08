@@ -38,15 +38,13 @@ export default function AITrainingPage() {
   }, [user]);
 
   const setDefaultDateRange = () => {
-    const today = new Date();
-    const sixtyDaysAgo = new Date();
-    sixtyDaysAgo.setDate(today.getDate() - 60);
+    // Use Oct 16 - Nov 7, 2025 (when ALL timeframes have sufficient data)
+    // This is the earliest date range where M5 data exists (needs 500+ candles)
+    const startDateDefault = new Date('2025-10-16T00:00:00Z');
+    const endDateDefault = new Date('2025-11-07T23:59:59Z');
 
-    const yesterday = new Date();
-    yesterday.setDate(today.getDate() - 1);
-
-    setStartDate(sixtyDaysAgo.toISOString().split('T')[0]);
-    setEndDate(yesterday.toISOString().split('T')[0]);
+    setStartDate(startDateDefault.toISOString().split('T')[0]);
+    setEndDate(endDateDefault.toISOString().split('T')[0]);
   };
 
   const checkAdminStatus = async () => {

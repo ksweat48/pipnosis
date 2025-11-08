@@ -33,9 +33,9 @@ class FlowTraderV2Strategy {
         console.log(`[Flow V2] 🕐 Analyzing ${symbol} at historical time: ${atTime.toISOString()}`);
       }
 
-      const h1Candles = await this.getCandles(symbol, '1h', 50, atTime);
-      const m5Candles = await this.getCandles(symbol, '5m', 100, atTime);
-      const m1Candles = await this.getCandles(symbol, '1m', 100, atTime);
+      const h1Candles = await this.getCandles(symbol, 'H1', 50, atTime);
+      const m5Candles = await this.getCandles(symbol, 'M5', 100, atTime);
+      const m1Candles = await this.getCandles(symbol, 'M1', 100, atTime);
 
       if (atTime && h1Candles && h1Candles.length > 0) {
         const dataRange = `${h1Candles[0].timestamp} to ${h1Candles[h1Candles.length - 1].timestamp}`;
