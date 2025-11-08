@@ -77,6 +77,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [dataQualityWarning, setDataQualityWarning] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>(() => chartPreferencesService.getTimeframe(symbol));
   const [isLive, setIsLive] = useState(false);
+  const [chartInitRetries, setChartInitRetries] = useState(0);
+  const maxChartRetries = 3;
   const [systemStatus, setSystemStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
   const [marketStatus, setMarketStatus] = useState<'live' | 'delayed' | 'offline'>('live');
   const [forexMarketStatus, setForexMarketStatus] = useState<MarketStatus>(() => getForexMarketStatus());
@@ -120,9 +122,44 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   }, []);
 
   useEffect(() => {
-    if (!chartContainerRef.current) return;
+    if (!chartContainerRef.current) {
+      console.error('[MarketChart] Chart container ref is null');
+      return;
+    }
+
+    const container = chartContainerRef.current;
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+
+    console.log('[MarketChart] Initializing chart...', {
+      containerWidth,
+      containerHeight,
+      hasCreateChart: typeof createChart === 'function',
+      createChartType: typeof createChart
+    });
+
+    if (containerWidth === 0 || containerHeight === 0) {
+      console.warn('[MarketChart] Container has zero dimensions, retrying in 100ms...');
+      const retryTimer = setTimeout(() => {
+        if (chartContainerRef.current) {
+          console.log('[MarketChart] Retrying chart initialization after container sizing...');
+        }
+      }, 100);
+      return () => clearTimeout(retryTimer);
+    }
+
+    if (typeof createChart !== 'function') {
+      console.error('[MarketChart] createChart is not a function!', {
+        createChartValue: createChart,
+        createChartType: typeof createChart
+      });
+      setError('Chart library failed to load. Please refresh the page.');
+      setIsLoading(false);
+      return;
+    }
 
     try {
+      console.log('[MarketChart] Calling createChart with container...');
       const chart = createChart(chartContainerRef.current, {
         layout: {
           background: { color: '#1f2937' },
@@ -167,12 +204,66 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         },
       });
 
-      if (!chart || typeof chart.addCandlestickSeries !== 'function') {
-        console.error('[MarketChart] Chart creation failed - invalid chart instance');
-        setError('Chart initialization failed. Please refresh the page.');
+      console.log('[MarketChart] Chart object created:', {
+        chartExists: !!chart,
+        chartType: typeof chart,
+        hasAddCandlestickSeries: chart && typeof chart.addCandlestickSeries === 'function',
+        chartKeys: chart ? Object.keys(chart).slice(0, 5) : []
+      });
+
+      if (!chart) {
+        console.error('[MarketChart] Chart creation returned null/undefined', {
+          containerElement: chartContainerRef.current,
+          containerDimensions: {
+            width: chartContainerRef.current?.clientWidth,
+            height: chartContainerRef.current?.clientHeight
+          },
+          retryAttempt: chartInitRetries
+        });
+
+        if (chartInitRetries < maxChartRetries) {
+          console.log(`[MarketChart] Retrying chart initialization (${chartInitRetries + 1}/${maxChartRetries})...`);
+          setChartInitRetries(prev => prev + 1);
+          const retryDelay = 500 * (chartInitRetries + 1);
+          setTimeout(() => {
+            setError(null);
+            setIsLoading(true);
+          }, retryDelay);
+          return;
+        }
+
+        setError('Chart initialization failed. The chart library did not initialize properly. Please clear your browser cache and refresh.');
         setIsLoading(false);
         return;
       }
+
+      if (typeof chart.addCandlestickSeries !== 'function') {
+        console.error('[MarketChart] Chart object is invalid - missing addCandlestickSeries method', {
+          chartType: typeof chart,
+          availableMethods: Object.keys(chart).filter(key => typeof chart[key] === 'function'),
+          retryAttempt: chartInitRetries
+        });
+
+        if (chartInitRetries < maxChartRetries) {
+          console.log(`[MarketChart] Retrying chart initialization (${chartInitRetries + 1}/${maxChartRetries})...`);
+          setChartInitRetries(prev => prev + 1);
+          const retryDelay = 500 * (chartInitRetries + 1);
+          setTimeout(() => {
+            setError(null);
+            setIsLoading(true);
+          }, retryDelay);
+          return;
+        }
+
+        setError('Chart library error. Please refresh the page or clear browser cache.');
+        setIsLoading(false);
+        return;
+      }
+
+      console.log('[MarketChart] ✅ Chart initialized successfully!');
+      setChartInitRetries(0);
+
+      console.log('[MarketChart] Chart created successfully, adding candlestick series...');
 
       const candlestickSeries = chart.addCandlestickSeries({
         upColor: '#10b981',
@@ -805,10 +896,23 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         {error && (
           <div className="absolute inset-0 bg-gray-800 rounded-lg flex items-center justify-center z-10">
-            <div className="text-center p-6">
+            <div className="text-center p-6 max-w-md">
               <AlertCircle className="text-red-500 mx-auto mb-3" size={32} />
               <p className="text-white font-semibold mb-2">Chart Error</p>
-              <p className="text-white/70 text-sm">{error}</p>
+              <p className="text-white/70 text-sm mb-4">{error}</p>
+              {chartInitRetries >= maxChartRetries && (
+                <button
+                  onClick={() => {
+                    setChartInitRetries(0);
+                    setError(null);
+                    setIsLoading(true);
+                    window.location.reload();
+                  }}
+                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors text-sm font-medium"
+                >
+                  Reload Page
+                </button>
+              )}
             </div>
           </div>
         )}
