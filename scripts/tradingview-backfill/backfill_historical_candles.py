@@ -310,7 +310,7 @@ def main():
     print(f"Target: {CANDLES_TO_FETCH} candles per combination")
     print(f"Total combinations: {len(PAIRS) * len(TIMEFRAMES)}\n")
 
-    input("Press Enter to start backfill...")
+    print("Starting backfill automatically...")
 
     results = []
     total_inserted = 0
