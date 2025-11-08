@@ -7,6 +7,7 @@ import { aiCapabilityScorer, CapabilityScoreBreakdown } from '../services/ai-cap
 import { backtestDiagnostics } from '../services/backtest-diagnostics';
 import SyntheticEquityCurve from '../components/SyntheticEquityCurve';
 import SyntheticCandlestickChart from '../components/SyntheticCandlestickChart';
+import SyntheticBacktestResults from '../components/SyntheticBacktestResults';
 import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock, Sparkles, RefreshCw } from 'lucide-react';
 
 export default function AITrainingPage() {
@@ -646,45 +647,58 @@ export default function AITrainingPage() {
           </div>
         )}
 
-        {/* Synthetic Charts - Show for synthetic results with trades */}
+        {/* SYNTHETIC BACKTEST RESULTS - Comprehensive Analytics Dashboard */}
         {backtestResult && 'isSynthetic' in backtestResult && backtestResult.isSynthetic && backtestResult.totalTrades > 0 && (
-          <div className="space-y-6 mb-6">
-            <SyntheticEquityCurve
-              trades={backtestResult.trades}
-              initialBalance={10000}
-              finalBalance={backtestResult.finalBalance}
-              maxDrawdown={backtestResult.maxDrawdown}
-            />
+          <div className="space-y-6">
+            {/* Synthetic Mode Banner */}
+            <div className="bg-gradient-to-r from-purple-100 to-orange-100 border-2 border-purple-300 rounded-lg p-4">
+              <div className="flex items-center gap-3">
+                <Sparkles className="w-6 h-6 text-purple-600" />
+                <div>
+                  <h3 className="font-bold text-purple-900">SYNTHETIC TRAINING MODE RESULTS</h3>
+                  <p className="text-sm text-purple-800">
+                    These results are from AI-generated market data for training purposes only.
+                    Not representative of real market performance.
+                  </p>
+                </div>
+              </div>
+            </div>
 
-            {syntheticCandles.length > 0 && (
-              <SyntheticCandlestickChart
-                candles={syntheticCandles}
+            {/* Comprehensive Analytics Dashboard */}
+            {backtestResult.analytics && (
+              <SyntheticBacktestResults
+                analytics={backtestResult.analytics}
                 trades={backtestResult.trades}
-                symbol={selectedSymbols[0]}
-                timeframe="H1"
+                totalPnL={backtestResult.totalPnL}
+                finalBalance={backtestResult.finalBalance}
+                initialBalance={10000}
               />
             )}
+
+            {/* Charts */}
+            <div className="space-y-6">
+              <SyntheticEquityCurve
+                trades={backtestResult.trades}
+                initialBalance={10000}
+                finalBalance={backtestResult.finalBalance}
+                maxDrawdown={backtestResult.maxDrawdown}
+              />
+
+              {syntheticCandles.length > 0 && (
+                <SyntheticCandlestickChart
+                  candles={syntheticCandles}
+                  trades={backtestResult.trades}
+                  symbol={selectedSymbols[0]}
+                  timeframe="H1"
+                />
+              )}
+            </div>
           </div>
         )}
 
-        {/* Results - Show basic metrics for synthetic, full results for real data */}
-        {backtestResult && backtestResult.totalTrades > 0 && (
+        {/* REAL DATA BACKTEST RESULTS - Show basic metrics for real data */}
+        {backtestResult && backtestResult.totalTrades > 0 && !('isSynthetic' in backtestResult && backtestResult.isSynthetic) && (
           <div className="space-y-6">
-            {/* Synthetic Mode Banner */}
-            {'isSynthetic' in backtestResult && backtestResult.isSynthetic && (
-              <div className="bg-gradient-to-r from-purple-100 to-orange-100 border-2 border-purple-300 rounded-lg p-4">
-                <div className="flex items-center gap-3">
-                  <Sparkles className="w-6 h-6 text-purple-600" />
-                  <div>
-                    <h3 className="font-bold text-purple-900">SYNTHETIC TRAINING MODE RESULTS</h3>
-                    <p className="text-sm text-purple-800">
-                      These results are from AI-generated market data for training purposes only.
-                      Not representative of real market performance.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Capability Score Card - Only for real data with capability scores */}
             {capabilityScore && (
@@ -809,33 +823,35 @@ export default function AITrainingPage() {
               </div>
             </div>
 
-            {/* AI Metrics */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4">AI Decision Metrics</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <MetricCard
-                  label="GPT-4 Accuracy"
-                  value={`${capabilityScore.aiMetrics.gpt4DecisionAccuracy}%`}
-                />
-                <MetricCard
-                  label="Threshold Score"
-                  value={`${capabilityScore.aiMetrics.thresholdOptimizationScore}%`}
-                />
-                <MetricCard
-                  label="False Negatives"
-                  value={`${capabilityScore.aiMetrics.falseNegativeRate.toFixed(1)}%`}
-                  valueColor="text-orange-600"
-                />
-                <MetricCard
-                  label="False Positives"
-                  value={`${capabilityScore.aiMetrics.falsePositiveRate.toFixed(1)}%`}
-                  valueColor="text-orange-600"
-                />
+            {/* AI Metrics - Only for real data backtests with capability scores */}
+            {capabilityScore && capabilityScore.aiMetrics && (
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h2 className="text-xl font-semibold text-gray-800 mb-4">AI Decision Metrics</h2>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <MetricCard
+                    label="GPT-4 Accuracy"
+                    value={`${capabilityScore.aiMetrics.gpt4DecisionAccuracy}%`}
+                  />
+                  <MetricCard
+                    label="Threshold Score"
+                    value={`${capabilityScore.aiMetrics.thresholdOptimizationScore}%`}
+                  />
+                  <MetricCard
+                    label="False Negatives"
+                    value={`${capabilityScore.aiMetrics.falseNegativeRate.toFixed(1)}%`}
+                    valueColor="text-orange-600"
+                  />
+                  <MetricCard
+                    label="False Positives"
+                    value={`${capabilityScore.aiMetrics.falsePositiveRate.toFixed(1)}%`}
+                    valueColor="text-orange-600"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Recommendations */}
-            {Object.keys(capabilityScore.recommendations.suggestedAdjustments).length > 0 && (
+            {/* Recommendations - Only for real data backtests */}
+            {capabilityScore && capabilityScore.recommendations && Object.keys(capabilityScore.recommendations.suggestedAdjustments).length > 0 && (
               <div className="bg-yellow-50 rounded-lg shadow-md p-6 border-2 border-yellow-200">
                 <h2 className="text-xl font-semibold text-gray-800 mb-4">Recommended Adjustments</h2>
                 <div className="space-y-3">

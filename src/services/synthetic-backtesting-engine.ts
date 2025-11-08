@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { syntheticDataGenerator } from './synthetic-data-generator';
+import { syntheticBacktestAnalytics, ComprehensiveAnalytics } from './synthetic-backtest-analytics';
 
 export interface SyntheticBacktestConfig {
   sessionName: string;
@@ -76,6 +77,7 @@ export interface SyntheticBacktestResult {
   signalsSkipped: number;
   isSynthetic: boolean;
   syntheticGenerationId: string;
+  analytics?: ComprehensiveAnalytics;
 }
 
 class SyntheticBacktestingEngine {
@@ -143,7 +145,14 @@ class SyntheticBacktestingEngine {
       onProgress?.({ phase: 'finalizing', message: 'Calculating results...', percentComplete: 95 });
       const result = this.calculateResults();
 
-      await this.saveBacktestResults(result);
+      onProgress?.({ phase: 'analytics', message: 'Computing comprehensive analytics...', percentComplete: 97 });
+      const analytics = syntheticBacktestAnalytics.calculateComprehensiveAnalytics(
+        this.closedTrades,
+        config.initialBalance
+      );
+      result.analytics = analytics;
+
+      await this.saveBacktestResults(result, analytics);
       onProgress?.({ phase: 'complete', message: 'Backtest complete!', percentComplete: 100 });
 
       const duration = Math.floor((new Date().getTime() - new Date(config.startDate).getTime()) / 1000);
@@ -507,27 +516,55 @@ class SyntheticBacktestingEngine {
     }
   }
 
-  private async saveBacktestResults(result: SyntheticBacktestResult): Promise<void> {
+  private async saveBacktestResults(result: SyntheticBacktestResult, analytics?: ComprehensiveAnalytics): Promise<void> {
+    const updateData: any = {
+      total_trades: result.totalTrades,
+      winning_trades: result.winningTrades,
+      losing_trades: result.losingTrades,
+      breakeven_trades: result.breakevenTrades,
+      total_pnl: result.totalPnL,
+      final_balance: result.finalBalance,
+      win_rate: result.winRate,
+      avg_win: result.avgWin,
+      avg_loss: result.avgLoss,
+      profit_factor: result.profitFactor,
+      sharpe_ratio: result.sharpeRatio,
+      max_drawdown: result.maxDrawdown,
+      max_drawdown_percent: result.maxDrawdownPercent,
+      signals_generated: result.signalsGenerated,
+      signals_executed: result.signalsExecuted,
+      signals_skipped: result.signalsSkipped
+    };
+
+    if (analytics) {
+      updateData.avg_win_amount = analytics.tradeAnalytics.avgWinAmount;
+      updateData.avg_loss_amount = analytics.tradeAnalytics.avgLossAmount;
+      updateData.avg_trade_spend = analytics.tradeAnalytics.avgTradeSpend;
+      updateData.avg_trade_size = analytics.tradeAnalytics.avgTradeSize;
+      updateData.best_trade = analytics.tradeAnalytics.bestTrade;
+      updateData.worst_trade = analytics.tradeAnalytics.worstTrade;
+      updateData.expectancy = analytics.tradeAnalytics.expectancy;
+      updateData.avg_win_duration_minutes = analytics.tradeAnalytics.avgWinDuration;
+      updateData.avg_loss_duration_minutes = analytics.tradeAnalytics.avgLossDuration;
+      updateData.avg_risk_reward_actual = analytics.tradeAnalytics.avgRiskRewardActual;
+
+      updateData.loss_categories = analytics.lossAnalysis.lossCategories;
+      updateData.loss_common_patterns = analytics.lossAnalysis.commonPatterns;
+      updateData.loss_improvement_opportunities = analytics.lossAnalysis.improvementOpportunities;
+
+      updateData.win_categories = analytics.winAnalysis.winCategories;
+      updateData.win_success_patterns = analytics.winAnalysis.successPatterns;
+      updateData.win_strength_areas = analytics.winAnalysis.strengthAreas;
+
+      updateData.time_distribution = analytics.timeDistribution;
+      updateData.recommendations = analytics.recommendations;
+      updateData.overall_grade = analytics.overallGrade;
+      updateData.grade_breakdown = analytics.gradeBreakdown;
+    }
+
     await supabase
       .from('synthetic_backtest_sessions')
-      .update({
-        total_trades: result.totalTrades,
-        winning_trades: result.winningTrades,
-        losing_trades: result.losingTrades,
-        breakeven_trades: result.breakevenTrades,
-        total_pnl: result.totalPnL,
-        final_balance: result.finalBalance,
-        win_rate: result.winRate,
-        avg_win: result.avgWin,
-        avg_loss: result.avgLoss,
-        profit_factor: result.profitFactor,
-        sharpe_ratio: result.sharpeRatio,
-        max_drawdown: result.maxDrawdown,
-        max_drawdown_percent: result.maxDrawdownPercent,
-        signals_generated: result.signalsGenerated,
-        signals_executed: result.signalsExecuted,
-        signals_skipped: result.signalsSkipped
-      })
+      .update(updateData)
       .eq('id', this.sessionId);
 
     if (result.trades.length > 0) {
