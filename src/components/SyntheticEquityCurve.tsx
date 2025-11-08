@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineData } from 'lightweight-charts';
+import { createChart, LineSeries, IChartApi, ISeriesApi, LineData } from 'lightweight-charts';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 
 interface SyntheticEquityCurveProps {
@@ -48,15 +48,9 @@ export default function SyntheticEquityCurve({
         return;
       }
 
-      // Verify chart has required methods
-      if (typeof chart.addLineSeries !== 'function') {
-        console.error('[SyntheticEquityCurve] Chart instance does not have addLineSeries method. Chart API:', Object.keys(chart));
-        return;
-      }
-
       chartRef.current = chart;
 
-      const series = chart.addLineSeries({
+      const series = chart.addSeries(LineSeries, {
         color: '#2563eb',
         lineWidth: 2,
         priceFormat: {
