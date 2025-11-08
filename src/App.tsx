@@ -13,6 +13,7 @@ import { HistoryPage } from './pages/HistoryPage';
 import { AnalysisPage } from './pages/AnalysisPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { KPIsPage } from './pages/KPIsPage';
+import AITrainingPage from './pages/AITrainingPage';
 import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { logEnvironmentStatus } from './lib/env-validator';
@@ -124,6 +125,14 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute adminOnly={true}>
             <KPIsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/ai-training"
+        element={
+          <ProtectedRoute adminOnly={true}>
+            <AITrainingPage />
           </ProtectedRoute>
         }
       />

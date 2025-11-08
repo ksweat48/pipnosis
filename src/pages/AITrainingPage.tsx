@@ -1,0 +1,615 @@
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../hooks/useAuth';
+import { supabase } from '../lib/supabase';
+import { backtestingEngine, BacktestConfig, BacktestResult } from '../services/backtesting-engine';
+import { aiCapabilityScorer, CapabilityScoreBreakdown } from '../services/ai-capability-scorer';
+import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock } from 'lucide-react';
+
+export default function AITrainingPage() {
+  const { user } = useAuth();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [backtestLoading, setBacktestLoading] = useState(false);
+
+  // Backtest Configuration
+  const [sessionName, setSessionName] = useState('');
+  const [selectedSymbols, setSelectedSymbols] = useState(['EURUSD']);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [riskMode, setRiskMode] = useState<'low' | 'medium' | 'high'>('medium');
+  const [useGPT4, setUseGPT4] = useState(false);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(75);
+
+  // Results
+  const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
+  const [capabilityScore, setCapabilityScore] = useState<CapabilityScoreBreakdown | null>(null);
+  const [pastSessions, setPastSessions] = useState<any[]>([]);
+  const [selectedSession, setSelectedSession] = useState<any | null>(null);
+
+  const availableSymbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];
+
+  useEffect(() => {
+    checkAdminStatus();
+    loadPastSessions();
+  }, [user]);
+
+  const checkAdminStatus = async () => {
+    if (!user) return;
+
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('is_admin')
+      .eq('id', user.id)
+      .single();
+
+    setIsAdmin(data?.is_admin || false);
+    setLoading(false);
+  };
+
+  const loadPastSessions = async () => {
+    if (!user) return;
+
+    const { data } = await supabase
+      .from('backtest_sessions')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    setPastSessions(data || []);
+  };
+
+  const handleRunBacktest = async () => {
+    if (!user || !sessionName || !startDate || !endDate) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    setBacktestLoading(true);
+    setBacktestResult(null);
+    setCapabilityScore(null);
+
+    try {
+      const config: BacktestConfig = {
+        sessionName,
+        description: `Risk: ${riskMode}, Threshold: ${confidenceThreshold}%, GPT-4: ${useGPT4 ? 'Yes' : 'No'}`,
+        symbols: selectedSymbols,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        timeframes: ['1h', '5m', '1m'],
+        useGPT4Reasoning: useGPT4,
+        confidenceThreshold,
+        riskMode,
+        maxConcurrentTrades: 2,
+        initialBalance: 10000,
+        positionSizePercent: 2,
+        commissionPerTrade: 0,
+        slippagePips: 1
+      };
+
+      console.log('[AI Training] Starting backtest...');
+      const result = await backtestingEngine.runBacktest(user.id, config);
+
+      console.log('[AI Training] Calculating capability score...');
+      const score = await aiCapabilityScorer.calculateCapabilityScore(result.sessionId, user.id);
+
+      setBacktestResult(result);
+      setCapabilityScore(score);
+
+      await loadPastSessions();
+
+      console.log('[AI Training] Backtest complete!');
+    } catch (error) {
+      console.error('[AI Training] Error:', error);
+      alert('Backtest failed. Check console for details.');
+    } finally {
+      setBacktestLoading(false);
+    }
+  };
+
+  const handleLoadSession = async (session: any) => {
+    setSelectedSession(session);
+
+    const { data: trades } = await supabase
+      .from('backtest_trades')
+      .select('*')
+      .eq('session_id', session.id)
+      .order('entry_time', { ascending: true });
+
+    const { data: scores } = await supabase
+      .from('ai_capability_scores')
+      .select('*')
+      .gte('period_start', session.start_date)
+      .lte('period_end', session.end_date)
+      .single();
+
+    setBacktestResult({
+      sessionId: session.id,
+      totalTrades: session.total_trades,
+      winningTrades: session.winning_trades,
+      losingTrades: session.losing_trades,
+      breakevenTrades: session.breakeven_trades,
+      totalPnL: session.total_pnl,
+      finalBalance: session.final_balance,
+      winRate: session.win_rate,
+      avgWin: session.avg_win,
+      avgLoss: session.avg_loss,
+      profitFactor: session.profit_factor,
+      sharpeRatio: session.sharpe_ratio,
+      maxDrawdown: session.max_drawdown,
+      maxDrawdownPercent: session.max_drawdown_percent,
+      trades: trades || [],
+      missedOpportunities: [],
+      signalsGenerated: session.signals_generated,
+      signalsExecuted: session.signals_executed,
+      signalsSkipped: session.signals_skipped
+    });
+
+    if (scores) {
+      setCapabilityScore({
+        overallCapability: scores.overall_capability_percent,
+        capabilityGrade: scores.capability_grade,
+        signalQualityScore: scores.signal_quality_score,
+        executionTimingScore: scores.execution_timing_score,
+        riskManagementScore: scores.risk_management_score,
+        winRateScore: scores.win_rate_score,
+        profitConsistencyScore: scores.profit_consistency_score,
+        symbolBreakdown: {
+          EURUSD: scores.eurusd_capability,
+          XAUUSD: scores.xauusd_capability,
+          US30: scores.us30_capability,
+          GBPUSD: scores.gbpusd_capability,
+          USDJPY: scores.usdjpy_capability
+        },
+        marketConditionBreakdown: {
+          trending: scores.trending_market_capability,
+          ranging: scores.ranging_market_capability,
+          highVolatility: scores.high_volatility_capability,
+          lowVolatility: scores.low_volatility_capability
+        },
+        aiMetrics: {
+          gpt4DecisionAccuracy: scores.gpt4_decision_accuracy,
+          thresholdOptimizationScore: scores.threshold_optimization_score,
+          falseNegativeRate: scores.false_negative_rate,
+          falsePositiveRate: scores.false_positive_rate
+        },
+        gapToTarget: scores.gap_to_target,
+        recommendations: {
+          primaryWeakness: scores.primary_weakness,
+          suggestedAdjustments: scores.recommended_adjustments,
+          estimatedCapabilityAfterAdjustments: scores.estimated_capability_after_adjustments
+        }
+      });
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-center p-8 bg-white rounded-lg shadow-md">
+          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Access Denied</h2>
+          <p className="text-gray-600">This page is only accessible to administrators.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-8 px-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">AI Training & Backtesting Lab</h1>
+          <p className="text-gray-600">Test and optimize AI trading performance with historical data</p>
+        </div>
+
+        {/* Configuration Panel */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <Settings className="w-5 h-5" />
+            Backtest Configuration
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Session Name */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Session Name
+              </label>
+              <input
+                type="text"
+                value={sessionName}
+                onChange={(e) => setSessionName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="e.g., Nov 2025 Test Run"
+              />
+            </div>
+
+            {/* Start Date */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Start Date
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            {/* End Date */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                End Date
+              </label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            {/* Risk Mode */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Risk Mode
+              </label>
+              <select
+                value={riskMode}
+                onChange={(e) => setRiskMode(e.target.value as any)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="low">Low (85% confidence)</option>
+                <option value="medium">Medium (75% confidence)</option>
+                <option value="high">High (70% confidence)</option>
+              </select>
+            </div>
+
+            {/* Confidence Threshold */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Confidence Threshold: {confidenceThreshold}%
+              </label>
+              <input
+                type="range"
+                min="60"
+                max="90"
+                value={confidenceThreshold}
+                onChange={(e) => setConfidenceThreshold(parseInt(e.target.value))}
+                className="w-full"
+              />
+            </div>
+
+            {/* Use GPT-4 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                AI Reasoning
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useGPT4}
+                  onChange={(e) => setUseGPT4(e.target.checked)}
+                  className="w-5 h-5 text-blue-600"
+                />
+                <span className="text-sm text-gray-700">Use GPT-4 Reasoning</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Symbol Selection */}
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Trading Pairs
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {availableSymbols.map(symbol => (
+                <label key={symbol} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedSymbols.includes(symbol)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedSymbols([...selectedSymbols, symbol]);
+                      } else {
+                        setSelectedSymbols(selectedSymbols.filter(s => s !== symbol));
+                      }
+                    }}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <span className="text-sm font-medium text-gray-700">{symbol}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Run Button */}
+          <div className="mt-6">
+            <button
+              onClick={handleRunBacktest}
+              disabled={backtestLoading || !sessionName || !startDate || !endDate || selectedSymbols.length === 0}
+              className="w-full md:w-auto px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {backtestLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  Running Backtest...
+                </>
+              ) : (
+                <>
+                  <Play className="w-5 h-5" />
+                  Run Backtest
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Results */}
+        {backtestResult && capabilityScore && (
+          <div className="space-y-6">
+            {/* Capability Score Card */}
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg shadow-md p-6 border-2 border-blue-200">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Target className="w-6 h-6 text-blue-600" />
+                AI Capability Score
+              </h2>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Overall Score */}
+                <div className="text-center">
+                  <div className="text-6xl font-bold text-blue-600 mb-2">
+                    {capabilityScore.overallCapability}%
+                  </div>
+                  <div className="text-sm text-gray-600 uppercase tracking-wide">
+                    Overall Capability
+                  </div>
+                  <div className="mt-2">
+                    <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                      capabilityScore.capabilityGrade === 'excellent' ? 'bg-green-100 text-green-800' :
+                      capabilityScore.capabilityGrade === 'good' ? 'bg-blue-100 text-blue-800' :
+                      capabilityScore.capabilityGrade === 'fair' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-red-100 text-red-800'
+                    }`}>
+                      {capabilityScore.capabilityGrade.toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Gap to Target */}
+                <div className="text-center">
+                  <div className={`text-4xl font-bold mb-2 ${
+                    capabilityScore.gapToTarget <= 0 ? 'text-green-600' : 'text-orange-600'
+                  }`}>
+                    {capabilityScore.gapToTarget > 0 ? '+' : ''}{capabilityScore.gapToTarget.toFixed(1)}%
+                  </div>
+                  <div className="text-sm text-gray-600 uppercase tracking-wide">
+                    Gap to 75% Target
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    {capabilityScore.gapToTarget <= 0 ? 'Target achieved!' : 'Improvement needed'}
+                  </p>
+                </div>
+
+                {/* Primary Weakness */}
+                <div className="text-center">
+                  <div className="text-lg font-semibold text-gray-800 mb-2">
+                    {capabilityScore.recommendations.primaryWeakness}
+                  </div>
+                  <div className="text-sm text-gray-600 uppercase tracking-wide">
+                    Primary Weakness
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    Focus improvement efforts here
+                  </p>
+                </div>
+              </div>
+
+              {/* Component Scores */}
+              <div className="mt-6 grid grid-cols-2 md:grid-cols-5 gap-4">
+                <ScoreBar label="Signal Quality" score={capabilityScore.signalQualityScore} />
+                <ScoreBar label="Execution Timing" score={capabilityScore.executionTimingScore} />
+                <ScoreBar label="Risk Management" score={capabilityScore.riskManagementScore} />
+                <ScoreBar label="Win Rate" score={capabilityScore.winRateScore} />
+                <ScoreBar label="Consistency" score={capabilityScore.profitConsistencyScore} />
+              </div>
+            </div>
+
+            {/* Performance Metrics */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <BarChart3 className="w-5 h-5" />
+                Performance Metrics
+              </h2>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <MetricCard
+                  label="Total Trades"
+                  value={backtestResult.totalTrades}
+                  icon={<TrendingUp className="w-5 h-5 text-blue-600" />}
+                />
+                <MetricCard
+                  label="Win Rate"
+                  value={`${backtestResult.winRate.toFixed(1)}%`}
+                  icon={<CheckCircle className="w-5 h-5 text-green-600" />}
+                  valueColor={backtestResult.winRate >= 55 ? 'text-green-600' : 'text-red-600'}
+                />
+                <MetricCard
+                  label="Total P&L"
+                  value={`$${backtestResult.totalPnL.toFixed(2)}`}
+                  icon={<TrendingUp className="w-5 h-5 text-blue-600" />}
+                  valueColor={backtestResult.totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}
+                />
+                <MetricCard
+                  label="Profit Factor"
+                  value={backtestResult.profitFactor.toFixed(2)}
+                  icon={<BarChart3 className="w-5 h-5 text-purple-600" />}
+                  valueColor={backtestResult.profitFactor >= 1.5 ? 'text-green-600' : 'text-red-600'}
+                />
+                <MetricCard
+                  label="Winning Trades"
+                  value={backtestResult.winningTrades}
+                  icon={<CheckCircle className="w-5 h-5 text-green-600" />}
+                />
+                <MetricCard
+                  label="Losing Trades"
+                  value={backtestResult.losingTrades}
+                  icon={<XCircle className="w-5 h-5 text-red-600" />}
+                />
+                <MetricCard
+                  label="Max Drawdown"
+                  value={`${backtestResult.maxDrawdownPercent.toFixed(2)}%`}
+                  icon={<TrendingUp className="w-5 h-5 text-orange-600" />}
+                />
+                <MetricCard
+                  label="Signals Skipped"
+                  value={backtestResult.signalsSkipped}
+                  icon={<Clock className="w-5 h-5 text-gray-600" />}
+                />
+              </div>
+            </div>
+
+            {/* AI Metrics */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">AI Decision Metrics</h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <MetricCard
+                  label="GPT-4 Accuracy"
+                  value={`${capabilityScore.aiMetrics.gpt4DecisionAccuracy}%`}
+                />
+                <MetricCard
+                  label="Threshold Score"
+                  value={`${capabilityScore.aiMetrics.thresholdOptimizationScore}%`}
+                />
+                <MetricCard
+                  label="False Negatives"
+                  value={`${capabilityScore.aiMetrics.falseNegativeRate.toFixed(1)}%`}
+                  valueColor="text-orange-600"
+                />
+                <MetricCard
+                  label="False Positives"
+                  value={`${capabilityScore.aiMetrics.falsePositiveRate.toFixed(1)}%`}
+                  valueColor="text-orange-600"
+                />
+              </div>
+            </div>
+
+            {/* Recommendations */}
+            {Object.keys(capabilityScore.recommendations.suggestedAdjustments).length > 0 && (
+              <div className="bg-yellow-50 rounded-lg shadow-md p-6 border-2 border-yellow-200">
+                <h2 className="text-xl font-semibold text-gray-800 mb-4">Recommended Adjustments</h2>
+                <div className="space-y-3">
+                  {Object.entries(capabilityScore.recommendations.suggestedAdjustments).map(([key, adjustment]: [string, any]) => (
+                    <div key={key} className="bg-white p-4 rounded-lg">
+                      <h3 className="font-semibold text-gray-800 mb-2">
+                        {key.replace(/([A-Z])/g, ' $1').trim()}
+                      </h3>
+                      <p className="text-sm text-gray-600 mb-2">{adjustment.reason}</p>
+                      <div className="flex items-center gap-4 text-sm">
+                        <span className="text-gray-700">
+                          Current: <span className="font-semibold">{adjustment.current}</span>
+                        </span>
+                        <span className="text-blue-600">→</span>
+                        <span className="text-blue-600">
+                          Suggested: <span className="font-semibold">{adjustment.suggested}</span>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                  <p className="text-sm text-gray-700">
+                    Estimated capability after adjustments:{' '}
+                    <span className="font-bold text-blue-600">
+                      {capabilityScore.recommendations.estimatedCapabilityAfterAdjustments.toFixed(1)}%
+                    </span>
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Past Sessions */}
+        <div className="mt-8 bg-white rounded-lg shadow-md p-6">
+          <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <Calendar className="w-5 h-5" />
+            Past Backtest Sessions
+          </h2>
+
+          {pastSessions.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">No past sessions yet. Run your first backtest!</p>
+          ) : (
+            <div className="space-y-2">
+              {pastSessions.map(session => (
+                <div
+                  key={session.id}
+                  onClick={() => handleLoadSession(session)}
+                  className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-gray-800">{session.session_name}</h3>
+                      <p className="text-sm text-gray-600">
+                        {new Date(session.start_date).toLocaleDateString()} - {new Date(session.end_date).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className={`text-lg font-bold ${session.win_rate >= 55 ? 'text-green-600' : 'text-red-600'}`}>
+                        {session.win_rate.toFixed(1)}%
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        {session.total_trades} trades
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MetricCard({ label, value, icon, valueColor = 'text-gray-900' }: any) {
+  return (
+    <div className="bg-gray-50 p-4 rounded-lg">
+      <div className="flex items-center gap-2 mb-2">
+        {icon}
+        <span className="text-sm text-gray-600">{label}</span>
+      </div>
+      <div className={`text-2xl font-bold ${valueColor}`}>{value}</div>
+    </div>
+  );
+}
+
+function ScoreBar({ label, score }: { label: string; score: number }) {
+  const percentage = Math.min(100, Math.max(0, score));
+  const color = percentage >= 75 ? 'bg-green-500' : percentage >= 60 ? 'bg-yellow-500' : 'bg-red-500';
+
+  return (
+    <div>
+      <div className="text-xs text-gray-600 mb-1">{label}</div>
+      <div className="w-full bg-gray-200 rounded-full h-2 mb-1">
+        <div className={`${color} h-2 rounded-full transition-all duration-500`} style={{ width: `${percentage}%` }}></div>
+      </div>
+      <div className="text-xs font-semibold text-gray-700">{score}%</div>
+    </div>
+  );
+}
