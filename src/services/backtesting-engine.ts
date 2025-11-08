@@ -101,6 +101,19 @@ class BacktestingEngine {
     console.log(`[Backtesting] Period: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
     console.log(`[Backtesting] Symbols: ${config.symbols.join(', ')}`);
 
+    // PRE-FLIGHT VALIDATION: Check data availability
+    console.log('\n[Backtesting] Running pre-flight data validation...');
+    const dataCheck = await this.validateDataAvailability(config);
+
+    if (!dataCheck.isValid) {
+      console.error('[Backtesting] Pre-flight check FAILED:');
+      console.error(dataCheck.issues.join('\n'));
+      throw new Error(`Data validation failed: ${dataCheck.issues.join('; ')}`);
+    }
+
+    console.log('[Backtesting] Pre-flight check PASSED');
+    console.log(`[Backtesting] Available data: ${JSON.stringify(dataCheck.stats, null, 2)}`);
+
     const session = await this.createBacktestSession(userId, config);
     this.sessionId = session.id;
 
@@ -150,9 +163,15 @@ class BacktestingEngine {
     }
 
     console.log(`[Backtesting] Processing ${candles.length} candles for ${symbol}`);
+    console.log(`[Backtesting] Date range: ${candles[0].open_time} to ${candles[candles.length - 1].open_time}`);
+
+    let signalsExamined = 0;
+    let signalsGenerated = 0;
+    let signalsExecuted = 0;
+    let signalsSkipped = 0;
 
     for (let i = 0; i < candles.length; i++) {
-      const currentTime = new Date(candles[i].timestamp);
+      const currentTime = new Date(candles[i].open_time);
 
       this.updateOpenTrades(candles[i]);
 
@@ -160,23 +179,39 @@ class BacktestingEngine {
         continue;
       }
 
+      signalsExamined++;
       const signal = await this.generateSignalAtTime(symbol, currentTime);
 
       if (signal) {
+        signalsGenerated++;
+        console.log(`[Backtesting] Signal #${signalsGenerated} generated at ${currentTime.toISOString()} - ${signal.direction.toUpperCase()} ${symbol} (${signal.confidence}% confidence)`);
+
         const decision = await this.evaluateSignal(signal, config);
 
         if (decision.shouldExecute) {
+          signalsExecuted++;
           const trade = this.executeTrade(signal, decision, currentTime);
           this.openTrades.push(trade);
+          console.log(`[Backtesting] ✓ Trade executed: ${signal.direction.toUpperCase()} @ ${signal.entryPrice.toFixed(5)}`);
         } else {
+          signalsSkipped++;
           this.recordMissedOpportunity(signal, decision, currentTime);
+          console.log(`[Backtesting] ✗ Signal skipped: ${decision.rationale}`);
         }
       }
 
       if (i % 100 === 0) {
+        console.log(`[Backtesting] Progress: ${i}/${candles.length} candles (${Math.round(i/candles.length*100)}%) | Signals: ${signalsGenerated} generated, ${signalsExecuted} executed, ${signalsSkipped} skipped`);
         await this.updateSessionProgress(i, candles.length);
       }
     }
+
+    console.log(`\n[Backtesting] ${symbol} Summary:`);
+    console.log(`  Candles examined: ${candles.length}`);
+    console.log(`  Potential signals examined: ${signalsExamined}`);
+    console.log(`  Signals generated: ${signalsGenerated} (${((signalsGenerated/signalsExamined)*100).toFixed(2)}%)`);
+    console.log(`  Signals executed: ${signalsExecuted}`);
+    console.log(`  Signals skipped: ${signalsSkipped}`);
   }
 
   private async generateSignalAtTime(
@@ -298,7 +333,7 @@ class BacktestingEngine {
 
   private updateOpenTrades(candle: any): void {
     const currentPrice = candle.close;
-    const currentTime = new Date(candle.timestamp);
+    const currentTime = new Date(candle.open_time);
 
     for (const trade of [...this.openTrades]) {
       const isTP = trade.direction === 'buy'
@@ -487,16 +522,77 @@ class BacktestingEngine {
       .select('*')
       .eq('symbol', symbol)
       .eq('timeframe', '1h')
-      .gte('timestamp', startDate.toISOString())
-      .lte('timestamp', endDate.toISOString())
-      .order('timestamp', { ascending: true });
+      .gte('open_time', startDate.toISOString())
+      .lte('open_time', endDate.toISOString())
+      .order('open_time', { ascending: true });
 
     if (error) {
       console.error('[Backtesting] Error fetching candles:', error);
+      console.error('[Backtesting] Error details:', error);
       return [];
     }
 
+    console.log(`[Backtesting] Loaded ${data?.length || 0} H1 candles for ${symbol}`);
     return data || [];
+  }
+
+  private async validateDataAvailability(
+    config: BacktestConfig
+  ): Promise<{ isValid: boolean; issues: string[]; stats: any }> {
+    const issues: string[] = [];
+    const stats: any = {};
+
+    // Check if dates are in the past
+    const now = new Date();
+    if (config.startDate > now) {
+      issues.push(`⚠️  Start date (${config.startDate.toISOString()}) is in the future!`);
+    }
+    if (config.endDate > now) {
+      issues.push(`⚠️  End date (${config.endDate.toISOString()}) is in the future!`);
+    }
+
+    // Check data availability for each symbol and timeframe
+    for (const symbol of config.symbols) {
+      stats[symbol] = {};
+
+      for (const timeframe of ['1h', '5m', '1m']) {
+        const { data, error } = await supabase
+          .from('forex_candles')
+          .select('open_time', { count: 'exact' })
+          .eq('symbol', symbol)
+          .eq('timeframe', timeframe)
+          .gte('open_time', config.startDate.toISOString())
+          .lte('open_time', config.endDate.toISOString());
+
+        const count = data?.length || 0;
+        stats[symbol][timeframe] = count;
+
+        // Minimum candle requirements based on Flow V2 strategy
+        const minRequired = timeframe === '1h' ? 50 : 100;
+
+        if (count === 0) {
+          issues.push(`❌ No ${timeframe} candles found for ${symbol} in date range`);
+        } else if (count < minRequired) {
+          issues.push(`⚠️  Only ${count} ${timeframe} candles for ${symbol} (need ${minRequired} for Flow V2 strategy)`);
+        }
+
+        if (error) {
+          issues.push(`❌ Database error checking ${symbol} ${timeframe}: ${error.message}`);
+        }
+      }
+    }
+
+    // Check if date range is reasonable
+    const daysDiff = Math.floor((config.endDate.getTime() - config.startDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysDiff < 1) {
+      issues.push(`⚠️  Date range is very short (${daysDiff} days). Consider at least 7 days for meaningful backtest.`);
+    }
+
+    return {
+      isValid: issues.filter(i => i.startsWith('❌')).length === 0,
+      issues,
+      stats
+    };
   }
 
   private async createBacktestSession(

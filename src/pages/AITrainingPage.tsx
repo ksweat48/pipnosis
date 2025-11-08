@@ -3,6 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
 import { backtestingEngine, BacktestConfig, BacktestResult } from '../services/backtesting-engine';
 import { aiCapabilityScorer, CapabilityScoreBreakdown } from '../services/ai-capability-scorer';
+import { backtestDiagnostics } from '../services/backtest-diagnostics';
 import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock } from 'lucide-react';
 
 export default function AITrainingPage() {
@@ -70,6 +71,32 @@ export default function AITrainingPage() {
     setCapabilityScore(null);
 
     try {
+      // Run diagnostics first
+      console.log('[AI Training] Running pre-flight diagnostics...');
+      const diagnostics = await backtestDiagnostics.runFullDiagnostics(
+        selectedSymbols,
+        new Date(startDate),
+        new Date(endDate)
+      );
+
+      if (diagnostics.criticalIssues.length > 0) {
+        const errorMsg = 'Cannot run backtest due to critical issues:\n\n' +
+          diagnostics.criticalIssues.join('\n') +
+          '\n\nCheck the browser console for detailed diagnostics.';
+        alert(errorMsg);
+        setBacktestLoading(false);
+        return;
+      }
+
+      if (diagnostics.warnings.length > 0) {
+        const warningMsg = 'Warnings detected:\n\n' +
+          diagnostics.warnings.join('\n') +
+          '\n\nDo you want to continue?';
+        if (!confirm(warningMsg)) {
+          setBacktestLoading(false);
+          return;
+        }
+      }
       const config: BacktestConfig = {
         sessionName,
         description: `Risk: ${riskMode}, Threshold: ${confidenceThreshold}%, GPT-4: ${useGPT4 ? 'Yes' : 'No'}`,
@@ -358,6 +385,56 @@ export default function AITrainingPage() {
             </button>
           </div>
         </div>
+
+        {/* Diagnostic Alert - Show when no trades */}
+        {backtestResult && backtestResult.totalTrades === 0 && (
+          <div className="bg-yellow-50 border-l-4 border-yellow-400 p-6 rounded-lg shadow-md">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-1" />
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-yellow-900 mb-2">No Trades Executed - Diagnostic Information</h3>
+                <p className="text-yellow-800 mb-4">
+                  The backtest completed but no trades were taken. This typically means signals were either not generated or were filtered out. Check the browser console for detailed logs about:
+                </p>
+                <ul className="list-disc list-inside space-y-2 text-yellow-800 mb-4">
+                  <li><strong>Data Availability:</strong> Verify historical candle data exists for your date range</li>
+                  <li><strong>Phase Failures:</strong> Look for which Flow V2 phase (H1, M5, M1) rejected signals</li>
+                  <li><strong>Signal Quality:</strong> Check if confidence thresholds or risk:reward requirements were too strict</li>
+                  <li><strong>Date Range:</strong> Ensure your selected dates are in the past and contain market data</li>
+                </ul>
+                <div className="bg-white p-4 rounded border border-yellow-200">
+                  <h4 className="font-semibold text-gray-900 mb-2">Quick Diagnostic:</h4>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Signals Generated:</span>
+                      <span className="ml-2 font-semibold">{backtestResult.signalsGenerated}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Signals Executed:</span>
+                      <span className="ml-2 font-semibold">{backtestResult.signalsExecuted}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Signals Skipped:</span>
+                      <span className="ml-2 font-semibold">{backtestResult.signalsSkipped}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Date Range:</span>
+                      <span className="ml-2 font-semibold">{startDate} to {endDate}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded">
+                  <p className="text-sm text-blue-900">
+                    <strong>Tip:</strong> Open your browser's Developer Console (F12) and look for detailed logs from:
+                    <code className="mx-1 px-2 py-1 bg-blue-100 rounded text-xs">[Backtesting]</code>
+                    <code className="mx-1 px-2 py-1 bg-blue-100 rounded text-xs">[Flow V2]</code>
+                    <code className="mx-1 px-2 py-1 bg-blue-100 rounded text-xs">[Reasoning Engine]</code>
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Results */}
         {backtestResult && capabilityScore && (

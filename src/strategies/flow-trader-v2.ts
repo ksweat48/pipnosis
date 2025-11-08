@@ -34,37 +34,42 @@ class FlowTraderV2Strategy {
       const m1Candles = await this.getCandles(symbol, '1m', 100);
 
       if (!h1Candles || h1Candles.length < 2) {
-        console.log(`[Flow V2] Insufficient H1 data for ${symbol}`);
+        console.log(`[Flow V2] ❌ PHASE 1 FAILED: Insufficient H1 data for ${symbol} (got ${h1Candles?.length || 0}, need 2+)`);
         return null;
       }
 
       if (!m5Candles || m5Candles.length < 50) {
-        console.log(`[Flow V2] Insufficient M5 data for ${symbol}`);
+        console.log(`[Flow V2] ❌ PHASE 2 FAILED: Insufficient M5 data for ${symbol} (got ${m5Candles?.length || 0}, need 50+)`);
         return null;
       }
 
       if (!m1Candles || m1Candles.length < 50) {
-        console.log(`[Flow V2] Insufficient M1 data for ${symbol}`);
+        console.log(`[Flow V2] ❌ PHASE 3 FAILED: Insufficient M1 data for ${symbol} (got ${m1Candles?.length || 0}, need 50+)`);
         return null;
       }
+
+      console.log(`[Flow V2] Data loaded: H1=${h1Candles.length}, M5=${m5Candles.length}, M1=${m1Candles.length}`);
 
       const phase1 = await this.phase1MacroIntel(h1Candles, symbol);
       if (!phase1.biasValid) {
-        console.log(`[Flow V2] H1 bias not clear for ${symbol}`);
+        console.log(`[Flow V2] ❌ PHASE 1: H1 bias not clear for ${symbol} - ${phase1.reasoning}`);
         return null;
       }
+      console.log(`[Flow V2] ✓ PHASE 1 PASSED: ${phase1.reasoning}`);
 
       const phase2 = await this.phase2TacticalAlignment(m5Candles, phase1.bias, symbol);
       if (!phase2.filterPassed) {
-        console.log(`[Flow V2] M5 filter not passed for ${symbol}`);
+        console.log(`[Flow V2] ❌ PHASE 2: M5 filter not passed - ${phase2.reasoning}`);
         return null;
       }
+      console.log(`[Flow V2] ✓ PHASE 2 PASSED: ${phase2.reasoning}`);
 
       const phase3 = await this.phase3PrecisionEntry(m1Candles, phase1.bias, symbol);
       if (!phase3.executionReady) {
-        console.log(`[Flow V2] M1 execution not ready for ${symbol}`);
+        console.log(`[Flow V2] ❌ PHASE 3: M1 execution not ready - ${phase3.reasoning}`);
         return null;
       }
+      console.log(`[Flow V2] ✓ PHASE 3 PASSED: ${phase3.reasoning}`);
 
       const currentPrice = m1Candles[m1Candles.length - 1].close;
       const signal = this.buildSignal(
@@ -75,11 +80,13 @@ class FlowTraderV2Strategy {
         currentPrice
       );
 
+      console.log(`[Flow V2] ✅ SIGNAL GENERATED: ${signal.direction.toUpperCase()} ${symbol} @ ${signal.entryPrice.toFixed(5)} (Confidence: ${signal.confidence}%, RR: 1:${signal.riskReward.toFixed(2)})`);
+
       await this.saveFlowV2Signal(sessionId, signal, phase1, phase2, phase3);
 
       return signal;
     } catch (error) {
-      console.error(`[Flow V2] Error analyzing ${symbol}:`, error);
+      console.error(`[Flow V2] ❌ ERROR analyzing ${symbol}:`, error);
       return null;
     }
   }
@@ -407,13 +414,28 @@ class FlowTraderV2Strategy {
         .limit(limit);
 
       if (error) {
-        console.error(`Error fetching ${timeframe} candles for ${symbol}:`, error);
+        console.error(`[Flow V2] Error fetching ${timeframe} candles for ${symbol}:`, error);
         return null;
       }
 
-      return data ? data.reverse() : null;
+      if (!data || data.length === 0) {
+        console.log(`[Flow V2] No ${timeframe} candles found for ${symbol}`);
+        return null;
+      }
+
+      // Map open_time to timestamp for compatibility
+      const candles: Candle[] = data.reverse().map(d => ({
+        timestamp: d.open_time,
+        open: d.open,
+        high: d.high,
+        low: d.low,
+        close: d.close,
+        volume: d.volume
+      }));
+
+      return candles;
     } catch (error) {
-      console.error(`Error in getCandles for ${symbol} ${timeframe}:`, error);
+      console.error(`[Flow V2] Error in getCandles for ${symbol} ${timeframe}:`, error);
       return null;
     }
   }
