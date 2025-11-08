@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { syntheticDataGenerator } from './synthetic-data-generator';
 import { syntheticBacktestAnalytics, ComprehensiveAnalytics } from './synthetic-backtest-analytics';
+import { aiLearningEngine, TradeForAnalysis } from './ai-learning-engine';
 
 export interface SyntheticBacktestConfig {
   sessionName: string;
@@ -153,6 +154,11 @@ class SyntheticBacktestingEngine {
       result.analytics = analytics;
 
       await this.saveBacktestResults(result, analytics);
+
+      // NEW: AI Learning Analysis
+      onProgress?.({ phase: 'learning', message: 'AI analyzing trades and extracting learnings...', percentComplete: 98 });
+      await this.analyzeAndLearn(userId, result);
+
       onProgress?.({ phase: 'complete', message: 'Backtest complete!', percentComplete: 100 });
 
       const duration = Math.floor((new Date().getTime() - new Date(config.startDate).getTime()) / 1000);
@@ -612,6 +618,46 @@ class SyntheticBacktestingEngine {
     }
 
     console.log(`[Synthetic Backtest] Successfully inserted ${trades.length} trades`);
+  }
+
+  /**
+   * NEW: Analyze completed backtest and extract AI learnings
+   */
+  private async analyzeAndLearn(userId: string, result: SyntheticBacktestResult): Promise<void> {
+    console.log('\n[Synthetic Backtest] 🧠 Starting AI learning analysis...');
+
+    try {
+      // Convert trades to format expected by learning engine
+      const tradesForAnalysis: TradeForAnalysis[] = this.closedTrades.map(trade => ({
+        id: undefined, // Will be set when saved to DB
+        symbol: trade.symbol,
+        direction: trade.direction,
+        outcome: trade.outcome,
+        pnl: trade.pnl,
+        entryTime: trade.entryTime,
+        exitTime: trade.exitTime || trade.entryTime,
+        entryPrice: trade.entryPrice,
+        exitPrice: trade.exitPrice,
+        stopLoss: trade.stopLoss,
+        takeProfit: trade.takeProfit,
+        confidence: trade.flowV2Confidence,
+        marketConditions: trade.marketRegime,
+        setupType: trade.setupType
+      }));
+
+      // Run AI learning analysis
+      await aiLearningEngine.analyzeBacktestSession(
+        userId,
+        this.sessionId,
+        tradesForAnalysis,
+        'synthetic'
+      );
+
+      console.log('[Synthetic Backtest] ✅ AI learning analysis complete!');
+    } catch (error) {
+      console.error('[Synthetic Backtest] Error in AI learning analysis:', error);
+      // Don't throw - learning failure shouldn't fail the entire backtest
+    }
   }
 
   private reset(): void {

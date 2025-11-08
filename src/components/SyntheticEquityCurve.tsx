@@ -48,6 +48,12 @@ export default function SyntheticEquityCurve({
         return;
       }
 
+      // Verify chart has required methods
+      if (typeof chart.addLineSeries !== 'function') {
+        console.error('[SyntheticEquityCurve] Chart instance does not have addLineSeries method. Chart API:', Object.keys(chart));
+        return;
+      }
+
       chartRef.current = chart;
 
       const series = chart.addLineSeries({
@@ -59,6 +65,11 @@ export default function SyntheticEquityCurve({
           minMove: 0.01,
         },
       });
+
+      if (!series) {
+        console.error('[SyntheticEquityCurve] Failed to create line series');
+        return;
+      }
 
       seriesRef.current = series;
 

@@ -49,6 +49,12 @@ export default function SyntheticCandlestickChart({
         return;
       }
 
+      // Verify chart has required methods
+      if (typeof chart.addCandlestickSeries !== 'function') {
+        console.error('[SyntheticCandlestickChart] Chart instance does not have addCandlestickSeries method. Chart API:', Object.keys(chart));
+        return;
+      }
+
       chartRef.current = chart;
 
       const candleSeries = chart.addCandlestickSeries({
@@ -59,6 +65,11 @@ export default function SyntheticCandlestickChart({
         wickUpColor: '#22c55e',
         wickDownColor: '#ef4444',
       });
+
+      if (!candleSeries) {
+        console.error('[SyntheticCandlestickChart] Failed to create candlestick series');
+        return;
+      }
 
       candleSeriesRef.current = candleSeries;
 
