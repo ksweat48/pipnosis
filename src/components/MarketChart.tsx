@@ -122,120 +122,139 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    const chart = createChart(chartContainerRef.current, {
-      layout: {
-        background: { color: '#1f2937' },
-        textColor: '#9ca3af',
-      },
-      grid: {
-        vertLines: { color: '#374151' },
-        horzLines: { color: '#374151' },
-      },
-      width: chartContainerRef.current.clientWidth,
-      height: 400,
-      timeScale: {
-        timeVisible: true,
-        secondsVisible: false,
-      },
-      rightPriceScale: {
-        visible: true,
-        borderVisible: true,
-        borderColor: '#4b5563',
-        scaleMargins: {
-          top: 0.1,
-          bottom: 0.1,
+    try {
+      const chart = createChart(chartContainerRef.current, {
+        layout: {
+          background: { color: '#1f2937' },
+          textColor: '#9ca3af',
         },
-        autoScale: true,
-        alignLabels: true,
-        mode: 0,
-      },
-      crosshair: {
-        mode: 1,
-        vertLine: {
-          width: 1,
-          color: '#6b7280',
-          style: 2,
-          labelBackgroundColor: '#374151',
+        grid: {
+          vertLines: { color: '#374151' },
+          horzLines: { color: '#374151' },
         },
-        horzLine: {
-          width: 1,
-          color: '#6b7280',
-          style: 2,
-          labelBackgroundColor: '#374151',
+        width: chartContainerRef.current.clientWidth,
+        height: 400,
+        timeScale: {
+          timeVisible: true,
+          secondsVisible: false,
         },
-      },
-    });
+        rightPriceScale: {
+          visible: true,
+          borderVisible: true,
+          borderColor: '#4b5563',
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.1,
+          },
+          autoScale: true,
+          alignLabels: true,
+          mode: 0,
+        },
+        crosshair: {
+          mode: 1,
+          vertLine: {
+            width: 1,
+            color: '#6b7280',
+            style: 2,
+            labelBackgroundColor: '#374151',
+          },
+          horzLine: {
+            width: 1,
+            color: '#6b7280',
+            style: 2,
+            labelBackgroundColor: '#374151',
+          },
+        },
+      });
 
-    const candlestickSeries = chart.addCandlestickSeries({
-      upColor: '#10b981',
-      downColor: '#ef4444',
-      borderUpColor: '#10b981',
-      borderDownColor: '#ef4444',
-      wickUpColor: '#10b981',
-      wickDownColor: '#ef4444',
-      priceFormat: {
-        type: 'price',
-        precision: 5,
-        minMove: 0.00001,
-      },
-      lastValueVisible: true,
-      priceLineVisible: true,
-    });
-
-    const vwapSeries = chart.addLineSeries({
-      color: '#3b82f6',
-      lineWidth: 2,
-      lastValueVisible: false,
-      priceLineVisible: false,
-    });
-
-    const ema20Series = chart.addLineSeries({
-      color: '#10b981',
-      lineWidth: 1,
-      lastValueVisible: false,
-      priceLineVisible: false,
-    });
-
-    const ema50Series = chart.addLineSeries({
-      color: '#f59e0b',
-      lineWidth: 1,
-      lastValueVisible: false,
-      priceLineVisible: false,
-    });
-
-    const ema200Series = chart.addLineSeries({
-      color: '#ef4444',
-      lineWidth: 2,
-      lastValueVisible: false,
-      priceLineVisible: false,
-    });
-
-    chartRef.current = chart;
-    candlestickSeriesRef.current = candlestickSeries;
-    vwapSeriesRef.current = vwapSeries;
-    ema20SeriesRef.current = ema20Series;
-    ema50SeriesRef.current = ema50Series;
-    ema200SeriesRef.current = ema200Series;
-
-    const handleUserInteraction = () => {
-      userInteractedRef.current = true;
-    };
-
-    const timeScale = chart.timeScale();
-    timeScale.subscribeVisibleLogicalRangeChange(handleUserInteraction);
-
-    const handleResize = () => {
-      if (chartContainerRef.current) {
-        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+      if (!chart || typeof chart.addCandlestickSeries !== 'function') {
+        console.error('[MarketChart] Chart creation failed - invalid chart instance');
+        setError('Chart initialization failed. Please refresh the page.');
+        setIsLoading(false);
+        return;
       }
-    };
 
-    window.addEventListener('resize', handleResize);
+      const candlestickSeries = chart.addCandlestickSeries({
+        upColor: '#10b981',
+        downColor: '#ef4444',
+        borderUpColor: '#10b981',
+        borderDownColor: '#ef4444',
+        wickUpColor: '#10b981',
+        wickDownColor: '#ef4444',
+        priceFormat: {
+          type: 'price',
+          precision: 5,
+          minMove: 0.00001,
+        },
+        lastValueVisible: true,
+        priceLineVisible: true,
+      });
 
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chart.remove();
-    };
+      const vwapSeries = chart.addLineSeries({
+        color: '#3b82f6',
+        lineWidth: 2,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+
+      const ema20Series = chart.addLineSeries({
+        color: '#10b981',
+        lineWidth: 1,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+
+      const ema50Series = chart.addLineSeries({
+        color: '#f59e0b',
+        lineWidth: 1,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+
+      const ema200Series = chart.addLineSeries({
+        color: '#ef4444',
+        lineWidth: 2,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+
+      chartRef.current = chart;
+      candlestickSeriesRef.current = candlestickSeries;
+      vwapSeriesRef.current = vwapSeries;
+      ema20SeriesRef.current = ema20Series;
+      ema50SeriesRef.current = ema50Series;
+      ema200SeriesRef.current = ema200Series;
+
+      const handleUserInteraction = () => {
+        userInteractedRef.current = true;
+      };
+
+      const timeScale = chart.timeScale();
+      timeScale.subscribeVisibleLogicalRangeChange(handleUserInteraction);
+
+      const handleResize = () => {
+        if (chartContainerRef.current && chartRef.current) {
+          chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
+        }
+      };
+
+      window.addEventListener('resize', handleResize);
+
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        if (chartRef.current) {
+          try {
+            chartRef.current.remove();
+          } catch (err) {
+            console.error('[MarketChart] Error removing chart:', err);
+          }
+        }
+      };
+    } catch (error) {
+      console.error('[MarketChart] Critical error during chart initialization:', error);
+      setError('Failed to initialize chart. Please refresh the page.');
+      setIsLoading(false);
+    }
   }, []);
 
   const updateIndicatorsDebounced = (candles: CandleData[]) => {

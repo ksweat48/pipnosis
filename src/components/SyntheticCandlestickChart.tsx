@@ -44,8 +44,10 @@ export default function SyntheticCandlestickChart({
         },
       });
 
-      if (!chart) {
-        console.error('[SyntheticCandlestickChart] Failed to create chart');
+      if (!chart || typeof chart.addCandlestickSeries !== 'function') {
+        console.error('[SyntheticCandlestickChart] Chart creation failed - invalid chart instance');
+        console.error('[SyntheticCandlestickChart] Chart object:', chart);
+        console.error('[SyntheticCandlestickChart] Available methods:', chart ? Object.keys(chart) : 'chart is null');
         return;
       }
 
@@ -94,7 +96,7 @@ export default function SyntheticCandlestickChart({
         }
       };
     } catch (error) {
-      console.error('[SyntheticCandlestickChart] Error initializing chart:', error);
+      console.error('[SyntheticCandlestickChart] Critical error during chart initialization:', error);
     }
   }, []);
 
