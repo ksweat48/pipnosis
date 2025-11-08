@@ -97,12 +97,15 @@ class BacktestingEngine {
     this.config = config;
     this.currentBalance = config.initialBalance;
 
-    console.log(`[Backtesting] Starting backtest: ${config.sessionName}`);
+    console.log('\n=== BACKTEST STARTING ===');
+    console.log(`[Backtesting] Session: ${config.sessionName}`);
     console.log(`[Backtesting] Period: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
     console.log(`[Backtesting] Symbols: ${config.symbols.join(', ')}`);
+    console.log(`[Backtesting] Mode: Independent (not using real-time aggregator)`);
+    console.log('======================\n');
 
     // PRE-FLIGHT VALIDATION: Check data availability
-    console.log('\n[Backtesting] Running pre-flight data validation...');
+    console.log('[Backtesting] Running pre-flight data validation...');
     const dataCheck = await this.validateDataAvailability(config);
 
     if (!dataCheck.isValid) {
@@ -111,8 +114,8 @@ class BacktestingEngine {
       throw new Error(`Data validation failed: ${dataCheck.issues.join('; ')}`);
     }
 
-    console.log('[Backtesting] Pre-flight check PASSED');
-    console.log(`[Backtesting] Available data: ${JSON.stringify(dataCheck.stats, null, 2)}`);
+    console.log('[Backtesting] ✅ Pre-flight check PASSED');
+    console.log(`[Backtesting] Available data: ${JSON.stringify(dataCheck.stats, null, 2)}\n`);
 
     const session = await this.createBacktestSession(userId, config);
     this.sessionId = session.id;
@@ -136,9 +139,14 @@ class BacktestingEngine {
         ...result
       });
 
-      console.log(`[Backtesting] Completed! Win rate: ${result.winRate.toFixed(2)}%`);
-      console.log(`[Backtesting] Total P&L: $${result.totalPnL.toFixed(2)}`);
-      console.log(`[Backtesting] Total trades: ${result.totalTrades}`);
+      console.log('\n=== BACKTEST COMPLETED ===');
+      console.log(`[Backtesting] ✅ Win rate: ${result.winRate.toFixed(2)}%`);
+      console.log(`[Backtesting] 💰 Total P&L: $${result.totalPnL.toFixed(2)}`);
+      console.log(`[Backtesting] 📊 Total trades: ${result.totalTrades}`);
+      console.log(`[Backtesting] ✅ Winning: ${result.winningTrades}`);
+      console.log(`[Backtesting] ❌ Losing: ${result.losingTrades}`);
+      console.log(`[Backtesting] 📈 Profit Factor: ${result.profitFactor.toFixed(2)}`);
+      console.log('==========================\n');
 
       return result;
     } catch (error) {
@@ -219,10 +227,14 @@ class BacktestingEngine {
     time: Date
   ): Promise<FlowV2Signal | null> {
     try {
+      // Backtests use historical data only, no real-time aggregator dependency
       const signal = await flowTraderV2.analyzeSetup(symbol, this.sessionId);
       return signal;
     } catch (error) {
-      console.error(`[Backtesting] Error generating signal for ${symbol}:`, error);
+      // Silently handle errors during backtesting - many timepoints won't generate signals
+      if (error instanceof Error && !error.message.includes('insufficient data')) {
+        console.warn(`[Backtesting] Signal generation issue for ${symbol} at ${time.toISOString()}:`, error.message);
+      }
       return null;
     }
   }

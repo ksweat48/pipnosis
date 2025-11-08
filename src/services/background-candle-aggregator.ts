@@ -41,6 +41,11 @@ class BackgroundCandleAggregator {
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private readonly HEALTH_CHECK_INTERVAL_MS = 15000;
   private readonly STALE_CONNECTION_THRESHOLD_MS = 60000;
+  private isConnecting = false;
+  private connectionState: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected';
+  private lastReconnectAttemptTime: number = 0;
+  private readonly MIN_RECONNECT_INTERVAL_MS = 2000;
+  private circuitBreakerTripped = false;
 
   private getCacheKey(symbol: string, timeframe: Timeframe): string {
     return `${symbol}_${timeframe}`;
@@ -292,10 +297,43 @@ class BackgroundCandleAggregator {
   }
 
   private async setupRealtimeSubscription(): Promise<void> {
+    // Prevent multiple simultaneous connection attempts
+    if (this.isConnecting) {
+      console.log('[BackgroundAggregator] Already connecting, skipping duplicate attempt');
+      return;
+    }
+
+    // Circuit breaker check
+    if (this.circuitBreakerTripped) {
+      console.error('[BackgroundAggregator] Circuit breaker tripped - manual restart required');
+      return;
+    }
+
+    // Rate limit reconnection attempts
+    const timeSinceLastAttempt = Date.now() - this.lastReconnectAttemptTime;
+    if (timeSinceLastAttempt < this.MIN_RECONNECT_INTERVAL_MS) {
+      console.log(`[BackgroundAggregator] Rate limiting: ${timeSinceLastAttempt}ms since last attempt, waiting...`);
+      return;
+    }
+
     try {
+      this.isConnecting = true;
+      this.connectionState = 'connecting';
+      this.lastReconnectAttemptTime = Date.now();
+
+      console.log('[BackgroundAggregator] Setting up realtime subscription...');
+
+      // Clean up existing subscription properly
       if (this.subscription) {
-        await this.subscription.unsubscribe();
+        console.log('[BackgroundAggregator] Cleaning up existing subscription');
+        try {
+          await this.subscription.unsubscribe();
+        } catch (cleanupError) {
+          console.warn('[BackgroundAggregator] Error during cleanup:', cleanupError);
+        }
         this.subscription = null;
+        // Wait for cleanup to complete
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
       this.subscription = supabase
@@ -325,17 +363,25 @@ class BackgroundCandleAggregator {
 
           if (status === 'SUBSCRIBED') {
             this.isRunning = true;
+            this.isConnecting = false;
+            this.connectionState = 'connected';
             this.reconnectAttempts = 0;
             this.lastMessageTime = new Date();
             console.log('[BackgroundAggregator] ✅ Successfully subscribed to realtime_prices');
           } else if (status === 'CHANNEL_ERROR') {
             console.error('[BackgroundAggregator] ❌ Channel error:', err);
+            this.isConnecting = false;
+            this.connectionState = 'error';
             this.handleConnectionError();
           } else if (status === 'TIMED_OUT') {
             console.error('[BackgroundAggregator] ⏱️ Connection timed out');
+            this.isConnecting = false;
+            this.connectionState = 'error';
             this.handleConnectionError();
           } else if (status === 'CLOSED') {
             console.warn('[BackgroundAggregator] 🔌 Connection closed');
+            this.isConnecting = false;
+            this.connectionState = 'disconnected';
             if (this.isRunning) {
               this.handleConnectionError();
             }
@@ -343,16 +389,33 @@ class BackgroundCandleAggregator {
         });
     } catch (error) {
       console.error('[BackgroundAggregator] Failed to setup subscription:', error);
+      this.isConnecting = false;
+      this.connectionState = 'error';
       this.handleConnectionError();
     }
   }
 
   private handleConnectionError(): void {
+    // Prevent recursive calls
+    if (this.isConnecting) {
+      console.log('[BackgroundAggregator] Already attempting to connect, ignoring error');
+      return;
+    }
+
+    // Clear any existing reconnect timeout to prevent duplicates
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
     if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
       console.error(
         `[BackgroundAggregator] ❌ Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. ` +
         'Manual restart required.'
       );
+      this.circuitBreakerTripped = true;
+      this.connectionState = 'error';
+      this.isRunning = false;
       return;
     }
 
@@ -363,16 +426,13 @@ class BackgroundCandleAggregator {
     );
 
     console.log(
-      `[BackgroundAggregator] 🔄 Attempting reconnection ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} ` +
+      `[BackgroundAggregator] 🔄 Scheduling reconnection ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} ` +
       `in ${Math.round(delay / 1000)}s...`
     );
 
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-    }
-
     this.reconnectTimeout = setTimeout(async () => {
       console.log(`[BackgroundAggregator] 🔌 Reconnecting (attempt ${this.reconnectAttempts})...`);
+      this.reconnectTimeout = null;
       await this.setupRealtimeSubscription();
     }, delay);
   }
@@ -562,6 +622,9 @@ class BackgroundCandleAggregator {
 
     return {
       isRunning: this.isRunning,
+      isConnecting: this.isConnecting,
+      connectionState: this.connectionState,
+      circuitBreakerTripped: this.circuitBreakerTripped,
       activeCandleStates: this.candleStates.size,
       saveQueueLength: this.saveQueue.length,
       listenerCount: this.listeners.size,
@@ -573,6 +636,22 @@ class BackgroundCandleAggregator {
       timeSinceLastMessageMs: timeSinceLastMessage,
       connectionHealthy: timeSinceLastMessage !== null && timeSinceLastMessage < this.STALE_CONNECTION_THRESHOLD_MS
     };
+  }
+
+  resetCircuitBreaker(): void {
+    console.log('[BackgroundAggregator] Resetting circuit breaker - manual restart enabled');
+    this.circuitBreakerTripped = false;
+    this.reconnectAttempts = 0;
+    this.connectionState = 'disconnected';
+  }
+
+  async manualReconnect(): Promise<void> {
+    console.log('[BackgroundAggregator] Manual reconnection requested');
+    this.resetCircuitBreaker();
+    this.isConnecting = false;
+    await this.stop();
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    await this.start();
   }
 }
 

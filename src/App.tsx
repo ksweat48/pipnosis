@@ -25,6 +25,7 @@ import { globalPollingCoordinator } from './services/global-polling-coordinator'
 import { backgroundCandleAggregator } from './services/background-candle-aggregator';
 import { persistentPricePollingService } from './services/persistent-price-polling-service';
 import { systemLoadMonitor } from './services/system-load-monitor';
+import ConnectionStatusIndicator from './components/ConnectionStatusIndicator';
 
 
 const AppRoutes: React.FC = () => {
@@ -278,6 +279,7 @@ export default function App() {
   return (
     <DatabaseErrorBoundary>
       <AppRoutes />
+      <ConnectionStatusIndicator />
     </DatabaseErrorBoundary>
   );
 }

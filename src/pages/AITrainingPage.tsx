@@ -11,6 +11,8 @@ export default function AITrainingPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [backtestLoading, setBacktestLoading] = useState(false);
+  const [backtestAborted, setBacktestAborted] = useState(false);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
 
   // Backtest Configuration
   const [sessionName, setSessionName] = useState('');
@@ -69,6 +71,17 @@ export default function AITrainingPage() {
     setBacktestLoading(true);
     setBacktestResult(null);
     setCapabilityScore(null);
+    setBacktestAborted(false);
+    setBacktestError(null);
+
+    // Timeout protection: auto-abort after 5 minutes
+    const timeoutId = setTimeout(() => {
+      if (backtestLoading) {
+        console.error('[AI Training] Backtest timeout - exceeded 5 minutes');
+        setBacktestError('Backtest timed out after 5 minutes. This may indicate insufficient data or a system issue.');
+        setBacktestLoading(false);
+      }
+    }, 5 * 60 * 1000);
 
     try {
       // Run diagnostics first
@@ -126,12 +139,30 @@ export default function AITrainingPage() {
       await loadPastSessions();
 
       console.log('[AI Training] Backtest complete!');
-    } catch (error) {
+      clearTimeout(timeoutId);
+    } catch (error: any) {
       console.error('[AI Training] Error:', error);
-      alert('Backtest failed. Check console for details.');
+      clearTimeout(timeoutId);
+
+      const errorMessage = error?.message || 'Unknown error occurred';
+      setBacktestError(errorMessage);
+
+      if (errorMessage.includes('Data validation failed')) {
+        alert('Backtest failed: Insufficient historical data for the selected date range.\n\n' + errorMessage);
+      } else {
+        alert('Backtest failed. Check console for details.\n\nError: ' + errorMessage);
+      }
     } finally {
       setBacktestLoading(false);
+      clearTimeout(timeoutId);
     }
+  };
+
+  const handleCancelBacktest = () => {
+    console.log('[AI Training] Backtest cancelled by user');
+    setBacktestAborted(true);
+    setBacktestLoading(false);
+    setBacktestError('Backtest cancelled by user');
   };
 
   const handleLoadSession = async (session: any) => {
@@ -364,12 +395,12 @@ export default function AITrainingPage() {
             </div>
           </div>
 
-          {/* Run Button */}
-          <div className="mt-6">
+          {/* Run/Cancel Buttons */}
+          <div className="mt-6 flex items-center gap-4">
             <button
               onClick={handleRunBacktest}
               disabled={backtestLoading || !sessionName || !startDate || !endDate || selectedSymbols.length === 0}
-              className="w-full md:w-auto px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {backtestLoading ? (
                 <>
@@ -383,11 +414,32 @@ export default function AITrainingPage() {
                 </>
               )}
             </button>
+
+            {backtestLoading && (
+              <button
+                onClick={handleCancelBacktest}
+                className="px-6 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 flex items-center justify-center gap-2"
+              >
+                <XCircle className="w-5 h-5" />
+                Cancel
+              </button>
+            )}
           </div>
+
+          {/* Error Display */}
+          {backtestError && (
+            <div className="mt-4 p-4 bg-red-50 border-l-4 border-red-400 rounded">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-red-600" />
+                <p className="text-sm text-red-800 font-semibold">Backtest Error</p>
+              </div>
+              <p className="mt-2 text-sm text-red-700">{backtestError}</p>
+            </div>
+          )}
         </div>
 
         {/* Diagnostic Alert - Show when no trades */}
-        {backtestResult && backtestResult.totalTrades === 0 && (
+        {backtestResult && backtestResult.totalTrades === 0 && !backtestError && (
           <div className="bg-yellow-50 border-l-4 border-yellow-400 p-6 rounded-lg shadow-md">
             <div className="flex items-start gap-3">
               <AlertCircle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-1" />
