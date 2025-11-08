@@ -60,11 +60,6 @@ export default function SyntheticEquityCurve({
         },
       });
 
-      if (!series) {
-        console.error('[SyntheticEquityCurve] Failed to create line series');
-        return;
-      }
-
       seriesRef.current = series;
 
       const handleResize = () => {

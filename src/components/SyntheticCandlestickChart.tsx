@@ -60,11 +60,6 @@ export default function SyntheticCandlestickChart({
         wickDownColor: '#ef4444',
       });
 
-      if (!candleSeries) {
-        console.error('[SyntheticCandlestickChart] Failed to create candlestick series');
-        return;
-      }
-
       candleSeriesRef.current = candleSeries;
 
       const handleResize = () => {
