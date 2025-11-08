@@ -23,51 +23,79 @@ export default function SyntheticCandlestickChart({
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    chartRef.current = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: 400,
-      layout: {
-        background: { color: '#ffffff' },
-        textColor: '#333',
-      },
-      grid: {
-        vertLines: { color: '#f0f0f0' },
-        horzLines: { color: '#f0f0f0' },
-      },
-      timeScale: {
-        borderColor: '#e0e0e0',
-        timeVisible: true,
-      },
-      rightPriceScale: {
-        borderColor: '#e0e0e0',
-      },
-    });
+    try {
+      const chart = createChart(chartContainerRef.current, {
+        width: chartContainerRef.current.clientWidth,
+        height: 400,
+        layout: {
+          background: { color: '#ffffff' },
+          textColor: '#333',
+        },
+        grid: {
+          vertLines: { color: '#f0f0f0' },
+          horzLines: { color: '#f0f0f0' },
+        },
+        timeScale: {
+          borderColor: '#e0e0e0',
+          timeVisible: true,
+        },
+        rightPriceScale: {
+          borderColor: '#e0e0e0',
+        },
+      });
 
-    candleSeriesRef.current = chartRef.current.addCandlestickSeries({
-      upColor: '#22c55e',
-      downColor: '#ef4444',
-      borderUpColor: '#22c55e',
-      borderDownColor: '#ef4444',
-      wickUpColor: '#22c55e',
-      wickDownColor: '#ef4444',
-    });
-
-    const handleResize = () => {
-      if (chartRef.current && chartContainerRef.current) {
-        chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-        });
+      if (!chart) {
+        console.error('[SyntheticCandlestickChart] Failed to create chart');
+        return;
       }
-    };
 
-    window.addEventListener('resize', handleResize);
+      chartRef.current = chart;
 
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (chartRef.current) {
-        chartRef.current.remove();
+      const candleSeries = chart.addCandlestickSeries({
+        upColor: '#22c55e',
+        downColor: '#ef4444',
+        borderUpColor: '#22c55e',
+        borderDownColor: '#ef4444',
+        wickUpColor: '#22c55e',
+        wickDownColor: '#ef4444',
+      });
+
+      if (!candleSeries) {
+        console.error('[SyntheticCandlestickChart] Failed to create candlestick series');
+        return;
       }
-    };
+
+      candleSeriesRef.current = candleSeries;
+
+      const handleResize = () => {
+        if (chartRef.current && chartContainerRef.current) {
+          try {
+            chartRef.current.applyOptions({
+              width: chartContainerRef.current.clientWidth,
+            });
+          } catch (error) {
+            console.error('[SyntheticCandlestickChart] Error resizing chart:', error);
+          }
+        }
+      };
+
+      window.addEventListener('resize', handleResize);
+
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        candleSeriesRef.current = null;
+        if (chartRef.current) {
+          try {
+            chartRef.current.remove();
+          } catch (error) {
+            console.error('[SyntheticCandlestickChart] Error removing chart:', error);
+          }
+          chartRef.current = null;
+        }
+      };
+    } catch (error) {
+      console.error('[SyntheticCandlestickChart] Error initializing chart:', error);
+    }
   }, []);
 
   useEffect(() => {
@@ -115,6 +143,16 @@ export default function SyntheticCandlestickChart({
       chartRef.current.timeScale().fitContent();
     }
   }, [candles, trades]);
+
+  if (!candles || candles.length === 0) {
+    return (
+      <div className="bg-gradient-to-br from-purple-50 to-orange-50 rounded-lg p-6 border-2 border-purple-200">
+        <div className="text-center py-8 text-gray-500">
+          <p>No candle data available to display chart</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-gradient-to-br from-purple-50 to-orange-50 rounded-lg p-6 border-2 border-purple-200">

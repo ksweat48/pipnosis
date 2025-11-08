@@ -22,52 +22,80 @@ export default function SyntheticEquityCurve({
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    chartRef.current = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: 300,
-      layout: {
-        background: { color: '#ffffff' },
-        textColor: '#333',
-      },
-      grid: {
-        vertLines: { color: '#f0f0f0' },
-        horzLines: { color: '#f0f0f0' },
-      },
-      timeScale: {
-        borderColor: '#e0e0e0',
-        timeVisible: true,
-      },
-      rightPriceScale: {
-        borderColor: '#e0e0e0',
-      },
-    });
+    try {
+      const chart = createChart(chartContainerRef.current, {
+        width: chartContainerRef.current.clientWidth,
+        height: 300,
+        layout: {
+          background: { color: '#ffffff' },
+          textColor: '#333',
+        },
+        grid: {
+          vertLines: { color: '#f0f0f0' },
+          horzLines: { color: '#f0f0f0' },
+        },
+        timeScale: {
+          borderColor: '#e0e0e0',
+          timeVisible: true,
+        },
+        rightPriceScale: {
+          borderColor: '#e0e0e0',
+        },
+      });
 
-    seriesRef.current = chartRef.current.addLineSeries({
-      color: '#2563eb',
-      lineWidth: 2,
-      priceFormat: {
-        type: 'price',
-        precision: 2,
-        minMove: 0.01,
-      },
-    });
-
-    const handleResize = () => {
-      if (chartRef.current && chartContainerRef.current) {
-        chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-        });
+      if (!chart) {
+        console.error('[SyntheticEquityCurve] Failed to create chart');
+        return;
       }
-    };
 
-    window.addEventListener('resize', handleResize);
+      chartRef.current = chart;
 
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (chartRef.current) {
-        chartRef.current.remove();
+      const series = chart.addLineSeries({
+        color: '#2563eb',
+        lineWidth: 2,
+        priceFormat: {
+          type: 'price',
+          precision: 2,
+          minMove: 0.01,
+        },
+      });
+
+      if (!series) {
+        console.error('[SyntheticEquityCurve] Failed to create line series');
+        return;
       }
-    };
+
+      seriesRef.current = series;
+
+      const handleResize = () => {
+        if (chartRef.current && chartContainerRef.current) {
+          try {
+            chartRef.current.applyOptions({
+              width: chartContainerRef.current.clientWidth,
+            });
+          } catch (error) {
+            console.error('[SyntheticEquityCurve] Error resizing chart:', error);
+          }
+        }
+      };
+
+      window.addEventListener('resize', handleResize);
+
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        seriesRef.current = null;
+        if (chartRef.current) {
+          try {
+            chartRef.current.remove();
+          } catch (error) {
+            console.error('[SyntheticEquityCurve] Error removing chart:', error);
+          }
+          chartRef.current = null;
+        }
+      };
+    } catch (error) {
+      console.error('[SyntheticEquityCurve] Error initializing chart:', error);
+    }
   }, []);
 
   useEffect(() => {
@@ -101,6 +129,16 @@ export default function SyntheticEquityCurve({
   const totalReturn = finalBalance - initialBalance;
   const totalReturnPercent = ((totalReturn / initialBalance) * 100).toFixed(2);
   const isProfit = totalReturn >= 0;
+
+  if (!trades || trades.length === 0) {
+    return (
+      <div className="bg-gradient-to-br from-purple-50 to-orange-50 rounded-lg p-6 border-2 border-purple-200">
+        <div className="text-center py-8 text-gray-500">
+          <p>No trade data available to display equity curve</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-gradient-to-br from-purple-50 to-orange-50 rounded-lg p-6 border-2 border-purple-200">

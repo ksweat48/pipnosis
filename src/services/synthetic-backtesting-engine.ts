@@ -536,39 +536,25 @@ class SyntheticBacktestingEngine {
       signals_skipped: result.signalsSkipped
     };
 
-    if (analytics) {
-      updateData.avg_win_amount = analytics.tradeAnalytics.avgWinAmount;
-      updateData.avg_loss_amount = analytics.tradeAnalytics.avgLossAmount;
-      updateData.avg_trade_spend = analytics.tradeAnalytics.avgTradeSpend;
-      updateData.avg_trade_size = analytics.tradeAnalytics.avgTradeSize;
-      updateData.best_trade = analytics.tradeAnalytics.bestTrade;
-      updateData.worst_trade = analytics.tradeAnalytics.worstTrade;
-      updateData.expectancy = analytics.tradeAnalytics.expectancy;
-      updateData.avg_win_duration_minutes = analytics.tradeAnalytics.avgWinDuration;
-      updateData.avg_loss_duration_minutes = analytics.tradeAnalytics.avgLossDuration;
-      updateData.avg_risk_reward_actual = analytics.tradeAnalytics.avgRiskRewardActual;
+    try {
+      const { error } = await supabase
+        .from('synthetic_backtest_sessions')
+        .update(updateData)
+        .eq('id', this.sessionId);
 
-      updateData.loss_categories = analytics.lossAnalysis.lossCategories;
-      updateData.loss_common_patterns = analytics.lossAnalysis.commonPatterns;
-      updateData.loss_improvement_opportunities = analytics.lossAnalysis.improvementOpportunities;
+      if (error) {
+        console.error('[Synthetic Backtest] Error updating session results:', error);
+        throw error;
+      }
 
-      updateData.win_categories = analytics.winAnalysis.winCategories;
-      updateData.win_success_patterns = analytics.winAnalysis.successPatterns;
-      updateData.win_strength_areas = analytics.winAnalysis.strengthAreas;
+      if (result.trades.length > 0) {
+        await this.batchInsertTrades(result.trades);
+      }
 
-      updateData.time_distribution = analytics.timeDistribution;
-      updateData.recommendations = analytics.recommendations;
-      updateData.overall_grade = analytics.overallGrade;
-      updateData.grade_breakdown = analytics.gradeBreakdown;
-    }
-
-    await supabase
-      .from('synthetic_backtest_sessions')
-      .update(updateData)
-      .eq('id', this.sessionId);
-
-    if (result.trades.length > 0) {
-      await this.batchInsertTrades(result.trades);
+      console.log('[Synthetic Backtest] Results saved successfully');
+    } catch (error) {
+      console.error('[Synthetic Backtest] Failed to save results:', error);
+      throw error;
     }
   }
 
@@ -610,10 +596,22 @@ class SyntheticBacktestingEngine {
         is_synthetic: true
       }));
 
-      await supabase
-        .from('synthetic_backtest_trades')
-        .insert(tradeRecords);
+      try {
+        const { error } = await supabase
+          .from('synthetic_backtest_trades')
+          .insert(tradeRecords);
+
+        if (error) {
+          console.error(`[Synthetic Backtest] Error inserting trade batch ${i / BATCH_SIZE + 1}:`, error);
+          throw error;
+        }
+      } catch (error) {
+        console.error(`[Synthetic Backtest] Failed to insert trades batch ${i / BATCH_SIZE + 1}:`, error);
+        throw error;
+      }
     }
+
+    console.log(`[Synthetic Backtest] Successfully inserted ${trades.length} trades`);
   }
 
   private reset(): void {
