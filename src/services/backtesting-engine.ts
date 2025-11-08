@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { flowTraderV2, FlowV2Signal } from '../strategies/flow-trader-v2';
 import { autonomousReasoningEngine, ReasoningDecision } from './autonomous-reasoning-engine';
+import { parseSupabaseError, logDatabaseOperation } from './database-validation-utils';
 
 export interface BacktestConfig {
   sessionName: string;
@@ -134,9 +135,14 @@ class BacktestingEngine {
 
       await this.saveBacktestResults(result);
 
+      // Calculate duration
+      const duration = this.config!.startDate && this.config!.endDate
+        ? Math.floor((new Date().getTime() - new Date(this.config!.startDate).getTime()) / 1000)
+        : 0;
+
       await this.updateSessionStatus('completed', {
         completed_at: new Date(),
-        ...result
+        duration_seconds: duration
       });
 
       console.log('\n=== BACKTEST COMPLETED ===');
@@ -650,26 +656,104 @@ class BacktestingEngine {
   }
 
   private async updateSessionStatus(status: string, updates: any = {}): Promise<void> {
-    await supabase
+    // Sanitize updates to only include valid database fields
+    const sanitizedUpdates = this.sanitizeSessionUpdates(updates);
+
+    const { error } = await supabase
       .from('backtest_sessions')
       .update({
         status,
-        ...updates
+        ...sanitizedUpdates
       })
       .eq('id', this.sessionId);
+
+    if (error) {
+      const errorMessage = parseSupabaseError(error);
+      logDatabaseOperation('UPDATE', 'backtest_sessions', { status, ...sanitizedUpdates }, error);
+      throw new Error(`Failed to update backtest session: ${errorMessage}`);
+    }
+
+    console.log(`[Backtesting] Session status updated to: ${status}`);
+  }
+
+  /**
+   * Sanitize update object to only include valid backtest_sessions columns
+   * Filters out arrays, nested objects, and non-existent columns
+   */
+  private sanitizeSessionUpdates(updates: any): any {
+    // Whitelist of valid backtest_sessions columns
+    const validColumns = [
+      'session_name', 'description', 'symbols', 'start_date', 'end_date',
+      'timeframes', 'ai_config_id', 'use_gpt4_reasoning', 'confidence_threshold',
+      'risk_mode', 'max_concurrent_trades', 'initial_balance', 'position_size_percent',
+      'commission_per_trade', 'slippage_pips', 'status', 'total_trades',
+      'winning_trades', 'losing_trades', 'breakeven_trades', 'total_pnl',
+      'final_balance', 'win_rate', 'avg_win', 'avg_loss', 'profit_factor',
+      'sharpe_ratio', 'max_drawdown', 'max_drawdown_percent', 'started_at',
+      'completed_at', 'duration_seconds', 'candles_processed', 'signals_generated',
+      'signals_executed', 'signals_skipped', 'gpt4_calls_made', 'estimated_api_cost'
+    ];
+
+    const sanitized: any = {};
+
+    for (const [key, value] of Object.entries(updates)) {
+      // Skip if not a valid column
+      if (!validColumns.includes(key)) {
+        continue;
+      }
+
+      // Convert Date objects to ISO strings
+      if (value instanceof Date) {
+        sanitized[key] = value.toISOString();
+        continue;
+      }
+
+      // Skip arrays except for valid array columns
+      if (Array.isArray(value)) {
+        if (['symbols', 'timeframes'].includes(key)) {
+          sanitized[key] = value;
+        }
+        continue;
+      }
+
+      // Skip nested objects except for specific cases
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        continue;
+      }
+
+      // Validate numeric fields
+      if (typeof value === 'number') {
+        if (isNaN(value) || !isFinite(value)) {
+          console.warn(`[Backtesting] Invalid numeric value for ${key}: ${value}`);
+          continue;
+        }
+      }
+
+      sanitized[key] = value;
+    }
+
+    return sanitized;
   }
 
   private async updateSessionProgress(current: number, total: number): Promise<void> {
-    await supabase
+    const { error } = await supabase
       .from('backtest_sessions')
       .update({
         candles_processed: current
       })
       .eq('id', this.sessionId);
+
+    if (error) {
+      // Log but don't throw - progress updates shouldn't halt backtesting
+      console.warn('[Backtesting] Failed to update progress:', error.message);
+    }
   }
 
   private async saveBacktestResults(result: BacktestResult): Promise<void> {
-    await supabase
+    console.log(`[Backtesting] Saving results: ${result.totalTrades} trades, ${result.missedOpportunities.length} missed opportunities`);
+
+    // Update session summary
+    const { error: sessionError } = await supabase
       .from('backtest_sessions')
       .update({
         total_trades: result.totalTrades,
@@ -693,65 +777,132 @@ class BacktestingEngine {
       })
       .eq('id', this.sessionId);
 
-    for (const trade of result.trades) {
-      await supabase
-        .from('backtest_trades')
-        .insert({
-          session_id: this.sessionId,
-          user_id: this.userId,
-          trade_number: trade.tradeNumber,
-          symbol: trade.symbol,
-          timeframe: trade.timeframe,
-          entry_time: trade.entryTime.toISOString(),
-          entry_price: trade.entryPrice,
-          direction: trade.direction,
-          position_size: trade.positionSize,
-          stop_loss: trade.stopLoss,
-          take_profit: trade.takeProfit,
-          risk_reward_ratio: trade.riskRewardRatio,
-          flow_v2_confidence: trade.flowV2Confidence,
-          h1_bias: trade.h1Bias,
-          m5_filter_passed: trade.m5FilterPassed,
-          m1_execution_ready: trade.m1ExecutionReady,
-          setup_type: trade.setupType,
-          ai_reasoning_used: trade.aiReasoningUsed,
-          ai_conviction: trade.aiConviction,
-          ai_rationale: trade.aiRationale,
-          ai_risk_assessment: trade.aiRiskAssessment,
-          should_execute: trade.shouldExecute,
-          execution_reason: trade.executionReason,
-          exit_time: trade.exitTime?.toISOString(),
-          exit_price: trade.exitPrice,
-          exit_reason: trade.exitReason,
-          pnl: trade.pnl,
-          pnl_percent: trade.pnlPercent,
-          pips_gained: trade.pipsGained,
-          outcome: trade.outcome,
-          holding_duration_minutes: trade.holdingDurationMinutes,
-          quality_score: trade.qualityScore
-        });
+    if (sessionError) {
+      const errorMessage = parseSupabaseError(sessionError);
+      logDatabaseOperation('UPDATE', 'backtest_sessions', {
+        total_trades: result.totalTrades,
+        win_rate: result.winRate,
+        total_pnl: result.totalPnL
+      }, sessionError);
+      throw new Error(`Failed to save backtest session results: ${errorMessage}`);
     }
 
-    for (const opp of result.missedOpportunities) {
-      await supabase
+    // Batch insert trades for better performance
+    if (result.trades.length > 0) {
+      console.log(`[Backtesting] Inserting ${result.trades.length} trades in batches...`);
+      await this.batchInsertTrades(result.trades);
+    }
+
+    // Batch insert missed opportunities
+    if (result.missedOpportunities.length > 0) {
+      console.log(`[Backtesting] Inserting ${result.missedOpportunities.length} missed opportunities in batches...`);
+      await this.batchInsertMissedOpportunities(result.missedOpportunities);
+    }
+
+    console.log('[Backtesting] ✅ All results saved successfully');
+  }
+
+  /**
+   * Batch insert trades to improve performance
+   * Inserts trades in chunks to avoid overwhelming the database
+   */
+  private async batchInsertTrades(trades: BacktestTrade[]): Promise<void> {
+    const BATCH_SIZE = 50; // Insert 50 trades at a time
+
+    for (let i = 0; i < trades.length; i += BATCH_SIZE) {
+      const batch = trades.slice(i, i + BATCH_SIZE);
+      const tradeRecords = batch.map(trade => ({
+        session_id: this.sessionId,
+        user_id: this.userId,
+        trade_number: trade.tradeNumber,
+        symbol: trade.symbol,
+        timeframe: trade.timeframe,
+        entry_time: trade.entryTime.toISOString(),
+        entry_price: trade.entryPrice,
+        direction: trade.direction,
+        position_size: trade.positionSize,
+        stop_loss: trade.stopLoss,
+        take_profit: trade.takeProfit,
+        risk_reward_ratio: trade.riskRewardRatio,
+        flow_v2_confidence: trade.flowV2Confidence,
+        h1_bias: trade.h1Bias,
+        m5_filter_passed: trade.m5FilterPassed,
+        m1_execution_ready: trade.m1ExecutionReady,
+        setup_type: trade.setupType,
+        ai_reasoning_used: trade.aiReasoningUsed,
+        ai_conviction: trade.aiConviction,
+        ai_rationale: trade.aiRationale,
+        ai_risk_assessment: trade.aiRiskAssessment,
+        should_execute: trade.shouldExecute,
+        execution_reason: trade.executionReason,
+        exit_time: trade.exitTime?.toISOString(),
+        exit_price: trade.exitPrice,
+        exit_reason: trade.exitReason,
+        pnl: trade.pnl,
+        pnl_percent: trade.pnlPercent,
+        pips_gained: trade.pipsGained,
+        outcome: trade.outcome,
+        holding_duration_minutes: trade.holdingDurationMinutes,
+        quality_score: trade.qualityScore
+      }));
+
+      const { error } = await supabase
+        .from('backtest_trades')
+        .insert(tradeRecords);
+
+      if (error) {
+        const errorMessage = parseSupabaseError(error);
+        logDatabaseOperation('INSERT', 'backtest_trades',
+          { batch_size: batch.length, first_trade: batch[0]?.tradeNumber },
+          error
+        );
+        throw new Error(`Failed to insert backtest trades: ${errorMessage}`);
+      }
+
+      console.log(`[Backtesting] Inserted trades ${i + 1}-${Math.min(i + BATCH_SIZE, trades.length)} of ${trades.length}`);
+    }
+  }
+
+  /**
+   * Batch insert missed opportunities to improve performance
+   */
+  private async batchInsertMissedOpportunities(opportunities: any[]): Promise<void> {
+    const BATCH_SIZE = 50;
+
+    for (let i = 0; i < opportunities.length; i += BATCH_SIZE) {
+      const batch = opportunities.slice(i, i + BATCH_SIZE);
+      const oppRecords = batch.map(opp => ({
+        session_id: this.sessionId,
+        user_id: this.userId,
+        symbol: opp.symbol,
+        timeframe: '1h',
+        opportunity_time: opp.opportunityTime.toISOString(),
+        flow_v2_confidence: opp.flowV2Confidence,
+        direction: opp.direction,
+        entry_price: opp.entryPrice,
+        stop_loss: opp.stopLoss,
+        take_profit: opp.takeProfit,
+        setup_type: opp.setupType,
+        skip_reason: opp.skipReason,
+        ai_conviction: opp.aiConviction,
+        was_quality_trade: opp.wasQualityTrade,
+        quality_score: opp.qualityScore
+      }));
+
+      const { error } = await supabase
         .from('missed_opportunities')
-        .insert({
-          session_id: this.sessionId,
-          user_id: this.userId,
-          symbol: opp.symbol,
-          timeframe: '1h',
-          opportunity_time: opp.opportunityTime.toISOString(),
-          flow_v2_confidence: opp.flowV2Confidence,
-          direction: opp.direction,
-          entry_price: opp.entryPrice,
-          stop_loss: opp.stopLoss,
-          take_profit: opp.takeProfit,
-          setup_type: opp.setupType,
-          skip_reason: opp.skipReason,
-          ai_conviction: opp.aiConviction,
-          was_quality_trade: opp.wasQualityTrade,
-          quality_score: opp.qualityScore
-        });
+        .insert(oppRecords);
+
+      if (error) {
+        const errorMessage = parseSupabaseError(error);
+        logDatabaseOperation('INSERT', 'missed_opportunities',
+          { batch_size: batch.length, first_symbol: batch[0]?.symbol },
+          error
+        );
+        throw new Error(`Failed to insert missed opportunities: ${errorMessage}`);
+      }
+
+      console.log(`[Backtesting] Inserted opportunities ${i + 1}-${Math.min(i + BATCH_SIZE, opportunities.length)} of ${opportunities.length}`);
     }
   }
 
