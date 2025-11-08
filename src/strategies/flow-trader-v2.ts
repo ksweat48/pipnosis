@@ -27,11 +27,20 @@ export interface Candle {
 }
 
 class FlowTraderV2Strategy {
-  async analyzeSetup(symbol: string, sessionId: string): Promise<FlowV2Signal | null> {
+  async analyzeSetup(symbol: string, sessionId: string, atTime?: Date): Promise<FlowV2Signal | null> {
     try {
-      const h1Candles = await this.getCandles(symbol, '1h', 50);
-      const m5Candles = await this.getCandles(symbol, '5m', 100);
-      const m1Candles = await this.getCandles(symbol, '1m', 100);
+      if (atTime) {
+        console.log(`[Flow V2] 🕐 Analyzing ${symbol} at historical time: ${atTime.toISOString()}`);
+      }
+
+      const h1Candles = await this.getCandles(symbol, '1h', 50, atTime);
+      const m5Candles = await this.getCandles(symbol, '5m', 100, atTime);
+      const m1Candles = await this.getCandles(symbol, '1m', 100, atTime);
+
+      if (atTime && h1Candles && h1Candles.length > 0) {
+        const dataRange = `${h1Candles[0].timestamp} to ${h1Candles[h1Candles.length - 1].timestamp}`;
+        console.log(`[Flow V2] 📊 Data range for backtest: ${dataRange}`);
+      }
 
       if (!h1Candles || h1Candles.length < 2) {
         console.log(`[Flow V2] ❌ PHASE 1 FAILED: Insufficient H1 data for ${symbol} (got ${h1Candles?.length || 0}, need 2+)`);
@@ -403,13 +412,20 @@ class FlowTraderV2Strategy {
     return trs.reduce((sum, tr) => sum + tr, 0) / trs.length;
   }
 
-  async getCandles(symbol: string, timeframe: string, limit: number): Promise<Candle[] | null> {
+  async getCandles(symbol: string, timeframe: string, limit: number, beforeTime?: Date): Promise<Candle[] | null> {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('forex_candles')
         .select('open_time, open, high, low, close, volume')
         .eq('symbol', symbol)
-        .eq('timeframe', timeframe)
+        .eq('timeframe', timeframe);
+
+      // For backtesting: only get candles up to and including the specified time
+      if (beforeTime) {
+        query = query.lte('open_time', beforeTime.toISOString());
+      }
+
+      const { data, error } = await query
         .order('open_time', { ascending: false })
         .limit(limit);
 

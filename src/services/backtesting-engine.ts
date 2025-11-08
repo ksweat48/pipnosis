@@ -181,6 +181,11 @@ class BacktestingEngine {
     for (let i = 0; i < candles.length; i++) {
       const currentTime = new Date(candles[i].open_time);
 
+      // Log progress at key intervals
+      if (i % 50 === 0 || i === 0) {
+        console.log(`[Backtesting] 🕒 Processing candle ${i + 1}/${candles.length} at ${currentTime.toISOString()}`);
+      }
+
       this.updateOpenTrades(candles[i]);
 
       if (this.openTrades.length >= config.maxConcurrentTrades) {
@@ -208,8 +213,9 @@ class BacktestingEngine {
         }
       }
 
-      if (i % 100 === 0) {
-        console.log(`[Backtesting] Progress: ${i}/${candles.length} candles (${Math.round(i/candles.length*100)}%) | Signals: ${signalsGenerated} generated, ${signalsExecuted} executed, ${signalsSkipped} skipped`);
+      if (i % 100 === 0 && i > 0) {
+        const progressPercent = Math.round((i / candles.length) * 100);
+        console.log(`[Backtesting] 📊 Progress: ${i}/${candles.length} candles (${progressPercent}%) | Signals: ${signalsGenerated} generated, ${signalsExecuted} executed, ${signalsSkipped} skipped`);
         await this.updateSessionProgress(i, candles.length);
       }
     }
@@ -227,8 +233,8 @@ class BacktestingEngine {
     time: Date
   ): Promise<FlowV2Signal | null> {
     try {
-      // Backtests use historical data only, no real-time aggregator dependency
-      const signal = await flowTraderV2.analyzeSetup(symbol, this.sessionId);
+      // Pass the historical time to Flow V2 so it only analyzes data up to that point
+      const signal = await flowTraderV2.analyzeSetup(symbol, this.sessionId, time);
       return signal;
     } catch (error) {
       // Silently handle errors during backtesting - many timepoints won't generate signals
