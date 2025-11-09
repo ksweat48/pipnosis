@@ -196,19 +196,20 @@ class AISkillTracker {
   /**
    * Update skill progression after live trading
    * Live trades have 1.5x impact on skill progression compared to backtests
+   * IMPORTANT: Only winning trades count toward skill progression
    */
   async updateAfterLiveTrading(
     userId: string,
-    tradesAnalyzed: number,
+    winningTradesCount: number,
     winRate: number,
     profitFactor: number,
     patternsLearned: number
   ): Promise<{ leveledUp: boolean; newLevel?: SkillLevel; oldLevel?: SkillLevel }> {
-    // Live trades count as 1.5x for skill progression
-    const adjustedTradesAnalyzed = Math.round(tradesAnalyzed * 1.5);
+    // Live winning trades count as 1.5x for skill progression
+    const adjustedWinningTrades = Math.round(winningTradesCount * 1.5);
     return this.updateAfterBacktest(
       userId,
-      adjustedTradesAnalyzed,
+      adjustedWinningTrades,
       winRate,
       profitFactor,
       patternsLearned
@@ -217,10 +218,12 @@ class AISkillTracker {
 
   /**
    * Update skill progression after backtest
+   * IMPORTANT: Only winning trades count toward skill progression
+   * The progress bar only advances when the AI makes profitable, successful trades
    */
   async updateAfterBacktest(
     userId: string,
-    tradesAnalyzed: number,
+    winningTradesCount: number,
     winRate: number,
     profitFactor: number,
     patternsLearned: number
@@ -233,21 +236,23 @@ class AISkillTracker {
         return { leveledUp: false };
       }
 
-      // Calculate new totals
-      const newTotalTrades = current.totalTradesAnalyzed + tradesAnalyzed;
+      console.log(`[AI Skill Tracker] Adding ${winningTradesCount} winning trades to progression (current: ${current.totalTradesAnalyzed})`);
+
+      // Calculate new totals - ONLY winning trades increment the counter
+      const newSuccessfulTrades = current.totalTradesAnalyzed + winningTradesCount;
       const newWinRate = this.calculateWeightedAverage(
         current.currentWinRate,
         current.totalTradesAnalyzed,
         winRate,
-        tradesAnalyzed
+        winningTradesCount
       );
       const newProfitFactor = this.calculateWeightedAverage(
         current.currentProfitFactor,
         current.totalTradesAnalyzed,
         profitFactor,
-        tradesAnalyzed
+        winningTradesCount
       );
-      const newPatternsLearned = current.totalTradesAnalyzed + patternsLearned;
+      const newPatternsLearned = current.totalPatternsLearned + patternsLearned;
 
       // Calculate CSS and avgRR from recent trades
       const recentTrades = await this.getRecentTrades(userId, 100);
@@ -263,11 +268,11 @@ class AISkillTracker {
 
       // Determine new skill level (requires CSS now)
       const oldLevel = current.currentSkillLevel;
-      const newLevel = this.calculateSkillLevel(newTotalTrades, newWinRate, newProfitFactor, avgRR, cssValue);
+      const newLevel = this.calculateSkillLevel(newSuccessfulTrades, newWinRate, newProfitFactor, avgRR, cssValue);
       const leveledUp = this.getSkillLevelNumeric(newLevel) > this.getSkillLevelNumeric(oldLevel);
 
       // Calculate progress metrics
-      const progressData = this.calculateProgressMetrics(newTotalTrades, newWinRate, newProfitFactor, avgRR, cssValue, newLevel);
+      const progressData = this.calculateProgressMetrics(newSuccessfulTrades, newWinRate, newProfitFactor, avgRR, cssValue, newLevel);
 
       // Update database
       const { error } = await supabase
@@ -276,18 +281,18 @@ class AISkillTracker {
           current_skill_level: newLevel,
           skill_level_numeric: this.getSkillLevelNumeric(newLevel),
           progress_to_next_level_percent: progressData.progressPercent,
-          total_trades_analyzed: newTotalTrades,
+          total_trades_analyzed: newSuccessfulTrades,
           current_win_rate: newWinRate,
           gap_to_target: 80 - newWinRate,
           current_profit_factor: newProfitFactor,
           trades_needed_for_next_level: progressData.tradesNeeded,
-          estimated_trades_to_master: Math.max(0, 5000 - newTotalTrades),
-          estimated_trades_to_exceptional: Math.max(0, 10000 - newTotalTrades),
+          estimated_trades_to_master: Math.max(0, 5000 - newSuccessfulTrades),
+          estimated_trades_to_exceptional: Math.max(0, 10000 - newSuccessfulTrades),
           total_patterns_learned: newPatternsLearned,
-          learning_velocity_score: this.calculateLearningVelocity(current.totalTradesAnalyzed, newTotalTrades, current.currentWinRate, newWinRate),
+          learning_velocity_score: this.calculateLearningVelocity(current.totalTradesAnalyzed, newSuccessfulTrades, current.currentWinRate, newWinRate),
           previous_skill_level: leveledUp ? oldLevel : current.currentSkillLevel,
           last_level_up_date: leveledUp ? new Date().toISOString() : undefined,
-          last_level_up_trade_count: leveledUp ? newTotalTrades : undefined,
+          last_level_up_trade_count: leveledUp ? newSuccessfulTrades : undefined,
           last_trade_analyzed_date: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
@@ -302,15 +307,15 @@ class AISkillTracker {
         await this.recordMilestone(userId, {
           milestoneType: 'skill_level_up',
           milestoneTitle: `Reached ${newLevel} Level!`,
-          milestoneDescription: `Advanced from ${oldLevel} to ${newLevel} after analyzing ${newTotalTrades} total trades with ${newWinRate.toFixed(1)}% win rate.`,
+          milestoneDescription: `Advanced from ${oldLevel} to ${newLevel} after ${newSuccessfulTrades} successful winning trades with ${newWinRate.toFixed(1)}% win rate.`,
           skillLevelAtAchievement: newLevel,
-          totalTradesAtAchievement: newTotalTrades,
+          totalTradesAtAchievement: newSuccessfulTrades,
           winRateAtAchievement: newWinRate
         });
       }
 
       // Check for other milestones
-      await this.checkAndRecordMilestones(userId, newTotalTrades, newWinRate, newProfitFactor, newLevel);
+      await this.checkAndRecordMilestones(userId, newSuccessfulTrades, newWinRate, newProfitFactor, newLevel);
 
       return { leveledUp, newLevel: leveledUp ? newLevel : undefined, oldLevel: leveledUp ? oldLevel : undefined };
     } catch (error) {

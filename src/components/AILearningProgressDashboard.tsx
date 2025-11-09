@@ -133,7 +133,8 @@ export default function AILearningProgressDashboard() {
             <div className="text-4xl font-bold text-white mb-2">
               {skillData.totalTradesAnalyzed.toLocaleString()}
             </div>
-            <p className="text-white/80 text-sm">Trades Analyzed</p>
+            <p className="text-white/80 text-sm">Successful Trades</p>
+            <p className="text-white/60 text-xs mt-1">Only winning trades count!</p>
           </div>
         </div>
 
@@ -150,8 +151,14 @@ export default function AILearningProgressDashboard() {
             ></div>
           </div>
           <div className="flex items-center justify-between mt-2 text-sm">
-            <span className="text-white/70">{skillData.tradesNeededForNextLevel} trades needed</span>
+            <span className="text-white/70">{skillData.tradesNeededForNextLevel} winning trades needed</span>
             <span className="text-white/70">Target: {skillThresholds[skillData.skillLevelNumeric]?.level || 'Max Level'}</span>
+          </div>
+          <div className="mt-3 p-3 bg-emerald-500/10 rounded border border-emerald-500/30">
+            <p className="text-xs text-emerald-300">
+              <strong>Progress System:</strong> The AI only learns and progresses from successful, profitable trades.
+              Losing trades are analyzed but don't count toward skill advancement. This ensures the AI truly masters winning patterns.
+            </p>
           </div>
         </div>
       </div>
@@ -264,6 +271,10 @@ export default function AILearningProgressDashboard() {
           <Award className="w-5 h-5 text-yellow-500" />
           Skill Level Roadmap
         </h3>
+        <p className="text-sm text-gray-400 mb-4">
+          Requirements shown are for <span className="text-emerald-400 font-semibold">winning trades only</span>.
+          The AI must demonstrate consistent profitability to advance through skill levels.
+        </p>
         <div className="space-y-3">
           {skillThresholds.map((threshold, index) => {
             const isCompleted = skillData.skillLevelNumeric > index + 1;
@@ -299,7 +310,7 @@ export default function AILearningProgressDashboard() {
                   </div>
                   <div className="text-right">
                     <div className={`text-sm font-semibold ${isCompleted || isCurrent ? 'text-white' : 'text-gray-500'}`}>
-                      {threshold.minTrades}+ trades
+                      {threshold.minTrades}+ wins
                     </div>
                     <div className={`text-xs ${isCompleted || isCurrent ? 'text-gray-400' : 'text-gray-600'}`}>
                       {threshold.minWinRate}% WR · {threshold.minProfitFactor}+ PF
@@ -560,6 +571,9 @@ function JourneyCard({ title, trades, description, color }: any) {
         {trades === 0 ? 'Achieved!' : trades.toLocaleString()}
       </div>
       <p className="text-sm text-gray-400">{description}</p>
+      {trades > 0 && (
+        <p className="text-xs text-gray-500 mt-2">Winning trades only</p>
+      )}
     </div>
   );
 }

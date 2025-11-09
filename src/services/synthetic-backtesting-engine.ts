@@ -672,12 +672,16 @@ class SyntheticBacktestingEngine {
         'synthetic'
       );
 
-      // Update AI skill progression
+      // Update AI skill progression - ONLY WINNING TRADES COUNT
       console.log('[Synthetic Backtest] 📊 Updating AI skill progression...');
       const patternsLearned = result.analytics?.patternPerformance?.patterns.length || 0;
+      const winningTradesCount = result.winningTrades; // Only count winning trades!
+
+      console.log(`[Synthetic Backtest] 🎯 Winning trades: ${winningTradesCount} out of ${result.totalTrades} total trades`);
+
       const skillUpdate = await aiSkillTracker.updateAfterBacktest(
         userId,
-        result.totalTrades,
+        winningTradesCount, // CHANGED: Pass only winning trades count, not total trades
         result.winRate,
         result.profitFactor,
         patternsLearned
@@ -685,6 +689,8 @@ class SyntheticBacktestingEngine {
 
       if (skillUpdate.leveledUp) {
         console.log(`[Synthetic Backtest] 🎉 AI LEVEL UP! ${skillUpdate.oldLevel} → ${skillUpdate.newLevel}`);
+      } else {
+        console.log(`[Synthetic Backtest] Progress updated. ${winningTradesCount} successful trades added to learning journey.`);
       }
 
       // Update indicator effectiveness

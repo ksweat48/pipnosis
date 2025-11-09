@@ -105,19 +105,28 @@ class LiveTradeLearningTrigger {
 
         if (trade) {
           // Calculate metrics
-          const winRate = trade.profit_loss > 0 ? 100 : 0;
-          const profitFactor = trade.profit_loss > 0 ? 2.0 : 0.5;
+          const isWinningTrade = parseFloat(trade.profit_loss.toString()) > 0;
+          const winRate = isWinningTrade ? 100 : 0;
+          const profitFactor = isWinningTrade ? 2.0 : 0.5;
 
-          // Update skill progression using live trading method (1.5x impact)
-          await aiSkillTracker.updateAfterLiveTrading(
-            userId,
-            1, // single trade
-            winRate,
-            profitFactor,
-            learningResult.learningsExtracted
-          );
+          // ONLY update skill progression if trade was a winner
+          if (isWinningTrade) {
+            console.log(`[LiveTradeLearningTrigger] 🎯 Trade was profitable! Adding to skill progression (1.5x weight)`);
 
-          console.log(`[LiveTradeLearningTrigger] 📊 Skill progression updated`);
+            // Update skill progression using live trading method (1.5x impact)
+            // Pass 1 winning trade count
+            await aiSkillTracker.updateAfterLiveTrading(
+              userId,
+              1, // 1 winning trade (with 1.5x multiplier applied inside)
+              winRate,
+              profitFactor,
+              learningResult.learningsExtracted
+            );
+
+            console.log(`[LiveTradeLearningTrigger] 📊 Skill progression updated`);
+          } else {
+            console.log(`[LiveTradeLearningTrigger] ❌ Trade was a loss - no progress added (learning still recorded)`);
+          }
         }
       } else {
         console.error(`[LiveTradeLearningTrigger] ❌ Failed to analyze trade ${tradeId}`);
