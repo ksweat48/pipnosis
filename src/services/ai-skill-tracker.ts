@@ -179,6 +179,28 @@ class AISkillTracker {
   }
 
   /**
+   * Update skill progression after live trading
+   * Live trades have 1.5x impact on skill progression compared to backtests
+   */
+  async updateAfterLiveTrading(
+    userId: string,
+    tradesAnalyzed: number,
+    winRate: number,
+    profitFactor: number,
+    patternsLearned: number
+  ): Promise<{ leveledUp: boolean; newLevel?: SkillLevel; oldLevel?: SkillLevel }> {
+    // Live trades count as 1.5x for skill progression
+    const adjustedTradesAnalyzed = Math.round(tradesAnalyzed * 1.5);
+    return this.updateAfterBacktest(
+      userId,
+      adjustedTradesAnalyzed,
+      winRate,
+      profitFactor,
+      patternsLearned
+    );
+  }
+
+  /**
    * Update skill progression after backtest
    */
   async updateAfterBacktest(

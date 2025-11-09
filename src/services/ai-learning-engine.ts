@@ -706,6 +706,356 @@ class AILearningEngine {
       return [];
     }
   }
+
+  /**
+   * Analyze a single live demo trade and extract learnings
+   * This is called when a trade closes in live demo trading
+   */
+  async analyzeLiveTrade(
+    userId: string,
+    tradeId: string
+  ): Promise<{ success: boolean; learningsExtracted: number }> {
+    console.log(`\n[AI Learning Engine] 🎯 Analyzing live trade ${tradeId}`);
+    const startTime = Date.now();
+
+    try {
+      // Fetch the trade from trade_history
+      const { data: trade, error: fetchError } = await supabase
+        .from('trade_history')
+        .select('*')
+        .eq('id', tradeId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (fetchError || !trade) {
+        console.error('[AI Learning Engine] Trade not found:', fetchError);
+        return { success: false, learningsExtracted: 0 };
+      }
+
+      // Check if already analyzed
+      if (trade.ai_analyzed) {
+        console.log('[AI Learning Engine] Trade already analyzed, skipping');
+        return { success: true, learningsExtracted: 0 };
+      }
+
+      // Convert to analysis format
+      const tradeForAnalysis: TradeForAnalysis = {
+        id: trade.id,
+        symbol: trade.symbol,
+        direction: trade.position_type as 'buy' | 'sell',
+        outcome: trade.profit_loss > 0 ? 'win' : (trade.profit_loss < 0 ? 'loss' : 'breakeven'),
+        pnl: parseFloat(trade.profit_loss.toString()),
+        entryTime: new Date(trade.opened_at),
+        exitTime: new Date(trade.closed_at),
+        entryPrice: parseFloat(trade.entry_price.toString()),
+        exitPrice: parseFloat(trade.exit_price.toString()),
+        stopLoss: parseFloat(trade.stop_loss.toString()),
+        takeProfit: parseFloat(trade.take_profit.toString()),
+        confidence: parseFloat(trade.confidence_score?.toString() || '75'),
+        marketConditions: trade.market_conditions || {},
+        setupType: trade.setup_type || 'Unknown'
+      };
+
+      // Fetch historical trades for context
+      const { data: historicalTrades } = await supabase
+        .from('trade_history')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('symbol', trade.symbol)
+        .limit(100);
+
+      const allTrades = (historicalTrades || []).map(t => ({
+        id: t.id,
+        symbol: t.symbol,
+        direction: t.position_type as 'buy' | 'sell',
+        outcome: t.profit_loss > 0 ? 'win' : (t.profit_loss < 0 ? 'loss' : 'breakeven'),
+        pnl: parseFloat(t.profit_loss.toString()),
+        entryTime: new Date(t.opened_at),
+        exitTime: new Date(t.closed_at),
+        entryPrice: parseFloat(t.entry_price.toString()),
+        exitPrice: parseFloat(t.exit_price.toString()),
+        stopLoss: parseFloat(t.stop_loss.toString()),
+        takeProfit: parseFloat(t.take_profit.toString()),
+        confidence: parseFloat(t.confidence_score?.toString() || '75'),
+        marketConditions: t.market_conditions || {},
+        setupType: t.setup_type || 'Unknown'
+      }));
+
+      // Analyze the individual trade
+      const analysis = await this.analyzeIndividualTrade(tradeForAnalysis, allTrades);
+
+      // Store detailed trade analysis with LIVE TRADING FLAG
+      await supabase.from('ai_trade_analysis').insert({
+        user_id: userId,
+        live_trade_id: tradeId,
+        symbol: trade.symbol,
+        direction: trade.position_type,
+        outcome: tradeForAnalysis.outcome,
+        pnl: tradeForAnalysis.pnl,
+        entry_time: tradeForAnalysis.entryTime.toISOString(),
+        entry_confidence: tradeForAnalysis.confidence,
+        entry_market_conditions: tradeForAnalysis.marketConditions,
+        entry_indicators_alignment: this.extractIndicatorAlignment(tradeForAnalysis),
+        entry_quality_score: this.calculateEntryQualityScore(tradeForAnalysis),
+        decision_reasoning: analysis.reasoning,
+        matching_historical_patterns: analysis.matchingPatterns,
+        ai_conviction_level: tradeForAnalysis.confidence,
+        risk_reward_at_entry: Math.abs((tradeForAnalysis.takeProfit - tradeForAnalysis.entryPrice) / (tradeForAnalysis.entryPrice - tradeForAnalysis.stopLoss)),
+        exit_time: tradeForAnalysis.exitTime.toISOString(),
+        exit_reason: this.determineExitReason(tradeForAnalysis),
+        exit_market_conditions: {},
+        was_exit_optimal: tradeForAnalysis.outcome === 'win',
+        key_learnings: analysis.keyLearnings,
+        mistakes_identified: analysis.mistakes,
+        what_worked: analysis.whatWorked,
+        what_failed: analysis.whatFailed,
+        similar_trades_count: analysis.similarTradesCount,
+        similar_trades_win_rate: analysis.similarTradesWinRate,
+        is_pattern_repeating: analysis.isPatternRepeating
+      });
+
+      // Extract and save insights with 2x weight for live trades
+      const insights = [
+        ...await this.extractWinningPatterns(userId, [tradeForAnalysis]),
+        ...await this.extractLosingPatterns(userId, [tradeForAnalysis]),
+        ...await this.analyzeOptimalTiming(userId, [tradeForAnalysis])
+      ];
+
+      let insightsCreated = 0;
+      for (const insight of insights) {
+        const symbols = insight.applicableConditions.symbol
+          ? [insight.applicableConditions.symbol]
+          : [trade.symbol];
+
+        for (const symbol of symbols) {
+          const { error: insightError } = await supabase.from('ai_learning_insights').insert({
+            user_id: userId,
+            live_trade_id: tradeId,
+            is_from_live_trading: true,
+            learned_from_live_trading: true,
+            learning_weight: 2.0, // 2x weight for live trades!
+            insight_type: insight.type,
+            symbol,
+            timeframe: 'H1',
+            market_scenario: 'live_demo',
+            volatility_level: 'medium',
+            trend_direction: 'mixed',
+            insight_title: insight.title,
+            insight_description: insight.description,
+            pattern_features: insight.applicableConditions,
+            sample_size: 1,
+            win_rate: insight.confidence,
+            avg_profit_factor: 1.5,
+            confidence_score: insight.confidence,
+            recommended_action: insight.applicableConditions.recommendAction || 'follow_pattern',
+            apply_when_conditions: insight.applicableConditions,
+            avoid_when_conditions: {}
+          });
+
+          if (!insightError) insightsCreated++;
+        }
+      }
+
+      // Update market scenario performance
+      await this.updateMarketScenarioPerformanceLive(userId, tradeForAnalysis);
+
+      // Update performance evolution with live trade data
+      await this.updatePerformanceEvolutionLive(userId, tradeForAnalysis);
+
+      // Log the learning event
+      await supabase.from('trade_learning_log').insert({
+        user_id: userId,
+        trade_id: tradeId,
+        symbol: trade.symbol,
+        position_type: trade.position_type,
+        outcome: tradeForAnalysis.outcome,
+        pnl: tradeForAnalysis.pnl,
+        confidence_at_entry: tradeForAnalysis.confidence,
+        patterns_identified: analysis.matchingPatterns,
+        insights_created: insightsCreated,
+        key_learnings: analysis.keyLearnings,
+        mistakes_identified: analysis.mistakes,
+        learning_quality_score: tradeForAnalysis.outcome === 'win' ? 85 : 70,
+        will_improve_future_decisions: true,
+        similar_historical_trades_count: analysis.similarTradesCount,
+        learning_source: 'live_trading',
+        processing_time_ms: Date.now() - startTime
+      });
+
+      // Mark trade as analyzed
+      await supabase
+        .from('trade_history')
+        .update({ ai_analyzed: true, ai_analyzed_at: new Date().toISOString() })
+        .eq('id', tradeId);
+
+      console.log(`[AI Learning Engine] ✅ Live trade analyzed! Extracted ${insightsCreated} insights (2x weighted)`);
+      return { success: true, learningsExtracted: insightsCreated };
+    } catch (error) {
+      console.error('[AI Learning Engine] Error analyzing live trade:', error);
+      return { success: false, learningsExtracted: 0 };
+    }
+  }
+
+  /**
+   * Analyze all unanalyzed live trades for a user
+   */
+  async analyzePendingLiveTrades(userId: string): Promise<{ tradesAnalyzed: number; totalInsights: number }> {
+    console.log('[AI Learning Engine] 🔍 Checking for unanalyzed live trades...');
+
+    try {
+      const { data: unanalyzedTrades, error } = await supabase
+        .from('trade_history')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('ai_analyzed', false)
+        .order('closed_at', { ascending: true })
+        .limit(50);
+
+      if (error || !unanalyzedTrades || unanalyzedTrades.length === 0) {
+        console.log('[AI Learning Engine] No unanalyzed trades found');
+        return { tradesAnalyzed: 0, totalInsights: 0 };
+      }
+
+      console.log(`[AI Learning Engine] Found ${unanalyzedTrades.length} unanalyzed trades`);
+
+      let tradesAnalyzed = 0;
+      let totalInsights = 0;
+
+      for (const trade of unanalyzedTrades) {
+        const result = await this.analyzeLiveTrade(userId, trade.id);
+        if (result.success) {
+          tradesAnalyzed++;
+          totalInsights += result.learningsExtracted;
+        }
+      }
+
+      console.log(`[AI Learning Engine] ✅ Analyzed ${tradesAnalyzed} live trades, extracted ${totalInsights} insights`);
+      return { tradesAnalyzed, totalInsights };
+    } catch (error) {
+      console.error('[AI Learning Engine] Error in analyzePendingLiveTrades:', error);
+      return { tradesAnalyzed: 0, totalInsights: 0 };
+    }
+  }
+
+  /**
+   * Update market scenario performance for live trades
+   */
+  private async updateMarketScenarioPerformanceLive(
+    userId: string,
+    trade: TradeForAnalysis
+  ): Promise<void> {
+    const isWin = trade.outcome === 'win';
+    const isLoss = trade.outcome === 'loss';
+
+    try {
+      const { data: existing } = await supabase
+        .from('ai_market_scenario_performance')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('symbol', trade.symbol)
+        .eq('scenario_name', 'live_demo_trading')
+        .maybeSingle();
+
+      if (existing) {
+        const newTotalTrades = existing.trades_taken + 1;
+        const newWins = existing.trades_won + (isWin ? 1 : 0);
+        const newLosses = existing.trades_lost + (isLoss ? 1 : 0);
+
+        await supabase
+          .from('ai_market_scenario_performance')
+          .update({
+            trades_taken: newTotalTrades,
+            trades_won: newWins,
+            trades_lost: newLosses,
+            win_rate: (newWins / newTotalTrades) * 100,
+            avg_profit_per_trade: ((existing.avg_profit_per_trade * existing.trades_taken) + trade.pnl) / newTotalTrades,
+            last_updated: new Date().toISOString()
+          })
+          .eq('id', existing.id);
+      } else {
+        await supabase.from('ai_market_scenario_performance').insert({
+          user_id: userId,
+          scenario_name: 'live_demo_trading',
+          market_type: 'live' as any,
+          symbol: trade.symbol,
+          timeframe: 'H1',
+          total_occurrences: 1,
+          trades_taken: 1,
+          trades_won: isWin ? 1 : 0,
+          trades_lost: isLoss ? 1 : 0,
+          win_rate: isWin ? 100 : 0,
+          avg_profit_per_trade: trade.pnl,
+          profit_factor: 0,
+          optimal_confidence_threshold: trade.confidence,
+          sample_size_sufficient: false
+        });
+      }
+    } catch (error) {
+      console.error('[AI Learning Engine] Error updating live scenario performance:', error);
+    }
+  }
+
+  /**
+   * Update performance evolution for live trades
+   */
+  private async updatePerformanceEvolutionLive(
+    userId: string,
+    trade: TradeForAnalysis
+  ): Promise<void> {
+    const today = new Date().toISOString().split('T')[0];
+    const isWin = trade.outcome === 'win';
+
+    try {
+      const { data: existing } = await supabase
+        .from('ai_performance_evolution')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('measurement_date', today)
+        .eq('period_type', 'daily')
+        .eq('symbol', trade.symbol)
+        .eq('strategy_name', 'Live Demo Trading')
+        .maybeSingle();
+
+      if (existing) {
+        const newTotalTrades = existing.total_trades + 1;
+        const newWinRate = ((existing.win_rate * existing.total_trades) + (isWin ? 100 : 0)) / newTotalTrades;
+
+        await supabase
+          .from('ai_performance_evolution')
+          .update({
+            total_trades: newTotalTrades,
+            win_rate: newWinRate,
+            ai_decisions_made: existing.ai_decisions_made + 1,
+            ai_decision_accuracy: newWinRate,
+            learning_summary: `Analyzed ${newTotalTrades} live trades with ${newWinRate.toFixed(1)}% win rate`,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existing.id);
+      } else {
+        await supabase.from('ai_performance_evolution').insert({
+          user_id: userId,
+          measurement_date: today,
+          period_type: 'daily',
+          symbol: trade.symbol,
+          strategy_name: 'Live Demo Trading',
+          total_trades: 1,
+          win_rate: isWin ? 100 : 0,
+          profit_factor: 0,
+          avg_rr: 2.0,
+          confidence_threshold_used: trade.confidence,
+          threshold_was_optimal: isWin,
+          optimal_threshold_calculated: trade.confidence,
+          insights_applied: 0,
+          ai_decisions_made: 1,
+          ai_decision_accuracy: isWin ? 100 : 0,
+          is_improving: true,
+          learning_summary: `First live trade: ${trade.outcome}`
+        });
+      }
+    } catch (error) {
+      console.error('[AI Learning Engine] Error updating live performance evolution:', error);
+    }
+  }
 }
 
 export const aiLearningEngine = new AILearningEngine();

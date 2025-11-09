@@ -358,6 +358,31 @@ class PositionMonitorService {
           description: `Position auto-closed (${reason}): ${position.symbol} ${position.position_type} ${position.lot_size} lots`
         });
 
+      // Record trade in history for AI learning
+      await supabase
+        .from('trade_history')
+        .insert({
+          user_id: position.user_id,
+          position_id: position.id,
+          symbol: position.symbol,
+          position_type: position.position_type,
+          lot_size: position.lot_size,
+          entry_price: position.entry_price!,
+          exit_price: closePrice,
+          stop_loss: position.stop_loss,
+          take_profit: position.take_profit,
+          profit_loss: pnl,
+          opened_at: position.opened_at,
+          closed_at: new Date().toISOString(),
+          close_reason: reason,
+          strategy_name: (position as any).strategy_name || null,
+          confidence_score: (position as any).confidence_score || 75,
+          setup_type: (position as any).setup_type || 'Auto-closed position',
+          market_conditions: (position as any).market_conditions || {},
+          ai_decision_id: (position as any).ai_decision_id || null,
+          ai_analyzed: false
+        });
+
       console.log(`[PositionMonitor] Position ${position.id} closed with P&L: $${pnl.toFixed(2)}`);
     } catch (error) {
       console.error(`[PositionMonitor] Failed to auto-close position ${position.id}:`, error);

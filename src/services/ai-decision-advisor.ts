@@ -86,6 +86,7 @@ class AIDecisionAdvisor {
 
   /**
    * Get relevant learning insights for this signal
+   * Prioritizes live trading insights (2x weight) over backtest insights
    */
   private async getRelevantInsights(
     userId: string,
@@ -98,8 +99,9 @@ class AIDecisionAdvisor {
         .eq('user_id', userId)
         .eq('symbol', signal.symbol)
         .gte('confidence_score', 60)
+        .order('learning_weight', { ascending: false }) // Prioritize live trades (2x weight)
         .order('confidence_score', { ascending: false })
-        .limit(5);
+        .limit(10);
 
       if (error) {
         console.error('[AI Decision Advisor] Error fetching insights:', error);
@@ -201,20 +203,32 @@ class AIDecisionAdvisor {
     let adjustedConfidence = signal.confidence;
 
     // Factor 1: Winning pattern insights (boost confidence)
+    // Apply weighting: live trades have 2x impact, backtests have 1x impact
     const winningPatterns = insights.filter(i => i.insight_type === 'winning_pattern');
     if (winningPatterns.length > 0) {
-      const avgWinningConfidence = winningPatterns.reduce((sum, p) => sum + p.confidence_score, 0) / winningPatterns.length;
-      if (avgWinningConfidence >= 70) {
-        adjustedConfidence += 5;
-        console.log('[AI Decision Advisor] ⬆️ +5% from winning patterns');
+      const totalWeight = winningPatterns.reduce((sum, p) => sum + (p.learning_weight || 1.0), 0);
+      const weightedConfidence = winningPatterns.reduce(
+        (sum, p) => sum + (p.confidence_score * (p.learning_weight || 1.0)),
+        0
+      ) / totalWeight;
+
+      if (weightedConfidence >= 70) {
+        const boost = Math.round(5 * (totalWeight / winningPatterns.length)); // More boost if from live trades
+        adjustedConfidence += boost;
+        const liveCount = winningPatterns.filter(p => p.learned_from_live_trading).length;
+        console.log(`[AI Decision Advisor] ⬆️ +${boost}% from winning patterns (${liveCount} from live trades)`);
       }
     }
 
     // Factor 2: Losing pattern insights (reduce confidence)
+    // Apply weighting: live trade warnings are more serious
     const losingPatterns = insights.filter(i => i.insight_type === 'losing_pattern');
     if (losingPatterns.length > 0) {
-      adjustedConfidence -= 10;
-      console.log('[AI Decision Advisor] ⬇️ -10% from losing patterns detected');
+      const totalWeight = losingPatterns.reduce((sum, p) => sum + (p.learning_weight || 1.0), 0);
+      const penalty = Math.round(10 * (totalWeight / losingPatterns.length)); // More penalty if from live trades
+      adjustedConfidence -= penalty;
+      const liveCount = losingPatterns.filter(p => p.learned_from_live_trading).length;
+      console.log(`[AI Decision Advisor] ⬇️ -${penalty}% from losing patterns (${liveCount} from live trades)`);
     }
 
     // Factor 3: Market scenario performance
