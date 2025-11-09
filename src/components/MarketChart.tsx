@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineStyle } from 'lightweight-charts';
+import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle, LineSeries } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
 import { TrendingUp, Activity, AlertCircle, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { chartPreferencesService, Timeframe, type IndicatorVisibility } from '@/services/chart-preferences';
@@ -166,7 +166,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       },
     });
 
-    const candlestickSeries = chart.addCandlestickSeries({
+    const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#10b981',
       downColor: '#ef4444',
       borderUpColor: '#10b981',
@@ -182,28 +182,28 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       priceLineVisible: true,
     });
 
-    const vwapSeries = chart.addLineSeries({
+    const vwapSeries = chart.addSeries(LineSeries, {
       color: '#3b82f6',
       lineWidth: 2,
       lastValueVisible: false,
       priceLineVisible: false,
     });
 
-    const ema20Series = chart.addLineSeries({
+    const ema20Series = chart.addSeries(LineSeries, {
       color: '#10b981',
       lineWidth: 1,
       lastValueVisible: false,
       priceLineVisible: false,
     });
 
-    const ema50Series = chart.addLineSeries({
+    const ema50Series = chart.addSeries(LineSeries, {
       color: '#f59e0b',
       lineWidth: 1,
       lastValueVisible: false,
       priceLineVisible: false,
     });
 
-    const ema200Series = chart.addLineSeries({
+    const ema200Series = chart.addSeries(LineSeries, {
       color: '#ef4444',
       lineWidth: 2,
       lastValueVisible: false,
