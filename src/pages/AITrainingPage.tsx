@@ -8,6 +8,7 @@ import { backtestDiagnostics } from '../services/backtest-diagnostics';
 import SyntheticEquityCurve from '../components/SyntheticEquityCurve';
 import SyntheticCandlestickChart from '../components/SyntheticCandlestickChart';
 import SyntheticBacktestResults from '../components/SyntheticBacktestResults';
+import { NavigationMenu } from '../components/NavigationMenu';
 import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock, Sparkles, RefreshCw } from 'lucide-react';
 
 export default function AITrainingPage() {
@@ -311,10 +312,13 @@ export default function AITrainingPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+        <NavigationMenu />
+        <div className="flex items-center justify-center min-h-[80vh]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mx-auto mb-4"></div>
+            <p className="text-white/70">Loading...</p>
+          </div>
         </div>
       </div>
     );
@@ -322,28 +326,32 @@ export default function AITrainingPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center p-8 bg-white rounded-lg shadow-md">
-          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">Access Denied</h2>
-          <p className="text-gray-600">This page is only accessible to administrators.</p>
+      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+        <NavigationMenu />
+        <div className="flex items-center justify-center min-h-[80vh]">
+          <div className="text-center p-8 bg-gray-800/50 backdrop-blur-sm rounded-lg shadow-md border border-gray-700">
+            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-white mb-2">Access Denied</h2>
+            <p className="text-gray-400">This page is only accessible to administrators.</p>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+      <NavigationMenu />
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">AI Training & Backtesting Lab</h1>
-          <p className="text-gray-600">Test and optimize AI trading performance with historical data</p>
+          <h1 className="text-3xl font-bold text-white mb-2">AI Training & Backtesting Lab</h1>
+          <p className="text-gray-400">Test and optimize AI trading performance with historical data</p>
         </div>
 
         {/* Configuration Panel */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6 mb-6">
+          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
             <Settings className="w-5 h-5" />
             Backtest Configuration
           </h2>
@@ -351,53 +359,53 @@ export default function AITrainingPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Session Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 Session Name
               </label>
               <input
                 type="text"
                 value={sessionName}
                 onChange={(e) => setSessionName(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 placeholder="e.g., Nov 2025 Test Run"
               />
             </div>
 
             {/* Start Date */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 Start Date
               </label>
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
               />
             </div>
 
             {/* End Date */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 End Date
               </label>
               <input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
               />
             </div>
 
             {/* Risk Mode */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 Risk Mode
               </label>
               <select
                 value={riskMode}
                 onChange={(e) => setRiskMode(e.target.value as any)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
               >
                 <option value="low">Low (85% confidence)</option>
                 <option value="medium">Medium (75% confidence)</option>
@@ -407,7 +415,7 @@ export default function AITrainingPage() {
 
             {/* Confidence Threshold */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 Confidence Threshold: {confidenceThreshold}%
               </label>
               <input
@@ -422,7 +430,7 @@ export default function AITrainingPage() {
 
             {/* Use GPT-4 */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 AI Reasoning
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
@@ -430,10 +438,10 @@ export default function AITrainingPage() {
                   type="checkbox"
                   checked={useGPT4}
                   onChange={(e) => setUseGPT4(e.target.checked)}
-                  className="w-5 h-5 text-blue-600"
+                  className="w-5 h-5 text-emerald-600"
                   disabled={useSyntheticData}
                 />
-                <span className="text-sm text-gray-700">Use GPT-4 Reasoning</span>
+                <span className="text-sm text-gray-300">Use GPT-4 Reasoning</span>
               </label>
             </div>
           </div>
@@ -505,7 +513,7 @@ export default function AITrainingPage() {
 
           {/* Symbol Selection */}
           <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-300 mb-2">
               Trading Pairs
             </label>
             <div className="flex flex-wrap gap-2">
@@ -521,9 +529,9 @@ export default function AITrainingPage() {
                         setSelectedSymbols(selectedSymbols.filter(s => s !== symbol));
                       }
                     }}
-                    className="w-4 h-4 text-blue-600"
+                    className="w-4 h-4 text-emerald-600"
                   />
-                  <span className="text-sm font-medium text-gray-700">{symbol}</span>
+                  <span className="text-sm font-medium text-gray-300">{symbol}</span>
                 </label>
               ))}
             </div>
@@ -534,7 +542,7 @@ export default function AITrainingPage() {
             <button
               onClick={handleRunBacktest}
               disabled={backtestLoading || !sessionName || !startDate || !endDate || selectedSymbols.length === 0}
-              className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="px-6 py-3 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {backtestLoading ? (
                 <>
@@ -562,23 +570,23 @@ export default function AITrainingPage() {
 
           {/* Progress Display */}
           {backtestLoading && generationProgress && (
-            <div className="mt-4 p-4 bg-blue-50 border-l-4 border-blue-400 rounded">
+            <div className="mt-4 p-4 bg-emerald-900/20 border-l-4 border-emerald-400 rounded">
               <div className="flex items-center gap-2 mb-3">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-                <p className="text-sm text-blue-800 font-semibold">{generationProgress.message}</p>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-400"></div>
+                <p className="text-sm text-emerald-300 font-semibold">{generationProgress.message}</p>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
+              <div className="w-full bg-gray-700 rounded-full h-3 mb-2">
                 <div
-                  className="bg-blue-600 h-3 rounded-full transition-all duration-300"
+                  className="bg-emerald-500 h-3 rounded-full transition-all duration-300"
                   style={{ width: `${generationProgress.percentComplete}%` }}
                 ></div>
               </div>
-              <div className="flex justify-between text-xs text-gray-600">
+              <div className="flex justify-between text-xs text-gray-400">
                 <span>{generationProgress.phase} - {generationProgress.timeframe || ''}</span>
                 <span>{generationProgress.percentComplete.toFixed(1)}%</span>
               </div>
               {generationProgress.candlesGenerated > 0 && (
-                <div className="mt-2 text-xs text-gray-600">
+                <div className="mt-2 text-xs text-gray-400">
                   Generated: {generationProgress.candlesGenerated.toLocaleString()} / {generationProgress.totalEstimated.toLocaleString()} candles
                 </div>
               )}
@@ -587,12 +595,12 @@ export default function AITrainingPage() {
 
           {/* Error Display */}
           {backtestError && (
-            <div className="mt-4 p-4 bg-red-50 border-l-4 border-red-400 rounded">
+            <div className="mt-4 p-4 bg-red-900/20 border-l-4 border-red-400 rounded">
               <div className="flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-red-600" />
-                <p className="text-sm text-red-800 font-semibold">Backtest Error</p>
+                <AlertCircle className="w-5 h-5 text-red-400" />
+                <p className="text-sm text-red-300 font-semibold">Backtest Error</p>
               </div>
-              <p className="mt-2 text-sm text-red-700">{backtestError}</p>
+              <p className="mt-2 text-sm text-red-400">{backtestError}</p>
             </div>
           )}
         </div>
@@ -702,19 +710,19 @@ export default function AITrainingPage() {
 
             {/* Capability Score Card - Only for real data with capability scores */}
             {capabilityScore && (
-              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg shadow-md p-6 border-2 border-blue-200">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                  <Target className="w-6 h-6 text-blue-600" />
+              <div className="bg-gradient-to-br from-emerald-900/30 to-blue-900/30 backdrop-blur-sm border-2 border-emerald-500/30 rounded-lg shadow-md p-6">
+                <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+                  <Target className="w-6 h-6 text-emerald-400" />
                   AI Capability Score
                 </h2>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Overall Score */}
                 <div className="text-center">
-                  <div className="text-6xl font-bold text-blue-600 mb-2">
+                  <div className="text-6xl font-bold text-emerald-400 mb-2">
                     {capabilityScore.overallCapability}%
                   </div>
-                  <div className="text-sm text-gray-600 uppercase tracking-wide">
+                  <div className="text-sm text-gray-400 uppercase tracking-wide">
                     Overall Capability
                   </div>
                   <div className="mt-2">
@@ -736,7 +744,7 @@ export default function AITrainingPage() {
                   }`}>
                     {capabilityScore.gapToTarget > 0 ? '+' : ''}{capabilityScore.gapToTarget.toFixed(1)}%
                   </div>
-                  <div className="text-sm text-gray-600 uppercase tracking-wide">
+                  <div className="text-sm text-gray-400 uppercase tracking-wide">
                     Gap to 75% Target
                   </div>
                   <p className="mt-2 text-xs text-gray-500">
@@ -746,10 +754,10 @@ export default function AITrainingPage() {
 
                 {/* Primary Weakness */}
                 <div className="text-center">
-                  <div className="text-lg font-semibold text-gray-800 mb-2">
+                  <div className="text-lg font-semibold text-white mb-2">
                     {capabilityScore.recommendations.primaryWeakness}
                   </div>
-                  <div className="text-sm text-gray-600 uppercase tracking-wide">
+                  <div className="text-sm text-gray-400 uppercase tracking-wide">
                     Primary Weakness
                   </div>
                   <p className="mt-2 text-xs text-gray-500">
@@ -770,8 +778,8 @@ export default function AITrainingPage() {
             )}
 
             {/* Performance Metrics */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
                 <BarChart3 className="w-5 h-5" />
                 Performance Metrics
               </h2>
@@ -825,8 +833,8 @@ export default function AITrainingPage() {
 
             {/* AI Metrics - Only for real data backtests with capability scores */}
             {capabilityScore && capabilityScore.aiMetrics && (
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4">AI Decision Metrics</h2>
+              <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6">
+                <h2 className="text-xl font-semibold text-white mb-4">AI Decision Metrics</h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <MetricCard
                     label="GPT-4 Accuracy"
@@ -852,31 +860,31 @@ export default function AITrainingPage() {
 
             {/* Recommendations - Only for real data backtests */}
             {capabilityScore && capabilityScore.recommendations && Object.keys(capabilityScore.recommendations.suggestedAdjustments).length > 0 && (
-              <div className="bg-yellow-50 rounded-lg shadow-md p-6 border-2 border-yellow-200">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4">Recommended Adjustments</h2>
+              <div className="bg-yellow-900/20 backdrop-blur-sm rounded-lg shadow-md p-6 border-2 border-yellow-500/30">
+                <h2 className="text-xl font-semibold text-white mb-4">Recommended Adjustments</h2>
                 <div className="space-y-3">
                   {Object.entries(capabilityScore.recommendations.suggestedAdjustments).map(([key, adjustment]: [string, any]) => (
-                    <div key={key} className="bg-white p-4 rounded-lg">
-                      <h3 className="font-semibold text-gray-800 mb-2">
+                    <div key={key} className="bg-gray-700/50 p-4 rounded-lg">
+                      <h3 className="font-semibold text-white mb-2">
                         {key.replace(/([A-Z])/g, ' $1').trim()}
                       </h3>
-                      <p className="text-sm text-gray-600 mb-2">{adjustment.reason}</p>
+                      <p className="text-sm text-gray-300 mb-2">{adjustment.reason}</p>
                       <div className="flex items-center gap-4 text-sm">
-                        <span className="text-gray-700">
+                        <span className="text-gray-300">
                           Current: <span className="font-semibold">{adjustment.current}</span>
                         </span>
-                        <span className="text-blue-600">→</span>
-                        <span className="text-blue-600">
+                        <span className="text-emerald-400">→</span>
+                        <span className="text-emerald-400">
                           Suggested: <span className="font-semibold">{adjustment.suggested}</span>
                         </span>
                       </div>
                     </div>
                   ))}
                 </div>
-                <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                  <p className="text-sm text-gray-700">
+                <div className="mt-4 p-3 bg-emerald-900/20 rounded-lg">
+                  <p className="text-sm text-gray-300">
                     Estimated capability after adjustments:{' '}
-                    <span className="font-bold text-blue-600">
+                    <span className="font-bold text-emerald-400">
                       {capabilityScore.recommendations.estimatedCapabilityAfterAdjustments.toFixed(1)}%
                     </span>
                   </p>
@@ -887,34 +895,34 @@ export default function AITrainingPage() {
         )}
 
         {/* Past Sessions */}
-        <div className="mt-8 bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <div className="mt-8 bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6">
+          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
             <Calendar className="w-5 h-5" />
             Past Backtest Sessions
           </h2>
 
           {pastSessions.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">No past sessions yet. Run your first backtest!</p>
+            <p className="text-gray-400 text-center py-8">No past sessions yet. Run your first backtest!</p>
           ) : (
             <div className="space-y-2">
               {pastSessions.map(session => (
                 <div
                   key={session.id}
                   onClick={() => handleLoadSession(session)}
-                  className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                  className="p-4 border border-gray-600 rounded-lg hover:bg-gray-700/50 cursor-pointer transition-colors"
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="font-semibold text-gray-800">{session.session_name}</h3>
-                      <p className="text-sm text-gray-600">
+                      <h3 className="font-semibold text-white">{session.session_name}</h3>
+                      <p className="text-sm text-gray-400">
                         {new Date(session.start_date).toLocaleDateString()} - {new Date(session.end_date).toLocaleDateString()}
                       </p>
                     </div>
                     <div className="text-right">
-                      <div className={`text-lg font-bold ${session.win_rate >= 55 ? 'text-green-600' : 'text-red-600'}`}>
+                      <div className={`text-lg font-bold ${session.win_rate >= 55 ? 'text-green-400' : 'text-red-400'}`}>
                         {session.win_rate.toFixed(1)}%
                       </div>
-                      <div className="text-sm text-gray-600">
+                      <div className="text-sm text-gray-400">
                         {session.total_trades} trades
                       </div>
                     </div>
@@ -924,17 +932,17 @@ export default function AITrainingPage() {
             </div>
           )}
         </div>
-      </div>
+      </main>
     </div>
   );
 }
 
-function MetricCard({ label, value, icon, valueColor = 'text-gray-900' }: any) {
+function MetricCard({ label, value, icon, valueColor = 'text-white' }: any) {
   return (
-    <div className="bg-gray-50 p-4 rounded-lg">
+    <div className="bg-gray-700/50 p-4 rounded-lg">
       <div className="flex items-center gap-2 mb-2">
         {icon}
-        <span className="text-sm text-gray-600">{label}</span>
+        <span className="text-sm text-gray-400">{label}</span>
       </div>
       <div className={`text-2xl font-bold ${valueColor}`}>{value}</div>
     </div>
@@ -947,11 +955,11 @@ function ScoreBar({ label, score }: { label: string; score: number }) {
 
   return (
     <div>
-      <div className="text-xs text-gray-600 mb-1">{label}</div>
-      <div className="w-full bg-gray-200 rounded-full h-2 mb-1">
+      <div className="text-xs text-gray-400 mb-1">{label}</div>
+      <div className="w-full bg-gray-700 rounded-full h-2 mb-1">
         <div className={`${color} h-2 rounded-full transition-all duration-500`} style={{ width: `${percentage}%` }}></div>
       </div>
-      <div className="text-xs font-semibold text-gray-700">{score}%</div>
+      <div className="text-xs font-semibold text-gray-300">{score}%</div>
     </div>
   );
 }
