@@ -2,6 +2,8 @@ import { supabase } from '../lib/supabase';
 import { syntheticDataGenerator } from './synthetic-data-generator';
 import { syntheticBacktestAnalytics, ComprehensiveAnalytics } from './synthetic-backtest-analytics';
 import { aiLearningEngine, TradeForAnalysis } from './ai-learning-engine';
+import { aiSkillTracker } from './ai-skill-tracker';
+import { aiIndicatorTracker } from './ai-indicator-tracker';
 
 export interface SyntheticBacktestConfig {
   sessionName: string;
@@ -662,13 +664,45 @@ class SyntheticBacktestingEngine {
         setupType: trade.setupType
       }));
 
-      // Run AI learning analysis
+      // Run AI learning analysis (extracts patterns, insights, etc.)
       await aiLearningEngine.analyzeBacktestSession(
         userId,
         this.sessionId,
         tradesForAnalysis,
         'synthetic'
       );
+
+      // Update AI skill progression
+      console.log('[Synthetic Backtest] 📊 Updating AI skill progression...');
+      const patternsLearned = result.analytics?.patternPerformance?.patterns.length || 0;
+      const skillUpdate = await aiSkillTracker.updateAfterBacktest(
+        userId,
+        result.totalTrades,
+        result.winRate,
+        result.profitFactor,
+        patternsLearned
+      );
+
+      if (skillUpdate.leveledUp) {
+        console.log(`[Synthetic Backtest] 🎉 AI LEVEL UP! ${skillUpdate.oldLevel} → ${skillUpdate.newLevel}`);
+      }
+
+      // Update indicator effectiveness
+      console.log('[Synthetic Backtest] 🔬 Updating indicator effectiveness...');
+      for (const trade of this.closedTrades) {
+        // Update effectiveness for core indicators (RSI, MACD, MA, BB)
+        const indicators = ['RSI', 'MACD', 'Moving Averages', 'Bollinger Bands'];
+        for (const indicator of indicators) {
+          await aiIndicatorTracker.updateIndicatorEffectiveness(
+            userId,
+            indicator,
+            trade.symbol,
+            trade.timeframe,
+            true, // Signal was taken
+            trade.outcome
+          );
+        }
+      }
 
       console.log('[Synthetic Backtest] ✅ AI learning analysis complete!');
     } catch (error) {

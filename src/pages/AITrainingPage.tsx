@@ -8,8 +8,9 @@ import { backtestDiagnostics } from '../services/backtest-diagnostics';
 import SyntheticEquityCurve from '../components/SyntheticEquityCurve';
 import SyntheticCandlestickChart from '../components/SyntheticCandlestickChart';
 import SyntheticBacktestResults from '../components/SyntheticBacktestResults';
+import AILearningProgressDashboard from '../components/AILearningProgressDashboard';
 import { NavigationMenu } from '../components/NavigationMenu';
-import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock, Sparkles, RefreshCw } from 'lucide-react';
+import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock, Sparkles, RefreshCw, Brain } from 'lucide-react';
 
 export default function AITrainingPage() {
   const { user } = useAuth();
@@ -37,6 +38,9 @@ export default function AITrainingPage() {
   const [capabilityScore, setCapabilityScore] = useState<CapabilityScoreBreakdown | null>(null);
   const [pastSessions, setPastSessions] = useState<any[]>([]);
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
+
+  // Tab system
+  const [activeTab, setActiveTab] = useState<'backtest' | 'progress'>('progress');
 
   const availableSymbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];
 
@@ -406,6 +410,40 @@ export default function AITrainingPage() {
           <p className="text-gray-400">Test and optimize AI trading performance with historical data</p>
         </div>
 
+        {/* Tab Navigation */}
+        <div className="flex gap-2 mb-6">
+          <button
+            onClick={() => setActiveTab('progress')}
+            className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'progress'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50'
+            }`}
+          >
+            <Brain className="w-5 h-5" />
+            AI Learning Progress
+          </button>
+          <button
+            onClick={() => setActiveTab('backtest')}
+            className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'backtest'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50'
+            }`}
+          >
+            <Play className="w-5 h-5" />
+            Run New Backtest
+          </button>
+        </div>
+
+        {/* AI Learning Progress Tab */}
+        {activeTab === 'progress' && (
+          <AILearningProgressDashboard />
+        )}
+
+        {/* Backtest Configuration Tab */}
+        {activeTab === 'backtest' && (
+          <>
         {/* Configuration Panel */}
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6 mb-6">
           <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
@@ -1001,6 +1039,8 @@ export default function AITrainingPage() {
             </div>
           )}
         </div>
+          </>
+        )}
       </main>
     </div>
   );
