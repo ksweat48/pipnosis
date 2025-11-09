@@ -1,5 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { aiLearningEngine } from './ai-learning-engine';
+import { evCalculator } from './ev-calculator';
+import { adaptiveRiskManager } from './adaptive-risk-manager';
 
 interface TradeSignal {
   symbol: string;
@@ -50,16 +52,33 @@ class AIDecisionAdvisor {
       // 3. Query similar historical trades
       const similarTrades = await this.getSimilarHistoricalTrades(userId, signal);
 
-      // 4. Calculate adjusted confidence
+      // 3.5. Calculate Expected Value for this pattern (HIGHEST PRIORITY)
+      const evResult = await evCalculator.calculateSignalEV(userId, {
+        symbol: signal.symbol,
+        direction: signal.direction,
+        entryPrice: signal.entryPrice,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        patternName: signal.setupType
+      });
+
+      if (evResult) {
+        console.log(`[AI Decision Advisor] Pattern EV: ${evResult.expectedValue.toFixed(2)}`);
+        console.log(`[AI Decision Advisor] Win Probability: ${(evResult.winProbability * 100).toFixed(1)}%`);
+        console.log(`[AI Decision Advisor] Recommendation: ${evResult.recommendation}`);
+      }
+
+      // 4. Calculate adjusted confidence (EV-first)
       const adjustedConfidence = this.calculateAdjustedConfidence(
         signal,
         insights,
         scenarioPerformance,
-        similarTrades
+        similarTrades,
+        evResult
       );
 
       // 5. Determine if we should take the trade
-      const decision = this.makeDecision(signal, adjustedConfidence, insights, scenarioPerformance);
+      const decision = await this.makeDecision(signal, adjustedConfidence, insights, scenarioPerformance, userId, evResult);
 
       // 6. Log the decision for future learning
       await this.logDecision(userId, signal, decision);
@@ -192,15 +211,35 @@ class AIDecisionAdvisor {
   }
 
   /**
-   * Calculate adjusted confidence based on AI learning
+   * Calculate adjusted confidence based on AI learning (EV-first approach)
    */
   private calculateAdjustedConfidence(
     signal: TradeSignal,
     insights: any[],
     scenarioPerformance: any,
-    similarTrades: any[]
+    similarTrades: any[],
+    evResult?: any
   ): number {
     let adjustedConfidence = signal.confidence;
+
+    // Factor 0: Expected Value (HIGHEST PRIORITY)
+    if (evResult) {
+      if (evResult.expectedValue > 10 && evResult.recommendation === 'take') {
+        adjustedConfidence += 15;
+        console.log(`[AI Decision Advisor] ⬆️ +15% from strong positive EV (${evResult.expectedValue.toFixed(2)})`);
+      } else if (evResult.expectedValue < 0 && evResult.isStatisticallySignificant) {
+        adjustedConfidence -= 20;
+        console.log(`[AI Decision Advisor] ⬇️ -20% from negative EV (${evResult.expectedValue.toFixed(2)})`);
+      } else if (evResult.expectedValue > 0 && evResult.expectedValue <= 10) {
+        if (evResult.recommendation === 'cautious') {
+          adjustedConfidence += 5;
+          console.log(`[AI Decision Advisor] ⬆️ +5% from positive EV but limited data`);
+        } else if (evResult.recommendation === 'take') {
+          adjustedConfidence += 10;
+          console.log(`[AI Decision Advisor] ⬆️ +10% from moderate positive EV (${evResult.expectedValue.toFixed(2)})`);
+        }
+      }
+    }
 
     // Factor 1: Winning pattern insights (boost confidence)
     // Apply weighting: live trades have 2x impact, backtests have 1x impact
@@ -272,14 +311,16 @@ class AIDecisionAdvisor {
   }
 
   /**
-   * Make final decision based on all factors
+   * Make final decision based on all factors (with defensive mode check)
    */
-  private makeDecision(
+  private async makeDecision(
     signal: TradeSignal,
     adjustedConfidence: number,
     insights: any[],
-    scenarioPerformance: any
-  ): AIDecisionAdvice {
+    scenarioPerformance: any,
+    userId: string,
+    evResult?: any
+  ): Promise<AIDecisionAdvice> {
     const keyInsights: string[] = [];
     const warnings: string[] = [];
     const recommendations: string[] = [];
@@ -322,7 +363,34 @@ class AIDecisionAdvisor {
 
     // Decision threshold
     const CONFIDENCE_THRESHOLD = 70;
-    const shouldTake = adjustedConfidence >= CONFIDENCE_THRESHOLD;
+    let shouldTake = adjustedConfidence >= CONFIDENCE_THRESHOLD;
+
+    // Check defensive mode filters BEFORE final decision
+    const riskState = await adaptiveRiskManager.getRiskState(userId);
+    if (riskState.isDefensiveModeActive) {
+      const tradeCheck = await adaptiveRiskManager.shouldTakeTrade(userId, {
+        confidence: adjustedConfidence,
+        patternProfitFactor: evResult?.profitFactor,
+        isVolatilityHigh: signal.marketConditions?.volatility === 'high'
+      });
+
+      if (!tradeCheck.shouldTake) {
+        console.log(`[AI Decision Advisor] 🛡️ Defensive Mode: ${tradeCheck.reason}`);
+        return {
+          shouldTake: false,
+          adjustedConfidence,
+          reasoning: `Defensive Mode Active: ${tradeCheck.reason}`,
+          riskLevel: 'high',
+          historicalSuccessRate,
+          keyInsights,
+          warnings: [...warnings, `🛡️ Defensive Mode: ${tradeCheck.reason}`],
+          recommendations: [
+            'Wait for defensive mode to end',
+            'Focus on high-quality setups only (80%+ confidence, PF > 1.5)'
+          ]
+        };
+      }
+    }
 
     if (!shouldTake) {
       warnings.push(`Confidence (${adjustedConfidence}%) below threshold (${CONFIDENCE_THRESHOLD}%)`);

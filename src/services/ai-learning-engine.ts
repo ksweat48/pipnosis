@@ -1,4 +1,7 @@
 import { supabase } from '../lib/supabase';
+import { evCalculator } from './ev-calculator';
+import { cssCalculator } from './css-calculator';
+import { adaptiveRiskManager } from './adaptive-risk-manager';
 
 interface TradeForAnalysis {
   id?: string;
@@ -64,7 +67,13 @@ class AILearningEngine {
       // 6. Update performance evolution metrics
       await this.updatePerformanceEvolution(userId, trades);
 
-      // 7. Calculate and store overall session learnings
+      // 7. Calculate EV for all patterns and update tracking
+      await this.updatePatternEVTracking(userId, trades);
+
+      // 8. Calculate and store CSS for session
+      await this.calculateSessionCSS(userId, trades);
+
+      // 9. Calculate and store overall session learnings
       await this.generateSessionSummary(userId, sessionId, trades, sessionType);
 
       console.log('[AI Learning Engine] ✅ Learning analysis complete!');
@@ -87,6 +96,13 @@ class AILearningEngine {
     for (const trade of trades) {
       try {
         const analysis = await this.analyzeIndividualTrade(trade, trades);
+
+        // Calculate EV-based profitability metrics
+        const realizedRR = this.calculateRealizedRR(trade);
+        const { mae, mfe } = this.calculateMAEMFE(trade);
+        const tradeEV = await this.calculateTradeEV(userId, trade, trades);
+        const tradeQuality = this.calculateTradeQuality(trade, realizedRR);
+        const volatilityRegime = this.determineVolatilityRegime(trade);
 
         const { error } = await supabase.from('ai_trade_analysis').insert({
           user_id: userId,
@@ -114,7 +130,13 @@ class AILearningEngine {
           what_failed: analysis.whatFailed,
           similar_trades_count: analysis.similarTradesCount,
           similar_trades_win_rate: analysis.similarTradesWinRate,
-          is_pattern_repeating: analysis.isPatternRepeating
+          is_pattern_repeating: analysis.isPatternRepeating,
+          realized_rr: realizedRR,
+          mae: mae,
+          mfe: mfe,
+          expected_value: tradeEV,
+          trade_quality_score: tradeQuality,
+          volatility_regime: volatilityRegime
         });
 
         if (error) {
@@ -1055,6 +1077,199 @@ class AILearningEngine {
     } catch (error) {
       console.error('[AI Learning Engine] Error updating live performance evolution:', error);
     }
+  }
+
+  /**
+   * Update pattern EV tracking for all patterns in trades
+   */
+  private async updatePatternEVTracking(
+    userId: string,
+    trades: TradeForAnalysis[]
+  ): Promise<void> {
+    console.log('[AI Learning Engine] Updating pattern EV tracking...');
+
+    const symbolGroups = this.groupBySymbol(trades);
+
+    for (const [symbol, symbolTrades] of Object.entries(symbolGroups)) {
+      for (const trade of symbolTrades) {
+        const volatilityRegime = this.determineVolatilityRegime(trade) as 'low' | 'medium' | 'high';
+        const patternName = trade.setupType || 'Unknown';
+
+        // Calculate EV for this pattern
+        const evResult = await evCalculator.calculatePatternEV(
+          userId,
+          symbol,
+          patternName,
+          volatilityRegime
+        );
+
+        if (evResult) {
+          await evCalculator.updatePatternEVTracking(
+            userId,
+            symbol,
+            patternName,
+            evResult,
+            volatilityRegime
+          );
+        }
+
+        // Learn from completed trade
+        await evCalculator.learnFromCompletedTrade(userId, {
+          symbol,
+          patternName,
+          outcome: trade.outcome,
+          pnl: trade.pnl,
+          volatilityRegime
+        });
+      }
+    }
+
+    console.log('[AI Learning Engine] ✓ Pattern EV tracking updated');
+  }
+
+  /**
+   * Calculate CSS for session
+   */
+  private async calculateSessionCSS(
+    userId: string,
+    trades: TradeForAnalysis[]
+  ): Promise<void> {
+    console.log('[AI Learning Engine] Calculating CSS for session...');
+
+    if (trades.length === 0) return;
+
+    const tradeData = trades.map(t => ({
+      outcome: t.outcome,
+      pnl: t.pnl,
+      entryPrice: t.entryPrice,
+      exitPrice: t.exitPrice || t.entryPrice,
+      stopLoss: t.stopLoss,
+      takeProfit: t.takeProfit
+    }));
+
+    const cssResult = cssCalculator.calculateCSSFromTrades(tradeData);
+
+    console.log(`[AI Learning Engine] Session CSS: ${cssResult.compositeSuccessScore.toFixed(2)}`);
+    console.log(`  Win Rate: ${cssResult.rawMetrics.winRate.toFixed(1)}%`);
+    console.log(`  Profit Factor: ${cssResult.rawMetrics.profitFactor.toFixed(2)}`);
+    console.log(`  Avg R:R: ${cssResult.rawMetrics.avgRR.toFixed(2)}`);
+    console.log(`  Max Drawdown: ${cssResult.rawMetrics.maxDrawdown.toFixed(1)}%`);
+    console.log(`  Grade: ${cssResult.grade}`);
+    console.log(`  Skill Level: ${cssResult.skillLevel}`);
+
+    console.log('[AI Learning Engine] ✓ CSS calculated');
+  }
+
+  /**
+   * Calculate realized R:R for a trade
+   */
+  private calculateRealizedRR(trade: TradeForAnalysis): number {
+    const riskAmount = Math.abs(trade.entryPrice - trade.stopLoss);
+    if (riskAmount === 0) return 0;
+
+    const actualPnL = Math.abs((trade.exitPrice || trade.entryPrice) - trade.entryPrice);
+    return actualPnL / riskAmount;
+  }
+
+  /**
+   * Calculate MAE and MFE (simplified - would need tick data for accurate values)
+   */
+  private calculateMAEMFE(trade: TradeForAnalysis): { mae: number; mfe: number } {
+    // Simplified: MAE/MFE would need actual tick data
+    // For now, estimate based on outcome and price movement
+    const priceMove = Math.abs((trade.exitPrice || trade.entryPrice) - trade.entryPrice);
+
+    if (trade.outcome === 'win') {
+      return {
+        mae: priceMove * 0.3, // Assume 30% adverse excursion before winning
+        mfe: priceMove
+      };
+    } else if (trade.outcome === 'loss') {
+      return {
+        mae: priceMove,
+        mfe: priceMove * 0.2 // Assume 20% favorable before losing
+      };
+    } else {
+      return { mae: 0, mfe: 0 };
+    }
+  }
+
+  /**
+   * Calculate EV for a trade based on pattern history
+   */
+  private async calculateTradeEV(
+    userId: string,
+    trade: TradeForAnalysis,
+    allTrades: TradeForAnalysis[]
+  ): Promise<number> {
+    const similarTrades = this.findSimilarTrades(trade, allTrades);
+
+    if (similarTrades.length < 3) {
+      return 0; // Not enough data
+    }
+
+    const wins = similarTrades.filter(t => t.outcome === 'win');
+    const losses = similarTrades.filter(t => t.outcome === 'loss');
+
+    const winProbability = wins.length / similarTrades.length;
+    const avgWin = wins.length > 0 ? wins.reduce((sum, t) => sum + t.pnl, 0) / wins.length : 0;
+    const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((sum, t) => sum + t.pnl, 0) / losses.length) : 0;
+
+    // EV = (Win Probability × Avg Win) − ((1 − Win Probability) × Avg Loss)
+    return (winProbability * avgWin) - ((1 - winProbability) * avgLoss);
+  }
+
+  /**
+   * Calculate trade quality score (0-100)
+   */
+  private calculateTradeQuality(trade: TradeForAnalysis, realizedRR: number): number {
+    let score = 50; // Base score
+
+    // Factor 1: Outcome (40 points)
+    if (trade.outcome === 'win') {
+      score += 40;
+    } else if (trade.outcome === 'loss') {
+      score += 10; // Still some credit for taking a trade
+    } else {
+      score += 20; // Breakeven
+    }
+
+    // Factor 2: R:R achieved (30 points)
+    if (realizedRR >= 2.0) {
+      score += 30;
+    } else if (realizedRR >= 1.5) {
+      score += 20;
+    } else if (realizedRR >= 1.0) {
+      score += 10;
+    }
+
+    // Factor 3: Confidence match (20 points)
+    if (trade.confidence >= 80 && trade.outcome === 'win') {
+      score += 20;
+    } else if (trade.confidence < 70 && trade.outcome === 'loss') {
+      score -= 10; // Penalty for low confidence losses
+    }
+
+    // Factor 4: Setup quality (10 points)
+    if (trade.setupType && trade.setupType !== 'Unknown') {
+      score += 10;
+    }
+
+    return Math.max(0, Math.min(100, score));
+  }
+
+  /**
+   * Determine volatility regime (simplified)
+   */
+  private determineVolatilityRegime(trade: TradeForAnalysis): string {
+    // Simplified volatility detection based on price range
+    const range = Math.abs(trade.takeProfit - trade.stopLoss);
+    const avgPrice = (trade.takeProfit + trade.stopLoss) / 2;
+    const rangePercent = (range / avgPrice) * 100;
+
+    if (rangePercent > 1.5) return 'high';
+    if (rangePercent > 0.8) return 'medium';
+    return 'low';
   }
 }
 

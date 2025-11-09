@@ -468,7 +468,7 @@ class CSSCalculator {
   /**
    * Get CSS trend over time
    */
-  async getCSST rend(
+  async getCSSTrend(
     userId: string,
     periodType: 'daily' | 'weekly' | 'monthly' = 'daily',
     limit: number = 30
