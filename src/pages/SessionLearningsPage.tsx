@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { NavigationMenu } from '../components/NavigationMenu';
 import SessionLearningDashboard from '../components/SessionLearningDashboard';
 import PatternDiscoveryTimeline from '../components/PatternDiscoveryTimeline';
 import { BookOpen, Sparkles } from 'lucide-react';
@@ -7,8 +8,9 @@ export default function SessionLearningsPage() {
   const [activeTab, setActiveTab] = useState<'learnings' | 'patterns'>('learnings');
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+      <NavigationMenu />
+      <div className="max-w-7xl mx-auto p-6 space-y-6">
         {/* Page Header */}
         <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6">
           <h1 className="text-3xl font-bold text-white mb-2">AI Learning Center</h1>
