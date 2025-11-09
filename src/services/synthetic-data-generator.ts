@@ -463,6 +463,14 @@ class SyntheticDataGeneratorService {
     startDate: Date,
     endDate: Date
   ): Promise<any[]> {
+    console.log(`[Synthetic] Fetching candles:`, {
+      generationId,
+      symbol,
+      timeframe,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString()
+    });
+
     const { data, error } = await supabase
       .from('synthetic_candles')
       .select('*')
@@ -478,6 +486,7 @@ class SyntheticDataGeneratorService {
       return [];
     }
 
+    console.log(`[Synthetic] Found ${data?.length || 0} ${timeframe} candles for ${symbol}`);
     return data || [];
   }
 
@@ -489,25 +498,64 @@ class SyntheticDataGeneratorService {
     scenario: string = 'mixed',
     onProgress?: (progress: GenerationProgress) => void
   ): Promise<string> {
+    console.log(`[Synthetic] Looking for existing generation:`, {
+      userId,
+      symbol,
+      scenario,
+      requestedStart: startDate.toISOString(),
+      requestedEnd: endDate.toISOString()
+    });
+
     const { data: existing } = await supabase
       .from('synthetic_data_generations')
-      .select('id')
+      .select('id, start_date, end_date, candles_generated')
       .eq('user_id', userId)
       .eq('symbol', symbol)
       .eq('market_scenario', scenario)
-      .gte('start_date', startDate.toISOString())
-      .lte('end_date', endDate.toISOString())
+      .lte('start_date', startDate.toISOString())
+      .gte('end_date', endDate.toISOString())
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (existing) {
-      console.log('[Synthetic] Using existing generation:', existing.id);
-      return existing.id;
+      console.log('[Synthetic] Found existing generation:', {
+        id: existing.id,
+        start_date: existing.start_date,
+        end_date: existing.end_date,
+        candles_generated: existing.candles_generated
+      });
+
+      const candleCount = await this.verifyCandlesExist(existing.id, symbol);
+
+      if (candleCount > 0) {
+        console.log(`[Synthetic] ✅ Verified ${candleCount} candles exist, using existing generation: ${existing.id}`);
+        return existing.id;
+      } else {
+        console.log('[Synthetic] ⚠️ Existing generation has no candles, generating new data...');
+      }
+    } else {
+      console.log('[Synthetic] No existing generation found, creating new...');
     }
 
     const result = await this.generateSyntheticData(userId, symbol, startDate, endDate, scenario, undefined, onProgress);
     return result.generationId;
+  }
+
+  private async verifyCandlesExist(generationId: string, symbol: string): Promise<number> {
+    const { count, error } = await supabase
+      .from('synthetic_candles')
+      .select('id', { count: 'exact', head: true })
+      .eq('synthetic_session_id', generationId)
+      .eq('symbol', symbol)
+      .limit(1);
+
+    if (error) {
+      console.error('[Synthetic] Error verifying candles:', error);
+      return 0;
+    }
+
+    return count || 0;
   }
 
   async deleteSyntheticGeneration(generationId: string, userId: string): Promise<void> {
