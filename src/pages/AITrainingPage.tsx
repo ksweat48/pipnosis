@@ -77,14 +77,32 @@ export default function AITrainingPage() {
   const loadPastSessions = async () => {
     if (!user) return;
 
-    const { data } = await supabase
+    // Load both real and synthetic backtest sessions
+    const { data: realSessions } = await supabase
       .from('backtest_sessions')
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(10);
 
-    setPastSessions(data || []);
+    const { data: syntheticSessions } = await supabase
+      .from('synthetic_backtest_sessions')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    // Tag sessions with their type for easy identification
+    const taggedReal = (realSessions || []).map(s => ({ ...s, sessionType: 'real' }));
+    const taggedSynthetic = (syntheticSessions || []).map(s => ({ ...s, sessionType: 'synthetic' }));
+
+    // Combine and sort by created_at
+    const combined = [...taggedReal, ...taggedSynthetic].sort((a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+
+    // Take top 10 most recent
+    setPastSessions(combined.slice(0, 10));
   };
 
   const handleRunBacktest = async () => {
@@ -151,6 +169,9 @@ export default function AITrainingPage() {
         setSyntheticCandles(candles || []);
 
         console.log('[AI Training] Synthetic backtest complete!');
+
+        // Reload past sessions to show the new synthetic backtest
+        await loadPastSessions();
       } else {
         console.log('[AI Training] Running pre-flight diagnostics...');
         const diagnostics = await backtestDiagnostics.runFullDiagnostics(
@@ -237,20 +258,30 @@ export default function AITrainingPage() {
   const handleLoadSession = async (session: any) => {
     setSelectedSession(session);
 
+    const isSynthetic = session.sessionType === 'synthetic';
+    const tradesTable = isSynthetic ? 'synthetic_backtest_trades' : 'backtest_trades';
+
+    // Load trades from appropriate table
     const { data: trades } = await supabase
-      .from('backtest_trades')
+      .from(tradesTable)
       .select('*')
       .eq('session_id', session.id)
       .order('entry_time', { ascending: true });
 
-    const { data: scores } = await supabase
-      .from('ai_capability_scores')
-      .select('*')
-      .gte('period_start', session.start_date)
-      .lte('period_end', session.end_date)
-      .single();
+    // Only load capability scores for real backtests
+    let scores = null;
+    if (!isSynthetic) {
+      const { data: scoresData } = await supabase
+        .from('ai_capability_scores')
+        .select('*')
+        .gte('period_start', session.start_date)
+        .lte('period_end', session.end_date)
+        .single();
+      scores = scoresData;
+    }
 
-    setBacktestResult({
+    // Build backtest result with synthetic flag if applicable
+    const result: any = {
       sessionId: session.id,
       totalTrades: session.total_trades,
       winningTrades: session.winning_trades,
@@ -270,8 +301,31 @@ export default function AITrainingPage() {
       signalsGenerated: session.signals_generated,
       signalsExecuted: session.signals_executed,
       signalsSkipped: session.signals_skipped
-    });
+    };
 
+    // Add synthetic flag and generation ID if applicable
+    if (isSynthetic) {
+      result.isSynthetic = true;
+      result.syntheticGenerationId = session.synthetic_generation_id;
+
+      // Load synthetic candles for chart if available
+      if (session.synthetic_generation_id) {
+        const { data: candles } = await supabase
+          .from('synthetic_candles')
+          .select('*')
+          .eq('synthetic_session_id', session.synthetic_generation_id)
+          .eq('symbol', session.symbols[0])
+          .eq('timeframe', 'H1')
+          .order('open_time', { ascending: true })
+          .limit(200);
+
+        setSyntheticCandles(candles || []);
+      }
+    }
+
+    setBacktestResult(result);
+
+    // Set capability scores only for real backtests
     if (scores) {
       setCapabilityScore({
         overallCapability: scores.overall_capability_percent,
@@ -307,6 +361,9 @@ export default function AITrainingPage() {
           estimatedCapabilityAfterAdjustments: scores.estimated_capability_after_adjustments
         }
       });
+    } else {
+      // Clear capability scores for synthetic backtests
+      setCapabilityScore(null);
     }
   };
 
@@ -912,8 +969,20 @@ export default function AITrainingPage() {
                   className="p-4 border border-gray-600 rounded-lg hover:bg-gray-700/50 cursor-pointer transition-colors"
                 >
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-semibold text-white">{session.session_name}</h3>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-semibold text-white">{session.session_name}</h3>
+                        {session.sessionType === 'synthetic' && (
+                          <span className="px-2 py-0.5 bg-purple-600 text-white text-xs font-bold rounded-full">
+                            SYNTHETIC
+                          </span>
+                        )}
+                        {session.sessionType === 'real' && (
+                          <span className="px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full">
+                            REAL DATA
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-400">
                         {new Date(session.start_date).toLocaleDateString()} - {new Date(session.end_date).toLocaleDateString()}
                       </p>
