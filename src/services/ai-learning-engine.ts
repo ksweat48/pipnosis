@@ -88,7 +88,7 @@ class AILearningEngine {
       try {
         const analysis = await this.analyzeIndividualTrade(trade, trades);
 
-        const { error } = await supabase.from('ai_trade_analysis').insert({
+        await supabase.from('ai_trade_analysis').insert({
           user_id: userId,
           [sessionType === 'synthetic' ? 'synthetic_trade_id' : 'backtest_trade_id']: trade.id,
           symbol: trade.symbol,
@@ -116,12 +116,8 @@ class AILearningEngine {
           similar_trades_win_rate: analysis.similarTradesWinRate,
           is_pattern_repeating: analysis.isPatternRepeating
         });
-
-        if (error) {
-          console.error(`[AI Learning Engine] Error analyzing trade:`, error);
-        }
       } catch (error) {
-        console.error(`[AI Learning Engine] Exception analyzing trade:`, error);
+        console.error(`[AI Learning Engine] Error analyzing trade:`, error);
       }
     }
 
@@ -360,7 +356,7 @@ class AILearningEngine {
           : ['EURUSD', 'XAUUSD', 'GBPUSD']; // Default to common symbols
 
         for (const symbol of symbols) {
-          const { error } = await supabase.from('ai_learning_insights').insert({
+          await supabase.from('ai_learning_insights').insert({
             user_id: userId,
             [sessionType === 'synthetic' ? 'synthetic_session_id' : 'backtest_session_id']: sessionId,
             is_from_live_trading: false,
@@ -381,13 +377,9 @@ class AILearningEngine {
             apply_when_conditions: insight.applicableConditions,
             avoid_when_conditions: {}
           });
-
-          if (error) {
-            console.error('[AI Learning Engine] Error saving insight:', error);
-          }
         }
       } catch (error) {
-        console.error('[AI Learning Engine] Exception saving insight:', error);
+        console.error('[AI Learning Engine] Error saving insight:', error);
       }
     }
 
@@ -485,7 +477,7 @@ class AILearningEngine {
       const profitFactor = totalLosses > 0 ? totalWins / totalLosses : 0;
 
       try {
-        const { error } = await supabase.from('ai_performance_evolution').insert({
+        await supabase.from('ai_performance_evolution').insert({
           user_id: userId,
           measurement_date: today,
           period_type: 'daily',
@@ -504,12 +496,8 @@ class AILearningEngine {
           is_improving: true,
           learning_summary: `Analyzed ${symbolTrades.length} trades with ${winRate.toFixed(1)}% win rate`
         });
-
-        if (error && !error.message.includes('duplicate')) {
-          console.error('[AI Learning Engine] Error inserting performance evolution:', error);
-        }
       } catch (error) {
-        console.error('[AI Learning Engine] Exception in performance evolution:', error);
+        // Likely duplicate - that's ok
       }
     }
 

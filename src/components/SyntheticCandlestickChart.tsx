@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, CandlestickSeries, IChartApi, ISeriesApi, CandlestickData } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickData } from 'lightweight-charts';
 import { ArrowUp, ArrowDown, Circle } from 'lucide-react';
 
 interface SyntheticCandlestickChartProps {
@@ -49,9 +49,15 @@ export default function SyntheticCandlestickChart({
         return;
       }
 
+      // Verify chart has required methods
+      if (typeof chart.addCandlestickSeries !== 'function') {
+        console.error('[SyntheticCandlestickChart] Chart instance does not have addCandlestickSeries method. Chart API:', Object.keys(chart));
+        return;
+      }
+
       chartRef.current = chart;
 
-      const candleSeries = chart.addSeries(CandlestickSeries, {
+      const candleSeries = chart.addCandlestickSeries({
         upColor: '#22c55e',
         downColor: '#ef4444',
         borderUpColor: '#22c55e',
