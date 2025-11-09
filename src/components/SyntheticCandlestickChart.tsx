@@ -110,6 +110,11 @@ export default function SyntheticCandlestickChart({
         close: candle.close,
       }));
 
+      if (!candleSeriesRef.current) {
+        console.warn('[SyntheticCandlestickChart] Candle series ref lost before setData');
+        return;
+      }
+
       candleSeriesRef.current.setData(candleData);
 
       if (trades && trades.length > 0) {
@@ -122,18 +127,11 @@ export default function SyntheticCandlestickChart({
             const exitTimeValue = trade.exit_time || trade.exitTime;
 
             if (!entryTimeValue) {
-              console.warn('[SyntheticCandlestickChart] Trade missing entry_time/entryTime:', {
-                tradeNumber: trade.trade_number || trade.tradeNumber,
-                hasEntryTime: !!trade.entry_time,
-                hasEntryTimeCamel: !!trade.entryTime,
-                keys: Object.keys(trade)
-              });
               return;
             }
 
             const entryTime = new Date(entryTimeValue);
             if (isNaN(entryTime.getTime())) {
-              console.warn('[SyntheticCandlestickChart] Invalid entry_time:', entryTimeValue);
               return;
             }
 
@@ -168,17 +166,25 @@ export default function SyntheticCandlestickChart({
 
         if (allMarkers.length > 0 && candleSeriesRef.current) {
           try {
-            candleSeriesRef.current.setMarkers(allMarkers as any);
-            console.log(`[SyntheticCandlestickChart] Successfully set ${allMarkers.length} markers`);
+            // Verify the series still has the setMarkers method
+            if (typeof candleSeriesRef.current.setMarkers === 'function') {
+              candleSeriesRef.current.setMarkers(allMarkers as any);
+              console.log(`[SyntheticCandlestickChart] Successfully set ${allMarkers.length} markers`);
+            } else {
+              console.warn('[SyntheticCandlestickChart] setMarkers method not available on series');
+            }
           } catch (error) {
             console.error('[SyntheticCandlestickChart] Error setting markers:', error);
-            console.error('[SyntheticCandlestickChart] Markers that failed:', allMarkers);
           }
         }
       }
 
       if (chartRef.current) {
-        chartRef.current.timeScale().fitContent();
+        try {
+          chartRef.current.timeScale().fitContent();
+        } catch (error) {
+          console.error('[SyntheticCandlestickChart] Error fitting content:', error);
+        }
       }
     } catch (error) {
       console.error('[SyntheticCandlestickChart] Error updating chart data:', error);

@@ -93,9 +93,13 @@ class PersistentPricePollingService {
         this.status.successCount++;
         this.status.lastError = null;
 
+        const successfulUpdates = data.successfulUpdates ?? 0;
+        const totalPairs = data.totalPairs ?? 0;
+        const durationMs = data.durationMs ?? 0;
+
         console.log(
           `[PersistentPricePolling] ✅ Poll #${this.status.pollCount}: ` +
-          `${data.successfulUpdates}/${data.totalPairs} pairs updated in ${data.durationMs}ms`
+          `${successfulUpdates}/${totalPairs} pairs updated in ${durationMs}ms`
         );
       } else {
         throw new Error(data.error || 'Unknown error from Edge Function');
