@@ -102,19 +102,48 @@ export default function SyntheticCandlestickChart({
     if (!candleSeriesRef.current || !candles || candles.length === 0) return;
 
     try {
-      const candleData: CandlestickData[] = candles.map(candle => ({
-        time: Math.floor(new Date(candle.open_time).getTime() / 1000) as any,
-        open: candle.open,
-        high: candle.high,
-        low: candle.low,
-        close: candle.close,
-      }));
+      const candleData: CandlestickData[] = candles
+        .filter(candle => {
+          if (!candle || !candle.open_time) return false;
+
+          const hasValidPrices =
+            typeof candle.open === 'number' && !isNaN(candle.open) && candle.open !== null &&
+            typeof candle.high === 'number' && !isNaN(candle.high) && candle.high !== null &&
+            typeof candle.low === 'number' && !isNaN(candle.low) && candle.low !== null &&
+            typeof candle.close === 'number' && !isNaN(candle.close) && candle.close !== null;
+
+          if (!hasValidPrices) {
+            console.warn('[SyntheticCandlestickChart] Skipping candle with invalid prices:', candle);
+            return false;
+          }
+
+          const timestamp = new Date(candle.open_time);
+          if (isNaN(timestamp.getTime())) {
+            console.warn('[SyntheticCandlestickChart] Skipping candle with invalid timestamp:', candle.open_time);
+            return false;
+          }
+
+          return true;
+        })
+        .map(candle => ({
+          time: Math.floor(new Date(candle.open_time).getTime() / 1000) as any,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+        }));
+
+      if (candleData.length === 0) {
+        console.warn('[SyntheticCandlestickChart] No valid candles after filtering');
+        return;
+      }
 
       if (!candleSeriesRef.current) {
         console.warn('[SyntheticCandlestickChart] Candle series ref lost before setData');
         return;
       }
 
+      console.log(`[SyntheticCandlestickChart] Setting ${candleData.length} valid candles`);
       candleSeriesRef.current.setData(candleData);
 
       if (trades && trades.length > 0) {
@@ -164,17 +193,27 @@ export default function SyntheticCandlestickChart({
           }
         });
 
-        if (allMarkers.length > 0 && candleSeriesRef.current) {
+        if (allMarkers.length > 0) {
           try {
-            // Verify the series still has the setMarkers method
-            if (typeof candleSeriesRef.current.setMarkers === 'function') {
-              candleSeriesRef.current.setMarkers(allMarkers as any);
-              console.log(`[SyntheticCandlestickChart] Successfully set ${allMarkers.length} markers`);
-            } else {
-              console.warn('[SyntheticCandlestickChart] setMarkers method not available on series');
+            if (!candleSeriesRef.current) {
+              console.warn('[SyntheticCandlestickChart] Series reference lost before setting markers');
+              return;
             }
+
+            if (typeof candleSeriesRef.current.setMarkers !== 'function') {
+              console.warn('[SyntheticCandlestickChart] setMarkers method not available on series');
+              console.log('[SyntheticCandlestickChart] Series type:', typeof candleSeriesRef.current);
+              console.log('[SyntheticCandlestickChart] Series keys:', Object.keys(candleSeriesRef.current));
+              return;
+            }
+
+            console.log(`[SyntheticCandlestickChart] Attempting to set ${allMarkers.length} markers`);
+            candleSeriesRef.current.setMarkers(allMarkers as any);
+            console.log(`[SyntheticCandlestickChart] ✅ Successfully set ${allMarkers.length} markers`);
           } catch (error) {
-            console.error('[SyntheticCandlestickChart] Error setting markers:', error);
+            console.error('[SyntheticCandlestickChart] ❌ Error setting markers:', error);
+            console.error('[SyntheticCandlestickChart] Markers that failed to set:', allMarkers.length);
+            console.error('[SyntheticCandlestickChart] First marker sample:', allMarkers[0]);
           }
         }
       }

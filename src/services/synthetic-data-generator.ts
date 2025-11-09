@@ -258,13 +258,31 @@ class SyntheticDataGeneratorService {
 
       const closeTime = new Date(currentTime.getTime() + 60000);
 
+      const roundedOpen = this.roundPrice(open);
+      const roundedHigh = this.roundPrice(high);
+      const roundedLow = this.roundPrice(low);
+      const roundedClose = this.roundPrice(close);
+
+      if (
+        isNaN(roundedOpen) || roundedOpen === null || roundedOpen === undefined ||
+        isNaN(roundedHigh) || roundedHigh === null || roundedHigh === undefined ||
+        isNaN(roundedLow) || roundedLow === null || roundedLow === undefined ||
+        isNaN(roundedClose) || roundedClose === null || roundedClose === undefined
+      ) {
+        console.error('[Synthetic] Invalid candle generated, skipping:', {
+          open: roundedOpen, high: roundedHigh, low: roundedLow, close: roundedClose
+        });
+        currentTime = closeTime;
+        continue;
+      }
+
       candles.push({
         open_time: currentTime.toISOString(),
         close_time: closeTime.toISOString(),
-        open: this.roundPrice(open),
-        high: this.roundPrice(high),
-        low: this.roundPrice(low),
-        close: this.roundPrice(close),
+        open: roundedOpen,
+        high: roundedHigh,
+        low: roundedLow,
+        close: roundedClose,
         volume,
         tick_volume: tickVolume,
         spread
@@ -309,13 +327,30 @@ class SyntheticDataGeneratorService {
       const volume = chunk.reduce((sum, c) => sum + c.volume, 0);
       const tickVolume = chunk.reduce((sum, c) => sum + c.tick_volume, 0);
 
+      const roundedOpen = this.roundPrice(open);
+      const roundedHigh = this.roundPrice(high);
+      const roundedLow = this.roundPrice(low);
+      const roundedClose = this.roundPrice(close);
+
+      if (
+        isNaN(roundedOpen) || roundedOpen === null || roundedOpen === undefined ||
+        isNaN(roundedHigh) || roundedHigh === null || roundedHigh === undefined ||
+        isNaN(roundedLow) || roundedLow === null || roundedLow === undefined ||
+        isNaN(roundedClose) || roundedClose === null || roundedClose === undefined
+      ) {
+        console.error(`[Synthetic] Invalid aggregated ${timeframe} candle, skipping:`, {
+          open: roundedOpen, high: roundedHigh, low: roundedLow, close: roundedClose
+        });
+        continue;
+      }
+
       aggregated.push({
         open_time: chunk[0].open_time,
         close_time: chunk[chunk.length - 1].close_time,
-        open: this.roundPrice(open),
-        high: this.roundPrice(high),
-        low: this.roundPrice(low),
-        close: this.roundPrice(close),
+        open: roundedOpen,
+        high: roundedHigh,
+        low: roundedLow,
+        close: roundedClose,
         volume,
         tick_volume: tickVolume,
         spread: chunk[0].spread
@@ -486,8 +521,30 @@ class SyntheticDataGeneratorService {
       return [];
     }
 
-    console.log(`[Synthetic] Found ${data?.length || 0} ${timeframe} candles for ${symbol}`);
-    return data || [];
+    if (!data || data.length === 0) {
+      console.log(`[Synthetic] No ${timeframe} candles found for ${symbol}`);
+      return [];
+    }
+
+    const validCandles = data.filter(candle => {
+      if (!candle) return false;
+
+      const hasValidPrices =
+        typeof candle.open === 'number' && !isNaN(candle.open) && candle.open !== null &&
+        typeof candle.high === 'number' && !isNaN(candle.high) && candle.high !== null &&
+        typeof candle.low === 'number' && !isNaN(candle.low) && candle.low !== null &&
+        typeof candle.close === 'number' && !isNaN(candle.close) && candle.close !== null;
+
+      if (!hasValidPrices) {
+        console.warn('[Synthetic] Filtering out candle with invalid prices from database:', candle.id);
+        return false;
+      }
+
+      return true;
+    });
+
+    console.log(`[Synthetic] Found ${validCandles.length} valid ${timeframe} candles for ${symbol} (filtered from ${data.length})`);
+    return validCandles;
   }
 
   async getOrCreateSyntheticData(
