@@ -12,7 +12,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['lucide-react'],
-    include: ['socket.io-client', 'lightweight-charts'],
+    include: ['socket.io-client'],
   },
   build: {
     // Production optimizations
@@ -30,8 +30,7 @@ export default defineConfig({
           router: ['react-router-dom'],
           ui: ['lucide-react'],
           supabase: ['@supabase/supabase-js'],
-          socketio: ['socket.io-client'],
-          charts: ['lightweight-charts']
+          socketio: ['socket.io-client']
         },
         entryFileNames: `assets/[name]-[hash].js`,
         chunkFileNames: `assets/[name]-[hash].js`,

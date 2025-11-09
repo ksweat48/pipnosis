@@ -136,30 +136,18 @@ export default function AITrainingPage() {
           setGenerationProgress(progress);
           console.log('[AI Training] Progress:', progress.message, `${progress.percentComplete.toFixed(1)}%`);
         });
-
-        if (!result) {
-          throw new Error('Synthetic backtest returned no result');
-        }
-
         setBacktestResult(result);
 
-        if (result.syntheticGenerationId && selectedSymbols.length > 0) {
-          const { data: candles, error: candlesError } = await supabase
-            .from('synthetic_candles')
-            .select('*')
-            .eq('synthetic_session_id', result.syntheticGenerationId)
-            .eq('symbol', selectedSymbols[0])
-            .eq('timeframe', 'H1')
-            .order('open_time', { ascending: true })
-            .limit(200);
+        const { data: candles } = await supabase
+          .from('synthetic_candles')
+          .select('*')
+          .eq('synthetic_session_id', result.syntheticGenerationId)
+          .eq('symbol', selectedSymbols[0])
+          .eq('timeframe', 'H1')
+          .order('open_time', { ascending: true })
+          .limit(200);
 
-          if (candlesError) {
-            console.error('[AI Training] Error fetching synthetic candles:', candlesError);
-          } else {
-            setSyntheticCandles(candles || []);
-            console.log('[AI Training] Loaded', candles?.length || 0, 'synthetic candles for chart');
-          }
-        }
+        setSyntheticCandles(candles || []);
 
         console.log('[AI Training] Synthetic backtest complete!');
       } else {
@@ -689,16 +677,14 @@ export default function AITrainingPage() {
 
             {/* Charts */}
             <div className="space-y-6">
-              {backtestResult.trades && Array.isArray(backtestResult.trades) && (
-                <SyntheticEquityCurve
-                  trades={backtestResult.trades}
-                  initialBalance={10000}
-                  finalBalance={backtestResult.finalBalance}
-                  maxDrawdown={backtestResult.maxDrawdown}
-                />
-              )}
+              <SyntheticEquityCurve
+                trades={backtestResult.trades}
+                initialBalance={10000}
+                finalBalance={backtestResult.finalBalance}
+                maxDrawdown={backtestResult.maxDrawdown}
+              />
 
-              {syntheticCandles.length > 0 && backtestResult.trades && selectedSymbols.length > 0 && (
+              {syntheticCandles.length > 0 && (
                 <SyntheticCandlestickChart
                   candles={syntheticCandles}
                   trades={backtestResult.trades}

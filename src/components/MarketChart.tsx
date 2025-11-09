@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineStyle } from 'lightweight-charts';
+import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle, LineSeries } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
 import { TrendingUp, Activity, AlertCircle, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { chartPreferencesService, Timeframe, type IndicatorVisibility } from '@/services/chart-preferences';
@@ -77,8 +77,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [dataQualityWarning, setDataQualityWarning] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>(() => chartPreferencesService.getTimeframe(symbol));
   const [isLive, setIsLive] = useState(false);
-  const [chartInitRetries, setChartInitRetries] = useState(0);
-  const maxChartRetries = 3;
   const [systemStatus, setSystemStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
   const [marketStatus, setMarketStatus] = useState<'live' | 'delayed' | 'offline'>('live');
   const [forexMarketStatus, setForexMarketStatus] = useState<MarketStatus>(() => getForexMarketStatus());
@@ -122,230 +120,122 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   }, []);
 
   useEffect(() => {
-    if (!chartContainerRef.current) {
-      console.error('[MarketChart] Chart container ref is null');
-      return;
-    }
+    if (!chartContainerRef.current) return;
 
-    const container = chartContainerRef.current;
-    const containerWidth = container.clientWidth;
-    const containerHeight = container.clientHeight;
-
-    console.log('[MarketChart] Initializing chart...', {
-      containerWidth,
-      containerHeight,
-      hasCreateChart: typeof createChart === 'function',
-      createChartType: typeof createChart
+    const chart = createChart(chartContainerRef.current, {
+      layout: {
+        background: { color: '#1f2937' },
+        textColor: '#9ca3af',
+      },
+      grid: {
+        vertLines: { color: '#374151' },
+        horzLines: { color: '#374151' },
+      },
+      width: chartContainerRef.current.clientWidth,
+      height: 400,
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      rightPriceScale: {
+        visible: true,
+        borderVisible: true,
+        borderColor: '#4b5563',
+        scaleMargins: {
+          top: 0.1,
+          bottom: 0.1,
+        },
+        autoScale: true,
+        alignLabels: true,
+        mode: 0,
+      },
+      crosshair: {
+        mode: 1,
+        vertLine: {
+          width: 1,
+          color: '#6b7280',
+          style: 2,
+          labelBackgroundColor: '#374151',
+        },
+        horzLine: {
+          width: 1,
+          color: '#6b7280',
+          style: 2,
+          labelBackgroundColor: '#374151',
+        },
+      },
     });
 
-    if (containerWidth === 0 || containerHeight === 0) {
-      console.warn('[MarketChart] Container has zero dimensions, retrying in 100ms...');
-      const retryTimer = setTimeout(() => {
-        if (chartContainerRef.current) {
-          console.log('[MarketChart] Retrying chart initialization after container sizing...');
-        }
-      }, 100);
-      return () => clearTimeout(retryTimer);
-    }
+    const candlestickSeries = chart.addSeries(CandlestickSeries, {
+      upColor: '#10b981',
+      downColor: '#ef4444',
+      borderUpColor: '#10b981',
+      borderDownColor: '#ef4444',
+      wickUpColor: '#10b981',
+      wickDownColor: '#ef4444',
+      priceFormat: {
+        type: 'price',
+        precision: 5,
+        minMove: 0.00001,
+      },
+      lastValueVisible: true,
+      priceLineVisible: true,
+    });
 
-    if (typeof createChart !== 'function') {
-      console.error('[MarketChart] createChart is not a function!', {
-        createChartValue: createChart,
-        createChartType: typeof createChart
-      });
-      setError('Chart library failed to load. Please refresh the page.');
-      setIsLoading(false);
-      return;
-    }
+    const vwapSeries = chart.addSeries(LineSeries, {
+      color: '#3b82f6',
+      lineWidth: 2,
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
 
-    try {
-      console.log('[MarketChart] Calling createChart with container...');
-      const chart = createChart(chartContainerRef.current, {
-        layout: {
-          background: { color: '#1f2937' },
-          textColor: '#9ca3af',
-        },
-        grid: {
-          vertLines: { color: '#374151' },
-          horzLines: { color: '#374151' },
-        },
-        width: chartContainerRef.current.clientWidth,
-        height: 400,
-        timeScale: {
-          timeVisible: true,
-          secondsVisible: false,
-        },
-        rightPriceScale: {
-          visible: true,
-          borderVisible: true,
-          borderColor: '#4b5563',
-          scaleMargins: {
-            top: 0.1,
-            bottom: 0.1,
-          },
-          autoScale: true,
-          alignLabels: true,
-          mode: 0,
-        },
-        crosshair: {
-          mode: 1,
-          vertLine: {
-            width: 1,
-            color: '#6b7280',
-            style: 2,
-            labelBackgroundColor: '#374151',
-          },
-          horzLine: {
-            width: 1,
-            color: '#6b7280',
-            style: 2,
-            labelBackgroundColor: '#374151',
-          },
-        },
-      });
+    const ema20Series = chart.addSeries(LineSeries, {
+      color: '#10b981',
+      lineWidth: 1,
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
 
-      console.log('[MarketChart] Chart object created:', {
-        chartExists: !!chart,
-        chartType: typeof chart,
-        hasAddCandlestickSeries: chart && typeof chart.addCandlestickSeries === 'function',
-        chartKeys: chart ? Object.keys(chart).slice(0, 5) : []
-      });
+    const ema50Series = chart.addSeries(LineSeries, {
+      color: '#f59e0b',
+      lineWidth: 1,
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
 
-      if (!chart) {
-        console.error('[MarketChart] Chart creation returned null/undefined', {
-          containerElement: chartContainerRef.current,
-          containerDimensions: {
-            width: chartContainerRef.current?.clientWidth,
-            height: chartContainerRef.current?.clientHeight
-          },
-          retryAttempt: chartInitRetries
-        });
+    const ema200Series = chart.addSeries(LineSeries, {
+      color: '#ef4444',
+      lineWidth: 2,
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
 
-        if (chartInitRetries < maxChartRetries) {
-          console.log(`[MarketChart] Retrying chart initialization (${chartInitRetries + 1}/${maxChartRetries})...`);
-          setChartInitRetries(prev => prev + 1);
-          const retryDelay = 500 * (chartInitRetries + 1);
-          setTimeout(() => {
-            setError(null);
-            setIsLoading(true);
-          }, retryDelay);
-          return;
-        }
+    chartRef.current = chart;
+    candlestickSeriesRef.current = candlestickSeries;
+    vwapSeriesRef.current = vwapSeries;
+    ema20SeriesRef.current = ema20Series;
+    ema50SeriesRef.current = ema50Series;
+    ema200SeriesRef.current = ema200Series;
 
-        setError('Chart initialization failed. The chart library did not initialize properly. Please clear your browser cache and refresh.');
-        setIsLoading(false);
-        return;
+    const handleUserInteraction = () => {
+      userInteractedRef.current = true;
+    };
+
+    const timeScale = chart.timeScale();
+    timeScale.subscribeVisibleLogicalRangeChange(handleUserInteraction);
+
+    const handleResize = () => {
+      if (chartContainerRef.current) {
+        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
       }
+    };
 
-      if (typeof chart.addCandlestickSeries !== 'function') {
-        console.error('[MarketChart] Chart object is invalid - missing addCandlestickSeries method', {
-          chartType: typeof chart,
-          availableMethods: Object.keys(chart).filter(key => typeof chart[key] === 'function'),
-          retryAttempt: chartInitRetries
-        });
+    window.addEventListener('resize', handleResize);
 
-        if (chartInitRetries < maxChartRetries) {
-          console.log(`[MarketChart] Retrying chart initialization (${chartInitRetries + 1}/${maxChartRetries})...`);
-          setChartInitRetries(prev => prev + 1);
-          const retryDelay = 500 * (chartInitRetries + 1);
-          setTimeout(() => {
-            setError(null);
-            setIsLoading(true);
-          }, retryDelay);
-          return;
-        }
-
-        setError('Chart library error. Please refresh the page or clear browser cache.');
-        setIsLoading(false);
-        return;
-      }
-
-      console.log('[MarketChart] ✅ Chart initialized successfully!');
-      setChartInitRetries(0);
-
-      console.log('[MarketChart] Chart created successfully, adding candlestick series...');
-
-      const candlestickSeries = chart.addCandlestickSeries({
-        upColor: '#10b981',
-        downColor: '#ef4444',
-        borderUpColor: '#10b981',
-        borderDownColor: '#ef4444',
-        wickUpColor: '#10b981',
-        wickDownColor: '#ef4444',
-        priceFormat: {
-          type: 'price',
-          precision: 5,
-          minMove: 0.00001,
-        },
-        lastValueVisible: true,
-        priceLineVisible: true,
-      });
-
-      const vwapSeries = chart.addLineSeries({
-        color: '#3b82f6',
-        lineWidth: 2,
-        lastValueVisible: false,
-        priceLineVisible: false,
-      });
-
-      const ema20Series = chart.addLineSeries({
-        color: '#10b981',
-        lineWidth: 1,
-        lastValueVisible: false,
-        priceLineVisible: false,
-      });
-
-      const ema50Series = chart.addLineSeries({
-        color: '#f59e0b',
-        lineWidth: 1,
-        lastValueVisible: false,
-        priceLineVisible: false,
-      });
-
-      const ema200Series = chart.addLineSeries({
-        color: '#ef4444',
-        lineWidth: 2,
-        lastValueVisible: false,
-        priceLineVisible: false,
-      });
-
-      chartRef.current = chart;
-      candlestickSeriesRef.current = candlestickSeries;
-      vwapSeriesRef.current = vwapSeries;
-      ema20SeriesRef.current = ema20Series;
-      ema50SeriesRef.current = ema50Series;
-      ema200SeriesRef.current = ema200Series;
-
-      const handleUserInteraction = () => {
-        userInteractedRef.current = true;
-      };
-
-      const timeScale = chart.timeScale();
-      timeScale.subscribeVisibleLogicalRangeChange(handleUserInteraction);
-
-      const handleResize = () => {
-        if (chartContainerRef.current && chartRef.current) {
-          chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
-        }
-      };
-
-      window.addEventListener('resize', handleResize);
-
-      return () => {
-        window.removeEventListener('resize', handleResize);
-        if (chartRef.current) {
-          try {
-            chartRef.current.remove();
-          } catch (err) {
-            console.error('[MarketChart] Error removing chart:', err);
-          }
-        }
-      };
-    } catch (error) {
-      console.error('[MarketChart] Critical error during chart initialization:', error);
-      setError('Failed to initialize chart. Please refresh the page.');
-      setIsLoading(false);
-    }
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
   }, []);
 
   const updateIndicatorsDebounced = (candles: CandleData[]) => {
@@ -896,23 +786,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         {error && (
           <div className="absolute inset-0 bg-gray-800 rounded-lg flex items-center justify-center z-10">
-            <div className="text-center p-6 max-w-md">
+            <div className="text-center p-6">
               <AlertCircle className="text-red-500 mx-auto mb-3" size={32} />
               <p className="text-white font-semibold mb-2">Chart Error</p>
-              <p className="text-white/70 text-sm mb-4">{error}</p>
-              {chartInitRetries >= maxChartRetries && (
-                <button
-                  onClick={() => {
-                    setChartInitRetries(0);
-                    setError(null);
-                    setIsLoading(true);
-                    window.location.reload();
-                  }}
-                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors text-sm font-medium"
-                >
-                  Reload Page
-                </button>
-              )}
+              <p className="text-white/70 text-sm">{error}</p>
             </div>
           </div>
         )}
