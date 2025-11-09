@@ -485,28 +485,70 @@ class AILearningEngine {
       const profitFactor = totalLosses > 0 ? totalWins / totalLosses : 0;
 
       try {
-        const { error } = await supabase.from('ai_performance_evolution').insert({
-          user_id: userId,
-          measurement_date: today,
-          period_type: 'daily',
-          symbol,
-          strategy_name: 'Flow Trader V2',
-          total_trades: symbolTrades.length,
-          win_rate: winRate,
-          profit_factor: profitFactor,
-          avg_rr: 2.0,
-          confidence_threshold_used: 75,
-          threshold_was_optimal: winRate >= 65,
-          optimal_threshold_calculated: this.calculateOptimalConfidence(symbolTrades),
-          insights_applied: 0,
-          ai_decisions_made: symbolTrades.length,
-          ai_decision_accuracy: winRate,
-          is_improving: true,
-          learning_summary: `Analyzed ${symbolTrades.length} trades with ${winRate.toFixed(1)}% win rate`
-        });
+        // Check if record already exists for this date/symbol/strategy/period combination
+        const { data: existing } = await supabase
+          .from('ai_performance_evolution')
+          .select('id, total_trades, win_rate, profit_factor, ai_decisions_made')
+          .eq('user_id', userId)
+          .eq('measurement_date', today)
+          .eq('period_type', 'daily')
+          .eq('symbol', symbol)
+          .eq('strategy_name', 'Flow Trader V2')
+          .maybeSingle();
 
-        if (error && !error.message.includes('duplicate')) {
-          console.error('[AI Learning Engine] Error inserting performance evolution:', error);
+        if (existing) {
+          // Update existing record by accumulating values
+          const { error } = await supabase
+            .from('ai_performance_evolution')
+            .update({
+              total_trades: existing.total_trades + symbolTrades.length,
+              win_rate: ((existing.win_rate * existing.total_trades) + (winRate * symbolTrades.length)) / (existing.total_trades + symbolTrades.length),
+              profit_factor: profitFactor,
+              avg_rr: 2.0,
+              confidence_threshold_used: 75,
+              threshold_was_optimal: winRate >= 65,
+              optimal_threshold_calculated: this.calculateOptimalConfidence(symbolTrades),
+              insights_applied: 0,
+              ai_decisions_made: existing.ai_decisions_made + symbolTrades.length,
+              ai_decision_accuracy: ((existing.ai_decision_accuracy * existing.ai_decisions_made) + (winRate * symbolTrades.length)) / (existing.ai_decisions_made + symbolTrades.length),
+              is_improving: true,
+              learning_summary: `Analyzed ${existing.total_trades + symbolTrades.length} trades total with ${(((existing.win_rate * existing.total_trades) + (winRate * symbolTrades.length)) / (existing.total_trades + symbolTrades.length)).toFixed(1)}% win rate`,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existing.id);
+
+          if (error) {
+            console.error('[AI Learning Engine] Error updating performance evolution:', error);
+          } else {
+            console.log(`[AI Learning Engine] ✓ Updated existing record for ${symbol} on ${today}`);
+          }
+        } else {
+          // Insert new record
+          const { error } = await supabase.from('ai_performance_evolution').insert({
+            user_id: userId,
+            measurement_date: today,
+            period_type: 'daily',
+            symbol,
+            strategy_name: 'Flow Trader V2',
+            total_trades: symbolTrades.length,
+            win_rate: winRate,
+            profit_factor: profitFactor,
+            avg_rr: 2.0,
+            confidence_threshold_used: 75,
+            threshold_was_optimal: winRate >= 65,
+            optimal_threshold_calculated: this.calculateOptimalConfidence(symbolTrades),
+            insights_applied: 0,
+            ai_decisions_made: symbolTrades.length,
+            ai_decision_accuracy: winRate,
+            is_improving: true,
+            learning_summary: `Analyzed ${symbolTrades.length} trades with ${winRate.toFixed(1)}% win rate`
+          });
+
+          if (error) {
+            console.error('[AI Learning Engine] Error inserting performance evolution:', error);
+          } else {
+            console.log(`[AI Learning Engine] ✓ Created new record for ${symbol} on ${today}`);
+          }
         }
       } catch (error) {
         console.error('[AI Learning Engine] Exception in performance evolution:', error);

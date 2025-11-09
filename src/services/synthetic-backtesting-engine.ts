@@ -410,6 +410,23 @@ class SyntheticBacktestingEngine {
 
     const sharpeRatio = this.calculateSharpeRatio();
 
+    // Normalize trades to include both camelCase and snake_case fields for component compatibility
+    const normalizedTrades = this.closedTrades.map(trade => ({
+      ...trade,
+      // Add snake_case aliases for chart component compatibility
+      trade_number: trade.tradeNumber,
+      entry_time: trade.entryTime,
+      entry_price: trade.entryPrice,
+      exit_time: trade.exitTime,
+      exit_price: trade.exitPrice,
+      stop_loss: trade.stopLoss,
+      take_profit: trade.takeProfit,
+      holding_duration_minutes: trade.holdingDurationMinutes,
+      pips_gained: trade.pipsGained
+    }));
+
+    console.log(`[Synthetic Backtest] Normalized ${normalizedTrades.length} trades with dual field formats for compatibility`);
+
     return {
       sessionId: this.sessionId,
       totalTrades: this.closedTrades.length,
@@ -425,7 +442,7 @@ class SyntheticBacktestingEngine {
       sharpeRatio,
       maxDrawdown,
       maxDrawdownPercent,
-      trades: this.closedTrades,
+      trades: normalizedTrades as any,
       missedOpportunities: this.missedOpportunities,
       signalsGenerated: this.closedTrades.length + this.missedOpportunities.length,
       signalsExecuted: this.closedTrades.length,

@@ -117,14 +117,23 @@ export default function SyntheticCandlestickChart({
 
         trades.forEach(trade => {
           try {
-            if (!trade.entry_time) {
-              console.warn('[SyntheticCandlestickChart] Trade missing entry_time:', trade);
+            // Handle both snake_case (from database) and camelCase (from in-memory objects)
+            const entryTimeValue = trade.entry_time || trade.entryTime;
+            const exitTimeValue = trade.exit_time || trade.exitTime;
+
+            if (!entryTimeValue) {
+              console.warn('[SyntheticCandlestickChart] Trade missing entry_time/entryTime:', {
+                tradeNumber: trade.trade_number || trade.tradeNumber,
+                hasEntryTime: !!trade.entry_time,
+                hasEntryTimeCamel: !!trade.entryTime,
+                keys: Object.keys(trade)
+              });
               return;
             }
 
-            const entryTime = new Date(trade.entry_time);
+            const entryTime = new Date(entryTimeValue);
             if (isNaN(entryTime.getTime())) {
-              console.warn('[SyntheticCandlestickChart] Invalid entry_time:', trade.entry_time);
+              console.warn('[SyntheticCandlestickChart] Invalid entry_time:', entryTimeValue);
               return;
             }
 
@@ -138,8 +147,8 @@ export default function SyntheticCandlestickChart({
 
             allMarkers.push(entryMarker);
 
-            if (trade.exit_time) {
-              const exitTime = new Date(trade.exit_time);
+            if (exitTimeValue) {
+              const exitTime = new Date(exitTimeValue);
               if (!isNaN(exitTime.getTime())) {
                 const exitMarker = {
                   time: Math.floor(exitTime.getTime() / 1000) as any,
@@ -217,78 +226,89 @@ export default function SyntheticCandlestickChart({
         <div className="mt-4 bg-white rounded-lg p-4 shadow">
           <h4 className="text-sm font-semibold text-gray-700 mb-3">Recent Trades</h4>
           <div className="space-y-2 max-h-48 overflow-y-auto">
-            {trades.slice(0, 10).map((trade, index) => (
-              <div
-                key={index}
-                onClick={() => setSelectedTrade(selectedTrade?.trade_number === trade.trade_number ? null : trade)}
-                className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                  selectedTrade?.trade_number === trade.trade_number
-                    ? 'border-purple-400 bg-purple-50'
-                    : 'border-gray-200 hover:border-purple-200 hover:bg-gray-50'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {trade.direction === 'buy' ? (
-                      <ArrowUp className="w-4 h-4 text-green-600" />
-                    ) : (
-                      <ArrowDown className="w-4 h-4 text-red-600" />
-                    )}
-                    <span className="font-semibold text-gray-900">
-                      Trade #{trade.trade_number}
-                    </span>
-                    <span className="text-sm text-gray-600">
-                      {trade.direction.toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-sm font-semibold ${
-                      trade.outcome === 'win' ? 'text-green-600' :
-                      trade.outcome === 'loss' ? 'text-red-600' :
-                      'text-gray-600'
-                    }`}>
-                      {trade.outcome === 'win' ? '+' : ''}{trade.pnl?.toFixed(2)} USD
-                    </span>
-                    <span className={`px-2 py-1 text-xs font-semibold rounded ${
-                      trade.outcome === 'win' ? 'bg-green-100 text-green-800' :
-                      trade.outcome === 'loss' ? 'bg-red-100 text-red-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {trade.outcome?.toUpperCase()}
-                    </span>
-                  </div>
-                </div>
+            {trades.slice(0, 10).map((trade, index) => {
+              // Handle both snake_case and camelCase field names
+              const tradeNumber = trade.trade_number || trade.tradeNumber || index + 1;
+              const entryPrice = trade.entry_price || trade.entryPrice;
+              const exitPrice = trade.exit_price || trade.exitPrice;
+              const stopLoss = trade.stop_loss || trade.stopLoss;
+              const takeProfit = trade.take_profit || trade.takeProfit;
+              const holdingDuration = trade.holding_duration_minutes || trade.holdingDurationMinutes;
+              const pipsGained = trade.pips_gained || trade.pipsGained;
 
-                {selectedTrade?.trade_number === trade.trade_number && (
-                  <div className="mt-3 pt-3 border-t border-gray-200 grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <span className="text-gray-600">Entry:</span>
-                      <span className="ml-1 font-semibold">{trade.entry_price?.toFixed(5)}</span>
+              return (
+                <div
+                  key={index}
+                  onClick={() => setSelectedTrade(selectedTrade?._tradeId === tradeNumber ? null : { ...trade, _tradeId: tradeNumber })}
+                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                    selectedTrade?._tradeId === tradeNumber
+                      ? 'border-purple-400 bg-purple-50'
+                      : 'border-gray-200 hover:border-purple-200 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {trade.direction === 'buy' ? (
+                        <ArrowUp className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <ArrowDown className="w-4 h-4 text-red-600" />
+                      )}
+                      <span className="font-semibold text-gray-900">
+                        Trade #{tradeNumber}
+                      </span>
+                      <span className="text-sm text-gray-600">
+                        {trade.direction?.toUpperCase() || 'UNKNOWN'}
+                      </span>
                     </div>
-                    <div>
-                      <span className="text-gray-600">Exit:</span>
-                      <span className="ml-1 font-semibold">{trade.exit_price?.toFixed(5)}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">SL:</span>
-                      <span className="ml-1 font-semibold">{trade.stop_loss?.toFixed(5)}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">TP:</span>
-                      <span className="ml-1 font-semibold">{trade.take_profit?.toFixed(5)}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">Duration:</span>
-                      <span className="ml-1 font-semibold">{trade.holding_duration_minutes} min</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">Pips:</span>
-                      <span className="ml-1 font-semibold">{trade.pips_gained?.toFixed(1)}</span>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-sm font-semibold ${
+                        trade.outcome === 'win' ? 'text-green-600' :
+                        trade.outcome === 'loss' ? 'text-red-600' :
+                        'text-gray-600'
+                      }`}>
+                        {trade.outcome === 'win' ? '+' : ''}{trade.pnl?.toFixed(2)} USD
+                      </span>
+                      <span className={`px-2 py-1 text-xs font-semibold rounded ${
+                        trade.outcome === 'win' ? 'bg-green-100 text-green-800' :
+                        trade.outcome === 'loss' ? 'bg-red-100 text-red-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {trade.outcome?.toUpperCase() || 'UNKNOWN'}
+                      </span>
                     </div>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {selectedTrade?._tradeId === tradeNumber && (
+                    <div className="mt-3 pt-3 border-t border-gray-200 grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-gray-600">Entry:</span>
+                        <span className="ml-1 font-semibold">{entryPrice?.toFixed(5) || 'N/A'}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Exit:</span>
+                        <span className="ml-1 font-semibold">{exitPrice?.toFixed(5) || 'N/A'}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">SL:</span>
+                        <span className="ml-1 font-semibold">{stopLoss?.toFixed(5) || 'N/A'}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">TP:</span>
+                        <span className="ml-1 font-semibold">{takeProfit?.toFixed(5) || 'N/A'}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Duration:</span>
+                        <span className="ml-1 font-semibold">{holdingDuration || 'N/A'} min</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Pips:</span>
+                        <span className="ml-1 font-semibold">{pipsGained?.toFixed(1) || 'N/A'}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
