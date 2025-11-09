@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, CandlestickSeries, IChartApi, ISeriesApi, CandlestickData } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickData, SeriesMarker, Time } from 'lightweight-charts';
 import { ArrowUp, ArrowDown, Circle } from 'lucide-react';
 
 interface SyntheticCandlestickChartProps {
@@ -51,7 +51,7 @@ export default function SyntheticCandlestickChart({
 
       chartRef.current = chart;
 
-      const candleSeries = chart.addSeries(CandlestickSeries, {
+      const candleSeries = chart.addCandlestickSeries({
         upColor: '#22c55e',
         downColor: '#ef4444',
         borderUpColor: '#22c55e',
@@ -99,48 +99,66 @@ export default function SyntheticCandlestickChart({
   }, []);
 
   useEffect(() => {
-    if (!candleSeriesRef.current || !candles || candles.length === 0) return;
-
-    const candleData: CandlestickData[] = candles.map(candle => ({
-      time: Math.floor(new Date(candle.open_time).getTime() / 1000) as any,
-      open: candle.open,
-      high: candle.high,
-      low: candle.low,
-      close: candle.close,
-    }));
-
-    candleSeriesRef.current.setData(candleData);
-
-    if (trades && trades.length > 0) {
-      trades.forEach(trade => {
-        if (!chartRef.current) return;
-
-        const entryMarker = {
-          time: Math.floor(new Date(trade.entry_time).getTime() / 1000) as any,
-          position: trade.direction === 'buy' ? 'belowBar' : 'aboveBar',
-          color: trade.direction === 'buy' ? '#22c55e' : '#ef4444',
-          shape: trade.direction === 'buy' ? 'arrowUp' : 'arrowDown',
-          text: `Entry ${trade.direction.toUpperCase()}`,
-        };
-
-        if (trade.exit_time) {
-          const exitMarker = {
-            time: Math.floor(new Date(trade.exit_time).getTime() / 1000) as any,
-            position: trade.outcome === 'win' ? 'aboveBar' : 'belowBar',
-            color: trade.outcome === 'win' ? '#22c55e' : '#ef4444',
-            shape: 'circle',
-            text: `Exit: ${trade.outcome.toUpperCase()}`,
-          };
-
-          candleSeriesRef.current?.setMarkers([entryMarker, exitMarker] as any);
-        } else {
-          candleSeriesRef.current?.setMarkers([entryMarker] as any);
-        }
-      });
+    if (!candleSeriesRef.current || !candles || candles.length === 0) {
+      console.log('[SyntheticCandlestickChart] Skipping chart update - no series or candles');
+      return;
     }
 
-    if (chartRef.current) {
-      chartRef.current.timeScale().fitContent();
+    try {
+      const candleData: CandlestickData[] = candles.map(candle => ({
+        time: Math.floor(new Date(candle.open_time).getTime() / 1000) as Time,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+      }));
+
+      candleSeriesRef.current.setData(candleData);
+      console.log('[SyntheticCandlestickChart] Set candle data:', candleData.length, 'candles');
+
+      if (trades && trades.length > 0 && candleSeriesRef.current) {
+        const allMarkers: SeriesMarker<Time>[] = [];
+
+        trades.forEach(trade => {
+          if (!trade.entry_time) {
+            console.warn('[SyntheticCandlestickChart] Trade missing entry_time:', trade);
+            return;
+          }
+
+          const entryMarker: SeriesMarker<Time> = {
+            time: Math.floor(new Date(trade.entry_time).getTime() / 1000) as Time,
+            position: trade.direction === 'buy' ? 'belowBar' : 'aboveBar',
+            color: trade.direction === 'buy' ? '#22c55e' : '#ef4444',
+            shape: trade.direction === 'buy' ? 'arrowUp' : 'arrowDown',
+            text: `Entry ${trade.direction.toUpperCase()}`,
+          };
+
+          allMarkers.push(entryMarker);
+
+          if (trade.exit_time) {
+            const exitMarker: SeriesMarker<Time> = {
+              time: Math.floor(new Date(trade.exit_time).getTime() / 1000) as Time,
+              position: trade.outcome === 'win' ? 'aboveBar' : 'belowBar',
+              color: trade.outcome === 'win' ? '#22c55e' : '#ef4444',
+              shape: 'circle',
+              text: `Exit: ${trade.outcome?.toUpperCase() || 'UNKNOWN'}`,
+            };
+
+            allMarkers.push(exitMarker);
+          }
+        });
+
+        if (allMarkers.length > 0) {
+          candleSeriesRef.current.setMarkers(allMarkers);
+          console.log('[SyntheticCandlestickChart] Set markers:', allMarkers.length, 'markers');
+        }
+      }
+
+      if (chartRef.current) {
+        chartRef.current.timeScale().fitContent();
+      }
+    } catch (error) {
+      console.error('[SyntheticCandlestickChart] Error updating chart:', error);
     }
   }, [candles, trades]);
 
