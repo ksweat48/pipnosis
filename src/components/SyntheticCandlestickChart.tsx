@@ -101,46 +101,78 @@ export default function SyntheticCandlestickChart({
   useEffect(() => {
     if (!candleSeriesRef.current || !candles || candles.length === 0) return;
 
-    const candleData: CandlestickData[] = candles.map(candle => ({
-      time: Math.floor(new Date(candle.open_time).getTime() / 1000) as any,
-      open: candle.open,
-      high: candle.high,
-      low: candle.low,
-      close: candle.close,
-    }));
+    try {
+      const candleData: CandlestickData[] = candles.map(candle => ({
+        time: Math.floor(new Date(candle.open_time).getTime() / 1000) as any,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+      }));
 
-    candleSeriesRef.current.setData(candleData);
+      candleSeriesRef.current.setData(candleData);
 
-    if (trades && trades.length > 0) {
-      trades.forEach(trade => {
-        if (!chartRef.current) return;
+      if (trades && trades.length > 0) {
+        const allMarkers: any[] = [];
 
-        const entryMarker = {
-          time: Math.floor(new Date(trade.entry_time).getTime() / 1000) as any,
-          position: trade.direction === 'buy' ? 'belowBar' : 'aboveBar',
-          color: trade.direction === 'buy' ? '#22c55e' : '#ef4444',
-          shape: trade.direction === 'buy' ? 'arrowUp' : 'arrowDown',
-          text: `Entry ${trade.direction.toUpperCase()}`,
-        };
+        trades.forEach(trade => {
+          try {
+            if (!trade.entry_time) {
+              console.warn('[SyntheticCandlestickChart] Trade missing entry_time:', trade);
+              return;
+            }
 
-        if (trade.exit_time) {
-          const exitMarker = {
-            time: Math.floor(new Date(trade.exit_time).getTime() / 1000) as any,
-            position: trade.outcome === 'win' ? 'aboveBar' : 'belowBar',
-            color: trade.outcome === 'win' ? '#22c55e' : '#ef4444',
-            shape: 'circle',
-            text: `Exit: ${trade.outcome.toUpperCase()}`,
-          };
+            const entryTime = new Date(trade.entry_time);
+            if (isNaN(entryTime.getTime())) {
+              console.warn('[SyntheticCandlestickChart] Invalid entry_time:', trade.entry_time);
+              return;
+            }
 
-          candleSeriesRef.current?.setMarkers([entryMarker, exitMarker] as any);
-        } else {
-          candleSeriesRef.current?.setMarkers([entryMarker] as any);
+            const entryMarker = {
+              time: Math.floor(entryTime.getTime() / 1000) as any,
+              position: trade.direction === 'buy' ? 'belowBar' : 'aboveBar',
+              color: trade.direction === 'buy' ? '#22c55e' : '#ef4444',
+              shape: trade.direction === 'buy' ? 'arrowUp' : 'arrowDown',
+              text: `Entry ${trade.direction?.toUpperCase() || 'UNKNOWN'}`,
+            };
+
+            allMarkers.push(entryMarker);
+
+            if (trade.exit_time) {
+              const exitTime = new Date(trade.exit_time);
+              if (!isNaN(exitTime.getTime())) {
+                const exitMarker = {
+                  time: Math.floor(exitTime.getTime() / 1000) as any,
+                  position: trade.outcome === 'win' ? 'aboveBar' : 'belowBar',
+                  color: trade.outcome === 'win' ? '#22c55e' : '#ef4444',
+                  shape: 'circle',
+                  text: `Exit: ${trade.outcome?.toUpperCase() || 'UNKNOWN'}`,
+                };
+
+                allMarkers.push(exitMarker);
+              }
+            }
+          } catch (error) {
+            console.error('[SyntheticCandlestickChart] Error processing trade for marker:', trade, error);
+          }
+        });
+
+        if (allMarkers.length > 0 && candleSeriesRef.current) {
+          try {
+            candleSeriesRef.current.setMarkers(allMarkers as any);
+            console.log(`[SyntheticCandlestickChart] Successfully set ${allMarkers.length} markers`);
+          } catch (error) {
+            console.error('[SyntheticCandlestickChart] Error setting markers:', error);
+            console.error('[SyntheticCandlestickChart] Markers that failed:', allMarkers);
+          }
         }
-      });
-    }
+      }
 
-    if (chartRef.current) {
-      chartRef.current.timeScale().fitContent();
+      if (chartRef.current) {
+        chartRef.current.timeScale().fitContent();
+      }
+    } catch (error) {
+      console.error('[SyntheticCandlestickChart] Error updating chart data:', error);
     }
   }, [candles, trades]);
 
