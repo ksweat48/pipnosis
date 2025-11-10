@@ -58,6 +58,10 @@ class BackgroundCandleAggregator {
     return Math.floor(timestamp / intervalMs) * intervalMs;
   }
 
+  private lastPriceCache: Map<string, number> = new Map();
+  private candleFinalizerInterval: NodeJS.Timeout | null = null;
+  private readonly CANDLE_FINALIZER_CHECK_INTERVAL_MS = 60000; // Check every minute
+
   private initializeCandleState(symbol: string, timeframe: Timeframe, price: number, timestamp: number): CandleState {
     const candleTime = this.getCandleTime(timestamp, timeframe);
     return {
@@ -196,6 +200,9 @@ class BackgroundCandleAggregator {
       return;
     }
 
+    // Update last price cache for gap filling
+    this.lastPriceCache.set(symbol, midPrice);
+
     // Notify tick listeners immediately for live display
     this.notifyTickListeners(symbol, bid, ask, timestamp);
 
@@ -296,8 +303,75 @@ class BackgroundCandleAggregator {
     await this.initializeCurrentCandles();
     await this.setupRealtimeSubscription();
     this.startHealthMonitoring();
+    this.startCandleFinalizer();
 
     console.log(`[BackgroundAggregator] Monitoring ${FOREX_PAIRS.length} pairs across ${ALL_TIMEFRAMES.length} timeframes`);
+  }
+
+  private startCandleFinalizer(): void {
+    if (this.candleFinalizerInterval) {
+      clearInterval(this.candleFinalizerInterval);
+    }
+
+    console.log('[BackgroundAggregator] 🕐 Starting candle finalizer (checks every 60s for missing candles)');
+
+    this.candleFinalizerInterval = setInterval(async () => {
+      await this.checkAndFinalizeMissingCandles();
+    }, this.CANDLE_FINALIZER_CHECK_INTERVAL_MS);
+
+    // Run immediately on start
+    setTimeout(() => this.checkAndFinalizeMissingCandles(), 5000);
+  }
+
+  private async checkAndFinalizeMissingCandles(): Promise<void> {
+    const now = Date.now();
+
+    for (const symbol of FOREX_PAIRS) {
+      const lastPrice = this.lastPriceCache.get(symbol);
+      if (!lastPrice) continue;
+
+      for (const timeframe of ALL_TIMEFRAMES) {
+        const key = this.getCacheKey(symbol, timeframe);
+        const existingState = this.candleStates.get(key);
+        const intervalMs = getTimeframeMinutes(timeframe) * 60 * 1000;
+        const currentCandleTime = Math.floor(now / intervalMs) * intervalMs;
+
+        // Check if we're in a new candle period without a forming candle
+        if (!existingState || existingState.startTime < currentCandleTime - intervalMs) {
+          // There's a gap - we should have a candle but don't
+          const missingCandleTime = currentCandleTime - intervalMs;
+
+          // Only fill if the missing candle time is within the last hour (to avoid excessive backfilling)
+          if (now - missingCandleTime < 3600000) {
+            console.log(`[BackgroundAggregator] 🔧 Detected missing candle for ${symbol} ${timeframe} at ${new Date(missingCandleTime).toISOString()}`);
+
+            // Create a flat candle using the last known price
+            const flatCandle: CandleState = {
+              time: Math.floor(missingCandleTime / 1000),
+              open: lastPrice,
+              high: lastPrice,
+              low: lastPrice,
+              close: lastPrice,
+              volume: 0,
+              startTime: missingCandleTime,
+              tickCount: 0
+            };
+
+            // Save this flat candle
+            this.queueCandleForSave(symbol, timeframe, flatCandle);
+
+            console.log(`[BackgroundAggregator] ✓ Created flat candle for ${symbol} ${timeframe} using price ${lastPrice}`);
+          }
+        }
+
+        // Check if current forming candle should be finalized (1 minute grace period)
+        if (existingState && existingState.startTime < currentCandleTime - 60000) {
+          console.log(`[BackgroundAggregator] ⏰ Auto-finalizing ${symbol} ${timeframe} candle (grace period expired)`);
+          this.queueCandleForSave(symbol, timeframe, existingState);
+          this.candleStates.delete(key);
+        }
+      }
+    }
   }
 
   private async checkDatabaseStatus(): Promise<{
@@ -706,6 +780,11 @@ class BackgroundCandleAggregator {
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval);
       this.healthCheckInterval = null;
+    }
+
+    if (this.candleFinalizerInterval) {
+      clearInterval(this.candleFinalizerInterval);
+      this.candleFinalizerInterval = null;
     }
 
     if (this.subscription) {
