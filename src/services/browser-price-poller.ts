@@ -7,7 +7,8 @@
  */
 
 const FOREX_PAIRS = ['EURUSD', 'XAUUSD', 'US30', 'GBPUSD', 'USDJPY'];
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 3000; // Increased to 3s to reduce load
+const REQUEST_TIMEOUT_MS = 8000; // 8 second timeout per request
 
 class BrowserPricePoller {
   private isActive = false;
@@ -44,22 +45,36 @@ class BrowserPricePoller {
 
       for (const symbol of FOREX_PAIRS) {
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
           const response = await fetch(`/.netlify/functions/get-live-price?symbol=${symbol}`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
             },
+            signal: controller.signal
           });
 
-          if (response.ok) {
+          clearTimeout(timeoutId);
+
+          if (response.ok || response.status === 206) {
             const data = await response.json();
             if (data.bid && data.ask) {
               successCount++;
-              console.log(`[BrowserPoller] ✅ ${symbol}: ${data.bid}/${data.ask} (${data.source || 'unknown'})`);
+              const quality = response.status === 206 ? 'CACHED' : 'LIVE';
+              console.log(`[BrowserPoller] ✅ ${symbol}: ${data.bid}/${data.ask} (${quality})`);
             }
+          } else {
+            const errorText = await response.text().catch(() => 'Unknown error');
+            console.error(`[BrowserPoller] ❌ ${symbol} HTTP ${response.status}: ${errorText.substring(0, 100)}`);
           }
         } catch (error) {
-          console.error(`[BrowserPoller] Error fetching ${symbol}:`, error instanceof Error ? error.message : String(error));
+          if (error instanceof Error && error.name === 'AbortError') {
+            console.error(`[BrowserPoller] ⏱️ ${symbol} timeout after ${REQUEST_TIMEOUT_MS}ms`);
+          } else {
+            console.error(`[BrowserPoller] ❌ ${symbol} fetch error:`, error instanceof Error ? error.message : String(error));
+          }
         }
       }
 

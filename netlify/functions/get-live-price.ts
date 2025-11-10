@@ -55,11 +55,11 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
 
       let errorDetail = errorText;
       if (response.status === 401) {
-        errorDetail = 'Invalid or expired MetaAPI token';
+        errorDetail = 'Invalid or expired MetaAPI token - Check token in Netlify env vars';
       } else if (response.status === 403) {
         errorDetail = 'Access forbidden - check account permissions';
       } else if (response.status === 404) {
-        errorDetail = `Symbol ${symbol} not found or account not connected`;
+        errorDetail = `Account ${accountId} NOT DEPLOYED or DELETED in region ${region}. Login to https://app.metaapi.cloud/ and deploy the account, or create a new account. See LIVE_FEED_FIX_GUIDE.md for instructions.`;
       } else if (response.status === 429) {
         errorDetail = 'Rate limit exceeded - too many requests';
       } else if (response.status >= 500) {
