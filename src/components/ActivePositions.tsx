@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, TrendingUp, TrendingDown, Clock, AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { simulatedTradingService } from '@/services/simulated-trading';
+import { smartRequestQueue } from '@/services/smart-request-queue';
 import { pollingConfigService } from '@/services/polling-config-service';
 import { tradeAudioNotifications } from '@/services/trade-audio-notifications';
 
@@ -78,23 +79,10 @@ export function ActivePositions({ refreshTrigger }: ActivePositionsProps) {
     await Promise.all(
       symbols.map(async (symbol) => {
         try {
-          // Read from database
-          const { data, error } = await supabase
-            .from('realtime_prices')
-            .select('bid, ask')
-            .eq('symbol', symbol)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          if (error || !data) {
-            console.error(`Failed to fetch price for ${symbol}:`, error);
-            return;
-          }
-
+          const priceData = await smartRequestQueue.requestPrice(symbol, 'high');
           prices[symbol] = {
-            bid: parseFloat(data.bid),
-            ask: parseFloat(data.ask)
+            bid: priceData.bid,
+            ask: priceData.ask
           };
         } catch (error) {
           console.error(`Failed to fetch price for ${symbol}:`, error);

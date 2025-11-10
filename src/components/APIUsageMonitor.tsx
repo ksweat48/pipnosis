@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { AlertTriangle, Activity, TrendingUp, Database, Zap, CheckCircle, XCircle, Clock } from 'lucide-react';
 import { systemLoadMonitor, LoadSnapshot, LoadSummary, SystemAlert } from '@/services/system-load-monitor';
 import { pollingConfigService } from '@/services/polling-config-service';
+import { smartRequestQueue } from '@/services/smart-request-queue';
 import { globalPollingCoordinator } from '@/services/global-polling-coordinator';
 
 export default function APIUsageMonitor() {
@@ -41,16 +42,17 @@ export default function APIUsageMonitor() {
 
   const getCurrentMetrics = () => {
     const creditUsage = pollingConfigService.getCreditUsage();
+    const queueStatus = smartRequestQueue.getQueueStatus();
     const coordinatorStatus = globalPollingCoordinator.getCoordinatorStatus();
 
     return {
       cpuUsage: creditUsage.percentage,
       callsRemaining: creditUsage.callsRemaining,
-      queueLength: 0, // No longer using queue (read-only from DB)
+      queueLength: queueStatus.queueLength,
       activePairs: coordinatorStatus.activePairs,
       totalPairs: coordinatorStatus.totalPairs,
-      inFlightRequests: 0, // No longer using queue
-      cacheSize: 0 // No longer using queue
+      inFlightRequests: queueStatus.inFlightCount,
+      cacheSize: queueStatus.cacheSize
     };
   };
 

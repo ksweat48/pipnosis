@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, DollarSign, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { smartRequestQueue } from '@/services/smart-request-queue';
 import { pollingConfigService } from '@/services/polling-config-service';
 import { tradeAudioNotifications } from '@/services/trade-audio-notifications';
 
@@ -58,26 +59,7 @@ export function ManualTradePanel({ symbol, onTradeExecuted }: ManualTradePanelPr
 
   const fetchLivePrice = async () => {
     try {
-      // Read from database
-      const { data, error } = await supabase
-        .from('realtime_prices')
-        .select('bid, ask, spread')
-        .eq('symbol', symbol)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (error || !data) {
-        console.error('Failed to fetch price:', error);
-        return;
-      }
-
-      const priceData = {
-        bid: parseFloat(data.bid),
-        ask: parseFloat(data.ask),
-        mid: (parseFloat(data.bid) + parseFloat(data.ask)) / 2,
-        spread: parseFloat(data.spread)
-      };
+      const priceData = await smartRequestQueue.requestPrice(symbol, 'high');
 
       const spread = parseFloat(((priceData.spread) * 10000).toFixed(1));
 

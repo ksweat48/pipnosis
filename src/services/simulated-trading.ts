@@ -9,11 +9,6 @@ interface TradeParams {
   stopLoss: number;
   takeProfit: number;
   strategy: StrategyOption;
-  // AI Learning metadata
-  confidence?: number;
-  setupType?: string;
-  marketConditions?: any;
-  aiDecisionId?: string;
 }
 
 interface Position {
@@ -185,12 +180,7 @@ class SimulatedTradingService {
           opened_at: position.opened_at,
           closed_at: closedAt,
           close_reason: 'manual',
-          strategy_name: null,
-          confidence_score: position.confidence_score || 75,
-          setup_type: position.setup_type || 'Manual Trade',
-          market_conditions: position.market_conditions || {},
-          ai_decision_id: position.ai_decision_id || null,
-          ai_analyzed: false
+          strategy_name: null
         });
 
       return {

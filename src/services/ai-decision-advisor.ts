@@ -1,7 +1,5 @@
 import { supabase } from '../lib/supabase';
 import { aiLearningEngine } from './ai-learning-engine';
-import { evCalculator } from './ev-calculator';
-import { adaptiveRiskManager } from './adaptive-risk-manager';
 
 interface TradeSignal {
   symbol: string;
@@ -52,33 +50,16 @@ class AIDecisionAdvisor {
       // 3. Query similar historical trades
       const similarTrades = await this.getSimilarHistoricalTrades(userId, signal);
 
-      // 3.5. Calculate Expected Value for this pattern (HIGHEST PRIORITY)
-      const evResult = await evCalculator.calculateSignalEV(userId, {
-        symbol: signal.symbol,
-        direction: signal.direction,
-        entryPrice: signal.entryPrice,
-        stopLoss: signal.stopLoss,
-        takeProfit: signal.takeProfit,
-        patternName: signal.setupType
-      });
-
-      if (evResult) {
-        console.log(`[AI Decision Advisor] Pattern EV: ${evResult.expectedValue.toFixed(2)}`);
-        console.log(`[AI Decision Advisor] Win Probability: ${(evResult.winProbability * 100).toFixed(1)}%`);
-        console.log(`[AI Decision Advisor] Recommendation: ${evResult.recommendation}`);
-      }
-
-      // 4. Calculate adjusted confidence (EV-first)
+      // 4. Calculate adjusted confidence
       const adjustedConfidence = this.calculateAdjustedConfidence(
         signal,
         insights,
         scenarioPerformance,
-        similarTrades,
-        evResult
+        similarTrades
       );
 
       // 5. Determine if we should take the trade
-      const decision = await this.makeDecision(signal, adjustedConfidence, insights, scenarioPerformance, userId, evResult);
+      const decision = this.makeDecision(signal, adjustedConfidence, insights, scenarioPerformance);
 
       // 6. Log the decision for future learning
       await this.logDecision(userId, signal, decision);
@@ -105,7 +86,6 @@ class AIDecisionAdvisor {
 
   /**
    * Get relevant learning insights for this signal
-   * Prioritizes live trading insights (2x weight) over backtest insights
    */
   private async getRelevantInsights(
     userId: string,
@@ -118,9 +98,8 @@ class AIDecisionAdvisor {
         .eq('user_id', userId)
         .eq('symbol', signal.symbol)
         .gte('confidence_score', 60)
-        .order('learning_weight', { ascending: false }) // Prioritize live trades (2x weight)
         .order('confidence_score', { ascending: false })
-        .limit(10);
+        .limit(5);
 
       if (error) {
         console.error('[AI Decision Advisor] Error fetching insights:', error);
@@ -211,63 +190,31 @@ class AIDecisionAdvisor {
   }
 
   /**
-   * Calculate adjusted confidence based on AI learning (EV-first approach)
+   * Calculate adjusted confidence based on AI learning
    */
   private calculateAdjustedConfidence(
     signal: TradeSignal,
     insights: any[],
     scenarioPerformance: any,
-    similarTrades: any[],
-    evResult?: any
+    similarTrades: any[]
   ): number {
     let adjustedConfidence = signal.confidence;
 
-    // Factor 0: Expected Value (HIGHEST PRIORITY)
-    if (evResult) {
-      if (evResult.expectedValue > 10 && evResult.recommendation === 'take') {
-        adjustedConfidence += 15;
-        console.log(`[AI Decision Advisor] ⬆️ +15% from strong positive EV (${evResult.expectedValue.toFixed(2)})`);
-      } else if (evResult.expectedValue < 0 && evResult.isStatisticallySignificant) {
-        adjustedConfidence -= 20;
-        console.log(`[AI Decision Advisor] ⬇️ -20% from negative EV (${evResult.expectedValue.toFixed(2)})`);
-      } else if (evResult.expectedValue > 0 && evResult.expectedValue <= 10) {
-        if (evResult.recommendation === 'cautious') {
-          adjustedConfidence += 5;
-          console.log(`[AI Decision Advisor] ⬆️ +5% from positive EV but limited data`);
-        } else if (evResult.recommendation === 'take') {
-          adjustedConfidence += 10;
-          console.log(`[AI Decision Advisor] ⬆️ +10% from moderate positive EV (${evResult.expectedValue.toFixed(2)})`);
-        }
-      }
-    }
-
     // Factor 1: Winning pattern insights (boost confidence)
-    // Apply weighting: live trades have 2x impact, backtests have 1x impact
     const winningPatterns = insights.filter(i => i.insight_type === 'winning_pattern');
     if (winningPatterns.length > 0) {
-      const totalWeight = winningPatterns.reduce((sum, p) => sum + (p.learning_weight || 1.0), 0);
-      const weightedConfidence = winningPatterns.reduce(
-        (sum, p) => sum + (p.confidence_score * (p.learning_weight || 1.0)),
-        0
-      ) / totalWeight;
-
-      if (weightedConfidence >= 70) {
-        const boost = Math.round(5 * (totalWeight / winningPatterns.length)); // More boost if from live trades
-        adjustedConfidence += boost;
-        const liveCount = winningPatterns.filter(p => p.learned_from_live_trading).length;
-        console.log(`[AI Decision Advisor] ⬆️ +${boost}% from winning patterns (${liveCount} from live trades)`);
+      const avgWinningConfidence = winningPatterns.reduce((sum, p) => sum + p.confidence_score, 0) / winningPatterns.length;
+      if (avgWinningConfidence >= 70) {
+        adjustedConfidence += 5;
+        console.log('[AI Decision Advisor] ⬆️ +5% from winning patterns');
       }
     }
 
     // Factor 2: Losing pattern insights (reduce confidence)
-    // Apply weighting: live trade warnings are more serious
     const losingPatterns = insights.filter(i => i.insight_type === 'losing_pattern');
     if (losingPatterns.length > 0) {
-      const totalWeight = losingPatterns.reduce((sum, p) => sum + (p.learning_weight || 1.0), 0);
-      const penalty = Math.round(10 * (totalWeight / losingPatterns.length)); // More penalty if from live trades
-      adjustedConfidence -= penalty;
-      const liveCount = losingPatterns.filter(p => p.learned_from_live_trading).length;
-      console.log(`[AI Decision Advisor] ⬇️ -${penalty}% from losing patterns (${liveCount} from live trades)`);
+      adjustedConfidence -= 10;
+      console.log('[AI Decision Advisor] ⬇️ -10% from losing patterns detected');
     }
 
     // Factor 3: Market scenario performance
@@ -311,16 +258,14 @@ class AIDecisionAdvisor {
   }
 
   /**
-   * Make final decision based on all factors (with defensive mode check)
+   * Make final decision based on all factors
    */
-  private async makeDecision(
+  private makeDecision(
     signal: TradeSignal,
     adjustedConfidence: number,
     insights: any[],
-    scenarioPerformance: any,
-    userId: string,
-    evResult?: any
-  ): Promise<AIDecisionAdvice> {
+    scenarioPerformance: any
+  ): AIDecisionAdvice {
     const keyInsights: string[] = [];
     const warnings: string[] = [];
     const recommendations: string[] = [];
@@ -363,34 +308,7 @@ class AIDecisionAdvisor {
 
     // Decision threshold
     const CONFIDENCE_THRESHOLD = 70;
-    let shouldTake = adjustedConfidence >= CONFIDENCE_THRESHOLD;
-
-    // Check defensive mode filters BEFORE final decision
-    const riskState = await adaptiveRiskManager.getRiskState(userId);
-    if (riskState.isDefensiveModeActive) {
-      const tradeCheck = await adaptiveRiskManager.shouldTakeTrade(userId, {
-        confidence: adjustedConfidence,
-        patternProfitFactor: evResult?.profitFactor,
-        isVolatilityHigh: signal.marketConditions?.volatility === 'high'
-      });
-
-      if (!tradeCheck.shouldTake) {
-        console.log(`[AI Decision Advisor] 🛡️ Defensive Mode: ${tradeCheck.reason}`);
-        return {
-          shouldTake: false,
-          adjustedConfidence,
-          reasoning: `Defensive Mode Active: ${tradeCheck.reason}`,
-          riskLevel: 'high',
-          historicalSuccessRate,
-          keyInsights,
-          warnings: [...warnings, `🛡️ Defensive Mode: ${tradeCheck.reason}`],
-          recommendations: [
-            'Wait for defensive mode to end',
-            'Focus on high-quality setups only (80%+ confidence, PF > 1.5)'
-          ]
-        };
-      }
-    }
+    const shouldTake = adjustedConfidence >= CONFIDENCE_THRESHOLD;
 
     if (!shouldTake) {
       warnings.push(`Confidence (${adjustedConfidence}%) below threshold (${CONFIDENCE_THRESHOLD}%)`);

@@ -14,7 +14,6 @@ import { AnalysisPage } from './pages/AnalysisPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { KPIsPage } from './pages/KPIsPage';
 import AITrainingPage from './pages/AITrainingPage';
-import SessionLearningsPage from './pages/SessionLearningsPage';
 import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { logEnvironmentStatus } from './lib/env-validator';
@@ -24,8 +23,8 @@ import { connectionValidator } from './lib/connection-validator';
 import { dbHealthMonitor } from './services/db-health-monitor';
 import { globalPollingCoordinator } from './services/global-polling-coordinator';
 import { backgroundCandleAggregator } from './services/background-candle-aggregator';
+import { persistentPricePollingService } from './services/persistent-price-polling-service';
 import { systemLoadMonitor } from './services/system-load-monitor';
-import { browserPricePoller } from './services/browser-price-poller';
 import ConnectionStatusIndicator from './components/ConnectionStatusIndicator';
 
 
@@ -138,14 +137,6 @@ const AppRoutes: React.FC = () => {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/admin/learnings"
-        element={
-          <ProtectedRoute adminOnly={true}>
-            <SessionLearningsPage />
-          </ProtectedRoute>
-        }
-      />
     </Routes>
   );
 };
@@ -189,34 +180,18 @@ export default function App() {
           console.log('[Dev Info] See PRODUCTION_DATABASE_SETUP.md for detailed migration instructions');
         }
 
-        // Staggered startup sequence to prevent race conditions
-        console.log('🚀 Starting services in coordinated sequence...');
-
         setTimeout(() => {
           console.log('Starting database health monitoring in background...');
           dbHealthMonitor.startMonitoring();
         }, 5000);
 
-        // STEP 0: Start browser price poller to populate database
         setTimeout(async () => {
-          console.log('🌐 STEP 0: Starting browser price poller...');
-          console.log('   → This ensures price data flows to database');
-          console.log('   → Calls Netlify function which writes to database');
-          try {
-            await browserPricePoller.start();
-            console.log('✅ Browser price poller started successfully');
-          } catch (error) {
-            console.error('❌ Failed to start browser price poller:', error);
-          }
-        }, 3000);
-
-        // STEP 1: Start global polling coordinator (reads from DB)
-        setTimeout(async () => {
-          console.log('📡 STEP 1: Initializing global polling coordinator...');
-          console.log('   → This service reads price data from the database');
+          console.log('🚀 Initializing global polling coordinator for all forex pairs...');
           try {
             await globalPollingCoordinator.initialize();
             console.log('✅ Global polling coordinator initialized successfully');
+
+            globalPollingCoordinator.startStatusLogging(60000);
           } catch (error) {
             console.error('❌ Failed to initialize global polling coordinator:', error);
           }
@@ -232,26 +207,35 @@ export default function App() {
           }
         }, 7000);
 
-        // STEP 2: Start background candle aggregator (subscribes to realtime)
-        // Wait 3 seconds after global coordinator to ensure database has data
         setTimeout(async () => {
-          console.log('📊 STEP 2: Starting background candle aggregator...');
-          console.log('   → Waiting for global coordinator to populate initial data...');
-
-          // Give global coordinator time to fetch first batch
-          await new Promise(resolve => setTimeout(resolve, 2000));
-
+          console.log('🚀 Starting background candle aggregator...');
           try {
-            console.log('   → Subscribing to live price stream...');
             await backgroundCandleAggregator.start();
             console.log('✅ Background candle aggregator started successfully');
             const status = backgroundCandleAggregator.getStatus();
             console.log(`📊 Aggregator Status: ${status.symbols} symbols × ${status.timeframes} timeframes = ${status.totalCombinations} combinations`);
-            console.log(`🔗 Connection: ${status.connectionState}, Listeners: ${status.tickListenerCount}`);
           } catch (error) {
             console.error('❌ Failed to start background candle aggregator:', error);
           }
-        }, 9000);
+        }, 7000);
+
+        setTimeout(async () => {
+          console.log('🚀 Starting persistent price polling service...');
+          try {
+            await persistentPricePollingService.start();
+            console.log('✅ Persistent price polling service started successfully');
+
+            // Monitor service health
+            setInterval(async () => {
+              const health = await persistentPricePollingService.checkServiceHealth();
+              if (!health.healthy) {
+                console.warn('⚠️ Persistent price polling service unhealthy:', health.details);
+              }
+            }, 60000); // Check every minute
+          } catch (error) {
+            console.error('❌ Failed to start persistent price polling service:', error);
+          }
+        }, 8000);
 
         setDbValidated(true);
       } catch (error) {
@@ -274,6 +258,9 @@ export default function App() {
       globalPollingCoordinator.shutdown().catch(err => {
         console.error('Error shutting down polling coordinator:', err);
       });
+
+      console.log('🛑 Shutting down persistent price polling service...');
+      persistentPricePollingService.stop();
     };
   }, []);
 
