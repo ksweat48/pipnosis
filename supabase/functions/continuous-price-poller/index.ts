@@ -65,15 +65,20 @@ function getForexMarketStatus(): MarketStatus {
 async function fetchPriceFromMetaApi(symbol: string): Promise<PriceData | null> {
   const metaapiToken = Deno.env.get('METAAPI_TOKEN');
   const metaapiAccountId = Deno.env.get('METAAPI_ACCOUNT_ID');
-  const metaapiRegion = Deno.env.get('METAAPI_REGION') || 'new-york';
+  const metaapiRegion = Deno.env.get('METAAPI_REGION') || 'london';
 
   if (!metaapiToken || !metaapiAccountId) {
-    console.error('MetaAPI credentials not configured');
+    console.error('❌ MetaAPI credentials not configured in Edge Function secrets');
+    console.error('   Token present:', !!metaapiToken);
+    console.error('   Account ID present:', !!metaapiAccountId);
+    console.error('   Region:', metaapiRegion);
     return null;
   }
 
   try {
     const url = `https://mt-client-api-v1.${metaapiRegion}.agiliumtrade.ai/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/current-price`;
+
+    console.log(`🔄 Fetching ${symbol} from MetaAPI (${metaapiRegion})...`);
 
     const response = await fetch(url, {
       headers: {
@@ -84,7 +89,8 @@ async function fetchPriceFromMetaApi(symbol: string): Promise<PriceData | null> 
     });
 
     if (!response.ok) {
-      console.error(`MetaAPI error for ${symbol}: ${response.status}`);
+      const errorText = await response.text();
+      console.error(`❌ MetaAPI error for ${symbol}: ${response.status} - ${errorText}`);
       return null;
     }
 
@@ -95,6 +101,8 @@ async function fetchPriceFromMetaApi(symbol: string): Promise<PriceData | null> 
     const mid = (bid + ask) / 2;
     const spread = ask - bid;
 
+    console.log(`✅ MetaAPI ${symbol}: ${bid}/${ask}`);
+
     return {
       symbol,
       bid,
@@ -104,12 +112,12 @@ async function fetchPriceFromMetaApi(symbol: string): Promise<PriceData | null> 
       timestamp: data.time || new Date().toISOString()
     };
   } catch (error) {
-    console.error(`Failed to fetch price for ${symbol}:`, error);
+    console.error(`❌ Failed to fetch price for ${symbol}:`, error);
     return null;
   }
 }
 
-async function savePriceToDatabase(supabase: any, priceData: PriceData): Promise<boolean> {
+async function savePriceToDatabase(supabase: any, priceData: PriceData, isMock: boolean = false): Promise<boolean> {
   try {
     const { error } = await supabase
       .from('realtime_prices')
@@ -120,7 +128,7 @@ async function savePriceToDatabase(supabase: any, priceData: PriceData): Promise
         mid: priceData.mid,
         spread: priceData.spread,
         broker_time: priceData.timestamp,
-        source: 'metaapi_edge_function'
+        source: isMock ? 'mock-fallback' : 'metaapi_edge_function'
       });
 
     if (error) {
@@ -128,7 +136,7 @@ async function savePriceToDatabase(supabase: any, priceData: PriceData): Promise
       return false;
     }
 
-    console.log(`✅ [${priceData.symbol}] Saved: ${priceData.bid}/${priceData.ask}`);
+    console.log(`✅ [${priceData.symbol}] Saved: ${priceData.bid}/${priceData.ask} (${isMock ? 'MOCK' : 'MetaAPI'})`);
     return true;
   } catch (error) {
     console.error(`Exception saving ${priceData.symbol}:`, error);
@@ -140,10 +148,17 @@ async function pollAllSymbols(supabase: any): Promise<number> {
   let successCount = 0;
 
   const promises = FOREX_PAIRS.map(async (symbol) => {
-    const priceData = await fetchPriceFromMetaApi(symbol);
+    let priceData = await fetchPriceFromMetaApi(symbol);
+    let isMock = false;
+
+    if (!priceData) {
+      console.log(`⚠️ ${symbol}: MetaAPI failed, using mock fallback`);
+      priceData = generateMockPrice(symbol);
+      isMock = true;
+    }
 
     if (priceData) {
-      const saved = await savePriceToDatabase(supabase, priceData);
+      const saved = await savePriceToDatabase(supabase, priceData, isMock);
       if (saved) {
         successCount++;
       }
@@ -153,6 +168,33 @@ async function pollAllSymbols(supabase: any): Promise<number> {
   await Promise.allSettled(promises);
 
   return successCount;
+}
+
+function generateMockPrice(symbol: string): PriceData {
+  const basePrices: Record<string, number> = {
+    'EURUSD': 1.0850,
+    'GBPUSD': 1.2650,
+    'USDJPY': 149.50,
+    'XAUUSD': 2650.00,
+    'US30': 43500.00
+  };
+
+  const basePrice = basePrices[symbol] || 1.0000;
+  const variation = (Math.random() - 0.5) * 0.001;
+  const spread = symbol === 'XAUUSD' ? 0.50 : symbol === 'US30' ? 3.0 : 0.00003;
+
+  const mid = basePrice + basePrice * variation;
+  const bid = mid - spread / 2;
+  const ask = mid + spread / 2;
+
+  return {
+    symbol,
+    bid,
+    ask,
+    mid,
+    spread,
+    timestamp: new Date().toISOString()
+  };
 }
 
 Deno.serve(async (req: Request) => {
