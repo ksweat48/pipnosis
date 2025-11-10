@@ -247,20 +247,9 @@ class BackgroundCandleAggregator {
       return;
     }
 
-    // Check if database has ANY recent data
-    const hasRecentData = await this.checkDatabaseHasRecentData();
+    console.log('[BackgroundAggregator] 🚀 Starting in hybrid mode: Live ticks + Database validation');
 
-    if (!hasRecentData) {
-      console.error('[BackgroundAggregator] 🚨 NO DATA IN DATABASE - Starting emergency price poller!');
-      await emergencyPricePoller.start();
-
-      // Subscribe to emergency poller updates
-      emergencyPricePoller.onPriceUpdate((price) => {
-        this.processNewPrice(price.symbol, price.bid, price.ask, price.timestamp);
-      });
-    }
-
-    // Check if server-side aggregation is active
+    // Check if server-side aggregation is active FIRST
     const serverSideActive = await this.checkServerSideAggregation();
 
     if (serverSideActive) {
@@ -271,6 +260,26 @@ class BackgroundCandleAggregator {
       console.warn('[BackgroundAggregator] ⚠️ Server-side aggregation not detected');
       console.log('[BackgroundAggregator] 🔄 Running in legacy browser-based mode');
       console.log('[BackgroundAggregator] ⚠️ Candles will only be collected while browser is open');
+    }
+
+    // Check database status with improved logic
+    const dataStatus = await this.checkDatabaseStatus();
+    console.log(`[BackgroundAggregator] Database status: ${dataStatus.status}`);
+    console.log(`[BackgroundAggregator] Records found: ${dataStatus.recordCount}, Age: ${dataStatus.ageSeconds}s`);
+
+    // Only activate emergency poller if truly needed
+    if (dataStatus.needsEmergencyMode) {
+      console.error('[BackgroundAggregator] 🚨 CRITICAL: No recent data during market hours - Starting emergency price poller!');
+      await emergencyPricePoller.start();
+
+      // Subscribe to emergency poller updates
+      emergencyPricePoller.onPriceUpdate((price) => {
+        this.processNewPrice(price.symbol, price.bid, price.ask, price.timestamp);
+      });
+    } else if (dataStatus.status === 'stale') {
+      console.log('[BackgroundAggregator] ⚠️ Data is stale, but within acceptable range - monitoring...');
+    } else {
+      console.log('[BackgroundAggregator] ✅ Database has recent data - relying on server-side polling');
     }
 
     // Clear any stale in-memory state
@@ -291,27 +300,117 @@ class BackgroundCandleAggregator {
     console.log(`[BackgroundAggregator] Monitoring ${FOREX_PAIRS.length} pairs across ${ALL_TIMEFRAMES.length} timeframes`);
   }
 
-  private async checkDatabaseHasRecentData(): Promise<boolean> {
+  private async checkDatabaseStatus(): Promise<{
+    status: 'fresh' | 'stale' | 'empty' | 'market_closed';
+    ageSeconds: number;
+    recordCount: number;
+    needsEmergencyMode: boolean;
+  }> {
     try {
+      // Check market hours first
+      const now = new Date();
+      const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const dayOfWeek = estTime.getDay();
+      const hours = estTime.getHours();
+      const minutes = estTime.getMinutes();
+      const totalMinutes = hours * 60 + minutes;
+
+      const fridayCloseTime = 17 * 60;
+      const sundayOpenTime = 17 * 60;
+
+      let isMarketOpen = true;
+      if (dayOfWeek === 6) {
+        isMarketOpen = false;
+      } else if (dayOfWeek === 5 && totalMinutes >= fridayCloseTime) {
+        isMarketOpen = false;
+      } else if (dayOfWeek === 0 && totalMinutes < sundayOpenTime) {
+        isMarketOpen = false;
+      }
+
+      // Count recent records
+      const { count: recordCount, error: countError } = await supabase
+        .from('realtime_prices')
+        .select('*', { count: 'exact', head: true });
+
+      if (countError) {
+        console.error('[BackgroundAggregator] Error counting records:', countError);
+      }
+
+      // Get most recent record
       const { data, error } = await supabase
         .from('realtime_prices')
-        .select('created_at')
+        .select('created_at, symbol')
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (error || !data) {
-        console.error('[BackgroundAggregator] ❌ No price data in database');
-        return false;
+      if (error) {
+        console.error('[BackgroundAggregator] Error checking database:', error);
+        return {
+          status: 'empty',
+          ageSeconds: Infinity,
+          recordCount: 0,
+          needsEmergencyMode: isMarketOpen
+        };
+      }
+
+      if (!data) {
+        console.warn('[BackgroundAggregator] No price data found in database');
+        return {
+          status: 'empty',
+          ageSeconds: Infinity,
+          recordCount: recordCount || 0,
+          needsEmergencyMode: isMarketOpen
+        };
       }
 
       const ageSeconds = (Date.now() - new Date(data.created_at).getTime()) / 1000;
-      console.log(`[BackgroundAggregator] Last price in DB: ${Math.round(ageSeconds)}s ago`);
+      console.log(`[BackgroundAggregator] Most recent: ${data.symbol} at ${new Date(data.created_at).toISOString()} (${Math.round(ageSeconds)}s ago)`);
 
-      return ageSeconds < 30; // Data must be less than 30 seconds old
+      // Market is closed - don't trigger emergency mode
+      if (!isMarketOpen) {
+        return {
+          status: 'market_closed',
+          ageSeconds,
+          recordCount: recordCount || 0,
+          needsEmergencyMode: false
+        };
+      }
+
+      // During market hours, be more lenient with thresholds
+      // Allow up to 2 minutes of staleness before emergency mode
+      if (ageSeconds < 90) {
+        return {
+          status: 'fresh',
+          ageSeconds,
+          recordCount: recordCount || 0,
+          needsEmergencyMode: false
+        };
+      } else if (ageSeconds < 300) {
+        // 90s - 5 minutes: stale but not critical
+        return {
+          status: 'stale',
+          ageSeconds,
+          recordCount: recordCount || 0,
+          needsEmergencyMode: false
+        };
+      } else {
+        // > 5 minutes during market hours: critical
+        return {
+          status: 'empty',
+          ageSeconds,
+          recordCount: recordCount || 0,
+          needsEmergencyMode: true
+        };
+      }
     } catch (error) {
-      console.error('[BackgroundAggregator] Error checking database:', error);
-      return false;
+      console.error('[BackgroundAggregator] Error in database status check:', error);
+      return {
+        status: 'empty',
+        ageSeconds: Infinity,
+        recordCount: 0,
+        needsEmergencyMode: true
+      };
     }
   }
 

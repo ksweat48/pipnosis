@@ -40,7 +40,21 @@ class EmergencyPricePoller {
       return;
     }
 
-    console.log('[EmergencyPoller] 🚨 Starting emergency price polling system...');
+    console.log('[EmergencyPoller] 🚨 Emergency mode activation requested...');
+    console.log('[EmergencyPoller] Performing final validation before activation...');
+
+    // Wait a moment to let other systems stabilize
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Re-check if emergency mode is still needed
+    const stillNeeded = await this.verifyEmergencyModeNeeded();
+
+    if (!stillNeeded) {
+      console.log('[EmergencyPoller] ✅ Normal systems recovered - emergency mode not needed');
+      return;
+    }
+
+    console.log('[EmergencyPoller] 🚨 Confirmed: Starting emergency price polling system...');
     this.isActive = true;
     this.errorCount = 0;
 
@@ -54,6 +68,52 @@ class EmergencyPricePoller {
     await this.poll();
 
     console.log(`[EmergencyPoller] ✅ Active in ${this.mode} mode`);
+  }
+
+  private async verifyEmergencyModeNeeded(): Promise<boolean> {
+    try {
+      // Check if database has ANY recent data
+      const { data, error } = await supabase
+        .from('realtime_prices')
+        .select('created_at, symbol')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[EmergencyPoller] Database check failed:', error);
+        return true;
+      }
+
+      if (!data) {
+        console.warn('[EmergencyPoller] No data in database - emergency mode needed');
+        return true;
+      }
+
+      const ageMs = Date.now() - new Date(data.created_at).getTime();
+      const ageSeconds = Math.round(ageMs / 1000);
+
+      console.log(`[EmergencyPoller] Database check: Last ${data.symbol} price ${ageSeconds}s ago`);
+
+      // If data is less than 2 minutes old, normal systems are working
+      if (ageMs < 120000) {
+        console.log('[EmergencyPoller] ✅ Database has recent data - normal systems working');
+        return false;
+      }
+
+      // If data is 2-5 minutes old, emergency mode might be needed
+      if (ageMs < 300000) {
+        console.warn(`[EmergencyPoller] ⚠️ Database is stale (${ageSeconds}s) - emergency mode needed`);
+        return true;
+      }
+
+      // Data is very old, definitely need emergency mode
+      console.error(`[EmergencyPoller] ❌ Database is very stale (${ageSeconds}s) - emergency mode required`);
+      return true;
+    } catch (error) {
+      console.error('[EmergencyPoller] Verification failed:', error);
+      return true;
+    }
   }
 
   private async determineMode(): Promise<void> {

@@ -188,13 +188,18 @@ export default function App() {
           console.log('[Dev Info] See PRODUCTION_DATABASE_SETUP.md for detailed migration instructions');
         }
 
+        // Staggered startup sequence to prevent race conditions
+        console.log('🚀 Starting services in coordinated sequence...');
+
         setTimeout(() => {
           console.log('Starting database health monitoring in background...');
           dbHealthMonitor.startMonitoring();
         }, 5000);
 
+        // STEP 1: Start global polling coordinator (reads from DB)
         setTimeout(async () => {
-          console.log('🚀 Initializing global polling coordinator for all forex pairs...');
+          console.log('📡 STEP 1: Initializing global polling coordinator...');
+          console.log('   → This service reads price data from the database');
           try {
             await globalPollingCoordinator.initialize();
             console.log('✅ Global polling coordinator initialized successfully');
@@ -213,17 +218,26 @@ export default function App() {
           }
         }, 7000);
 
+        // STEP 2: Start background candle aggregator (subscribes to realtime)
+        // Wait 3 seconds after global coordinator to ensure database has data
         setTimeout(async () => {
-          console.log('🚀 Starting background candle aggregator...');
+          console.log('📊 STEP 2: Starting background candle aggregator...');
+          console.log('   → Waiting for global coordinator to populate initial data...');
+
+          // Give global coordinator time to fetch first batch
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
           try {
+            console.log('   → Subscribing to live price stream...');
             await backgroundCandleAggregator.start();
             console.log('✅ Background candle aggregator started successfully');
             const status = backgroundCandleAggregator.getStatus();
             console.log(`📊 Aggregator Status: ${status.symbols} symbols × ${status.timeframes} timeframes = ${status.totalCombinations} combinations`);
+            console.log(`🔗 Connection: ${status.connectionState}, Listeners: ${status.tickListenerCount}`);
           } catch (error) {
             console.error('❌ Failed to start background candle aggregator:', error);
           }
-        }, 7000);
+        }, 9000);
 
         setDbValidated(true);
       } catch (error) {
