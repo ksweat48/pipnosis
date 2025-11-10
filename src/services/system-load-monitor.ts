@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase';
 import { pollingConfigService } from './polling-config-service';
-import { smartRequestQueue } from './smart-request-queue';
 import { globalPollingCoordinator } from './global-polling-coordinator';
 
 export interface LoadSnapshot {
@@ -106,7 +105,6 @@ class SystemLoadMonitor {
 
   private collectSnapshot(): LoadSnapshot {
     const creditUsage = pollingConfigService.getCreditUsage();
-    const queueStatus = smartRequestQueue.getQueueStatus();
     const coordinatorStatus = globalPollingCoordinator.getCoordinatorStatus();
 
     const timePeriodMinutes = (Date.now() - this.lastResetTime) / 60000;
@@ -135,7 +133,7 @@ class SystemLoadMonitor {
       activePairsCount: coordinatorStatus.activePairs,
       errorCount: this.totalErrors,
       errorRate: parseFloat(errorRate.toFixed(2)),
-      requestQueueLength: queueStatus.queueLength,
+      requestQueueLength: 0, // No longer using queue (read-only from DB)
       cacheHitRate: parseFloat(cacheHitRate.toFixed(2)),
       dbWritesPerMinute: Math.round(dbWritesPerMinute)
     };

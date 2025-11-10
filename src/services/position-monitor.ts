@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase';
 import { simulatedTradingService } from './simulated-trading';
-import { smartRequestQueue } from './smart-request-queue';
 import { globalPollingCoordinator } from './global-polling-coordinator';
 
 interface MonitoredPosition {
@@ -159,10 +158,25 @@ class PositionMonitorService {
     priority: 'critical' | 'high'
   ): Promise<void> {
     try {
-      const priceData = await smartRequestQueue.requestPrice(position.symbol, priority);
-      const currentPrice = position.position_type === 'buy' ? priceData.bid : priceData.ask;
+      // Read latest price from database
+      const { data, error } = await supabase
+        .from('realtime_prices')
+        .select('bid, ask')
+        .eq('symbol', position.symbol)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      await this.updateOpenPosition(position, { bid: priceData.bid, ask: priceData.ask }, currentPrice);
+      if (error || !data) {
+        console.error(`[PositionMonitor] Failed to get price for ${position.symbol}:`, error);
+        return;
+      }
+
+      const bid = parseFloat(data.bid);
+      const ask = parseFloat(data.ask);
+      const currentPrice = position.position_type === 'buy' ? bid : ask;
+
+      await this.updateOpenPosition(position, { bid, ask }, currentPrice);
     } catch (error) {
       console.error(`[PositionMonitor] Failed to update position for ${position.symbol}:`, error);
     }
@@ -173,8 +187,23 @@ class PositionMonitorService {
     priority: 'normal'
   ): Promise<void> {
     try {
-      const priceData = await smartRequestQueue.requestPrice(order.symbol, priority);
-      await this.checkPendingOrder(order, { bid: priceData.bid, ask: priceData.ask });
+      // Read latest price from database
+      const { data, error } = await supabase
+        .from('realtime_prices')
+        .select('bid, ask')
+        .eq('symbol', order.symbol)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data) {
+        console.error(`[PositionMonitor] Failed to get price for ${order.symbol}:`, error);
+        return;
+      }
+
+      const bid = parseFloat(data.bid);
+      const ask = parseFloat(data.ask);
+      await this.checkPendingOrder(order, { bid, ask });
     } catch (error) {
       console.error(`[PositionMonitor] Failed to check pending order for ${order.symbol}:`, error);
     }

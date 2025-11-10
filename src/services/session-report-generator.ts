@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { spcCalculator } from './spc-calculator';
+import { threadPostingService } from './thread-posting-service';
 
 /**
  * Session Report Generator
@@ -169,6 +170,15 @@ class SessionReportGenerator {
         currentTier: progress?.tier || 'Novice',
         progressToNextTierPercent: progress?.progressPercent || 0
       };
+
+      // Automatically post to thread
+      setTimeout(async () => {
+        try {
+          await threadPostingService.postSessionReport(userId, sessionId, savedReport.id);
+        } catch (error) {
+          console.error('[Session Report] Error auto-posting to thread:', error);
+        }
+      }, 500);
 
       return { success: true, report };
     } catch (error) {

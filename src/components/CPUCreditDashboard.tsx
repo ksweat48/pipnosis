@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, AlertTriangle, CheckCircle, TrendingUp, Zap } from 'lucide-react';
 import { pollingConfigService } from '@/services/polling-config-service';
-import { smartRequestQueue } from '@/services/smart-request-queue';
 
 export function CPUCreditDashboard() {
   const [creditUsage, setCreditUsage] = useState({
@@ -33,7 +32,7 @@ export function CPUCreditDashboard() {
     const interval = setInterval(() => {
       setCreditUsage(pollingConfigService.getCreditUsage());
       setUsageStats(pollingConfigService.getUsageStats());
-      setQueueStatus(smartRequestQueue.getQueueStatus());
+      setQueueStatus({ queueLength: 0, inFlightCount: 0, cacheSize: 0 }); // No longer using queue
     }, 1000);
 
     return () => clearInterval(interval);

@@ -16,7 +16,7 @@ import {
 } from '@/services/candle-data-service';
 import { detectAndBackfillGaps } from '@/services/candle-backfill-service';
 import { candlePersistenceService } from '@/services/candle-persistence-service';
-import { backgroundCandleAggregator } from '@/services/background-candle-aggregator';
+import { chartCandlePoller } from '@/services/chart-candle-poller';
 import {
   calculateVWAP,
   calculateEMA,
@@ -117,6 +117,24 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     const interval = setInterval(updateMarketStatus, 60000);
 
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('[Chart] Tab hidden - pausing chart polling');
+        chartCandlePoller.pause();
+      } else {
+        console.log('[Chart] Tab visible - resuming chart polling');
+        chartCandlePoller.resume();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -320,7 +338,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     setPatternData(patterns);
   };
 
-  const updateCurrentCandleFromAggregator = (candle: CandleData) => {
+  const updateCurrentCandleFromPoller = (latestCandle: CandleData) => {
     if (!candlestickSeriesRef.current) {
       return;
     }
@@ -329,44 +347,46 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       ? historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time
       : 0;
 
-    if (candle.time <= lastHistoricalTime) {
-      console.warn(`[Chart] Rejecting aggregator candle: time ${candle.time} <= last historical ${lastHistoricalTime}`);
+    if (latestCandle.time <= lastHistoricalTime) {
+      console.warn(`[Chart] Rejecting polled candle: time ${latestCandle.time} <= last historical ${lastHistoricalTime}`);
       return;
     }
 
     if (historicalCandlesRef.current.length > 0) {
-      const validation = validateCandleAgainstHistorical(candle, historicalCandlesRef.current, symbol);
+      const validation = validateCandleAgainstHistorical(latestCandle, historicalCandlesRef.current, symbol);
       if (!validation.isValid) {
-        console.error(`[Chart] ❌ Rejecting aggregator candle for ${symbol}: ${validation.reason}`);
+        console.error(`[Chart] ❌ Rejecting polled candle for ${symbol}: ${validation.reason}`);
         setDataQualityWarning(`Data validation failed: ${validation.reason}. Chart may not update until valid data is received.`);
         return;
       }
     }
 
     try {
-      candlestickSeriesRef.current.update(candle);
+      candlestickSeriesRef.current.update(latestCandle);
 
       if (chartRef.current && !userInteractedRef.current) {
         chartRef.current.timeScale().scrollToRealTime();
       }
 
-      const allCandles = [...historicalCandlesRef.current, candle];
+      const allCandles = [...historicalCandlesRef.current, latestCandle];
       if (updateQueueRef.current.length >= 5) {
         updateIndicatorsDebounced(allCandles);
         updateQueueRef.current = [];
       } else {
-        updateQueueRef.current.push(candle.close);
+        updateQueueRef.current.push(latestCandle.close);
       }
 
-      setCurrentPrice(candle.close);
+      setCurrentPrice(latestCandle.close);
       setLastUpdate(new Date());
       setIsLive(true);
       setUpdateCount(prev => prev + 1);
+      setMarketStatus('live');
+      setSystemStatus('connected');
 
       setPriceUpdateFlash(true);
       setTimeout(() => setPriceUpdateFlash(false), 300);
 
-      setDebugInfo(`Candle Time: ${new Date(candle.time * 1000).toLocaleTimeString()}, Updates: ${updateCount + 1}`);
+      setDebugInfo(`Candle Time: ${new Date(latestCandle.time * 1000).toLocaleTimeString()}, Updates: ${updateCount + 1}`);
     } catch (chartError) {
       console.error('[Chart] Update error:', chartError);
     }
@@ -534,24 +554,37 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     initializeChart();
 
-    console.log(`[Chart] Subscribing to background aggregator for ${symbol} ${timeframe}`);
+    console.log(`[Chart] Starting database polling for ${symbol} ${timeframe}`);
+    setSystemStatus('connecting');
 
-    const unsubscribe = backgroundCandleAggregator.onCandleUpdate((updateSymbol, updateTimeframe, candle) => {
-      if (updateSymbol === symbol && updateTimeframe === timeframe) {
-        updateCurrentCandleFromAggregator(candle);
+    chartCandlePoller.startPolling(symbol, timeframe).then(() => {
+      console.log(`[Chart] Polling started successfully for ${symbol} ${timeframe}`);
+      setSystemStatus('connected');
+    }).catch((error) => {
+      console.error(`[Chart] Failed to start polling:`, error);
+      setSystemStatus('disconnected');
+    });
+
+    const unsubscribe = chartCandlePoller.onUpdate(symbol, timeframe, (result) => {
+      if (result.hasNewData && result.candles.length > 0) {
+        const latestCandle = result.candles[result.candles.length - 1];
+        console.log(`[Chart] New candle data received from poller for ${symbol} ${timeframe}`);
+        updateCurrentCandleFromPoller(latestCandle);
       }
     });
 
     globalPollingCoordinator.setSymbolViewed(symbol, true);
 
-    const currentCandle = backgroundCandleAggregator.getCurrentCandle(symbol, timeframe);
-    if (currentCandle) {
-      console.log(`[Chart] Loaded current candle from aggregator:`, currentCandle);
-      updateCurrentCandleFromAggregator(currentCandle);
+    const existingCandle = chartCandlePoller.getLatestCandle(symbol, timeframe);
+    if (existingCandle) {
+      console.log(`[Chart] Loaded existing candle from poller cache:`, existingCandle);
+      updateCurrentCandleFromPoller(existingCandle);
     }
 
     return () => {
+      console.log(`[Chart] Stopping polling for ${symbol} ${timeframe}`);
       unsubscribe();
+      chartCandlePoller.stopPolling(symbol, timeframe);
       globalPollingCoordinator.setSymbolViewed(symbol, false);
     };
   }, [symbol, timeframe]);
@@ -667,7 +700,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 relative">
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2 sm:gap-3">
