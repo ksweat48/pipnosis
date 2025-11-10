@@ -16,6 +16,7 @@ import {
 } from '@/services/candle-data-service';
 import { detectAndBackfillGaps } from '@/services/candle-backfill-service';
 import { candlePersistenceService } from '@/services/candle-persistence-service';
+import { chartCandlePoller } from '@/services/chart-candle-poller';
 import { backgroundCandleAggregator } from '@/services/background-candle-aggregator';
 import {
   calculateVWAP,
@@ -107,6 +108,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const updateQueueRef = useRef<number[]>([]);
   const isUpdatingRef = useRef<boolean>(false);
   const userInteractedRef = useRef<boolean>(false);
+  const liveTickStreamActive = useRef<boolean>(false);
+  const lastTickUpdateRef = useRef<number>(0);
+  const renderFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     const updateMarketStatus = () => {
@@ -118,6 +122,35 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('[Chart] 🙈 Tab hidden - pausing live tick rendering');
+        console.log('[Chart] 💾 DB polling continues (reduced frequency)');
+        // Cancel any pending render frames
+        if (renderFrameRef.current) {
+          cancelAnimationFrame(renderFrameRef.current);
+          renderFrameRef.current = null;
+        }
+        // Reduce polling frequency when tab is hidden
+        chartCandlePoller.pause();
+      } else {
+        console.log('[Chart] 👁️ Tab visible - resuming full hybrid mode');
+        console.log('[Chart] 📡 Live tick rendering active');
+        console.log('[Chart] 💾 DB polling resumed at full frequency');
+        chartCandlePoller.resume();
+        // Force a refresh to catch up on any missed data
+        chartCandlePoller.forceRefresh(symbol, timeframe);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [symbol, timeframe]);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -320,7 +353,76 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     setPatternData(patterns);
   };
 
-  const updateCurrentCandleFromAggregator = (candle: CandleData) => {
+  const updateCurrentCandleFromTick = (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => {
+    if (tick.symbol !== symbol || !candlestickSeriesRef.current) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastTickUpdateRef.current < 16) {
+      return;
+    }
+    lastTickUpdateRef.current = now;
+
+    if (renderFrameRef.current) {
+      cancelAnimationFrame(renderFrameRef.current);
+    }
+
+    renderFrameRef.current = requestAnimationFrame(() => {
+      const price = tick.midPrice;
+      const timestampMs = new Date(tick.timestamp).getTime();
+      const timeframeMinutes = getTimeframeMinutes(timeframe);
+      const candleTime = Math.floor(timestampMs / (timeframeMinutes * 60 * 1000)) * (timeframeMinutes * 60 * 1000);
+
+      if (!currentCandleRef.current || currentCandleRef.current.startTime !== candleTime) {
+        currentCandleRef.current = {
+          time: Math.floor(candleTime / 1000),
+          open: price,
+          high: price,
+          low: price,
+          close: price,
+          startTime: candleTime
+        };
+        console.log(`[Chart] 🆕 New forming candle started for ${symbol} at ${new Date(candleTime).toLocaleTimeString()}`);
+      } else {
+        currentCandleRef.current.high = Math.max(currentCandleRef.current.high, price);
+        currentCandleRef.current.low = Math.min(currentCandleRef.current.low, price);
+        currentCandleRef.current.close = price;
+      }
+
+      try {
+        candlestickSeriesRef.current?.update({
+          time: currentCandleRef.current.time,
+          open: currentCandleRef.current.open,
+          high: currentCandleRef.current.high,
+          low: currentCandleRef.current.low,
+          close: currentCandleRef.current.close
+        });
+
+        setCurrentPrice(price);
+        setLastUpdate(new Date());
+        setIsLive(true);
+        setUpdateCount(prev => prev + 1);
+        setMarketStatus('live');
+        setSystemStatus('connected');
+        liveTickStreamActive.current = true;
+
+        setPriceUpdateFlash(true);
+        setTimeout(() => setPriceUpdateFlash(false), 300);
+
+        if (updateCount % 20 === 0) {
+          const progress = backgroundCandleAggregator.getCandleProgress(symbol, timeframe);
+          setDebugInfo(`Live: ${new Date(tick.timestamp).toLocaleTimeString()} | Progress: ${progress.toFixed(0)}%`);
+        }
+      } catch (error) {
+        console.error('[Chart] Error updating from tick:', error);
+      }
+
+      renderFrameRef.current = null;
+    });
+  };
+
+  const updateCurrentCandleFromPoller = (latestCandle: CandleData) => {
     if (!candlestickSeriesRef.current) {
       return;
     }
@@ -329,44 +431,57 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       ? historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time
       : 0;
 
-    if (candle.time <= lastHistoricalTime) {
-      console.warn(`[Chart] Rejecting aggregator candle: time ${candle.time} <= last historical ${lastHistoricalTime}`);
+    if (latestCandle.time <= lastHistoricalTime) {
       return;
     }
 
     if (historicalCandlesRef.current.length > 0) {
-      const validation = validateCandleAgainstHistorical(candle, historicalCandlesRef.current, symbol);
+      const validation = validateCandleAgainstHistorical(latestCandle, historicalCandlesRef.current, symbol);
       if (!validation.isValid) {
-        console.error(`[Chart] ❌ Rejecting aggregator candle for ${symbol}: ${validation.reason}`);
-        setDataQualityWarning(`Data validation failed: ${validation.reason}. Chart may not update until valid data is received.`);
+        console.error(`[Chart] ❌ Rejecting polled candle for ${symbol}: ${validation.reason}`);
+        setDataQualityWarning(`Data validation failed: ${validation.reason}. Waiting for valid data.`);
         return;
       }
     }
 
+    const isNewCompletedCandle = currentCandleRef.current && latestCandle.time > currentCandleRef.current.time;
+
+    if (isNewCompletedCandle) {
+      console.log(`[Chart] 🔄 DB confirmed completed candle at ${new Date(latestCandle.time * 1000).toLocaleTimeString()}`);
+      historicalCandlesRef.current.push(latestCandle);
+
+      if (historicalCandlesRef.current.length > 500) {
+        historicalCandlesRef.current = historicalCandlesRef.current.slice(-300);
+      }
+
+      currentCandleRef.current = null;
+    }
+
     try {
-      candlestickSeriesRef.current.update(candle);
+      candlestickSeriesRef.current.update(latestCandle);
 
       if (chartRef.current && !userInteractedRef.current) {
         chartRef.current.timeScale().scrollToRealTime();
       }
 
-      const allCandles = [...historicalCandlesRef.current, candle];
-      if (updateQueueRef.current.length >= 5) {
+      const allCandles = [...historicalCandlesRef.current, latestCandle];
+      if (updateQueueRef.current.length >= 5 || isNewCompletedCandle) {
         updateIndicatorsDebounced(allCandles);
         updateQueueRef.current = [];
       } else {
-        updateQueueRef.current.push(candle.close);
+        updateQueueRef.current.push(latestCandle.close);
       }
 
-      setCurrentPrice(candle.close);
-      setLastUpdate(new Date());
-      setIsLive(true);
-      setUpdateCount(prev => prev + 1);
+      if (!liveTickStreamActive.current) {
+        setCurrentPrice(latestCandle.close);
+        setLastUpdate(new Date());
+        setUpdateCount(prev => prev + 1);
+      }
 
-      setPriceUpdateFlash(true);
-      setTimeout(() => setPriceUpdateFlash(false), 300);
+      setSystemStatus('connected');
+      setDataQualityWarning(null);
 
-      setDebugInfo(`Candle Time: ${new Date(candle.time * 1000).toLocaleTimeString()}, Updates: ${updateCount + 1}`);
+      setDebugInfo(`DB: ${new Date(latestCandle.time * 1000).toLocaleTimeString()}, Mode: ${liveTickStreamActive.current ? 'Live+DB' : 'DB Only'}`);
     } catch (chartError) {
       console.error('[Chart] Update error:', chartError);
     }
@@ -531,28 +646,73 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     currentCandleRef.current = null;
     lastFetchTimeRef.current = null;
     historicalCandlesRef.current = [];
+    liveTickStreamActive.current = false;
 
     initializeChart();
 
-    console.log(`[Chart] Subscribing to background aggregator for ${symbol} ${timeframe}`);
+    console.log(`[Chart] 🚀 Starting hybrid mode: Live ticks + DB polling for ${symbol} ${timeframe}`);
+    setSystemStatus('connecting');
 
-    const unsubscribe = backgroundCandleAggregator.onCandleUpdate((updateSymbol, updateTimeframe, candle) => {
-      if (updateSymbol === symbol && updateTimeframe === timeframe) {
-        updateCurrentCandleFromAggregator(candle);
+    // Start live tick stream from BackgroundAggregator
+    console.log(`[Chart] 📡 Subscribing to live tick stream...`);
+    const unsubscribeTicks = backgroundCandleAggregator.onTickUpdate((tick) => {
+      updateCurrentCandleFromTick(tick);
+    });
+
+    // Start database polling for validation and completed candles
+    console.log(`[Chart] 💾 Starting database polling (3s interval)...`);
+    chartCandlePoller.startPolling(symbol, timeframe).then(() => {
+      console.log(`[Chart] ✅ Database polling active for ${symbol} ${timeframe}`);
+      setSystemStatus('connected');
+    }).catch((error) => {
+      console.error(`[Chart] ❌ Failed to start polling:`, error);
+      setSystemStatus('disconnected');
+    });
+
+    const unsubscribePoller = chartCandlePoller.onUpdate(symbol, timeframe, (result) => {
+      if (result.hasNewData && result.candles.length > 0) {
+        const latestCandle = result.candles[result.candles.length - 1];
+        console.log(`[Chart] 🔄 DB validation: new candle at ${new Date(latestCandle.time * 1000).toLocaleTimeString()}`);
+        updateCurrentCandleFromPoller(latestCandle);
       }
     });
 
     globalPollingCoordinator.setSymbolViewed(symbol, true);
 
-    const currentCandle = backgroundCandleAggregator.getCurrentCandle(symbol, timeframe);
-    if (currentCandle) {
-      console.log(`[Chart] Loaded current candle from aggregator:`, currentCandle);
-      updateCurrentCandleFromAggregator(currentCandle);
+    // Check if there's a forming candle from the aggregator
+    const formingCandle = backgroundCandleAggregator.getFormingCandle(symbol, timeframe);
+    if (formingCandle) {
+      console.log(`[Chart] 📊 Loaded forming candle from aggregator:`, formingCandle);
+      updateCurrentCandleFromPoller(formingCandle);
     }
 
+    // Also check DB for latest completed candle
+    const existingCandle = chartCandlePoller.getLatestCandle(symbol, timeframe);
+    if (existingCandle) {
+      console.log(`[Chart] 💾 Loaded latest completed candle from DB:`, existingCandle);
+      updateCurrentCandleFromPoller(existingCandle);
+    }
+
+    // Monitor connection health
+    const healthCheck = setInterval(() => {
+      const timeSinceLastTick = Date.now() - lastTickUpdateRef.current;
+      if (timeSinceLastTick > 30000 && liveTickStreamActive.current) {
+        console.warn(`[Chart] ⚠️ No ticks for ${timeSinceLastTick / 1000}s - tick stream may be stale`);
+        liveTickStreamActive.current = false;
+        setMarketStatus('delayed');
+      }
+    }, 15000);
+
     return () => {
-      unsubscribe();
+      console.log(`[Chart] 🛑 Stopping hybrid mode for ${symbol} ${timeframe}`);
+      unsubscribeTicks();
+      unsubscribePoller();
+      chartCandlePoller.stopPolling(symbol, timeframe);
       globalPollingCoordinator.setSymbolViewed(symbol, false);
+      clearInterval(healthCheck);
+      if (renderFrameRef.current) {
+        cancelAnimationFrame(renderFrameRef.current);
+      }
     };
   }, [symbol, timeframe]);
 
@@ -667,7 +827,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 relative">
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2 sm:gap-3">

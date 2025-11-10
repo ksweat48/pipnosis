@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { aiSkillTracker, SkillProgressionData, MilestoneData, SkillLevel } from '../services/ai-skill-tracker';
 import { aiIndicatorTracker, IndicatorExperiment, IndicatorEffectiveness } from '../services/ai-indicator-tracker';
+import { liveTradeLearningTrigger } from '../services/live-trade-learning-trigger';
+import { supabase } from '../lib/supabase';
 import {
   Brain,
   TrendingUp,
@@ -16,7 +18,9 @@ import {
   AlertCircle,
   Eye,
   Lightbulb,
-  Trophy
+  Trophy,
+  PlayCircle,
+  BarChart2
 } from 'lucide-react';
 
 export default function AILearningProgressDashboard() {
@@ -28,6 +32,8 @@ export default function AILearningProgressDashboard() {
   const [indicatorEffectiveness, setIndicatorEffectiveness] = useState<IndicatorEffectiveness[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSymbol, setSelectedSymbol] = useState('EURUSD');
+  const [liveStats, setLiveStats] = useState<any>(null);
+  const [backtestStats, setBacktestStats] = useState<any>(null);
 
   useEffect(() => {
     if (user) {
@@ -40,12 +46,13 @@ export default function AILearningProgressDashboard() {
 
     setLoading(true);
     try {
-      const [skill, milestonesData, adopted, experiments, effectiveness] = await Promise.all([
+      const [skill, milestonesData, adopted, experiments, effectiveness, liveStatsData] = await Promise.all([
         aiSkillTracker.getSkillProgression(user.id),
         aiSkillTracker.getRecentMilestones(user.id, 5),
         aiIndicatorTracker.getAdoptedIndicators(user.id),
         aiIndicatorTracker.getActiveExperiments(user.id),
-        aiIndicatorTracker.getIndicatorEffectiveness(user.id, selectedSymbol)
+        aiIndicatorTracker.getIndicatorEffectiveness(user.id, selectedSymbol),
+        liveTradeLearningTrigger.getLearningStats(user.id)
       ]);
 
       setSkillData(skill);
@@ -53,6 +60,21 @@ export default function AILearningProgressDashboard() {
       setAdoptedIndicators(adopted);
       setActiveExperiments(experiments);
       setIndicatorEffectiveness(effectiveness);
+      setLiveStats(liveStatsData);
+
+      // Fetch backtest stats
+      const { data: backtestInsights } = await supabase
+        .from('ai_learning_insights')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('learned_from_live_trading', false);
+
+      setBacktestStats({
+        total_insights: backtestInsights?.length || 0,
+        avg_confidence: backtestInsights && backtestInsights.length > 0
+          ? backtestInsights.reduce((sum, i) => sum + parseFloat(i.confidence_score.toString()), 0) / backtestInsights.length
+          : 0
+      });
     } catch (error) {
       console.error('[AI Learning Dashboard] Error loading data:', error);
     } finally {
@@ -111,7 +133,8 @@ export default function AILearningProgressDashboard() {
             <div className="text-4xl font-bold text-white mb-2">
               {skillData.totalTradesAnalyzed.toLocaleString()}
             </div>
-            <p className="text-white/80 text-sm">Trades Analyzed</p>
+            <p className="text-white/80 text-sm">Successful Trades</p>
+            <p className="text-white/60 text-xs mt-1">Only winning trades count!</p>
           </div>
         </div>
 
@@ -128,11 +151,87 @@ export default function AILearningProgressDashboard() {
             ></div>
           </div>
           <div className="flex items-center justify-between mt-2 text-sm">
-            <span className="text-white/70">{skillData.tradesNeededForNextLevel} trades needed</span>
+            <span className="text-white/70">{skillData.tradesNeededForNextLevel} winning trades needed</span>
             <span className="text-white/70">Target: {skillThresholds[skillData.skillLevelNumeric]?.level || 'Max Level'}</span>
+          </div>
+          <div className="mt-3 p-3 bg-emerald-500/10 rounded border border-emerald-500/30">
+            <p className="text-xs text-emerald-300">
+              <strong>Progress System:</strong> The AI only learns and progresses from successful, profitable trades.
+              Losing trades are analyzed but don't count toward skill advancement. This ensures the AI truly masters winning patterns.
+            </p>
           </div>
         </div>
       </div>
+
+      {/* Live vs Backtest Learning Stats */}
+      {(liveStats || backtestStats) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Live Trading Learning */}
+          <div className="bg-gradient-to-br from-green-900/20 to-emerald-900/20 backdrop-blur-sm border-2 border-green-500/30 rounded-lg p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <PlayCircle className="w-6 h-6 text-green-400" />
+              <h3 className="text-xl font-bold text-white">Live Demo Trading Learning</h3>
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Total Live Trades:</span>
+                <span className="text-white font-bold">{liveStats?.total_live_trades || 0}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Analyzed:</span>
+                <span className="text-emerald-400 font-bold">{liveStats?.trades_analyzed || 0}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Pending Analysis:</span>
+                <span className="text-yellow-400 font-bold">{liveStats?.trades_pending_analysis || 0}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Insights Created:</span>
+                <span className="text-blue-400 font-bold">{liveStats?.live_insights_created || 0}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Learning Weight:</span>
+                <span className="text-purple-400 font-bold">2.0x</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Avg Quality Score:</span>
+                <span className="text-emerald-400 font-bold">
+                  {liveStats?.avg_learning_quality ? `${parseFloat(liveStats.avg_learning_quality).toFixed(1)}%` : 'N/A'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Backtest Learning */}
+          <div className="bg-gradient-to-br from-blue-900/20 to-indigo-900/20 backdrop-blur-sm border-2 border-blue-500/30 rounded-lg p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <BarChart2 className="w-6 h-6 text-blue-400" />
+              <h3 className="text-xl font-bold text-white">Backtest Learning</h3>
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Total Insights:</span>
+                <span className="text-white font-bold">{backtestStats?.total_insights || 0}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Avg Confidence:</span>
+                <span className="text-blue-400 font-bold">
+                  {backtestStats?.avg_confidence ? `${backtestStats.avg_confidence.toFixed(1)}%` : 'N/A'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Learning Weight:</span>
+                <span className="text-gray-400 font-bold">1.0x</span>
+              </div>
+              <div className="mt-4 p-3 bg-blue-500/10 rounded border border-blue-500/30">
+                <p className="text-sm text-gray-300">
+                  Live trades have <span className="text-emerald-400 font-bold">2x learning weight</span> compared to backtests, making them more impactful for AI improvement.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Performance Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -172,6 +271,10 @@ export default function AILearningProgressDashboard() {
           <Award className="w-5 h-5 text-yellow-500" />
           Skill Level Roadmap
         </h3>
+        <p className="text-sm text-gray-400 mb-4">
+          Requirements shown are for <span className="text-emerald-400 font-semibold">winning trades only</span>.
+          The AI must demonstrate consistent profitability to advance through skill levels.
+        </p>
         <div className="space-y-3">
           {skillThresholds.map((threshold, index) => {
             const isCompleted = skillData.skillLevelNumeric > index + 1;
@@ -207,7 +310,7 @@ export default function AILearningProgressDashboard() {
                   </div>
                   <div className="text-right">
                     <div className={`text-sm font-semibold ${isCompleted || isCurrent ? 'text-white' : 'text-gray-500'}`}>
-                      {threshold.minTrades}+ trades
+                      {threshold.minTrades}+ wins
                     </div>
                     <div className={`text-xs ${isCompleted || isCurrent ? 'text-gray-400' : 'text-gray-600'}`}>
                       {threshold.minWinRate}% WR · {threshold.minProfitFactor}+ PF
@@ -468,6 +571,9 @@ function JourneyCard({ title, trades, description, color }: any) {
         {trades === 0 ? 'Achieved!' : trades.toLocaleString()}
       </div>
       <p className="text-sm text-gray-400">{description}</p>
+      {trades > 0 && (
+        <p className="text-xs text-gray-500 mt-2">Winning trades only</p>
+      )}
     </div>
   );
 }

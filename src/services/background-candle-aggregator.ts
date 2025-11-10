@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
 import { getTimeframeMinutes, CandleData } from '@/services/candle-data-service';
+import { emergencyPricePoller } from '@/services/emergency-price-poller';
 
 interface CandleState {
   time: number;
@@ -33,6 +34,7 @@ class BackgroundCandleAggregator {
   private saveQueue: Array<{ symbol: string; timeframe: Timeframe; candle: CandleData }> = [];
   private saveInProgress = false;
   private listeners: Set<(symbol: string, timeframe: Timeframe, candle: CandleData) => void> = new Set();
+  private tickListeners: Set<(tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => void> = new Set();
   private reconnectAttempts = 0;
   private readonly MAX_RECONNECT_ATTEMPTS = 10;
   private readonly BASE_RECONNECT_DELAY = 1000;
@@ -167,6 +169,19 @@ class BackgroundCandleAggregator {
     });
   }
 
+  private notifyTickListeners(symbol: string, bid: number, ask: number, timestamp: string): void {
+    const midPrice = (bid + ask) / 2;
+    const tick = { symbol, bid, ask, timestamp, midPrice };
+
+    this.tickListeners.forEach(listener => {
+      try {
+        listener(tick);
+      } catch (error) {
+        console.error('[BackgroundAggregator] Error in tick listener:', error);
+      }
+    });
+  }
+
   private processNewPrice(symbol: string, bid: number, ask: number, timestamp: string): void {
     const midPrice = (bid + ask) / 2;
     const timestampMs = new Date(timestamp).getTime();
@@ -180,6 +195,9 @@ class BackgroundCandleAggregator {
       console.warn(`[BackgroundAggregator] Invalid timestamp for ${symbol}: ${timestamp}`);
       return;
     }
+
+    // Notify tick listeners immediately for live display
+    this.notifyTickListeners(symbol, bid, ask, timestamp);
 
     for (const timeframe of ALL_TIMEFRAMES) {
       const key = this.getCacheKey(symbol, timeframe);
@@ -229,7 +247,9 @@ class BackgroundCandleAggregator {
       return;
     }
 
-    // Check if server-side aggregation is active
+    console.log('[BackgroundAggregator] 🚀 Starting in hybrid mode: Live ticks + Database validation');
+
+    // Check if server-side aggregation is active FIRST
     const serverSideActive = await this.checkServerSideAggregation();
 
     if (serverSideActive) {
@@ -240,6 +260,26 @@ class BackgroundCandleAggregator {
       console.warn('[BackgroundAggregator] ⚠️ Server-side aggregation not detected');
       console.log('[BackgroundAggregator] 🔄 Running in legacy browser-based mode');
       console.log('[BackgroundAggregator] ⚠️ Candles will only be collected while browser is open');
+    }
+
+    // Check database status with improved logic
+    const dataStatus = await this.checkDatabaseStatus();
+    console.log(`[BackgroundAggregator] Database status: ${dataStatus.status}`);
+    console.log(`[BackgroundAggregator] Records found: ${dataStatus.recordCount}, Age: ${dataStatus.ageSeconds}s`);
+
+    // Only activate emergency poller if truly needed
+    if (dataStatus.needsEmergencyMode) {
+      console.error('[BackgroundAggregator] 🚨 CRITICAL: No recent data during market hours - Starting emergency price poller!');
+      await emergencyPricePoller.start();
+
+      // Subscribe to emergency poller updates
+      emergencyPricePoller.onPriceUpdate((price) => {
+        this.processNewPrice(price.symbol, price.bid, price.ask, price.timestamp);
+      });
+    } else if (dataStatus.status === 'stale') {
+      console.log('[BackgroundAggregator] ⚠️ Data is stale, but within acceptable range - monitoring...');
+    } else {
+      console.log('[BackgroundAggregator] ✅ Database has recent data - relying on server-side polling');
     }
 
     // Clear any stale in-memory state
@@ -258,6 +298,120 @@ class BackgroundCandleAggregator {
     this.startHealthMonitoring();
 
     console.log(`[BackgroundAggregator] Monitoring ${FOREX_PAIRS.length} pairs across ${ALL_TIMEFRAMES.length} timeframes`);
+  }
+
+  private async checkDatabaseStatus(): Promise<{
+    status: 'fresh' | 'stale' | 'empty' | 'market_closed';
+    ageSeconds: number;
+    recordCount: number;
+    needsEmergencyMode: boolean;
+  }> {
+    try {
+      // Check market hours first
+      const now = new Date();
+      const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const dayOfWeek = estTime.getDay();
+      const hours = estTime.getHours();
+      const minutes = estTime.getMinutes();
+      const totalMinutes = hours * 60 + minutes;
+
+      const fridayCloseTime = 17 * 60;
+      const sundayOpenTime = 17 * 60;
+
+      let isMarketOpen = true;
+      if (dayOfWeek === 6) {
+        isMarketOpen = false;
+      } else if (dayOfWeek === 5 && totalMinutes >= fridayCloseTime) {
+        isMarketOpen = false;
+      } else if (dayOfWeek === 0 && totalMinutes < sundayOpenTime) {
+        isMarketOpen = false;
+      }
+
+      // Count recent records
+      const { count: recordCount, error: countError } = await supabase
+        .from('realtime_prices')
+        .select('*', { count: 'exact', head: true });
+
+      if (countError) {
+        console.error('[BackgroundAggregator] Error counting records:', countError);
+      }
+
+      // Get most recent record
+      const { data, error } = await supabase
+        .from('realtime_prices')
+        .select('created_at, symbol')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[BackgroundAggregator] Error checking database:', error);
+        return {
+          status: 'empty',
+          ageSeconds: Infinity,
+          recordCount: 0,
+          needsEmergencyMode: isMarketOpen
+        };
+      }
+
+      if (!data) {
+        console.warn('[BackgroundAggregator] No price data found in database');
+        return {
+          status: 'empty',
+          ageSeconds: Infinity,
+          recordCount: recordCount || 0,
+          needsEmergencyMode: isMarketOpen
+        };
+      }
+
+      const ageSeconds = (Date.now() - new Date(data.created_at).getTime()) / 1000;
+      console.log(`[BackgroundAggregator] Most recent: ${data.symbol} at ${new Date(data.created_at).toISOString()} (${Math.round(ageSeconds)}s ago)`);
+
+      // Market is closed - don't trigger emergency mode
+      if (!isMarketOpen) {
+        return {
+          status: 'market_closed',
+          ageSeconds,
+          recordCount: recordCount || 0,
+          needsEmergencyMode: false
+        };
+      }
+
+      // During market hours, be more lenient with thresholds
+      // Allow up to 2 minutes of staleness before emergency mode
+      if (ageSeconds < 90) {
+        return {
+          status: 'fresh',
+          ageSeconds,
+          recordCount: recordCount || 0,
+          needsEmergencyMode: false
+        };
+      } else if (ageSeconds < 300) {
+        // 90s - 5 minutes: stale but not critical
+        return {
+          status: 'stale',
+          ageSeconds,
+          recordCount: recordCount || 0,
+          needsEmergencyMode: false
+        };
+      } else {
+        // > 5 minutes during market hours: critical
+        return {
+          status: 'empty',
+          ageSeconds,
+          recordCount: recordCount || 0,
+          needsEmergencyMode: true
+        };
+      }
+    } catch (error) {
+      console.error('[BackgroundAggregator] Error in database status check:', error);
+      return {
+        status: 'empty',
+        ageSeconds: Infinity,
+        recordCount: 0,
+        needsEmergencyMode: true
+      };
+    }
   }
 
   private async checkServerSideAggregation(): Promise<boolean> {
@@ -615,6 +769,33 @@ class BackgroundCandleAggregator {
     };
   }
 
+  onTickUpdate(callback: (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => void): () => void {
+    this.tickListeners.add(callback);
+    console.log(`[BackgroundAggregator] Tick listener registered (${this.tickListeners.size} total)`);
+    return () => {
+      this.tickListeners.delete(callback);
+      console.log(`[BackgroundAggregator] Tick listener removed (${this.tickListeners.size} remaining)`);
+    };
+  }
+
+  getFormingCandle(symbol: string, timeframe: Timeframe): CandleData | null {
+    return this.getCurrentCandle(symbol, timeframe);
+  }
+
+  getCandleProgress(symbol: string, timeframe: Timeframe): number {
+    const key = this.getCacheKey(symbol, timeframe);
+    const state = this.candleStates.get(key);
+
+    if (!state) return 0;
+
+    const now = Date.now();
+    const intervalMs = getTimeframeMinutes(timeframe) * 60 * 1000;
+    const elapsed = now - state.startTime;
+    const progress = Math.min((elapsed / intervalMs) * 100, 100);
+
+    return progress;
+  }
+
   getStatus() {
     const timeSinceLastMessage = this.lastMessageTime
       ? Date.now() - this.lastMessageTime.getTime()
@@ -628,6 +809,7 @@ class BackgroundCandleAggregator {
       activeCandleStates: this.candleStates.size,
       saveQueueLength: this.saveQueue.length,
       listenerCount: this.listeners.size,
+      tickListenerCount: this.tickListeners.size,
       symbols: FOREX_PAIRS.length,
       timeframes: ALL_TIMEFRAMES.length,
       totalCombinations: FOREX_PAIRS.length * ALL_TIMEFRAMES.length,

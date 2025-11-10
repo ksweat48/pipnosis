@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase';
 import { simulatedTradingService } from './simulated-trading';
-import { smartRequestQueue } from './smart-request-queue';
 import { globalPollingCoordinator } from './global-polling-coordinator';
 
 interface MonitoredPosition {
@@ -159,10 +158,25 @@ class PositionMonitorService {
     priority: 'critical' | 'high'
   ): Promise<void> {
     try {
-      const priceData = await smartRequestQueue.requestPrice(position.symbol, priority);
-      const currentPrice = position.position_type === 'buy' ? priceData.bid : priceData.ask;
+      // Read latest price from database
+      const { data, error } = await supabase
+        .from('realtime_prices')
+        .select('bid, ask')
+        .eq('symbol', position.symbol)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      await this.updateOpenPosition(position, { bid: priceData.bid, ask: priceData.ask }, currentPrice);
+      if (error || !data) {
+        console.error(`[PositionMonitor] Failed to get price for ${position.symbol}:`, error);
+        return;
+      }
+
+      const bid = parseFloat(data.bid);
+      const ask = parseFloat(data.ask);
+      const currentPrice = position.position_type === 'buy' ? bid : ask;
+
+      await this.updateOpenPosition(position, { bid, ask }, currentPrice);
     } catch (error) {
       console.error(`[PositionMonitor] Failed to update position for ${position.symbol}:`, error);
     }
@@ -173,8 +187,23 @@ class PositionMonitorService {
     priority: 'normal'
   ): Promise<void> {
     try {
-      const priceData = await smartRequestQueue.requestPrice(order.symbol, priority);
-      await this.checkPendingOrder(order, { bid: priceData.bid, ask: priceData.ask });
+      // Read latest price from database
+      const { data, error } = await supabase
+        .from('realtime_prices')
+        .select('bid, ask')
+        .eq('symbol', order.symbol)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data) {
+        console.error(`[PositionMonitor] Failed to get price for ${order.symbol}:`, error);
+        return;
+      }
+
+      const bid = parseFloat(data.bid);
+      const ask = parseFloat(data.ask);
+      await this.checkPendingOrder(order, { bid, ask });
     } catch (error) {
       console.error(`[PositionMonitor] Failed to check pending order for ${order.symbol}:`, error);
     }
@@ -356,6 +385,31 @@ class PositionMonitorService {
           balance_after: newBalance,
           position_id: position.id,
           description: `Position auto-closed (${reason}): ${position.symbol} ${position.position_type} ${position.lot_size} lots`
+        });
+
+      // Record trade in history for AI learning
+      await supabase
+        .from('trade_history')
+        .insert({
+          user_id: position.user_id,
+          position_id: position.id,
+          symbol: position.symbol,
+          position_type: position.position_type,
+          lot_size: position.lot_size,
+          entry_price: position.entry_price!,
+          exit_price: closePrice,
+          stop_loss: position.stop_loss,
+          take_profit: position.take_profit,
+          profit_loss: pnl,
+          opened_at: position.opened_at,
+          closed_at: new Date().toISOString(),
+          close_reason: reason,
+          strategy_name: (position as any).strategy_name || null,
+          confidence_score: (position as any).confidence_score || 75,
+          setup_type: (position as any).setup_type || 'Auto-closed position',
+          market_conditions: (position as any).market_conditions || {},
+          ai_decision_id: (position as any).ai_decision_id || null,
+          ai_analyzed: false
         });
 
       console.log(`[PositionMonitor] Position ${position.id} closed with P&L: $${pnl.toFixed(2)}`);
