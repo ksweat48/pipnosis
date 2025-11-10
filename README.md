@@ -10,7 +10,7 @@ A sophisticated AI-powered forex trading platform built with React, TypeScript, 
 - **Technical Indicators**: Comprehensive suite including EMA, RSI, MACD, Bollinger Bands, and custom indicators
 - **Strategy Framework**: Multiple trading strategies including FX Flow Scalper
 - **Risk Management**: Built-in risk validation and position management
-- **Historical Analysis**: Backfill and analyze historical market data
+- **Historical Analysis**: Backfill and analyze historical market data (see `BACKFILL_QUICK_START.md`)
 - **MetaAPI Integration**: Connect to MT5 accounts for live trading
 
 ## Tech Stack
@@ -92,6 +92,21 @@ Comprehensive documentation is available in the `docs/` directory:
   - [AI Trading Brain](docs/implementations/AI_TRADING_BRAIN_IMPLEMENTATION.md)
   - [FX Flow Scalper V2](docs/implementations/FX_FLOW_SCALPER_V2_IMPLEMENTATION.md)
   - [Auto Trading Enhancements](docs/implementations/AUTO_TRADING_ENHANCEMENTS_SUMMARY.md)
+
+## Historical Data Backfill
+
+To backfill historical market data for charts and AI training:
+
+```bash
+./BACKFILL.sh
+```
+
+This loads ~30,000 candles per symbol (months to years of data) from TradingView.
+
+**Quick References:**
+- **Quick Start**: `BACKFILL_QUICK_START.md` - Simple one-command usage
+- **Complete Guide**: `DEFINITIVE_BACKFILL_GUIDE.md` - Full documentation and troubleshooting
+- **Script**: `scripts/tradingview-backfill/comprehensive_backfill.py` - The backfill implementation
 
 ## Available Scripts
 
