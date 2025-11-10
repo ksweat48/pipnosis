@@ -98,7 +98,7 @@ export function GlobalPollingStatus() {
             {getStatusIcon()}
           </div>
           <div className="text-xs font-medium text-gray-300">
-            Market Data (Read-Only)
+            Market Data
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -147,10 +147,10 @@ export function GlobalPollingStatus() {
         </div>
       )}
 
-      {status.isRunning && !status.isPaused && (
-        <div className="text-xs text-blue-400/70 border-t border-white/5 pt-2">
-          <div className="font-medium mb-1">📊 Database Subscription Mode</div>
-          <div className="text-gray-400">Reading prices from database (server-side cron handles fetching)</div>
+      {status.isRunning && status.totalErrors > 10 && status.totalSuccesses === 0 && (
+        <div className="text-xs text-red-400 border-t border-white/5 pt-2">
+          <div className="font-medium mb-1">Connection Issues Detected</div>
+          <div className="text-gray-400">Click the refresh button to restart polling</div>
         </div>
       )}
 

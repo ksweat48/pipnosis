@@ -1,15 +1,21 @@
 import { supabase } from '@/lib/supabase';
 import { getForexMarketStatus } from '@/utils/marketHours';
-import { areFunctionsAvailable, logEnvironmentInfo } from '@/lib/environment';
+import { areFunctionsAvailable, isWebContainer, logEnvironmentInfo } from '@/lib/environment';
+import { smartRequestQueue } from './smart-request-queue';
 import { pollingConfigService, SymbolPriority } from './polling-config-service';
 
 interface PollStatus {
   symbol: string;
   lastPoll: Date;
   lastPrice: { bid: number; ask: number } | null;
+  errorCount: number;
   successCount: number;
   isPolling: boolean;
+  lastError: string | null;
   lastSuccessfulPoll: Date | null;
+  consecutiveErrors: number;
+  backoffDelay: number;
+  nextRetryTime: Date | null;
   priority: SymbolPriority;
   currentInterval: number;
   isViewed: boolean;
@@ -24,10 +30,13 @@ export interface CoordinatorStatus {
   activePairs: number;
   totalPairs: number;
   totalSuccesses: number;
+  totalErrors: number;
   pairStatuses: Array<{
     symbol: string;
     status: 'active' | 'stale' | 'error' | 'starting';
     lastPrice: { bid: number; ask: number } | null;
+    lastError: string | null;
+    errorCount: number;
     successCount: number;
     lastSuccessfulPoll: Date | null;
   }>;
@@ -37,7 +46,7 @@ class GlobalPollingCoordinator {
   private initialized = false;
   private pollIntervals: Map<string, NodeJS.Timeout> = new Map();
   private pollStatus: Map<string, PollStatus> = new Map();
-  private realtimeSubscriptions: Map<string, any> = new Map();
+  private statusLoggingInterval: NodeJS.Timeout | null = null;
   private marketCheckInterval: NodeJS.Timeout | null = null;
   private isPaused = false;
   private pauseReason: 'market_closed' | 'manual' | null = null;
@@ -54,6 +63,9 @@ class GlobalPollingCoordinator {
   ];
 
   private readonly MARKET_CHECK_INTERVAL = 60000;
+  private readonly MAX_BACKOFF_DELAY = 60000;
+  private readonly BASE_BACKOFF_DELAY = 2000;
+  private readonly MAX_CONSECUTIVE_ERRORS = 5;
   private viewedSymbols: Set<string> = new Set();
   private symbolsWithPositions: Set<string> = new Set();
 
@@ -63,16 +75,17 @@ class GlobalPollingCoordinator {
       return;
     }
 
-    console.log('🚀 Initializing read-only global polling coordinator...');
-    console.log('📊 Reading price data from database (server-side polling handles data collection)');
+    console.log('🚀 Initializing global polling coordinator for all forex pairs...');
+    console.log('📊 Polling will continue regardless of page visibility or navigation');
     logEnvironmentInfo();
 
     this.setupVisibilityHandling();
     this.startHeartbeatMonitoring();
 
     if (!areFunctionsAvailable()) {
-      console.warn('⚠️ Running in development mode');
-      console.log('ℹ️ Price updates will be read from cached database data');
+      console.warn('⚠️ Netlify Functions not available in this environment');
+      console.log('ℹ️ Live polling requires production environment (pipnosis.com or *.netlify.app)');
+      console.log('ℹ️ In development, the app will use cached price data from Supabase');
       this.initialized = true;
       this.isPaused = true;
       this.pauseReason = 'manual';
@@ -81,6 +94,69 @@ class GlobalPollingCoordinator {
 
     const marketStatus = getForexMarketStatus();
     console.log(`📊 Current Market Status: ${marketStatus.status}`);
+
+    console.log('🔍 Verifying MetaAPI connection before starting polling...');
+    try {
+      const verifyResponse = await fetch('/.netlify/functions/verify-metaapi-connection');
+
+      if (!verifyResponse.ok) {
+        console.error(`❌ MetaAPI verification failed: HTTP ${verifyResponse.status}`);
+        const errorText = await verifyResponse.text();
+
+        if (errorText.includes('<!doctype') || errorText.includes('<html')) {
+          console.error('❌ Received HTML instead of JSON - Function endpoint not found');
+          console.error('ℹ️ This usually means Netlify Functions are not deployed or accessible');
+          console.error('ℹ️ Check that functions are being built and deployed in your Netlify configuration');
+        } else {
+          console.error('Error details:', errorText.substring(0, 500));
+        }
+        console.warn('⚠️ Proceeding with polling initialization despite verification failure...');
+      } else {
+        const verifyData = await verifyResponse.json();
+        console.log('📡 MetaAPI Connection Status:', verifyData);
+
+        if (!verifyData.healthy) {
+          console.error('❌ MetaAPI connection is not healthy:', verifyData.diagnostics);
+          if (verifyData.diagnostics?.issues) {
+            console.error('🔴 Issues detected:');
+            verifyData.diagnostics.issues.forEach((issue: string) => {
+              console.error(`  - ${issue}`);
+            });
+          }
+          if (verifyData.diagnostics?.recommendations) {
+            console.log('💡 Recommendations:');
+            verifyData.diagnostics.recommendations.forEach((rec: string) => {
+              console.log(`  - ${rec}`);
+            });
+          }
+          console.warn('⚠️ Proceeding with polling initialization despite connection issues...');
+        } else {
+          console.log('✅ MetaAPI connection verified successfully');
+          if (verifyData.diagnostics?.account) {
+            console.log(`   Account ID: ${verifyData.diagnostics.account.id || 'N/A'}`);
+            console.log(`   Account State: ${verifyData.diagnostics.account.state || 'N/A'}`);
+            console.log(`   Connection Status: ${verifyData.diagnostics.account.connectionStatus || 'N/A'}`);
+            console.log(`   Account Type: ${verifyData.diagnostics.account.type || 'N/A'}`);
+          } else {
+            console.warn('⚠️ Account diagnostics not available in response');
+          }
+        }
+      }
+    } catch (verifyError) {
+      console.error('❌ Failed to verify MetaAPI connection:', verifyError);
+      if (verifyError instanceof Error) {
+        console.error('Error message:', verifyError.message);
+
+        if (verifyError.message.includes('JSON')) {
+          console.error('💡 Tip: The function returned HTML instead of JSON');
+          console.error('💡 Make sure Netlify Functions are deployed and accessible');
+          console.error('💡 Check the Netlify deploy logs for function build errors');
+        }
+      }
+      console.warn('⚠️ Proceeding with polling initialization anyway...');
+    }
+
+    smartRequestQueue.start();
 
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
@@ -92,9 +168,14 @@ class GlobalPollingCoordinator {
         symbol,
         lastPoll: new Date(),
         lastPrice: null,
+        errorCount: 0,
         successCount: 0,
         isPolling: false,
+        lastError: null,
         lastSuccessfulPoll: null,
+        consecutiveErrors: 0,
+        backoffDelay: 0,
+        nextRetryTime: null,
         priority: 'normal',
         currentInterval: 2000,
         isViewed: false
@@ -102,10 +183,10 @@ class GlobalPollingCoordinator {
     }
 
     if (marketStatus.isOpen) {
-      console.log('✅ Market is open, starting read-only database monitoring...');
+      console.log('✅ Market is open, starting polling...');
       this.startAllPolling();
     } else {
-      console.log('⏸️ Market is closed, monitoring will start when market opens');
+      console.log('⏸️ Market is closed, polling will start when market opens');
       this.isPaused = true;
       this.pauseReason = 'market_closed';
     }
@@ -113,9 +194,8 @@ class GlobalPollingCoordinator {
     this.startMarketStatusMonitoring();
 
     this.initialized = true;
-    console.log(`✅ Read-only polling coordinator initialized for ${this.FOREX_PAIRS.length} pairs`);
-    console.log('📡 All price data is fetched by server-side cron job');
-    console.log('🖥️ Browser only reads from database for UI updates');
+    console.log(`✅ Global polling coordinator initialized for ${this.FOREX_PAIRS.length} pairs`);
+    console.log('🔄 Polling is persistent and independent of UI state');
     this.notifyListeners();
   }
 
@@ -211,7 +291,7 @@ class GlobalPollingCoordinator {
         : Infinity;
 
       if (status.successCount === 0) {
-        console.log(`  [${symbol}] Starting up...`);
+        console.log(`  [${symbol}] Starting up... (${status.errorCount} errors)`);
       } else if (timeSinceLastSuccess < 15000) {
         activeCount++;
       } else if (timeSinceLastSuccess < 60000) {
@@ -236,7 +316,7 @@ class GlobalPollingCoordinator {
   }
 
   private startAllPolling(): void {
-    console.log(`🔄 Starting read-only polling for all ${this.FOREX_PAIRS.length} forex pairs...`);
+    console.log(`🔄 Starting polling for all ${this.FOREX_PAIRS.length} forex pairs...`);
     for (const symbol of this.FOREX_PAIRS) {
       this.startPollingForSymbol(symbol);
     }
@@ -323,34 +403,52 @@ class GlobalPollingCoordinator {
         return;
       }
 
+      if (status.nextRetryTime && Date.now() < status.nextRetryTime.getTime()) {
+        return;
+      }
+
       status.isPolling = true;
 
       try {
-        // Read from database instead of fetching from API
-        const { data, error } = await supabase
+        const priceData = await smartRequestQueue.requestPrice(symbol, status.priority);
+
+        const { error: insertError } = await supabase
           .from('realtime_prices')
-          .select('bid, ask, broker_time, created_at')
-          .eq('symbol', symbol)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .insert({
+            symbol: symbol,
+            bid: priceData.bid,
+            ask: priceData.ask,
+            mid: priceData.mid,
+            spread: priceData.spread,
+            broker_time: priceData.timestamp,
+            source: priceData.source
+          });
 
-        if (error) {
-          console.error(`❌ [${symbol}] DB Read Error:`, error);
-        } else if (data) {
-          const bid = parseFloat(data.bid);
-          const ask = parseFloat(data.ask);
-
-          console.log(`✅ [${symbol}] Price read from DB: ${bid}/${ask} (${status.priority}, ${status.currentInterval}ms)`);
-          status.lastPrice = { bid, ask };
+        if (insertError) {
+          console.error(`❌ [${symbol}] DB Insert Error:`, insertError);
+          status.errorCount++;
+          status.consecutiveErrors++;
+          status.lastError = `DB: ${insertError.message}`;
+          this.applyBackoff(status);
+        } else {
+          console.log(`✅ [${symbol}] Price updated: ${priceData.bid}/${priceData.ask} (${status.priority}, ${status.currentInterval}ms)`);
+          status.lastPrice = { bid: priceData.bid, ask: priceData.ask };
           status.lastPoll = new Date();
           status.lastSuccessfulPoll = new Date();
           status.successCount++;
+          status.consecutiveErrors = 0;
+          status.backoffDelay = 0;
+          status.nextRetryTime = null;
+          status.lastError = null;
           this.notifyListeners();
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.error(`❌ [${symbol}] Poll failed:`, errorMsg);
+        status.lastError = errorMsg;
+        status.errorCount++;
+        status.consecutiveErrors++;
+        this.applyBackoff(status);
         this.notifyListeners();
       } finally {
         status.isPolling = false;
@@ -361,7 +459,22 @@ class GlobalPollingCoordinator {
     const interval = setInterval(pollFunction, status.currentInterval);
     this.pollIntervals.set(symbol, interval);
 
-    console.log(`✅ Started read-only polling for ${symbol} (${status.priority} priority, every ${status.currentInterval}ms)`);
+    console.log(`✅ Started polling for ${symbol} (${status.priority} priority, every ${status.currentInterval}ms)`);
+  }
+
+  private applyBackoff(status: PollStatus): void {
+    if (status.consecutiveErrors >= this.MAX_CONSECUTIVE_ERRORS) {
+      status.backoffDelay = Math.min(
+        this.BASE_BACKOFF_DELAY * Math.pow(2, status.consecutiveErrors - this.MAX_CONSECUTIVE_ERRORS),
+        this.MAX_BACKOFF_DELAY
+      );
+      status.nextRetryTime = new Date(Date.now() + status.backoffDelay);
+
+      console.warn(
+        `⏱️ [${status.symbol}] Applying backoff: ${status.consecutiveErrors} consecutive errors, ` +
+        `waiting ${Math.round(status.backoffDelay / 1000)}s before retry`
+      );
+    }
   }
 
   private stopPollingForSymbol(symbol: string): void {
@@ -409,6 +522,11 @@ class GlobalPollingCoordinator {
       this.stopPollingForSymbol(symbol);
     }
 
+    if (this.statusLoggingInterval) {
+      clearInterval(this.statusLoggingInterval);
+      this.statusLoggingInterval = null;
+    }
+
     if (this.marketCheckInterval) {
       clearInterval(this.marketCheckInterval);
       this.marketCheckInterval = null;
@@ -419,12 +537,36 @@ class GlobalPollingCoordinator {
       this.heartbeatInterval = null;
     }
 
+    smartRequestQueue.stop();
     this.pollStatus.clear();
     this.viewedSymbols.clear();
     this.symbolsWithPositions.clear();
     this.initialized = false;
 
     console.log('✅ Global polling coordinator shutdown complete');
+  }
+
+  startStatusLogging(interval: number): void {
+    if (this.statusLoggingInterval) {
+      clearInterval(this.statusLoggingInterval);
+    }
+
+    this.statusLoggingInterval = setInterval(() => {
+      const summary = Array.from(this.pollStatus.entries()).map(([symbol, status]) => {
+        const timeSinceLastPoll = Date.now() - status.lastPoll.getTime();
+        const isStale = timeSinceLastPoll > status.currentInterval * 3;
+
+        return {
+          symbol,
+          lastPrice: status.lastPrice,
+          timeSinceLastPoll: Math.floor(timeSinceLastPoll / 1000),
+          errorCount: status.errorCount,
+          status: isStale ? '🔴 STALE' : '🟢 ACTIVE'
+        };
+      });
+
+      console.log('📊 Global Polling Status:', summary);
+    }, interval);
   }
 
   getStatus(): Map<string, PollStatus> {
@@ -440,10 +582,12 @@ class GlobalPollingCoordinator {
     let lastSuccessfulPoll: Date | null = null;
     let activePairs = 0;
     let totalSuccesses = 0;
+    let totalErrors = 0;
     const pairStatuses: CoordinatorStatus['pairStatuses'] = [];
 
     this.pollStatus.forEach(status => {
       totalSuccesses += status.successCount;
+      totalErrors += status.errorCount;
 
       let pairStatus: 'active' | 'stale' | 'error' | 'starting' = 'starting';
 
@@ -460,6 +604,8 @@ class GlobalPollingCoordinator {
         } else {
           pairStatus = 'error';
         }
+      } else if (status.errorCount > 3) {
+        pairStatus = 'error';
       }
 
       if (status.lastSuccessfulPoll) {
@@ -472,6 +618,8 @@ class GlobalPollingCoordinator {
         symbol: status.symbol,
         status: pairStatus,
         lastPrice: status.lastPrice,
+        lastError: status.lastError,
+        errorCount: status.errorCount,
         successCount: status.successCount,
         lastSuccessfulPoll: status.lastSuccessfulPoll
       });
@@ -486,6 +634,7 @@ class GlobalPollingCoordinator {
       activePairs,
       totalPairs: this.FOREX_PAIRS.length,
       totalSuccesses,
+      totalErrors,
       pairStatuses
     };
   }
@@ -527,6 +676,14 @@ class GlobalPollingCoordinator {
   restartPolling(): void {
     console.log('🔄 Restarting all polling...');
     this.stopAllPolling();
+
+    this.pollStatus.forEach(status => {
+      status.errorCount = 0;
+      status.consecutiveErrors = 0;
+      status.backoffDelay = 0;
+      status.nextRetryTime = null;
+      status.lastError = null;
+    });
 
     setTimeout(() => {
       const marketStatus = getForexMarketStatus();
