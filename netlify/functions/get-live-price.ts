@@ -113,13 +113,13 @@ async function getCachedPrice(symbol: string): Promise<{ bid: number; ask: numbe
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  const thirtySecondsAgo = new Date(Date.now() - 30000).toISOString();
+  const tenSecondsAgo = new Date(Date.now() - 10000).toISOString();
 
   const { data, error } = await supabase
     .from('realtime_prices')
     .select('bid, ask, broker_time, created_at')
     .eq('symbol', symbol.toUpperCase())
-    .gte('created_at', thirtySecondsAgo)
+    .gte('created_at', tenSecondsAgo)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -130,6 +130,11 @@ async function getCachedPrice(symbol: string): Promise<{ bid: number; ask: numbe
 
   const ageSeconds = Math.floor((Date.now() - new Date(data.created_at).getTime()) / 1000);
 
+  if (ageSeconds > 10) {
+    console.warn(`[get-live-price] Cached price for ${symbol} is too old (${ageSeconds}s) - rejecting`);
+    return null;
+  }
+
   return {
     bid: parseFloat(data.bid),
     ask: parseFloat(data.ask),
@@ -139,29 +144,6 @@ async function getCachedPrice(symbol: string): Promise<{ bid: number; ask: numbe
   };
 }
 
-const SYMBOL_BASE_PRICES: Record<string, { base: number; spread: number }> = {
-  EURUSD: { base: 1.0850, spread: 0.00002 },
-  GBPUSD: { base: 1.2650, spread: 0.00003 },
-  USDJPY: { base: 149.50, spread: 0.003 },
-  XAUUSD: { base: 2650.00, spread: 0.50 },
-  US30: { base: 43500.00, spread: 3.0 }
-};
-
-function generateMockPrice(symbol: string): { bid: number; ask: number; timestamp: string; source: string } {
-  const config = SYMBOL_BASE_PRICES[symbol.toUpperCase()] || SYMBOL_BASE_PRICES.EURUSD;
-
-  const volatility = config.base * 0.0002;
-  const randomChange = (Math.random() - 0.5) * volatility;
-  const mid = config.base + randomChange;
-  const halfSpread = config.spread / 2;
-
-  return {
-    bid: parseFloat((mid - halfSpread).toFixed(symbol === 'USDJPY' ? 3 : 5)),
-    ask: parseFloat((mid + halfSpread).toFixed(symbol === 'USDJPY' ? 3 : 5)),
-    timestamp: new Date().toISOString(),
-    source: 'mock-fallback'
-  };
-}
 
 async function savePriceToDatabase(symbol: string, bid: number, ask: number, source: string): Promise<void> {
   try {
@@ -235,36 +217,41 @@ export const handler: Handler = async (event) => {
 
       await savePriceToDatabase(symbol, priceData.bid, priceData.ask, priceData.source);
     } catch (metaError) {
-      console.warn(`[get-live-price][${requestId}] ✗ MetaAPI failed:`, metaError instanceof Error ? metaError.message : String(metaError));
-      console.log(`[get-live-price][${requestId}] Attempting to use cached price...`);
+      console.error(`[get-live-price][${requestId}] ❌ MetaAPI failed:`, metaError instanceof Error ? metaError.message : String(metaError));
+      console.log(`[get-live-price][${requestId}] Attempting to use recent cached price (max 10s old)...`);
 
       const cached = await getCachedPrice(symbol);
       if (cached) {
         priceData = cached;
         fetchMethod = 'cache';
-        console.log(`[get-live-price][${requestId}] ✓ Using cached price (${cached.ageSeconds}s old): ${priceData.bid}/${priceData.ask}`);
+        console.warn(`[get-live-price][${requestId}] ⚠️  Using cached price (${cached.ageSeconds}s old): ${priceData.bid}/${priceData.ask}`);
       } else {
-        console.warn(`[get-live-price][${requestId}] ✗ No cached data available, generating mock price...`);
-        priceData = generateMockPrice(symbol);
-        fetchMethod = 'mock';
-        console.log(`[get-live-price][${requestId}] ✓ Generated mock price: ${priceData.bid}/${priceData.ask}`);
-
-        await savePriceToDatabase(symbol, priceData.bid, priceData.ask, priceData.source);
+        console.error(`[get-live-price][${requestId}] ❌ CRITICAL: No live data or recent cache available for ${symbol}`);
+        throw new Error(`No live price data available for ${symbol}. MetaAPI error: ${metaError instanceof Error ? metaError.message : String(metaError)}`);
       }
     }
 
-    console.log(`[get-live-price][${requestId}] ========== REQUEST SUCCESS (${fetchMethod}) ==========`);
+    const isLive = fetchMethod === 'metaapi-live';
+    const statusCode = isLive ? 200 : 206;
+
+    if (isLive) {
+      console.log(`[get-live-price][${requestId}] ========== REQUEST SUCCESS (LIVE DATA) ==========`);
+    } else {
+      console.warn(`[get-live-price][${requestId}] ========== REQUEST PARTIAL (CACHED DATA) ==========`);
+    }
 
     return {
-      statusCode: 200,
+      statusCode,
       headers: {
         ...CORS_HEADERS,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        ok,
+        ok: true,
         symbol: symbol.toUpperCase(),
-        ...priceData
+        ...priceData,
+        dataQuality: isLive ? 'LIVE' : 'CACHED',
+        warning: isLive ? undefined : `Using cached data (${priceData.ageSeconds}s old) - Live feed unavailable`
       })
     };
 
@@ -281,7 +268,7 @@ export const handler: Handler = async (event) => {
     }
 
     return {
-      statusCode: 200,
+      statusCode: 503,
       headers: {
         ...CORS_HEADERS,
         'Content-Type': 'application/json'
@@ -289,8 +276,10 @@ export const handler: Handler = async (event) => {
       body: JSON.stringify({
         ok: false,
         error: errorMessage,
+        dataQuality: 'UNAVAILABLE',
         source: 'error',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        message: 'Live price data unavailable - Cannot proceed with trading'
       })
     };
   }

@@ -144,58 +144,33 @@ async function savePriceToDatabase(supabase: any, priceData: PriceData, isMock: 
   }
 }
 
-async function pollAllSymbols(supabase: any): Promise<number> {
+async function pollAllSymbols(supabase: any): Promise<{ successCount: number; errors: string[] }> {
   let successCount = 0;
+  const errors: string[] = [];
 
   const promises = FOREX_PAIRS.map(async (symbol) => {
-    let priceData = await fetchPriceFromMetaApi(symbol);
-    let isMock = false;
+    const priceData = await fetchPriceFromMetaApi(symbol);
 
     if (!priceData) {
-      console.log(`⚠️ ${symbol}: MetaAPI failed, using mock fallback`);
-      priceData = generateMockPrice(symbol);
-      isMock = true;
+      const errorMsg = `${symbol}: MetaAPI connection failed - No live data available`;
+      console.error(`❌ ${errorMsg}`);
+      errors.push(errorMsg);
+      return;
     }
 
-    if (priceData) {
-      const saved = await savePriceToDatabase(supabase, priceData, isMock);
-      if (saved) {
-        successCount++;
-      }
+    const saved = await savePriceToDatabase(supabase, priceData, false);
+    if (saved) {
+      successCount++;
+    } else {
+      errors.push(`${symbol}: Failed to save to database`);
     }
   });
 
   await Promise.allSettled(promises);
 
-  return successCount;
+  return { successCount, errors };
 }
 
-function generateMockPrice(symbol: string): PriceData {
-  const basePrices: Record<string, number> = {
-    'EURUSD': 1.0850,
-    'GBPUSD': 1.2650,
-    'USDJPY': 149.50,
-    'XAUUSD': 2650.00,
-    'US30': 43500.00
-  };
-
-  const basePrice = basePrices[symbol] || 1.0000;
-  const variation = (Math.random() - 0.5) * 0.001;
-  const spread = symbol === 'XAUUSD' ? 0.50 : symbol === 'US30' ? 3.0 : 0.00003;
-
-  const mid = basePrice + basePrice * variation;
-  const bid = mid - spread / 2;
-  const ask = mid + spread / 2;
-
-  return {
-    symbol,
-    bid,
-    ask,
-    mid,
-    spread,
-    timestamp: new Date().toISOString()
-  };
-}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -261,34 +236,52 @@ Deno.serve(async (req: Request) => {
       console.log(`🔄 Market OPEN - Starting price poll for ${FOREX_PAIRS.length} pairs...`);
       const startTime = Date.now();
 
-      const successCount = await pollAllSymbols(supabase);
+      const { successCount, errors } = await pollAllSymbols(supabase);
 
       const duration = Date.now() - startTime;
-      console.log(`✅ Poll complete: ${successCount}/${FOREX_PAIRS.length} pairs updated in ${duration}ms`);
+      const failedCount = FOREX_PAIRS.length - successCount;
+
+      if (successCount === 0) {
+        console.error(`❌ CRITICAL: All price feeds failed!`);
+        errors.forEach(err => console.error(`   - ${err}`));
+      } else if (failedCount > 0) {
+        console.warn(`⚠️  Partial failure: ${failedCount} pairs failed`);
+        errors.forEach(err => console.warn(`   - ${err}`));
+      } else {
+        console.log(`✅ Poll complete: ${successCount}/${FOREX_PAIRS.length} pairs updated in ${duration}ms`);
+      }
 
       await supabase
         .from('price_polling_health')
         .insert({
           poll_timestamp: new Date().toISOString(),
           successful_pairs: successCount,
-          failed_pairs: FOREX_PAIRS.length - successCount,
+          failed_pairs: failedCount,
           total_duration_ms: duration,
-          error_message: null
+          error_message: errors.length > 0 ? errors.join('; ') : null
         });
+
+      const responseStatus = successCount === 0 ? 503 : 200;
 
       return new Response(
         JSON.stringify({
-          success: true,
-          message: 'Price polling completed',
+          success: successCount > 0,
+          message: successCount === 0 ? 'All price feeds failed - No live data available' :
+                   failedCount > 0 ? `Partial success: ${successCount}/${FOREX_PAIRS.length} pairs updated` :
+                   'Price polling completed successfully',
           marketStatus: marketStatus.status,
           marketOpen: true,
           totalPairs: FOREX_PAIRS.length,
           successfulUpdates: successCount,
-          failedUpdates: FOREX_PAIRS.length - successCount,
+          failedUpdates: failedCount,
           durationMs: duration,
+          errors: errors.length > 0 ? errors : undefined,
+          dataQuality: successCount === FOREX_PAIRS.length ? 'LIVE' :
+                       successCount > 0 ? 'DEGRADED' : 'UNAVAILABLE',
           timestamp: new Date().toISOString()
         }),
         {
+          status: responseStatus,
           headers: {
             ...corsHeaders,
             "Content-Type": "application/json",
