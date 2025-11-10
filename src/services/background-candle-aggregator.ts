@@ -1,7 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
 import { getTimeframeMinutes, CandleData } from '@/services/candle-data-service';
-import { emergencyPricePoller } from '@/services/emergency-price-poller';
 
 interface CandleState {
   time: number;
@@ -230,19 +229,6 @@ class BackgroundCandleAggregator {
       return;
     }
 
-    // Check if database has ANY recent data
-    const hasRecentData = await this.checkDatabaseHasRecentData();
-
-    if (!hasRecentData) {
-      console.error('[BackgroundAggregator] 🚨 NO DATA IN DATABASE - Starting emergency price poller!');
-      await emergencyPricePoller.start();
-
-      // Subscribe to emergency poller updates
-      emergencyPricePoller.onPriceUpdate((price) => {
-        this.processNewPrice(price.symbol, price.bid, price.ask, price.timestamp);
-      });
-    }
-
     // Check if server-side aggregation is active
     const serverSideActive = await this.checkServerSideAggregation();
 
@@ -272,30 +258,6 @@ class BackgroundCandleAggregator {
     this.startHealthMonitoring();
 
     console.log(`[BackgroundAggregator] Monitoring ${FOREX_PAIRS.length} pairs across ${ALL_TIMEFRAMES.length} timeframes`);
-  }
-
-  private async checkDatabaseHasRecentData(): Promise<boolean> {
-    try {
-      const { data, error } = await supabase
-        .from('realtime_prices')
-        .select('created_at')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (error || !data) {
-        console.error('[BackgroundAggregator] ❌ No price data in database');
-        return false;
-      }
-
-      const ageSeconds = (Date.now() - new Date(data.created_at).getTime()) / 1000;
-      console.log(`[BackgroundAggregator] Last price in DB: ${Math.round(ageSeconds)}s ago`);
-
-      return ageSeconds < 30; // Data must be less than 30 seconds old
-    } catch (error) {
-      console.error('[BackgroundAggregator] Error checking database:', error);
-      return false;
-    }
   }
 
   private async checkServerSideAggregation(): Promise<boolean> {

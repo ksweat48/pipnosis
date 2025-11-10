@@ -198,6 +198,8 @@ export default function App() {
           try {
             await globalPollingCoordinator.initialize();
             console.log('✅ Global polling coordinator initialized successfully');
+
+            globalPollingCoordinator.startStatusLogging(60000);
           } catch (error) {
             console.error('❌ Failed to initialize global polling coordinator:', error);
           }
