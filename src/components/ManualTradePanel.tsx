@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, DollarSign, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { supabase } from '@/lib/supabase';
 import { pollingConfigService } from '@/services/polling-config-service';
 import { tradeAudioNotifications } from '@/services/trade-audio-notifications';
 
