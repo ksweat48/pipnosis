@@ -440,11 +440,11 @@ class SyntheticDataGeneratorService {
 
   private getBasePrice(symbol: string): number {
     const basePrices: { [key: string]: number } = {
-      'EURUSD': 1.0850,
-      'GBPUSD': 1.2650,
-      'USDJPY': 149.50,
-      'XAUUSD': 2650.00,
-      'US30': 42000.00
+      'EURUSD': 1.0650,
+      'GBPUSD': 1.2750,
+      'USDJPY': 150.50,
+      'XAUUSD': 2680.00,
+      'US30': 43500.00
     };
     return basePrices[symbol] || 1.0000;
   }

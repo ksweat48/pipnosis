@@ -22,9 +22,9 @@ class MultiSymbolScanner {
       const signal: TradeSignal = {
         symbol,
         direction: Math.random() > 0.5 ? 'BUY' : 'SELL',
-        entryPrice: 1.0850,
-        stopLoss: 1.0800,
-        takeProfit: 1.0950,
+        entryPrice: 1.0650,
+        stopLoss: 1.0600,
+        takeProfit: 1.0750,
         riskReward: 2.0,
         confidence: 75,
         reasoning: 'Market analysis suggests favorable conditions'
