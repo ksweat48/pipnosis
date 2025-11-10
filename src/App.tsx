@@ -24,7 +24,6 @@ import { connectionValidator } from './lib/connection-validator';
 import { dbHealthMonitor } from './services/db-health-monitor';
 import { globalPollingCoordinator } from './services/global-polling-coordinator';
 import { backgroundCandleAggregator } from './services/background-candle-aggregator';
-import { persistentPricePollingService } from './services/persistent-price-polling-service';
 import { systemLoadMonitor } from './services/system-load-monitor';
 import ConnectionStatusIndicator from './components/ConnectionStatusIndicator';
 
@@ -228,24 +227,6 @@ export default function App() {
           }
         }, 7000);
 
-        setTimeout(async () => {
-          console.log('🚀 Starting persistent price polling service...');
-          try {
-            await persistentPricePollingService.start();
-            console.log('✅ Persistent price polling service started successfully');
-
-            // Monitor service health
-            setInterval(async () => {
-              const health = await persistentPricePollingService.checkServiceHealth();
-              if (!health.healthy) {
-                console.warn('⚠️ Persistent price polling service unhealthy:', health.details);
-              }
-            }, 60000); // Check every minute
-          } catch (error) {
-            console.error('❌ Failed to start persistent price polling service:', error);
-          }
-        }, 8000);
-
         setDbValidated(true);
       } catch (error) {
         console.error('Startup diagnostics error (non-blocking):', error);
@@ -267,9 +248,6 @@ export default function App() {
       globalPollingCoordinator.shutdown().catch(err => {
         console.error('Error shutting down polling coordinator:', err);
       });
-
-      console.log('🛑 Shutting down persistent price polling service...');
-      persistentPricePollingService.stop();
     };
   }, []);
 

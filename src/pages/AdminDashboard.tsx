@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { DataManagementPanel } from '@/components/DataManagementPanel';
 import { CandleAggregatorStatus } from '@/components/CandleAggregatorStatus';
-import { PersistentPollingStatus } from '@/components/PersistentPollingStatus';
 import { PollingHealthDashboard } from '@/components/PollingHealthDashboard';
 import { ServerSideCandleMonitor } from '@/components/ServerSideCandleMonitor';
 import APIUsageMonitor from '@/components/APIUsageMonitor';
@@ -83,9 +82,8 @@ export function AdminDashboard() {
 
         {activeTab === 'data' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-6">
               <CandleAggregatorStatus />
-              <PersistentPollingStatus />
             </div>
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
               <div className="flex items-center gap-3 mb-6">
