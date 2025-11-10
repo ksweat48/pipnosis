@@ -25,6 +25,7 @@ import { dbHealthMonitor } from './services/db-health-monitor';
 import { globalPollingCoordinator } from './services/global-polling-coordinator';
 import { backgroundCandleAggregator } from './services/background-candle-aggregator';
 import { systemLoadMonitor } from './services/system-load-monitor';
+import { browserPricePoller } from './services/browser-price-poller';
 import ConnectionStatusIndicator from './components/ConnectionStatusIndicator';
 
 
@@ -195,6 +196,19 @@ export default function App() {
           console.log('Starting database health monitoring in background...');
           dbHealthMonitor.startMonitoring();
         }, 5000);
+
+        // STEP 0: Start browser price poller to populate database
+        setTimeout(async () => {
+          console.log('🌐 STEP 0: Starting browser price poller...');
+          console.log('   → This ensures price data flows to database');
+          console.log('   → Calls Netlify function which writes to database');
+          try {
+            await browserPricePoller.start();
+            console.log('✅ Browser price poller started successfully');
+          } catch (error) {
+            console.error('❌ Failed to start browser price poller:', error);
+          }
+        }, 3000);
 
         // STEP 1: Start global polling coordinator (reads from DB)
         setTimeout(async () => {

@@ -168,7 +168,7 @@ class EmergencyPricePoller {
 
       const data = await response.json();
 
-      if (data.ok && data.bid && data.ask) {
+      if (data.bid && data.ask) {
         return {
           symbol: data.symbol,
           bid: parseFloat(data.bid),
