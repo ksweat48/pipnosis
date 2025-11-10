@@ -93,6 +93,37 @@ class EmergencyPricePoller {
     }
   }
 
+  private async fetchPriceForSymbol(symbol: string): Promise<LivePrice | null> {
+    try {
+      const response = await fetch(`/.netlify/functions/get-live-price?symbol=${symbol}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+
+      if (data.ok && data.bid && data.ask) {
+        return {
+          symbol: data.symbol,
+          bid: parseFloat(data.bid),
+          ask: parseFloat(data.ask),
+          timestamp: data.timestamp || new Date().toISOString()
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error(`[EmergencyPoller] Failed to fetch ${symbol}:`, error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  }
+
   private async poll(): Promise<void> {
     this.lastCheck = new Date();
 
@@ -106,46 +137,37 @@ class EmergencyPricePoller {
         return;
       }
 
-      // Emergency/Direct mode - fetch from Netlify function
-      const response = await fetch('/.netlify/functions/get-live-price', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          symbols: ['EURUSD', 'XAUUSD', 'US30', 'GBPUSD', 'USDJPY']
-        }),
-      });
+      // Emergency/Direct mode - fetch from Netlify function (one symbol at a time)
+      const FOREX_PAIRS = ['EURUSD', 'XAUUSD', 'US30', 'GBPUSD', 'USDJPY'];
+      console.log(`[EmergencyPoller] Fetching prices for ${FOREX_PAIRS.length} symbols...`);
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
+      let successCount = 0;
+      const pricePromises = FOREX_PAIRS.map(symbol => this.fetchPriceForSymbol(symbol));
+      const prices = await Promise.allSettled(pricePromises);
 
-      const data = await response.json();
+      for (const result of prices) {
+        if (result.status === 'fulfilled' && result.value) {
+          const livePrice = result.value;
+          this.lastPrice = livePrice;
 
-      if (data.prices && Array.isArray(data.prices)) {
-        for (const priceData of data.prices) {
-          if (priceData.bid && priceData.ask) {
-            const livePrice: LivePrice = {
-              symbol: priceData.symbol,
-              bid: parseFloat(priceData.bid),
-              ask: parseFloat(priceData.ask),
-              timestamp: priceData.time || new Date().toISOString()
-            };
+          // Save to database for persistence
+          await this.savePriceToDatabase(livePrice);
 
-            this.lastPrice = livePrice;
-            this.errorCount = 0;
+          // Notify listeners (BackgroundAggregator)
+          this.notifyListeners(livePrice);
 
-            // Save to database for persistence
-            await this.savePriceToDatabase(livePrice);
-
-            // Notify listeners
-            this.notifyListeners(livePrice);
-
-            console.log(`[EmergencyPoller] ✅ ${livePrice.symbol}: ${livePrice.bid}/${livePrice.ask}`);
-          }
+          successCount++;
+          console.log(`[EmergencyPoller] ✅ ${livePrice.symbol}: ${livePrice.bid}/${livePrice.ask}`);
         }
       }
+
+      if (successCount > 0) {
+        this.errorCount = 0;
+        console.log(`[EmergencyPoller] 📊 Successfully polled ${successCount}/${FOREX_PAIRS.length} symbols`);
+      } else {
+        throw new Error('All symbol fetches failed');
+      }
+
     } catch (error) {
       this.errorCount++;
       console.error(`[EmergencyPoller] ❌ Poll failed (${this.errorCount} errors):`, error);
@@ -175,6 +197,8 @@ class EmergencyPricePoller {
 
       if (error) {
         console.error(`[EmergencyPoller] Failed to save ${price.symbol} to DB:`, error);
+      } else {
+        console.log(`[EmergencyPoller] 💾 Saved ${price.symbol} to database`);
       }
     } catch (error) {
       console.error('[EmergencyPoller] Exception saving price:', error);
