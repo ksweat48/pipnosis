@@ -34,6 +34,7 @@ class BackgroundCandleAggregator {
   private saveQueue: Array<{ symbol: string; timeframe: Timeframe; candle: CandleData }> = [];
   private saveInProgress = false;
   private listeners: Set<(symbol: string, timeframe: Timeframe, candle: CandleData) => void> = new Set();
+  private tickListeners: Set<(tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => void> = new Set();
   private reconnectAttempts = 0;
   private readonly MAX_RECONNECT_ATTEMPTS = 10;
   private readonly BASE_RECONNECT_DELAY = 1000;
@@ -168,6 +169,19 @@ class BackgroundCandleAggregator {
     });
   }
 
+  private notifyTickListeners(symbol: string, bid: number, ask: number, timestamp: string): void {
+    const midPrice = (bid + ask) / 2;
+    const tick = { symbol, bid, ask, timestamp, midPrice };
+
+    this.tickListeners.forEach(listener => {
+      try {
+        listener(tick);
+      } catch (error) {
+        console.error('[BackgroundAggregator] Error in tick listener:', error);
+      }
+    });
+  }
+
   private processNewPrice(symbol: string, bid: number, ask: number, timestamp: string): void {
     const midPrice = (bid + ask) / 2;
     const timestampMs = new Date(timestamp).getTime();
@@ -181,6 +195,9 @@ class BackgroundCandleAggregator {
       console.warn(`[BackgroundAggregator] Invalid timestamp for ${symbol}: ${timestamp}`);
       return;
     }
+
+    // Notify tick listeners immediately for live display
+    this.notifyTickListeners(symbol, bid, ask, timestamp);
 
     for (const timeframe of ALL_TIMEFRAMES) {
       const key = this.getCacheKey(symbol, timeframe);
@@ -653,6 +670,33 @@ class BackgroundCandleAggregator {
     };
   }
 
+  onTickUpdate(callback: (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => void): () => void {
+    this.tickListeners.add(callback);
+    console.log(`[BackgroundAggregator] Tick listener registered (${this.tickListeners.size} total)`);
+    return () => {
+      this.tickListeners.delete(callback);
+      console.log(`[BackgroundAggregator] Tick listener removed (${this.tickListeners.size} remaining)`);
+    };
+  }
+
+  getFormingCandle(symbol: string, timeframe: Timeframe): CandleData | null {
+    return this.getCurrentCandle(symbol, timeframe);
+  }
+
+  getCandleProgress(symbol: string, timeframe: Timeframe): number {
+    const key = this.getCacheKey(symbol, timeframe);
+    const state = this.candleStates.get(key);
+
+    if (!state) return 0;
+
+    const now = Date.now();
+    const intervalMs = getTimeframeMinutes(timeframe) * 60 * 1000;
+    const elapsed = now - state.startTime;
+    const progress = Math.min((elapsed / intervalMs) * 100, 100);
+
+    return progress;
+  }
+
   getStatus() {
     const timeSinceLastMessage = this.lastMessageTime
       ? Date.now() - this.lastMessageTime.getTime()
@@ -666,6 +710,7 @@ class BackgroundCandleAggregator {
       activeCandleStates: this.candleStates.size,
       saveQueueLength: this.saveQueue.length,
       listenerCount: this.listeners.size,
+      tickListenerCount: this.tickListeners.size,
       symbols: FOREX_PAIRS.length,
       timeframes: ALL_TIMEFRAMES.length,
       totalCombinations: FOREX_PAIRS.length * ALL_TIMEFRAMES.length,
