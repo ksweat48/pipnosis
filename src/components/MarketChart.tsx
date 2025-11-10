@@ -373,10 +373,27 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       const timestampMs = new Date(tick.timestamp).getTime();
       const timeframeMinutes = getTimeframeMinutes(timeframe);
       const candleTime = Math.floor(timestampMs / (timeframeMinutes * 60 * 1000)) * (timeframeMinutes * 60 * 1000);
+      const candleTimeSeconds = Math.floor(candleTime / 1000);
+
+      // CRITICAL FIX: Reject ticks that would create candles older than our historical data
+      const lastHistoricalTime = historicalCandlesRef.current.length > 0
+        ? historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time
+        : 0;
+
+      if (candleTimeSeconds <= lastHistoricalTime) {
+        // Silently ignore old ticks from initialization
+        return;
+      }
+
+      // Also reject if this tick would create a candle older than our current forming candle
+      if (currentCandleRef.current && candleTimeSeconds < currentCandleRef.current.time) {
+        // This is an old tick, ignore it
+        return;
+      }
 
       if (!currentCandleRef.current || currentCandleRef.current.startTime !== candleTime) {
         currentCandleRef.current = {
-          time: Math.floor(candleTime / 1000),
+          time: candleTimeSeconds,
           open: price,
           high: price,
           low: price,
