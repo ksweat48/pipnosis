@@ -30,6 +30,7 @@ import {
 } from '@/utils/technicalIndicators';
 import { RSIPanel, ATRPanel, VolumePanel, PatternDetectionPanel } from '@/components/IndicatorPanels';
 import { ManualTradePanel } from '@/components/ManualTradePanel';
+import { ChartDiagnosticsPanel } from '@/components/ChartDiagnosticsPanel';
 import { getForexMarketStatus, type MarketStatus } from '@/utils/marketHours';
 
 interface MarketChartProps {
@@ -667,7 +668,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 relative">
+      <ChartDiagnosticsPanel />
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2 sm:gap-3">
