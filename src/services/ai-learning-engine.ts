@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { evCalculator } from './ev-calculator';
 import { cssCalculator } from './css-calculator';
 import { adaptiveRiskManager } from './adaptive-risk-manager';
+import { strategyDiscoveryEngine } from './strategy-discovery-engine';
 
 interface TradeForAnalysis {
   id?: string;
@@ -75,6 +76,10 @@ class AILearningEngine {
 
       // 9. Calculate and store overall session learnings
       await this.generateSessionSummary(userId, sessionId, trades, sessionType);
+
+      // 10. DISCOVER NEW STRATEGIES from winning patterns
+      console.log('[AI Learning Engine] 🔍 Discovering new strategies...');
+      await strategyDiscoveryEngine.discoverStrategiesFromTrades(userId, trades);
 
       console.log('[AI Learning Engine] ✅ Learning analysis complete!');
     } catch (error) {
