@@ -9,8 +9,9 @@ import SyntheticEquityCurve from '../components/SyntheticEquityCurve';
 import SyntheticCandlestickChart from '../components/SyntheticCandlestickChart';
 import SyntheticBacktestResults from '../components/SyntheticBacktestResults';
 import AILearningProgressDashboard from '../components/AILearningProgressDashboard';
+import AutoBacktestDashboard from '../components/AutoBacktestDashboard';
 import { NavigationMenu } from '../components/NavigationMenu';
-import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock, Sparkles, RefreshCw, Brain } from 'lucide-react';
+import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock, Sparkles, RefreshCw, Brain, Zap } from 'lucide-react';
 
 export default function AITrainingPage() {
   const { user } = useAuth();
@@ -40,7 +41,7 @@ export default function AITrainingPage() {
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
 
   // Tab system
-  const [activeTab, setActiveTab] = useState<'backtest' | 'progress'>('progress');
+  const [activeTab, setActiveTab] = useState<'progress' | 'auto' | 'backtest'>('progress');
 
   const availableSymbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];
 
@@ -424,6 +425,18 @@ export default function AITrainingPage() {
             AI Learning Progress
           </button>
           <button
+            onClick={() => setActiveTab('auto')}
+            className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'auto'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50'
+            }`}
+          >
+            <Zap className="w-5 h-5" />
+            Auto-Backtest
+            <span className="px-2 py-0.5 bg-purple-600 text-white text-xs font-bold rounded-full">NEW</span>
+          </button>
+          <button
             onClick={() => setActiveTab('backtest')}
             className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
               activeTab === 'backtest'
@@ -439,6 +452,11 @@ export default function AITrainingPage() {
         {/* AI Learning Progress Tab */}
         {activeTab === 'progress' && (
           <AILearningProgressDashboard />
+        )}
+
+        {/* Auto-Backtest Tab */}
+        {activeTab === 'auto' && (
+          <AutoBacktestDashboard />
         )}
 
         {/* Backtest Configuration Tab */}
@@ -1000,42 +1018,80 @@ export default function AITrainingPage() {
             <p className="text-gray-400 text-center py-8">No past sessions yet. Run your first backtest!</p>
           ) : (
             <div className="space-y-2">
-              {pastSessions.map(session => (
-                <div
-                  key={session.id}
-                  onClick={() => handleLoadSession(session)}
-                  className="p-4 border border-gray-600 rounded-lg hover:bg-gray-700/50 cursor-pointer transition-colors"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-white">{session.session_name}</h3>
-                        {session.sessionType === 'synthetic' && (
-                          <span className="px-2 py-0.5 bg-purple-600 text-white text-xs font-bold rounded-full">
-                            SYNTHETIC
+              {pastSessions.map(session => {
+                const startDate = new Date(session.start_date);
+                const endDate = new Date(session.end_date);
+                const durationDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+                const isAutoBacktest = session.session_name?.startsWith('Auto-BT-');
+
+                return (
+                  <div
+                    key={session.id}
+                    onClick={() => handleLoadSession(session)}
+                    className="p-4 border border-gray-600 rounded-lg hover:bg-gray-700/50 cursor-pointer transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-semibold text-white">{session.session_name}</h3>
+                          {isAutoBacktest && (
+                            <span className="px-2 py-0.5 bg-green-600 text-white text-xs font-bold rounded-full flex items-center gap-1">
+                              <Zap className="w-3 h-3" />
+                              AUTO
+                            </span>
+                          )}
+                          {session.sessionType === 'synthetic' && (
+                            <span className="px-2 py-0.5 bg-purple-600 text-white text-xs font-bold rounded-full">
+                              SYNTHETIC
+                            </span>
+                          )}
+                          {session.sessionType === 'real' && (
+                            <span className="px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full">
+                              REAL DATA
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-sm text-gray-400">
+                          <span>
+                            {startDate.toLocaleDateString()} - {endDate.toLocaleDateString()}
                           </span>
-                        )}
-                        {session.sessionType === 'real' && (
-                          <span className="px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full">
-                            REAL DATA
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {durationDays} {durationDays === 1 ? 'day' : 'days'}
                           </span>
+                          {session.risk_mode && (
+                            <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                              session.risk_mode === 'low' ? 'bg-green-900/30 text-green-400' :
+                              session.risk_mode === 'medium' ? 'bg-yellow-900/30 text-yellow-400' :
+                              'bg-red-900/30 text-red-400'
+                            }`}>
+                              {session.risk_mode.toUpperCase()} RISK
+                            </span>
+                          )}
+                          {session.symbols && (
+                            <span className="text-xs">
+                              {Array.isArray(session.symbols) ? session.symbols.length : 0} pairs
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className={`text-lg font-bold ${session.win_rate >= 55 ? 'text-green-400' : 'text-red-400'}`}>
+                          {session.win_rate.toFixed(1)}%
+                        </div>
+                        <div className="text-sm text-gray-400">
+                          {session.total_trades} trades
+                        </div>
+                        {session.total_pnl && (
+                          <div className={`text-xs mt-1 ${session.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            ${session.total_pnl.toFixed(2)}
+                          </div>
                         )}
-                      </div>
-                      <p className="text-sm text-gray-400">
-                        {new Date(session.start_date).toLocaleDateString()} - {new Date(session.end_date).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <div className={`text-lg font-bold ${session.win_rate >= 55 ? 'text-green-400' : 'text-red-400'}`}>
-                        {session.win_rate.toFixed(1)}%
-                      </div>
-                      <div className="text-sm text-gray-400">
-                        {session.total_trades} trades
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
