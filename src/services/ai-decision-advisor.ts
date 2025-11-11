@@ -106,19 +106,23 @@ class AIDecisionAdvisor {
   /**
    * Get relevant learning insights for this signal
    * Prioritizes live trading insights (2x weight) over backtest insights
+   * NOW WITH INSIGHT DECAY: Old patterns have reduced weight
    */
   private async getRelevantInsights(
     userId: string,
     signal: TradeSignal
   ): Promise<any[]> {
     try {
+      // Use the decay-adjusted view for time-sensitive insights
       const { data, error } = await supabase
-        .from('ai_learning_insights')
+        .from('ai_insights_with_decay')
         .select('*')
         .eq('user_id', userId)
         .eq('symbol', signal.symbol)
         .gte('confidence_score', 60)
-        .order('learning_weight', { ascending: false }) // Prioritize live trades (2x weight)
+        .gte('current_decayed_weight', 0.25) // Filter out extremely stale insights (< 25% weight)
+        .order('current_decayed_weight', { ascending: false }) // Prioritize fresh, high-weight insights
+        .order('learning_weight', { ascending: false }) // Then by live vs backtest
         .order('confidence_score', { ascending: false })
         .limit(10);
 
@@ -127,7 +131,17 @@ class AIDecisionAdvisor {
         return [];
       }
 
-      console.log(`[AI Decision Advisor] Found ${data?.length || 0} relevant insights`);
+      // Log freshness distribution for debugging
+      if (data && data.length > 0) {
+        const freshCount = data.filter(i => i.insight_freshness === 'fresh').length;
+        const moderateCount = data.filter(i => i.insight_freshness === 'moderate').length;
+        const agingCount = data.filter(i => i.insight_freshness === 'aging').length;
+        const staleCount = data.filter(i => i.insight_freshness === 'stale').length;
+        console.log(`[AI Decision Advisor] Found ${data.length} insights: ${freshCount} fresh, ${moderateCount} moderate, ${agingCount} aging, ${staleCount} stale`);
+      } else {
+        console.log(`[AI Decision Advisor] Found 0 relevant insights`);
+      }
+
       return data || [];
     } catch (error) {
       console.error('[AI Decision Advisor] Error in getRelevantInsights:', error);
@@ -242,32 +256,42 @@ class AIDecisionAdvisor {
     }
 
     // Factor 1: Winning pattern insights (boost confidence)
-    // Apply weighting: live trades have 2x impact, backtests have 1x impact
+    // Apply TRIPLE weighting: base learning_weight (live=2x, backtest=1x) * decay weight (time-based)
     const winningPatterns = insights.filter(i => i.insight_type === 'winning_pattern');
     if (winningPatterns.length > 0) {
-      const totalWeight = winningPatterns.reduce((sum, p) => sum + (p.learning_weight || 1.0), 0);
+      // Calculate combined weight: learning_weight * current_decayed_weight
+      const totalWeight = winningPatterns.reduce(
+        (sum, p) => sum + ((p.learning_weight || 1.0) * (p.current_decayed_weight || 1.0)),
+        0
+      );
       const weightedConfidence = winningPatterns.reduce(
-        (sum, p) => sum + (p.confidence_score * (p.learning_weight || 1.0)),
+        (sum, p) => sum + (p.confidence_score * (p.learning_weight || 1.0) * (p.current_decayed_weight || 1.0)),
         0
       ) / totalWeight;
 
       if (weightedConfidence >= 70) {
-        const boost = Math.round(5 * (totalWeight / winningPatterns.length)); // More boost if from live trades
+        const boost = Math.round(5 * (totalWeight / winningPatterns.length)); // More boost if fresh + live
         adjustedConfidence += boost;
         const liveCount = winningPatterns.filter(p => p.learned_from_live_trading).length;
-        console.log(`[AI Decision Advisor] ⬆️ +${boost}% from winning patterns (${liveCount} from live trades)`);
+        const freshCount = winningPatterns.filter(p => p.insight_freshness === 'fresh').length;
+        console.log(`[AI Decision Advisor] ⬆️ +${boost}% from winning patterns (${liveCount} live, ${freshCount} fresh)`);
       }
     }
 
     // Factor 2: Losing pattern insights (reduce confidence)
-    // Apply weighting: live trade warnings are more serious
+    // Apply TRIPLE weighting: live trade warnings are more serious, AND fresh warnings matter more
     const losingPatterns = insights.filter(i => i.insight_type === 'losing_pattern');
     if (losingPatterns.length > 0) {
-      const totalWeight = losingPatterns.reduce((sum, p) => sum + (p.learning_weight || 1.0), 0);
-      const penalty = Math.round(10 * (totalWeight / losingPatterns.length)); // More penalty if from live trades
+      // Calculate combined weight: learning_weight * current_decayed_weight
+      const totalWeight = losingPatterns.reduce(
+        (sum, p) => sum + ((p.learning_weight || 1.0) * (p.current_decayed_weight || 1.0)),
+        0
+      );
+      const penalty = Math.round(10 * (totalWeight / losingPatterns.length)); // More penalty if fresh + live
       adjustedConfidence -= penalty;
       const liveCount = losingPatterns.filter(p => p.learned_from_live_trading).length;
-      console.log(`[AI Decision Advisor] ⬇️ -${penalty}% from losing patterns (${liveCount} from live trades)`);
+      const freshCount = losingPatterns.filter(p => p.insight_freshness === 'fresh').length;
+      console.log(`[AI Decision Advisor] ⬇️ -${penalty}% from losing patterns (${liveCount} live, ${freshCount} fresh)`);
     }
 
     // Factor 3: Market scenario performance
