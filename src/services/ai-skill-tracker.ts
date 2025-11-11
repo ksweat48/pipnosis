@@ -55,28 +55,28 @@ class AISkillTracker {
     {
       level: 'Intermediate',
       minTrades: 100,
-      minWinRate: 50,
+      minWinRate: 45,
       minProfitFactor: 1.0,
-      minAvgRR: 1.2,
-      minCSS: 60,
+      minAvgRR: 0,
+      minCSS: 0,
       description: 'Understanding basic patterns.'
     },
     {
       level: 'Pro',
       minTrades: 500,
-      minWinRate: 60,
-      minProfitFactor: 1.3,
-      minAvgRR: 1.5,
-      minCSS: 70,
+      minWinRate: 55,
+      minProfitFactor: 1.2,
+      minAvgRR: 0,
+      minCSS: 0,
       description: 'Consistent performance with good risk management.'
     },
     {
       level: 'Expert',
       minTrades: 1500,
       minWinRate: 65,
-      minProfitFactor: 1.6,
-      minAvgRR: 1.8,
-      minCSS: 80,
+      minProfitFactor: 1.5,
+      minAvgRR: 0,
+      minCSS: 0,
       description: 'Advanced pattern recognition across conditions.'
     },
     {
@@ -84,17 +84,17 @@ class AISkillTracker {
       minTrades: 5000,
       minWinRate: 70,
       minProfitFactor: 1.8,
-      minAvgRR: 2.0,
-      minCSS: 85,
+      minAvgRR: 0,
+      minCSS: 0,
       description: 'Mastery with exceptional consistency.'
     },
     {
       level: 'Exceptional',
       minTrades: 10000,
-      minWinRate: 75,
+      minWinRate: 80,
       minProfitFactor: 2.0,
-      minAvgRR: 2.2,
-      minCSS: 90,
+      minAvgRR: 0,
+      minCSS: 0,
       description: 'Peak performance. Elite-level trading.'
     }
   ];
@@ -266,13 +266,13 @@ class AISkillTracker {
         console.log(`[AI Skill Tracker] Recent performance: CSS=${cssValue.toFixed(2)}, Avg R:R=${avgRR.toFixed(2)}`);
       }
 
-      // Determine new skill level (requires CSS now)
+      // Determine new skill level (based on specification: trades, win rate, profit factor only)
       const oldLevel = current.currentSkillLevel;
-      const newLevel = this.calculateSkillLevel(newSuccessfulTrades, newWinRate, newProfitFactor, avgRR, cssValue);
+      const newLevel = this.calculateSkillLevel(newSuccessfulTrades, newWinRate, newProfitFactor);
       const leveledUp = this.getSkillLevelNumeric(newLevel) > this.getSkillLevelNumeric(oldLevel);
 
       // Calculate progress metrics
-      const progressData = this.calculateProgressMetrics(newSuccessfulTrades, newWinRate, newProfitFactor, avgRR, cssValue, newLevel);
+      const progressData = this.calculateProgressMetrics(newSuccessfulTrades, newWinRate, newProfitFactor, newLevel);
 
       // Update database
       const { error } = await supabase
@@ -325,26 +325,23 @@ class AISkillTracker {
   }
 
   /**
-   * Calculate skill level based on balanced performance (CSS-based)
-   * Must meet ALL criteria to advance
+   * Calculate skill level based on specification requirements
+   * Must meet ALL three criteria to advance: trades, win rate, and profit factor
+   * IMPORTANT: Only winning trades count toward totalTrades
    */
   private calculateSkillLevel(
     totalTrades: number,
     winRate: number,
-    profitFactor: number,
-    avgRR: number,
-    css: number
+    profitFactor: number
   ): SkillLevel {
     // Start from highest level and work down
     for (let i = this.SKILL_THRESHOLDS.length - 1; i >= 0; i--) {
       const threshold = this.SKILL_THRESHOLDS[i];
-      // Must meet ALL criteria
+      // Must meet ALL three core criteria (as per specification)
       if (
         totalTrades >= threshold.minTrades &&
         winRate >= threshold.minWinRate &&
-        profitFactor >= threshold.minProfitFactor &&
-        avgRR >= threshold.minAvgRR &&
-        css >= threshold.minCSS
+        profitFactor >= threshold.minProfitFactor
       ) {
         return threshold.level;
       }
@@ -359,8 +356,6 @@ class AISkillTracker {
     totalTrades: number,
     winRate: number,
     profitFactor: number,
-    avgRR: number,
-    css: number,
     currentLevel: SkillLevel
   ): { progressPercent: number; tradesNeeded: number } {
     const currentLevelIndex = this.SKILL_THRESHOLDS.findIndex(t => t.level === currentLevel);

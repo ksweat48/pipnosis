@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { liveTradeLearningTrigger } from '@/services/live-trade-learning-trigger';
 
 interface AuthContextType {
   user: User | null;
@@ -56,14 +57,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session?.user ?? null);
         if (session?.user) {
           await fetchUserRole(session.user.id);
+
+          // Start live trade learning trigger for authenticated users
+          if (!liveTradeLearningTrigger.isActive()) {
+            console.log('[Auth] Starting live trade learning trigger for user:', session.user.id);
+            liveTradeLearningTrigger.start(session.user.id);
+          }
         } else {
           setIsAdmin(false);
+
+          // Stop live trade learning trigger when user logs out
+          if (liveTradeLearningTrigger.isActive()) {
+            console.log('[Auth] Stopping live trade learning trigger');
+            liveTradeLearningTrigger.stop();
+          }
         }
         setLoading(false);
       })();
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      // Clean up learning trigger on component unmount
+      if (liveTradeLearningTrigger.isActive()) {
+        liveTradeLearningTrigger.stop();
+      }
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
