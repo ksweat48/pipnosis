@@ -13,6 +13,8 @@ export default function AutoBacktestDashboard() {
   const [showSettings, setShowSettings] = useState(false);
   const [config, setConfig] = useState<any>(null);
   const [configSaving, setConfigSaving] = useState(false);
+  const [configLoading, setConfigLoading] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -25,11 +27,46 @@ export default function AutoBacktestDashboard() {
 
   const loadConfig = async () => {
     if (!user) return;
+    setConfigLoading(true);
+    setConfigError(null);
     try {
+      console.log('[Auto-Backtest Dashboard] Loading config...');
       const currentConfig = await autoBacktestAPI.getConfig(user.id);
-      setConfig(currentConfig);
+
+      if (!currentConfig) {
+        console.warn('[Auto-Backtest Dashboard] No config returned, using defaults');
+        const defaultConfig = {
+          max_consecutive_runs: 100,
+          standard_cooldown_minutes: 15,
+          max_stress_score: 80,
+          max_db_response_ms: 5000,
+          min_duration_days: 1,
+          max_duration_days: 3,
+          delay_between_runs_min_seconds: 2,
+          delay_between_runs_max_seconds: 5
+        };
+        setConfig(defaultConfig);
+      } else {
+        console.log('[Auto-Backtest Dashboard] Config loaded successfully');
+        setConfig(currentConfig);
+      }
     } catch (err: any) {
       console.error('[Auto-Backtest Dashboard] Error loading config:', err);
+      setConfigError(err.message || 'Failed to load configuration');
+
+      const defaultConfig = {
+        max_consecutive_runs: 100,
+        standard_cooldown_minutes: 15,
+        max_stress_score: 80,
+        max_db_response_ms: 5000,
+        min_duration_days: 1,
+        max_duration_days: 3,
+        delay_between_runs_min_seconds: 2,
+        delay_between_runs_max_seconds: 5
+      };
+      setConfig(defaultConfig);
+    } finally {
+      setConfigLoading(false);
     }
   };
 
@@ -189,10 +226,25 @@ export default function AutoBacktestDashboard() {
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setShowSettings(true)}
-            className="flex items-center gap-2 px-4 py-3 bg-gray-700 text-white font-semibold rounded-lg hover:bg-gray-600 transition-colors"
+            onClick={() => {
+              console.log('[Auto-Backtest Dashboard] Settings button clicked');
+              console.log('[Auto-Backtest Dashboard] Current config:', config);
+              console.log('[Auto-Backtest Dashboard] Config loading:', configLoading);
+              if (!config && !configLoading) {
+                console.warn('[Auto-Backtest Dashboard] No config available, reloading...');
+                loadConfig();
+              }
+              setShowSettings(true);
+            }}
+            disabled={configLoading}
+            className="flex items-center gap-2 px-4 py-3 bg-gray-700 text-white font-semibold rounded-lg hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title={configLoading ? 'Loading configuration...' : 'Configure auto-backtest settings'}
           >
-            <SettingsIcon className="w-5 h-5" />
+            {configLoading ? (
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+            ) : (
+              <SettingsIcon className="w-5 h-5" />
+            )}
             Settings
           </button>
           {state?.isActive ? (
@@ -399,8 +451,13 @@ export default function AutoBacktestDashboard() {
       )}
 
       {/* Settings Modal */}
-      {showSettings && config && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[9999] p-4" onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            console.log('[Auto-Backtest Dashboard] Backdrop clicked, closing modal');
+            setShowSettings(false);
+          }
+        }}>
           <div className="bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-700">
               <div className="flex items-center justify-between">
@@ -418,6 +475,25 @@ export default function AutoBacktestDashboard() {
             </div>
 
             <div className="p-6 space-y-6">
+              {/* Config Error Display */}
+              {configError && (
+                <div className="bg-yellow-900/20 border-l-4 border-yellow-400 p-4 rounded">
+                  <p className="text-sm text-yellow-300">
+                    <strong>Warning:</strong> {configError}. Using default values.
+                  </p>
+                </div>
+              )}
+
+              {/* Config Loading Display */}
+              {configLoading && (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mx-auto mb-4"></div>
+                  <p className="text-gray-400">Loading configuration...</p>
+                </div>
+              )}
+
+              {!configLoading && config && (
+                <>
               {/* Max Consecutive Runs */}
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -542,6 +618,8 @@ export default function AutoBacktestDashboard() {
                   />
                 </div>
               </div>
+                </>
+              )}
             </div>
 
             <div className="p-6 border-t border-gray-700 flex justify-end gap-3">
@@ -553,10 +631,10 @@ export default function AutoBacktestDashboard() {
               </button>
               <button
                 onClick={handleSaveConfig}
-                disabled={configSaving}
-                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:bg-gray-600"
+                disabled={configSaving || configLoading || !config}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:bg-gray-600 disabled:cursor-not-allowed"
               >
-                {configSaving ? 'Saving...' : 'Save Settings'}
+                {configSaving ? 'Saving...' : configLoading ? 'Loading...' : 'Save Settings'}
               </button>
             </div>
           </div>
