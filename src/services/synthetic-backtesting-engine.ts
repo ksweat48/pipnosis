@@ -684,13 +684,22 @@ class SyntheticBacktestingEngine {
         winningTradesCount, // CHANGED: Pass only winning trades count, not total trades
         result.winRate,
         result.profitFactor,
-        patternsLearned
+        patternsLearned,
+        'synthetic' // Mark as synthetic source for 0.5x weighting
       );
 
       if (skillUpdate.leveledUp) {
         console.log(`[Synthetic Backtest] 🎉 AI LEVEL UP! ${skillUpdate.oldLevel} → ${skillUpdate.newLevel}`);
       } else {
         console.log(`[Synthetic Backtest] Progress updated. ${winningTradesCount} successful trades added to learning journey.`);
+      }
+
+      // Log validation warnings if any
+      if (skillUpdate.validationWarnings && skillUpdate.validationWarnings.length > 0) {
+        console.warn('[Synthetic Backtest] ⚠️  Validation warnings:');
+        skillUpdate.validationWarnings.forEach(warning => {
+          console.warn(`  - ${warning}`);
+        });
       }
 
       // Update indicator effectiveness

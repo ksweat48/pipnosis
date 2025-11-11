@@ -154,6 +154,44 @@ export default function AILearningProgressDashboard() {
             <span className="text-white/70">{skillData.tradesNeededForNextLevel} winning trades needed</span>
             <span className="text-white/70">Target: {skillThresholds[skillData.skillLevelNumeric]?.level || 'Max Level'}</span>
           </div>
+
+          {/* Performance Requirements Card */}
+          <div className="mt-4 p-4 bg-blue-500/10 rounded border border-blue-500/30">
+            <h4 className="text-sm font-semibold text-blue-300 mb-3">Requirements for Next Level</h4>
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              <div>
+                <div className="text-white/60 mb-1">Winning Trades</div>
+                <div className="font-bold text-white">
+                  {skillData.totalTradesAnalyzed} / {skillThresholds[skillData.skillLevelNumeric]?.minTrades || '?'}
+                </div>
+                <div className={`text-xs mt-1 ${skillData.totalTradesAnalyzed >= (skillThresholds[skillData.skillLevelNumeric]?.minTrades || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {skillData.totalTradesAnalyzed >= (skillThresholds[skillData.skillLevelNumeric]?.minTrades || 0) ? '✓ Met' : 'In progress'}
+                </div>
+              </div>
+              <div>
+                <div className="text-white/60 mb-1">Win Rate</div>
+                <div className="font-bold text-white">
+                  {skillData.currentWinRate.toFixed(1)}% / {skillThresholds[skillData.skillLevelNumeric]?.minWinRate || '?'}%
+                </div>
+                <div className={`text-xs mt-1 ${skillData.currentWinRate >= (skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {skillData.currentWinRate >= (skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) - skillData.currentWinRate).toFixed(1)}%`}
+                </div>
+              </div>
+              <div>
+                <div className="text-white/60 mb-1">Profit Factor</div>
+                <div className="font-bold text-white">
+                  {skillData.currentProfitFactor.toFixed(2)} / {skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor?.toFixed(2) || '?'}
+                </div>
+                <div className={`text-xs mt-1 ${skillData.currentProfitFactor >= (skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {skillData.currentProfitFactor >= (skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) - skillData.currentProfitFactor).toFixed(2)}`}
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-blue-300 mt-3">
+              <strong>Note:</strong> All three criteria must be met to advance. Progress slows when performance metrics are below targets.
+            </p>
+          </div>
+
           <div className="mt-3 p-3 bg-emerald-500/10 rounded border border-emerald-500/30">
             <p className="text-xs text-emerald-300">
               <strong>Progress System:</strong> The AI only learns and progresses from successful, profitable trades.
@@ -193,6 +231,11 @@ export default function AILearningProgressDashboard() {
                 <span className="text-gray-400">Learning Weight:</span>
                 <span className="text-purple-400 font-bold">2.0x</span>
               </div>
+              <div className="mt-3 p-2 bg-purple-500/10 rounded border border-purple-500/30">
+                <p className="text-xs text-purple-300">
+                  Live demo trades count <strong>double (2.0x)</strong> toward skill progression compared to standard backtests.
+                </p>
+              </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-400">Avg Quality Score:</span>
                 <span className="text-emerald-400 font-bold">
@@ -220,12 +263,17 @@ export default function AILearningProgressDashboard() {
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-400">Learning Weight:</span>
+                <span className="text-gray-400">Real Data Weight:</span>
                 <span className="text-gray-400 font-bold">1.0x</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Synthetic Weight:</span>
+                <span className="text-gray-500 font-bold">0.5x</span>
               </div>
               <div className="mt-4 p-3 bg-blue-500/10 rounded border border-blue-500/30">
                 <p className="text-sm text-gray-300">
-                  Live trades have <span className="text-emerald-400 font-bold">2x learning weight</span> compared to backtests, making them more impactful for AI improvement.
+                  <strong>Learning weights:</strong> Live demo (2.0x) &gt; Real backtest (1.0x) &gt; Synthetic (0.5x).
+                  Live trading provides the highest quality learning signal.
                 </p>
               </div>
             </div>

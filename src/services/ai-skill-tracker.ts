@@ -195,7 +195,7 @@ class AISkillTracker {
 
   /**
    * Update skill progression after live trading
-   * Live trades have 1.5x impact on skill progression compared to backtests
+   * Live trades have 2.0x impact on skill progression compared to backtests
    * IMPORTANT: Only winning trades count toward skill progression
    */
   async updateAfterLiveTrading(
@@ -204,15 +204,16 @@ class AISkillTracker {
     winRate: number,
     profitFactor: number,
     patternsLearned: number
-  ): Promise<{ leveledUp: boolean; newLevel?: SkillLevel; oldLevel?: SkillLevel }> {
-    // Live winning trades count as 1.5x for skill progression
-    const adjustedWinningTrades = Math.round(winningTradesCount * 1.5);
+  ): Promise<{ leveledUp: boolean; newLevel?: SkillLevel; oldLevel?: SkillLevel; validationWarnings?: string[] }> {
+    // Live winning trades count as 2.0x for skill progression (corrected from 1.5x)
+    const adjustedWinningTrades = Math.round(winningTradesCount * 2.0);
     return this.updateAfterBacktest(
       userId,
       adjustedWinningTrades,
       winRate,
       profitFactor,
-      patternsLearned
+      patternsLearned,
+      'live' // Source type for proper weighting
     );
   }
 
@@ -226,20 +227,75 @@ class AISkillTracker {
     winningTradesCount: number,
     winRate: number,
     profitFactor: number,
-    patternsLearned: number
-  ): Promise<{ leveledUp: boolean; newLevel?: SkillLevel; oldLevel?: SkillLevel }> {
+    patternsLearned: number,
+    sourceType: 'backtest' | 'synthetic' | 'live' = 'backtest'
+  ): Promise<{ leveledUp: boolean; newLevel?: SkillLevel; oldLevel?: SkillLevel; validationWarnings?: string[] }> {
+    const validationWarnings: string[] = [];
+
     try {
+      // === STEP 1: VALIDATE INPUT DATA ===
+      console.log(`[AI Skill Tracker] ===== SKILL PROGRESSION UPDATE (${sourceType.toUpperCase()}) =====`);
+      console.log(`[AI Skill Tracker] Input - Winning Trades: ${winningTradesCount}, Win Rate: ${winRate.toFixed(1)}%, PF: ${profitFactor.toFixed(2)}`);
+
+      // Validate winning trades count
+      if (winningTradesCount < 0) {
+        console.error('[AI Skill Tracker] Invalid winningTradesCount: cannot be negative');
+        return { leveledUp: false, validationWarnings: ['Invalid winning trades count'] };
+      }
+
+      if (winningTradesCount === 0) {
+        console.log('[AI Skill Tracker] No winning trades to add. Skipping progression update.');
+        return { leveledUp: false, validationWarnings: ['No winning trades to process'] };
+      }
+
+      // Validate win rate
+      if (winRate < 0 || winRate > 100) {
+        console.error(`[AI Skill Tracker] Invalid win rate: ${winRate}%. Must be between 0-100.`);
+        validationWarnings.push(`Invalid win rate: ${winRate}%`);
+      }
+
+      // Validate profit factor
+      if (profitFactor < 0) {
+        console.error(`[AI Skill Tracker] Invalid profit factor: ${profitFactor}. Cannot be negative.`);
+        validationWarnings.push(`Invalid profit factor: ${profitFactor}`);
+      }
+
+      // Warn on poor performance
+      if (winRate < 35) {
+        validationWarnings.push(`Low win rate (${winRate.toFixed(1)}%). Progression will be minimal.`);
+        console.warn(`[AI Skill Tracker] ⚠️  Low win rate detected: ${winRate.toFixed(1)}%`);
+      }
+
+      if (profitFactor < 0.5) {
+        validationWarnings.push(`Poor profit factor (${profitFactor.toFixed(2)}). Quality threshold not met.`);
+        console.warn(`[AI Skill Tracker] ⚠️  Poor profit factor: ${profitFactor.toFixed(2)}`);
+      }
+
       // Get current progression
       const current = await this.getSkillProgression(userId);
       if (!current) {
         console.error('[AI Skill Tracker] Could not get current progression');
-        return { leveledUp: false };
+        return { leveledUp: false, validationWarnings };
       }
 
-      console.log(`[AI Skill Tracker] Adding ${winningTradesCount} winning trades to progression (current: ${current.totalTradesAnalyzed})`);
+      console.log(`[AI Skill Tracker] Current state - Level: ${current.currentSkillLevel}, Trades: ${current.totalTradesAnalyzed}, WR: ${current.currentWinRate.toFixed(1)}%, PF: ${current.currentProfitFactor.toFixed(2)}`);
 
-      // Calculate new totals - ONLY winning trades increment the counter
-      const newSuccessfulTrades = current.totalTradesAnalyzed + winningTradesCount;
+      // === STEP 2: APPLY SOURCE TYPE WEIGHTING ===
+      let adjustedWinningTrades = winningTradesCount;
+
+      if (sourceType === 'synthetic') {
+        // Synthetic backtests contribute 50% of normal progression
+        adjustedWinningTrades = Math.round(winningTradesCount * 0.5);
+        console.log(`[AI Skill Tracker] 🔬 Synthetic source: ${winningTradesCount} trades → ${adjustedWinningTrades} weighted trades (0.5x)`);
+      } else if (sourceType === 'live') {
+        // Already weighted before calling this function (2.0x)
+        console.log(`[AI Skill Tracker] 🎯 Live trading source: ${winningTradesCount} weighted trades (already 2.0x applied)`);
+      } else {
+        console.log(`[AI Skill Tracker] 📊 Standard backtest source: ${winningTradesCount} trades (1.0x)`);
+      }
+
+      // === STEP 3: CALCULATE NEW METRICS ===
+      const newSuccessfulTrades = current.totalTradesAnalyzed + adjustedWinningTrades;
       const newWinRate = this.calculateWeightedAverage(
         current.currentWinRate,
         current.totalTradesAnalyzed,
@@ -266,26 +322,61 @@ class AISkillTracker {
         console.log(`[AI Skill Tracker] Recent performance: CSS=${cssValue.toFixed(2)}, Avg R:R=${avgRR.toFixed(2)}`);
       }
 
-      // Determine new skill level (based on specification: trades, win rate, profit factor only)
+      // === STEP 4: DETERMINE SKILL LEVEL WITH GATING ===
       const oldLevel = current.currentSkillLevel;
       const newLevel = this.calculateSkillLevel(newSuccessfulTrades, newWinRate, newProfitFactor);
       const leveledUp = this.getSkillLevelNumeric(newLevel) > this.getSkillLevelNumeric(oldLevel);
 
-      // Calculate progress metrics
-      const progressData = this.calculateProgressMetrics(newSuccessfulTrades, newWinRate, newProfitFactor, newLevel);
+      console.log(`[AI Skill Tracker] Skill level: ${oldLevel} → ${newLevel}${leveledUp ? ' 🎉 LEVEL UP!' : ''}`);
 
-      // Update database
+      // === STEP 5: CALCULATE PROGRESS WITH PERFORMANCE GATING ===
+      const progressData = this.calculateProgressMetrics(
+        newSuccessfulTrades,
+        newWinRate,
+        newProfitFactor,
+        newLevel
+      );
+
+      console.log(`[AI Skill Tracker] Progress calculation:`);
+      console.log(`[AI Skill Tracker]   - Progress to next: ${progressData.progressPercent.toFixed(1)}%`);
+      console.log(`[AI Skill Tracker]   - Trades needed: ${progressData.tradesNeeded}`);
+      console.log(`[AI Skill Tracker]   - Performance multiplier: ${progressData.performanceMultiplier?.toFixed(2) || 'N/A'}`);
+
+      // Apply performance gating to prevent false progression
+      let gatedProgress = progressData.progressPercent;
+      let gatedTradesNeeded = progressData.tradesNeeded;
+
+      // Performance gate: If metrics are poor, cap progression
+      if (newWinRate < 35 || newProfitFactor < 0.5) {
+        const performancePenalty = Math.max(0.1, Math.min(1.0, (newWinRate / 45) * (newProfitFactor / 1.0)));
+        gatedProgress = progressData.progressPercent * performancePenalty;
+        validationWarnings.push(`Progression reduced due to performance (${(performancePenalty * 100).toFixed(0)}% of normal)`);
+        console.warn(`[AI Skill Tracker] ⚠️  Performance gating applied: ${(performancePenalty * 100).toFixed(0)}% multiplier`);
+      }
+
+      // Regression detection: If recent performance is significantly worse than historical
+      const performanceDelta = newWinRate - current.currentWinRate;
+      if (current.totalTradesAnalyzed > 50 && performanceDelta < -10) {
+        const regressionPenalty = 0.5; // 50% progression during regression
+        gatedProgress = gatedProgress * regressionPenalty;
+        validationWarnings.push(`Performance regression detected (${performanceDelta.toFixed(1)}% WR drop). Progression slowed.`);
+        console.warn(`[AI Skill Tracker] ⚠️  Regression detected: Win rate dropped ${Math.abs(performanceDelta).toFixed(1)}%. Applying 50% penalty.`);
+      }
+
+      console.log(`[AI Skill Tracker] Final gated progress: ${gatedProgress.toFixed(1)}%`);
+
+      // === STEP 6: UPDATE DATABASE ===
       const { error } = await supabase
         .from('ai_skill_progression')
         .update({
           current_skill_level: newLevel,
           skill_level_numeric: this.getSkillLevelNumeric(newLevel),
-          progress_to_next_level_percent: progressData.progressPercent,
+          progress_to_next_level_percent: gatedProgress, // Use gated progress
           total_trades_analyzed: newSuccessfulTrades,
           current_win_rate: newWinRate,
           gap_to_target: 80 - newWinRate,
           current_profit_factor: newProfitFactor,
-          trades_needed_for_next_level: progressData.tradesNeeded,
+          trades_needed_for_next_level: gatedTradesNeeded,
           estimated_trades_to_master: Math.max(0, 5000 - newSuccessfulTrades),
           estimated_trades_to_exceptional: Math.max(0, 10000 - newSuccessfulTrades),
           total_patterns_learned: newPatternsLearned,
@@ -299,10 +390,13 @@ class AISkillTracker {
         .eq('user_id', userId);
 
       if (error) {
-        console.error('[AI Skill Tracker] Error updating skill progression:', error);
+        console.error('[AI Skill Tracker] ❌ Error updating skill progression:', error);
+        validationWarnings.push('Database update failed');
+      } else {
+        console.log('[AI Skill Tracker] ✅ Database updated successfully');
       }
 
-      // Record milestone if leveled up
+      // === STEP 7: RECORD MILESTONES ===
       if (leveledUp) {
         await this.recordMilestone(userId, {
           milestoneType: 'skill_level_up',
@@ -317,10 +411,17 @@ class AISkillTracker {
       // Check for other milestones
       await this.checkAndRecordMilestones(userId, newSuccessfulTrades, newWinRate, newProfitFactor, newLevel);
 
-      return { leveledUp, newLevel: leveledUp ? newLevel : undefined, oldLevel: leveledUp ? oldLevel : undefined };
+      console.log(`[AI Skill Tracker] ===== UPDATE COMPLETE =====\n`);
+
+      return {
+        leveledUp,
+        newLevel: leveledUp ? newLevel : undefined,
+        oldLevel: leveledUp ? oldLevel : undefined,
+        validationWarnings: validationWarnings.length > 0 ? validationWarnings : undefined
+      };
     } catch (error) {
-      console.error('[AI Skill Tracker] Exception in updateAfterBacktest:', error);
-      return { leveledUp: false };
+      console.error('[AI Skill Tracker] ❌ Exception in updateAfterBacktest:', error);
+      return { leveledUp: false, validationWarnings: [`Exception: ${error instanceof Error ? error.message : 'Unknown error'}`] };
     }
   }
 
@@ -351,13 +452,23 @@ class AISkillTracker {
 
   /**
    * Calculate progress metrics for current level
+   * Enhanced with performance multipliers and detailed breakdown
    */
   private calculateProgressMetrics(
     totalTrades: number,
     winRate: number,
     profitFactor: number,
     currentLevel: SkillLevel
-  ): { progressPercent: number; tradesNeeded: number } {
+  ): {
+    progressPercent: number;
+    tradesNeeded: number;
+    performanceMultiplier?: number;
+    breakdown?: {
+      tradesProgress: number;
+      winRateProgress: number;
+      profitFactorProgress: number;
+    };
+  } {
     const currentLevelIndex = this.SKILL_THRESHOLDS.findIndex(t => t.level === currentLevel);
     if (currentLevelIndex === this.SKILL_THRESHOLDS.length - 1) {
       // Already at max level
@@ -368,25 +479,61 @@ class AISkillTracker {
     const nextThreshold = this.SKILL_THRESHOLDS[currentLevelIndex + 1];
 
     // Calculate progress based on trades (primary metric)
-    const tradesProgress = ((totalTrades - currentThreshold.minTrades) /
-      (nextThreshold.minTrades - currentThreshold.minTrades)) * 100;
+    const tradesProgress = Math.min(100, Math.max(0,
+      ((totalTrades - currentThreshold.minTrades) /
+        (nextThreshold.minTrades - currentThreshold.minTrades)) * 100
+    ));
 
     // Calculate progress based on win rate
-    const winRateProgress = ((winRate - currentThreshold.minWinRate) /
-      (nextThreshold.minWinRate - currentThreshold.minWinRate)) * 100;
+    // If win rate is below current threshold, progress is negative (capped at 0)
+    const winRateProgress = Math.min(100, Math.max(0,
+      ((winRate - currentThreshold.minWinRate) /
+        (nextThreshold.minWinRate - currentThreshold.minWinRate)) * 100
+    ));
 
     // Calculate progress based on profit factor
-    const profitFactorProgress = ((profitFactor - currentThreshold.minProfitFactor) /
-      (nextThreshold.minProfitFactor - currentThreshold.minProfitFactor)) * 100;
+    const profitFactorProgress = Math.min(100, Math.max(0,
+      ((profitFactor - currentThreshold.minProfitFactor) /
+        (nextThreshold.minProfitFactor - currentThreshold.minProfitFactor)) * 100
+    ));
+
+    // Calculate performance multiplier based on how close metrics are to next level requirements
+    // This penalizes progression when performance metrics are weak
+    let performanceMultiplier = 1.0;
+
+    // If win rate is significantly below next level requirement, reduce progression
+    const winRateGap = nextThreshold.minWinRate - winRate;
+    if (winRateGap > 10) {
+      performanceMultiplier *= Math.max(0.5, 1 - (winRateGap / 100));
+    }
+
+    // If profit factor is below next level requirement, reduce progression
+    const pfGap = nextThreshold.minProfitFactor - profitFactor;
+    if (pfGap > 0.3) {
+      performanceMultiplier *= Math.max(0.5, 1 - (pfGap / 2));
+    }
 
     // Overall progress is weighted average (trades count most)
-    const progressPercent = Math.min(100, Math.max(0,
-      (tradesProgress * 0.5) + (winRateProgress * 0.3) + (profitFactorProgress * 0.2)
-    ));
+    // But ALL metrics must show positive progress to advance meaningfully
+    let rawProgress = (tradesProgress * 0.5) + (winRateProgress * 0.3) + (profitFactorProgress * 0.2);
+
+    // Apply performance multiplier
+    rawProgress = rawProgress * performanceMultiplier;
+
+    const progressPercent = Math.min(100, Math.max(0, rawProgress));
 
     const tradesNeeded = Math.max(0, nextThreshold.minTrades - totalTrades);
 
-    return { progressPercent, tradesNeeded };
+    return {
+      progressPercent,
+      tradesNeeded,
+      performanceMultiplier,
+      breakdown: {
+        tradesProgress,
+        winRateProgress,
+        profitFactorProgress
+      }
+    };
   }
 
   /**
