@@ -125,6 +125,21 @@ export default function StrategyArsenalDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Info Banner */}
+      <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+        <div className="flex items-start gap-3">
+          <Brain className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-gray-300">
+            <p className="font-semibold text-blue-400 mb-1">How It Works</p>
+            <p>
+              The AI analyzes your trading patterns during backtests and live trading to discover new strategies.
+              Only strategies that beat the Flow Trader V2 baseline (55%+ win rate, 1.5+ profit factor) are shown here.
+              The AI also evolves existing strategies by optimizing parameters and adapting to market regimes.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Header Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg p-6 text-white">

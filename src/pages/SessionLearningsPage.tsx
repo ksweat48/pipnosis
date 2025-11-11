@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { NavigationMenu } from '../components/NavigationMenu';
 import SessionLearningDashboard from '../components/SessionLearningDashboard';
 import PatternDiscoveryTimeline from '../components/PatternDiscoveryTimeline';
-import { BookOpen, Sparkles } from 'lucide-react';
+import StrategyArsenalDashboard from '../components/StrategyArsenalDashboard';
+import { BookOpen, Sparkles, Target } from 'lucide-react';
 
 export default function SessionLearningsPage() {
-  const [activeTab, setActiveTab] = useState<'learnings' | 'patterns'>('learnings');
+  const [activeTab, setActiveTab] = useState<'learnings' | 'patterns' | 'strategy-arsenal'>('learnings');
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
@@ -41,7 +42,18 @@ export default function SessionLearningsPage() {
             }`}
           >
             <Sparkles className="w-5 h-5" />
-            Pattern Timeline
+            Patterns
+          </button>
+          <button
+            onClick={() => setActiveTab('strategy-arsenal')}
+            className={`flex-1 px-6 py-3 rounded-md font-semibold transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'strategy-arsenal'
+                ? 'bg-orange-600 text-white shadow-lg'
+                : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+            }`}
+          >
+            <Target className="w-5 h-5" />
+            Strategy Arsenal
           </button>
         </div>
 
@@ -49,6 +61,7 @@ export default function SessionLearningsPage() {
         <div>
           {activeTab === 'learnings' && <SessionLearningDashboard />}
           {activeTab === 'patterns' && <PatternDiscoveryTimeline />}
+          {activeTab === 'strategy-arsenal' && <StrategyArsenalDashboard />}
         </div>
       </div>
     </div>
