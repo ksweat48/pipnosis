@@ -100,13 +100,22 @@ class TickBufferService {
 
     console.log(`[TickBuffer] 📤 Syncing ${unsyncedTicks.length} ticks for ${symbol}`);
 
-    const ticksToSync = unsyncedTicks.map(t => ({
-      symbol: t.symbol,
-      bid: t.bid.toString(),
-      ask: t.ask.toString(),
-      broker_time: t.broker_time || t.timestamp,
-      created_at: t.timestamp
-    }));
+    const ticksToSync = unsyncedTicks.map(t => {
+      const bid = parseFloat(t.bid.toString());
+      const ask = parseFloat(t.ask.toString());
+      const mid = (bid + ask) / 2;
+      const spread = ask - bid;
+
+      return {
+        symbol: t.symbol,
+        bid: bid.toString(),
+        ask: ask.toString(),
+        mid: mid.toString(),
+        spread: spread.toString(),
+        broker_time: t.broker_time || t.timestamp,
+        created_at: t.timestamp
+      };
+    });
 
     try {
       const { error } = await supabase

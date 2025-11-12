@@ -318,6 +318,12 @@ export default function AutoBacktestDashboard() {
                 {state.currentCycleCount}
                 <span className="text-lg text-gray-400"> / 100</span>
               </p>
+              <div className="w-full bg-gray-700 rounded-full h-2 mt-2">
+                <div
+                  className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${state.currentCycleCount}%` }}
+                />
+              </div>
               {state.currentCycleCount >= 80 && (
                 <p className="text-xs text-yellow-400 mt-1">Approaching cooldown</p>
               )}
@@ -390,14 +396,14 @@ export default function AutoBacktestDashboard() {
             </div>
           </div>
 
-          {/* Queue Stats */}
+          {/* Queue Stats with Progress */}
           {queueStats && (
             <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
               <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
                 <List className="w-4 h-4" />
                 Job Queue Status
               </h3>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-4 gap-4 mb-4">
                 <div className="text-center">
                   <p className="text-2xl font-bold text-yellow-400">{queueStats.pending}</p>
                   <p className="text-xs text-gray-400 mt-1">Pending</p>
@@ -415,6 +421,37 @@ export default function AutoBacktestDashboard() {
                   <p className="text-xs text-gray-400 mt-1">Failed</p>
                 </div>
               </div>
+              {/* Overall Progress Bar */}
+              {(queueStats.pending + queueStats.processing + queueStats.completed + queueStats.failed) > 0 && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <span>Overall Progress</span>
+                    <span>{Math.round((queueStats.completed / (queueStats.pending + queueStats.processing + queueStats.completed + queueStats.failed)) * 100)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                    <div className="h-full flex">
+                      <div
+                        className="bg-green-500 transition-all duration-300"
+                        style={{ width: `${(queueStats.completed / (queueStats.pending + queueStats.processing + queueStats.completed + queueStats.failed)) * 100}%` }}
+                        title={`${queueStats.completed} completed`}
+                      />
+                      <div
+                        className="bg-blue-500 animate-pulse transition-all duration-300"
+                        style={{ width: `${(queueStats.processing / (queueStats.pending + queueStats.processing + queueStats.completed + queueStats.failed)) * 100}%` }}
+                        title={`${queueStats.processing} processing`}
+                      />
+                      <div
+                        className="bg-red-500 transition-all duration-300"
+                        style={{ width: `${(queueStats.failed / (queueStats.pending + queueStats.processing + queueStats.completed + queueStats.failed)) * 100}%` }}
+                        title={`${queueStats.failed} failed`}
+                      />
+                    </div>
+                  </div>
+                  {queueStats.processing > 0 && (
+                    <p className="text-xs text-blue-400 animate-pulse">🔄 {queueStats.processing} backtest{queueStats.processing > 1 ? 's' : ''} currently running...</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
