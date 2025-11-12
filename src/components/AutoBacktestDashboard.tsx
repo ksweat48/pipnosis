@@ -249,6 +249,7 @@ export default function AutoBacktestDashboard() {
         // Start the job monitor to process queued jobs
         console.log('[Auto-Backtest Dashboard] 🔧 Starting job monitor...');
         await autoBacktestJobMonitor.start(user.id);
+        console.log('[Auto-Backtest Dashboard] ✅ Job monitor started successfully');
       } else {
         console.error('[Auto-Backtest Dashboard] ❌ Start failed:', response.error);
         setError(response.error || 'Failed to start');
