@@ -6,6 +6,7 @@ import ActiveBacktestCard from './ActiveBacktestCard';
 import BacktestPhaseIndicator from './BacktestPhaseIndicator';
 import LiveExecutionLog from './LiveExecutionLog';
 import { backtestNotificationService } from '../services/backtest-notification-service';
+import { autoBacktestJobMonitor } from '../services/auto-backtest-job-monitor';
 
 export default function AutoBacktestDashboard() {
   const { user } = useAuth();
@@ -54,6 +55,9 @@ export default function AutoBacktestDashboard() {
         console.log('[Auto-Backtest Dashboard] 🛑 Component unmounting, cleaning up intervals');
         clearInterval(stateInterval);
         clearInterval(progressInterval);
+
+        // Stop job monitor when dashboard unmounts
+        autoBacktestJobMonitor.stop();
       };
     }
   }, [user]);
@@ -241,6 +245,10 @@ export default function AutoBacktestDashboard() {
       console.log('[Auto-Backtest Dashboard] Start response:', response);
       if (response.success) {
         console.log('[Auto-Backtest Dashboard] ✅ Started successfully');
+
+        // Start the job monitor to process queued jobs
+        console.log('[Auto-Backtest Dashboard] 🔧 Starting job monitor...');
+        await autoBacktestJobMonitor.start(user.id);
       } else {
         console.error('[Auto-Backtest Dashboard] ❌ Start failed:', response.error);
         setError(response.error || 'Failed to start');
@@ -260,6 +268,10 @@ export default function AutoBacktestDashboard() {
     setLoading(true);
     setError(null);
     try {
+      // Stop the job monitor first
+      console.log('[Auto-Backtest Dashboard] 🔧 Stopping job monitor...');
+      autoBacktestJobMonitor.stop();
+
       console.log('[Auto-Backtest Dashboard] Calling stop API...');
       const response = await autoBacktestAPI.stop();
       console.log('[Auto-Backtest Dashboard] Stop response:', response);
