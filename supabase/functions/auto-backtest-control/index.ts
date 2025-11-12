@@ -72,18 +72,29 @@ async function handleStart(supabase: any, userId: string): Promise<Response> {
 
   let controllerId: string;
 
-  if (existing && existing.is_active) {
+  if (existing) {
+    // Reactivate existing controller regardless of current state
     await supabase
       .from('auto_backtest_controller')
       .update({
         status: 'running',
+        is_active: true,
         started_at: new Date().toISOString(),
+        stopped_at: null,
+        cooldown_active: false,
+        cooldown_ends_at: null,
+        cooldown_reason: null,
+        paused_for_live_trade: false,
+        current_cycle_count: 0,
+        consecutive_errors: 0,
         updated_at: new Date().toISOString()
       })
       .eq('id', existing.id);
 
     controllerId = existing.id;
+    console.log(`[Auto-Backtest Control] Reactivated existing controller ${controllerId}`);
   } else {
+    // Create new controller if none exists
     const { data: newController } = await supabase
       .from('auto_backtest_controller')
       .insert({
@@ -96,6 +107,7 @@ async function handleStart(supabase: any, userId: string): Promise<Response> {
       .single();
 
     controllerId = newController.id;
+    console.log(`[Auto-Backtest Control] Created new controller ${controllerId}`);
   }
 
   const { data: config } = await supabase
