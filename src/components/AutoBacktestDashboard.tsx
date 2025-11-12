@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Square, Clock, Activity, AlertTriangle, CheckCircle, Pause, TrendingUp, Settings as SettingsIcon, List, Bell, BellOff } from 'lucide-react';
+import { Play, Square, Clock, Activity, AlertTriangle, CheckCircle, Pause, TrendingUp, Settings as SettingsIcon, List, Bell, BellOff, Zap } from 'lucide-react';
 import { autoBacktestAPI, AutoBacktestState, QueueStats, BacktestProgress, SystemPerformanceMetrics } from '../services/auto-backtest-api';
 import { useAuth } from '../hooks/useAuth';
 import ActiveBacktestCard from './ActiveBacktestCard';
@@ -7,6 +7,7 @@ import BacktestPhaseIndicator from './BacktestPhaseIndicator';
 import LiveExecutionLog from './LiveExecutionLog';
 import { backtestNotificationService } from '../services/backtest-notification-service';
 import { autoBacktestJobMonitor } from '../services/auto-backtest-job-monitor';
+import { manualBacktestTrigger } from '../services/manual-backtest-trigger';
 
 export default function AutoBacktestDashboard() {
   const { user } = useAuth();
@@ -30,6 +31,8 @@ export default function AutoBacktestDashboard() {
   const [showNotificationSettings, setShowNotificationSettings] = useState(false);
   const [notificationPrefs, setNotificationPrefs] = useState(backtestNotificationService.getPreferences());
   const [previousActiveCount, setPreviousActiveCount] = useState(0);
+  const [manualTriggerLoading, setManualTriggerLoading] = useState(false);
+  const [manualTriggerMessage, setManualTriggerMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -358,6 +361,26 @@ export default function AutoBacktestDashboard() {
     return 'bg-green-500';
   };
 
+  const handleManualTrigger = async () => {
+    if (!user) return;
+    setManualTriggerLoading(true);
+    setManualTriggerMessage(null);
+    try {
+      console.log('[Manual Trigger] 🎯 User clicked manual trigger');
+      const result = await manualBacktestTrigger.runCompleteCycle();
+      console.log('[Manual Trigger] Result:', result);
+      setManualTriggerMessage(result.message);
+      if (result.success) {
+        await loadProgressData();
+      }
+    } catch (err: any) {
+      setManualTriggerMessage(`Error: ${err.message}`);
+    } finally {
+      setManualTriggerLoading(false);
+      setTimeout(() => setManualTriggerMessage(null), 10000);
+    }
+  };
+
   return (
     <div className="bg-gradient-to-br from-purple-900/30 to-blue-900/30 backdrop-blur-sm border-2 border-purple-500/30 rounded-lg shadow-lg p-6">
       <div className="flex items-center justify-between mb-6">
@@ -556,14 +579,36 @@ export default function AutoBacktestDashboard() {
             <div className="bg-yellow-900/20 border-l-4 border-yellow-400 p-4 rounded">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
-                <div>
+                <div className="flex-1">
                   <p className="text-sm font-semibold text-yellow-200 mb-1">
                     No Active Backtests Detected
                   </p>
-                  <p className="text-xs text-yellow-300">
+                  <p className="text-xs text-yellow-300 mb-3">
                     The auto-backtest system is running, but no backtests are currently being processed.
-                    Check the console (F12) for detailed debugging information about what the system is doing.
+                    This usually means the cron jobs aren't triggering properly. Use the manual trigger below to force execution.
                   </p>
+                  <button
+                    onClick={handleManualTrigger}
+                    disabled={manualTriggerLoading}
+                    className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white text-sm font-semibold rounded-lg hover:bg-yellow-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {manualTriggerLoading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Running...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4" />
+                        Trigger Backtest Now
+                      </>
+                    )}
+                  </button>
+                  {manualTriggerMessage && (
+                    <p className="text-xs text-white mt-2 p-2 bg-black/30 rounded">
+                      {manualTriggerMessage}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -699,20 +744,30 @@ export default function AutoBacktestDashboard() {
           <div className="bg-gradient-to-r from-blue-900/20 to-purple-900/20 border border-blue-500/30 p-4 rounded-lg">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-blue-300">System Diagnostics</h3>
-              <button
-                onClick={() => {
-                  console.log('===== MANUAL DIAGNOSTIC DUMP =====');
-                  console.log('Current State:', state);
-                  console.log('Queue Stats:', queueStats);
-                  console.log('Active Backtests:', activeBacktests);
-                  console.log('Recent Completed:', recentCompleted);
-                  console.log('System Metrics:', systemMetrics);
-                  console.log('================================');
-                }}
-                className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1 bg-blue-900/30 rounded"
-              >
-                Dump to Console
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleManualTrigger}
+                  disabled={manualTriggerLoading}
+                  className="text-xs text-green-400 hover:text-green-300 px-3 py-1 bg-green-900/30 rounded flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Zap className="w-3 h-3" />
+                  Trigger Now
+                </button>
+                <button
+                  onClick={() => {
+                    console.log('===== MANUAL DIAGNOSTIC DUMP =====');
+                    console.log('Current State:', state);
+                    console.log('Queue Stats:', queueStats);
+                    console.log('Active Backtests:', activeBacktests);
+                    console.log('Recent Completed:', recentCompleted);
+                    console.log('System Metrics:', systemMetrics);
+                    console.log('================================');
+                  }}
+                  className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1 bg-blue-900/30 rounded"
+                >
+                  Dump to Console
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="bg-gray-900/50 p-2 rounded">
