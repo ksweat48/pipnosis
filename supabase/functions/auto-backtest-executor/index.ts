@@ -119,35 +119,85 @@ Deno.serve(async (req: Request) => {
 });
 
 async function executeSyntheticBacktest(supabase: any, job: any): Promise<any> {
+  const backtestId = crypto.randomUUID();
   const sessionId = crypto.randomUUID();
   const startDate = new Date(job.start_date);
   const endDate = new Date(job.end_date);
 
-  console.log(`[Auto-Backtest Executor] Generating synthetic data for ${job.session_name}...`);
+  // Initialize progress tracking
+  await initializeProgressTracking(supabase, backtestId, job.user_id);
 
-  const generationId = await generateSyntheticData(supabase, job, sessionId);
+  try {
+    console.log(`[Auto-Backtest Executor] Generating synthetic data for ${job.session_name}...`);
 
-  console.log(`[Auto-Backtest Executor] Running backtest simulation for ${job.session_name}...`);
+    await logStep(supabase, backtestId, job.user_id, 'Starting synthetic data generation', 'phase_start');
 
-  const backtestSessionId = await createBacktestSession(supabase, job, sessionId, generationId);
+    const generationId = await generateSyntheticData(supabase, job, sessionId, backtestId);
 
-  const trades = await simulateTrades(supabase, job, generationId, backtestSessionId);
+    await updateProgress(supabase, backtestId, job.user_id, {
+      current_step: 'Creating backtest session',
+      progress_percentage: 40,
+      phase: 'processing'
+    });
 
-  const metrics = calculateBacktestMetrics(trades, 10000);
+    console.log(`[Auto-Backtest Executor] Running backtest simulation for ${job.session_name}...`);
 
-  await updateBacktestSession(supabase, backtestSessionId, metrics);
+    const backtestSessionId = await createBacktestSession(supabase, job, sessionId, generationId);
 
-  return {
-    sessionId: backtestSessionId,
-    syntheticGenerationId: generationId,
-    totalTrades: metrics.totalTrades,
-    winRate: metrics.winRate,
-    totalPnL: metrics.totalPnL,
-    finalBalance: metrics.finalBalance
-  };
+    await updateProgress(supabase, backtestId, job.user_id, {
+      current_step: 'Simulating trades',
+      progress_percentage: 60,
+      phase: 'analyzing'
+    });
+
+    const trades = await simulateTrades(supabase, job, generationId, backtestSessionId, backtestId);
+
+    await updateProgress(supabase, backtestId, job.user_id, {
+      current_step: 'Calculating metrics',
+      progress_percentage: 90,
+      phase: 'completing',
+      trades_executed: trades.length
+    });
+
+    const metrics = calculateBacktestMetrics(trades, 10000);
+
+    await updateBacktestSession(supabase, backtestSessionId, metrics);
+
+    // Mark as completed
+    await updateProgress(supabase, backtestId, job.user_id, {
+      current_step: 'Backtest completed',
+      progress_percentage: 100,
+      phase: 'completed',
+      status: 'completed',
+      trades_executed: metrics.totalTrades,
+      winning_trades: metrics.winningTrades,
+      losing_trades: metrics.losingTrades
+    });
+
+    await logStep(supabase, backtestId, job.user_id, 'Backtest completed successfully', 'phase_end', 'completed');
+
+    return {
+      sessionId: backtestSessionId,
+      syntheticGenerationId: generationId,
+      totalTrades: metrics.totalTrades,
+      winRate: metrics.winRate,
+      totalPnL: metrics.totalPnL,
+      finalBalance: metrics.finalBalance
+    };
+  } catch (error: any) {
+    // Mark as failed
+    await updateProgress(supabase, backtestId, job.user_id, {
+      current_step: 'Backtest failed',
+      status: 'failed'
+    });
+
+    await logStep(supabase, backtestId, job.user_id, 'Backtest failed', 'error', 'failed', error.message);
+
+    throw error;
+  }
 }
 
-async function generateSyntheticData(supabase: any, job: any, sessionId: string): Promise<string> {
+async function generateSyntheticData(supabase: any, job: any, sessionId: string, backtestId: string): Promise<string> {
   const generationId = crypto.randomUUID();
   const startDate = new Date(job.start_date);
   const endDate = new Date(job.end_date);
@@ -171,10 +221,20 @@ async function generateSyntheticData(supabase: any, job: any, sessionId: string)
 
   const candles = [];
   const hoursCount = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60));
+  const totalCandles = Math.min(hoursCount, 500);
   let currentTime = new Date(startDate);
   let currentPrice = 1.1000;
 
-  for (let i = 0; i < Math.min(hoursCount, 500); i++) {
+  // Update progress: starting generation
+  await updateProgress(supabase, backtestId, job.user_id, {
+    current_step: 'Generating synthetic candles',
+    progress_percentage: 10,
+    phase: 'loading',
+    total_candles: totalCandles,
+    current_candle: 0
+  });
+
+  for (let i = 0; i < totalCandles; i++) {
     const volatility = 0.0002;
     const trend = (Math.random() - 0.5) * volatility * 2;
 
@@ -200,6 +260,18 @@ async function generateSyntheticData(supabase: any, job: any, sessionId: string)
 
     currentTime = new Date(currentTime.getTime() + 60 * 60 * 1000);
     currentPrice = close;
+
+    // Update progress every 50 candles
+    if (i % 50 === 0 || i === totalCandles - 1) {
+      const progressPercent = 10 + Math.floor((i / totalCandles) * 30); // 10% to 40%
+      await updateProgress(supabase, backtestId, job.user_id, {
+        current_step: `Generating synthetic candles (${i + 1}/${totalCandles})`,
+        progress_percentage: progressPercent,
+        phase: 'loading',
+        current_candle: i + 1,
+        total_candles: totalCandles
+      });
+    }
   }
 
   if (candles.length > 0) {
@@ -209,6 +281,8 @@ async function generateSyntheticData(supabase: any, job: any, sessionId: string)
 
     if (candlesError) throw candlesError;
   }
+
+  await logStep(supabase, backtestId, job.user_id, `Generated ${candles.length} synthetic candles`, 'checkpoint', 'completed');
 
   return generationId;
 }
@@ -252,7 +326,7 @@ async function createBacktestSession(supabase: any, job: any, sessionId: string,
   return backtestSessionId;
 }
 
-async function simulateTrades(supabase: any, job: any, generationId: string, sessionId: string): Promise<any[]> {
+async function simulateTrades(supabase: any, job: any, generationId: string, sessionId: string, backtestId: string): Promise<any[]> {
   const { data: candles } = await supabase
     .from('synthetic_candles')
     .select('*')
@@ -300,11 +374,27 @@ async function simulateTrades(supabase: any, job: any, generationId: string, ses
     };
 
     trades.push(trade);
+
+    // Update progress for each trade
+    const wins = trades.filter(t => t.outcome === 'win').length;
+    const losses = trades.filter(t => t.outcome === 'loss').length;
+    const progressPercent = 60 + Math.floor((i / numTrades) * 30); // 60% to 90%
+
+    await updateProgress(supabase, backtestId, job.user_id, {
+      current_step: `Simulating trades (${i + 1}/${numTrades})`,
+      progress_percentage: progressPercent,
+      phase: 'analyzing',
+      trades_executed: trades.length,
+      winning_trades: wins,
+      losing_trades: losses
+    });
   }
 
   if (trades.length > 0) {
     await supabase.from('synthetic_backtest_trades').insert(trades);
   }
+
+  await logStep(supabase, backtestId, job.user_id, `Simulated ${trades.length} trades`, 'checkpoint', 'completed');
 
   return trades;
 }
@@ -385,4 +475,58 @@ async function recordJobError(supabase: any, userId: string): Promise<void> {
       })
       .eq('id', controller.id);
   }
+}
+
+// Helper function to initialize progress tracking
+async function initializeProgressTracking(supabase: any, backtestId: string, userId: string): Promise<void> {
+  await supabase.rpc('update_backtest_progress', {
+    p_backtest_id: backtestId,
+    p_user_id: userId,
+    p_current_step: 'Initializing backtest',
+    p_progress_percentage: 0,
+    p_phase: 'initializing',
+    p_status: 'running'
+  });
+}
+
+// Helper function to update progress
+async function updateProgress(supabase: any, backtestId: string, userId: string, updates: any): Promise<void> {
+  const params: any = {
+    p_backtest_id: backtestId,
+    p_user_id: userId
+  };
+
+  if (updates.current_step !== undefined) params.p_current_step = updates.current_step;
+  if (updates.progress_percentage !== undefined) params.p_progress_percentage = updates.progress_percentage;
+  if (updates.current_candle !== undefined) params.p_current_candle = updates.current_candle;
+  if (updates.total_candles !== undefined) params.p_total_candles = updates.total_candles;
+  if (updates.phase !== undefined) params.p_phase = updates.phase;
+  if (updates.trades_executed !== undefined) params.p_trades_executed = updates.trades_executed;
+  if (updates.winning_trades !== undefined) params.p_winning_trades = updates.winning_trades;
+  if (updates.losing_trades !== undefined) params.p_losing_trades = updates.losing_trades;
+  if (updates.memory_usage_mb !== undefined) params.p_memory_usage_mb = updates.memory_usage_mb;
+  if (updates.cpu_usage_percent !== undefined) params.p_cpu_usage_percent = updates.cpu_usage_percent;
+  if (updates.status !== undefined) params.p_status = updates.status;
+
+  await supabase.rpc('update_backtest_progress', params);
+}
+
+// Helper function to log execution steps
+async function logStep(
+  supabase: any,
+  backtestId: string,
+  userId: string,
+  stepName: string,
+  stepType: string = 'info',
+  status: string = 'completed',
+  message?: string
+): Promise<void> {
+  await supabase.rpc('log_backtest_step', {
+    p_backtest_id: backtestId,
+    p_user_id: userId,
+    p_step_name: stepName,
+    p_step_type: stepType,
+    p_status: status,
+    p_message: message
+  });
 }
