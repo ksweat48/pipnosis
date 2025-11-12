@@ -8,6 +8,7 @@ import LiveExecutionLog from './LiveExecutionLog';
 import { backtestNotificationService } from '../services/backtest-notification-service';
 import { autoBacktestJobMonitor } from '../services/auto-backtest-job-monitor';
 import { manualBacktestTrigger } from '../services/manual-backtest-trigger';
+import { autoBacktestBrowserExecutor } from '../services/auto-backtest-browser-executor';
 
 export default function AutoBacktestDashboard() {
   const { user } = useAuth();
@@ -59,8 +60,9 @@ export default function AutoBacktestDashboard() {
         clearInterval(stateInterval);
         clearInterval(progressInterval);
 
-        // Stop job monitor when dashboard unmounts
+        // Stop executors when dashboard unmounts
         autoBacktestJobMonitor.stop();
+        autoBacktestBrowserExecutor.stop();
       };
     }
   }, [user]);
@@ -249,10 +251,10 @@ export default function AutoBacktestDashboard() {
       if (response.success) {
         console.log('[Auto-Backtest Dashboard] ✅ Started successfully');
 
-        // Start the job monitor to process queued jobs
-        console.log('[Auto-Backtest Dashboard] 🔧 Starting job monitor...');
-        await autoBacktestJobMonitor.start(user.id);
-        console.log('[Auto-Backtest Dashboard] ✅ Job monitor started successfully');
+        // Start the browser-based executor (runs automatically in browser)
+        console.log('[Auto-Backtest Dashboard] 🔧 Starting browser executor...');
+        await autoBacktestBrowserExecutor.start(user.id);
+        console.log('[Auto-Backtest Dashboard] ✅ Browser executor started - will run automatically every 10 seconds');
       } else {
         console.error('[Auto-Backtest Dashboard] ❌ Start failed:', response.error);
         setError(response.error || 'Failed to start');
@@ -272,9 +274,9 @@ export default function AutoBacktestDashboard() {
     setLoading(true);
     setError(null);
     try {
-      // Stop the job monitor first
-      console.log('[Auto-Backtest Dashboard] 🔧 Stopping job monitor...');
-      autoBacktestJobMonitor.stop();
+      // Stop the browser executor first
+      console.log('[Auto-Backtest Dashboard] 🔧 Stopping browser executor...');
+      autoBacktestBrowserExecutor.stop();
 
       console.log('[Auto-Backtest Dashboard] Calling stop API...');
       const response = await autoBacktestAPI.stop();
@@ -799,17 +801,17 @@ export default function AutoBacktestDashboard() {
             </div>
           </div>
 
-          {/* Server Mode Info Box */}
+          {/* Browser Automation Info Box */}
           <div className="bg-gradient-to-r from-green-900/20 to-blue-900/20 border-l-4 border-green-400 p-4 rounded">
             <div className="flex items-start gap-3">
-              <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+              <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5 animate-pulse" />
               <div>
                 <p className="text-sm font-semibold text-green-200 mb-1">
-                  Server-Side Automation Active
+                  Browser-Based Automation Active
                 </p>
                 <p className="text-xs text-gray-300">
-                  The auto-backtest system runs independently on Supabase servers. You can close this browser tab -
-                  the system will continue running in the background. Jobs are queued every 30 seconds and executed every 15 seconds.
+                  The system automatically creates and executes backtest jobs every 10 seconds while this dashboard is open.
+                  Keep this tab open for continuous AI training. Jobs are processed directly in the database for maximum reliability.
                 </p>
               </div>
             </div>
