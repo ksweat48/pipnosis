@@ -4,11 +4,14 @@
  * Calls the Netlify get-live-price function every 2 seconds for all symbols.
  * The Netlify function automatically saves prices to the database.
  * This provides a reliable fallback when server-side cron jobs aren't working.
+ * Now includes tick buffering for offline resilience.
  */
 
+import { tickBufferService } from './tick-buffer-service';
+
 const FOREX_PAIRS = ['EURUSD', 'XAUUSD', 'US30', 'GBPUSD', 'USDJPY'];
-const POLL_INTERVAL_MS = 3000; // Increased to 3s to reduce load
-const REQUEST_TIMEOUT_MS = 8000; // 8 second timeout per request
+const POLL_INTERVAL_MS = 3000;
+const REQUEST_TIMEOUT_MS = 8000;
 
 class BrowserPricePoller {
   private isActive = false;
@@ -64,6 +67,14 @@ class BrowserPricePoller {
               successCount++;
               const quality = response.status === 206 ? 'CACHED' : 'LIVE';
               console.log(`[BrowserPoller] ✅ ${symbol}: ${data.bid}/${data.ask} (${quality})`);
+
+              await tickBufferService.bufferTick(
+                symbol,
+                parseFloat(data.bid),
+                parseFloat(data.ask),
+                new Date().toISOString(),
+                data.broker_time
+              );
             }
           } else {
             const errorText = await response.text().catch(() => 'Unknown error');
