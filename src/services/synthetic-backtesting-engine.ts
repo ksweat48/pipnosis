@@ -133,6 +133,10 @@ class SyntheticBacktestingEngine {
 
     const session = await this.createSyntheticSession(userId, config);
     this.sessionId = session.id;
+    this.backtestId = session.id;
+
+    // Initialize progress tracking
+    await this.initializeProgressTracking(userId, config);
 
     await this.updateSessionStatus('running', { started_at: new Date() });
 
@@ -156,6 +160,9 @@ class SyntheticBacktestingEngine {
       result.analytics = analytics;
 
       await this.saveBacktestResults(result, analytics);
+
+      // Complete progress tracking
+      await this.completeProgressTracking('completed');
 
       // NEW: AI Learning Analysis
       onProgress?.({ phase: 'learning', message: 'AI analyzing trades and extracting learnings...', percentComplete: 98 });
@@ -185,6 +192,7 @@ class SyntheticBacktestingEngine {
       await this.updateSessionStatus('failed', {
         completed_at: new Date()
       });
+      await this.completeProgressTracking('failed', String(error));
       throw error;
     }
   }
@@ -213,9 +221,11 @@ class SyntheticBacktestingEngine {
 
       if (i % 10 === 0) {
         console.log(`[Synthetic Backtest] 🕒 Processing candle ${i + 1}/${candles.length} at ${currentTime.toISOString()}`);
+        // Update progress every 10 candles
+        await this.updateProgress(i + 1, candles.length);
       }
 
-      this.updateOpenTrades(candles[i]);
+      await this.updateOpenTrades(candles[i]);
 
       if (this.openTrades.length >= config.maxConcurrentTrades) {
         continue;
@@ -232,6 +242,8 @@ class SyntheticBacktestingEngine {
           const trade = this.executeTrade(signal, currentTime);
           this.openTrades.push(trade);
           console.log(`[Synthetic Backtest] ✓ Trade executed`);
+          // Update progress with each trade executed
+          await this.updateProgressWithNewTrade();
         } else {
           signalsSkipped++;
           console.log(`[Synthetic Backtest] ✗ Signal skipped`);
@@ -317,7 +329,7 @@ class SyntheticBacktestingEngine {
     };
   }
 
-  private updateOpenTrades(candle: any): void {
+  private async updateOpenTrades(candle: any): Promise<void> {
     const currentPrice = candle.close;
     const currentTime = new Date(candle.open_time);
 
@@ -331,14 +343,14 @@ class SyntheticBacktestingEngine {
         : currentPrice >= trade.stopLoss;
 
       if (isTP) {
-        this.closeTrade(trade, currentPrice, currentTime, 'take_profit');
+        await this.closeTrade(trade, currentPrice, currentTime, 'take_profit');
       } else if (isSL) {
-        this.closeTrade(trade, currentPrice, currentTime, 'stop_loss');
+        await this.closeTrade(trade, currentPrice, currentTime, 'stop_loss');
       }
     }
   }
 
-  private closeTrade(trade: SyntheticBacktestTrade, exitPrice: number, exitTime: Date, exitReason: string): void {
+  private async closeTrade(trade: SyntheticBacktestTrade, exitPrice: number, exitTime: Date, exitReason: string): Promise<void> {
     trade.exitPrice = exitPrice;
     trade.exitTime = exitTime;
     trade.exitReason = exitReason;
@@ -380,11 +392,14 @@ class SyntheticBacktestingEngine {
       time: exitTime,
       balance: this.currentBalance
     });
+
+    // Update progress tracking with trade result
+    await this.updateProgressWithTradeResult(trade.outcome, trade.pnl);
   }
 
-  private closeAllOpenTrades(endTime: Date): void {
+  private async closeAllOpenTrades(endTime: Date): Promise<void> {
     for (const trade of [...this.openTrades]) {
-      this.closeTrade(trade, trade.entryPrice, endTime, 'session_end');
+      await this.closeTrade(trade, trade.entryPrice, endTime, 'session_end');
     }
   }
 
@@ -726,6 +741,98 @@ class SyntheticBacktestingEngine {
     }
   }
 
+  private async initializeProgressTracking(userId: string, config: SyntheticBacktestConfig): Promise<void> {
+    try {
+      const { data, error } = await supabase.rpc('initialize_backtest_progress', {
+        p_backtest_id: this.backtestId,
+        p_user_id: userId,
+        p_session_name: config.sessionName,
+        p_total_candles: 1000
+      });
+
+      if (error) {
+        console.error('[Synthetic Backtest] Error initializing progress tracking:', error);
+      } else {
+        this.progressId = data;
+        console.log('[Synthetic Backtest] Progress tracking initialized:', this.progressId);
+      }
+    } catch (error) {
+      console.error('[Synthetic Backtest] Exception initializing progress tracking:', error);
+    }
+  }
+
+  private async updateProgressWithTradeResult(outcome: string, pnl: number): Promise<void> {
+    if (!this.backtestId) return;
+
+    try {
+      await supabase.rpc('update_backtest_progress_with_trade', {
+        p_backtest_id: this.backtestId,
+        p_trade_outcome: outcome,
+        p_profit_loss: pnl
+      });
+    } catch (error) {
+      console.error('[Synthetic Backtest] Error updating progress with trade:', error);
+    }
+  }
+
+  private async updateProgressWithNewTrade(): Promise<void> {
+    if (!this.backtestId) return;
+
+    try {
+      const winningCount = this.closedTrades.filter(t => t.outcome === 'win').length;
+      const losingCount = this.closedTrades.filter(t => t.outcome === 'loss').length;
+      const totalTrades = this.closedTrades.length + this.openTrades.length;
+      const currentWinRate = totalTrades > 0 ? (winningCount / totalTrades) * 100 : 0;
+
+      await supabase
+        .from('backtest_progress_tracking')
+        .update({
+          trades_executed: totalTrades,
+          winning_trades: winningCount,
+          losing_trades: losingCount,
+          current_win_rate: currentWinRate,
+          current_profit_loss: this.currentBalance - (this.config?.initialBalance || 10000),
+          last_updated_at: new Date().toISOString()
+        })
+        .eq('backtest_id', this.backtestId);
+    } catch (error) {
+      console.error('[Synthetic Backtest] Error updating progress with new trade:', error);
+    }
+  }
+
+  private async updateProgress(currentCandle: number, totalCandles: number): Promise<void> {
+    if (!this.backtestId) return;
+
+    try {
+      const progressPercentage = Math.floor((currentCandle / totalCandles) * 100);
+
+      await supabase.rpc('update_backtest_progress', {
+        p_backtest_id: this.backtestId,
+        p_current_step: `Processing candle ${currentCandle}/${totalCandles}`,
+        p_phase: 'processing',
+        p_progress_percentage: progressPercentage,
+        p_current_candle: currentCandle
+      });
+    } catch (error) {
+      console.error('[Synthetic Backtest] Error updating progress:', error);
+    }
+  }
+
+  private async completeProgressTracking(status: string, errorMessage?: string): Promise<void> {
+    if (!this.backtestId) return;
+
+    try {
+      await supabase.rpc('complete_backtest_progress', {
+        p_backtest_id: this.backtestId,
+        p_status: status,
+        p_error_message: errorMessage
+      });
+      console.log(`[Synthetic Backtest] Progress tracking completed with status: ${status}`);
+    } catch (error) {
+      console.error('[Synthetic Backtest] Error completing progress tracking:', error);
+    }
+  }
+
   private reset(): void {
     this.currentBalance = 10000;
     this.openTrades = [];
@@ -738,6 +845,8 @@ class SyntheticBacktestingEngine {
     this.tradeCounter = 0;
     this.gpt4CallsUsed = 0;
     this.syntheticGenerationId = '';
+    this.backtestId = '';
+    this.progressId = '';
   }
 }
 
