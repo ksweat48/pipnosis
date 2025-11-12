@@ -32,6 +32,51 @@ export interface ControllerResponse {
   error?: string;
 }
 
+export interface BacktestProgress {
+  id: string;
+  backtestId: string;
+  currentStep: string;
+  progressPercentage: number;
+  phase: string;
+  currentCandle: number;
+  totalCandles: number;
+  candlesPerSecond: number;
+  tradesExecuted: number;
+  winningTrades: number;
+  losingTrades: number;
+  currentWinRate: number;
+  currentProfitLoss: number;
+  memoryUsageMb: number;
+  cpuUsagePercent: number;
+  estimatedCompletionTime?: string;
+  startedAt: string;
+  lastUpdatedAt: string;
+  status: string;
+  timeElapsedSeconds: number;
+}
+
+export interface ExecutionLog {
+  id: string;
+  backtestId: string;
+  stepName: string;
+  stepType: string;
+  status: string;
+  message?: string;
+  timestamp: string;
+  durationMs?: number;
+  memorySnapshotMb?: number;
+  cpuSnapshotPercent?: number;
+}
+
+export interface SystemPerformanceMetrics {
+  totalActiveBacktests: number;
+  avgMemoryUsageMb: number;
+  avgCpuUsagePercent: number;
+  totalCandlesProcessed: number;
+  avgProcessingSpeed: number;
+  successRate: number;
+}
+
 class AutoBacktestAPI {
   private getEdgeFunctionUrl(functionName: string): string {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -136,6 +181,197 @@ class AutoBacktestAPI {
     }
 
     return true;
+  }
+
+  // Progress Tracking Methods
+
+  async getActiveBacktestsProgress(userId: string): Promise<BacktestProgress[]> {
+    try {
+      const { data, error } = await supabase
+        .rpc('get_active_backtests', { p_user_id: userId });
+
+      if (error) {
+        console.error('[Auto-Backtest API] Error fetching active backtests:', error);
+        return [];
+      }
+
+      return (data || []).map((row: any) => ({
+        id: row.id || row.backtest_id,
+        backtestId: row.backtest_id,
+        currentStep: row.current_step,
+        progressPercentage: row.progress_percentage || 0,
+        phase: row.phase,
+        currentCandle: row.candles_processed || 0,
+        totalCandles: row.total_candles || 0,
+        candlesPerSecond: parseFloat(row.candles_per_second) || 0,
+        tradesExecuted: row.trades_executed || 0,
+        winningTrades: 0,
+        losingTrades: 0,
+        currentWinRate: parseFloat(row.current_win_rate) || 0,
+        currentProfitLoss: 0,
+        memoryUsageMb: row.memory_usage_mb || 0,
+        cpuUsagePercent: parseFloat(row.cpu_usage_percent) || 0,
+        estimatedCompletionTime: row.estimated_completion_time,
+        startedAt: row.started_at,
+        lastUpdatedAt: row.last_updated_at,
+        status: row.status,
+        timeElapsedSeconds: row.time_elapsed_seconds || 0
+      }));
+    } catch (err) {
+      console.error('[Auto-Backtest API] Exception fetching active backtests:', err);
+      return [];
+    }
+  }
+
+  async getBacktestProgress(backtestId: string): Promise<BacktestProgress | null> {
+    try {
+      const { data, error } = await supabase
+        .from('backtest_progress_tracking')
+        .select('*')
+        .eq('backtest_id', backtestId)
+        .maybeSingle();
+
+      if (error || !data) {
+        return null;
+      }
+
+      return {
+        id: data.id,
+        backtestId: data.backtest_id,
+        currentStep: data.current_step,
+        progressPercentage: data.progress_percentage || 0,
+        phase: data.phase,
+        currentCandle: data.current_candle || 0,
+        totalCandles: data.total_candles || 0,
+        candlesPerSecond: parseFloat(data.candles_per_second) || 0,
+        tradesExecuted: data.trades_executed || 0,
+        winningTrades: data.winning_trades || 0,
+        losingTrades: data.losing_trades || 0,
+        currentWinRate: parseFloat(data.current_win_rate) || 0,
+        currentProfitLoss: parseFloat(data.current_profit_loss) || 0,
+        memoryUsageMb: data.memory_usage_mb || 0,
+        cpuUsagePercent: parseFloat(data.cpu_usage_percent) || 0,
+        estimatedCompletionTime: data.estimated_completion_time,
+        startedAt: data.started_at,
+        lastUpdatedAt: data.last_updated_at,
+        status: data.status,
+        timeElapsedSeconds: Math.floor((new Date().getTime() - new Date(data.started_at).getTime()) / 1000)
+      };
+    } catch (err) {
+      console.error('[Auto-Backtest API] Exception fetching backtest progress:', err);
+      return null;
+    }
+  }
+
+  async getExecutionLogs(backtestId: string, limit: number = 50): Promise<ExecutionLog[]> {
+    try {
+      const { data, error } = await supabase
+        .from('backtest_execution_logs')
+        .select('*')
+        .eq('backtest_id', backtestId)
+        .order('timestamp', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        console.error('[Auto-Backtest API] Error fetching execution logs:', error);
+        return [];
+      }
+
+      return (data || []).map((row: any) => ({
+        id: row.id,
+        backtestId: row.backtest_id,
+        stepName: row.step_name,
+        stepType: row.step_type,
+        status: row.status,
+        message: row.message,
+        timestamp: row.timestamp,
+        durationMs: row.duration_ms,
+        memorySnapshotMb: row.memory_snapshot_mb,
+        cpuSnapshotPercent: parseFloat(row.cpu_snapshot_percent)
+      }));
+    } catch (err) {
+      console.error('[Auto-Backtest API] Exception fetching execution logs:', err);
+      return [];
+    }
+  }
+
+  async getRecentCompletedBacktests(userId: string, limit: number = 10): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('backtest_progress_tracking')
+        .select('*')
+        .eq('user_id', userId)
+        .in('status', ['completed', 'failed'])
+        .order('completed_at', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        console.error('[Auto-Backtest API] Error fetching recent completed backtests:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (err) {
+      console.error('[Auto-Backtest API] Exception fetching recent completed backtests:', err);
+      return [];
+    }
+  }
+
+  async getSystemPerformanceMetrics(userId: string): Promise<SystemPerformanceMetrics> {
+    try {
+      const { data, error } = await supabase
+        .from('backtest_progress_tracking')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'running');
+
+      if (error || !data) {
+        return {
+          totalActiveBacktests: 0,
+          avgMemoryUsageMb: 0,
+          avgCpuUsagePercent: 0,
+          totalCandlesProcessed: 0,
+          avgProcessingSpeed: 0,
+          successRate: 0
+        };
+      }
+
+      const totalActive = data.length;
+      const avgMemory = totalActive > 0 ? data.reduce((sum, b) => sum + (b.memory_usage_mb || 0), 0) / totalActive : 0;
+      const avgCpu = totalActive > 0 ? data.reduce((sum, b) => sum + (parseFloat(b.cpu_usage_percent) || 0), 0) / totalActive : 0;
+      const totalCandles = data.reduce((sum, b) => sum + (b.current_candle || 0), 0);
+      const avgSpeed = totalActive > 0 ? data.reduce((sum, b) => sum + (parseFloat(b.candles_per_second) || 0), 0) / totalActive : 0;
+
+      return {
+        totalActiveBacktests: totalActive,
+        avgMemoryUsageMb: Math.round(avgMemory),
+        avgCpuUsagePercent: Math.round(avgCpu * 10) / 10,
+        totalCandlesProcessed: totalCandles,
+        avgProcessingSpeed: Math.round(avgSpeed * 10) / 10,
+        successRate: 0 // Will calculate from historical data if needed
+      };
+    } catch (err) {
+      console.error('[Auto-Backtest API] Exception fetching system performance metrics:', err);
+      return {
+        totalActiveBacktests: 0,
+        avgMemoryUsageMb: 0,
+        avgCpuUsagePercent: 0,
+        totalCandlesProcessed: 0,
+        avgProcessingSpeed: 0,
+        successRate: 0
+      };
+    }
+  }
+
+  async detectStuckBacktests(): Promise<void> {
+    try {
+      const { error } = await supabase.rpc('detect_stuck_backtests');
+      if (error) {
+        console.error('[Auto-Backtest API] Error detecting stuck backtests:', error);
+      }
+    } catch (err) {
+      console.error('[Auto-Backtest API] Exception detecting stuck backtests:', err);
+    }
   }
 }
 

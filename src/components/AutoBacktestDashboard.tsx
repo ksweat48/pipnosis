@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Square, Clock, Activity, AlertTriangle, CheckCircle, Pause, TrendingUp, Settings as SettingsIcon, List } from 'lucide-react';
-import { autoBacktestAPI, AutoBacktestState, QueueStats } from '../services/auto-backtest-api';
+import { Play, Square, Clock, Activity, AlertTriangle, CheckCircle, Pause, TrendingUp, Settings as SettingsIcon, List, Bell, BellOff } from 'lucide-react';
+import { autoBacktestAPI, AutoBacktestState, QueueStats, BacktestProgress, SystemPerformanceMetrics } from '../services/auto-backtest-api';
 import { useAuth } from '../hooks/useAuth';
+import ActiveBacktestCard from './ActiveBacktestCard';
+import BacktestPhaseIndicator from './BacktestPhaseIndicator';
+import LiveExecutionLog from './LiveExecutionLog';
+import { backtestNotificationService } from '../services/backtest-notification-service';
 
 export default function AutoBacktestDashboard() {
   const { user } = useAuth();
@@ -16,14 +20,69 @@ export default function AutoBacktestDashboard() {
   const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState<string | null>(null);
 
+  // Progress tracking states
+  const [activeBacktests, setActiveBacktests] = useState<BacktestProgress[]>([]);
+  const [recentCompleted, setRecentCompleted] = useState<any[]>([]);
+  const [systemMetrics, setSystemMetrics] = useState<SystemPerformanceMetrics | null>(null);
+  const [selectedBacktest, setSelectedBacktest] = useState<string | null>(null);
+  const [executionLogs, setExecutionLogs] = useState<any[]>([]);
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false);
+  const [notificationPrefs, setNotificationPrefs] = useState(backtestNotificationService.getPreferences());
+  const [previousActiveCount, setPreviousActiveCount] = useState(0);
+
   useEffect(() => {
     if (user) {
       loadState();
       loadConfig();
-      const interval = setInterval(loadState, 3000);
-      return () => clearInterval(interval);
+      loadProgressData();
+
+      // Request notification permission on mount
+      backtestNotificationService.requestPermission();
+
+      const stateInterval = setInterval(loadState, 3000);
+      const progressInterval = setInterval(loadProgressData, 2000); // Poll progress every 2 seconds
+
+      return () => {
+        clearInterval(stateInterval);
+        clearInterval(progressInterval);
+      };
     }
   }, [user]);
+
+  // Detect completed backtests and trigger notifications
+  useEffect(() => {
+    if (activeBacktests.length < previousActiveCount) {
+      // A backtest completed - check recent completed for details
+      checkForNewCompletions();
+    }
+    setPreviousActiveCount(activeBacktests.length);
+  }, [activeBacktests]);
+
+  const checkForNewCompletions = async () => {
+    if (!user) return;
+    const completed = await autoBacktestAPI.getRecentCompletedBacktests(user.id, 5);
+
+    // Check if there's a newly completed backtest
+    const latestCompleted = completed[0];
+    if (latestCompleted && latestCompleted.status === 'completed') {
+      const timeDiff = new Date().getTime() - new Date(latestCompleted.completed_at).getTime();
+      if (timeDiff < 10000) { // Within last 10 seconds
+        await backtestNotificationService.notifyBacktestComplete(
+          latestCompleted.backtest_id,
+          latestCompleted.current_win_rate || 0,
+          latestCompleted.trades_executed || 0
+        );
+      }
+    } else if (latestCompleted && latestCompleted.status === 'failed') {
+      const timeDiff = new Date().getTime() - new Date(latestCompleted.completed_at).getTime();
+      if (timeDiff < 10000) {
+        await backtestNotificationService.notifyBacktestFailed(
+          latestCompleted.backtest_id,
+          latestCompleted.error_message || 'Unknown error'
+        );
+      }
+    }
+  };
 
   const loadConfig = async () => {
     if (!user) return;
@@ -103,6 +162,34 @@ export default function AutoBacktestDashboard() {
     } catch (err: any) {
       console.error('[Auto-Backtest Dashboard] Error loading state:', err);
       setError('Failed to load controller state. Please try refreshing the page.');
+    }
+  };
+
+  const loadProgressData = async () => {
+    if (!user) return;
+    try {
+      // Load active backtests progress
+      const active = await autoBacktestAPI.getActiveBacktestsProgress(user.id);
+      setActiveBacktests(active);
+
+      // Load recent completed backtests
+      const completed = await autoBacktestAPI.getRecentCompletedBacktests(user.id, 10);
+      setRecentCompleted(completed);
+
+      // Load system performance metrics
+      const metrics = await autoBacktestAPI.getSystemPerformanceMetrics(user.id);
+      setSystemMetrics(metrics);
+
+      // Detect stuck backtests
+      await autoBacktestAPI.detectStuckBacktests();
+
+      // Load execution logs if a backtest is selected
+      if (selectedBacktest) {
+        const logs = await autoBacktestAPI.getExecutionLogs(selectedBacktest, 50);
+        setExecutionLogs(logs);
+      }
+    } catch (err: any) {
+      console.error('[Auto-Backtest Dashboard] Error loading progress data:', err);
     }
   };
 
@@ -364,6 +451,86 @@ export default function AutoBacktestDashboard() {
               </div>
             </div>
           </div>
+
+          {/* System Performance Metrics */}
+          {systemMetrics && systemMetrics.totalActiveBacktests > 0 && (
+            <div className="bg-gradient-to-r from-purple-900/20 to-blue-900/20 p-4 rounded-lg border border-purple-500/30">
+              <h3 className="text-sm font-semibold text-purple-300 mb-3">System Performance</h3>
+              <div className="grid grid-cols-4 gap-4">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-purple-400">{systemMetrics.totalActiveBacktests}</p>
+                  <p className="text-xs text-gray-400 mt-1">Active</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-blue-400">{systemMetrics.totalCandlesProcessed.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400 mt-1">Candles</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-green-400">{systemMetrics.avgMemoryUsageMb}MB</p>
+                  <p className="text-xs text-gray-400 mt-1">Avg Memory</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-yellow-400">{systemMetrics.avgProcessingSpeed}/s</p>
+                  <p className="text-xs text-gray-400 mt-1">Processing</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Active Backtests */}
+          {activeBacktests.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Activity className="w-5 h-5 text-green-400 animate-pulse" />
+                Currently Running ({activeBacktests.length})
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {activeBacktests.map((backtest) => (
+                  <ActiveBacktestCard
+                    key={backtest.backtestId}
+                    progress={backtest}
+                    onViewDetails={setSelectedBacktest}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recent Completed Backtests */}
+          {recentCompleted.length > 0 && (
+            <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-300 mb-3">Recently Completed</h3>
+              <div className="space-y-2">
+                {recentCompleted.slice(0, 5).map((backtest) => (
+                  <div key={backtest.id} className="bg-gray-900/50 p-3 rounded border border-gray-700/50 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {backtest.status === 'completed' ? (
+                        <CheckCircle className="w-4 h-4 text-green-400" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-red-400" />
+                      )}
+                      <div>
+                        <p className="text-sm text-white font-medium">
+                          {backtest.trades_executed || 0} trades
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {new Date(backtest.completed_at).toLocaleTimeString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-sm font-bold ${backtest.current_win_rate >= 50 ? 'text-green-400' : 'text-red-400'}`}>
+                        {backtest.current_win_rate?.toFixed(1) || 0}% WR
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {Math.floor((new Date(backtest.completed_at).getTime() - new Date(backtest.started_at).getTime()) / 1000)}s
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Features Overview */}
           <div className="bg-gradient-to-r from-purple-900/20 to-blue-900/20 p-4 rounded-lg border border-purple-500/20">
