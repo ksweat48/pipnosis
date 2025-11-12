@@ -30,12 +30,17 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const timestamp = new Date().toISOString();
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`[Auto-Backtest Runner] 🚀 EXECUTION CYCLE STARTED at ${timestamp}`);
+    console.log(`${'='.repeat(80)}\n`);
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+    console.log('[Auto-Backtest Runner] ✅ Supabase client initialized');
 
-    console.log('[Auto-Backtest Runner] Starting execution cycle...');
-
+    console.log('[Auto-Backtest Runner] 🔍 Fetching active controllers...');
     const { data: controllers, error: controllersError } = await supabase
       .from('auto_backtest_controller')
       .select('*')
@@ -43,13 +48,17 @@ Deno.serve(async (req: Request) => {
       .eq('status', 'running');
 
     if (controllersError) {
+      console.error('[Auto-Backtest Runner] ❌ Database error fetching controllers:', controllersError);
       throw new Error(`Failed to fetch controllers: ${controllersError.message}`);
     }
 
+    console.log(`[Auto-Backtest Runner] Found ${controllers?.length || 0} active controller(s)`);
+
     if (!controllers || controllers.length === 0) {
-      console.log('[Auto-Backtest Runner] No active controllers found');
+      console.log('[Auto-Backtest Runner] ⚠️ No active controllers found - system is idle');
+      console.log('[Auto-Backtest Runner] 💡 Tip: Make sure auto-backtest is started from the UI');
       return new Response(
-        JSON.stringify({ message: 'No active controllers' }),
+        JSON.stringify({ message: 'No active controllers', timestamp: new Date().toISOString() }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -58,47 +67,85 @@ Deno.serve(async (req: Request) => {
 
     for (const controller of controllers) {
       try {
-        console.log(`[Auto-Backtest Runner] Processing controller ${controller.id} for user ${controller.user_id}`);
+        console.log(`\n${'~'.repeat(60)}`);
+        console.log(`[Auto-Backtest Runner] 🎮 Processing Controller ${controller.id}`);
+        console.log(`[Auto-Backtest Runner]   User: ${controller.user_id}`);
+        console.log(`[Auto-Backtest Runner]   Status: ${controller.status}`);
+        console.log(`[Auto-Backtest Runner]   Cycle: ${controller.current_cycle_count}`);
+        console.log(`[Auto-Backtest Runner]   Total completed: ${controller.total_backtests_completed}`);
+        console.log(`${'~'.repeat(60)}\n`);
 
+        console.log('[Auto-Backtest Runner] 🔍 Checking for live trades...');
         const isLiveTradePaused = await checkLiveTrade(supabase, controller.user_id);
         if (isLiveTradePaused) {
+          console.log(`[Auto-Backtest Runner] ⏸️ Controller ${controller.id} paused - live trade detected`);
           await updateControllerStatus(supabase, controller.id, 'paused_for_live_trade', {
             paused_for_live_trade: true,
           });
-          console.log(`[Auto-Backtest Runner] Controller ${controller.id} paused for live trade`);
           continue;
+        } else {
+          console.log('[Auto-Backtest Runner] ✅ No live trades - proceeding');
         }
 
         if (controller.cooldown_active && controller.cooldown_ends_at) {
           const now = new Date();
           const cooldownEnd = new Date(controller.cooldown_ends_at);
+          const remainingMs = cooldownEnd.getTime() - now.getTime();
           if (now < cooldownEnd) {
-            console.log(`[Auto-Backtest Runner] Controller ${controller.id} still in cooldown`);
+            const remainingMinutes = Math.ceil(remainingMs / 60000);
+            console.log(`[Auto-Backtest Runner] ⏰ Controller ${controller.id} in cooldown for ${remainingMinutes} more minutes`);
+            console.log(`[Auto-Backtest Runner]   Reason: ${controller.cooldown_reason}`);
             continue;
           } else {
+            console.log(`[Auto-Backtest Runner] ✅ Cooldown expired, resuming controller ${controller.id}`);
             await endCooldown(supabase, controller.id);
           }
         }
 
+        console.log('[Auto-Backtest Runner] 📊 Loading configuration...');
         const config = await loadConfig(supabase, controller.user_id);
+        console.log('[Auto-Backtest Runner] Config:', {
+          maxRuns: config.max_consecutive_runs,
+          cooldownMinutes: config.standard_cooldown_minutes,
+          durationDays: `${config.min_duration_days}-${config.max_duration_days}`
+        });
+
+        console.log('[Auto-Backtest Runner] 💚 Collecting health metrics...');
         const healthMetrics = await collectHealthMetrics(supabase, controller.id);
+        console.log('[Auto-Backtest Runner] Health:', healthMetrics);
         await logHealthMetrics(supabase, controller.id, controller.user_id, healthMetrics);
 
+        console.log('[Auto-Backtest Runner] ⚙️ Checking cooldown triggers...');
         const shouldCooldown = checkCooldownTriggers(healthMetrics, config, controller);
         if (shouldCooldown.triggered) {
+          console.log(`[Auto-Backtest Runner] 🛑 Cooldown triggered: ${shouldCooldown.reason}`);
+          console.log(`[Auto-Backtest Runner]   Duration: ${shouldCooldown.durationMinutes} minutes`);
           await startCooldown(supabase, controller.id, shouldCooldown.reason!, shouldCooldown.durationMinutes!);
-          console.log(`[Auto-Backtest Runner] Controller ${controller.id} cooldown triggered: ${shouldCooldown.reason}`);
           continue;
+        } else {
+          console.log('[Auto-Backtest Runner] ✅ Health checks passed');
         }
 
         if (controller.current_cycle_count >= config.max_consecutive_runs) {
+          console.log(`[Auto-Backtest Runner] 🎯 Cycle complete: ${controller.current_cycle_count}/${config.max_consecutive_runs} backtests`);
+          console.log(`[Auto-Backtest Runner] ⏰ Starting ${config.standard_cooldown_minutes}-minute cooldown`);
           await startCooldown(supabase, controller.id, 'cycle_complete', config.standard_cooldown_minutes);
-          console.log(`[Auto-Backtest Runner] Controller ${controller.id} completed ${config.max_consecutive_runs} backtests, entering cooldown`);
           continue;
         }
 
+        console.log('[Auto-Backtest Runner] 🎲 Generating new backtest job...');
         const jobConfig = generateBacktestJob(controller.user_id, config);
+        console.log('[Auto-Backtest Runner] Job config:', {
+          session: jobConfig.sessionName,
+          duration: `${jobConfig.durationDays} days`,
+          riskLevel: jobConfig.riskLevel,
+          symbols: jobConfig.symbols.join(', '),
+          dateRange: `${jobConfig.startDate.substring(0, 10)} to ${jobConfig.endDate.substring(0, 10)}`
+        });
+
+        console.log('[Auto-Backtest Runner] 📥 Queueing job to database...');
         await queueBacktestJob(supabase, jobConfig);
+        console.log('[Auto-Backtest Runner] ✅ Job successfully queued!');
 
         results.push({
           controllerId: controller.id,
@@ -107,10 +154,9 @@ Deno.serve(async (req: Request) => {
           jobConfig
         });
 
-        console.log(`[Auto-Backtest Runner] Queued backtest job for controller ${controller.id}`);
-
       } catch (error: any) {
-        console.error(`[Auto-Backtest Runner] Error processing controller ${controller.id}:`, error);
+        console.error(`[Auto-Backtest Runner] ❌ ERROR processing controller ${controller.id}:`, error);
+        console.error('[Auto-Backtest Runner] Error stack:', error.stack);
         await recordControllerError(supabase, controller.id);
         results.push({
           controllerId: controller.id,
@@ -120,15 +166,23 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`[Auto-Backtest Runner] ✅ EXECUTION CYCLE COMPLETED`);
+    console.log(`[Auto-Backtest Runner] Processed: ${controllers.length} controller(s)`);
+    console.log(`[Auto-Backtest Runner] Queued: ${results.filter(r => r.status === 'job_queued').length} job(s)`);
+    console.log(`[Auto-Backtest Runner] Errors: ${results.filter(r => r.status === 'error').length}`);
+    console.log(`${'='.repeat(80)}\n`);
+
     return new Response(
       JSON.stringify({ success: true, processed: controllers.length, results }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error: any) {
-    console.error('[Auto-Backtest Runner] Fatal error:', error);
+    console.error('[Auto-Backtest Runner] 🚨 FATAL ERROR:', error);
+    console.error('[Auto-Backtest Runner] Stack trace:', error.stack);
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ success: false, error: error.message, timestamp: new Date().toISOString() }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

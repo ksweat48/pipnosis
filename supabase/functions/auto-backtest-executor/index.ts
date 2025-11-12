@@ -13,12 +13,17 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const timestamp = new Date().toISOString();
+    console.log(`\n${'*'.repeat(80)}`);
+    console.log(`[Auto-Backtest Executor] ⚡ JOB PROCESSING STARTED at ${timestamp}`);
+    console.log(`${'*'.repeat(80)}\n`);
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+    console.log('[Auto-Backtest Executor] ✅ Supabase client initialized');
 
-    console.log('[Auto-Backtest Executor] Starting job processing...');
-
+    console.log('[Auto-Backtest Executor] 🔍 Fetching pending jobs from queue...');
     const { data: pendingJobs, error: jobsError } = await supabase
       .from('auto_backtest_queue')
       .select('*')
@@ -27,13 +32,17 @@ Deno.serve(async (req: Request) => {
       .limit(5);
 
     if (jobsError) {
+      console.error('[Auto-Backtest Executor] ❌ Database error fetching jobs:', jobsError);
       throw new Error(`Failed to fetch pending jobs: ${jobsError.message}`);
     }
 
+    console.log(`[Auto-Backtest Executor] Found ${pendingJobs?.length || 0} pending job(s)`);
+
     if (!pendingJobs || pendingJobs.length === 0) {
-      console.log('[Auto-Backtest Executor] No pending jobs found');
+      console.log('[Auto-Backtest Executor] ⚠️ Queue is empty - no jobs to process');
+      console.log('[Auto-Backtest Executor] 💡 Tip: Jobs should be created by auto-backtest-runner');
       return new Response(
-        JSON.stringify({ message: 'No pending jobs', processed: 0 }),
+        JSON.stringify({ message: 'No pending jobs', processed: 0, timestamp: new Date().toISOString() }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -42,10 +51,19 @@ Deno.serve(async (req: Request) => {
 
     for (const job of pendingJobs) {
       try {
-        console.log(`[Auto-Backtest Executor] Processing job ${job.id} for user ${job.user_id}`);
+        console.log(`\n${'#'.repeat(60)}`);
+        console.log(`[Auto-Backtest Executor] 🔧 Processing Job ${job.id}`);
+        console.log(`[Auto-Backtest Executor]   User: ${job.user_id}`);
+        console.log(`[Auto-Backtest Executor]   Session: ${job.session_name}`);
+        console.log(`[Auto-Backtest Executor]   Symbols: ${job.symbols?.join(', ')}`);
+        console.log(`[Auto-Backtest Executor]   Risk: ${job.risk_level}`);
+        console.log(`[Auto-Backtest Executor]   Duration: ${job.start_date} to ${job.end_date}`);
+        console.log(`${'#'.repeat(60)}\n`);
 
         const startTime = Date.now();
+        console.log('[Auto-Backtest Executor] ⏱️ Job timer started');
 
+        console.log('[Auto-Backtest Executor] 📝 Updating job status to processing...');
         await supabase
           .from('auto_backtest_queue')
           .update({
@@ -54,10 +72,19 @@ Deno.serve(async (req: Request) => {
           })
           .eq('id', job.id);
 
+        console.log('[Auto-Backtest Executor] 🎯 Executing synthetic backtest...');
         const backtestResult = await executeSyntheticBacktest(supabase, job);
 
         const processingDuration = Date.now() - startTime;
+        console.log(`[Auto-Backtest Executor] ⏱️ Job completed in ${(processingDuration / 1000).toFixed(2)}s`);
+        console.log('[Auto-Backtest Executor] Results:', {
+          sessionId: backtestResult.sessionId,
+          trades: backtestResult.totalTrades,
+          winRate: `${backtestResult.winRate.toFixed(1)}%`,
+          pnl: `$${backtestResult.totalPnL.toFixed(2)}`
+        });
 
+        console.log('[Auto-Backtest Executor] 📝 Updating job to completed status...');
         await supabase
           .from('auto_backtest_queue')
           .update({
@@ -71,9 +98,10 @@ Deno.serve(async (req: Request) => {
           })
           .eq('id', job.id);
 
+        console.log('[Auto-Backtest Executor] 📊 Incrementing controller backtest count...');
         await incrementControllerBacktestCount(supabase, job.user_id, processingDuration);
 
-        console.log(`[Auto-Backtest Executor] Job ${job.id} completed successfully`);
+        console.log(`[Auto-Backtest Executor] ✅ Job ${job.id} completed successfully!`);
         results.push({
           jobId: job.id,
           status: 'completed',
@@ -83,8 +111,10 @@ Deno.serve(async (req: Request) => {
         });
 
       } catch (error: any) {
-        console.error(`[Auto-Backtest Executor] Error processing job ${job.id}:`, error);
+        console.error(`[Auto-Backtest Executor] ❌ ERROR processing job ${job.id}:`, error);
+        console.error('[Auto-Backtest Executor] Error stack:', error.stack);
 
+        console.log('[Auto-Backtest Executor] 📝 Marking job as failed...');
         await supabase
           .from('auto_backtest_queue')
           .update({
@@ -94,6 +124,7 @@ Deno.serve(async (req: Request) => {
           })
           .eq('id', job.id);
 
+        console.log('[Auto-Backtest Executor] 📝 Recording error for controller...');
         await recordJobError(supabase, job.user_id);
 
         results.push({
@@ -198,9 +229,11 @@ async function executeSyntheticBacktest(supabase: any, job: any): Promise<any> {
 }
 
 async function generateSyntheticData(supabase: any, job: any, sessionId: string, backtestId: string): Promise<string> {
+  console.log('[Synthetic Data Generator] 🎲 Starting data generation...');
   const generationId = crypto.randomUUID();
   const startDate = new Date(job.start_date);
   const endDate = new Date(job.end_date);
+  console.log(`[Synthetic Data Generator] Generation ID: ${generationId}`);
 
   const { error: generationError } = await supabase
     .from('synthetic_generations')
@@ -222,6 +255,7 @@ async function generateSyntheticData(supabase: any, job: any, sessionId: string,
   const candles = [];
   const hoursCount = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60));
   const totalCandles = Math.min(hoursCount, 500);
+  console.log(`[Synthetic Data Generator] Generating ${totalCandles} candles (${hoursCount} hours available)`);
   let currentTime = new Date(startDate);
   let currentPrice = 1.1000;
 
@@ -275,14 +309,20 @@ async function generateSyntheticData(supabase: any, job: any, sessionId: string,
   }
 
   if (candles.length > 0) {
+    console.log(`[Synthetic Data Generator] 💾 Inserting ${candles.length} candles into database...`);
     const { error: candlesError } = await supabase
       .from('synthetic_candles')
       .insert(candles);
 
-    if (candlesError) throw candlesError;
+    if (candlesError) {
+      console.error('[Synthetic Data Generator] ❌ Error inserting candles:', candlesError);
+      throw candlesError;
+    }
+    console.log('[Synthetic Data Generator] ✅ Candles inserted successfully');
   }
 
   await logStep(supabase, backtestId, job.user_id, `Generated ${candles.length} synthetic candles`, 'checkpoint', 'completed');
+  console.log(`[Synthetic Data Generator] ✅ Generation complete: ${generationId}`);
 
   return generationId;
 }
@@ -327,16 +367,22 @@ async function createBacktestSession(supabase: any, job: any, sessionId: string,
 }
 
 async function simulateTrades(supabase: any, job: any, generationId: string, sessionId: string, backtestId: string): Promise<any[]> {
+  console.log('[Trade Simulator] 📊 Fetching synthetic candles...');
   const { data: candles } = await supabase
     .from('synthetic_candles')
     .select('*')
     .eq('synthetic_session_id', generationId)
     .order('open_time', { ascending: true });
 
-  if (!candles || candles.length === 0) return [];
+  console.log(`[Trade Simulator] Retrieved ${candles?.length || 0} candles`);
+  if (!candles || candles.length === 0) {
+    console.warn('[Trade Simulator] ⚠️ No candles found!');
+    return [];
+  }
 
   const trades = [];
   const numTrades = Math.floor(Math.random() * 10) + 5;
+  console.log(`[Trade Simulator] 🎯 Simulating ${numTrades} trades...`);
 
   for (let i = 0; i < numTrades && i < candles.length - 1; i++) {
     const entryCandle = candles[Math.floor(Math.random() * (candles.length - 1))];
@@ -391,10 +437,17 @@ async function simulateTrades(supabase: any, job: any, generationId: string, ses
   }
 
   if (trades.length > 0) {
-    await supabase.from('synthetic_backtest_trades').insert(trades);
+    console.log(`[Trade Simulator] 💾 Inserting ${trades.length} trades into database...`);
+    const { error: tradesError } = await supabase.from('synthetic_backtest_trades').insert(trades);
+    if (tradesError) {
+      console.error('[Trade Simulator] ❌ Error inserting trades:', tradesError);
+      throw tradesError;
+    }
+    console.log('[Trade Simulator] ✅ Trades inserted successfully');
   }
 
   await logStep(supabase, backtestId, job.user_id, `Simulated ${trades.length} trades`, 'checkpoint', 'completed');
+  console.log(`[Trade Simulator] ✅ Simulation complete: ${trades.length} trades`);
 
   return trades;
 }

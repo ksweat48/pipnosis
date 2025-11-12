@@ -109,17 +109,24 @@ class AutoBacktestAPI {
   }
 
   async start(): Promise<ControllerResponse> {
-    console.log('[Auto-Backtest API] Starting controller via Edge Function...');
-    return await this.callEdgeFunction('auto-backtest-control', { action: 'start' });
+    console.log('[Auto-Backtest API] 🚀 Starting controller via Edge Function...');
+    const result = await this.callEdgeFunction('auto-backtest-control', { action: 'start' });
+    console.log('[Auto-Backtest API] Start result:', result);
+    return result;
   }
 
   async stop(): Promise<ControllerResponse> {
-    console.log('[Auto-Backtest API] Stopping controller via Edge Function...');
-    return await this.callEdgeFunction('auto-backtest-control', { action: 'stop' });
+    console.log('[Auto-Backtest API] 🛑 Stopping controller via Edge Function...');
+    const result = await this.callEdgeFunction('auto-backtest-control', { action: 'stop' });
+    console.log('[Auto-Backtest API] Stop result:', result);
+    return result;
   }
 
   async getStatus(): Promise<ControllerResponse> {
-    return await this.callEdgeFunction('auto-backtest-control', { action: 'status' });
+    console.log('[Auto-Backtest API] 📊 Fetching controller status...');
+    const result = await this.callEdgeFunction('auto-backtest-control', { action: 'status' });
+    console.log('[Auto-Backtest API] Status result:', result);
+    return result;
   }
 
   async getRecentJobs(userId: string, limit: number = 10): Promise<any[]> {
@@ -187,6 +194,7 @@ class AutoBacktestAPI {
 
   async getActiveBacktestsProgress(userId: string): Promise<BacktestProgress[]> {
     try {
+      console.log('[Auto-Backtest API] Fetching active backtests for user:', userId);
       const { data, error } = await supabase
         .rpc('get_active_backtests', { p_user_id: userId });
 
@@ -194,6 +202,8 @@ class AutoBacktestAPI {
         console.error('[Auto-Backtest API] Error fetching active backtests:', error);
         return [];
       }
+
+      console.log(`[Auto-Backtest API] Found ${data?.length || 0} active backtest(s)`);
 
       return (data || []).map((row: any) => ({
         id: row.id || row.backtest_id,

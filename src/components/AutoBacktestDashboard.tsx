@@ -32,6 +32,8 @@ export default function AutoBacktestDashboard() {
 
   useEffect(() => {
     if (user) {
+      console.log('[Auto-Backtest Dashboard] 🚀 Component mounted, initializing...');
+      console.log('[Auto-Backtest Dashboard] User ID:', user.id);
       loadState();
       loadConfig();
       loadProgressData();
@@ -39,10 +41,17 @@ export default function AutoBacktestDashboard() {
       // Request notification permission on mount
       backtestNotificationService.requestPermission();
 
-      const stateInterval = setInterval(loadState, 3000);
-      const progressInterval = setInterval(loadProgressData, 2000); // Poll progress every 2 seconds
+      const stateInterval = setInterval(() => {
+        console.log('[Auto-Backtest Dashboard] ⏰ State polling tick');
+        loadState();
+      }, 3000);
+      const progressInterval = setInterval(() => {
+        console.log('[Auto-Backtest Dashboard] ⏰ Progress polling tick');
+        loadProgressData();
+      }, 1000); // Poll progress every 1 second for faster updates
 
       return () => {
+        console.log('[Auto-Backtest Dashboard] 🛑 Component unmounting, cleaning up intervals');
         clearInterval(stateInterval);
         clearInterval(progressInterval);
       };
@@ -150,17 +159,30 @@ export default function AutoBacktestDashboard() {
   const loadState = async () => {
     if (!user) return;
     try {
+      console.log('[Auto-Backtest Dashboard] 📊 Loading controller state...');
       const response = await autoBacktestAPI.getStatus();
+      console.log('[Auto-Backtest Dashboard] ✅ Status response:', response);
+
       if (response.success && response.controller) {
+        console.log('[Auto-Backtest Dashboard] Controller state:', {
+          status: response.controller.status,
+          isActive: response.controller.isActive,
+          totalBacktests: response.controller.totalBacktestsCompleted,
+          currentCycle: response.controller.currentCycleCount,
+          cooldownActive: response.controller.cooldownActive,
+          pausedForLiveTrade: response.controller.pausedForLiveTrade
+        });
         setState(response.controller);
         setQueueStats(response.queueStats || null);
+        console.log('[Auto-Backtest Dashboard] Queue stats:', response.queueStats);
         setError(null);
       } else {
+        console.warn('[Auto-Backtest Dashboard] ⚠️ No controller state returned');
         setState(null);
         setQueueStats(null);
       }
     } catch (err: any) {
-      console.error('[Auto-Backtest Dashboard] Error loading state:', err);
+      console.error('[Auto-Backtest Dashboard] ❌ Error loading state:', err);
       setError('Failed to load controller state. Please try refreshing the page.');
     }
   };
@@ -168,16 +190,30 @@ export default function AutoBacktestDashboard() {
   const loadProgressData = async () => {
     if (!user) return;
     try {
+      console.log('[Auto-Backtest Dashboard] 📈 Loading progress data...');
+
       // Load active backtests progress
       const active = await autoBacktestAPI.getActiveBacktestsProgress(user.id);
+      console.log(`[Auto-Backtest Dashboard] Active backtests found: ${active.length}`);
+      if (active.length > 0) {
+        console.log('[Auto-Backtest Dashboard] Active backtest details:', active.map(b => ({
+          id: b.backtestId,
+          phase: b.phase,
+          progress: `${b.progressPercentage}%`,
+          step: b.currentStep,
+          status: b.status
+        })));
+      }
       setActiveBacktests(active);
 
       // Load recent completed backtests
       const completed = await autoBacktestAPI.getRecentCompletedBacktests(user.id, 10);
+      console.log(`[Auto-Backtest Dashboard] Recent completed backtests: ${completed.length}`);
       setRecentCompleted(completed);
 
       // Load system performance metrics
       const metrics = await autoBacktestAPI.getSystemPerformanceMetrics(user.id);
+      console.log('[Auto-Backtest Dashboard] System metrics:', metrics);
       setSystemMetrics(metrics);
 
       // Detect stuck backtests
@@ -186,28 +222,33 @@ export default function AutoBacktestDashboard() {
       // Load execution logs if a backtest is selected
       if (selectedBacktest) {
         const logs = await autoBacktestAPI.getExecutionLogs(selectedBacktest, 50);
+        console.log(`[Auto-Backtest Dashboard] Execution logs for ${selectedBacktest}: ${logs.length} entries`);
         setExecutionLogs(logs);
       }
     } catch (err: any) {
-      console.error('[Auto-Backtest Dashboard] Error loading progress data:', err);
+      console.error('[Auto-Backtest Dashboard] ❌ Error loading progress data:', err);
     }
   };
 
   const handleStart = async () => {
     if (!user) return;
+    console.log('[Auto-Backtest Dashboard] 🚀 START button clicked');
     setLoading(true);
     setError(null);
     try {
+      console.log('[Auto-Backtest Dashboard] Calling start API...');
       const response = await autoBacktestAPI.start();
+      console.log('[Auto-Backtest Dashboard] Start response:', response);
       if (response.success) {
-        console.log('[Auto-Backtest Dashboard] Started successfully');
+        console.log('[Auto-Backtest Dashboard] ✅ Started successfully');
       } else {
+        console.error('[Auto-Backtest Dashboard] ❌ Start failed:', response.error);
         setError(response.error || 'Failed to start');
       }
       await loadState();
     } catch (err: any) {
       setError(err.message || 'Failed to start auto-backtest');
-      console.error('[Auto-Backtest Dashboard] Error starting:', err);
+      console.error('[Auto-Backtest Dashboard] ❌ Exception during start:', err);
     } finally {
       setLoading(false);
     }
@@ -215,19 +256,23 @@ export default function AutoBacktestDashboard() {
 
   const handleStop = async () => {
     if (!user) return;
+    console.log('[Auto-Backtest Dashboard] 🛑 STOP button clicked');
     setLoading(true);
     setError(null);
     try {
+      console.log('[Auto-Backtest Dashboard] Calling stop API...');
       const response = await autoBacktestAPI.stop();
+      console.log('[Auto-Backtest Dashboard] Stop response:', response);
       if (response.success) {
-        console.log('[Auto-Backtest Dashboard] Stopped successfully');
+        console.log('[Auto-Backtest Dashboard] ✅ Stopped successfully');
       } else {
+        console.error('[Auto-Backtest Dashboard] ❌ Stop failed:', response.error);
         setError(response.error || 'Failed to stop');
       }
       await loadState();
     } catch (err: any) {
       setError(err.message || 'Failed to stop auto-backtest');
-      console.error('[Auto-Backtest Dashboard] Error stopping:', err);
+      console.error('[Auto-Backtest Dashboard] ❌ Exception during stop:', err);
     } finally {
       setLoading(false);
     }
@@ -478,7 +523,7 @@ export default function AutoBacktestDashboard() {
           )}
 
           {/* Active Backtests */}
-          {activeBacktests.length > 0 && (
+          {activeBacktests.length > 0 ? (
             <div className="space-y-3">
               <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                 <Activity className="w-5 h-5 text-green-400 animate-pulse" />
@@ -492,6 +537,21 @@ export default function AutoBacktestDashboard() {
                     onViewDetails={setSelectedBacktest}
                   />
                 ))}
+              </div>
+            </div>
+          ) : state?.isActive && (
+            <div className="bg-yellow-900/20 border-l-4 border-yellow-400 p-4 rounded">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-yellow-200 mb-1">
+                    No Active Backtests Detected
+                  </p>
+                  <p className="text-xs text-yellow-300">
+                    The auto-backtest system is running, but no backtests are currently being processed.
+                    Check the console (F12) for detailed debugging information about what the system is doing.
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -621,6 +681,55 @@ export default function AutoBacktestDashboard() {
               )}
             </div>
           )}
+
+          {/* Diagnostic Information Panel */}
+          <div className="bg-gradient-to-r from-blue-900/20 to-purple-900/20 border border-blue-500/30 p-4 rounded-lg">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-blue-300">System Diagnostics</h3>
+              <button
+                onClick={() => {
+                  console.log('===== MANUAL DIAGNOSTIC DUMP =====');
+                  console.log('Current State:', state);
+                  console.log('Queue Stats:', queueStats);
+                  console.log('Active Backtests:', activeBacktests);
+                  console.log('Recent Completed:', recentCompleted);
+                  console.log('System Metrics:', systemMetrics);
+                  console.log('================================');
+                }}
+                className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1 bg-blue-900/30 rounded"
+              >
+                Dump to Console
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="bg-gray-900/50 p-2 rounded">
+                <p className="text-gray-400 mb-1">Last State Update</p>
+                <p className="text-white font-mono">{state?.startedAt ? new Date(state.startedAt).toLocaleTimeString() : 'Never'}</p>
+              </div>
+              <div className="bg-gray-900/50 p-2 rounded">
+                <p className="text-gray-400 mb-1">Last Health Check</p>
+                <p className="text-white font-mono">{state ? new Date().toLocaleTimeString() : 'N/A'}</p>
+              </div>
+              <div className="bg-gray-900/50 p-2 rounded">
+                <p className="text-gray-400 mb-1">Active Backtests</p>
+                <p className={`font-bold ${activeBacktests.length > 0 ? 'text-green-400' : 'text-gray-400'}`}>
+                  {activeBacktests.length}
+                </p>
+              </div>
+              <div className="bg-gray-900/50 p-2 rounded">
+                <p className="text-gray-400 mb-1">Queue Status</p>
+                <p className={`font-bold ${queueStats && (queueStats.pending > 0 || queueStats.processing > 0) ? 'text-blue-400' : 'text-gray-400'}`}>
+                  {queueStats ? `${queueStats.pending + queueStats.processing} Active` : 'Unknown'}
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 p-2 bg-blue-900/20 rounded border border-blue-500/20">
+              <p className="text-xs text-blue-200">
+                <strong>Debug Mode:</strong> Check your browser console (F12) for detailed system logs.
+                All auto-backtest operations are logged with timestamps and status information.
+              </p>
+            </div>
+          </div>
 
           {/* Server Mode Info Box */}
           <div className="bg-gradient-to-r from-green-900/20 to-blue-900/20 border-l-4 border-green-400 p-4 rounded">
