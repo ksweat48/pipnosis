@@ -3,10 +3,11 @@ import { NavigationMenu } from '../components/NavigationMenu';
 import SessionLearningDashboard from '../components/SessionLearningDashboard';
 import PatternDiscoveryTimeline from '../components/PatternDiscoveryTimeline';
 import StrategyArsenalDashboard from '../components/StrategyArsenalDashboard';
-import { BookOpen, Sparkles, Target } from 'lucide-react';
+import AILearningDiagnosticsPanel from '../components/AILearningDiagnosticsPanel';
+import { BookOpen, Sparkles, Target, Activity } from 'lucide-react';
 
 export default function SessionLearningsPage() {
-  const [activeTab, setActiveTab] = useState<'learnings' | 'patterns' | 'strategy-arsenal'>('learnings');
+  const [activeTab, setActiveTab] = useState<'learnings' | 'patterns' | 'strategy-arsenal' | 'diagnostics'>('learnings');
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
@@ -37,7 +38,7 @@ export default function SessionLearningsPage() {
             onClick={() => setActiveTab('patterns')}
             className={`flex-1 px-6 py-3 rounded-md font-semibold transition-all flex items-center justify-center gap-2 ${
               activeTab === 'patterns'
-                ? 'bg-purple-600 text-white shadow-lg'
+                ? 'bg-green-600 text-white shadow-lg'
                 : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
             }`}
           >
@@ -55,6 +56,17 @@ export default function SessionLearningsPage() {
             <Target className="w-5 h-5" />
             Strategy Arsenal
           </button>
+          <button
+            onClick={() => setActiveTab('diagnostics')}
+            className={`flex-1 px-6 py-3 rounded-md font-semibold transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'diagnostics'
+                ? 'bg-cyan-600 text-white shadow-lg'
+                : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+            }`}
+          >
+            <Activity className="w-5 h-5" />
+            System Diagnostics
+          </button>
         </div>
 
         {/* Tab Content */}
@@ -62,6 +74,7 @@ export default function SessionLearningsPage() {
           {activeTab === 'learnings' && <SessionLearningDashboard />}
           {activeTab === 'patterns' && <PatternDiscoveryTimeline />}
           {activeTab === 'strategy-arsenal' && <StrategyArsenalDashboard />}
+          {activeTab === 'diagnostics' && <AILearningDiagnosticsPanel />}
         </div>
       </div>
     </div>

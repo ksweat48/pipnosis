@@ -15,7 +15,6 @@ import { SettingsPage } from './pages/SettingsPage';
 import { KPIsPage } from './pages/KPIsPage';
 import AITrainingPage from './pages/AITrainingPage';
 import SessionLearningsPage from './pages/SessionLearningsPage';
-import AILearningDiagnosticsPage from './pages/AILearningDiagnosticsPage';
 import { DatabaseSetupWizard } from './components/DatabaseSetupWizard';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { logEnvironmentStatus } from './lib/env-validator';
@@ -144,14 +143,6 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute adminOnly={true}>
             <SessionLearningsPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/learning-diagnostics"
-        element={
-          <ProtectedRoute adminOnly={true}>
-            <AILearningDiagnosticsPage />
           </ProtectedRoute>
         }
       />
