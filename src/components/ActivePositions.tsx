@@ -3,7 +3,7 @@ import { X, TrendingUp, TrendingDown, Clock, AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { simulatedTradingService } from '@/services/simulated-trading';
 import { pollingConfigService } from '@/services/polling-config-service';
-import { tradeAudioNotifications } from '@/services/trade-audio-notifications';
+import { notificationManager } from '@/services/notification-manager';
 
 interface Position {
   id: string;
@@ -134,7 +134,7 @@ export function ActivePositions({ refreshTrigger }: ActivePositionsProps) {
       );
 
       if (result.success) {
-        tradeAudioNotifications.playTradeExitSound();
+        notificationManager.playSound('trade_exit');
         await fetchPositions();
       } else {
         alert(result.message);
@@ -157,7 +157,7 @@ export function ActivePositions({ refreshTrigger }: ActivePositionsProps) {
 
       const result = await simulatedTradingService.cancelPendingOrder(orderId, user.id);
       if (result.success) {
-        tradeAudioNotifications.playTradeExitSound();
+        notificationManager.playSound('trade_exit');
         await fetchPositions();
       } else {
         alert(result.message);

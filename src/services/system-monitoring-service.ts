@@ -1,5 +1,22 @@
 import { supabase } from '@/lib/supabase';
 
+class DbHealthMonitor {
+  private intervalId: NodeJS.Timeout | null = null;
+
+  startMonitoring(): void {
+    this.intervalId = setInterval(() => {}, 30000);
+  }
+
+  stopMonitoring(): void {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+  }
+}
+
+export const dbHealthMonitor = new DbHealthMonitor();
+
 export interface CronJobStatus {
   name: string;
   schedule: string;

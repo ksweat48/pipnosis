@@ -3,7 +3,7 @@ import { flowTraderV2 } from '../strategies/flow-trader-v2';
 import { autonomousReasoningEngine } from './autonomous-reasoning-engine';
 import { countdownOrchestrator } from './countdown-orchestrator';
 import { goalSessionManager } from './goal-session-manager';
-import { soundNotificationService } from './sound-notification-service';
+import { notificationManager } from './notification-manager';
 
 export interface AutonomousScanConfig {
   sessionId: string;
@@ -120,7 +120,7 @@ class AutonomousGoalScanner {
           );
 
           if (decision.shouldExecute) {
-            await soundNotificationService.playNotification(`${symbol} ${signal.direction.toUpperCase()} setup found`);
+            await notificationManager.notify('Trade Signal', `${symbol} ${signal.direction.toUpperCase()} setup found`, 'trade');
 
             await countdownOrchestrator.startCountdown(
               signal,

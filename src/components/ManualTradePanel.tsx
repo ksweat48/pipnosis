@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, DollarSign, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { pollingConfigService } from '@/services/polling-config-service';
-import { tradeAudioNotifications } from '@/services/trade-audio-notifications';
+import { notificationManager } from '@/services/notification-manager';
 
 interface LivePrice {
   bid: number;
@@ -226,7 +226,7 @@ export function ManualTradePanel({ symbol, onTradeExecuted }: ManualTradePanelPr
             description: `Margin reserved for ${action} ${symbol} ${lotSize} lots`
           });
 
-        tradeAudioNotifications.playTradeEntrySound();
+        notificationManager.playSound('trade_entry');
       }
 
       await fetchBalance();
