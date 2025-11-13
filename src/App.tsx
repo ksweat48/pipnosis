@@ -153,66 +153,110 @@ export default function App() {
   const [dbValidated, setDbValidated] = useState(true);
 
   useEffect(() => {
+    // Run ALL diagnostics and service initialization in the background
+    // WITHOUT blocking the app from loading
     const runStartupDiagnostics = async () => {
+      // Give the app 500ms to fully render first
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       try {
         logEnvironmentStatus();
 
-        const validationTimeout = setTimeout(() => setDbValidated(true), 3000);
-        const validationResult = await connectionValidator.validateConnection();
-        clearTimeout(validationTimeout);
+        // All diagnostics wrapped in try-catch to prevent cascade failures
+        try {
+          await Promise.race([
+            connectionValidator.validateConnection(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Connection validation timeout')), 2000))
+          ]);
+        } catch (error) {
+          console.log('[Dev Info] Connection validation skipped:', error);
+        }
 
-        const diagnostics = await runDatabaseDiagnostics();
-        logDiagnostics(diagnostics);
-        await verifyDatabaseSetup();
+        try {
+          await Promise.race([
+            runDatabaseDiagnostics().then(logDiagnostics),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Diagnostics timeout')), 2000))
+          ]);
+        } catch (error) {
+          console.log('[Dev Info] Database diagnostics skipped:', error);
+        }
 
-        setTimeout(() => dbHealthMonitor.startMonitoring(), 5000);
+        try {
+          await Promise.race([
+            verifyDatabaseSetup(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Schema verification timeout')), 2000))
+          ]);
+        } catch (error) {
+          console.log('[Dev Info] Schema verification skipped:', error);
+        }
 
-        setTimeout(async () => {
+        // Start background services with delays and error handling
+        setTimeout(() => {
           try {
-            await browserPricePoller.start();
+            dbHealthMonitor.startMonitoring();
           } catch (error) {
-            console.error('Failed to start browser price poller:', error);
+            console.log('[Dev Info] Health monitor failed to start:', error);
           }
         }, 3000);
 
         setTimeout(async () => {
           try {
+            await browserPricePoller.start();
+          } catch (error) {
+            console.log('[Dev Info] Price poller failed to start:', error);
+          }
+        }, 5000);
+
+        setTimeout(async () => {
+          try {
             await globalPollingCoordinator.initialize();
           } catch (error) {
-            console.error('Failed to initialize global polling coordinator:', error);
+            console.log('[Dev Info] Polling coordinator failed to start:', error);
           }
-        }, 6000);
+        }, 8000);
 
         setTimeout(() => {
           try {
             systemLoadMonitor.start();
           } catch (error) {
-            console.error('Failed to start system load monitor:', error);
+            console.log('[Dev Info] Load monitor failed to start:', error);
           }
-        }, 7000);
+        }, 10000);
 
         setTimeout(async () => {
-          await new Promise(resolve => setTimeout(resolve, 2000));
           try {
             await backgroundCandleAggregator.start();
           } catch (error) {
-            console.error('Failed to start background candle aggregator:', error);
+            console.log('[Dev Info] Candle aggregator failed to start:', error);
           }
-        }, 9000);
+        }, 12000);
 
         setDbValidated(true);
       } catch (error) {
-        console.error('Startup diagnostics error:', error);
+        console.log('[Dev Info] Startup diagnostics error:', error);
         setDbValidated(true);
       }
     };
 
-    runStartupDiagnostics();
+    // Run diagnostics in background - don't await
+    runStartupDiagnostics().catch(err => {
+      console.log('[Dev Info] Background diagnostics failed:', err);
+    });
 
     return () => {
-      dbHealthMonitor.stopMonitoring();
-      backgroundCandleAggregator.stop().catch(err => console.error('Error shutting down aggregator:', err));
-      globalPollingCoordinator.shutdown().catch(err => console.error('Error shutting down coordinator:', err));
+      try {
+        dbHealthMonitor.stopMonitoring();
+      } catch (err) {
+        console.log('[Dev Info] Error stopping health monitor:', err);
+      }
+
+      backgroundCandleAggregator.stop().catch(err => {
+        console.log('[Dev Info] Error shutting down aggregator:', err);
+      });
+
+      globalPollingCoordinator.shutdown().catch(err => {
+        console.log('[Dev Info] Error shutting down coordinator:', err);
+      });
     };
   }, []);
 
