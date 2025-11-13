@@ -533,17 +533,20 @@ interface MetricCardProps {
 }
 
 function MetricCard({ title, value, icon: Icon, color, subtitle }: MetricCardProps) {
-  const colorClasses = {
+  const colorClasses: Record<string, string> = {
     blue: 'bg-blue-600/20 text-blue-400',
     green: 'bg-green-600/20 text-green-400',
     red: 'bg-red-600/20 text-red-400',
     amber: 'bg-amber-600/20 text-amber-400',
   };
 
+  // Safely get color class with fallback
+  const colorClass = colorClasses[color] || colorClasses['blue'];
+
   return (
     <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6 hover:border-gray-700 transition-all">
       <div className="flex items-start justify-between mb-3">
-        <div className={`p-3 rounded-lg ${colorClasses[color as keyof typeof colorClasses]}`}>
+        <div className={`p-3 rounded-lg ${colorClass}`}>
           <Icon size={24} />
         </div>
       </div>
