@@ -96,65 +96,88 @@ export function KPIsPage() {
   };
 
   const fetchMetrics = async (): Promise<LearningMetrics | null> => {
-    const { data, error } = await supabase
-      .from('ai_learning_metrics')
-      .select('*')
-      .eq('metric_period', timeframe)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    try {
+      const { data, error } = await supabase
+        .from('ai_learning_metrics')
+        .select('*')
+        .eq('metric_period', timeframe)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    if (error) {
-      console.error('Error fetching metrics:', error);
-      throw new Error(`Metrics query failed: ${error.message}`);
+      if (error) {
+        console.error('Error fetching metrics:', error);
+        throw new Error(`Metrics query failed: ${error.message}`);
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Exception in fetchMetrics:', error);
+      return null;
     }
-
-    return data;
   };
 
   const fetchStrategies = async (): Promise<StrategyAnalytics[]> => {
-    const { data, error } = await supabase
-      .from('strategy_analytics')
-      .select('*')
-      .order('win_rate', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('strategy_analytics')
+        .select('*')
+        .order('win_rate', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching strategies:', error);
-      throw new Error(`Strategy analytics query failed: ${error.message}`);
+      if (error) {
+        console.error('Error fetching strategies:', error);
+        throw new Error(`Strategy analytics query failed: ${error.message}`);
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Exception in fetchStrategies:', error);
+      return [];
     }
-
-    return data || [];
   };
 
   const fetchUserPerformance = async (): Promise<UserPerformance[]> => {
-    const { data, error } = await supabase
-      .from('user_performance_summary')
-      .select('*')
-      .order('net_profit', { ascending: false })
-      .limit(10);
+    try {
+      const { data, error } = await supabase
+        .from('user_performance_summary')
+        .select('*')
+        .order('net_profit', { ascending: false })
+        .limit(10);
 
-    if (error) {
-      console.error('Error fetching user performance:', error);
-      throw new Error(`User performance query failed: ${error.message}`);
+      if (error) {
+        console.error('Error fetching user performance:', error);
+        throw new Error(`User performance query failed: ${error.message}`);
+      }
+
+      // Fetch email separately for each user to avoid join issues
+      const usersWithEmails = await Promise.all(
+        (data || []).map(async (user) => {
+          try {
+            const { data: profile } = await supabase
+              .from('user_profiles')
+              .select('email')
+              .eq('id', user.user_id)
+              .maybeSingle();
+
+            return {
+              ...user,
+              email: profile?.email || 'Unknown',
+            };
+          } catch (emailError) {
+            console.error('Error fetching user email:', emailError);
+            return {
+              ...user,
+              email: 'Unknown',
+            };
+          }
+        })
+      );
+
+      return usersWithEmails;
+    } catch (error) {
+      console.error('Exception in fetchUserPerformance:', error);
+      return [];
     }
-
-    // Fetch email separately for each user to avoid join issues
-    const usersWithEmails = await Promise.all(
-      (data || []).map(async (user) => {
-        const { data: profile } = await supabase
-          .from('user_profiles')
-          .select('email')
-          .eq('id', user.user_id)
-          .maybeSingle();
-
-        return {
-          ...user,
-          email: profile?.email || 'Unknown',
-        };
-      })
-    );
-
-    return usersWithEmails;
   };
 
   const handleRefresh = async () => {

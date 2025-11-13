@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { sessionLearningGenerator } from '../services/session-learning-generator';
+import MetaLearningInsightsCard from './MetaLearningInsightsCard';
 import {
   BookOpen,
   TrendingUp,
@@ -167,6 +168,9 @@ export default function SessionLearningDashboard() {
           </div>
         </div>
       </div>
+
+      {/* GPT-4o Meta-Learning Insights */}
+      <MetaLearningInsightsCard />
 
       {!currentLearning ? (
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-12 text-center">
