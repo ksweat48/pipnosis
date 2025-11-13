@@ -8,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, adminOnly = false }: ProtectedRouteProps) {
-  const { user, loading, isAdmin } = useAuth();
+  const { user, loading, adminLoading, isAdmin } = useAuth();
 
   if (loading) {
     return (
@@ -22,8 +22,18 @@ export function ProtectedRoute({ children, adminOnly = false }: ProtectedRoutePr
     return <Navigate to="/auth" replace />;
   }
 
-  if (adminOnly && !isAdmin) {
-    return <Navigate to="/trade" replace />;
+  if (adminOnly) {
+    if (adminLoading) {
+      return (
+        <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+          <div className="animate-spin h-12 w-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full"></div>
+        </div>
+      );
+    }
+
+    if (!isAdmin) {
+      return <Navigate to="/trade" replace />;
+    }
   }
 
   return <>{children}</>;
