@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen } from 'lucide-react';
+import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 
@@ -118,6 +118,15 @@ export function NavigationMenu() {
                             >
                               <BookOpen size={18} />
                               <span>AI Learning Center</span>
+                            </Link>
+
+                            <Link
+                              to="/admin/learning-diagnostics"
+                              onClick={() => setShowProfileMenu(false)}
+                              className="w-full flex items-center gap-3 px-3 py-2 text-pink-400 hover:text-pink-300 hover:bg-pink-900/20 rounded transition-colors"
+                            >
+                              <Activity size={18} />
+                              <span>Learning Diagnostics</span>
                             </Link>
 
                             <Link
