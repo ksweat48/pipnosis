@@ -9,9 +9,9 @@ import SyntheticEquityCurve from '../components/SyntheticEquityCurve';
 import SyntheticCandlestickChart from '../components/SyntheticCandlestickChart';
 import SyntheticBacktestResults from '../components/SyntheticBacktestResults';
 import AILearningProgressDashboard from '../components/AILearningProgressDashboard';
-import AutoBacktestDashboard from '../components/AutoBacktestDashboard';
 import { NavigationMenu } from '../components/NavigationMenu';
-import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock, Sparkles, RefreshCw, Brain, Zap } from 'lucide-react';
+import { simpleAutoBacktestService, SimpleAutoBacktestState } from '../services/simple-auto-backtest-service';
+import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock, Sparkles, RefreshCw, Brain, Zap, Square, Activity } from 'lucide-react';
 
 export default function AITrainingPage() {
   const { user } = useAuth();
@@ -41,7 +41,11 @@ export default function AITrainingPage() {
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
 
   // Tab system
-  const [activeTab, setActiveTab] = useState<'progress' | 'auto' | 'backtest'>('progress');
+  const [activeTab, setActiveTab] = useState<'progress' | 'backtest'>('progress');
+
+  // Auto-backtest mode
+  const [isAutoMode, setIsAutoMode] = useState(false);
+  const [autoBacktestState, setAutoBacktestState] = useState<SimpleAutoBacktestState | null>(null);
 
   const availableSymbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];
 
@@ -49,7 +53,20 @@ export default function AITrainingPage() {
     checkAdminStatus();
     loadPastSessions();
     setDefaultDateRange();
-  }, [user]);
+
+    // Poll auto-backtest state when in auto mode
+    let stateInterval: NodeJS.Timeout | null = null;
+    if (isAutoMode && user) {
+      stateInterval = setInterval(() => {
+        const state = simpleAutoBacktestService.getState();
+        setAutoBacktestState(state);
+      }, 1000);
+    }
+
+    return () => {
+      if (stateInterval) clearInterval(stateInterval);
+    };
+  }, [user, isAutoMode]);
 
   useEffect(() => {
     // Update date range when switching between synthetic and real data
@@ -425,18 +442,6 @@ export default function AITrainingPage() {
             AI Learning Progress
           </button>
           <button
-            onClick={() => setActiveTab('auto')}
-            className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
-              activeTab === 'auto'
-                ? 'bg-emerald-600 text-white'
-                : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50'
-            }`}
-          >
-            <Zap className="w-5 h-5" />
-            Auto-Backtest
-            <span className="px-2 py-0.5 bg-purple-600 text-white text-xs font-bold rounded-full">NEW</span>
-          </button>
-          <button
             onClick={() => setActiveTab('backtest')}
             className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
               activeTab === 'backtest'
@@ -445,7 +450,7 @@ export default function AITrainingPage() {
             }`}
           >
             <Play className="w-5 h-5" />
-            Run New Backtest
+            Run Backtest
           </button>
         </div>
 
@@ -454,15 +459,148 @@ export default function AITrainingPage() {
           <AILearningProgressDashboard />
         )}
 
-        {/* Auto-Backtest Tab */}
-        {activeTab === 'auto' && (
-          <AutoBacktestDashboard />
-        )}
-
         {/* Backtest Configuration Tab */}
         {activeTab === 'backtest' && (
           <>
-        {/* Configuration Panel */}
+        {/* Manual/Auto Mode Toggle */}
+        <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 backdrop-blur-sm border-2 border-blue-500/30 rounded-lg shadow-md p-6 mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-white mb-2 flex items-center gap-2">
+                {isAutoMode ? (
+                  <><Zap className="w-6 h-6 text-yellow-400" /> Auto-Backtest Mode</>
+                ) : (
+                  <><Play className="w-6 h-6 text-emerald-400" /> Manual Backtest Mode</>
+                )}
+              </h2>
+              <p className="text-sm text-gray-300">
+                {isAutoMode
+                  ? 'Continuous automated backtesting with AI learning'
+                  : 'Run individual backtests with custom parameters'
+                }
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className={`text-sm font-semibold ${isAutoMode ? 'text-gray-400' : 'text-white'}`}>
+                Manual
+              </span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isAutoMode}
+                  onChange={(e) => {
+                    const newMode = e.target.checked;
+                    setIsAutoMode(newMode);
+                    // Stop auto-backtest when switching to manual
+                    if (!newMode && autoBacktestState?.isRunning) {
+                      simpleAutoBacktestService.stop();
+                    }
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-14 h-7 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
+              <span className={`text-sm font-semibold ${isAutoMode ? 'text-white' : 'text-gray-400'}`}>
+                Auto
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Auto-Backtest Controls */}
+        {isAutoMode && (
+          <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6 mb-6">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Activity className="w-5 h-5" />
+              Auto-Backtest Status
+            </h3>
+
+            {autoBacktestState?.isRunning ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-green-900/20 border border-green-500/30 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Activity className="w-6 h-6 text-green-400 animate-pulse" />
+                    <div>
+                      <p className="text-lg font-bold text-green-400">Running</p>
+                      <p className="text-sm text-gray-300">
+                        Backtest #{autoBacktestState.currentBacktestNumber} in progress
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => simpleAutoBacktestService.stop()}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    <Square className="w-4 h-4" />
+                    Stop
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-4 bg-gray-700/50 rounded-lg">
+                    <p className="text-sm text-gray-400 mb-1">Total Completed</p>
+                    <p className="text-3xl font-bold text-white">{autoBacktestState.totalBacktestsCompleted}</p>
+                  </div>
+                  <div className="p-4 bg-gray-700/50 rounded-lg">
+                    <p className="text-sm text-gray-400 mb-1">Current Backtest</p>
+                    <p className="text-3xl font-bold text-white">#{autoBacktestState.currentBacktestNumber}</p>
+                  </div>
+                  {autoBacktestState.lastBacktestResult && (
+                    <div className="p-4 bg-gray-700/50 rounded-lg">
+                      <p className="text-sm text-gray-400 mb-1">Last Win Rate</p>
+                      <p className={`text-3xl font-bold ${
+                        autoBacktestState.lastBacktestResult.winRate >= 50 ? 'text-green-400' : 'text-red-400'
+                      }`}>
+                        {autoBacktestState.lastBacktestResult.winRate.toFixed(1)}%
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {autoBacktestState.lastBacktestResult && (
+                  <div className="p-3 bg-blue-900/20 border-l-4 border-blue-400 rounded">
+                    <p className="text-sm text-blue-200">
+                      <strong>Last Completed:</strong> {autoBacktestState.lastBacktestResult.sessionName} •{' '}
+                      {autoBacktestState.lastBacktestResult.totalTrades} trades •{' '}
+                      ${autoBacktestState.lastBacktestResult.pnl.toFixed(2)} P&L
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="p-4 bg-gray-700/50 rounded-lg text-center">
+                  <p className="text-gray-400 mb-4">Auto-backtest is not running</p>
+                  <button
+                    onClick={() => user && simpleAutoBacktestService.start(user.id)}
+                    className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors mx-auto"
+                  >
+                    <Play className="w-5 h-5" />
+                    Start Auto-Backtest
+                  </button>
+                </div>
+
+                {autoBacktestState && autoBacktestState.totalBacktestsCompleted > 0 && (
+                  <div className="p-3 bg-gray-700/30 border border-gray-600 rounded">
+                    <p className="text-sm text-gray-300">
+                      <strong>Total backtests completed:</strong> {autoBacktestState.totalBacktestsCompleted}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-4 p-3 bg-yellow-900/20 border-l-4 border-yellow-400 rounded">
+              <p className="text-sm text-yellow-200">
+                <strong>Auto Mode:</strong> System automatically runs backtests with randomized parameters (1-3 days, mixed conditions, all pairs).
+                Each backtest includes AI learning and skill progression updates.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Manual Configuration Panel */}
+        {!isAutoMode && (
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6 mb-6">
           <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
             <Settings className="w-5 h-5" />
@@ -717,6 +855,7 @@ export default function AITrainingPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* Diagnostic Alert - Show when no trades */}
         {backtestResult && backtestResult.totalTrades === 0 && !backtestError && (
@@ -1034,10 +1173,15 @@ export default function AITrainingPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <h3 className="font-semibold text-white">{session.session_name}</h3>
-                          {isAutoBacktest && (
+                          {isAutoBacktest ? (
                             <span className="px-2 py-0.5 bg-green-600 text-white text-xs font-bold rounded-full flex items-center gap-1">
                               <Zap className="w-3 h-3" />
                               AUTO
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full flex items-center gap-1">
+                              <Play className="w-3 h-3" />
+                              MANUAL
                             </span>
                           )}
                           {session.sessionType === 'synthetic' && (
