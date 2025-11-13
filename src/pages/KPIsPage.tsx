@@ -66,6 +66,7 @@ export function KPIsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadKPIData();
@@ -74,6 +75,7 @@ export function KPIsPage() {
   const loadKPIData = async () => {
     try {
       setLoading(true);
+      setError(null);
 
       const [metricsData, strategiesData, usersData] = await Promise.all([
         fetchMetrics(),
@@ -86,6 +88,8 @@ export function KPIsPage() {
       setUserPerformance(usersData);
     } catch (error) {
       console.error('Error loading KPI data:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setError(`Failed to load KPI data: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -102,7 +106,7 @@ export function KPIsPage() {
 
     if (error) {
       console.error('Error fetching metrics:', error);
-      return null;
+      throw new Error(`Metrics query failed: ${error.message}`);
     }
 
     return data;
@@ -116,7 +120,7 @@ export function KPIsPage() {
 
     if (error) {
       console.error('Error fetching strategies:', error);
-      return [];
+      throw new Error(`Strategy analytics query failed: ${error.message}`);
     }
 
     return data || [];
@@ -125,32 +129,45 @@ export function KPIsPage() {
   const fetchUserPerformance = async (): Promise<UserPerformance[]> => {
     const { data, error } = await supabase
       .from('user_performance_summary')
-      .select(`
-        *,
-        user_profiles!inner(email)
-      `)
+      .select('*')
       .order('net_profit', { ascending: false })
       .limit(10);
 
     if (error) {
       console.error('Error fetching user performance:', error);
-      return [];
+      throw new Error(`User performance query failed: ${error.message}`);
     }
 
-    return (data || []).map((item: any) => ({
-      ...item,
-      email: item.user_profiles?.email,
-    }));
+    // Fetch email separately for each user to avoid join issues
+    const usersWithEmails = await Promise.all(
+      (data || []).map(async (user) => {
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('email')
+          .eq('id', user.user_id)
+          .maybeSingle();
+
+        return {
+          ...user,
+          email: profile?.email || 'Unknown',
+        };
+      })
+    );
+
+    return usersWithEmails;
   };
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    setError(null);
     try {
       await kpiAnalyticsService.refreshKPIData();
       await loadKPIData();
       setLastRefresh(new Date());
     } catch (error) {
       console.error('Error refreshing KPI data:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setError(`Failed to refresh KPI data: ${errorMessage}`);
     } finally {
       setRefreshing(false);
     }
@@ -184,6 +201,27 @@ export function KPIsPage() {
       <NavigationMenu />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        {error && (
+          <div className="mb-6 bg-red-900/20 border border-red-500/50 rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="text-red-400 mt-0.5" size={20} />
+              <div className="flex-1">
+                <h3 className="text-red-400 font-semibold mb-1">Error Loading KPI Data</h3>
+                <p className="text-red-300/80 text-sm">{error}</p>
+                <button
+                  onClick={() => {
+                    setError(null);
+                    loadKPIData();
+                  }}
+                  className="mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-all"
+                >
+                  Try Again
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-emerald-600/20 rounded-lg">
