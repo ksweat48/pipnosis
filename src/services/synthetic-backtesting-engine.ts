@@ -765,11 +765,24 @@ class SyntheticBacktestingEngine {
     if (!this.backtestId) return;
 
     try {
-      await supabase.rpc('update_backtest_progress_with_trade', {
-        p_backtest_id: this.backtestId,
-        p_trade_outcome: outcome,
-        p_profit_loss: pnl
-      });
+      // Calculate current metrics
+      const winningCount = this.closedTrades.filter(t => t.outcome === 'win').length;
+      const losingCount = this.closedTrades.filter(t => t.outcome === 'loss').length;
+      const totalTrades = this.closedTrades.length;
+      const currentWinRate = totalTrades > 0 ? (winningCount / totalTrades) * 100 : 0;
+
+      // Directly update the table to avoid RPC issues
+      await supabase
+        .from('backtest_progress_tracking')
+        .update({
+          trades_executed: totalTrades,
+          winning_trades: winningCount,
+          losing_trades: losingCount,
+          current_win_rate: currentWinRate,
+          current_profit_loss: this.currentBalance - (this.config?.initialBalance || 10000),
+          last_updated_at: new Date().toISOString()
+        })
+        .eq('backtest_id', this.backtestId);
     } catch (error) {
       console.error('[Synthetic Backtest] Error updating progress with trade:', error);
     }
@@ -806,13 +819,17 @@ class SyntheticBacktestingEngine {
     try {
       const progressPercentage = Math.floor((currentCandle / totalCandles) * 100);
 
-      await supabase.rpc('update_backtest_progress', {
-        p_backtest_id: this.backtestId,
-        p_current_step: `Processing candle ${currentCandle}/${totalCandles}`,
-        p_phase: 'processing',
-        p_progress_percentage: progressPercentage,
-        p_current_candle: currentCandle
-      });
+      // Directly update the table instead of using RPC to avoid signature mismatch
+      await supabase
+        .from('backtest_progress_tracking')
+        .update({
+          current_step: `Processing candle ${currentCandle}/${totalCandles}`,
+          phase: 'processing',
+          progress_percentage: progressPercentage,
+          current_candle: currentCandle,
+          last_updated_at: new Date().toISOString()
+        })
+        .eq('backtest_id', this.backtestId);
     } catch (error) {
       console.error('[Synthetic Backtest] Error updating progress:', error);
     }

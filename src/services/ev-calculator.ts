@@ -363,9 +363,9 @@ class EVCalculator {
         tradeData.volatilityRegime
       );
 
-      // Log if pattern has degraded
-      if (updatedEV.expectedValue < 0 && updatedEV.sampleSize >= this.MIN_SAMPLE_SIZE_MEDIUM) {
-        console.warn(`[EV Calculator] ⚠️ Pattern degraded: ${tradeData.patternName} on ${tradeData.symbol} now has negative EV: ${updatedEV.expectedValue.toFixed(2)}`);
+      // Only log if pattern has SIGNIFICANTLY degraded (reduced threshold to -10 to avoid spam)
+      if (updatedEV.expectedValue < -10 && updatedEV.sampleSize >= this.MIN_SAMPLE_SIZE_MEDIUM) {
+        console.warn(`[EV Calculator] ⚠️ Pattern significantly degraded: ${tradeData.patternName} on ${tradeData.symbol} now has EV: ${updatedEV.expectedValue.toFixed(2)}`);
       }
     }
   }
