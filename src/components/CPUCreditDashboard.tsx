@@ -32,7 +32,17 @@ export function CPUCreditDashboard() {
     const interval = setInterval(() => {
       setCreditUsage(pollingConfigService.getCreditUsage());
       setUsageStats(pollingConfigService.getUsageStats());
-      setQueueStatus({ queueLength: 0, inFlightCount: 0, cacheSize: 0 }); // No longer using queue
+      setQueueStatus({
+        queueLength: 0,
+        inFlightCount: 0,
+        cacheSize: 0,
+        priorityBreakdown: {
+          critical: 0,
+          high: 0,
+          normal: 0,
+          low: 0,
+        },
+      });
     }, 1000);
 
     return () => clearInterval(interval);
