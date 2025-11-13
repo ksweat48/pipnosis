@@ -135,6 +135,73 @@ class SessionLearningGenerator {
   }
 
   /**
+   * Generate learning summary from backtest trades
+   */
+  async generateBacktestLearning(
+    userId: string,
+    sessionId: string,
+    trades: any[],
+    sessionType: 'synthetic' | 'real'
+  ): Promise<void> {
+    console.log(`\n[Session Learning] 📚 Generating backtest learning summary for ${trades.length} trades`);
+
+    if (trades.length === 0) {
+      console.log('[Session Learning] No trades to analyze');
+      return;
+    }
+
+    try {
+      // Analyze best and worst setups
+      const { bestSetup, worstSetup } = await this.analyzeBestWorstSetupsFromTrades(trades);
+
+      // Detect new patterns (from ai_pattern_ev_tracking)
+      const patternsDiscovered = await this.fetchRecentPatterns(userId, 'active');
+
+      // Detect degraded patterns
+      const patternsDegraded = await this.fetchRecentPatterns(userId, 'degraded');
+
+      // Extract key learnings
+      const keyLearnings = this.extractKeyLearningsFromTrades(trades);
+
+      // Calculate session metrics
+      const sessionCSS = this.calculateCSSFromTrades(trades);
+      const sessionEV = this.calculateEVFromTrades(trades);
+
+      // Generate recommendations
+      const recommendations = this.generateRecommendations(
+        bestSetup,
+        worstSetup,
+        patternsDegraded,
+        sessionCSS
+      );
+
+      const learningData = {
+        sessionDate: new Date(),
+        sessionType: sessionType === 'synthetic' ? 'backtest' : 'backtest', // Mark as backtest
+        bestSetup,
+        worstSetup,
+        confidenceAdjustments: [], // Would need historical data to calculate
+        filterAdjustments: [],
+        patternsDiscovered,
+        patternsDegraded,
+        keyLearnings,
+        sessionCSS,
+        sessionEV,
+        tradesTaken: trades.length,
+        tradesAvoided: 0,
+        recommendations
+      };
+
+      // Save to database
+      await this.saveLearningToDatabase(userId, learningData);
+
+      console.log('[Session Learning] ✅ Backtest learning summary generated');
+    } catch (error) {
+      console.error('[Session Learning] Error generating backtest learning:', error);
+    }
+  }
+
+  /**
    * Fetch all trades for a specific day
    */
   private async fetchDayTrades(
@@ -561,6 +628,154 @@ class SessionLearningGenerator {
       console.error('[Session Learning] Exception fetching learning:', error);
       return null;
     }
+  }
+
+  /**
+   * Helper method to analyze best/worst setups from trade objects
+   */
+  private async analyzeBestWorstSetupsFromTrades(trades: any[]): Promise<any> {
+    const setupGroups: Record<string, any[]> = {};
+
+    // Group by setup type
+    trades.forEach(trade => {
+      const setup = trade.setupType || 'Unknown Setup';
+      if (!setupGroups[setup]) {
+        setupGroups[setup] = [];
+      }
+      setupGroups[setup].push(trade);
+    });
+
+    let bestSetup = null;
+    let worstSetup = null;
+    let bestEV = -Infinity;
+    let worstEV = Infinity;
+
+    // Analyze each setup
+    for (const [setupName, setupTrades] of Object.entries(setupGroups)) {
+      if (setupTrades.length === 0) continue;
+
+      const wins = setupTrades.filter(t => t.outcome === 'win');
+      const losses = setupTrades.filter(t => t.outcome === 'loss');
+      const totalPnL = setupTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+      const avgPnL = totalPnL / setupTrades.length;
+      const winRate = (wins.length / setupTrades.length) * 100;
+      const avgWin = wins.length > 0 ? wins.reduce((sum, t) => sum + (t.pnl || 0), 0) / wins.length : 0;
+      const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((sum, t) => sum + (t.pnl || 0), 0) / losses.length) : 1;
+      const profitFactor = avgLoss > 0 ? (avgWin * wins.length) / (avgLoss * losses.length) : 0;
+
+      const setupData = {
+        name: setupName,
+        ev: avgPnL,
+        winRate,
+        tradesCount: setupTrades.length,
+        profitFactor
+      };
+
+      if (avgPnL > bestEV) {
+        bestEV = avgPnL;
+        bestSetup = setupData;
+      }
+
+      if (avgPnL < worstEV && avgPnL < 0) {
+        worstEV = avgPnL;
+        worstSetup = setupData;
+      }
+    }
+
+    return { bestSetup, worstSetup };
+  }
+
+  /**
+   * Fetch recent patterns from ai_pattern_ev_tracking
+   */
+  private async fetchRecentPatterns(userId: string, status: string): Promise<string[]> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_pattern_ev_tracking')
+        .select('pattern_name')
+        .eq('user_id', userId)
+        .eq('pattern_status', status)
+        .order('last_updated_at', { ascending: false })
+        .limit(5);
+
+      if (error) throw error;
+
+      return data?.map(p => p.pattern_name) || [];
+    } catch (error) {
+      console.error('[Session Learning] Error fetching patterns:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Extract key learnings from trade data
+   */
+  private extractKeyLearningsFromTrades(trades: any[]): string[] {
+    const learnings: string[] = [];
+    const wins = trades.filter(t => t.outcome === 'win');
+    const losses = trades.filter(t => t.outcome === 'loss');
+    const winRate = trades.length > 0 ? (wins.length / trades.length) * 100 : 0;
+
+    if (winRate >= 60) {
+      learnings.push(`Strong session with ${winRate.toFixed(1)}% win rate - ${wins.length} successful trades`);
+    } else if (winRate < 50) {
+      learnings.push(`Challenging session with ${winRate.toFixed(1)}% win rate - reviewing losing patterns`);
+    }
+
+    // Analyze symbols
+    const symbolStats: Record<string, any> = {};
+    trades.forEach(trade => {
+      if (!symbolStats[trade.symbol]) {
+        symbolStats[trade.symbol] = { wins: 0, total: 0 };
+      }
+      symbolStats[trade.symbol].total++;
+      if (trade.outcome === 'win') symbolStats[trade.symbol].wins++;
+    });
+
+    for (const [symbol, stats] of Object.entries(symbolStats)) {
+      const symbolWinRate = (stats.wins / stats.total) * 100;
+      if (symbolWinRate >= 70) {
+        learnings.push(`${symbol} showing strong performance: ${symbolWinRate.toFixed(1)}% win rate`);
+      } else if (symbolWinRate < 40) {
+        learnings.push(`${symbol} underperforming: ${symbolWinRate.toFixed(1)}% win rate - may need strategy adjustment`);
+      }
+    }
+
+    if (learnings.length === 0) {
+      learnings.push('Backtest completed - analyzed trade patterns and updated AI knowledge base');
+    }
+
+    return learnings;
+  }
+
+  /**
+   * Calculate CSS from trade data
+   */
+  private calculateCSSFromTrades(trades: any[]): number {
+    if (trades.length === 0) return 0;
+
+    const wins = trades.filter(t => t.outcome === 'win');
+    const losses = trades.filter(t => t.outcome === 'loss');
+    const winRate = (wins.length / trades.length) * 100;
+    const avgWin = wins.length > 0 ? wins.reduce((sum, t) => sum + Math.abs(t.pnl || 0), 0) / wins.length : 0;
+    const avgLoss = losses.length > 0 ? losses.reduce((sum, t) => sum + Math.abs(t.pnl || 0), 0) / losses.length : 1;
+    const profitFactor = avgLoss > 0 ? (avgWin * wins.length) / (avgLoss * losses.length) : 0;
+
+    // Simplified CSS calculation
+    const winRateScore = Math.min(100, (winRate / 80) * 40); // 40 points max
+    const profitFactorScore = Math.min(100, (profitFactor / 2.5) * 30); // 30 points max
+    const consistencyScore = 30; // Base score
+
+    return Math.min(100, winRateScore + profitFactorScore + consistencyScore);
+  }
+
+  /**
+   * Calculate EV from trade data
+   */
+  private calculateEVFromTrades(trades: any[]): number {
+    if (trades.length === 0) return 0;
+    const totalPnL = trades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+    return totalPnL / trades.length;
   }
 }
 

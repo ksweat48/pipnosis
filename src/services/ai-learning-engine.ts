@@ -3,6 +3,7 @@ import { evCalculator } from './ev-calculator';
 import { cssCalculator } from './css-calculator';
 import { adaptiveRiskManager } from './adaptive-risk-manager';
 import { strategyDiscoveryEngine } from './strategy-discovery-engine';
+import { sessionLearningGenerator } from './session-learning-generator';
 
 interface TradeForAnalysis {
   id?: string;
@@ -602,7 +603,15 @@ class AILearningEngine {
     console.log(`  Wins: ${wins.length}`);
     console.log(`  Win Rate: ${winRate.toFixed(1)}%`);
     console.log(`  Session Type: ${sessionType}`);
-    console.log(`  Learnings stored: ✓`);
+
+    // Generate and save session learning summary for the dashboard
+    try {
+      console.log('[AI Learning Engine] 📝 Generating session learning summary...');
+      await sessionLearningGenerator.generateBacktestLearning(userId, sessionId, trades, sessionType);
+      console.log(`  Learnings stored: ✓`);
+    } catch (error) {
+      console.error('[AI Learning Engine] Error generating session learning:', error);
+    }
   }
 
   // ============================================================================
