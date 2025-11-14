@@ -14,6 +14,8 @@
  */
 
 import { syntheticBacktestingEngine, SyntheticBacktestConfig } from './synthetic-backtesting-engine';
+import { plateauDetector } from './plateau-detector';
+import { breakthroughEngine } from './breakthrough-engine';
 
 export interface SimpleAutoBacktestState {
   isRunning: boolean;
@@ -26,7 +28,10 @@ export interface SimpleAutoBacktestState {
     pnl: number;
     completedAt: Date;
   } | null;
-  nextRunIn: number; // seconds
+  nextRunIn: number;
+  plateauDetected: boolean;
+  breakthroughMode: boolean;
+  plateauDuration: number;
 }
 
 class SimpleAutoBacktestService {
@@ -37,12 +42,16 @@ class SimpleAutoBacktestService {
   private abortController: AbortController | null = null;
   private nextRunTimer: NodeJS.Timeout | null = null;
   private lastBacktestResult: any = null;
+  private plateauDetected = false;
+  private breakthroughMode = false;
+  private plateauDuration = 0;
 
   // Configuration
   private readonly MIN_DELAY_SECONDS = 2;
   private readonly MAX_DELAY_SECONDS = 10;
   private readonly MIN_DURATION_DAYS = 1;
   private readonly MAX_DURATION_DAYS = 3;
+  private readonly PLATEAU_CHECK_INTERVAL = 5;
 
   /**
    * Start auto-backtest loop
@@ -91,7 +100,10 @@ class SimpleAutoBacktestService {
       totalBacktestsCompleted: this.totalBacktestsCompleted,
       currentBacktestNumber: this.currentBacktestNumber,
       lastBacktestResult: this.lastBacktestResult,
-      nextRunIn: 0 // Will be calculated by UI
+      nextRunIn: 0,
+      plateauDetected: this.plateauDetected,
+      breakthroughMode: this.breakthroughMode,
+      plateauDuration: this.plateauDuration
     };
   }
 
@@ -160,7 +172,14 @@ class SimpleAutoBacktestService {
         console.log(`[Simple Auto-Backtest] ✅ Completed! Win rate: ${result.winRate.toFixed(1)}%, P&L: $${result.totalPnL.toFixed(2)}`);
         console.log('[Simple Auto-Backtest] ===============================================\n');
 
-        // Random delay before next run
+        if (this.totalBacktestsCompleted % this.PLATEAU_CHECK_INTERVAL === 0) {
+          await this.checkForPlateau();
+        }
+
+        if (this.plateauDetected && !this.breakthroughMode && this.plateauDuration >= 15) {
+          await this.triggerBreakthroughMode();
+        }
+
         if (this.isRunning) {
           const delaySeconds = this.randomDelay();
           console.log(`[Simple Auto-Backtest] Waiting ${delaySeconds}s before next backtest...`);
@@ -215,6 +234,66 @@ class SimpleAutoBacktestService {
    */
   private randomDelay(): number {
     return Math.floor(Math.random() * (this.MAX_DELAY_SECONDS - this.MIN_DELAY_SECONDS + 1)) + this.MIN_DELAY_SECONDS;
+  }
+
+  /**
+   * Check for performance plateau
+   */
+  private async checkForPlateau(): Promise<void> {
+    if (!this.userId) return;
+
+    console.log('\n[Simple Auto-Backtest] 🔍 Checking for plateau...');
+
+    try {
+      const plateau = await plateauDetector.detectPlateau(this.userId);
+
+      if (plateau) {
+        this.plateauDetected = plateau.isPlateaued;
+        this.plateauDuration = plateau.plateauDuration;
+
+        if (plateau.isPlateaued) {
+          console.log(`[Simple Auto-Backtest] ⚠️  PLATEAU DETECTED!`);
+          console.log(`[Simple Auto-Backtest]   Duration: ${plateau.plateauDuration} sessions`);
+          console.log(`[Simple Auto-Backtest]   Win Rate Range: ${plateau.winRateRange.min.toFixed(1)}% - ${plateau.winRateRange.max.toFixed(1)}%`);
+          console.log(`[Simple Auto-Backtest]   ${plateau.recommendation}`);
+        } else {
+          console.log(`[Simple Auto-Backtest] ✅ No plateau - performance is progressing`);
+        }
+      }
+    } catch (error) {
+      console.error('[Simple Auto-Backtest] Error checking plateau:', error);
+    }
+  }
+
+  /**
+   * Trigger breakthrough mode to escape plateau
+   */
+  private async triggerBreakthroughMode(): Promise<void> {
+    if (!this.userId || this.breakthroughMode) return;
+
+    console.log('\n[Simple Auto-Backtest] 🚀 TRIGGERING BREAKTHROUGH MODE');
+    this.breakthroughMode = true;
+
+    try {
+      const result = await breakthroughEngine.runFullBreakthroughCycle(this.userId);
+
+      if (result.success && result.bestStrategy) {
+        console.log(`\n[Simple Auto-Backtest] 🎉 BREAKTHROUGH COMPLETE!`);
+        console.log(`[Simple Auto-Backtest] Best Strategy: ${result.bestStrategy.strategyName}`);
+        console.log(`[Simple Auto-Backtest] Improvement: +${result.bestStrategy.improvement.toFixed(1)}%`);
+        console.log(`[Simple Auto-Backtest] New Win Rate: ${result.bestStrategy.winRate.toFixed(1)}%`);
+        console.log(`[Simple Auto-Backtest] ${result.recommendation}`);
+
+        if (result.bestStrategy.shouldAdopt) {
+          this.plateauDetected = false;
+          this.plateauDuration = 0;
+        }
+      }
+    } catch (error) {
+      console.error('[Simple Auto-Backtest] Error in breakthrough mode:', error);
+    } finally {
+      this.breakthroughMode = false;
+    }
   }
 
   /**

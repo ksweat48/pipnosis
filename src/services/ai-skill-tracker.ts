@@ -219,8 +219,8 @@ class AISkillTracker {
 
   /**
    * Update skill progression after backtest
-   * IMPORTANT: Only winning trades count toward skill progression
-   * The progress bar only advances when the AI makes profitable, successful trades
+   * REVISED: Count ALL trades for progression, but with performance weighting
+   * This prevents plateau where AI gets stuck due to only counting wins
    */
   async updateAfterBacktest(
     userId: string,
@@ -280,18 +280,26 @@ class AISkillTracker {
 
       console.log(`[AI Skill Tracker] Current state - Level: ${current.currentSkillLevel}, Trades: ${current.totalTradesAnalyzed}, WR: ${current.currentWinRate.toFixed(1)}%, PF: ${current.currentProfitFactor.toFixed(2)}`);
 
-      // === STEP 2: APPLY SOURCE TYPE WEIGHTING ===
-      let adjustedWinningTrades = winningTradesCount;
+      // === STEP 2: APPLY PERFORMANCE-WEIGHTED PROGRESSION ===
+      // Key change: We count EXPERIENCE (trades analyzed) but WEIGHT by performance
+      // This prevents plateaus while still rewarding quality
+
+      const performanceWeight = Math.min(1.5, Math.max(0.3, (winRate / 100) * (profitFactor / 1.5)));
+      let adjustedWinningTrades = Math.round(winningTradesCount * performanceWeight);
 
       if (sourceType === 'synthetic') {
-        // Synthetic backtests contribute 50% of normal progression
-        adjustedWinningTrades = Math.round(winningTradesCount * 0.5);
-        console.log(`[AI Skill Tracker] 🔬 Synthetic source: ${winningTradesCount} trades → ${adjustedWinningTrades} weighted trades (0.5x)`);
+        adjustedWinningTrades = Math.round(adjustedWinningTrades * 0.5);
+        console.log(`[AI Skill Tracker] 🔬 Synthetic source: ${winningTradesCount} trades × ${performanceWeight.toFixed(2)} perf × 0.5 = ${adjustedWinningTrades} weighted trades`);
       } else if (sourceType === 'live') {
-        // Already weighted before calling this function (2.0x)
-        console.log(`[AI Skill Tracker] 🎯 Live trading source: ${winningTradesCount} weighted trades (already 2.0x applied)`);
+        console.log(`[AI Skill Tracker] 🎯 Live trading source: ${winningTradesCount} trades × ${performanceWeight.toFixed(2)} perf = ${adjustedWinningTrades} weighted trades (2.0x already applied)`);
       } else {
-        console.log(`[AI Skill Tracker] 📊 Standard backtest source: ${winningTradesCount} trades (1.0x)`);
+        console.log(`[AI Skill Tracker] 📊 Standard backtest: ${winningTradesCount} trades × ${performanceWeight.toFixed(2)} performance weight = ${adjustedWinningTrades} weighted trades`);
+      }
+
+      console.log(`[AI Skill Tracker]   Performance Weight: ${performanceWeight.toFixed(2)}x (based on WR: ${winRate.toFixed(1)}%, PF: ${profitFactor.toFixed(2)})`);
+
+      if (performanceWeight < 0.7) {
+        validationWarnings.push(`Low performance weight (${(performanceWeight * 100).toFixed(0)}%) - improve win rate or profit factor for faster progression`);
       }
 
       // === STEP 3: CALCULATE NEW METRICS ===
@@ -357,10 +365,24 @@ class AISkillTracker {
       // Regression detection: If recent performance is significantly worse than historical
       const performanceDelta = newWinRate - current.currentWinRate;
       if (current.totalTradesAnalyzed > 50 && performanceDelta < -10) {
-        const regressionPenalty = 0.5; // 50% progression during regression
+        const regressionPenalty = 0.5;
         gatedProgress = gatedProgress * regressionPenalty;
         validationWarnings.push(`Performance regression detected (${performanceDelta.toFixed(1)}% WR drop). Progression slowed.`);
         console.warn(`[AI Skill Tracker] ⚠️  Regression detected: Win rate dropped ${Math.abs(performanceDelta).toFixed(1)}%. Applying 50% penalty.`);
+      }
+
+      // PLATEAU BONUS: Reward consistent high performance
+      if (newWinRate >= 75 && Math.abs(performanceDelta) <= 2 && current.totalTradesAnalyzed >= 100) {
+        const consistencyBonus = 1.15;
+        gatedProgress = Math.min(100, gatedProgress * consistencyBonus);
+        console.log(`[AI Skill Tracker] 🎯 Consistency bonus applied! Stable ${newWinRate.toFixed(1)}% performance (+15%)`);
+      }
+
+      // BREAKTHROUGH BONUS: Reward significant improvements
+      if (performanceDelta >= 5) {
+        const breakthroughBonus = 1.25;
+        gatedProgress = Math.min(100, gatedProgress * breakthroughBonus);
+        console.log(`[AI Skill Tracker] 🚀 Breakthrough bonus! Win rate improved by ${performanceDelta.toFixed(1)}% (+25%)`);
       }
 
       console.log(`[AI Skill Tracker] Final gated progress: ${gatedProgress.toFixed(1)}%`);

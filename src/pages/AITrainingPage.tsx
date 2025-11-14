@@ -9,6 +9,7 @@ import SyntheticEquityCurve from '../components/SyntheticEquityCurve';
 import SyntheticCandlestickChart from '../components/SyntheticCandlestickChart';
 import SyntheticBacktestResults from '../components/SyntheticBacktestResults';
 import AILearningProgressDashboard from '../components/AILearningProgressDashboard';
+import PlateauBreakthroughDashboard from '../components/PlateauBreakthroughDashboard';
 import { NavigationMenu } from '../components/NavigationMenu';
 import { simpleAutoBacktestService, SimpleAutoBacktestState } from '../services/simple-auto-backtest-service';
 import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock, Sparkles, RefreshCw, Brain, Zap, Square, Activity } from 'lucide-react';
@@ -456,7 +457,10 @@ export default function AITrainingPage() {
 
         {/* AI Learning Progress Tab */}
         {activeTab === 'progress' && (
-          <AILearningProgressDashboard />
+          <div className="space-y-6">
+            {user && <PlateauBreakthroughDashboard userId={user.id} />}
+            <AILearningProgressDashboard />
+          </div>
         )}
 
         {/* Backtest Configuration Tab */}
