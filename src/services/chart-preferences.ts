@@ -8,9 +8,18 @@ interface ChartPreferences {
 }
 
 export function appTimeframeToDb(timeframe: Timeframe): string {
-  // Return uppercase timeframe to match TradingView backfilled data format
-  // The database now uses uppercase format: M1, M5, M15, M30, H1, H4, D1, W1
-  return timeframe;
+  // Convert app timeframe format (M5, H1) to database format (5m, 1h)
+  const mapping: Record<Timeframe, string> = {
+    'M1': '1m',
+    'M5': '5m',
+    'M15': '15m',
+    'M30': '30m',
+    'H1': '1h',
+    'H4': '4h',
+    'D1': 'd1',
+    'W1': 'w1'
+  };
+  return mapping[timeframe] || '5m';
 }
 
 export function dbTimeframeToApp(dbTimeframe: string): Timeframe {

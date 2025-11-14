@@ -48,6 +48,7 @@ class BackgroundCandleAggregator {
   private lastReconnectAttemptTime: number = 0;
   private readonly MIN_RECONNECT_INTERVAL_MS = 2000;
   private circuitBreakerTripped = false;
+  private isInitializing = false;
 
   private getCacheKey(symbol: string, timeframe: Timeframe): string {
     return `${symbol}_${timeframe}`;
@@ -174,6 +175,11 @@ class BackgroundCandleAggregator {
   }
 
   private notifyTickListeners(symbol: string, bid: number, ask: number, timestamp: string): void {
+    // Don't send tick updates during initialization to prevent old data from updating charts
+    if (this.isInitializing) {
+      return;
+    }
+
     const midPrice = (bid + ask) / 2;
     const tick = { symbol, bid, ask, timestamp, midPrice };
 
@@ -707,8 +713,10 @@ class BackgroundCandleAggregator {
   }
 
   private async initializeCurrentCandles(): Promise<void> {
+    this.isInitializing = true;
     console.log('[BackgroundAggregator] Initializing current candle states from recent prices...');
     console.log('[BackgroundAggregator] This ensures live candles start from the current period only');
+    console.log('[BackgroundAggregator] 🔇 Tick notifications paused during initialization');
 
     for (const symbol of FOREX_PAIRS) {
       try {
@@ -763,6 +771,8 @@ class BackgroundCandleAggregator {
     }
 
     console.log('[BackgroundAggregator] ✅ Current candle states initialized for all pairs');
+    this.isInitializing = false;
+    console.log('[BackgroundAggregator] 🔊 Tick notifications resumed');
   }
 
   async stop(): Promise<void> {

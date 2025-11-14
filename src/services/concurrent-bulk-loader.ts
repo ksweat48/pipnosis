@@ -207,31 +207,40 @@ class ConcurrentBulkLoader {
     retryCount = 0
   ): Promise<any[]> {
     try {
-      const url = `${NETLIFY_FUNCTION_URL}/forex-candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=${count}`;
+      console.log(`[BulkLoader] Loading ${symbol} ${timeframe} directly from database...`);
 
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
-      });
+      // Convert app timeframe to database format (M5 -> 5m, H1 -> 1h)
+      const dbTimeframe = timeframe.replace(/^M/, '').replace(/^H/, '').toLowerCase() +
+                          (timeframe.startsWith('M') ? 'm' : timeframe.startsWith('H') ? 'h' : '');
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const { data: candles, error } = await supabase
+        .from('forex_candles')
+        .select('open_time, open, high, low, close, volume')
+        .eq('symbol', symbol)
+        .eq('timeframe', dbTimeframe)
+        .order('open_time', { ascending: false })
+        .limit(count);
+
+      if (error) {
+        console.error(`[BulkLoader] Database error for ${symbol} ${timeframe}:`, error);
+        throw new Error(`Database query failed: ${error.message}`);
       }
 
-      const data = await response.json();
-
-      if (!data.success || !data.data || !Array.isArray(data.data.candles)) {
-        throw new Error('Invalid response format from forex-candles function');
+      if (!candles || candles.length === 0) {
+        console.warn(`[BulkLoader] No candles found for ${symbol} ${timeframe} (db: ${dbTimeframe})`);
+        return [];
       }
 
-      const candles = data.data.candles;
-
+      console.log(`[BulkLoader] Loaded ${candles.length} candles for ${symbol} ${timeframe} from database`);
       onProgress?.(candles.length, count);
 
-      return candles.map((c: any) => ({
+      // Reverse to get chronological order (oldest first)
+      const chronologicalCandles = candles.reverse();
+
+      return chronologicalCandles.map((c: any) => ({
         id: `${symbol}_${timeframe}_${c.open_time}`,
         symbol,
-        timeframe,
+        timeframe: dbTimeframe,
         timestamp: c.open_time,
         open: c.open,
         high: c.high,
@@ -239,15 +248,16 @@ class ConcurrentBulkLoader {
         close: c.close,
         volume: c.volume || 0,
         tick_volume: c.volume || 0,
-        spread: c.spread || 0
+        spread: 0
       }));
     } catch (error) {
       if (retryCount < MAX_RETRIES) {
-        console.warn(`Retry ${retryCount + 1}/${MAX_RETRIES} for ${symbol} ${timeframe}`);
+        console.warn(`[BulkLoader] Retry ${retryCount + 1}/${MAX_RETRIES} for ${symbol} ${timeframe}`);
         await this.delay(RETRY_DELAYS[retryCount]);
         return this.fetchCandlesWithRetry(symbol, timeframe, count, onProgress, retryCount + 1);
       }
 
+      console.error(`[BulkLoader] Failed to load ${symbol} ${timeframe} after ${MAX_RETRIES} retries:`, error);
       throw error;
     }
   }
