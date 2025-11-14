@@ -79,7 +79,7 @@ BEGIN
         'Content-Type', 'application/json',
         'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key')
       )
-    ) AS request_id;
+    )
     $$
   );
 
