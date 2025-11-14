@@ -215,7 +215,7 @@ class ConcurrentBulkLoader {
 
       const { data: candles, error } = await supabase
         .from('forex_candles')
-        .select('open_time, open, high, low, close, volume')
+        .select('open_time, close_time, open, high, low, close, volume, tick_volume, spread')
         .eq('symbol', symbol)
         .eq('timeframe', dbTimeframe)
         .order('open_time', { ascending: false })
@@ -238,17 +238,17 @@ class ConcurrentBulkLoader {
       const chronologicalCandles = candles.reverse();
 
       return chronologicalCandles.map((c: any) => ({
-        id: `${symbol}_${timeframe}_${c.open_time}`,
         symbol,
         timeframe: dbTimeframe,
-        timestamp: c.open_time,
+        open_time: c.open_time,
+        close_time: c.close_time || c.open_time,
         open: c.open,
         high: c.high,
         low: c.low,
         close: c.close,
         volume: c.volume || 0,
-        tick_volume: c.volume || 0,
-        spread: 0
+        tick_volume: c.tick_volume || 0,
+        spread: c.spread || 0
       }));
     } catch (error) {
       if (retryCount < MAX_RETRIES) {
@@ -268,7 +268,7 @@ class ConcurrentBulkLoader {
     const { error } = await supabase
       .from('forex_candles')
       .upsert(candles, {
-        onConflict: 'symbol,timeframe,timestamp',
+        onConflict: 'symbol,timeframe,open_time',
         ignoreDuplicates: false
       });
 
