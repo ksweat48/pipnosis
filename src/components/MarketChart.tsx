@@ -412,8 +412,15 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       }
 
       try {
+        // Ensure time is a number, not an object
+        const timeValue = currentCandleRef.current.time;
+        if (typeof timeValue !== 'number' || isNaN(timeValue)) {
+          console.error('[Chart] Invalid time value detected:', { time: timeValue, type: typeof timeValue });
+          return;
+        }
+
         candlestickSeriesRef.current?.update({
-          time: currentCandleRef.current.time,
+          time: timeValue,
           open: currentCandleRef.current.open,
           high: currentCandleRef.current.high,
           low: currentCandleRef.current.low,
@@ -479,6 +486,15 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     }
 
     try {
+      // Validate candle data before updating
+      if (typeof latestCandle.time !== 'number' || isNaN(latestCandle.time)) {
+        console.error('[Chart] Invalid candle time from poller:', {
+          candle: latestCandle,
+          timeType: typeof latestCandle.time
+        });
+        return;
+      }
+
       candlestickSeriesRef.current.update(latestCandle);
 
       if (chartRef.current && !userInteractedRef.current) {
@@ -570,22 +586,38 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         console.warn('[Chart Init] Backfill errors:', backfillResult.errors);
       }
 
-      historicalCandlesRef.current = backfilledCandles;
+      // Validate all candle times before setting
+      const validatedCandles = backfilledCandles.filter((candle, index) => {
+        if (typeof candle.time !== 'number' || isNaN(candle.time)) {
+          console.error(`[Chart Init] Invalid candle at index ${index}:`, {
+            candle,
+            timeType: typeof candle.time
+          });
+          return false;
+        }
+        return true;
+      });
 
-      if (backfilledCandles.length > 0) {
-        const firstCandle = backfilledCandles[0];
-        const lastCandle = backfilledCandles[backfilledCandles.length - 1];
+      if (validatedCandles.length !== backfilledCandles.length) {
+        console.warn(`[Chart Init] Filtered out ${backfilledCandles.length - validatedCandles.length} invalid candles`);
+      }
+
+      historicalCandlesRef.current = validatedCandles;
+
+      if (validatedCandles.length > 0) {
+        const firstCandle = validatedCandles[0];
+        const lastCandle = validatedCandles[validatedCandles.length - 1];
         console.log(`[Chart Init] Historical range: ${new Date(firstCandle.time * 1000).toISOString()} to ${new Date(lastCandle.time * 1000).toISOString()}`);
         console.log(`[Chart Init] Total span: ${((lastCandle.time - firstCandle.time) / 3600).toFixed(1)} hours`);
       }
 
-      if (candlestickSeriesRef.current) {
-        candlestickSeriesRef.current.setData(backfilledCandles);
+      if (candlestickSeriesRef.current && validatedCandles.length > 0) {
+        candlestickSeriesRef.current.setData(validatedCandles);
       }
 
       if (chartData.current) {
-        const lastHistoricalTime = backfilledCandles.length > 0
-          ? backfilledCandles[backfilledCandles.length - 1].time
+        const lastHistoricalTime = validatedCandles.length > 0
+          ? validatedCandles[validatedCandles.length - 1].time
           : 0;
 
         console.log(`[Chart Init] Current candle time: ${new Date(chartData.current.time * 1000).toISOString()}`);
