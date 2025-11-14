@@ -106,11 +106,19 @@ class CandleCacheManager {
     return age < CACHE_VALIDITY_MS;
   }
 
-  async saveCandles(symbol: string, timeframe: string, candles: CachedCandle[]): Promise<void> {
+  async saveCandles(symbol: string, timeframe: string, candles: any[]): Promise<void> {
     await this.initDB();
     if (!this.db || candles.length === 0) return;
 
-    const sortedCandles = [...candles].sort((a, b) =>
+    const candlesWithIds = candles.map(candle => ({
+      ...candle,
+      id: `${candle.symbol || symbol}_${candle.timeframe || timeframe}_${candle.open_time || candle.timestamp}`,
+      symbol: candle.symbol || symbol,
+      timeframe: candle.timeframe || timeframe,
+      timestamp: candle.open_time || candle.timestamp
+    }));
+
+    const sortedCandles = [...candlesWithIds].sort((a, b) =>
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
 
@@ -118,7 +126,7 @@ class CandleCacheManager {
       symbol,
       timeframe,
       fetchTimestamp: Date.now(),
-      candleCount: candles.length,
+      candleCount: candlesWithIds.length,
       oldestCandle: sortedCandles[0].timestamp,
       newestCandle: sortedCandles[sortedCandles.length - 1].timestamp
     };
@@ -128,7 +136,7 @@ class CandleCacheManager {
       const candleStore = transaction.objectStore(STORE_NAME);
       const metaStore = transaction.objectStore('metadata');
 
-      candles.forEach(candle => {
+      candlesWithIds.forEach(candle => {
         candleStore.put(candle);
       });
 

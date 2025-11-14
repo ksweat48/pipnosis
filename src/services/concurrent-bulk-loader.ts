@@ -80,7 +80,13 @@ class ConcurrentBulkLoader {
 
       if (candles && candles.length > 0) {
         await this.upsertCandles(candles);
-        await candleCacheManager.saveCandles(symbol, timeframe, candles);
+
+        try {
+          await candleCacheManager.saveCandles(symbol, timeframe, candles);
+        } catch (cacheError) {
+          console.warn(`[BulkLoader] Cache save failed for ${symbol} ${timeframe}, continuing without cache:`, cacheError);
+        }
+
         return true;
       }
 
@@ -287,7 +293,12 @@ class ConcurrentBulkLoader {
         const candles = await this.fetchCandlesWithRetry(symbol, timeframe, candleCount);
         if (candles && candles.length > 0) {
           await this.upsertCandles(candles);
-          await candleCacheManager.saveCandles(symbol, timeframe, candles);
+
+          try {
+            await candleCacheManager.saveCandles(symbol, timeframe, candles);
+          } catch (cacheError) {
+            console.warn(`[BulkLoader] Background cache save failed for ${symbol} ${timeframe}:`, cacheError);
+          }
         }
       } catch (error) {
         console.error(`Background cache update failed for ${symbol} ${timeframe}:`, error);
