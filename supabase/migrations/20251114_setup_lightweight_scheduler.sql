@@ -27,21 +27,19 @@
 -- It runs once per minute (not every 15 seconds!)
 -- It only triggers processing if jobs actually exist
 SELECT cron.schedule(
-  'job-scheduler',
-  '* * * * *',  -- Every minute (60 seconds, not 15!)
-  $$
+  job_name := 'job-scheduler'::text,
+  schedule := '* * * * *'::text,
+  command := $$
   SELECT net.http_post(
     url := current_setting('app.settings.supabase_url') || '/functions/v1/job-scheduler',
     headers := jsonb_build_object(
       'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key'),
       'Content-Type', 'application/json'
     ),
-    timeout_milliseconds := 30000  -- 30 second timeout
+    timeout_milliseconds := 30000
   ) AS request_id;
-  $$
+  $$::text
 );
-
-COMMENT ON FUNCTION cron.schedule IS 'Lightweight scheduler runs once per minute and only processes jobs if they exist';
 
 -- =====================================================
 -- 2. CREATE RESOURCE MONITORING TABLE
@@ -122,9 +120,9 @@ $$;
 -- =====================================================
 
 SELECT cron.schedule(
-  'monitor-database-resources',
-  '*/5 * * * *',  -- Every 5 minutes
-  'SELECT log_resource_usage();'
+  job_name := 'monitor-database-resources'::text,
+  schedule := '*/5 * * * *'::text,
+  command := 'SELECT log_resource_usage();'::text
 );
 
 -- =====================================================
