@@ -157,7 +157,17 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   }, [symbol, timeframe]);
 
   useEffect(() => {
-    if (!chartContainerRef.current) return;
+    if (!chartContainerRef.current) {
+      console.error('[Chart] chartContainerRef is null, cannot create chart');
+      return;
+    }
+
+    const containerWidth = chartContainerRef.current.clientWidth;
+    console.log('[Chart] Creating chart with container width:', containerWidth);
+
+    if (containerWidth === 0) {
+      console.warn('[Chart] Container width is 0, chart may not display properly');
+    }
 
     const chart = createChart(chartContainerRef.current, {
       layout: {
@@ -168,7 +178,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         vertLines: { color: '#374151' },
         horzLines: { color: '#374151' },
       },
-      width: chartContainerRef.current.clientWidth,
+      width: containerWidth || 600,
       height: 400,
       timeScale: {
         timeVisible: true,
@@ -527,6 +537,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
   const initializeChart = async () => {
     try {
+      console.log(`[Chart Init] Starting initialization for ${symbol} ${timeframe}`);
       setIsLoading(true);
       setError(null);
       setLoadingProgress(null);
@@ -542,18 +553,24 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       );
 
       if (!success) {
-        console.warn('No candle data found for symbol:', symbol);
+        console.warn('[Chart Init] No candle data found for symbol:', symbol);
         setError('Waiting for price data... The price feed will start shortly.');
         setIsLoading(false);
         setLoadingProgress(null);
         return;
       }
 
+      console.log('[Chart Init] Bulk loader succeeded, fetching chart data...');
       const dataLimit = chartPreferencesService.getDataLimit(timeframe);
       const chartData = await fetchCompleteChartData(symbol, timeframe, dataLimit);
 
+      console.log('[Chart Init] Chart data received:', {
+        historicalCount: chartData.historical.length,
+        hasCurrent: !!chartData.current
+      });
+
       if (chartData.historical.length === 0 && !chartData.current) {
-        console.warn('No candle data found after bulk load for symbol:', symbol);
+        console.warn('[Chart Init] No candle data found after bulk load for symbol:', symbol);
         setError('Waiting for price data... The price feed will start shortly.');
         setIsLoading(false);
         setLoadingProgress(null);
@@ -612,7 +629,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       }
 
       if (candlestickSeriesRef.current && validatedCandles.length > 0) {
+        console.log('[Chart Init] Setting chart data with', validatedCandles.length, 'candles');
         candlestickSeriesRef.current.setData(validatedCandles);
+        console.log('[Chart Init] Chart data set successfully');
+      } else {
+        console.error('[Chart Init] Cannot set chart data:', {
+          hasSeriesRef: !!candlestickSeriesRef.current,
+          candleCount: validatedCandles.length
+        });
       }
 
       if (chartData.current) {
@@ -681,6 +705,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         });
       }
 
+      console.log('[Chart Init] Initialization complete, setting isLoading to false');
       setIsLoading(false);
       setLoadingProgress(null);
 
@@ -701,7 +726,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         }
       );
     } catch (err) {
-      console.error('Failed to initialize chart:', err);
+      console.error('[Chart Init] Failed to initialize chart:', err);
+      if (err instanceof Error) {
+        console.error('[Chart Init] Error stack:', err.stack);
+      }
       setError('Failed to load chart data');
       setIsLoading(false);
       setLoadingProgress(null);
@@ -733,8 +761,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   }, []);
 
   useEffect(() => {
-    if (!candlestickSeriesRef.current) return;
+    console.log('[Chart] Main useEffect triggered for:', symbol, timeframe);
 
+    if (!candlestickSeriesRef.current) {
+      console.log('[Chart] candlestickSeriesRef is null, waiting for chart creation');
+      return;
+    }
+
+    console.log('[Chart] Chart series exists, initializing data...');
     currentCandleRef.current = null;
     lastFetchTimeRef.current = null;
     historicalCandlesRef.current = [];
