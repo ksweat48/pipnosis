@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { cssCalculator, type TradeData } from './css-calculator';
+import { aiSessionConsistencyTracker, type ConsistencyValidationResult } from './ai-session-consistency-tracker';
 
 export type SkillLevel = 'Novice' | 'Intermediate' | 'Pro' | 'Expert' | 'Master' | 'Exceptional';
 
@@ -29,6 +30,12 @@ interface SkillProgressionData {
   totalPatternsLearned: number;
   winningPatternsCount: number;
   losingPatternsCount: number;
+  currentCyclePosition?: number;
+  totalCyclesCompleted?: number;
+  last10SessionWRSpread?: number;
+  last10SessionPFAverage?: number;
+  consistencyValidationPassed?: boolean;
+  consistencyFailureReason?: string;
 }
 
 interface MilestoneData {
@@ -63,36 +70,36 @@ class AISkillTracker {
     },
     {
       level: 'Pro',
-      minTrades: 500,
+      minTrades: 1000,
       minWinRate: 55,
-      minProfitFactor: 1.2,
+      minProfitFactor: 1.5,
       minAvgRR: 0,
       minCSS: 0,
       description: 'Consistent performance with good risk management.'
     },
     {
       level: 'Expert',
-      minTrades: 1500,
+      minTrades: 10000,
       minWinRate: 65,
-      minProfitFactor: 1.5,
+      minProfitFactor: 1.8,
       minAvgRR: 0,
       minCSS: 0,
       description: 'Advanced pattern recognition across conditions.'
     },
     {
       level: 'Master',
-      minTrades: 5000,
+      minTrades: 50000,
       minWinRate: 70,
-      minProfitFactor: 1.8,
+      minProfitFactor: 2.0,
       minAvgRR: 0,
       minCSS: 0,
       description: 'Mastery with exceptional consistency.'
     },
     {
       level: 'Exceptional',
-      minTrades: 10000,
+      minTrades: 100000,
       minWinRate: 80,
-      minProfitFactor: 2.0,
+      minProfitFactor: 2.2,
       minAvgRR: 0,
       minCSS: 0,
       description: 'Peak performance. Elite-level trading.'
@@ -135,7 +142,13 @@ class AISkillTracker {
         learningVelocityScore: parseFloat(data.learning_velocity_score),
         totalPatternsLearned: data.total_patterns_learned,
         winningPatternsCount: data.winning_patterns_count,
-        losingPatternsCount: data.losing_patterns_count
+        losingPatternsCount: data.losing_patterns_count,
+        currentCyclePosition: data.current_cycle_position,
+        totalCyclesCompleted: data.total_cycles_completed,
+        last10SessionWRSpread: data.last_10_session_wr_spread ? parseFloat(data.last_10_session_wr_spread.toString()) : undefined,
+        last10SessionPFAverage: data.last_10_session_pf_average ? parseFloat(data.last_10_session_pf_average.toString()) : undefined,
+        consistencyValidationPassed: data.consistency_validation_passed,
+        consistencyFailureReason: data.consistency_failure_reason
       };
     } catch (error) {
       console.error('[AI Skill Tracker] Exception in getSkillProgression:', error);
@@ -158,8 +171,8 @@ class AISkillTracker {
       gap_to_target: 80,
       current_profit_factor: 0,
       trades_needed_for_next_level: 100,
-      estimated_trades_to_master: 5000,
-      estimated_trades_to_exceptional: 10000,
+      estimated_trades_to_master: 50000,
+      estimated_trades_to_exceptional: 100000,
       learning_velocity_score: 0,
       total_patterns_learned: 0,
       winning_patterns_count: 0,
@@ -184,8 +197,8 @@ class AISkillTracker {
       gapToTarget: 80,
       currentProfitFactor: 0,
       tradesNeededForNextLevel: 100,
-      estimatedTradesToMaster: 5000,
-      estimatedTradesToExceptional: 10000,
+      estimatedTradesToMaster: 50000,
+      estimatedTradesToExceptional: 100000,
       learningVelocityScore: 0,
       totalPatternsLearned: 0,
       winningPatternsCount: 0,
@@ -332,10 +345,41 @@ class AISkillTracker {
 
       // === STEP 4: DETERMINE SKILL LEVEL WITH GATING ===
       const oldLevel = current.currentSkillLevel;
-      const newLevel = this.calculateSkillLevel(newSuccessfulTrades, newWinRate, newProfitFactor);
-      const leveledUp = this.getSkillLevelNumeric(newLevel) > this.getSkillLevelNumeric(oldLevel);
+      let newLevel = this.calculateSkillLevel(newSuccessfulTrades, newWinRate, newProfitFactor);
+      let leveledUp = this.getSkillLevelNumeric(newLevel) > this.getSkillLevelNumeric(oldLevel);
 
       console.log(`[AI Skill Tracker] Skill level: ${oldLevel} → ${newLevel}${leveledUp ? ' 🎉 LEVEL UP!' : ''}`);
+
+      // === STEP 4.5: CONSISTENCY VALIDATION ===
+      let consistencyValidation: ConsistencyValidationResult | null = null;
+      let consistencyBlocked = false;
+
+      if (leveledUp) {
+        const targetLevelNumeric = this.getSkillLevelNumeric(newLevel);
+        const currentLevelNumeric = this.getSkillLevelNumeric(oldLevel);
+
+        console.log(`[AI Skill Tracker] 🔍 Checking consistency requirements for level ${currentLevelNumeric} -> ${targetLevelNumeric}...`);
+
+        consistencyValidation = await aiSessionConsistencyTracker.validateConsistency(
+          userId,
+          targetLevelNumeric,
+          currentLevelNumeric
+        );
+
+        if (!consistencyValidation.passed && consistencyValidation.sessionCount >= 10) {
+          consistencyBlocked = true;
+          newLevel = oldLevel; // Block level up
+          leveledUp = false;
+
+          validationWarnings.push(`Level advancement blocked: ${consistencyValidation.failureReason}`);
+          console.warn(`[AI Skill Tracker] ❌ LEVEL UP BLOCKED due to consistency validation failure`);
+          console.warn(`[AI Skill Tracker]   Reason: ${consistencyValidation.failureReason}`);
+        } else if (consistencyValidation.sessionCount < 10) {
+          console.log(`[AI Skill Tracker] ⏳ Consistency validation skipped (only ${consistencyValidation.sessionCount}/10 sessions)`);
+        } else {
+          console.log(`[AI Skill Tracker] ✅ Consistency validation passed!`);
+        }
+      }
 
       // === STEP 5: CALCULATE PROGRESS WITH PERFORMANCE GATING ===
       const progressData = this.calculateProgressMetrics(
@@ -399,14 +443,18 @@ class AISkillTracker {
           gap_to_target: 80 - newWinRate,
           current_profit_factor: newProfitFactor,
           trades_needed_for_next_level: gatedTradesNeeded,
-          estimated_trades_to_master: Math.max(0, 5000 - newSuccessfulTrades),
-          estimated_trades_to_exceptional: Math.max(0, 10000 - newSuccessfulTrades),
+          estimated_trades_to_master: Math.max(0, 50000 - newSuccessfulTrades),
+          estimated_trades_to_exceptional: Math.max(0, 100000 - newSuccessfulTrades),
           total_patterns_learned: newPatternsLearned,
           learning_velocity_score: this.calculateLearningVelocity(current.totalTradesAnalyzed, newSuccessfulTrades, current.currentWinRate, newWinRate),
           previous_skill_level: leveledUp ? oldLevel : current.currentSkillLevel,
           last_level_up_date: leveledUp ? new Date().toISOString() : undefined,
           last_level_up_trade_count: leveledUp ? newSuccessfulTrades : undefined,
           last_trade_analyzed_date: new Date().toISOString(),
+          last_10_session_wr_spread: consistencyValidation?.wrSpread || 0,
+          last_10_session_pf_average: consistencyValidation?.pfAverage || 0,
+          consistency_validation_passed: !consistencyBlocked,
+          consistency_failure_reason: consistencyBlocked ? consistencyValidation?.failureReason : null,
           updated_at: new Date().toISOString()
         })
         .eq('user_id', userId);
