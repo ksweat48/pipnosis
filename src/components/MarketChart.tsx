@@ -32,6 +32,8 @@ import {
 import { RSIPanel, ATRPanel, VolumePanel, PatternDetectionPanel } from '@/components/IndicatorPanels';
 import { ManualTradePanel } from '@/components/ManualTradePanel';
 import { getForexMarketStatus, type MarketStatus } from '@/utils/marketHours';
+import { concurrentBulkLoader } from '@/services/concurrent-bulk-loader';
+import { ChartLoadingOverlay, BackgroundLoadingIndicator } from '@/components/ChartLoadingOverlay';
 
 interface MarketChartProps {
   symbol: string;
@@ -70,6 +72,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [priceChange, setPriceChange] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState<{ loaded: number; total: number } | null>(null);
+  const [backgroundLoading, setBackgroundLoading] = useState<{ completed: number; total: number; currentBatch: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [priceUpdateFlash, setPriceUpdateFlash] = useState(false);
@@ -509,14 +513,34 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     try {
       setIsLoading(true);
       setError(null);
+      setLoadingProgress(null);
+
+      console.log(`[Chart Init] Priority 1: Loading ${symbol} ${timeframe}...`);
+
+      const success = await concurrentBulkLoader.loadSinglePair(
+        symbol,
+        timeframe,
+        (loaded, total) => {
+          setLoadingProgress({ loaded, total });
+        }
+      );
+
+      if (!success) {
+        console.warn('No candle data found for symbol:', symbol);
+        setError('Waiting for price data... The price feed will start shortly.');
+        setIsLoading(false);
+        setLoadingProgress(null);
+        return;
+      }
 
       const dataLimit = chartPreferencesService.getDataLimit(timeframe);
       const chartData = await fetchCompleteChartData(symbol, timeframe, dataLimit);
 
       if (chartData.historical.length === 0 && !chartData.current) {
-        console.warn('No candle data found for symbol:', symbol);
+        console.warn('No candle data found after bulk load for symbol:', symbol);
         setError('Waiting for price data... The price feed will start shortly.');
         setIsLoading(false);
+        setLoadingProgress(null);
         return;
       }
 
@@ -626,10 +650,29 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       }
 
       setIsLoading(false);
+      setLoadingProgress(null);
+
+      console.log(`[Chart Init] Priority 2: Starting background loading for remaining pairs...`);
+      concurrentBulkLoader.loadAllPairsInBackground(
+        symbol,
+        timeframe,
+        (progress) => {
+          setBackgroundLoading({
+            completed: progress.completed,
+            total: progress.total,
+            currentBatch: progress.currentBatch
+          });
+
+          if (progress.completed === progress.total) {
+            setTimeout(() => setBackgroundLoading(null), 3000);
+          }
+        }
+      );
     } catch (err) {
       console.error('Failed to initialize chart:', err);
       setError('Failed to load chart data');
       setIsLoading(false);
+      setLoadingProgress(null);
     }
   };
 
@@ -664,6 +707,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     lastFetchTimeRef.current = null;
     historicalCandlesRef.current = [];
     liveTickStreamActive.current = false;
+
+    concurrentBulkLoader.interruptForSymbol(symbol, timeframe);
 
     initializeChart();
 
@@ -953,12 +998,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
       <div className="relative isolate">
         {isLoading && (
-          <div className="absolute inset-0 bg-gray-800/50 rounded-lg flex items-center justify-center z-10">
-            <div className="text-center">
-              <div className="animate-spin h-8 w-8 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full mx-auto mb-2"></div>
-              <p className="text-white/70 text-sm">Loading chart data...</p>
-            </div>
-          </div>
+          <ChartLoadingOverlay
+            symbol={symbol}
+            timeframe={timeframe}
+            loaded={loadingProgress?.loaded}
+            total={loadingProgress?.total}
+          />
         )}
 
         {error && (
@@ -1058,6 +1103,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           </div>
         </div>
       </div>
+
+      {backgroundLoading && (
+        <BackgroundLoadingIndicator
+          completed={backgroundLoading.completed}
+          total={backgroundLoading.total}
+          currentBatch={backgroundLoading.currentBatch}
+        />
+      )}
     </div>
   );
 }
