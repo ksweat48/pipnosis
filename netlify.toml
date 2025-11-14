@@ -26,6 +26,9 @@
 [functions."auto-fetch-candles"]
   timeout = 300
 
+[functions."forex-candles"]
+  timeout = 300
+
 [functions."fill-candle-gaps"]
   timeout = 300
   schedule = "*/5 * * * *"

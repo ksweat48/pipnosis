@@ -207,10 +207,11 @@ class ConcurrentBulkLoader {
     retryCount = 0
   ): Promise<any[]> {
     try {
-      const response = await fetch(`${NETLIFY_FUNCTION_URL}/forex-candles`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, timeframe, count })
+      const url = `${NETLIFY_FUNCTION_URL}/forex-candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=${count}`;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
       });
 
       if (!response.ok) {
@@ -218,21 +219,26 @@ class ConcurrentBulkLoader {
       }
 
       const data = await response.json();
-      const candles = data.candles || [];
+
+      if (!data.success || !data.data || !Array.isArray(data.data.candles)) {
+        throw new Error('Invalid response format from forex-candles function');
+      }
+
+      const candles = data.data.candles;
 
       onProgress?.(candles.length, count);
 
       return candles.map((c: any) => ({
-        id: `${symbol}_${timeframe}_${c.timestamp}`,
+        id: `${symbol}_${timeframe}_${c.open_time}`,
         symbol,
         timeframe,
-        timestamp: c.timestamp,
+        timestamp: c.open_time,
         open: c.open,
         high: c.high,
         low: c.low,
         close: c.close,
         volume: c.volume || 0,
-        tick_volume: c.tickVolume || c.tick_volume || 0,
+        tick_volume: c.volume || 0,
         spread: c.spread || 0
       }));
     } catch (error) {
