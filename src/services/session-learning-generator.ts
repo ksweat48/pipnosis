@@ -98,8 +98,9 @@ class SessionLearningGenerator {
       const sessionCSS = await this.calculateSessionCSS(trades);
       const sessionEV = this.calculateSessionEV(trades);
 
-      // Generate recommendations
-      const recommendations = this.generateRecommendations(
+      // Generate recommendations and queue adjustments
+      const recommendations = await this.generateRecommendations(
+        userId,
         bestSetup,
         worstSetup,
         patternsDegraded,
@@ -167,8 +168,9 @@ class SessionLearningGenerator {
       const sessionCSS = this.calculateCSSFromTrades(trades);
       const sessionEV = this.calculateEVFromTrades(trades);
 
-      // Generate recommendations
-      const recommendations = this.generateRecommendations(
+      // Generate recommendations and queue adjustments
+      const recommendations = await this.generateRecommendations(
+        userId,
         bestSetup,
         worstSetup,
         patternsDegraded,
@@ -493,35 +495,79 @@ class SessionLearningGenerator {
   }
 
   /**
-   * Generate actionable recommendations
+   * Generate actionable recommendations AND queue for automatic application
    */
-  private generateRecommendations(
+  private async generateRecommendations(
+    userId: string,
     bestSetup: any,
     worstSetup: any,
     degraded: string[],
     css: number
-  ): string[] {
+  ): Promise<string[]> {
     const recommendations: string[] = [];
+    const { aiAutomaticAdjustments } = await import('./ai-automatic-adjustments');
 
     if (bestSetup && bestSetup.ev > 10) {
       recommendations.push(`🎯 Focus on ${bestSetup.name} - strong positive EV (${bestSetup.ev.toFixed(2)})`);
+
+      // Queue pattern adoption adjustment
+      await aiAutomaticAdjustments.queueAdjustment(userId, {
+        adjustmentType: 'pattern_adoption',
+        targetName: bestSetup.name,
+        currentValue: 'inactive',
+        proposedValue: 'active',
+        reasoning: `Strong positive EV pattern (${bestSetup.ev.toFixed(2)}). Win rate: ${bestSetup.winRate?.toFixed(1)}%, PF: ${bestSetup.profitFactor?.toFixed(2)}`,
+        priority: 8
+      });
     }
 
     if (worstSetup && worstSetup.ev < -5) {
       recommendations.push(`🚫 Avoid ${worstSetup.name} - negative EV (${worstSetup.ev.toFixed(2)})`);
+
+      // Queue pattern rejection adjustment
+      await aiAutomaticAdjustments.queueAdjustment(userId, {
+        adjustmentType: 'pattern_rejection',
+        targetName: worstSetup.name,
+        currentValue: 'active',
+        proposedValue: 'degraded',
+        reasoning: `Negative EV pattern (${worstSetup.ev.toFixed(2)}). Consistently losing trades.`,
+        priority: 9
+      });
     }
 
     if (degraded.length > 0) {
-      recommendations.push(`⚠️ Review these degraded patterns: ${degraded.slice(0, 2).join(', ')}`);
+      recommendations.push(`⚠️ Reviewing degraded patterns: ${degraded.slice(0, 2).join(', ')}`);
+
+      // Queue confidence reduction for degraded patterns
+      for (const pattern of degraded.slice(0, 2)) {
+        await aiAutomaticAdjustments.queueAdjustment(userId, {
+          adjustmentType: 'confidence_adjustment',
+          targetName: pattern,
+          currentValue: 100,
+          proposedValue: 70,
+          reasoning: 'Pattern showing degraded performance - reducing confidence',
+          priority: 7
+        });
+      }
     }
 
     if (css < 70) {
-      recommendations.push('📊 CSS below Pro level (70) - focus on improving profit factor and R:R');
+      recommendations.push('📊 CSS below Pro level (70) - adjusting risk parameters to improve quality');
+
+      // Queue risk parameter adjustment
+      await aiAutomaticAdjustments.queueAdjustment(userId, {
+        adjustmentType: 'risk_parameter',
+        targetName: 'min_profit_factor',
+        currentValue: 1.0,
+        proposedValue: 1.2,
+        reasoning: 'CSS below 70 - tightening profit factor requirement for better trade quality',
+        priority: 6
+      });
     } else if (css >= 85) {
-      recommendations.push('⭐ Excellent CSS - maintain current approach and standards');
+      recommendations.push('⭐ Excellent CSS - maintaining current standards');
     }
 
-    recommendations.push('📈 Continue learning from each trade to refine pattern recognition');
+    recommendations.push('📈 Adjustments queued for automatic application at cycle completion');
 
     return recommendations;
   }

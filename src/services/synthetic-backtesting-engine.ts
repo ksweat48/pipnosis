@@ -717,6 +717,34 @@ class SyntheticBacktestingEngine {
         });
       }
 
+      // === CONSISTENCY TRACKING: Record session metrics ===
+      console.log('[Synthetic Backtest] 📊 Recording session metrics for consistency validation...');
+      const { aiSessionConsistencyTracker } = await import('./ai-session-consistency-tracker');
+      await aiSessionConsistencyTracker.recordSessionMetrics(userId, {
+        sessionId: this.sessionId,
+        winRate: result.winRate,
+        profitFactor: result.profitFactor,
+        winsCount: result.winningTrades,
+        totalTrades: result.totalTrades,
+        totalWinsValue: result.totalPnL > 0 ? result.totalPnL : 0,
+        totalLossesValue: result.totalPnL < 0 ? Math.abs(result.totalPnL) : 0,
+        symbol: this.symbol,
+        timeframe: this.timeframe,
+        strategyName: this.strategy,
+        backtestType: 'synthetic'
+      });
+
+      // === LEARNING CYCLE: Increment cycle position ===
+      console.log('[Synthetic Backtest] 🔄 Incrementing learning cycle position...');
+      const { aiAutomaticAdjustments } = await import('./ai-automatic-adjustments');
+      const cycleCompleted = await aiAutomaticAdjustments.incrementCyclePosition(userId);
+
+      if (cycleCompleted) {
+        console.log('[Synthetic Backtest] 🎉 Learning cycle completed! Applying automatic adjustments...');
+        const appliedAdjustments = await aiAutomaticAdjustments.applyPendingAdjustments(userId);
+        console.log(`[Synthetic Backtest] ✅ Applied ${appliedAdjustments.length} automatic adjustments`);
+      }
+
       // Update indicator effectiveness
       console.log('[Synthetic Backtest] 🔬 Updating indicator effectiveness...');
       for (const trade of this.closedTrades) {
