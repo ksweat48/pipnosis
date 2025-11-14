@@ -237,26 +237,19 @@ class ConcurrentBulkLoader {
       // Reverse to get chronological order (oldest first)
       const chronologicalCandles = candles.reverse();
 
-      return chronologicalCandles.map((c: any) => {
-        const timestamp = c.open_time;
-        const id = `${symbol}_${dbTimeframe}_${timestamp}`;
-
-        return {
-          id,
-          symbol,
-          timeframe: dbTimeframe,
-          timestamp,
-          open_time: c.open_time,
-          close_time: c.close_time || c.open_time,
-          open: c.open,
-          high: c.high,
-          low: c.low,
-          close: c.close,
-          volume: c.volume || 0,
-          tick_volume: c.tick_volume || 0,
-          spread: c.spread || 0
-        };
-      });
+      return chronologicalCandles.map((c: any) => ({
+        symbol,
+        timeframe: dbTimeframe,
+        open_time: c.open_time,
+        close_time: c.close_time || c.open_time,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume || 0,
+        tick_volume: c.tick_volume || 0,
+        spread: c.spread || 0
+      }));
     } catch (error) {
       if (retryCount < MAX_RETRIES) {
         console.warn(`[BulkLoader] Retry ${retryCount + 1}/${MAX_RETRIES} for ${symbol} ${timeframe}`);
