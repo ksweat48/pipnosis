@@ -60,31 +60,29 @@ END $$;
 -- 2. REPLACE HOURLY CANDLE REPAIR WITH DAILY VERSION
 -- =====================================================
 
+-- First remove if exists
 DO $$
 BEGIN
-  -- First remove if exists
   IF EXISTS(SELECT 1 FROM cron.job WHERE jobname = 'repair-candles-daily') THEN
     PERFORM cron.unschedule('repair-candles-daily');
     RAISE NOTICE 'Removed existing repair-candles-daily';
   END IF;
-
-  -- Create new daily job
-  PERFORM cron.schedule(
-    'repair-candles-daily',
-    '0 2 * * *',  -- Daily at 2 AM
-    $$
-    SELECT net.http_post(
-      url := current_setting('app.settings.supabase_url') || '/functions/v1/repair-candles?hours=24',
-      headers := jsonb_build_object(
-        'Content-Type', 'application/json',
-        'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key')
-      )
-    )
-    $$
-  );
-
-  RAISE NOTICE '✓ Created: repair-candles-daily (runs at 2 AM)';
 END $$;
+
+-- Create new daily job (outside DO block to avoid nested SELECT conflict)
+SELECT cron.schedule(
+  'repair-candles-daily',
+  '0 2 * * *',  -- Daily at 2 AM
+  $$
+  SELECT net.http_post(
+    url := current_setting('app.settings.supabase_url') || '/functions/v1/repair-candles?hours=24',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key')
+    )
+  ) AS request_id;
+  $$
+);
 
 -- =====================================================
 -- 3. LOG WHAT WAS DONE
