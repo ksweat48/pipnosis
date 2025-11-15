@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { learningPipelineHealthCheck } from '../services/learning-pipeline-health-check';
 import LearningPipelineMonitor from '../components/LearningPipelineMonitor';
+import GPT4oUsageMonitor from '../components/GPT4oUsageMonitor';
 import {
   Activity,
   AlertCircle,
@@ -162,6 +163,9 @@ export default function SystemDiagnosticsPage() {
             </div>
           </div>
         )}
+
+        {/* GPT-4o Usage Monitor */}
+        <GPT4oUsageMonitor />
 
         {/* Pipeline Monitor */}
         <LearningPipelineMonitor />

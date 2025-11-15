@@ -67,8 +67,10 @@ interface MetaLearningInsight {
 
 class MetaLearningStrategist {
   private readonly MODEL = 'gpt-4o';
-  private readonly MAX_TOKENS = 4000;
+  private readonly MAX_TOKENS = 2500; // Reduced from 4000 for cost optimization
   private enabled: boolean = true;
+  private dailyTokenLimit: number = 50000; // 50k tokens per day limit
+  private dailyTokenUsage: Map<string, { date: string; tokens: number }> = new Map();
 
   /**
    * Analyze backtest results and generate strategic insights
@@ -79,6 +81,18 @@ class MetaLearningStrategist {
   ): Promise<MetaLearningInsight | null> {
     if (!this.enabled) {
       console.log('[Meta-Learning Strategist] Disabled - skipping analysis');
+      return null;
+    }
+
+    // Check daily token budget
+    if (!this.checkDailyTokenBudget(userId)) {
+      console.warn('[Meta-Learning Strategist] Daily token budget exceeded, skipping analysis');
+      return null;
+    }
+
+    // Only analyze sessions with meaningful data
+    if (summary.totalTrades < 10) {
+      console.log('[Meta-Learning Strategist] Skipping analysis - insufficient trades (<10)');
       return null;
     }
 
@@ -276,11 +290,12 @@ Respond in the same JSON format as the backtest analysis.`;
   }
 
   /**
-   * Call GPT-4o API
+   * Call GPT-4o API with improved error handling
    */
   private async callGPT4o(
     prompt: string,
-    userId: string
+    userId: string,
+    retryCount: number = 0
   ): Promise<{ content: string; tokensUsed: number } | null> {
     const apiKey = import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API_KEY;
 
@@ -318,7 +333,44 @@ Respond in the same JSON format as the backtest analysis.`;
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('[Meta-Learning Strategist] API error:', errorText);
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: { message: errorText } };
+        }
+
+        // Handle quota exceeded error
+        if (response.status === 429 || errorData.error?.code === 'insufficient_quota') {
+          console.error('[Meta-Learning Strategist] ❌ OpenAI quota exceeded. Please add credits.');
+          console.error('[Meta-Learning Strategist] Visit: https://platform.openai.com/account/billing');
+
+          await this.trackUsage(
+            userId,
+            'meta_learning_strategist',
+            'analyzeBacktestResults',
+            0,
+            0,
+            0,
+            Date.now() - startTime,
+            false,
+            'QUOTA_EXCEEDED: OpenAI API quota limit reached'
+          );
+
+          this.enabled = false;
+          console.warn('[Meta-Learning Strategist] Service automatically disabled due to quota limits');
+          return null;
+        }
+
+        // Handle rate limit with exponential backoff
+        if (response.status === 429 && retryCount < 2) {
+          const waitTime = Math.pow(2, retryCount) * 1000;
+          console.warn(`[Meta-Learning Strategist] Rate limited. Retrying in ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          return this.callGPT4o(prompt, userId, retryCount + 1);
+        }
+
+        console.error('[Meta-Learning Strategist] API error:', errorData);
         return null;
       }
 
@@ -337,6 +389,9 @@ Respond in the same JSON format as the backtest analysis.`;
         true,
         null
       );
+
+      // Update daily token usage
+      this.updateDailyTokenUsage(userId, data.usage.total_tokens);
 
       return {
         content: data.choices[0].message.content,
@@ -506,6 +561,50 @@ Respond in the same JSON format as the backtest analysis.`;
 
   isEnabled(): boolean {
     return this.enabled;
+  }
+
+  /**
+   * Check if daily token budget has been exceeded
+   */
+  private checkDailyTokenBudget(userId: string): boolean {
+    const today = new Date().toISOString().split('T')[0];
+    const usage = this.dailyTokenUsage.get(userId);
+
+    if (!usage || usage.date !== today) {
+      return true; // New day or first use
+    }
+
+    return usage.tokens < this.dailyTokenLimit;
+  }
+
+  /**
+   * Update daily token usage
+   */
+  private updateDailyTokenUsage(userId: string, tokens: number): void {
+    const today = new Date().toISOString().split('T')[0];
+    const usage = this.dailyTokenUsage.get(userId);
+
+    if (!usage || usage.date !== today) {
+      this.dailyTokenUsage.set(userId, { date: today, tokens });
+    } else {
+      usage.tokens += tokens;
+    }
+
+    console.log(`[Meta-Learning Strategist] Daily usage: ${usage?.tokens || tokens}/${this.dailyTokenLimit} tokens`);
+  }
+
+  /**
+   * Get current daily token usage for a user
+   */
+  getDailyTokenUsage(userId: string): number {
+    const today = new Date().toISOString().split('T')[0];
+    const usage = this.dailyTokenUsage.get(userId);
+
+    if (!usage || usage.date !== today) {
+      return 0;
+    }
+
+    return usage.tokens;
   }
 }
 

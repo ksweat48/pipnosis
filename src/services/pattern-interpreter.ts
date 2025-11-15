@@ -65,6 +65,13 @@ class PatternInterpreter {
       return null;
     }
 
+    // Check for cached interpretation first
+    const cached = await this.getCachedInterpretation(userId, pattern);
+    if (cached) {
+      console.log(`[Pattern Interpreter] ✓ Using cached interpretation for ${pattern.patternName}`);
+      return cached;
+    }
+
     console.log(`\n[Pattern Interpreter] 📖 Interpreting "${pattern.patternName}" on ${pattern.symbol}...`);
     const startTime = Date.now();
 
@@ -97,23 +104,37 @@ class PatternInterpreter {
   }
 
   /**
-   * Interpret multiple patterns in batch
+   * Interpret multiple patterns in batch with improved caching and rate limiting
    */
   async interpretPatternsBatch(
     userId: string,
-    patterns: DiscoveredPattern[]
+    patterns: DiscoveredPattern[],
+    maxConcurrent: number = 3
   ): Promise<Map<string, PatternInterpretation>> {
     console.log(`[Pattern Interpreter] 📚 Interpreting ${patterns.length} patterns...`);
     const interpretations = new Map<string, PatternInterpretation>();
 
-    for (const pattern of patterns) {
+    // Only process high-value patterns (sample size > 5 and win rate > 55%)
+    const priorityPatterns = patterns
+      .filter(p => p.sampleSize > 5 && p.winRate > 55)
+      .sort((a, b) => b.expectancy - a.expectancy)
+      .slice(0, maxConcurrent);
+
+    console.log(`[Pattern Interpreter] Prioritizing ${priorityPatterns.length} high-value patterns`);
+
+    for (const pattern of priorityPatterns) {
+      if (!this.enabled) {
+        console.log('[Pattern Interpreter] Service disabled, stopping batch processing');
+        break;
+      }
+
       const interpretation = await this.interpretPattern(userId, pattern);
       if (interpretation) {
         interpretations.set(pattern.patternId, interpretation);
       }
 
-      // Rate limiting: wait 1 second between calls
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Rate limiting: wait 2 seconds between calls to avoid rate limits
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
     console.log(`[Pattern Interpreter] ✅ Interpreted ${interpretations.size}/${patterns.length} patterns`);
@@ -209,11 +230,12 @@ As an expert trader, interpret this pattern and provide:
   }
 
   /**
-   * Call GPT-4o API
+   * Call GPT-4o API with improved error handling and retry logic
    */
   private async callGPT4o(
     prompt: string,
-    userId: string
+    userId: string,
+    retryCount: number = 0
   ): Promise<{ content: string; tokensUsed: number } | null> {
     const apiKey = import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API_KEY;
 
@@ -251,7 +273,46 @@ As an expert trader, interpret this pattern and provide:
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('[Pattern Interpreter] API error:', errorText);
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: { message: errorText } };
+        }
+
+        // Handle quota exceeded error specifically
+        if (response.status === 429 || errorData.error?.code === 'insufficient_quota') {
+          console.error('[Pattern Interpreter] ❌ OpenAI quota exceeded. Please add credits to your OpenAI account.');
+          console.error('[Pattern Interpreter] Visit: https://platform.openai.com/account/billing');
+
+          // Track quota error
+          await this.trackUsage(
+            userId,
+            'pattern_interpreter',
+            'interpretPattern',
+            0,
+            0,
+            0,
+            Date.now() - startTime,
+            false,
+            'QUOTA_EXCEEDED: OpenAI API quota limit reached. Add credits at https://platform.openai.com/account/billing',
+            'quota_error'
+          );
+
+          this.enabled = false;
+          console.warn('[Pattern Interpreter] Service automatically disabled due to quota limits');
+          return null;
+        }
+
+        // Handle rate limit with exponential backoff
+        if (response.status === 429 && retryCount < 2) {
+          const waitTime = Math.pow(2, retryCount) * 1000;
+          console.warn(`[Pattern Interpreter] Rate limited. Retrying in ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          return this.callGPT4o(prompt, userId, retryCount + 1);
+        }
+
+        console.error('[Pattern Interpreter] API error:', errorData);
         return null;
       }
 
@@ -483,6 +544,63 @@ As an expert trader, interpret this pattern and provide:
 
   isEnabled(): boolean {
     return this.enabled;
+  }
+
+  /**
+   * Get cached interpretation if available and still valid
+   */
+  private async getCachedInterpretation(
+    userId: string,
+    pattern: DiscoveredPattern
+  ): Promise<PatternInterpretation | null> {
+    try {
+      // Create a cache key based on pattern characteristics
+      const cacheKey = `${pattern.symbol}_${pattern.timeframe}_${pattern.setupType}_${Math.round(pattern.winRate / 5) * 5}`;
+
+      const { data, error } = await supabase
+        .from('ai_pattern_interpretations')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('symbol', pattern.symbol)
+        .eq('timeframe', pattern.timeframe)
+        .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()) // Last 7 days
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data) {
+        return null;
+      }
+
+      // Check if pattern characteristics are similar enough to reuse
+      const winRateDiff = Math.abs(data.pattern_summary.winRate - pattern.winRate);
+      const expectancyDiff = Math.abs(data.pattern_summary.expectancy - pattern.expectancy);
+
+      if (winRateDiff < 10 && expectancyDiff < 5) {
+        return {
+          plainEnglishExplanation: data.plain_english_explanation,
+          whyItWorks: data.why_it_works,
+          marketPsychologyNotes: data.market_psychology_notes,
+          optimalConditions: data.optimal_conditions,
+          conditionsToAvoid: data.conditions_to_avoid,
+          riskWarnings: data.risk_warnings,
+          confidenceLevel: data.confidence_level,
+          howToUseInTrading: data.how_to_use_in_trading,
+          positionSizingGuidance: data.position_sizing_guidance,
+          entryTimingGuidance: data.entry_timing_guidance,
+          exitTimingGuidance: data.exit_timing_guidance,
+          synergiesWithPatterns: data.synergies_with_patterns,
+          conflictsWithPatterns: data.conflicts_with_patterns,
+          degradationSigns: data.degradation_signs,
+          patternStrengthAssessment: data.pattern_strength_assessment
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[Pattern Interpreter] Error checking cache:', error);
+      return null;
+    }
   }
 }
 

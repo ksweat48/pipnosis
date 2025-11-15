@@ -21,8 +21,11 @@ export interface MarketRegime {
 class AutonomousReasoningEngine {
   private apiKey: string;
   private readonly COST_PER_1K_TOKENS = 0.005;
-  private readonly MAX_TOKENS_PER_SESSION = 50000;
+  private readonly MAX_TOKENS_PER_SESSION = 30000; // Reduced from 50000
+  private readonly MAX_DAILY_TOKENS = 50000; // Daily limit per user
   private sessionTokenUsage: Map<string, number> = new Map();
+  private dailyTokenUsage: Map<string, { date: string; tokens: number }> = new Map();
+  private enabled: boolean = true;
 
   constructor() {
     this.apiKey = typeof import.meta !== 'undefined' && import.meta.env
@@ -38,14 +41,25 @@ class AutonomousReasoningEngine {
     openTrades: any[]
   ): Promise<ReasoningDecision> {
     try {
+      if (!this.enabled) {
+        console.log('[Reasoning Engine] Service disabled, using fallback logic');
+        return this.fallbackReasoning(signal, sessionConfig, openTrades);
+      }
+
       if (!this.apiKey) {
         console.log('[Reasoning Engine] No API key, using fallback logic');
         return this.fallbackReasoning(signal, sessionConfig, openTrades);
       }
 
+      // Check daily token budget
+      if (!this.checkDailyTokenBudget(userId)) {
+        console.warn('[Reasoning Engine] Daily token budget exceeded, using fallback');
+        return this.fallbackReasoning(signal, sessionConfig, openTrades);
+      }
+
       const tokenUsage = this.sessionTokenUsage.get(sessionId) || 0;
       if (tokenUsage >= this.MAX_TOKENS_PER_SESSION) {
-        console.log('[Reasoning Engine] Token limit reached, using fallback');
+        console.log('[Reasoning Engine] Session token limit reached, using fallback');
         return this.fallbackReasoning(signal, sessionConfig, openTrades);
       }
 
@@ -76,12 +90,27 @@ class AutonomousReasoningEngine {
             }
           ],
           temperature: 0.3,
-          max_tokens: 1000
+          max_tokens: 800 // Reduced from 1000
         })
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: { message: errorText } };
+        }
+
+        // Handle quota exceeded error
+        if (response.status === 429 || errorData.error?.code === 'insufficient_quota') {
+          console.error('[Reasoning Engine] ❌ OpenAI quota exceeded. Please add credits.');
+          console.error('[Reasoning Engine] Visit: https://platform.openai.com/account/billing');
+          this.enabled = false;
+          console.warn('[Reasoning Engine] Service automatically disabled due to quota limits');
+        }
+
         console.error('[Reasoning Engine] API error:', errorData);
         return this.fallbackReasoning(signal, sessionConfig, openTrades);
       }
@@ -91,6 +120,7 @@ class AutonomousReasoningEngine {
       const tokensUsed = data.usage?.total_tokens || 0;
 
       this.sessionTokenUsage.set(sessionId, tokenUsage + tokensUsed);
+      this.updateDailyTokenUsage(userId, tokensUsed);
 
       const content = data.choices[0]?.message?.content;
       if (!content) {
@@ -409,6 +439,63 @@ Structure: ${regime.structure}
 
   resetTokenUsage(sessionId: string): void {
     this.sessionTokenUsage.delete(sessionId);
+  }
+
+  /**
+   * Check if daily token budget has been exceeded
+   */
+  private checkDailyTokenBudget(userId: string): boolean {
+    const today = new Date().toISOString().split('T')[0];
+    const usage = this.dailyTokenUsage.get(userId);
+
+    if (!usage || usage.date !== today) {
+      return true; // New day or first use
+    }
+
+    return usage.tokens < this.MAX_DAILY_TOKENS;
+  }
+
+  /**
+   * Update daily token usage
+   */
+  private updateDailyTokenUsage(userId: string, tokens: number): void {
+    const today = new Date().toISOString().split('T')[0];
+    const usage = this.dailyTokenUsage.get(userId);
+
+    if (!usage || usage.date !== today) {
+      this.dailyTokenUsage.set(userId, { date: today, tokens });
+    } else {
+      usage.tokens += tokens;
+    }
+  }
+
+  /**
+   * Get current daily token usage for a user
+   */
+  getDailyTokenUsage(userId: string): number {
+    const today = new Date().toISOString().split('T')[0];
+    const usage = this.dailyTokenUsage.get(userId);
+
+    if (!usage || usage.date !== today) {
+      return 0;
+    }
+
+    return usage.tokens;
+  }
+
+  /**
+   * Check if the service is enabled
+   */
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  /**
+   * Enable/disable the service
+   */
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    console.log(`[Reasoning Engine] ${enabled ? 'Enabled' : 'Disabled'}`);
   }
 }
 
