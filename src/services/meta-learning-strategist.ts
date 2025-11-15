@@ -33,6 +33,31 @@ interface BacktestSummary {
   keyLearnings: string[];
 }
 
+interface BatchSummary {
+  milestoneNumber: number;
+  totalSessions: number;
+  sessionsRange: string;
+  totalTrades: number;
+  avgWinRate: number;
+  avgProfitFactor: number;
+  totalPnL: number;
+  bestSession: any;
+  worstSession: any;
+  symbolPerformance: any[];
+  trendAnalysis: {
+    firstHalfWinRate: number;
+    secondHalfWinRate: number;
+    winRateTrend: 'improving' | 'declining' | 'stable';
+    profitFactorTrend: 'improving' | 'declining' | 'stable';
+  };
+  learningInsights: {
+    totalInsights: number;
+    winningPatterns: string[];
+    losingPatterns: string[];
+  };
+  keyLearnings: string[];
+}
+
 interface MetaLearningInsight {
   highLevelInterpretation: string;
   strategicRecommendations: {
@@ -129,6 +154,100 @@ class MetaLearningStrategist {
   }
 
   /**
+   * Analyze 100-session batch and generate strategic insights
+   */
+  async analyze100SessionBatch(
+    userId: string,
+    milestoneLogId: string,
+    batchSummary: BatchSummary
+  ): Promise<MetaLearningInsight | null> {
+    if (!this.enabled) {
+      console.log('[Meta-Learning Strategist] Disabled - skipping batch analysis');
+      return null;
+    }
+
+    // Check daily token budget
+    if (!this.checkDailyTokenBudget(userId)) {
+      console.warn('[Meta-Learning Strategist] Daily token budget exceeded, skipping batch analysis');
+      return null;
+    }
+
+    console.log(`\n[Meta-Learning Strategist] 🧠 Analyzing 100-Session Batch (Milestone ${batchSummary.milestoneNumber})...`);
+    console.log(`[Meta-Learning Strategist] 📊 Total Sessions: ${batchSummary.totalSessions}`);
+    console.log(`[Meta-Learning Strategist] 📈 Total Trades: ${batchSummary.totalTrades}`);
+    console.log(`[Meta-Learning Strategist] ✅ Avg Win Rate: ${batchSummary.avgWinRate.toFixed(2)}%`);
+    const startTime = Date.now();
+
+    try {
+      // Update milestone log status
+      await supabase
+        .from('session_milestone_log')
+        .update({
+          analysis_status: 'analyzing',
+          gpt4o_analysis_started_at: new Date().toISOString()
+        })
+        .eq('id', milestoneLogId);
+
+      // Build the prompt for GPT-4o
+      const prompt = this.build100SessionAnalysisPrompt(batchSummary);
+
+      // Call GPT-4o
+      const gpt4oResponse = await this.callGPT4o(prompt, userId);
+
+      if (!gpt4oResponse) {
+        await supabase
+          .from('session_milestone_log')
+          .update({
+            analysis_status: 'failed',
+            error_message: 'GPT-4o call failed'
+          })
+          .eq('id', milestoneLogId);
+        return null;
+      }
+
+      // Parse response
+      const insight = this.parseGPT4oResponse(gpt4oResponse.content);
+
+      // Save batch insight to database
+      await this.saveBatchMetaLearningInsight(
+        userId,
+        milestoneLogId,
+        batchSummary,
+        insight,
+        gpt4oResponse.tokensUsed
+      );
+
+      // Update milestone log as completed
+      await supabase
+        .from('session_milestone_log')
+        .update({
+          analysis_status: 'completed',
+          gpt4o_analysis_completed_at: new Date().toISOString(),
+          gpt4o_tokens_used: gpt4oResponse.tokensUsed,
+          gpt4o_cost_usd: (gpt4oResponse.tokensUsed / 1000000) * 5
+        })
+        .eq('id', milestoneLogId);
+
+      const duration = Date.now() - startTime;
+      console.log(`[Meta-Learning Strategist] ✅ 100-Session Batch Analysis complete in ${duration}ms`);
+      console.log(`[Meta-Learning Strategist] 📊 Generated ${insight.strategicRecommendations.length} strategic recommendations`);
+      console.log(`[Meta-Learning Strategist] 🎯 Trend: ${batchSummary.trendAnalysis.winRateTrend}`);
+
+      return insight;
+    } catch (error) {
+      console.error('[Meta-Learning Strategist] Error in batch analysis:', error);
+      await supabase
+        .from('session_milestone_log')
+        .update({
+          analysis_status: 'failed',
+          error_message: error instanceof Error ? error.message : 'Unknown error'
+        })
+        .eq('id', milestoneLogId);
+      return null;
+    }
+  }
+
+  /**
    * Analyze daily learning data and generate insights
    */
   async analyzeDailyLearning(
@@ -162,6 +281,135 @@ class MetaLearningStrategist {
       return null;
     }
   }
+
+  /**
+   * Build prompt for 100-session batch analysis
+   */
+  private build100SessionAnalysisPrompt(summary: BatchSummary): string {
+    return `You are an elite trading strategist analyzing AI trading system performance over 100 BACKTEST SESSIONS. This is a STRATEGIC REVIEW of long-term performance, not a single session analysis.
+
+**100-SESSION BATCH RESULTS:**
+
+Milestone: ${summary.milestoneNumber}
+Sessions Analyzed: ${summary.totalSessions} (Sessions ${summary.sessionsRange})
+Total Trades Across All Sessions: ${summary.totalTrades}
+Average Win Rate: ${summary.avgWinRate.toFixed(2)}%
+Average Profit Factor: ${summary.avgProfitFactor.toFixed(2)}
+Cumulative P&L: $${summary.totalPnL.toFixed(2)}
+
+**BEST PERFORMING SESSION:**
+${JSON.stringify(summary.bestSession, null, 2)}
+
+**WORST PERFORMING SESSION:**
+${JSON.stringify(summary.worstSession, null, 2)}
+
+**SYMBOL PERFORMANCE (Across 100 Sessions):**
+${JSON.stringify(summary.symbolPerformance, null, 2)}
+
+**TREND ANALYSIS (First 50 vs Last 50 Sessions):**
+First Half Win Rate: ${summary.trendAnalysis.firstHalfWinRate?.toFixed(2) || 0}%
+Second Half Win Rate: ${summary.trendAnalysis.secondHalfWinRate?.toFixed(2) || 0}%
+Win Rate Trend: ${summary.trendAnalysis.winRateTrend}
+Profit Factor Trend: ${summary.trendAnalysis.profitFactorTrend}
+
+**LEARNING INSIGHTS GENERATED:**
+Total Insights: ${summary.learningInsights.totalInsights}
+Winning Patterns Identified: ${summary.learningInsights.winningPatterns?.length || 0}
+Losing Patterns Identified: ${summary.learningInsights.losingPatterns?.length || 0}
+
+**KEY LEARNINGS FROM RULE-BASED ANALYSIS:**
+${summary.keyLearnings.map((l, i) => `${i + 1}. ${l}`).join('\n')}
+
+---
+
+**YOUR TASK - STRATEGIC 100-SESSION REVIEW:**
+
+You are analyzing 100 SESSIONS of backtesting data. This is NOT about individual trades, but about LONG-TERM STRATEGIC PATTERNS.
+
+1. **High-Level Strategic Assessment**:
+   - How is the AI performing over the long term?
+   - Are there clear improvement or degradation trends?
+   - Is the learning system working effectively?
+   - What are the biggest strategic strengths and weaknesses?
+
+2. **Long-Term Strategic Recommendations**: Provide 3-5 HIGH-LEVEL strategic recommendations for the NEXT 100 sessions:
+   - Global strategy adjustments
+   - Confidence threshold optimization across all scenarios
+   - Risk management refinements for long-term sustainability
+   - Pattern library management (what to trust, what to ignore)
+   - Learning system improvements
+
+3. **Pattern Management Strategy**:
+   - Which pattern CATEGORIES should be emphasized globally?
+   - Which pattern CATEGORIES should be de-weighted?
+   - Which patterns should be REMOVED from the system entirely?
+   - Focus on patterns that appear consistently across many sessions
+
+4. **New Strategic Rules**: Suggest 2-3 NEW HIGH-LEVEL rules for the next 100 sessions:
+   - Rules that apply across multiple market conditions
+   - Rules based on long-term trends (not single-session anomalies)
+   - Rules that address systematic issues seen across many sessions
+
+5. **Risk Management Strategy**: Based on 100 sessions of data:
+   - Are position sizing rules appropriate?
+   - Should overall risk tolerance be adjusted?
+   - Are stop-loss and take-profit levels optimal across sessions?
+   - Any systematic risk issues appearing repeatedly?
+
+6. **Regime Detection**:
+   - Do you detect any LONG-TERM market regime changes?
+   - Are there systematic shifts in what works vs what doesn't?
+   - Should the AI fundamentally change its approach for future sessions?
+
+7. **Next 100 Sessions Priorities**: What should be the AI's top 3 strategic priorities for sessions ${summary.milestoneNumber + 1}-${summary.milestoneNumber + 100}?
+
+**RESPOND IN VALID JSON FORMAT:**
+
+{
+  "highLevelInterpretation": "string - comprehensive strategic assessment of 100 sessions",
+  "strategicRecommendations": [
+    {
+      "category": "string",
+      "recommendation": "string",
+      "priority": "critical|high|medium|low",
+      "expectedImpact": "string"
+    }
+  ],
+  "patternsToEmphasize": ["string - pattern categories to trust more"],
+  "patternsToDeweight": ["string - pattern categories to trust less"],
+  "patternsToIgnore": ["string - patterns to remove entirely"],
+  "newRuleIdeas": [
+    {
+      "ruleName": "string",
+      "description": "string",
+      "rationale": "string - based on 100-session trends",
+      "testPriority": "high|medium|low"
+    }
+  ],
+  "riskManagementAdjustments": [
+    {
+      "area": "string",
+      "currentState": "string - observed over 100 sessions",
+      "recommendedChange": "string",
+      "reasoning": "string - strategic rationale"
+    }
+  ],
+  "regimeChangesDetected": [
+    {
+      "market": "string",
+      "symbol": "string",
+      "changeDetected": "string - long-term shift",
+      "actionRequired": "string"
+    }
+  ],
+  "tomorrowPriorities": ["string - top 3 priorities for next 100 sessions"]
+}
+
+**IMPORTANT**:
+- Focus on STRATEGIC patterns that appear across MANY sessions, not single-session anomalies
+- Recommendations should apply to the NEXT 100 SESSIONS, not individual trades
+- Think LONG-TERM: sustainability, consistency, regime adaptation
+- Identify SYSTEMATIC issues that need fundamental changes`;  }
 
   /**
    * Build prompt for backtest analysis
@@ -441,6 +689,68 @@ Respond in the same JSON format as the backtest analysis.`;
   }
 
   /**
+   * Save batch meta-learning insight to database
+   */
+  private async saveBatchMetaLearningInsight(
+    userId: string,
+    milestoneLogId: string,
+    batchSummary: BatchSummary,
+    insight: MetaLearningInsight,
+    tokensUsed: number
+  ): Promise<void> {
+    try {
+      const { data, error } = await supabase.from('batch_meta_learning_insights').insert({
+        user_id: userId,
+        milestone_log_id: milestoneLogId,
+        milestone_number: batchSummary.milestoneNumber,
+        batch_summary: batchSummary,
+        high_level_interpretation: insight.highLevelInterpretation,
+        strategic_recommendations: insight.strategicRecommendations,
+        long_term_trends_detected: [
+          `Win rate trend: ${batchSummary.trendAnalysis.winRateTrend}`,
+          `Profit factor trend: ${batchSummary.trendAnalysis.profitFactorTrend}`
+        ],
+        regime_changes_detected: insight.regimeChangesDetected,
+        patterns_to_emphasize: insight.patternsToEmphasize,
+        patterns_to_deweight: insight.patternsToDeweight,
+        patterns_to_ignore: insight.patternsToIgnore,
+        global_strategy_adjustments: {},
+        confidence_threshold_adjustments: {},
+        risk_parameter_adjustments: insight.riskManagementAdjustments,
+        new_rule_ideas: insight.newRuleIdeas,
+        next_100_sessions_priorities: insight.tomorrowPriorities,
+        gpt4o_model: this.MODEL,
+        tokens_used: tokensUsed,
+        confidence_score: 85
+      }).select().single();
+
+      if (error) {
+        console.error('[Meta-Learning Strategist] Error saving batch insight:', error);
+      } else {
+        console.log('[Meta-Learning Strategist] ✓ Batch insight saved to database');
+
+        // Update milestone log with insight ID
+        await supabase
+          .from('session_milestone_log')
+          .update({ gpt4o_insight_id: data.id })
+          .eq('id', milestoneLogId);
+
+        // Track recommendations
+        if (data && insight.strategicRecommendations.length > 0) {
+          const { recommendationTracker } = await import('./recommendation-tracker');
+          await recommendationTracker.trackRecommendationsFromBatchInsight(
+            userId,
+            data.id,
+            insight.strategicRecommendations
+          );
+        }
+      }
+    } catch (error) {
+      console.error('[Meta-Learning Strategist] Exception saving batch insight:', error);
+    }
+  }
+
+  /**
    * Save meta-learning insight to database
    */
   private async saveMetaLearningInsight(
@@ -609,4 +919,4 @@ Respond in the same JSON format as the backtest analysis.`;
 }
 
 export const metaLearningStrategist = new MetaLearningStrategist();
-export type { BacktestSummary, MetaLearningInsight };
+export type { BacktestSummary, BatchSummary, MetaLearningInsight };
