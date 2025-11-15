@@ -80,7 +80,7 @@ class PatternInterpreter {
       const prompt = this.buildPatternInterpretationPrompt(pattern);
 
       // Call GPT-4o
-      const gpt4oResponse = await this.callGPT4o(prompt, userId);
+      const gpt4oResponse = await this.callGPT4o(prompt, userId, pattern.patternId);
 
       if (!gpt4oResponse) {
         console.error('[Pattern Interpreter] GPT-4o call failed');
@@ -235,6 +235,7 @@ As an expert trader, interpret this pattern and provide:
   private async callGPT4o(
     prompt: string,
     userId: string,
+    patternId: string = 'unknown',
     retryCount: number = 0
   ): Promise<{ content: string; tokensUsed: number } | null> {
     const apiKey = import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API_KEY;
@@ -309,7 +310,7 @@ As an expert trader, interpret this pattern and provide:
           const waitTime = Math.pow(2, retryCount) * 1000;
           console.warn(`[Pattern Interpreter] Rate limited. Retrying in ${waitTime}ms...`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
-          return this.callGPT4o(prompt, userId, retryCount + 1);
+          return this.callGPT4o(prompt, userId, patternId, retryCount + 1);
         }
 
         console.error('[Pattern Interpreter] API error:', errorData);
@@ -330,7 +331,7 @@ As an expert trader, interpret this pattern and provide:
         responseTime,
         true,
         null,
-        pattern.patternId
+        patternId
       );
 
       return {
@@ -351,7 +352,7 @@ As an expert trader, interpret this pattern and provide:
         Date.now() - startTime,
         false,
         error instanceof Error ? error.message : 'Unknown error',
-        pattern.patternId
+        patternId
       );
 
       return null;
