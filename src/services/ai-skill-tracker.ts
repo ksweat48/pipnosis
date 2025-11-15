@@ -52,30 +52,30 @@ class AISkillTracker {
   private readonly SKILL_THRESHOLDS: SkillLevelThresholds[] = [
     {
       level: 'Novice',
-      minTrades: 0,
-      minWinRate: 0,
-      minProfitFactor: 0,
-      minAvgRR: 0,
-      minCSS: 0,
-      description: 'Just starting to learn trading patterns.'
-    },
-    {
-      level: 'Intermediate',
-      minTrades: 100,
-      minWinRate: 45,
+      minTrades: 500,
+      minWinRate: 35,
       minProfitFactor: 1.0,
       minAvgRR: 0,
       minCSS: 0,
-      description: 'Understanding basic patterns.'
+      description: 'Starting to learn basic patterns.'
+    },
+    {
+      level: 'Intermediate',
+      minTrades: 1000,
+      minWinRate: 45,
+      minProfitFactor: 1.2,
+      minAvgRR: 0,
+      minCSS: 0,
+      description: 'Understanding market patterns.'
     },
     {
       level: 'Pro',
-      minTrades: 1000,
+      minTrades: 5000,
       minWinRate: 55,
       minProfitFactor: 1.5,
       minAvgRR: 0,
       minCSS: 0,
-      description: 'Consistent performance with good risk management.'
+      description: 'Consistently profitable trader.'
     },
     {
       level: 'Expert',
@@ -84,25 +84,25 @@ class AISkillTracker {
       minProfitFactor: 1.8,
       minAvgRR: 0,
       minCSS: 0,
-      description: 'Advanced pattern recognition across conditions.'
+      description: 'Mastering market dynamics.'
     },
     {
       level: 'Master',
       minTrades: 50000,
-      minWinRate: 70,
+      minWinRate: 75,
       minProfitFactor: 2.0,
       minAvgRR: 0,
       minCSS: 0,
-      description: 'Mastery with exceptional consistency.'
+      description: 'Elite level performance.'
     },
     {
       level: 'Exceptional',
       minTrades: 100000,
-      minWinRate: 80,
-      minProfitFactor: 2.2,
+      minWinRate: 85,
+      minProfitFactor: 2.5,
       minAvgRR: 0,
       minCSS: 0,
-      description: 'Peak performance. Elite-level trading.'
+      description: 'Exceptional trading consistency.'
     }
   ];
 
@@ -170,7 +170,7 @@ class AISkillTracker {
       target_win_rate: 80,
       gap_to_target: 80,
       current_profit_factor: 0,
-      trades_needed_for_next_level: 100,
+      trades_needed_for_next_level: 500,
       estimated_trades_to_master: 50000,
       estimated_trades_to_exceptional: 100000,
       learning_velocity_score: 0,
@@ -196,7 +196,7 @@ class AISkillTracker {
       targetWinRate: 80,
       gapToTarget: 80,
       currentProfitFactor: 0,
-      tradesNeededForNextLevel: 100,
+      tradesNeededForNextLevel: 500,
       estimatedTradesToMaster: 50000,
       estimatedTradesToExceptional: 100000,
       learningVelocityScore: 0,

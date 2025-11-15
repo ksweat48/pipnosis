@@ -121,6 +121,15 @@ export function NavigationMenu() {
                             </Link>
 
                             <Link
+                              to="/admin/diagnostics"
+                              onClick={() => setShowProfileMenu(false)}
+                              className="w-full flex items-center gap-3 px-3 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20 rounded transition-colors"
+                            >
+                              <Activity size={18} />
+                              <span>System Diagnostics</span>
+                            </Link>
+
+                            <Link
                               to="/kpis"
                               onClick={() => setShowProfileMenu(false)}
                               className="w-full flex items-center gap-3 px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/20 rounded transition-colors"
