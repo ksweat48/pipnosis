@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, TrendingUp, Zap, Target, Activity } from 'lucide-react';
 import { plateauDetector, PlateauAnalysis } from '../services/plateau-detector';
 import { breakthroughEngine } from '../services/breakthrough-engine';
+import { supabase } from '../lib/supabase';
 
 interface Props {
   userId: string;
@@ -16,6 +17,58 @@ export default function PlateauBreakthroughDashboard({ userId }: Props) {
     loadPlateauStatus();
     const interval = setInterval(loadPlateauStatus, 30000);
     return () => clearInterval(interval);
+  }, [userId]);
+
+  // Realtime subscription for plateau status updates
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel(`plateau-status-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'ai_skill_progression',
+          filter: `user_id=eq.${userId}`
+        },
+        () => {
+          console.log('[Plateau Dashboard] Skill progression updated, reloading...');
+          loadPlateauStatus();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'backtest_sessions',
+          filter: `user_id=eq.${userId}`
+        },
+        () => {
+          console.log('[Plateau Dashboard] New backtest session detected, reloading...');
+          loadPlateauStatus();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'synthetic_backtest_sessions',
+          filter: `user_id=eq.${userId}`
+        },
+        () => {
+          console.log('[Plateau Dashboard] New synthetic backtest detected, reloading...');
+          loadPlateauStatus();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [userId]);
 
   const loadPlateauStatus = async () => {

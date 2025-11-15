@@ -43,6 +43,72 @@ export default function AILearningProgressDashboard() {
     }
   }, [user, selectedSymbol]);
 
+  // Realtime subscriptions for skill progression and learning data
+  useEffect(() => {
+    if (!user) return;
+
+    // Set up realtime subscriptions
+    const channel = supabase
+      .channel(`ai-learning-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'ai_skill_progression',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          console.log('[AI Learning Dashboard] Skill progression updated, reloading...');
+          loadData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'ai_learning_insights',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          console.log('[AI Learning Dashboard] New learning insight created, reloading...');
+          loadData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'ai_learning_milestones',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          console.log('[AI Learning Dashboard] New milestone achieved, reloading...');
+          loadData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'ai_indicator_experiments',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          console.log('[AI Learning Dashboard] Indicator experiments updated, reloading...');
+          loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
   const loadData = async () => {
     if (!user) return;
 
