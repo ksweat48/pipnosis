@@ -22,10 +22,9 @@ import { runDatabaseDiagnostics, logDiagnostics } from './lib/database-diagnosti
 import { verifyDatabaseSetup } from './lib/migration-checker';
 import { connectionValidator } from './lib/connection-validator';
 import { dbHealthMonitor } from './services/system-monitoring-service';
-import { globalPollingCoordinator } from './services/global-polling-coordinator';
+import { pollingOrchestrator } from './services/polling-orchestrator';
 import { backgroundCandleAggregator } from './services/background-candle-aggregator';
 import { systemLoadMonitor } from './services/system-load-monitor';
-import { browserPricePoller } from './services/browser-price-poller';
 import ConnectionStatusIndicator from './components/ConnectionStatusIndicator';
 
 
@@ -208,21 +207,16 @@ export default function App() {
           }
         }, 3000);
 
+        // Start the polling orchestrator which manages both BrowserPoller and GlobalCoordinator
         setTimeout(async () => {
           try {
-            await browserPricePoller.start();
+            console.log('[App] Starting PollingOrchestrator with auto-recovery...');
+            await pollingOrchestrator.initialize();
+            console.log('[App] ✅ PollingOrchestrator initialized successfully');
           } catch (error) {
-            console.log('[Dev Info] Price poller failed to start:', error);
+            console.error('[App] ❌ PollingOrchestrator failed to start:', error);
           }
         }, 5000);
-
-        setTimeout(async () => {
-          try {
-            await globalPollingCoordinator.initialize();
-          } catch (error) {
-            console.log('[Dev Info] Polling coordinator failed to start:', error);
-          }
-        }, 8000);
 
         setTimeout(() => {
           try {
@@ -263,8 +257,8 @@ export default function App() {
         console.log('[Dev Info] Error shutting down aggregator:', err);
       });
 
-      globalPollingCoordinator.shutdown().catch(err => {
-        console.log('[Dev Info] Error shutting down coordinator:', err);
+      pollingOrchestrator.shutdown().catch(err => {
+        console.log('[Dev Info] Error shutting down orchestrator:', err);
       });
     };
   }, []);

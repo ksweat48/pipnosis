@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { getForexMarketStatus } from '@/utils/marketHours';
 import { areFunctionsAvailable, logEnvironmentInfo } from '@/lib/environment';
 import { pollingConfigService, SymbolPriority } from './polling-config-service';
+import { pollingHealthMonitor } from './polling-health-monitor';
 
 interface PollStatus {
   symbol: string;
@@ -48,6 +49,7 @@ class GlobalPollingCoordinator {
   private missedHeartbeats = 0;
   private readonly HEARTBEAT_INTERVAL_MS = 5000;
   private readonly MAX_MISSED_HEARTBEATS = 3;
+  private readonly SYMBOL_RECOVERY_THRESHOLD = 30; // Max recovery attempts per symbol
 
   private readonly FOREX_PAIRS = [
     'XAUUSD', 'US30', 'EURUSD', 'USDJPY', 'GBPUSD'
@@ -98,6 +100,11 @@ class GlobalPollingCoordinator {
         priority: 'normal',
         currentInterval: 2000,
         isViewed: false
+      });
+
+      // Register recovery callback with health monitor
+      pollingHealthMonitor.registerRecoveryCallback(symbol, async (sym) => {
+        await this.recoverSymbol(sym);
       });
     }
 
@@ -181,6 +188,28 @@ class GlobalPollingCoordinator {
 
     heartbeat();
     this.heartbeatInterval = setInterval(heartbeat, this.HEARTBEAT_INTERVAL_MS);
+  }
+
+  private async recoverSymbol(symbol: string): Promise<void> {
+    console.log(`🔄 [GlobalCoordinator] Attempting recovery for ${symbol}`);
+
+    const status = this.pollStatus.get(symbol);
+    if (!status) return;
+
+    // Check if we should give up on this symbol
+    const health = pollingHealthMonitor.getHealth(symbol);
+    if (health && health.recoveryAttempts >= this.SYMBOL_RECOVERY_THRESHOLD) {
+      console.error(`[GlobalCoordinator] ${symbol} exceeded max recovery attempts, stopping`);
+      this.stopPollingForSymbol(symbol);
+      return;
+    }
+
+    // Stop and restart polling with a clean slate
+    this.stopPollingForSymbol(symbol);
+    await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second cooldown
+    this.startPollingForSymbol(symbol);
+
+    console.log(`✅ [GlobalCoordinator] Recovery initiated for ${symbol}`);
   }
 
   private recoverFromThrottling(): void {
@@ -347,6 +376,7 @@ class GlobalPollingCoordinator {
 
         if (error) {
           console.error(`❌ [${symbol}] DB Read Error:`, error);
+          await pollingHealthMonitor.recordError(symbol, error.message);
         } else if (data) {
           const bid = parseFloat(data.bid);
           const ask = parseFloat(data.ask);
@@ -356,11 +386,13 @@ class GlobalPollingCoordinator {
           status.lastPoll = new Date();
           status.lastSuccessfulPoll = new Date();
           status.successCount++;
+          await pollingHealthMonitor.recordSuccess(symbol, 'cached');
           this.notifyListeners();
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.error(`❌ [${symbol}] Poll failed:`, errorMsg);
+        await pollingHealthMonitor.recordError(symbol, errorMsg);
         this.notifyListeners();
       } finally {
         status.isPolling = false;
