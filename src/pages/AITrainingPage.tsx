@@ -43,8 +43,8 @@ export default function AITrainingPage() {
   const [pastSessions, setPastSessions] = useState<any[]>([]);
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
 
-  // Tab system - default to 'backtest' tab
-  const [activeTab, setActiveTab] = useState<'progress' | 'backtest'>('backtest');
+  // Tab system - default to 'progress' tab
+  const [activeTab, setActiveTab] = useState<'progress' | 'backtest'>('progress');
 
   // Auto-backtest mode - default to Auto
   const [isAutoMode, setIsAutoMode] = useState(true);
