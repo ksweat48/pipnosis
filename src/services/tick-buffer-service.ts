@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { logger, LogCategory } from '@/lib/logger';
 
 interface TickData {
   symbol: string;
@@ -27,13 +28,13 @@ class TickBufferService {
   private initOnlineDetection() {
     if (typeof window !== 'undefined') {
       window.addEventListener('online', () => {
-        console.log('[TickBuffer] 🌐 Network online - resuming sync');
+        logger.info(LogCategory.TICK_BUFFER, '🌐 Network online - resuming sync');
         this.isOnline = true;
         this.syncAllBuffers();
       });
 
       window.addEventListener('offline', () => {
-        console.log('[TickBuffer] 📡 Network offline - buffering to localStorage');
+        logger.info(LogCategory.TICK_BUFFER, '📡 Network offline - buffering to localStorage');
         this.isOnline = false;
       });
 
@@ -73,7 +74,7 @@ class TickBufferService {
       const stored = localStorage.getItem(key);
       return stored ? JSON.parse(stored) : [];
     } catch (error) {
-      console.error('[TickBuffer] Error reading buffer:', error);
+      logger.error(LogCategory.TICK_BUFFER, 'Error reading buffer:', error);
       return [];
     }
   }
@@ -82,10 +83,10 @@ class TickBufferService {
     try {
       localStorage.setItem(key, JSON.stringify(buffer));
     } catch (error) {
-      console.error('[TickBuffer] Error saving buffer:', error);
+      logger.error(LogCategory.TICK_BUFFER, 'Error saving buffer:', error);
 
       if (error instanceof Error && error.name === 'QuotaExceededError') {
-        console.warn('[TickBuffer] LocalStorage quota exceeded, clearing old entries');
+        logger.warn(LogCategory.TICK_BUFFER, 'LocalStorage quota exceeded, clearing old entries');
         const halfSize = Math.floor(buffer.length / 2);
         localStorage.setItem(key, JSON.stringify(buffer.slice(halfSize)));
       }
@@ -98,7 +99,7 @@ class TickBufferService {
 
     if (unsyncedTicks.length === 0) return;
 
-    console.log(`[TickBuffer] 📤 Syncing ${unsyncedTicks.length} ticks for ${symbol}`);
+    logger.debug(LogCategory.TICK_BUFFER, `📤 Syncing ${unsyncedTicks.length} ticks for ${symbol}`);
 
     const ticksToSync = unsyncedTicks.map(t => {
       const bid = parseFloat(t.bid.toString());
@@ -123,14 +124,14 @@ class TickBufferService {
         .insert(ticksToSync);
 
       if (error) {
-        console.error(`[TickBuffer] ❌ Sync failed for ${symbol}:`, error);
+        logger.error(LogCategory.TICK_BUFFER, `❌ Sync failed for ${symbol}:`, error);
 
         unsyncedTicks.forEach(tick => {
           tick.retry_count++;
         });
         this.saveBuffer(bufferKey, buffer);
       } else {
-        console.log(`[TickBuffer] ✅ Successfully synced ${ticksToSync.length} ticks for ${symbol}`);
+        logger.trace(LogCategory.TICK_BUFFER, `✅ Successfully synced ${ticksToSync.length} ticks for ${symbol}`);
 
         const syncedBuffer = buffer.map(tick => {
           if (unsyncedTicks.includes(tick)) {
@@ -144,7 +145,7 @@ class TickBufferService {
       }
 
     } catch (error) {
-      console.error(`[TickBuffer] ❌ Sync error for ${symbol}:`, error);
+      logger.error(LogCategory.TICK_BUFFER, `❌ Sync error for ${symbol}:`, error);
 
       unsyncedTicks.forEach(tick => {
         tick.retry_count++;
@@ -173,7 +174,7 @@ class TickBufferService {
       }
     }, SYNC_INTERVAL_MS);
 
-    console.log('[TickBuffer] 🔄 Background sync started');
+    logger.debug(LogCategory.TICK_BUFFER, '🔄 Background sync started');
   }
 
   getBufferStats(symbol: string): {
@@ -196,13 +197,13 @@ class TickBufferService {
   clearBuffer(symbol: string): void {
     const bufferKey = `${BUFFER_KEY_PREFIX}${symbol}`;
     localStorage.removeItem(bufferKey);
-    console.log(`[TickBuffer] 🗑️ Buffer cleared for ${symbol}`);
+    logger.info(LogCategory.TICK_BUFFER, `🗑️ Buffer cleared for ${symbol}`);
   }
 
   clearAllBuffers(): void {
     const symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US30'];
     symbols.forEach(symbol => this.clearBuffer(symbol));
-    console.log('[TickBuffer] 🗑️ All buffers cleared');
+    logger.info(LogCategory.TICK_BUFFER, '🗑️ All buffers cleared');
   }
 
   destroy(): void {
@@ -210,7 +211,7 @@ class TickBufferService {
       clearInterval(this.syncInterval);
       this.syncInterval = null;
     }
-    console.log('[TickBuffer] 🛑 Service destroyed');
+    logger.info(LogCategory.TICK_BUFFER, '🛑 Service destroyed');
   }
 }
 

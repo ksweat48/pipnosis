@@ -8,6 +8,7 @@
  */
 
 import { tickBufferService } from './tick-buffer-service';
+import { logger, LogCategory } from '@/lib/logger';
 
 const FOREX_PAIRS = ['EURUSD', 'XAUUSD', 'US30', 'GBPUSD', 'USDJPY'];
 const POLL_INTERVAL_MS = 3000;
@@ -21,12 +22,12 @@ class BrowserPricePoller {
 
   async start(): Promise<void> {
     if (this.isActive) {
-      console.warn('[BrowserPoller] Already active');
+      logger.warn(LogCategory.BROWSER_POLLER, 'Already active');
       return;
     }
 
-    console.log('[BrowserPoller] 🚀 Starting browser-based price polling...');
-    console.log('[BrowserPoller] This ensures prices flow even without server-side cron');
+    logger.info(LogCategory.BROWSER_POLLER, '🚀 Starting browser-based price polling...');
+    logger.info(LogCategory.BROWSER_POLLER, 'This ensures prices flow even without server-side cron');
 
     this.isActive = true;
     this.consecutiveErrors = 0;
@@ -35,7 +36,7 @@ class BrowserPricePoller {
 
     this.pollInterval = setInterval(() => this.poll(), POLL_INTERVAL_MS);
 
-    console.log(`[BrowserPoller] ✅ Polling started (every ${POLL_INTERVAL_MS}ms)`);
+    logger.info(LogCategory.BROWSER_POLLER, `✅ Polling started (every ${POLL_INTERVAL_MS}ms)`);
   }
 
   private async poll(): Promise<void> {
@@ -66,7 +67,7 @@ class BrowserPricePoller {
             if (data.bid && data.ask) {
               successCount++;
               const quality = response.status === 206 ? 'CACHED' : 'LIVE';
-              console.log(`[BrowserPoller] ✅ ${symbol}: ${data.bid}/${data.ask} (${quality})`);
+              logger.debug(LogCategory.BROWSER_POLLER, `✅ ${symbol}: ${data.bid}/${data.ask} (${quality})`);
 
               await tickBufferService.bufferTick(
                 symbol,
@@ -78,13 +79,13 @@ class BrowserPricePoller {
             }
           } else {
             const errorText = await response.text().catch(() => 'Unknown error');
-            console.error(`[BrowserPoller] ❌ ${symbol} HTTP ${response.status}: ${errorText.substring(0, 100)}`);
+            logger.error(LogCategory.BROWSER_POLLER, `❌ ${symbol} HTTP ${response.status}: ${errorText.substring(0, 100)}`);
           }
         } catch (error) {
           if (error instanceof Error && error.name === 'AbortError') {
-            console.error(`[BrowserPoller] ⏱️ ${symbol} timeout after ${REQUEST_TIMEOUT_MS}ms`);
+            logger.warn(LogCategory.BROWSER_POLLER, `⏱️ ${symbol} timeout after ${REQUEST_TIMEOUT_MS}ms`);
           } else {
-            console.error(`[BrowserPoller] ❌ ${symbol} fetch error:`, error instanceof Error ? error.message : String(error));
+            logger.error(LogCategory.BROWSER_POLLER, `❌ ${symbol} fetch error:`, error instanceof Error ? error.message : String(error));
           }
         }
       }
@@ -93,15 +94,15 @@ class BrowserPricePoller {
         this.consecutiveErrors = 0;
       } else {
         this.consecutiveErrors++;
-        console.warn(`[BrowserPoller] ⚠️ No successful fetches (${this.consecutiveErrors}/${this.MAX_CONSECUTIVE_ERRORS})`);
+        logger.warn(LogCategory.BROWSER_POLLER, `⚠️ No successful fetches (${this.consecutiveErrors}/${this.MAX_CONSECUTIVE_ERRORS})`);
 
         if (this.consecutiveErrors >= this.MAX_CONSECUTIVE_ERRORS) {
-          console.error('[BrowserPoller] ❌ Too many consecutive errors, stopping poller');
+          logger.error(LogCategory.BROWSER_POLLER, '❌ Too many consecutive errors, stopping poller');
           this.stop();
         }
       }
     } catch (error) {
-      console.error('[BrowserPoller] Poll error:', error);
+      logger.error(LogCategory.BROWSER_POLLER, 'Poll error:', error);
       this.consecutiveErrors++;
     }
   }
@@ -111,7 +112,7 @@ class BrowserPricePoller {
       return;
     }
 
-    console.log('[BrowserPoller] 🛑 Stopping...');
+    logger.info(LogCategory.BROWSER_POLLER, '🛑 Stopping...');
 
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
@@ -119,7 +120,7 @@ class BrowserPricePoller {
     }
 
     this.isActive = false;
-    console.log('[BrowserPoller] ✅ Stopped');
+    logger.info(LogCategory.BROWSER_POLLER, '✅ Stopped');
   }
 
   isRunning(): boolean {

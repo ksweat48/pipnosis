@@ -7,9 +7,23 @@ import { errorHandler } from '@/lib/error-handler';
 import { initializeAutomatedRefresh, automatedRefreshService } from '@/services/automated-refresh-service';
 import { positionMonitorService } from '@/services/position-monitor';
 import { tradeLifecycleManager } from '@/services/trade-lifecycle-manager';
+import { logger, LogLevel } from '@/lib/logger';
+import { logPresets } from '@/lib/log-presets';
 import App from './App.tsx';
 import './index.css';
 import './utils/scanner-test';
+
+// Initialize logger with appropriate level for environment
+if (import.meta.env.PROD) {
+  logger.setGlobalLevel(LogLevel.WARN);
+} else {
+  logger.setGlobalLevel(LogLevel.INFO);
+}
+
+// Show logging help on startup
+console.log('\n%c💡 Logging System Available', 'color: #4CAF50; font-weight: bold; font-size: 14px');
+console.log('%cType logPresets.help() for quick log configuration', 'color: #2196F3; font-size: 12px');
+console.log('%cType logger.showHelp() for advanced configuration\n', 'color: #2196F3; font-size: 12px');
 
 const cleanupStaleLocalStorage = () => {
   const version = localStorage.getItem('app-config-version');
