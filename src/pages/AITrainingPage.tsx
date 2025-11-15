@@ -79,11 +79,89 @@ export default function AITrainingPage() {
         if (state.isRunning) {
           setIsAutoMode(true);
         }
+
+        // Check if a backtest just completed and reload sessions
+        if (!state.isRunning && state.lastBacktestResult) {
+          loadPastSessions();
+        }
       }, 3000); // Poll every 3 seconds
+    }
+
+    // Set up realtime subscriptions for backtest sessions
+    let realtimeChannel: any = null;
+    if (user) {
+      realtimeChannel = supabase
+        .channel(`backtest-sessions-${user.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'backtest_sessions',
+            filter: `user_id=eq.${user.id}`
+          },
+          () => {
+            console.log('[AI Training] New backtest session detected, reloading...');
+            loadPastSessions();
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'synthetic_backtest_sessions',
+            filter: `user_id=eq.${user.id}`
+          },
+          () => {
+            console.log('[AI Training] New synthetic backtest session detected, reloading...');
+            loadPastSessions();
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'backtest_sessions',
+            filter: `user_id=eq.${user.id}`
+          },
+          (payload) => {
+            console.log('[AI Training] Backtest session updated:', payload);
+            // If we're viewing this session, update it
+            if (selectedSession && payload.new.id === selectedSession.id) {
+              handleLoadSession({ ...payload.new, sessionType: 'real' });
+            } else {
+              loadPastSessions();
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'synthetic_backtest_sessions',
+            filter: `user_id=eq.${user.id}`
+          },
+          (payload) => {
+            console.log('[AI Training] Synthetic backtest session updated:', payload);
+            // If we're viewing this session, update it
+            if (selectedSession && payload.new.id === selectedSession.id) {
+              handleLoadSession({ ...payload.new, sessionType: 'synthetic' });
+            } else {
+              loadPastSessions();
+            }
+          }
+        )
+        .subscribe();
     }
 
     return () => {
       if (stateInterval) clearInterval(stateInterval);
+      if (realtimeChannel) {
+        supabase.removeChannel(realtimeChannel);
+      }
     };
   }, [user]);
 
