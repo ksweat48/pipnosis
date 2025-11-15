@@ -41,8 +41,8 @@ export default function AITrainingPage() {
   const [pastSessions, setPastSessions] = useState<any[]>([]);
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
 
-  // Tab system
-  const [activeTab, setActiveTab] = useState<'progress' | 'backtest'>('progress');
+  // Tab system - default to 'backtest' tab
+  const [activeTab, setActiveTab] = useState<'progress' | 'backtest'>('backtest');
 
   // Auto-backtest mode
   const [isAutoMode, setIsAutoMode] = useState(false);
@@ -55,19 +55,37 @@ export default function AITrainingPage() {
     loadPastSessions();
     setDefaultDateRange();
 
-    // Poll auto-backtest state when in auto mode
+    // Initialize auto-backtest service with database state
+    if (user) {
+      simpleAutoBacktestService.initialize(user.id).then(() => {
+        // Load initial state from database
+        simpleAutoBacktestService.getState().then(state => {
+          setAutoBacktestState(state);
+          // If auto-backtest is running, switch to auto mode
+          if (state.isRunning) {
+            setIsAutoMode(true);
+          }
+        });
+      });
+    }
+
+    // Poll auto-backtest state from database (always poll to show cross-device state)
     let stateInterval: NodeJS.Timeout | null = null;
-    if (isAutoMode && user) {
-      stateInterval = setInterval(() => {
-        const state = simpleAutoBacktestService.getState();
+    if (user) {
+      stateInterval = setInterval(async () => {
+        const state = await simpleAutoBacktestService.getState();
         setAutoBacktestState(state);
-      }, 1000);
+        // Auto-switch to auto mode if it's running
+        if (state.isRunning) {
+          setIsAutoMode(true);
+        }
+      }, 3000); // Poll every 3 seconds
     }
 
     return () => {
       if (stateInterval) clearInterval(stateInterval);
     };
-  }, [user, isAutoMode]);
+  }, [user]);
 
   useEffect(() => {
     // Update date range when switching between synthetic and real data
@@ -576,7 +594,14 @@ export default function AITrainingPage() {
                 <div className="p-4 bg-gray-700/50 rounded-lg text-center">
                   <p className="text-gray-400 mb-4">Auto-backtest is not running</p>
                   <button
-                    onClick={() => user && simpleAutoBacktestService.start(user.id)}
+                    onClick={async () => {
+                      if (user) {
+                        const result = await simpleAutoBacktestService.start(user.id);
+                        if (!result.success) {
+                          alert(result.message);
+                        }
+                      }
+                    }}
                     className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors mx-auto"
                   >
                     <Play className="w-5 h-5" />
@@ -594,11 +619,42 @@ export default function AITrainingPage() {
               </div>
             )}
 
-            <div className="mt-4 p-3 bg-yellow-900/20 border-l-4 border-yellow-400 rounded">
-              <p className="text-sm text-yellow-200">
-                <strong>Auto Mode:</strong> System automatically runs backtests with randomized parameters (1-3 days, mixed conditions, all pairs).
-                Each backtest includes AI learning and skill progression updates.
-              </p>
+            <div className="mt-4 space-y-3">
+              <div className="p-3 bg-yellow-900/20 border-l-4 border-yellow-400 rounded">
+                <p className="text-sm text-yellow-200">
+                  <strong>Auto Mode:</strong> System automatically runs backtests with randomized parameters (1-3 days, mixed conditions, all pairs).
+                  Each backtest includes AI learning and skill progression updates.
+                </p>
+              </div>
+
+              {/* Cross-device status indicator */}
+              {autoBacktestState && autoBacktestState.startedFromDevice && (
+                <div className="p-3 bg-blue-900/20 border-l-4 border-blue-400 rounded">
+                  <p className="text-sm text-blue-200">
+                    <strong>Started from:</strong> {autoBacktestState.startedFromDevice}
+                    {autoBacktestState.sessionId && (
+                      <span className="ml-2 text-xs opacity-70">• Session: {autoBacktestState.sessionId.slice(-8)}</span>
+                    )}
+                  </p>
+                </div>
+              )}
+
+              {/* Usage warning indicator */}
+              {autoBacktestState && autoBacktestState.usageWarningLevel && autoBacktestState.usageWarningLevel !== 'normal' && (
+                <div className={`p-3 border-l-4 rounded ${
+                  autoBacktestState.usageWarningLevel === 'critical'
+                    ? 'bg-red-900/20 border-red-400'
+                    : 'bg-orange-900/20 border-orange-400'
+                }`}>
+                  <p className={`text-sm ${
+                    autoBacktestState.usageWarningLevel === 'critical'
+                      ? 'text-red-200'
+                      : 'text-orange-200'
+                  }`}>
+                    <strong>⚠️ {autoBacktestState.usageWarningLevel.toUpperCase()}:</strong> {autoBacktestState.usageWarningMessage}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         )}
