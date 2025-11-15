@@ -263,28 +263,28 @@ export default function AILearningProgressDashboard() {
               <div>
                 <div className="text-white/60 mb-1">Winning Trades</div>
                 <div className="font-bold text-white">
-                  {skillData.totalTradesAnalyzed} / {skillThresholds[skillData.skillLevelNumeric]?.minTrades || '?'}
+                  {skillData.totalTradesAnalyzed} / {skillThresholds[skillData.skillLevelNumeric - 1]?.minTrades || '?'}
                 </div>
-                <div className={`text-xs mt-1 ${skillData.totalTradesAnalyzed >= (skillThresholds[skillData.skillLevelNumeric]?.minTrades || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {skillData.totalTradesAnalyzed >= (skillThresholds[skillData.skillLevelNumeric]?.minTrades || 0) ? '✓ Met' : 'In progress'}
+                <div className={`text-xs mt-1 ${skillData.totalTradesAnalyzed >= (skillThresholds[skillData.skillLevelNumeric - 1]?.minTrades || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {skillData.totalTradesAnalyzed >= (skillThresholds[skillData.skillLevelNumeric - 1]?.minTrades || 0) ? '✓ Met' : 'In progress'}
                 </div>
               </div>
               <div>
                 <div className="text-white/60 mb-1">Win Rate</div>
                 <div className="font-bold text-white">
-                  {skillData.currentWinRate.toFixed(1)}% / {skillThresholds[skillData.skillLevelNumeric]?.minWinRate || '?'}%
+                  {skillData.currentWinRate.toFixed(1)}% / {skillThresholds[skillData.skillLevelNumeric - 1]?.minWinRate || '?'}%
                 </div>
-                <div className={`text-xs mt-1 ${skillData.currentWinRate >= (skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {skillData.currentWinRate >= (skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) - skillData.currentWinRate).toFixed(1)}%`}
+                <div className={`text-xs mt-1 ${skillData.currentWinRate >= (skillThresholds[skillData.skillLevelNumeric - 1]?.minWinRate || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {skillData.currentWinRate >= (skillThresholds[skillData.skillLevelNumeric - 1]?.minWinRate || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric - 1]?.minWinRate || 0) - skillData.currentWinRate).toFixed(1)}%`}
                 </div>
               </div>
               <div>
                 <div className="text-white/60 mb-1">Profit Factor</div>
                 <div className="font-bold text-white">
-                  {skillData.currentProfitFactor.toFixed(2)} / {skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor?.toFixed(2) || '?'}
+                  {skillData.currentProfitFactor.toFixed(2)} / {skillThresholds[skillData.skillLevelNumeric - 1]?.minProfitFactor?.toFixed(2) || '?'}
                 </div>
-                <div className={`text-xs mt-1 ${skillData.currentProfitFactor >= (skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {skillData.currentProfitFactor >= (skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) - skillData.currentProfitFactor).toFixed(2)}`}
+                <div className={`text-xs mt-1 ${skillData.currentProfitFactor >= (skillThresholds[skillData.skillLevelNumeric - 1]?.minProfitFactor || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {skillData.currentProfitFactor >= (skillThresholds[skillData.skillLevelNumeric - 1]?.minProfitFactor || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric - 1]?.minProfitFactor || 0) - skillData.currentProfitFactor).toFixed(2)}`}
                 </div>
               </div>
             </div>
