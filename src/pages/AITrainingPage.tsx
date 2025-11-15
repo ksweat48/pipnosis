@@ -5,6 +5,8 @@ import { backtestingEngine, BacktestConfig, BacktestResult } from '../services/b
 import { syntheticBacktestingEngine, SyntheticBacktestConfig, SyntheticBacktestResult } from '../services/synthetic-backtesting-engine';
 import { aiCapabilityScorer, CapabilityScoreBreakdown } from '../services/ai-capability-scorer';
 import { backtestDiagnostics } from '../services/backtest-diagnostics';
+import { aiLearningEngine } from '../services/ai-learning-engine';
+import { aiSkillTracker } from '../services/ai-skill-tracker';
 import SyntheticEquityCurve from '../components/SyntheticEquityCurve';
 import SyntheticCandlestickChart from '../components/SyntheticCandlestickChart';
 import SyntheticBacktestResults from '../components/SyntheticBacktestResults';
@@ -276,6 +278,32 @@ export default function AITrainingPage() {
         });
         setBacktestResult(result);
 
+        // Trigger AI learning from synthetic backtest
+        console.log('[AI Training] Triggering AI learning from synthetic backtest...');
+        if (result.trades && result.trades.length > 0) {
+          await aiLearningEngine.analyzeBacktestSession(
+            user.id,
+            result.sessionId,
+            result.trades.map((t: any) => ({
+              id: t.id,
+              symbol: t.symbol,
+              direction: t.direction,
+              outcome: t.outcome,
+              pnl: t.pnl,
+              entryTime: new Date(t.entryTime),
+              exitTime: new Date(t.exitTime),
+              entryPrice: t.entryPrice,
+              exitPrice: t.exitPrice,
+              stopLoss: t.stopLoss,
+              takeProfit: t.takeProfit,
+              confidence: t.confidence || 75,
+              setupType: t.setupType || 'flow_v2'
+            })),
+            'synthetic'
+          );
+          console.log('[AI Training] AI learning complete for synthetic backtest');
+        }
+
         const { data: candles } = await supabase
           .from('synthetic_candles')
           .select('*')
@@ -342,6 +370,32 @@ export default function AITrainingPage() {
 
       setBacktestResult(result);
       setCapabilityScore(score);
+
+      // Trigger AI learning from real backtest
+      console.log('[AI Training] Triggering AI learning from real backtest...');
+      if (result.trades && result.trades.length > 0) {
+        await aiLearningEngine.analyzeBacktestSession(
+          user.id,
+          result.sessionId,
+          result.trades.map((t: any) => ({
+            id: t.id,
+            symbol: t.symbol,
+            direction: t.direction,
+            outcome: t.outcome,
+            pnl: t.pnl,
+            entryTime: new Date(t.entryTime),
+            exitTime: new Date(t.exitTime),
+            entryPrice: t.entryPrice,
+            exitPrice: t.exitPrice,
+            stopLoss: t.stopLoss,
+            takeProfit: t.takeProfit,
+            confidence: t.confidence || 75,
+            setupType: t.setupType || 'flow_v2'
+          })),
+          'real'
+        );
+        console.log('[AI Training] AI learning complete for real backtest');
+      }
 
         await loadPastSessions();
 
