@@ -44,8 +44,8 @@ export default function AITrainingPage() {
   // Tab system - default to 'backtest' tab
   const [activeTab, setActiveTab] = useState<'progress' | 'backtest'>('backtest');
 
-  // Auto-backtest mode
-  const [isAutoMode, setIsAutoMode] = useState(false);
+  // Auto-backtest mode - default to Auto
+  const [isAutoMode, setIsAutoMode] = useState(true);
   const [autoBacktestState, setAutoBacktestState] = useState<SimpleAutoBacktestState | null>(null);
 
   const availableSymbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];

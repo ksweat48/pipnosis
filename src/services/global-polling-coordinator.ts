@@ -103,11 +103,14 @@ class GlobalPollingCoordinator {
 
     if (marketStatus.isOpen) {
       console.log('✅ Market is open, starting read-only database monitoring...');
+      this.isPaused = false;
+      this.pauseReason = null;
       this.startAllPolling();
     } else {
       console.log('⏸️ Market is closed, monitoring will start when market opens');
       this.isPaused = true;
       this.pauseReason = 'market_closed';
+      // Do not start polling when market is closed
     }
 
     this.startMarketStatusMonitoring();
@@ -312,6 +315,13 @@ class GlobalPollingCoordinator {
     if (!status) return;
 
     const pollFunction = async () => {
+      // Always check market status before polling
+      const marketStatus = getForexMarketStatus();
+      if (!marketStatus.isOpen) {
+        console.log(`⏸️ [${symbol}] Market closed - skipping poll`);
+        return;
+      }
+
       if (this.isPaused) {
         return;
       }
@@ -383,19 +393,25 @@ class GlobalPollingCoordinator {
       clearInterval(this.marketCheckInterval);
     }
 
+    // Check market status every minute
     this.marketCheckInterval = setInterval(() => {
       const marketStatus = getForexMarketStatus();
 
+      // Market just opened - resume polling
       if (marketStatus.isOpen && this.isPaused && this.pauseReason === 'market_closed') {
         console.log('🟢 Market opened! Resuming polling...');
         this.isPaused = false;
         this.pauseReason = null;
         this.startAllPolling();
-      } else if (!marketStatus.isOpen && !this.isPaused) {
-        console.log('🔴 Market closed! Pausing polling...');
+        this.notifyListeners();
+      }
+      // Market just closed - stop polling immediately
+      else if (!marketStatus.isOpen && (!this.isPaused || this.pauseReason !== 'market_closed')) {
+        console.log('🔴 Market closed! Stopping all polling immediately...');
         this.isPaused = true;
         this.pauseReason = 'market_closed';
         this.stopAllPolling();
+        this.notifyListeners();
       }
     }, this.MARKET_CHECK_INTERVAL);
 
@@ -517,9 +533,12 @@ class GlobalPollingCoordinator {
       console.log('▶️ Manually resuming polling...');
       const marketStatus = getForexMarketStatus();
       if (marketStatus.isOpen) {
+        this.isPaused = false;
+        this.pauseReason = null;
         this.startAllPolling();
       } else {
         console.warn('⚠️ Cannot resume polling: Market is currently closed');
+        alert('Cannot resume polling while market is closed. Polling will automatically resume when the market opens (Sunday 5:00 PM EST).');
       }
     }
   }
@@ -531,11 +550,14 @@ class GlobalPollingCoordinator {
     setTimeout(() => {
       const marketStatus = getForexMarketStatus();
       if (marketStatus.isOpen) {
+        this.isPaused = false;
+        this.pauseReason = null;
         this.startAllPolling();
       } else {
-        console.warn('⚠️ Market is currently closed');
+        console.warn('⚠️ Market is currently closed - polling will not restart');
         this.isPaused = true;
         this.pauseReason = 'market_closed';
+        this.notifyListeners();
       }
     }, 1000);
   }
