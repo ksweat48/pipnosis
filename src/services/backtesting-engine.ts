@@ -181,6 +181,27 @@ class BacktestingEngine {
         });
       }
 
+      // === CONSISTENCY TRACKING: Record session metrics ===
+      console.log('[Backtesting] 📊 Recording session metrics for consistency validation...');
+      const { aiSessionConsistencyTracker } = await import('./ai-session-consistency-tracker');
+
+      const totalWins = result.trades.filter(t => t.outcome === 'win').reduce((sum, t) => sum + Math.abs(t.pnl), 0);
+      const totalLosses = Math.abs(result.trades.filter(t => t.outcome === 'loss').reduce((sum, t) => sum + t.pnl, 0));
+
+      await aiSessionConsistencyTracker.recordSessionMetrics(userId, {
+        sessionId: this.sessionId,
+        winRate: result.winRate,
+        profitFactor: result.profitFactor,
+        winsCount: result.winningTrades,
+        totalTrades: result.totalTrades,
+        totalWinsValue: totalWins,
+        totalLossesValue: totalLosses,
+        backtestType: 'backtest',
+        symbol: config.symbols.length === 1 ? config.symbols[0] : undefined,
+        strategyName: 'flow_v2'
+      });
+      console.log('[Backtesting] ✅ Session metrics recorded');
+
       return result;
     } catch (error) {
       console.error('[Backtesting] Error:', error);
