@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { sessionLearningGenerator } from '../services/session-learning-generator';
+import { recommendationTracker, RecommendationStatus } from '../services/recommendation-tracker';
+import { recommendationStatusSync } from '../services/recommendation-status-sync';
 import MetaLearningInsightsCard from './MetaLearningInsightsCard';
 import {
   BookOpen,
@@ -14,7 +16,9 @@ import {
   ArrowUp,
   ArrowDown,
   Sparkles,
-  BarChart3
+  BarChart3,
+  Clock,
+  Loader
 } from 'lucide-react';
 
 export default function SessionLearningDashboard() {
@@ -26,13 +30,30 @@ export default function SessionLearningDashboard() {
   const [selectedLearningId, setSelectedLearningId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'latest' | 'date'>('latest');
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [recommendationsByStatus, setRecommendationsByStatus] = useState<{
+    completed: RecommendationStatus[];
+    inProgress: RecommendationStatus[];
+    pending: RecommendationStatus[];
+  }>({ completed: [], inProgress: [], pending: [] });
 
   useEffect(() => {
     if (user) {
       loadLearnings();
-      // Auto-refresh every 30 seconds to catch new backtest completions
-      const interval = setInterval(loadLearnings, 30000);
-      return () => clearInterval(interval);
+      loadRecommendationStatus();
+
+      // Start real-time status synchronization
+      recommendationStatusSync.start(user.id);
+
+      // Auto-refresh every 30 seconds to catch new backtest completions and status updates
+      const interval = setInterval(() => {
+        loadLearnings();
+        loadRecommendationStatus();
+      }, 30000);
+
+      return () => {
+        clearInterval(interval);
+        recommendationStatusSync.stop();
+      };
     }
   }, [user]);
 
@@ -93,6 +114,21 @@ export default function SessionLearningDashboard() {
   const handleSelectLearning = (learning: any) => {
     setCurrentLearning(learning);
     setSelectedLearningId(learning.id);
+  };
+
+  const loadRecommendationStatus = async () => {
+    if (!user) return;
+
+    try {
+      const statusGroups = await recommendationTracker.getRecommendationsByStatus(user.id);
+      setRecommendationsByStatus({
+        completed: statusGroups.completed,
+        inProgress: statusGroups.inProgress,
+        pending: statusGroups.pending
+      });
+    } catch (error) {
+      console.error('[Session Learning Dashboard] Error loading recommendation status:', error);
+    }
   };
 
   if (loading) {
@@ -343,23 +379,133 @@ export default function SessionLearningDashboard() {
             </div>
           )}
 
-          {/* Actionable Recommendations */}
-          {currentLearning.actionable_recommendations && currentLearning.actionable_recommendations.length > 0 && (
-            <div className="bg-gradient-to-br from-blue-900/20 to-cyan-900/20 backdrop-blur-sm border border-blue-500/30 rounded-lg shadow-md p-6">
-              <div className="flex items-center gap-3 mb-4">
+          {/* Dynamic Recommendation Status */}
+          <div className="bg-gradient-to-br from-blue-900/20 to-cyan-900/20 backdrop-blur-sm border border-blue-500/30 rounded-lg shadow-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
                 <Sparkles className="w-5 h-5 text-blue-400" />
-                <h3 className="text-xl font-semibold text-white">Recommendations for Tomorrow</h3>
+                <h3 className="text-xl font-semibold text-white">AI Recommendations & Implementation Status</h3>
               </div>
-              <div className="space-y-2">
-                {currentLearning.actionable_recommendations.map((rec: string, index: number) => (
-                  <div key={index} className="flex items-start gap-3 p-3 bg-blue-900/20 rounded-lg">
-                    <AlertCircle className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-gray-300">{rec}</p>
-                  </div>
-                ))}
+              <div className="text-sm text-gray-400">
+                Auto-refreshing • Last update: {new Date().toLocaleTimeString()}
               </div>
             </div>
-          )}
+
+            {/* Status Summary */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <CheckCircle className="w-5 h-5 text-green-400" />
+                  <span className="text-sm font-semibold text-green-400">Successfully Implemented</span>
+                </div>
+                <div className="text-3xl font-bold text-white">{recommendationsByStatus.completed.length}</div>
+              </div>
+              <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Loader className="w-5 h-5 text-yellow-400 animate-spin" />
+                  <span className="text-sm font-semibold text-yellow-400">In Progress</span>
+                </div>
+                <div className="text-3xl font-bold text-white">{recommendationsByStatus.inProgress.length}</div>
+              </div>
+              <div className="bg-gray-700/20 border border-gray-500/30 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Clock className="w-5 h-5 text-gray-400" />
+                  <span className="text-sm font-semibold text-gray-400">Pending</span>
+                </div>
+                <div className="text-3xl font-bold text-white">{recommendationsByStatus.pending.length}</div>
+              </div>
+            </div>
+
+            {/* Successfully Implemented Recommendations */}
+            {recommendationsByStatus.completed.length > 0 && (
+              <div className="mb-6">
+                <h4 className="text-sm font-semibold text-green-400 uppercase tracking-wide mb-3">
+                  ✅ Successfully Implemented
+                </h4>
+                <div className="space-y-2">
+                  {recommendationsByStatus.completed.slice(0, 5).map((rec) => (
+                    <div key={rec.id} className="flex items-start gap-3 p-3 bg-green-900/10 border border-green-500/20 rounded-lg">
+                      <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-gray-200 mb-1">{rec.recommendation_text}</p>
+                        <div className="flex items-center gap-3 text-xs text-gray-400">
+                          <span>Implemented {formatTimeAgo(rec.implementation_completed_at)}</span>
+                          {rec.time_to_implement_seconds && (
+                            <span>• Took {formatDuration(rec.time_to_implement_seconds)}</span>
+                          )}
+                          <span className={`px-2 py-0.5 rounded-full ${getPriorityColor(rec.priority)}`}>
+                            {rec.priority}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* In Progress Recommendations */}
+            {recommendationsByStatus.inProgress.length > 0 && (
+              <div className="mb-6">
+                <h4 className="text-sm font-semibold text-yellow-400 uppercase tracking-wide mb-3">
+                  ⚙️ Currently Implementing
+                </h4>
+                <div className="space-y-2">
+                  {recommendationsByStatus.inProgress.map((rec) => (
+                    <div key={rec.id} className="flex items-start gap-3 p-3 bg-yellow-900/10 border border-yellow-500/20 rounded-lg">
+                      <Loader className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5 animate-spin" />
+                      <div className="flex-1">
+                        <p className="text-gray-200 mb-1">{rec.recommendation_text}</p>
+                        <div className="flex items-center gap-3 text-xs text-gray-400">
+                          <span>Started {formatTimeAgo(rec.implementation_started_at)}</span>
+                          <span className={`px-2 py-0.5 rounded-full ${getPriorityColor(rec.priority)}`}>
+                            {rec.priority}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Pending Recommendations */}
+            {recommendationsByStatus.pending.length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">
+                  ⏳ Queued for Implementation
+                </h4>
+                <div className="space-y-2">
+                  {recommendationsByStatus.pending.slice(0, 3).map((rec) => (
+                    <div key={rec.id} className="flex items-start gap-3 p-3 bg-gray-800/50 border border-gray-600 rounded-lg">
+                      <Clock className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-gray-300 mb-1">{rec.recommendation_text}</p>
+                        <div className="flex items-center gap-3 text-xs text-gray-400">
+                          <span>Recommended {formatTimeAgo(rec.recommended_at)}</span>
+                          <span className={`px-2 py-0.5 rounded-full ${getPriorityColor(rec.priority)}`}>
+                            {rec.priority}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {recommendationsByStatus.completed.length === 0 &&
+             recommendationsByStatus.inProgress.length === 0 &&
+             recommendationsByStatus.pending.length === 0 && (
+              <div className="text-center py-8">
+                <Sparkles className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                <p className="text-gray-400">
+                  No recommendations yet. Complete a backtest to receive AI insights.
+                </p>
+              </div>
+            )}
+          </div>
         </>
       )}
 
@@ -433,4 +579,33 @@ function getCSSLevel(css: number | null): string {
   if (css >= 70) return 'Pro';
   if (css >= 60) return 'Intermediate';
   return 'Novice';
+}
+
+function formatTimeAgo(timestamp: string | undefined): string {
+  if (!timestamp) return 'just now';
+
+  const now = new Date();
+  const then = new Date(timestamp);
+  const seconds = Math.floor((now.getTime() - then.getTime()) / 1000);
+
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h`;
+}
+
+function getPriorityColor(priority: string): string {
+  switch (priority) {
+    case 'critical': return 'bg-red-500/20 text-red-400';
+    case 'high': return 'bg-orange-500/20 text-orange-400';
+    case 'medium': return 'bg-yellow-500/20 text-yellow-400';
+    case 'low': return 'bg-blue-500/20 text-blue-400';
+    default: return 'bg-gray-500/20 text-gray-400';
+  }
 }

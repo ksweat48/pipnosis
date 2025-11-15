@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
+import { recommendationTracker } from '../services/recommendation-tracker';
 import {
   Brain,
   Sparkles,
@@ -13,7 +14,9 @@ import {
   Shield,
   Activity,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Clock,
+  Loader
 } from 'lucide-react';
 
 interface MetaLearningInsight {
@@ -58,10 +61,15 @@ export default function MetaLearningInsightsCard() {
   const [insights, setInsights] = useState<MetaLearningInsight[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedInsight, setExpandedInsight] = useState<string | null>(null);
+  const [recommendationStatuses, setRecommendationStatuses] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     if (user) {
       loadInsights();
+      loadRecommendationStatuses();
+      // Refresh statuses every 30 seconds
+      const interval = setInterval(loadRecommendationStatuses, 30000);
+      return () => clearInterval(interval);
     }
   }, [user]);
 
@@ -90,6 +98,26 @@ export default function MetaLearningInsightsCard() {
     }
   };
 
+  const loadRecommendationStatuses = async () => {
+    if (!user) return;
+
+    try {
+      const recommendations = await recommendationTracker.getRecommendationsWithStatus(user.id, 50);
+      const statusMap = new Map<string, string>();
+
+      recommendations.forEach(rec => {
+        if (rec.meta_learning_insight_id) {
+          const key = `${rec.meta_learning_insight_id}-${rec.recommendation_text}`;
+          statusMap.set(key, rec.status);
+        }
+      });
+
+      setRecommendationStatuses(statusMap);
+    } catch (error) {
+      console.error('Error loading recommendation statuses:', error);
+    }
+  };
+
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case 'critical': return 'bg-red-500/20 text-red-400 border-red-500/50';
@@ -98,6 +126,49 @@ export default function MetaLearningInsightsCard() {
       case 'low': return 'bg-blue-500/20 text-blue-400 border-blue-500/50';
       default: return 'bg-gray-500/20 text-gray-400 border-gray-500/50';
     }
+  };
+
+  const getStatusBadge = (insightId: string, recommendationText: string) => {
+    const key = `${insightId}-${recommendationText}`;
+    const status = recommendationStatuses.get(key);
+
+    if (!status || status === 'pending') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-700/50 text-gray-400 text-xs rounded-full">
+          <Clock className="w-3 h-3" />
+          Pending
+        </span>
+      );
+    }
+
+    if (status === 'in_progress') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded-full">
+          <Loader className="w-3 h-3 animate-spin" />
+          Implementing
+        </span>
+      );
+    }
+
+    if (status === 'completed') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded-full">
+          <CheckCircle className="w-3 h-3" />
+          Implemented
+        </span>
+      );
+    }
+
+    if (status === 'failed') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded-full">
+          <XCircle className="w-3 h-3" />
+          Failed
+        </span>
+      );
+    }
+
+    return null;
   };
 
   if (loading) {
@@ -194,6 +265,7 @@ export default function MetaLearningInsightsCard() {
                         <span className="text-xs px-2 py-0.5 bg-black/30 rounded-full">
                           {rec.priority}
                         </span>
+                        {getStatusBadge(latestInsight.id, rec.recommendation)}
                       </div>
                       <p className="text-sm font-medium mb-1">{rec.recommendation}</p>
                       <p className="text-xs opacity-80">{rec.expectedImpact}</p>
@@ -250,20 +322,26 @@ export default function MetaLearningInsightsCard() {
           )}
         </div>
 
-        {/* Tomorrow's Priorities */}
+        {/* Implementation Priorities with Status */}
         {latestInsight.tomorrow_priorities.length > 0 && (
           <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
             <h4 className="text-sm font-semibold text-blue-400 uppercase tracking-wide mb-3 flex items-center gap-2">
               <Activity className="w-4 h-4" />
-              Tomorrow's Priorities
+              Implementation Priorities & Status
             </h4>
             <ul className="space-y-2">
-              {latestInsight.tomorrow_priorities.map((priority, idx) => (
-                <li key={idx} className="flex items-start gap-2 text-sm text-gray-200">
-                  <span className="text-blue-400 font-bold">{idx + 1}.</span>
-                  <span>{priority}</span>
-                </li>
-              ))}
+              {latestInsight.tomorrow_priorities.map((priority, idx) => {
+                const status = getStatusBadge(latestInsight.id, priority);
+                return (
+                  <li key={idx} className="flex items-start justify-between gap-3 text-sm">
+                    <div className="flex items-start gap-2 flex-1">
+                      <span className="text-blue-400 font-bold">{idx + 1}.</span>
+                      <span className="text-gray-200">{priority}</span>
+                    </div>
+                    {status}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}
