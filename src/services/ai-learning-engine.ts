@@ -6,6 +6,7 @@ import { strategyDiscoveryEngine } from './strategy-discovery-engine';
 import { sessionLearningGenerator } from './session-learning-generator';
 import { metaLearningStrategist, type BacktestSummary } from './meta-learning-strategist';
 import { patternInterpreter, type DiscoveredPattern } from './pattern-interpreter';
+import { aiSkillTracker } from './ai-skill-tracker';
 
 interface TradeForAnalysis {
   id?: string;
@@ -91,6 +92,36 @@ class AILearningEngine {
       // 12. GPT-4o PATTERN INTERPRETER: Explain discovered patterns
       console.log('[AI Learning Engine] 📖 Generating pattern interpretations...');
       await this.interpretDiscoveredPatterns(userId, winningPatterns);
+
+      // 13. UPDATE AI SKILL PROGRESSION (backup update to ensure progression is tracked)
+      console.log('[AI Learning Engine] 📊 Updating AI skill progression from learning analysis...');
+      const winningTradesCount = trades.filter(t => t.outcome === 'win').length;
+      const winRate = trades.length > 0 ? (winningTradesCount / trades.length) * 100 : 0;
+      const totalWins = trades.filter(t => t.outcome === 'win').reduce((sum, t) => sum + t.pnl, 0);
+      const totalLosses = Math.abs(trades.filter(t => t.outcome === 'loss').reduce((sum, t) => sum + t.pnl, 0));
+      const profitFactor = totalLosses > 0 ? totalWins / totalLosses : 0;
+
+      console.log(`[AI Learning Engine] 🎯 Analysis: ${winningTradesCount} winning trades, ${winRate.toFixed(1)}% WR, ${profitFactor.toFixed(2)} PF`);
+
+      const skillUpdate = await aiSkillTracker.updateAfterBacktest(
+        userId,
+        winningTradesCount,
+        winRate,
+        profitFactor,
+        winningPatterns.length,
+        sessionType
+      );
+
+      if (skillUpdate.leveledUp) {
+        console.log(`[AI Learning Engine] 🎉 AI LEVEL UP! ${skillUpdate.oldLevel} → ${skillUpdate.newLevel}`);
+      }
+
+      if (skillUpdate.validationWarnings && skillUpdate.validationWarnings.length > 0) {
+        console.warn('[AI Learning Engine] ⚠️  Skill progression warnings:');
+        skillUpdate.validationWarnings.forEach(warning => {
+          console.warn(`  - ${warning}`);
+        });
+      }
 
       console.log('[AI Learning Engine] ✅ Learning analysis complete!');
     } catch (error) {

@@ -47,6 +47,8 @@ export default function AILearningProgressDashboard() {
   useEffect(() => {
     if (!user) return;
 
+    console.log('[AI Learning Dashboard] Setting up realtime subscriptions for user:', user.id);
+
     // Set up realtime subscriptions
     const channel = supabase
       .channel(`ai-learning-${user.id}`)
@@ -58,8 +60,21 @@ export default function AILearningProgressDashboard() {
           table: 'ai_skill_progression',
           filter: `user_id=eq.${user.id}`
         },
-        () => {
-          console.log('[AI Learning Dashboard] Skill progression updated, reloading...');
+        (payload) => {
+          console.log('[AI Learning Dashboard] Skill progression UPDATE detected:', payload);
+          loadData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'ai_skill_progression',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('[AI Learning Dashboard] Skill progression INSERT detected:', payload);
           loadData();
         }
       )
@@ -102,9 +117,17 @@ export default function AILearningProgressDashboard() {
           loadData();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[AI Learning Dashboard] Subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('[AI Learning Dashboard] ✅ Real-time updates are active!');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('[AI Learning Dashboard] ❌ Subscription error - real-time updates may not work');
+        }
+      });
 
     return () => {
+      console.log('[AI Learning Dashboard] Cleaning up real-time subscriptions');
       supabase.removeChannel(channel);
     };
   }, [user]);

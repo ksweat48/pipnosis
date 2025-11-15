@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { flowTraderV2, FlowV2Signal } from '../strategies/flow-trader-v2';
 import { autonomousReasoningEngine, ReasoningDecision } from './autonomous-reasoning-engine';
 import { parseSupabaseError, logDatabaseOperation } from './database-validation-utils';
+import { aiSkillTracker } from './ai-skill-tracker';
 
 export interface BacktestConfig {
   sessionName: string;
@@ -153,6 +154,32 @@ class BacktestingEngine {
       console.log(`[Backtesting] ❌ Losing: ${result.losingTrades}`);
       console.log(`[Backtesting] 📈 Profit Factor: ${result.profitFactor.toFixed(2)}`);
       console.log('==========================\n');
+
+      // Update AI skill progression - ONLY WINNING TRADES COUNT
+      console.log('[Backtesting] 📊 Updating AI skill progression...');
+      console.log(`[Backtesting] 🎯 Winning trades: ${result.winningTrades} out of ${result.totalTrades} total trades`);
+
+      const skillUpdate = await aiSkillTracker.updateAfterBacktest(
+        userId,
+        result.winningTrades,
+        result.winRate,
+        result.profitFactor,
+        0,
+        'backtest'
+      );
+
+      if (skillUpdate.leveledUp) {
+        console.log(`[Backtesting] 🎉 AI LEVEL UP! ${skillUpdate.oldLevel} → ${skillUpdate.newLevel}`);
+      } else {
+        console.log(`[Backtesting] Progress updated. ${result.winningTrades} successful trades added to learning journey.`);
+      }
+
+      if (skillUpdate.validationWarnings && skillUpdate.validationWarnings.length > 0) {
+        console.warn('[Backtesting] ⚠️  Validation warnings:');
+        skillUpdate.validationWarnings.forEach(warning => {
+          console.warn(`  - ${warning}`);
+        });
+      }
 
       return result;
     } catch (error) {
