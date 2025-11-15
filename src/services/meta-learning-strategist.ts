@@ -397,7 +397,7 @@ Respond in the same JSON format as the backtest analysis.`;
     tokensUsed: number
   ): Promise<void> {
     try {
-      const { error } = await supabase.from('ai_meta_learning_insights').insert({
+      const { data, error } = await supabase.from('ai_meta_learning_insights').insert({
         user_id: userId,
         backtest_session_id: sessionId,
         analysis_type: analysisType,
@@ -414,12 +414,22 @@ Respond in the same JSON format as the backtest analysis.`;
         gpt4o_model: this.MODEL,
         tokens_used: tokensUsed,
         confidence_score: 85
-      });
+      }).select().single();
 
       if (error) {
         console.error('[Meta-Learning Strategist] Error saving insight:', error);
       } else {
         console.log('[Meta-Learning Strategist] ✓ Insight saved to database');
+
+        // Track recommendations with the recommendation tracker
+        if (data && insight.strategicRecommendations.length > 0) {
+          const { recommendationTracker } = await import('./recommendation-tracker');
+          await recommendationTracker.trackRecommendationsFromInsight(
+            userId,
+            data.id,
+            insight.strategicRecommendations
+          );
+        }
       }
     } catch (error) {
       console.error('[Meta-Learning Strategist] Exception saving insight:', error);
