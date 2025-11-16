@@ -599,10 +599,22 @@ class SyntheticBacktestingEngine {
   }
 
   private async batchInsertTrades(trades: SyntheticBacktestTrade[]): Promise<void> {
-    const BATCH_SIZE = 50;
+    // Adaptive batch sizing based on trade count and resource availability
+    let BATCH_SIZE = 50;
+    if (trades.length > 200) {
+      BATCH_SIZE = 100; // Larger batches for bulk operations
+    } else if (trades.length < 20) {
+      BATCH_SIZE = 10; // Smaller batches for low volume
+    }
+
+    console.log(`[Synthetic Backtest] Inserting ${trades.length} trades using batch size: ${BATCH_SIZE}`);
+
+    const batchCount = Math.ceil(trades.length / BATCH_SIZE);
 
     for (let i = 0; i < trades.length; i += BATCH_SIZE) {
       const batch = trades.slice(i, i + BATCH_SIZE);
+      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+
       const tradeRecords = batch.map(trade => ({
         session_id: this.sessionId,
         user_id: this.userId,
@@ -637,21 +649,32 @@ class SyntheticBacktestingEngine {
       }));
 
       try {
+        const startTime = Date.now();
         const { error } = await supabase
           .from('synthetic_backtest_trades')
           .insert(tradeRecords);
 
+        const insertTime = Date.now() - startTime;
+
         if (error) {
-          console.error(`[Synthetic Backtest] Error inserting trade batch ${i / BATCH_SIZE + 1}:`, error);
+          console.error(`[Synthetic Backtest] Error inserting batch ${batchNumber}/${batchCount}:`, error);
           throw error;
         }
+
+        console.log(`[Synthetic Backtest] ✓ Batch ${batchNumber}/${batchCount} inserted (${batch.length} trades, ${insertTime}ms)`);
+
+        // Add small delay between batches to prevent overwhelming the database
+        if (i + BATCH_SIZE < trades.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
       } catch (error) {
-        console.error(`[Synthetic Backtest] Failed to insert trades batch ${i / BATCH_SIZE + 1}:`, error);
+        console.error(`[Synthetic Backtest] Failed to insert batch ${batchNumber}/${batchCount}:`, error);
         throw error;
       }
     }
 
-    console.log(`[Synthetic Backtest] Successfully inserted ${trades.length} trades`);
+    console.log(`[Synthetic Backtest] ✅ Successfully inserted ${trades.length} trades in ${batchCount} batches`);
   }
 
   /**

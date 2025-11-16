@@ -54,14 +54,24 @@ class SimpleAutoBacktestService {
   private plateauDuration = 0;
   private sessionId: string = '';
   private heartbeatInterval: NodeJS.Timeout | null = null;
+  private backtestsToday = 0;
+  private lastResetDate = new Date().toDateString();
+  private consecutiveBacktests = 0;
+  private lastDbLatency = 0;
+  private adaptiveDelayMultiplier = 1.0;
 
-  // Configuration
-  private readonly MIN_DELAY_SECONDS = 2;
-  private readonly MAX_DELAY_SECONDS = 10;
+  // Configuration - Optimized for Supabase Pro tier resource management
+  private readonly MIN_DELAY_SECONDS = 30; // Increased from 2 to reduce database pressure
+  private readonly MAX_DELAY_SECONDS = 90; // Increased from 10 for better resource spacing
   private readonly MIN_DURATION_DAYS = 1;
   private readonly MAX_DURATION_DAYS = 3;
   private readonly PLATEAU_CHECK_INTERVAL = 5;
-  private readonly HEARTBEAT_INTERVAL_MS = 10000; // 10 seconds
+  private readonly HEARTBEAT_INTERVAL_MS = 60000; // Increased to 60 seconds from 10
+  private readonly MAX_DAILY_BACKTESTS = 50; // Daily quota to prevent resource exhaustion
+  private readonly ADAPTIVE_DELAY_MULTIPLIER = 2.0; // Multiply delay when latency is high
+  private readonly DB_LATENCY_THRESHOLD_MS = 1000; // Trigger adaptive throttling above this
+  private readonly COOLDOWN_AFTER_N_BACKTESTS = 5; // Add cooldown after this many consecutive runs
+  private readonly COOLDOWN_DURATION_MS = 300000; // 5 minute cooldown period
 
   /**
    * Initialize state from database
@@ -399,11 +409,32 @@ class SimpleAutoBacktestService {
         // Check usage levels and warn if critical
         await this.checkUsageLevels();
 
-        if (this.isRunning) {
-          const delaySeconds = this.randomDelay();
-          console.log(`[Auto-Backtest] Waiting ${delaySeconds}s before next backtest...`);
+        // Check daily quota
+        this.checkAndResetDailyQuota();
+        if (this.backtestsToday >= this.MAX_DAILY_BACKTESTS) {
+          console.warn(`[Auto-Backtest] ⚠️ Daily quota reached (${this.MAX_DAILY_BACKTESTS} backtests). Pausing until tomorrow.`);
+          await this.stop();
+          break;
+        }
 
-          await this.sleep(delaySeconds * 1000);
+        // Track consecutive backtests and apply cooldown
+        this.consecutiveBacktests++;
+        if (this.consecutiveBacktests >= this.COOLDOWN_AFTER_N_BACKTESTS) {
+          console.log(`[Auto-Backtest] 🔄 Cooldown period: waiting ${this.COOLDOWN_DURATION_MS / 1000}s after ${this.consecutiveBacktests} consecutive backtests...`);
+          await this.sleep(this.COOLDOWN_DURATION_MS);
+          this.consecutiveBacktests = 0;
+        }
+
+        if (this.isRunning) {
+          const baseDelaySeconds = this.randomDelay();
+          const adaptiveDelaySeconds = Math.floor(baseDelaySeconds * this.adaptiveDelayMultiplier);
+
+          console.log(`[Auto-Backtest] Waiting ${adaptiveDelaySeconds}s before next backtest...`);
+          if (this.adaptiveDelayMultiplier > 1.0) {
+            console.log(`[Auto-Backtest] 📊 Adaptive throttling active (${this.adaptiveDelayMultiplier.toFixed(1)}x) due to DB latency: ${this.lastDbLatency}ms`);
+          }
+
+          await this.sleep(adaptiveDelaySeconds * 1000);
         }
 
       } catch (error) {
@@ -417,7 +448,7 @@ class SimpleAutoBacktestService {
   }
 
   /**
-   * Check system resource usage levels
+   * Check system resource usage levels with auto-pause capability
    */
   private async checkUsageLevels(): Promise<void> {
     if (!this.userId) return;
@@ -432,16 +463,29 @@ class SimpleAutoBacktestService {
         .single();
 
       const responseTime = Date.now() - startTime;
+      this.lastDbLatency = responseTime;
 
       let warningLevel = 'normal';
       let warningMessage = '';
+      let shouldPause = false;
 
+      // Adaptive throttling based on database latency
       if (responseTime > 5000) {
         warningLevel = 'critical';
-        warningMessage = `Database response time is very slow (${responseTime}ms). Consider pausing auto-backtest.`;
+        warningMessage = `Database response time is critical (${responseTime}ms). Auto-pausing backtest.`;
+        shouldPause = true;
+        this.adaptiveDelayMultiplier = 3.0; // Triple the delay
       } else if (responseTime > 2000) {
         warningLevel = 'elevated';
-        warningMessage = `Database response time is elevated (${responseTime}ms). Monitoring usage.`;
+        warningMessage = `Database response time is elevated (${responseTime}ms). Applying adaptive throttling.`;
+        this.adaptiveDelayMultiplier = this.ADAPTIVE_DELAY_MULTIPLIER;
+      } else if (responseTime > this.DB_LATENCY_THRESHOLD_MS) {
+        warningLevel = 'warning';
+        warningMessage = `Database response time increased (${responseTime}ms). Monitoring closely.`;
+        this.adaptiveDelayMultiplier = 1.5;
+      } else {
+        // Reset multiplier when latency is normal
+        this.adaptiveDelayMultiplier = 1.0;
       }
 
       if (warningLevel !== 'normal') {
@@ -455,6 +499,12 @@ class SimpleAutoBacktestService {
             last_usage_check_at: new Date().toISOString()
           })
           .eq('user_id', this.userId);
+      }
+
+      // Auto-pause if critical
+      if (shouldPause) {
+        console.error('[Auto-Backtest] 🛑 CRITICAL: Auto-pausing due to database overload');
+        await this.stop();
       }
 
     } catch (error) {
@@ -530,6 +580,20 @@ class SimpleAutoBacktestService {
    */
   private randomDelay(): number {
     return Math.floor(Math.random() * (this.MAX_DELAY_SECONDS - this.MIN_DELAY_SECONDS + 1)) + this.MIN_DELAY_SECONDS;
+  }
+
+  /**
+   * Check and reset daily quota if new day
+   */
+  private checkAndResetDailyQuota(): void {
+    const today = new Date().toDateString();
+    if (today !== this.lastResetDate) {
+      console.log(`[Auto-Backtest] 🔄 New day detected. Resetting daily quota from ${this.backtestsToday} to 0.`);
+      this.backtestsToday = 0;
+      this.lastResetDate = today;
+      this.consecutiveBacktests = 0;
+    }
+    this.backtestsToday++;
   }
 
   /**

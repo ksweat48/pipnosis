@@ -15,6 +15,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { backtestResultCache } from './backtest-result-cache';
 
 export interface UnifiedBacktestResult {
   id: string;
@@ -58,6 +59,13 @@ class UnifiedBacktestService {
    */
   async getAutoBacktestResults(userId: string, limit: number = 20): Promise<UnifiedBacktestResult[]> {
     try {
+      // Check cache first
+      const cached = backtestResultCache.getCachedResults(userId);
+      if (cached && cached.length > 0) {
+        console.log('[Unified Service] Returning cached results');
+        return cached.slice(0, limit);
+      }
+
       console.log('[Unified Service] Fetching auto-backtest results for user:', userId);
 
       // Query synthetic backtest sessions
@@ -138,6 +146,9 @@ class UnifiedBacktestService {
         })
       );
 
+      // Cache results for future requests
+      backtestResultCache.cacheResults(userId, results);
+
       return results;
     } catch (error) {
       console.error('[Unified Service] Exception fetching auto-backtest results:', error);
@@ -150,6 +161,13 @@ class UnifiedBacktestService {
    */
   async getAutoBacktestSummary(userId: string): Promise<AutoBacktestSummary> {
     try {
+      // Check cache first
+      const cached = backtestResultCache.getCachedSummary(userId);
+      if (cached) {
+        console.log('[Unified Service] Returning cached summary');
+        return cached;
+      }
+
       const results = await this.getAutoBacktestResults(userId, 50);
       const autoBacktests = results.filter(r => r.source === 'auto_backtest');
 
@@ -159,13 +177,18 @@ class UnifiedBacktestService {
         ? autoBacktests.reduce((sum, r) => sum + r.winRate, 0) / autoBacktests.length
         : 0;
 
-      return {
+      const summary = {
         totalCompleted: autoBacktests.length,
         totalInsightsGenerated: totalInsights,
         totalTradesAnalyzed: totalAnalyses,
         avgWinRate,
         recentResults: autoBacktests.slice(0, 10)
       };
+
+      // Cache summary for future requests
+      backtestResultCache.cacheSummary(userId, summary);
+
+      return summary;
     } catch (error) {
       console.error('[Unified Service] Error getting auto-backtest summary:', error);
       return {
