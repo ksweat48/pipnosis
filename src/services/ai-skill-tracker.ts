@@ -366,6 +366,12 @@ class AISkillTracker {
           currentLevelNumeric
         );
 
+        console.log(`[AI Skill Tracker] Consistency check results:`);
+        console.log(`[AI Skill Tracker]   - Session count: ${consistencyValidation.sessionCount}/10`);
+        console.log(`[AI Skill Tracker]   - WR Spread: ${consistencyValidation.wrSpread.toFixed(1)}% (max: 10%)`);
+        console.log(`[AI Skill Tracker]   - PF Average: ${consistencyValidation.pfAverage.toFixed(2)} (required: ${consistencyValidation.requiredPF || 'N/A'})`);
+        console.log(`[AI Skill Tracker]   - Passed: ${consistencyValidation.passed}`);
+
         if (!consistencyValidation.passed && consistencyValidation.sessionCount >= 10) {
           consistencyBlocked = true;
           newLevel = oldLevel; // Block level up
@@ -374,8 +380,10 @@ class AISkillTracker {
           validationWarnings.push(`Level advancement blocked: ${consistencyValidation.failureReason}`);
           console.warn(`[AI Skill Tracker] ❌ LEVEL UP BLOCKED due to consistency validation failure`);
           console.warn(`[AI Skill Tracker]   Reason: ${consistencyValidation.failureReason}`);
+          console.warn(`[AI Skill Tracker]   Details: WR Range ${consistencyValidation.details.minWR.toFixed(1)}%-${consistencyValidation.details.maxWR.toFixed(1)}%`);
         } else if (consistencyValidation.sessionCount < 10) {
           console.log(`[AI Skill Tracker] ⏳ Consistency validation skipped (only ${consistencyValidation.sessionCount}/10 sessions)`);
+          console.log(`[AI Skill Tracker]   Level up ALLOWED - building consistency history`);
         } else {
           console.log(`[AI Skill Tracker] ✅ Consistency validation passed!`);
         }

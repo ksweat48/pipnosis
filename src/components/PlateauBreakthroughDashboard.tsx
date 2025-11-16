@@ -15,7 +15,8 @@ export default function PlateauBreakthroughDashboard({ userId }: Props) {
 
   useEffect(() => {
     loadPlateauStatus();
-    const interval = setInterval(loadPlateauStatus, 30000);
+    // Longer interval to reduce unnecessary refreshes
+    const interval = setInterval(loadPlateauStatus, 60000);
     return () => clearInterval(interval);
   }, [userId]);
 
@@ -171,7 +172,7 @@ export default function PlateauBreakthroughDashboard({ userId }: Props) {
           <div className="bg-gray-700 rounded-lg p-3">
             <div className="text-xs text-gray-400 mb-1">Win Rate Range</div>
             <div className="text-lg font-semibold text-white">
-              {plateauStatus.winRateRange.min.toFixed(1)}% - {plateauStatus.winRateRange.max.toFixed(1)}%
+              {plateauStatus.winRateRange.min > 0 ? plateauStatus.winRateRange.min.toFixed(1) : '—'}% - {plateauStatus.winRateRange.max.toFixed(1)}%
             </div>
             <div className={`text-xs ${
               (plateauStatus.winRateRange.max - plateauStatus.winRateRange.min) <= 5 ? 'text-red-400' : 'text-green-400'

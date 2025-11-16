@@ -121,11 +121,13 @@ class AISessionConsistencyTracker {
     console.log(`[Session Consistency] Validating consistency for level ${currentSkillLevel} -> ${targetSkillLevel}`);
 
     try {
-      // Get last 10 sessions
+      // Get last 10 sessions (excluding sessions with 0 trades)
       const { data: wrSessions, error: wrError } = await supabase
         .from('ai_session_wr_tracking')
-        .select('win_rate, session_date')
+        .select('win_rate, session_date, total_trades')
         .eq('user_id', userId)
+        .gt('total_trades', 0)
+        .gt('wins_count', 0)
         .order('session_date', { ascending: false })
         .limit(10);
 
@@ -136,8 +138,9 @@ class AISessionConsistencyTracker {
 
       const { data: pfSessions, error: pfError } = await supabase
         .from('ai_session_pf_tracking')
-        .select('profit_factor, session_date')
+        .select('profit_factor, session_date, total_wins_value')
         .eq('user_id', userId)
+        .gt('total_wins_value', 0)
         .order('session_date', { ascending: false })
         .limit(10);
 
@@ -168,16 +171,33 @@ class AISessionConsistencyTracker {
         };
       }
 
-      // Calculate WR spread (max - min)
-      const winRates = wrSessions.map(s => parseFloat(s.win_rate.toString()));
+      // Calculate WR spread (max - min) - filter out any 0% win rates
+      const winRates = wrSessions
+        .map(s => parseFloat(s.win_rate.toString()))
+        .filter(wr => wr > 0);
+
+      if (winRates.length === 0) {
+        console.log('[Session Consistency] No valid win rates found after filtering');
+        return this.getFailedValidation('No valid sessions with winning trades');
+      }
+
       const maxWR = Math.max(...winRates);
       const minWR = Math.min(...winRates);
       const wrSpread = maxWR - minWR;
 
       console.log(`[Session Consistency] WR Spread: ${wrSpread.toFixed(1)}% (Range: ${minWR.toFixed(1)}% - ${maxWR.toFixed(1)}%)`);
+      console.log(`[Session Consistency] Valid sessions used: ${winRates.length}`);
 
-      // Calculate PF average
-      const profitFactors = pfSessions.map(s => parseFloat(s.profit_factor.toString()));
+      // Calculate PF average - filter out invalid values
+      const profitFactors = pfSessions
+        .map(s => parseFloat(s.profit_factor.toString()))
+        .filter(pf => pf > 0 && isFinite(pf));
+
+      if (profitFactors.length === 0) {
+        console.log('[Session Consistency] No valid profit factors found');
+        return this.getFailedValidation('No valid sessions with profit factor');
+      }
+
       const pfAverage = profitFactors.reduce((sum, pf) => sum + pf, 0) / profitFactors.length;
 
       console.log(`[Session Consistency] PF Average: ${pfAverage.toFixed(2)}`);

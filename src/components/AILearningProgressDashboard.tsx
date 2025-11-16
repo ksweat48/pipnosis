@@ -49,6 +49,16 @@ export default function AILearningProgressDashboard() {
 
     console.log('[AI Learning Dashboard] Setting up realtime subscriptions for user:', user.id);
 
+    // Debounce timer to batch multiple updates
+    let debounceTimer: NodeJS.Timeout | null = null;
+    const debouncedLoadData = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        console.log('[AI Learning Dashboard] Loading data after debounce...');
+        loadData();
+      }, 2000); // Wait 2 seconds after last change
+    };
+
     // Set up realtime subscriptions
     const channel = supabase
       .channel(`ai-learning-${user.id}`)
@@ -62,7 +72,7 @@ export default function AILearningProgressDashboard() {
         },
         (payload) => {
           console.log('[AI Learning Dashboard] Skill progression UPDATE detected:', payload);
-          loadData();
+          debouncedLoadData();
         }
       )
       .on(
@@ -75,7 +85,7 @@ export default function AILearningProgressDashboard() {
         },
         (payload) => {
           console.log('[AI Learning Dashboard] Skill progression INSERT detected:', payload);
-          loadData();
+          debouncedLoadData();
         }
       )
       .on(
@@ -88,7 +98,7 @@ export default function AILearningProgressDashboard() {
         },
         () => {
           console.log('[AI Learning Dashboard] New learning insight created, reloading...');
-          loadData();
+          debouncedLoadData();
         }
       )
       .on(
@@ -101,7 +111,7 @@ export default function AILearningProgressDashboard() {
         },
         () => {
           console.log('[AI Learning Dashboard] New milestone achieved, reloading...');
-          loadData();
+          debouncedLoadData();
         }
       )
       .on(
@@ -114,7 +124,7 @@ export default function AILearningProgressDashboard() {
         },
         () => {
           console.log('[AI Learning Dashboard] Indicator experiments updated, reloading...');
-          loadData();
+          debouncedLoadData();
         }
       )
       .subscribe((status) => {
@@ -128,6 +138,7 @@ export default function AILearningProgressDashboard() {
 
     return () => {
       console.log('[AI Learning Dashboard] Cleaning up real-time subscriptions');
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, [user]);
