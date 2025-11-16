@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, TrendingUp, Zap, Target, Activity } from 'lucide-react';
+import { AlertTriangle, TrendingUp, Zap, Target, Activity, Info } from 'lucide-react';
 import { plateauDetector, PlateauAnalysis } from '../services/plateau-detector';
 import { breakthroughEngine } from '../services/breakthrough-engine';
 import { supabase } from '../lib/supabase';
@@ -188,8 +188,14 @@ export default function PlateauBreakthroughDashboard({ userId }: Props) {
             <div className="text-xs text-gray-400">sessions</div>
           </div>
 
-          <div className="bg-gray-700 rounded-lg p-3">
-            <div className="text-xs text-gray-400 mb-1">Last Breakthrough</div>
+          <div className="bg-gray-700 rounded-lg p-3 relative group">
+            <div className="flex items-center space-x-1 mb-1">
+              <div className="text-xs text-gray-400">Last Breakthrough</div>
+              <Info className="w-3 h-3 text-gray-500 cursor-help" />
+            </div>
+            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 bg-gray-900 border border-gray-600 rounded-lg text-xs text-gray-300 z-10">
+              A breakthrough occurs when the AI discovers a strategy that improves win rate by 5%+ through experimental testing. Click "Trigger Breakthrough" when plateaued to search for improvements.
+            </div>
             <div className="text-sm font-medium text-white">
               {plateauStatus.lastBreakthrough
                 ? new Date(plateauStatus.lastBreakthrough).toLocaleDateString()
@@ -199,7 +205,7 @@ export default function PlateauBreakthroughDashboard({ userId }: Props) {
             <div className="text-xs text-gray-400">
               {plateauStatus.lastBreakthrough
                 ? `${Math.floor((Date.now() - new Date(plateauStatus.lastBreakthrough).getTime()) / (1000 * 60 * 60 * 24))}d ago`
-                : 'No breakthroughs yet'
+                : 'Run breakthrough mode when plateaued'
               }
             </div>
           </div>

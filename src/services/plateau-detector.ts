@@ -22,6 +22,7 @@ class PlateauDetector {
   private readonly PLATEAU_THRESHOLD_SESSIONS = 10;
   private readonly PLATEAU_RANGE_PERCENT = 5;
   private readonly EXPLORATION_TRIGGER_SESSIONS = 15;
+  private readonly MIN_TRADES_REQUIRED = 5;
 
   async detectPlateau(userId: string): Promise<PlateauAnalysis | null> {
     console.log('\n[Plateau Detector] 🔍 Analyzing performance for plateau detection...');
@@ -109,20 +110,37 @@ class PlateauDetector {
       .eq('user_id', userId)
       .eq('status', 'completed')
       .not('win_rate', 'is', null)
+      .not('total_trades', 'is', null)
+      .gt('total_trades', 0)
       .order('completed_at', { ascending: false })
-      .limit(limit);
+      .limit(limit * 2);
 
     if (error || !data) {
       console.error('[Plateau Detector] Error fetching sessions:', error);
       return [];
     }
 
-    return data.map(s => ({
-      sessionId: s.id,
-      winRate: parseFloat(s.win_rate?.toString() || '0'),
-      completedAt: new Date(s.completed_at),
-      totalTrades: s.total_trades || 0
-    }));
+    const validSessions = data
+      .filter(s => {
+        const totalTrades = s.total_trades || 0;
+        const winRate = parseFloat(s.win_rate?.toString() || '0');
+        return totalTrades >= this.MIN_TRADES_REQUIRED && winRate > 0;
+      })
+      .slice(0, limit)
+      .map(s => ({
+        sessionId: s.id,
+        winRate: parseFloat(s.win_rate?.toString() || '0'),
+        completedAt: new Date(s.completed_at),
+        totalTrades: s.total_trades || 0
+      }));
+
+    const filteredCount = data.length - validSessions.length;
+    if (filteredCount > 0) {
+      console.log(`[Plateau Detector] Filtered out ${filteredCount} invalid sessions (0 trades or < ${this.MIN_TRADES_REQUIRED} trades)`);
+    }
+    console.log(`[Plateau Detector] Analyzing ${validSessions.length} valid sessions`);
+
+    return validSessions;
   }
 
   private async getLastBreakthrough(userId: string): Promise<Date | null> {
@@ -135,7 +153,13 @@ class PlateauDetector {
       .limit(1)
       .maybeSingle();
 
-    if (error || !data) {
+    if (error) {
+      console.error('[Plateau Detector] Error fetching last breakthrough:', error);
+      return null;
+    }
+
+    if (!data) {
+      console.log('[Plateau Detector] No breakthrough milestones found yet');
       return null;
     }
 

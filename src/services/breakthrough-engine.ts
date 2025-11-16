@@ -284,15 +284,21 @@ class BreakthroughEngine {
     if (bestStrategy.shouldAdopt) {
       recommendation = `BREAKTHROUGH FOUND! Adopt "${bestStrategy.strategyName}" - improves win rate by ${bestStrategy.improvement.toFixed(1)}% to ${bestStrategy.winRate.toFixed(1)}%`;
 
-      await supabase.from('ai_learning_milestones').insert({
+      const { error: milestoneError } = await supabase.from('ai_learning_milestones').insert({
         user_id: userId,
         milestone_type: 'breakthrough',
         milestone_title: 'Breakthrough Strategy Discovered!',
         milestone_description: `Found strategy that improves win rate by ${bestStrategy.improvement.toFixed(1)}%: ${bestStrategy.strategyName}`,
         skill_level_at_achievement: 'Intermediate',
-        total_trades_at_achievement: 0,
+        total_trades_at_achievement: bestStrategy.totalTrades,
         win_rate_at_achievement: bestStrategy.winRate
       });
+
+      if (milestoneError) {
+        console.error('[Breakthrough Engine] Failed to record breakthrough milestone:', milestoneError);
+      } else {
+        console.log('[Breakthrough Engine] ✅ Breakthrough milestone recorded successfully');
+      }
     } else if (bestStrategy.wasSuccessful) {
       recommendation = `Minor improvement found with "${bestStrategy.strategyName}" (+${bestStrategy.improvement.toFixed(1)}%). Continue testing variations.`;
     } else {
