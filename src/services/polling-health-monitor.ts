@@ -23,6 +23,7 @@ interface SymbolHealth {
   recoveryAttempts: number;
   lastRecovery: Date | null;
   dataQuality: DataQuality;
+  consecutiveSuccesses: number;
 }
 
 interface RecoveryConfig {
@@ -35,7 +36,7 @@ interface RecoveryConfig {
 }
 
 const DEFAULT_CONFIG: RecoveryConfig = {
-  maxRecoveryAttempts: 30,
+  maxRecoveryAttempts: 999999, // Effectively unlimited recovery attempts
   baseBackoffMs: 5000, // Start with 5 second backoff
   maxBackoffMs: 300000, // Max 5 minute backoff
   recoveryCheckIntervalMs: 60000, // Check for recovery every 60 seconds
@@ -90,7 +91,8 @@ class PollingHealthMonitor {
           lastErrorMessage: data.last_error_message,
           recoveryAttempts: data.recovery_attempts,
           lastRecovery: data.last_recovery_at ? new Date(data.last_recovery_at) : null,
-          dataQuality: data.data_quality as DataQuality
+          dataQuality: data.data_quality as DataQuality,
+          consecutiveSuccesses: 0
         });
 
         console.log(`[PollingHealthMonitor] Loaded health for ${symbol}: ${data.status}, errors: ${data.consecutive_errors}`);
@@ -115,7 +117,8 @@ class PollingHealthMonitor {
       lastErrorMessage: null,
       recoveryAttempts: 0,
       lastRecovery: null,
-      dataQuality: 'unavailable'
+      dataQuality: 'unavailable',
+      consecutiveSuccesses: 0
     };
   }
 
@@ -171,9 +174,20 @@ class PollingHealthMonitor {
 
     health.consecutiveErrors = 0;
     health.successCount++;
+    health.consecutiveSuccesses++;
     health.lastSuccess = new Date();
     health.status = 'active';
     health.dataQuality = dataQuality;
+
+    // Auto-reset recovery attempts after 5 consecutive successes
+    if (health.consecutiveSuccesses >= 5 && health.recoveryAttempts > 0) {
+      const oldAttempts = health.recoveryAttempts;
+      health.recoveryAttempts = 0;
+      console.log(
+        `[PollingHealthMonitor] ✅ Auto-reset recovery attempts for ${symbol} ` +
+        `(${oldAttempts} -> 0) after ${health.consecutiveSuccesses} consecutive successes`
+      );
+    }
 
     this.healthMap.set(symbol, health);
     await this.persistHealth(symbol);
@@ -187,14 +201,12 @@ class PollingHealthMonitor {
 
     health.consecutiveErrors++;
     health.totalErrors++;
+    health.consecutiveSuccesses = 0; // Reset success streak on error
     health.lastError = new Date();
     health.lastErrorMessage = errorMessage;
 
-    // Update status based on error count
-    if (health.consecutiveErrors >= 50) {
-      health.status = 'stopped';
-      console.error(`[PollingHealthMonitor] ${symbol} STOPPED after ${health.consecutiveErrors} consecutive errors`);
-    } else if (health.consecutiveErrors >= 20) {
+    // Update status based on error count (no longer setting to 'stopped')
+    if (health.consecutiveErrors >= 20) {
       health.status = 'critical';
     } else if (health.consecutiveErrors >= 10) {
       health.status = 'degraded';
@@ -203,26 +215,21 @@ class PollingHealthMonitor {
     this.healthMap.set(symbol, health);
     await this.persistHealth(symbol);
 
-    // Queue recovery if not stopped
-    if (health.status !== 'stopped') {
-      this.queueRecovery(symbol, 'consecutive_errors');
-    }
+    // Always queue recovery (removed 'stopped' check)
+    this.queueRecovery(symbol, 'consecutive_errors');
   }
 
   private queueRecovery(symbol: string, reason: string): void {
     const health = this.healthMap.get(symbol);
     if (!health) return;
 
-    if (health.status === 'stopped') {
-      console.log(`[PollingHealthMonitor] ${symbol} is stopped, skipping recovery`);
-      return;
-    }
-
-    if (health.recoveryAttempts >= this.config.maxRecoveryAttempts) {
-      console.error(`[PollingHealthMonitor] ${symbol} exceeded max recovery attempts (${this.config.maxRecoveryAttempts}), marking as stopped`);
-      health.status = 'stopped';
-      this.persistHealth(symbol);
-      return;
+    // Removed recovery attempt limit check - unlimited retries now
+    // Log warning if recovery attempts are high, but continue
+    if (health.recoveryAttempts > 100 && health.recoveryAttempts % 50 === 0) {
+      console.warn(
+        `[PollingHealthMonitor] ${symbol} has attempted recovery ${health.recoveryAttempts} times. ` +
+        `Consider investigating underlying issues.`
+      );
     }
 
     if (this.recoveryQueue.has(symbol)) {
@@ -247,10 +254,7 @@ class PollingHealthMonitor {
         const health = this.healthMap.get(symbol);
         if (!health) continue;
 
-        if (health.status === 'stopped') {
-          this.recoveryQueue.delete(symbol);
-          continue;
-        }
+        // Removed 'stopped' status check - all symbols can recover now
 
         const backoffTime = this.calculateBackoff(health.recoveryAttempts);
         const timeSinceLastRecovery = health.lastRecovery
@@ -290,7 +294,7 @@ class PollingHealthMonitor {
     const backoffTime = this.calculateBackoff(health.recoveryAttempts);
     console.log(
       `[PollingHealthMonitor] 🔄 Attempting recovery for ${symbol} ` +
-      `(attempt ${health.recoveryAttempts}/${this.config.maxRecoveryAttempts}, ` +
+      `(attempt ${health.recoveryAttempts}, unlimited retries, ` +
       `next backoff: ${Math.round(backoffTime / 1000)}s)`
     );
 
@@ -377,6 +381,15 @@ class PollingHealthMonitor {
     this.healthMap.set(symbol, health);
     this.recoveryQueue.delete(symbol);
     await this.persistHealth(symbol);
+  }
+
+  async resetAllHealth(): Promise<void> {
+    console.log('[PollingHealthMonitor] Resetting health for ALL symbols');
+    const symbols = Array.from(this.healthMap.keys());
+    for (const symbol of symbols) {
+      await this.resetHealth(symbol);
+    }
+    console.log(`[PollingHealthMonitor] ✅ Reset complete for ${symbols.length} symbols`);
   }
 
   shutdown(): void {

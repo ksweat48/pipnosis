@@ -49,7 +49,7 @@ class GlobalPollingCoordinator {
   private missedHeartbeats = 0;
   private readonly HEARTBEAT_INTERVAL_MS = 5000;
   private readonly MAX_MISSED_HEARTBEATS = 3;
-  private readonly SYMBOL_RECOVERY_THRESHOLD = 30; // Max recovery attempts per symbol
+  private readonly SYMBOL_RECOVERY_THRESHOLD = 999999; // Effectively unlimited recovery attempts
 
   private readonly FOREX_PAIRS = [
     'XAUUSD', 'US30', 'EURUSD', 'USDJPY', 'GBPUSD'
