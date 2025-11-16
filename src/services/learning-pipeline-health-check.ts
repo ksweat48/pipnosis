@@ -37,70 +37,80 @@ class LearningPipelineHealthCheck {
       name: 'Trade Execution & Capture',
       description: 'Monitors trade completion and data capture',
       table: 'trade_history',
-      timeColumn: 'closed_at'
+      timeColumn: 'closed_at',
+      optional: false
     },
     {
       id: 'trade_analysis',
       name: 'Trade Analysis Engine',
       description: 'Individual trade analysis and reasoning',
       table: 'ai_trade_analysis',
-      timeColumn: 'created_at'
+      timeColumn: 'created_at',
+      optional: false
     },
     {
       id: 'pattern_recognition',
       name: 'Pattern Recognition',
       description: 'Identifying winning and losing patterns',
       table: 'ai_learning_insights',
-      timeColumn: 'created_at'
+      timeColumn: 'created_at',
+      optional: false
     },
     {
       id: 'session_learning',
       name: 'Session Learning Generator',
       description: 'Generates session-level learning summaries',
       table: 'ai_session_learnings',
-      timeColumn: 'created_at'
+      timeColumn: 'created_at',
+      optional: false
     },
     {
       id: 'gpt4o_strategist',
       name: 'GPT-4o Meta-Learning Strategist',
-      description: 'High-level strategic analysis',
+      description: 'High-level strategic analysis (Optional Observer)',
       table: 'gpt4o_meta_learning_insights',
-      timeColumn: 'created_at'
+      timeColumn: 'created_at',
+      optional: true
     },
     {
       id: 'gpt4o_interpreter',
       name: 'GPT-4o Pattern Interpreter',
-      description: 'Natural language pattern explanations',
+      description: 'Natural language pattern explanations (Optional Observer)',
       table: 'gpt4o_pattern_interpretations',
-      timeColumn: 'created_at'
+      timeColumn: 'created_at',
+      optional: true
     },
     {
       id: 'strategy_discovery',
       name: 'Strategy Discovery Engine',
       description: 'Discovers new trading strategies from patterns',
       table: 'ai_discovered_strategies',
-      timeColumn: 'discovered_at'
+      timeColumn: 'created_at',
+      optional: false
     },
     {
       id: 'skill_progression',
       name: 'Skill Progression Updates',
       description: 'Tracks and updates skill level advancement',
       table: 'ai_skill_progression',
-      timeColumn: 'updated_at'
+      timeColumn: 'updated_at',
+      optional: false
     },
     {
       id: 'performance_evolution',
       name: 'Performance Evolution Tracking',
       description: 'Long-term performance metrics tracking',
       table: 'ai_performance_evolution',
-      timeColumn: 'created_at'
+      timeColumn: 'created_at',
+      optional: false
     },
     {
       id: 'market_scenario',
       name: 'Market Scenario Performance',
       description: 'Performance by market conditions',
       table: 'ai_market_scenario_performance',
-      timeColumn: 'last_updated'
+      timeColumn: 'last_updated',
+      optional: false
     }
   ];
 
@@ -120,9 +130,13 @@ class LearningPipelineHealthCheck {
       stages.push(stageHealth);
 
       // Generate alerts based on stage status
-      if (stageHealth.status === 'error') {
+      // Skip alerts for optional stages that are simply not enabled
+      const isOptionalNotEnabled = stageDef.optional && stageHealth.errorMessages.includes('Optional feature not enabled');
+
+      if (stageHealth.status === 'error' && !isOptionalNotEnabled) {
         alerts.push(`${stageHealth.name}: ${stageHealth.errorMessages.join(', ')}`);
-      } else if (stageHealth.status === 'warning') {
+      } else if (stageHealth.status === 'warning' && !stageDef.optional) {
+        // Only warn on required stages
         alerts.push(`${stageHealth.name}: No activity in last 2 hours`);
       }
     }
@@ -184,6 +198,13 @@ class LearningPipelineHealthCheck {
         .maybeSingle();
 
       if (lastError) {
+        // If this is an optional stage and table doesn't exist, mark as idle instead of error
+        if (stageDef.optional && lastError.message.includes('Could not find the table')) {
+          stage.status = 'idle';
+          stage.errorMessages.push('Optional feature not enabled');
+          return stage;
+        }
+
         stage.status = 'error';
         stage.errorMessages.push(`Database error: ${lastError.message}`);
         return stage;
@@ -307,12 +328,22 @@ class LearningPipelineHealthCheck {
 
   /**
    * Calculate overall health score (0-100)
+   * Only includes required (non-optional) stages in the core health calculation
    */
   private calculateOverallHealthScore(stages: PipelineStage[]): number {
     let totalScore = 0;
-    const stageCount = stages.length;
+    let requiredStageCount = 0;
 
-    for (const stage of stages) {
+    for (let i = 0; i < stages.length; i++) {
+      const stage = stages[i];
+      const stageDef = this.STAGE_DEFINITIONS[i];
+
+      // Skip optional stages in core health calculation
+      if (stageDef.optional) {
+        continue;
+      }
+
+      requiredStageCount++;
       let stageScore = 0;
 
       // Base score on status
@@ -344,16 +375,21 @@ class LearningPipelineHealthCheck {
       totalScore += stageScore;
     }
 
-    return Math.round(totalScore / stageCount);
+    return requiredStageCount > 0 ? Math.round(totalScore / requiredStageCount) : 0;
   }
 
   /**
    * Determine overall pipeline status
+   * Only considers required (non-optional) stages for status determination
    */
   private determineOverallStatus(stages: PipelineStage[], healthScore: number): 'healthy' | 'warning' | 'error' {
-    // If any critical stage has errors
-    const errorStages = stages.filter(s => s.status === 'error');
-    if (errorStages.length > 0) {
+    // Check if any REQUIRED stage has errors
+    const requiredErrorStages = stages.filter((s, i) => {
+      const stageDef = this.STAGE_DEFINITIONS[i];
+      return !stageDef.optional && s.status === 'error';
+    });
+
+    if (requiredErrorStages.length > 0) {
       return 'error';
     }
 
@@ -472,15 +508,15 @@ class LearningPipelineHealthCheck {
         });
       }
 
-      // Test 3: Check if learning tables are accessible
-      const tables = [
+      // Test 3: Check if REQUIRED learning tables are accessible
+      const requiredTables = [
         'ai_trade_analysis',
         'ai_learning_insights',
         'ai_session_learnings',
         'ai_performance_evolution'
       ];
 
-      for (const table of tables) {
+      for (const table of requiredTables) {
         try {
           await supabase.from(table).select('id').limit(1);
           stageResults.push({
@@ -493,6 +529,30 @@ class LearningPipelineHealthCheck {
             stage: `Table: ${table}`,
             passed: false,
             message: `Table error: ${tableError instanceof Error ? tableError.message : 'Unknown error'}`
+          });
+        }
+      }
+
+      // Test 4: Check if OPTIONAL GPT-4o tables are accessible (informational only, doesn't affect pass/fail)
+      const optionalTables = [
+        { name: 'gpt4o_meta_learning_insights', feature: 'GPT-4o Meta-Learning' },
+        { name: 'gpt4o_pattern_interpretations', feature: 'GPT-4o Pattern Interpreter' }
+      ];
+
+      for (const { name, feature } of optionalTables) {
+        try {
+          await supabase.from(name).select('id').limit(1);
+          stageResults.push({
+            stage: `Optional: ${feature}`,
+            passed: true,
+            message: 'Feature enabled and accessible'
+          });
+        } catch (tableError) {
+          // Optional features don't affect test pass/fail - just informational
+          stageResults.push({
+            stage: `Optional: ${feature}`,
+            passed: true, // Mark as passed since it's optional
+            message: 'Optional feature not enabled (this is OK)'
           });
         }
       }
