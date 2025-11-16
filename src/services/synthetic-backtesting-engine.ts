@@ -692,7 +692,13 @@ class SyntheticBacktestingEngine {
       const patternsLearned = result.analytics?.patternPerformance?.patterns.length || 0;
       const winningTradesCount = result.winningTrades; // Only count winning trades!
 
+      // Count exploratory winning trades
+      const exploratoryWinningTrades = this.closedTrades.filter(
+        t => t.outcome === 'win' && t.flowV2Confidence >= 60 && t.flowV2Confidence < 75
+      ).length;
+
       console.log(`[Synthetic Backtest] 🎯 Winning trades: ${winningTradesCount} out of ${result.totalTrades} total trades`);
+      console.log(`[Synthetic Backtest] 🔍 Exploratory winning trades: ${exploratoryWinningTrades}`);
 
       const skillUpdate = await aiSkillTracker.updateAfterBacktest(
         userId,
@@ -700,7 +706,8 @@ class SyntheticBacktestingEngine {
         result.winRate,
         result.profitFactor,
         patternsLearned,
-        'synthetic' // Mark as synthetic source for 0.5x weighting
+        'synthetic', // Mark as synthetic source for 0.5x weighting
+        exploratoryWinningTrades // NEW: Pass exploratory trades for 0.25x weighting
       );
 
       if (skillUpdate.leveledUp) {

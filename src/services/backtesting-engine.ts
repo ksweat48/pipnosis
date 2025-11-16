@@ -159,13 +159,20 @@ class BacktestingEngine {
       console.log('[Backtesting] 📊 Updating AI skill progression...');
       console.log(`[Backtesting] 🎯 Winning trades: ${result.winningTrades} out of ${result.totalTrades} total trades`);
 
+      // Count exploratory winning trades (60-75% confidence range)
+      const exploratoryWinningTrades = result.trades.filter(
+        t => t.outcome === 'win' && t.flowV2Confidence >= 60 && t.flowV2Confidence < 75
+      ).length;
+      console.log(`[Backtesting] 🔍 Exploratory winning trades: ${exploratoryWinningTrades}`);
+
       const skillUpdate = await aiSkillTracker.updateAfterBacktest(
         userId,
         result.winningTrades,
         result.winRate,
         result.profitFactor,
         0,
-        'backtest'
+        'backtest',
+        exploratoryWinningTrades // NEW: Pass exploratory trades for 0.25x weighting
       );
 
       if (skillUpdate.leveledUp) {

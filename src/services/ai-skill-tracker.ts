@@ -241,7 +241,8 @@ class AISkillTracker {
     winRate: number,
     profitFactor: number,
     patternsLearned: number,
-    sourceType: 'backtest' | 'synthetic' | 'live' = 'backtest'
+    sourceType: 'backtest' | 'synthetic' | 'live' = 'backtest',
+    exploratoryTradesCount: number = 0
   ): Promise<{ leveledUp: boolean; newLevel?: SkillLevel; oldLevel?: SkillLevel; validationWarnings?: string[] }> {
     const validationWarnings: string[] = [];
 
@@ -300,14 +301,31 @@ class AISkillTracker {
       const performanceWeight = Math.min(1.5, Math.max(0.3, (winRate / 100) * (profitFactor / 1.5)));
       let adjustedWinningTrades = Math.round(winningTradesCount * performanceWeight);
 
+      // Handle exploratory trades separately with reduced weight
+      let exploratoryWeightedTrades = 0;
+      if (exploratoryTradesCount > 0) {
+        // Exploratory trades get 0.25x weight (half of synthetic's 0.5x)
+        const exploratoryWeight = 0.25;
+        exploratoryWeightedTrades = Math.round(exploratoryTradesCount * performanceWeight * exploratoryWeight);
+        console.log(`[AI Skill Tracker] 🔍 Exploratory trades: ${exploratoryTradesCount} × ${performanceWeight.toFixed(2)} perf × 0.25 = ${exploratoryWeightedTrades} weighted trades`);
+
+        // Subtract exploratory from main count (they were included in winningTradesCount)
+        adjustedWinningTrades = Math.round((winningTradesCount - exploratoryTradesCount) * performanceWeight);
+      }
+
       if (sourceType === 'synthetic') {
         adjustedWinningTrades = Math.round(adjustedWinningTrades * 0.5);
-        console.log(`[AI Skill Tracker] 🔬 Synthetic source: ${winningTradesCount} trades × ${performanceWeight.toFixed(2)} perf × 0.5 = ${adjustedWinningTrades} weighted trades`);
+        exploratoryWeightedTrades = Math.round(exploratoryWeightedTrades * 0.5);
+        console.log(`[AI Skill Tracker] 🔬 Synthetic source: ${winningTradesCount - exploratoryTradesCount} standard trades × ${performanceWeight.toFixed(2)} perf × 0.5 = ${adjustedWinningTrades} weighted trades`);
       } else if (sourceType === 'live') {
-        console.log(`[AI Skill Tracker] 🎯 Live trading source: ${winningTradesCount} trades × ${performanceWeight.toFixed(2)} perf = ${adjustedWinningTrades} weighted trades (2.0x already applied)`);
+        console.log(`[AI Skill Tracker] 🎯 Live trading source: ${winningTradesCount - exploratoryTradesCount} standard trades × ${performanceWeight.toFixed(2)} perf = ${adjustedWinningTrades} weighted trades (2.0x already applied)`);
       } else {
-        console.log(`[AI Skill Tracker] 📊 Standard backtest: ${winningTradesCount} trades × ${performanceWeight.toFixed(2)} performance weight = ${adjustedWinningTrades} weighted trades`);
+        console.log(`[AI Skill Tracker] 📊 Standard backtest: ${winningTradesCount - exploratoryTradesCount} standard trades × ${performanceWeight.toFixed(2)} performance weight = ${adjustedWinningTrades} weighted trades`);
       }
+
+      // Add exploratory trades back with reduced weight
+      adjustedWinningTrades += exploratoryWeightedTrades;
+      console.log(`[AI Skill Tracker] 📈 Total weighted trades (standard + exploratory): ${adjustedWinningTrades}`);
 
       console.log(`[AI Skill Tracker]   Performance Weight: ${performanceWeight.toFixed(2)}x (based on WR: ${winRate.toFixed(1)}%, PF: ${profitFactor.toFixed(2)})`);
 

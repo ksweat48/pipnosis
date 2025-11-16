@@ -106,7 +106,8 @@ class ExplorationEngine {
                            currentConfidence < this.NORMAL_CONFIDENCE_THRESHOLD;
 
       // Or probabilistic: If we're way behind on exploration, increase probability
-      const needsMoreExploration = shouldIncreasExploration && Math.random() < 0.15;
+      // Reduced from 0.15 to 0.05 to achieve target 10% exploration rate (was causing 20%)
+      const needsMoreExploration = shouldIncreasExploration && Math.random() < 0.05;
 
       const finalDecision = shouldExplore || needsMoreExploration;
 
