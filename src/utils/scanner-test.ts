@@ -126,7 +126,8 @@ export async function testEdgeFunctionDirectly() {
   }
 }
 
-if (typeof window !== 'undefined') {
+// Only expose test utilities in development mode
+if (typeof window !== 'undefined' && !import.meta.env.PROD) {
   (window as any).testScanner = testScannerSetup;
   (window as any).testEdgeFunction = testEdgeFunctionDirectly;
   console.log('Scanner test utilities loaded. Run in console:');

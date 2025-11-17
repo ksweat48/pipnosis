@@ -4,80 +4,80 @@ import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from '@/hooks/useAuth';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { errorHandler } from '@/lib/error-handler';
-import { initializeAutomatedRefresh, automatedRefreshService } from '@/services/automated-refresh-service';
-import { positionMonitorService } from '@/services/position-monitor';
-import { tradeLifecycleManager } from '@/services/trade-lifecycle-manager';
-import { logger, LogLevel } from '@/lib/logger';
-import { logPresets } from '@/lib/log-presets';
 import App from './App.tsx';
 import './index.css';
-import './utils/scanner-test';
 
-// Initialize logger with appropriate level for environment
-if (import.meta.env.PROD) {
-  logger.setGlobalLevel(LogLevel.WARN);
-} else {
-  logger.setGlobalLevel(LogLevel.INFO);
+// Initialize logging and utilities only in development
+if (!import.meta.env.PROD) {
+  // Load logger and utilities only in dev mode
+  import('@/lib/logger').then(({ logger, LogLevel }) => {
+    logger.setGlobalLevel(LogLevel.INFO);
+  });
+
+  // Load debug utilities only in dev
+  import('./utils/scanner-test');
+  import('@/lib/log-presets').then(({ logPresets }) => {
+    console.log('\n%c💡 Logging System Available', 'color: #4CAF50; font-weight: bold; font-size: 14px');
+    console.log('%cType logPresets.help() for quick log configuration', 'color: #2196F3; font-size: 12px');
+    console.log('%cType logger.showHelp() for advanced configuration\n', 'color: #2196F3; font-size: 12px');
+  });
 }
 
-// Show logging help on startup
-console.log('\n%c💡 Logging System Available', 'color: #4CAF50; font-weight: bold; font-size: 14px');
-console.log('%cType logPresets.help() for quick log configuration', 'color: #2196F3; font-size: 12px');
-console.log('%cType logger.showHelp() for advanced configuration\n', 'color: #2196F3; font-size: 12px');
-
-const cleanupStaleLocalStorage = () => {
-  const version = localStorage.getItem('app-config-version');
-  if (version !== '3.0') {
-    console.log('[Startup] Cleaning up stale localStorage configurations...');
-    localStorage.removeItem('auto-refresh-config');
-
-    // Clear all chart-related cache data
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (
-        key.includes('chart-') ||
-        key.includes('candle-') ||
-        key.includes('indicators-') ||
-        key.includes('historical-')
-      )) {
-        keysToRemove.push(key);
-      }
-    }
-
-    keysToRemove.forEach(key => {
-      console.log(`[Startup] Clearing cached data: ${key}`);
-      localStorage.removeItem(key);
-    });
-
-    localStorage.setItem('app-config-version', '3.0');
-    console.log('[Startup] All cached candle data cleared - starting fresh');
-  }
-};
-
-cleanupStaleLocalStorage();
-initializeAutomatedRefresh();
-
+// Defer non-critical initialization
 if (typeof window !== 'undefined') {
-  (window as any).refreshSymbols = async () => {
-    const { symbolValidator } = await import('@/services/symbol-validator');
-    const { cleanupStaleSymbolConfigurations } = await import('@/services/automated-refresh-service');
-    console.log('🔄 Refreshing symbol availability...');
-    symbolValidator.clearCache();
-    await cleanupStaleSymbolConfigurations();
-    console.log('✅ Symbol refresh complete. Reload the page to apply changes.');
-  };
-  console.log('💡 Debug utility available: Run refreshSymbols() in console to update symbol list');
+  // Clean up stale cache asynchronously
+  setTimeout(() => {
+    const version = localStorage.getItem('app-config-version');
+    if (version !== '3.1') {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (
+          key.includes('chart-') ||
+          key.includes('candle-') ||
+          key.includes('indicators-') ||
+          key.includes('historical-')
+        )) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+      localStorage.setItem('app-config-version', '3.1');
+    }
+  }, 2000);
+
+  // Initialize automated refresh service lazily
+  setTimeout(async () => {
+    const { initializeAutomatedRefresh } = await import('@/services/automated-refresh-service');
+    initializeAutomatedRefresh();
+  }, 3000);
+
+  // Start position monitoring only when needed
+  setTimeout(async () => {
+    try {
+      const [{ positionMonitorService }, { tradeLifecycleManager }] = await Promise.all([
+        import('@/services/position-monitor'),
+        import('@/services/trade-lifecycle-manager')
+      ]);
+      positionMonitorService.start();
+      tradeLifecycleManager.startMonitoring(5000);
+    } catch (error) {
+      console.log('[Init] Deferred monitoring services:', error);
+    }
+  }, 5000);
+
+  // Debug utilities only in dev mode
+  if (!import.meta.env.PROD) {
+    (window as any).refreshSymbols = async () => {
+      const { symbolValidator } = await import('@/services/symbol-validator');
+      const { cleanupStaleSymbolConfigurations } = await import('@/services/automated-refresh-service');
+      symbolValidator.clearCache();
+      await cleanupStaleSymbolConfigurations();
+      console.log('✅ Symbol refresh complete. Reload the page to apply changes.');
+    };
+    console.log('💡 Debug utility available: Run refreshSymbols() in console');
+  }
 }
-
-console.log('[AI Trading] Starting position monitoring services...');
-positionMonitorService.start();
-tradeLifecycleManager.startMonitoring(5000);
-console.log('[AI Trading] Monitoring services started successfully');
-
-console.log('Application initializing...');
-console.log('Supabase URL:', import.meta.env.VITE_SUPABASE_URL);
-console.log('Supabase Key present:', !!import.meta.env.VITE_SUPABASE_ANON_KEY);
 
 window.addEventListener('unhandledrejection', (event) => {
   const reason = event.reason?.message || event.reason?.toString() || '';

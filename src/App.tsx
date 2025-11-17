@@ -1,49 +1,49 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { LandingPage } from './components/LandingPage';
-import { PublicLandingPage } from './components/PublicLandingPage';
-import { AdminDashboard } from './pages/AdminDashboard';
-import { AuthPage } from './pages/AuthPage';
-import { ResetPasswordPage } from './pages/ResetPasswordPage';
-import { TradePage } from './pages/TradePage';
-import { AITradePage } from './pages/AITradePage';
-import { HistoryPage } from './pages/HistoryPage';
-import { AnalysisPage } from './pages/AnalysisPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { KPIsPage } from './pages/KPIsPage';
-import AITrainingPage from './pages/AITrainingPage';
-import SessionLearningsPage from './pages/SessionLearningsPage';
-import SystemDiagnosticsPage from './pages/SystemDiagnosticsPage';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
-import { logEnvironmentStatus } from './lib/env-validator';
-import { runDatabaseDiagnostics, logDiagnostics } from './lib/database-diagnostics';
-import { verifyDatabaseSetup } from './lib/migration-checker';
-import { connectionValidator } from './lib/connection-validator';
-import { dbHealthMonitor } from './services/system-monitoring-service';
-import { pollingOrchestrator } from './services/polling-orchestrator';
-import { backgroundCandleAggregator } from './services/background-candle-aggregator';
-import { systemLoadMonitor } from './services/system-load-monitor';
 import ConnectionStatusIndicator from './components/ConnectionStatusIndicator';
+
+// Lazy load all pages for code splitting
+const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
+const PublicLandingPage = lazy(() => import('./components/PublicLandingPage').then(m => ({ default: m.PublicLandingPage })));
+const AuthPage = lazy(() => import('./pages/AuthPage').then(m => ({ default: m.AuthPage })));
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
+const TradePage = lazy(() => import('./pages/TradePage'));
+const AITradePage = lazy(() => import('./pages/AITradePage'));
+const HistoryPage = lazy(() => import('./pages/HistoryPage'));
+const AnalysisPage = lazy(() => import('./pages/AnalysisPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+
+// Admin pages - only loaded when needed
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const KPIsPage = lazy(() => import('./pages/KPIsPage'));
+const AITrainingPage = lazy(() => import('./pages/AITrainingPage'));
+const SessionLearningsPage = lazy(() => import('./pages/SessionLearningsPage'));
+const SystemDiagnosticsPage = lazy(() => import('./pages/SystemDiagnosticsPage'));
+
+// Loading component
+const LoadingFallback = () => (
+  <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex items-center justify-center">
+    <div className="text-center">
+      <div className="animate-spin h-12 w-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full mx-auto mb-4"></div>
+      <p className="text-white/70 text-lg">Loading...</p>
+    </div>
+  </div>
+);
 
 
 const AppRoutes: React.FC = () => {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin h-12 w-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full mx-auto mb-4"></div>
-          <p className="text-white/70 text-lg">Loading...</p>
-        </div>
-      </div>
-    );
+    return <LoadingFallback />;
   }
 
   return (
-    <Routes>
+    <Suspense fallback={<LoadingFallback />}>
+      <Routes>
       <Route path="/auth" element={<AuthPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route
@@ -153,114 +153,46 @@ const AppRoutes: React.FC = () => {
           </ProtectedRoute>
         }
       />
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 };
 
 export default function App() {
-  const [dbValidated, setDbValidated] = useState(true);
-
   useEffect(() => {
-    // Run ALL diagnostics and service initialization in the background
-    // WITHOUT blocking the app from loading
-    const runStartupDiagnostics = async () => {
-      // Give the app 500ms to fully render first
-      await new Promise(resolve => setTimeout(resolve, 500));
+    // Only run background services in production and only when user is authenticated
+    if (!import.meta.env.PROD) return;
+
+    // Delay service initialization significantly to allow initial render
+    const initServices = async () => {
+      await new Promise(resolve => setTimeout(resolve, 3000));
 
       try {
-        logEnvironmentStatus();
+        // Dynamically import services only when needed
+        const [{ pollingOrchestrator }, { backgroundCandleAggregator }] = await Promise.all([
+          import('./services/polling-orchestrator'),
+          import('./services/background-candle-aggregator')
+        ]);
 
-        // All diagnostics wrapped in try-catch to prevent cascade failures
-        try {
-          await Promise.race([
-            connectionValidator.validateConnection(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Connection validation timeout')), 2000))
-          ]);
-        } catch (error) {
-          console.log('[Dev Info] Connection validation skipped:', error);
-        }
-
-        try {
-          await Promise.race([
-            runDatabaseDiagnostics().then(logDiagnostics),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Diagnostics timeout')), 2000))
-          ]);
-        } catch (error) {
-          console.log('[Dev Info] Database diagnostics skipped:', error);
-        }
-
-        try {
-          await Promise.race([
-            verifyDatabaseSetup(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Schema verification timeout')), 2000))
-          ]);
-        } catch (error) {
-          console.log('[Dev Info] Schema verification skipped:', error);
-        }
-
-        // Start background services with delays and error handling
+        // Start polling only if user is on a page that needs it
         setTimeout(() => {
-          try {
-            dbHealthMonitor.startMonitoring();
-          } catch (error) {
-            console.log('[Dev Info] Health monitor failed to start:', error);
-          }
-        }, 3000);
-
-        // Start the polling orchestrator which manages both BrowserPoller and GlobalCoordinator
-        setTimeout(async () => {
-          try {
-            console.log('[App] Starting PollingOrchestrator with auto-recovery...');
-            await pollingOrchestrator.initialize();
-            console.log('[App] ✅ PollingOrchestrator initialized successfully');
-          } catch (error) {
-            console.error('[App] ❌ PollingOrchestrator failed to start:', error);
-          }
+          pollingOrchestrator.initialize().catch(err =>
+            console.log('[App] Polling init deferred:', err)
+          );
         }, 5000);
 
+        // Start aggregator even later
         setTimeout(() => {
-          try {
-            systemLoadMonitor.start();
-          } catch (error) {
-            console.log('[Dev Info] Load monitor failed to start:', error);
-          }
+          backgroundCandleAggregator.start().catch(err =>
+            console.log('[App] Aggregator init deferred:', err)
+          );
         }, 10000);
-
-        setTimeout(async () => {
-          try {
-            await backgroundCandleAggregator.start();
-          } catch (error) {
-            console.log('[Dev Info] Candle aggregator failed to start:', error);
-          }
-        }, 12000);
-
-        setDbValidated(true);
       } catch (error) {
-        console.log('[Dev Info] Startup diagnostics error:', error);
-        setDbValidated(true);
+        console.log('[App] Service initialization deferred:', error);
       }
     };
 
-    // Run diagnostics in background - don't await
-    runStartupDiagnostics().catch(err => {
-      console.log('[Dev Info] Background diagnostics failed:', err);
-    });
-
-    return () => {
-      try {
-        dbHealthMonitor.stopMonitoring();
-      } catch (err) {
-        console.log('[Dev Info] Error stopping health monitor:', err);
-      }
-
-      backgroundCandleAggregator.stop().catch(err => {
-        console.log('[Dev Info] Error shutting down aggregator:', err);
-      });
-
-      pollingOrchestrator.shutdown().catch(err => {
-        console.log('[Dev Info] Error shutting down orchestrator:', err);
-      });
-    };
+    initServices();
   }, []);
 
   return (
