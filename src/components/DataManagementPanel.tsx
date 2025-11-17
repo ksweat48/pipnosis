@@ -345,7 +345,7 @@ export function DataManagementPanel() {
               </div>
             </div>
 
-            {trainingData && (
+            {trainingData && trainingData.totalBacktests > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
                   <div className="text-sm text-gray-400 mb-1">Total Backtests</div>
@@ -365,6 +365,32 @@ export function DataManagementPanel() {
                 <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
                   <div className="text-sm text-gray-400 mb-1">Skill Records</div>
                   <div className="text-2xl font-bold text-emerald-400">{trainingData.skillCount}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-gray-800/50 rounded-lg p-8 border border-gray-700 text-center mb-6">
+                <Sparkles className="w-16 h-16 text-blue-400 mx-auto mb-4 opacity-50" />
+                <h3 className="text-xl font-bold text-white mb-2">Ready for New GPT-4 AI System</h3>
+                <p className="text-gray-400 mb-4">
+                  No training data yet. Start running backtests with the new AI engine to generate learning insights.
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 text-sm">
+                  <div className="bg-gray-900/50 rounded-lg p-3">
+                    <div className="text-gray-500 mb-1">Backtests</div>
+                    <div className="text-2xl font-bold text-gray-600">0</div>
+                  </div>
+                  <div className="bg-gray-900/50 rounded-lg p-3">
+                    <div className="text-gray-500 mb-1">Insights</div>
+                    <div className="text-2xl font-bold text-gray-600">0</div>
+                  </div>
+                  <div className="bg-gray-900/50 rounded-lg p-3">
+                    <div className="text-gray-500 mb-1">Patterns</div>
+                    <div className="text-2xl font-bold text-gray-600">0</div>
+                  </div>
+                  <div className="bg-gray-900/50 rounded-lg p-3">
+                    <div className="text-gray-500 mb-1">Skills</div>
+                    <div className="text-2xl font-bold text-gray-600">0</div>
+                  </div>
                 </div>
               </div>
             )}
@@ -397,35 +423,43 @@ export function DataManagementPanel() {
                     </tr>
                   </thead>
                   <tbody>
-                    {trainingData && [...trainingData.backtestSessions, ...trainingData.syntheticSessions]
-                      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                      .slice(0, 10)
-                      .map((session: any, index: number) => (
-                        <tr key={session.id} className="border-b border-gray-700/50 hover:bg-gray-700/30">
-                          <td className="py-2 px-3 text-white font-medium">{session.session_name}</td>
-                          <td className="py-2 px-3">
-                            {session.session_name?.startsWith('Auto-BT-') ? (
-                              <span className="px-2 py-0.5 bg-green-600 text-white text-xs font-bold rounded flex items-center gap-1 w-fit">
-                                <Zap className="w-3 h-3" />
-                                AUTO
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded w-fit">
-                                MANUAL
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-2 px-3 text-right text-gray-300">{session.total_trades}</td>
-                          <td className={`py-2 px-3 text-right font-semibold ${
-                            session.win_rate >= 55 ? 'text-green-400' : 'text-red-400'
-                          }`}>
-                            {session.win_rate?.toFixed(1)}%
-                          </td>
-                          <td className="py-2 px-3 text-gray-400 text-xs">
-                            {new Date(session.created_at).toLocaleDateString()}
-                          </td>
-                        </tr>
-                      ))}
+                    {trainingData && (trainingData.backtestSessions.length > 0 || trainingData.syntheticSessions.length > 0) ? (
+                      [...trainingData.backtestSessions, ...trainingData.syntheticSessions]
+                        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                        .slice(0, 10)
+                        .map((session: any, index: number) => (
+                          <tr key={session.id} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                            <td className="py-2 px-3 text-white font-medium">{session.session_name}</td>
+                            <td className="py-2 px-3">
+                              {session.session_name?.startsWith('Auto-BT-') ? (
+                                <span className="px-2 py-0.5 bg-green-600 text-white text-xs font-bold rounded flex items-center gap-1 w-fit">
+                                  <Zap className="w-3 h-3" />
+                                  AUTO
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded w-fit">
+                                  MANUAL
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-right text-gray-300">{session.total_trades}</td>
+                            <td className={`py-2 px-3 text-right font-semibold ${
+                              session.win_rate >= 55 ? 'text-green-400' : 'text-red-400'
+                            }`}>
+                              {session.win_rate?.toFixed(1)}%
+                            </td>
+                            <td className="py-2 px-3 text-gray-400 text-xs">
+                              {new Date(session.created_at).toLocaleDateString()}
+                            </td>
+                          </tr>
+                        ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-gray-500">
+                          No training sessions yet. Ready for new GPT-4 backtests.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>

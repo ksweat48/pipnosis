@@ -194,10 +194,52 @@ export default function AILearningProgressDashboard() {
     }
   };
 
-  if (loading || !skillData) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
+      </div>
+    );
+  }
+
+  if (!skillData || skillData.totalTradesAnalyzed === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-gradient-to-br from-emerald-900/30 to-blue-900/30 backdrop-blur-sm border-2 border-emerald-500/30 rounded-lg shadow-md p-6">
+          <div className="flex items-center gap-3 mb-2">
+            <Brain className="w-8 h-8 text-emerald-400" />
+            <h2 className="text-2xl font-bold text-white">AI Learning Progress</h2>
+          </div>
+          <p className="text-gray-400">
+            Track the AI's evolution from Novice to Exceptional trading mastery
+          </p>
+        </div>
+
+        <div className="bg-gray-800/50 rounded-lg border border-gray-700 p-12 text-center">
+          <Sparkles className="w-20 h-20 text-blue-400 mx-auto mb-6 opacity-50" />
+          <h3 className="text-2xl font-bold text-white mb-3">Ready for New GPT-4 AI Engine</h3>
+          <p className="text-gray-400 mb-6 max-w-md mx-auto">
+            No AI learning data yet. The new GPT-4 system is ready to start learning from backtests and live trades.
+            Start running backtests to generate AI insights and skill progression.
+          </p>
+          <div className="grid grid-cols-3 gap-4 max-w-2xl mx-auto mt-8">
+            <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+              <Trophy className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+              <div className="text-sm text-gray-500 mb-1">Skill Level</div>
+              <div className="text-xl font-bold text-gray-600">Novice</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+              <Target className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+              <div className="text-sm text-gray-500 mb-1">Trades Analyzed</div>
+              <div className="text-xl font-bold text-gray-600">0</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+              <Award className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+              <div className="text-sm text-gray-500 mb-1">Milestones</div>
+              <div className="text-xl font-bold text-gray-600">0</div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
