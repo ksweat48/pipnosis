@@ -215,9 +215,11 @@ class ConcurrentBulkLoader {
     try {
       console.log(`[BulkLoader] Loading ${symbol} ${timeframe} directly from database...`);
 
-      // Convert app timeframe to database format (M5 -> 5m, H1 -> 1h)
-      const dbTimeframe = timeframe.replace(/^M/, '').replace(/^H/, '').toLowerCase() +
-                          (timeframe.startsWith('M') ? 'm' : timeframe.startsWith('H') ? 'h' : '');
+      // Database uses UPPERCASE format: M1, M5, H1, etc.
+      // Ensure timeframe is in correct uppercase format
+      const dbTimeframe = timeframe.toUpperCase();
+
+      console.log(`[BulkLoader] Querying with: symbol=${symbol}, timeframe=${dbTimeframe}, limit=${count}`);
 
       const { data: candles, error } = await supabase
         .from('forex_candles')
@@ -233,11 +235,12 @@ class ConcurrentBulkLoader {
       }
 
       if (!candles || candles.length === 0) {
-        console.warn(`[BulkLoader] No candles found for ${symbol} ${timeframe} (db: ${dbTimeframe})`);
+        console.warn(`[BulkLoader] No candles found for ${symbol} ${dbTimeframe}`);
+        console.log(`[BulkLoader] Query returned 0 results - check if data exists in database for this symbol/timeframe`);
         return [];
       }
 
-      console.log(`[BulkLoader] Loaded ${candles.length} candles for ${symbol} ${timeframe} from database`);
+      console.log(`[BulkLoader] ✅ Loaded ${candles.length} candles for ${symbol} ${dbTimeframe} from database`);
       onProgress?.(candles.length, count);
 
       // Reverse to get chronological order (oldest first)

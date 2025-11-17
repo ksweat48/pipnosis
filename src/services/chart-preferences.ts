@@ -1,39 +1,42 @@
 import { supabase } from '@/lib/supabase';
 
 type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'W1';
-type DbTimeframe = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | 'd1' | 'w1';
+type DbTimeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'W1';
 
 interface ChartPreferences {
   [symbol: string]: Timeframe;
 }
 
 export function appTimeframeToDb(timeframe: Timeframe): string {
-  // Convert app timeframe format (M5, H1) to database format (5m, 1h)
-  const mapping: Record<Timeframe, string> = {
-    'M1': '1m',
-    'M5': '5m',
-    'M15': '15m',
-    'M30': '30m',
-    'H1': '1h',
-    'H4': '4h',
-    'D1': 'd1',
-    'W1': 'w1'
-  };
-  return mapping[timeframe] || '5m';
+  // Database uses UPPERCASE format: M1, M5, H1, etc. (same as app format)
+  // Ensure timeframe is uppercase to handle any legacy lowercase variants
+  return timeframe.toUpperCase();
 }
 
 export function dbTimeframeToApp(dbTimeframe: string): Timeframe {
-  const mapping: Record<string, Timeframe> = {
-    '1m': 'M1',
-    '5m': 'M5',
-    '15m': 'M15',
-    '30m': 'M30',
-    '1h': 'H1',
-    '4h': 'H4',
-    'd1': 'D1',
-    'w1': 'W1'
+  // Database format is the same as app format (both uppercase)
+  // Support legacy lowercase formats by converting to uppercase
+  const normalized = dbTimeframe.toUpperCase();
+
+  // Validate and return
+  const validTimeframes: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
+  if (validTimeframes.includes(normalized as Timeframe)) {
+    return normalized as Timeframe;
+  }
+
+  // Handle legacy numeric-first formats (1m, 5m, 1h, etc.)
+  const legacyMapping: Record<string, Timeframe> = {
+    '1M': 'M1',
+    '5M': 'M5',
+    '15M': 'M15',
+    '30M': 'M30',
+    '1H': 'H1',
+    '4H': 'H4',
+    '1D': 'D1',
+    '1W': 'W1'
   };
-  return mapping[dbTimeframe] || 'M1';
+
+  return legacyMapping[normalized] || 'M1';
 }
 
 interface IndicatorVisibility {
