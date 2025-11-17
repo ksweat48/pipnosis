@@ -54,7 +54,7 @@ export async function backfillGapsFromTicks(
   symbol: string,
   timeframe: Timeframe,
   gaps: GapInfo[]
-): Promise<BackfillResult> {
+): Promise<{ result: BackfillResult; backfilledCandles: CandleData[] }> {
   const result: BackfillResult = {
     success: true,
     gapsFilled: 0,
@@ -62,8 +62,10 @@ export async function backfillGapsFromTicks(
     errors: []
   };
 
+  const allBackfilledCandles: CandleData[] = [];
+
   if (gaps.length === 0) {
-    return result;
+    return { result, backfilledCandles: allBackfilledCandles };
   }
 
   // Only log if there are significant gaps (more than 10 minutes)
@@ -151,6 +153,9 @@ export async function backfillGapsFromTicks(
           backfilledCandles.push(candle);
         }
 
+        // Add to all backfilled candles
+        allBackfilledCandles.push(...backfilledCandles);
+
         // Reduced logging
         result.candlesCreated += backfilledCandles.length;
         result.gapsFilled++;
@@ -167,7 +172,7 @@ export async function backfillGapsFromTicks(
     console.log(`[Backfill] Complete: ${result.gapsFilled} gaps filled, ${result.candlesCreated} candles created`);
   }
 
-  return result;
+  return { result, backfilledCandles: allBackfilledCandles };
 }
 
 export function generatePlaceholderCandles(
@@ -222,7 +227,24 @@ export async function detectAndBackfillGaps(
     console.log(`[Backfill] Detected ${significantGaps.length} significant gaps in ${symbol} ${timeframe} data`);
   }
 
-  const backfillResult = await backfillGapsFromTicks(symbol, timeframe, gaps);
+  const { result: backfillResult, backfilledCandles } = await backfillGapsFromTicks(symbol, timeframe, gaps);
 
-  return { candles: existingCandles, backfillResult };
+  // Merge backfilled candles with existing candles and deduplicate
+  const allCandles = [...existingCandles, ...backfilledCandles];
+
+  // Sort by time and deduplicate
+  const candleMap = new Map<number, CandleData>();
+  allCandles.forEach(candle => {
+    // Keep existing candles over backfilled ones (they're more reliable)
+    if (!candleMap.has(candle.time)) {
+      candleMap.set(candle.time, candle);
+    }
+  });
+
+  const mergedCandles = Array.from(candleMap.values())
+    .sort((a, b) => a.time - b.time);
+
+  console.log(`[Backfill] Merged ${existingCandles.length} existing + ${backfilledCandles.length} backfilled = ${mergedCandles.length} total candles`);
+
+  return { candles: mergedCandles, backfillResult };
 }
