@@ -4,10 +4,11 @@ import { DataManagementPanel } from '@/components/DataManagementPanel';
 import { CandleAggregatorStatus } from '@/components/CandleAggregatorStatus';
 import { PollingHealthDashboard } from '@/components/PollingHealthDashboard';
 import { ServerSideCandleMonitor } from '@/components/ServerSideCandleMonitor';
+import { HistoricalBackfillPanel } from '@/components/HistoricalBackfillPanel';
 import APIUsageMonitor from '@/components/APIUsageMonitor';
-import { Database, BarChart3, Settings, Activity, Heart } from 'lucide-react';
+import { Database, BarChart3, Settings, Activity, Heart, Download } from 'lucide-react';
 
-type AdminTab = 'data' | 'analytics' | 'api-usage' | 'polling-health' | 'settings';
+type AdminTab = 'data' | 'analytics' | 'api-usage' | 'polling-health' | 'backfill' | 'settings';
 
 export function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<AdminTab>('data');
@@ -40,6 +41,17 @@ export function AdminDashboard() {
           >
             <Database size={18} />
             Data Management
+          </button>
+          <button
+            onClick={() => setActiveTab('backfill')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+              activeTab === 'backfill'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            <Download size={18} />
+            Historical Backfill
           </button>
           <button
             onClick={() => setActiveTab('api-usage')}
@@ -94,6 +106,10 @@ export function AdminDashboard() {
             </div>
             <DataManagementPanel />
           </div>
+        )}
+
+        {activeTab === 'backfill' && (
+          <HistoricalBackfillPanel />
         )}
 
         {activeTab === 'api-usage' && (

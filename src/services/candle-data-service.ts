@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
+import { normalizeTimestamp, getCurrentCandleStart, getLastCompletedCandleStart, isTimestampAligned } from '@/utils/timestampNormalizer';
 
 export interface CandleData {
   time: number;
@@ -234,6 +235,18 @@ function parseUtcTimestamp(timeString: string): number {
   return date.getTime();
 }
 
+/**
+ * CRITICAL: Validate that a candle timestamp is properly normalized
+ * This prevents overlapping candles and timing issues
+ */
+function validateTimestamp(timestampSeconds: number, timeframe: Timeframe, context: string): boolean {
+  if (!isTimestampAligned(timestampSeconds, timeframe)) {
+    console.error(`[${context}] ❌ MISALIGNED TIMESTAMP: ${timestampSeconds} is not aligned to ${timeframe}`);
+    return false;
+  }
+  return true;
+}
+
 export function aggregatePricesToCurrentCandle(
   prices: RealtimePrice[],
   timeframe: Timeframe,
@@ -242,18 +255,16 @@ export function aggregatePricesToCurrentCandle(
 ): CandleData | null {
   if (prices.length === 0) return null;
 
-  const intervalMinutes = getTimeframeMinutes(timeframe);
-  const intervalMs = intervalMinutes * 60 * 1000;
-
   const latestPrice = prices[prices.length - 1];
   const latestTimestampUtc = parseUtcTimestamp(latestPrice.broker_time || latestPrice.created_at);
 
-  const currentCandleTimeMs = Math.floor(latestTimestampUtc / intervalMs) * intervalMs;
+  // CRITICAL: Use centralized timestamp normalization
+  const currentCandleTimeSeconds = normalizeTimestamp(latestTimestampUtc, timeframe);
 
   const relevantPrices = prices.filter((price) => {
     const timestampUtc = parseUtcTimestamp(price.broker_time || price.created_at);
-    const candleTimeMs = Math.floor(timestampUtc / intervalMs) * intervalMs;
-    return candleTimeMs === currentCandleTimeMs;
+    const candleTimeSeconds = normalizeTimestamp(timestampUtc, timeframe);
+    return candleTimeSeconds === currentCandleTimeSeconds;
   });
 
   if (relevantPrices.length === 0) return null;
@@ -265,12 +276,18 @@ export function aggregatePricesToCurrentCandle(
   });
 
   const aggregatedCandle: CandleData = {
-    time: Math.floor(currentCandleTimeMs / 1000),
+    time: currentCandleTimeSeconds,
     open: midPrices[0],
     high: Math.max(...midPrices),
     low: Math.min(...midPrices),
     close: midPrices[midPrices.length - 1],
   };
+
+  // Validate timestamp alignment
+  if (!validateTimestamp(aggregatedCandle.time, timeframe, 'aggregatePricesToCurrentCandle')) {
+    console.error(`[ChartData] Rejecting misaligned aggregated candle`);
+    return null;
+  }
 
   if (historicalCandles && historicalCandles.length > 0 && symbol) {
     const validation = validateCandleAgainstHistorical(aggregatedCandle, historicalCandles, symbol);
@@ -284,9 +301,8 @@ export function aggregatePricesToCurrentCandle(
 }
 
 function getCurrentCandleStartTime(timeframe: Timeframe): number {
-  const now = Date.now();
-  const intervalMs = getTimeframeMinutes(timeframe) * 60 * 1000;
-  return Math.floor(now / intervalMs) * intervalMs;
+  // CRITICAL: Use centralized timestamp normalization
+  return getCurrentCandleStart(timeframe);
 }
 
 export async function fetchCompleteChartData(
@@ -296,8 +312,7 @@ export async function fetchCompleteChartData(
 ): Promise<{ historical: CandleData[]; current: CandleData | null }> {
   console.log(`[ChartData] Fetching complete data for ${symbol} ${timeframe}, limit: ${limit}`);
 
-  const currentCandleStartMs = getCurrentCandleStartTime(timeframe);
-  const currentCandleStartTime = Math.floor(currentCandleStartMs / 1000);
+  const currentCandleStartTime = getCurrentCandleStart(timeframe);
   console.log(`[ChartData] Current candle period starts at: ${new Date(currentCandleStartMs).toISOString()} (${currentCandleStartTime})`);
 
   const [historicalCandles, recentPrices] = await Promise.all([
