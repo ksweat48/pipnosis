@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Download, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Play, Pause, Search, Activity } from 'lucide-react';
+import { Database, Download, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Play, Pause, Search, Activity, Brain, Zap, Sparkles, FileText } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { historicalDataService, type ProgressUpdate } from '@/services/historical-data-service';
 import { automatedRefreshService } from '@/services/automated-refresh-service';
 import { symbolValidator } from '@/services/symbol-validator';
 import { Timeframe } from '@/services/chart-preferences';
 import { SystemMonitoringPanel } from './SystemMonitoringPanel';
+import { useAuth } from '@/hooks/useAuth';
 
 interface DataCompletenessStatus {
   symbol: string;
@@ -19,8 +20,10 @@ interface DataCompletenessStatus {
 }
 
 export function DataManagementPanel() {
-  const [activeTab, setActiveTab] = useState<'historical' | 'monitoring'>('monitoring');
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<'historical' | 'monitoring' | 'training'>('monitoring');
   const [statusData, setStatusData] = useState<DataCompletenessStatus[]>([]);
+  const [trainingData, setTrainingData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isBulkImporting, setIsBulkImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<ProgressUpdate[]>([]);
@@ -38,7 +41,68 @@ export function DataManagementPanel() {
     loadDataStatus();
     loadSymbolAvailability();
     loadAvailableSymbols();
-  }, []);
+    if (user) {
+      loadTrainingData();
+    }
+  }, [user]);
+
+  const loadTrainingData = async () => {
+    if (!user) return;
+
+    try {
+      // Get backtest sessions stats
+      const { data: backtestSessions, count: backtestCount } = await supabase
+        .from('backtest_sessions')
+        .select('*', { count: 'exact' })
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      const { data: syntheticSessions, count: syntheticCount } = await supabase
+        .from('synthetic_backtest_sessions')
+        .select('*', { count: 'exact' })
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      // Get learning insights stats
+      const { count: insightsCount } = await supabase
+        .from('ai_learning_insights')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
+      // Get skill tracking stats
+      const { count: skillCount } = await supabase
+        .from('ai_skill_tracking')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
+      // Get pattern discoveries stats
+      const { count: patternCount } = await supabase
+        .from('ai_pattern_discoveries')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
+      // Get synthetic candles stats
+      const { count: syntheticCandlesCount } = await supabase
+        .from('synthetic_candles')
+        .select('id', { count: 'exact', head: true });
+
+      setTrainingData({
+        backtestSessions: backtestSessions || [],
+        syntheticSessions: syntheticSessions || [],
+        totalBacktests: (backtestCount || 0) + (syntheticCount || 0),
+        backtestCount: backtestCount || 0,
+        syntheticCount: syntheticCount || 0,
+        insightsCount: insightsCount || 0,
+        skillCount: skillCount || 0,
+        patternCount: patternCount || 0,
+        syntheticCandlesCount: syntheticCandlesCount || 0
+      });
+    } catch (error) {
+      console.error('[Data Management] Error loading training data:', error);
+    }
+  };
 
   const loadDataStatus = async () => {
     try {
@@ -230,10 +294,10 @@ export function DataManagementPanel() {
   return (
     <div className="space-y-6">
       <div className="bg-gray-800 rounded-lg border border-gray-700">
-        <div className="flex border-b border-gray-700">
+        <div className="flex border-b border-gray-700 overflow-x-auto">
           <button
             onClick={() => setActiveTab('historical')}
-            className={`flex items-center gap-2 px-6 py-4 font-medium transition-all ${
+            className={`flex items-center gap-2 px-6 py-4 font-medium transition-all whitespace-nowrap ${
               activeTab === 'historical'
                 ? 'text-emerald-500 border-b-2 border-emerald-500 bg-gray-900/50'
                 : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/30'
@@ -243,8 +307,19 @@ export function DataManagementPanel() {
             Historical Data
           </button>
           <button
+            onClick={() => setActiveTab('training')}
+            className={`flex items-center gap-2 px-6 py-4 font-medium transition-all whitespace-nowrap ${
+              activeTab === 'training'
+                ? 'text-blue-500 border-b-2 border-blue-500 bg-gray-900/50'
+                : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/30'
+            }`}
+          >
+            <Activity size={20} />
+            AI Training Data
+          </button>
+          <button
             onClick={() => setActiveTab('monitoring')}
-            className={`flex items-center gap-2 px-6 py-4 font-medium transition-all ${
+            className={`flex items-center gap-2 px-6 py-4 font-medium transition-all whitespace-nowrap ${
               activeTab === 'monitoring'
                 ? 'text-emerald-500 border-b-2 border-emerald-500 bg-gray-900/50'
                 : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/30'
@@ -258,6 +333,129 @@ export function DataManagementPanel() {
 
       {activeTab === 'monitoring' ? (
         <SystemMonitoringPanel />
+      ) : activeTab === 'training' ? (
+        <div className="space-y-6">
+          {/* AI Training Data Overview */}
+          <div className="bg-gradient-to-br from-blue-900/30 to-purple-900/30 backdrop-blur-sm border-2 border-blue-500/30 rounded-lg p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <Brain className="w-8 h-8 text-blue-400" />
+              <div>
+                <h2 className="text-2xl font-bold text-white">AI Training Data Management</h2>
+                <p className="text-gray-300 text-sm">View and export AI learning data from the Training Lab</p>
+              </div>
+            </div>
+
+            {trainingData && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+                  <div className="text-sm text-gray-400 mb-1">Total Backtests</div>
+                  <div className="text-2xl font-bold text-white">{trainingData.totalBacktests}</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {trainingData.backtestCount} real / {trainingData.syntheticCount} synthetic
+                  </div>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+                  <div className="text-sm text-gray-400 mb-1">Learning Insights</div>
+                  <div className="text-2xl font-bold text-purple-400">{trainingData.insightsCount}</div>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+                  <div className="text-sm text-gray-400 mb-1">Pattern Discoveries</div>
+                  <div className="text-2xl font-bold text-green-400">{trainingData.patternCount}</div>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+                  <div className="text-sm text-gray-400 mb-1">Skill Records</div>
+                  <div className="text-2xl font-bold text-emerald-400">{trainingData.skillCount}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Recent Backtest Sessions */}
+            <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-green-400" />
+                  Recent Training Sessions
+                </h3>
+                <button
+                  onClick={loadTrainingData}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-all flex items-center gap-2"
+                >
+                  <RefreshCw size={14} />
+                  Refresh
+                </button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-700">
+                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Session Name</th>
+                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Type</th>
+                      <th className="text-right py-2 px-3 text-gray-400 font-medium">Trades</th>
+                      <th className="text-right py-2 px-3 text-gray-400 font-medium">Win Rate</th>
+                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trainingData && [...trainingData.backtestSessions, ...trainingData.syntheticSessions]
+                      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                      .slice(0, 10)
+                      .map((session: any, index: number) => (
+                        <tr key={session.id} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                          <td className="py-2 px-3 text-white font-medium">{session.session_name}</td>
+                          <td className="py-2 px-3">
+                            {session.session_name?.startsWith('Auto-BT-') ? (
+                              <span className="px-2 py-0.5 bg-green-600 text-white text-xs font-bold rounded flex items-center gap-1 w-fit">
+                                <Zap className="w-3 h-3" />
+                                AUTO
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded w-fit">
+                                MANUAL
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-right text-gray-300">{session.total_trades}</td>
+                          <td className={`py-2 px-3 text-right font-semibold ${
+                            session.win_rate >= 55 ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            {session.win_rate?.toFixed(1)}%
+                          </td>
+                          <td className="py-2 px-3 text-gray-400 text-xs">
+                            {new Date(session.created_at).toLocaleDateString()}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Synthetic Candles Stats */}
+            {trainingData && trainingData.syntheticCandlesCount > 0 && (
+              <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="w-5 h-5 text-purple-400" />
+                  <h3 className="text-white font-semibold">Synthetic Data Storage</h3>
+                </div>
+                <p className="text-gray-400 text-sm">
+                  <span className="text-purple-400 font-bold">{trainingData.syntheticCandlesCount.toLocaleString()}</span> synthetic candles stored
+                </p>
+              </div>
+            )}
+
+            {/* Export Options */}
+            <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+              <div className="flex items-center gap-2 mb-3">
+                <FileText className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-white font-semibold">Export Training Data</h3>
+              </div>
+              <p className="text-gray-400 text-sm mb-4">
+                Export functionality coming soon. You can currently view all training data in the AI Learning Center and query directly from Supabase.
+              </p>
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="space-y-6">
       <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">

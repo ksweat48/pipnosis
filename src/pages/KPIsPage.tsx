@@ -17,7 +17,12 @@ import {
   Award,
   AlertCircle,
   Settings,
+  Brain,
+  Zap,
+  Sparkles,
+  LineChart,
 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
 interface LearningMetrics {
   metric_period: string;
@@ -59,10 +64,12 @@ interface UserPerformance {
 }
 
 export function KPIsPage() {
+  const { user } = useAuth();
   const [timeframe, setTimeframe] = useState<string>('all_time');
   const [metrics, setMetrics] = useState<LearningMetrics | null>(null);
   const [strategies, setStrategies] = useState<StrategyAnalytics[]>([]);
   const [userPerformance, setUserPerformance] = useState<UserPerformance[]>([]);
+  const [trainingMetrics, setTrainingMetrics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
@@ -70,28 +77,132 @@ export function KPIsPage() {
 
   useEffect(() => {
     loadKPIData();
-  }, [timeframe]);
+  }, [timeframe, user]);
 
   const loadKPIData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const [metricsData, strategiesData, usersData] = await Promise.all([
+      const [metricsData, strategiesData, usersData, trainingData] = await Promise.all([
         fetchMetrics(),
         fetchStrategies(),
         fetchUserPerformance(),
+        fetchTrainingMetrics(),
       ]);
 
       setMetrics(metricsData);
       setStrategies(strategiesData);
       setUserPerformance(usersData);
+      setTrainingMetrics(trainingData);
     } catch (error) {
       console.error('Error loading KPI data:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       setError(`Failed to load KPI data: ${errorMessage}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTrainingMetrics = async () => {
+    if (!user) return null;
+
+    try {
+      // Get backtest session counts
+      const { count: realCount } = await supabase
+        .from('backtest_sessions')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
+      const { count: syntheticCount } = await supabase
+        .from('synthetic_backtest_sessions')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
+      // Get auto-backtest count
+      const { data: autoSessions } = await supabase
+        .from('backtest_sessions')
+        .select('session_name')
+        .eq('user_id', user.id)
+        .like('session_name', 'Auto-BT-%');
+
+      const { data: autoSyntheticSessions } = await supabase
+        .from('synthetic_backtest_sessions')
+        .select('session_name')
+        .eq('user_id', user.id)
+        .like('session_name', 'Auto-BT-%');
+
+      const totalAutoBacktests = (autoSessions?.length || 0) + (autoSyntheticSessions?.length || 0);
+
+      // Get current skill level
+      const { data: skillData } = await supabase
+        .from('ai_skill_tracking')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // Get learning insights count
+      const { count: insightsCount } = await supabase
+        .from('ai_learning_insights')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
+      // Get pattern discoveries count
+      const { count: patternsCount } = await supabase
+        .from('ai_pattern_discoveries')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
+      // Get recent performance (last 30 days)
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: recentSessions } = await supabase
+        .from('backtest_sessions')
+        .select('win_rate, total_pnl')
+        .eq('user_id', user.id)
+        .gte('created_at', thirtyDaysAgo);
+
+      const avgWinRate = recentSessions && recentSessions.length > 0
+        ? recentSessions.reduce((sum, s) => sum + s.win_rate, 0) / recentSessions.length
+        : 0;
+
+      const avgPnL = recentSessions && recentSessions.length > 0
+        ? recentSessions.reduce((sum, s) => sum + s.total_pnl, 0) / recentSessions.length
+        : 0;
+
+      // Get skill progression (compare last 2 records)
+      const { data: skillHistory } = await supabase
+        .from('ai_skill_tracking')
+        .select('skill_level')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false})
+        .limit(2);
+
+      let skillImprovement = 0;
+      if (skillHistory && skillHistory.length === 2) {
+        skillImprovement = skillHistory[0].skill_level - skillHistory[1].skill_level;
+      }
+
+      return {
+        totalBacktests: (realCount || 0) + (syntheticCount || 0),
+        realBacktests: realCount || 0,
+        syntheticBacktests: syntheticCount || 0,
+        autoBacktests: totalAutoBacktests,
+        manualBacktests: ((realCount || 0) + (syntheticCount || 0)) - totalAutoBacktests,
+        currentSkillLevel: skillData?.skill_level || 0,
+        totalInsights: insightsCount || 0,
+        totalPatterns: patternsCount || 0,
+        avgWinRate30d: avgWinRate,
+        avgPnL30d: avgPnL,
+        skillImprovement,
+        insightsPerBacktest: ((realCount || 0) + (syntheticCount || 0)) > 0
+          ? (insightsCount || 0) / ((realCount || 0) + (syntheticCount || 0))
+          : 0
+      };
+    } catch (error) {
+      console.error('Error fetching training metrics:', error);
+      return null;
     }
   };
 
@@ -340,6 +451,79 @@ export function KPIsPage() {
                 subtitle={`Confidence Accuracy: ${metrics.confidence_accuracy}%`}
               />
             </div>
+
+            {/* AI Training Lab Metrics - Side by Side with Trading Performance */}
+            {trainingMetrics && (
+              <div className="bg-gradient-to-br from-blue-900/30 to-purple-900/30 backdrop-blur-sm border-2 border-blue-500/30 rounded-xl p-6 mb-8">
+                <div className="flex items-center gap-3 mb-6">
+                  <Brain className="w-8 h-8 text-blue-400" />
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">AI Training Lab Metrics</h2>
+                    <p className="text-gray-300 text-sm">Continuous learning and skill development performance</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                  <MetricCard
+                    title="AI Skill Level"
+                    value={`${trainingMetrics.currentSkillLevel}%`}
+                    icon={Brain}
+                    color={trainingMetrics.currentSkillLevel >= 75 ? 'green' : trainingMetrics.currentSkillLevel >= 50 ? 'amber' : 'red'}
+                    subtitle={`${trainingMetrics.skillImprovement >= 0 ? '+' : ''}${trainingMetrics.skillImprovement.toFixed(1)}% change`}
+                  />
+                  <MetricCard
+                    title="Total Training Sessions"
+                    value={trainingMetrics.totalBacktests.toString()}
+                    icon={Activity}
+                    color="blue"
+                    subtitle={`${trainingMetrics.autoBacktests} auto / ${trainingMetrics.manualBacktests} manual`}
+                  />
+                  <MetricCard
+                    title="Learning Insights"
+                    value={trainingMetrics.totalInsights.toString()}
+                    icon={Sparkles}
+                    color="purple"
+                    subtitle={`${trainingMetrics.insightsPerBacktest.toFixed(1)} per session`}
+                  />
+                  <MetricCard
+                    title="30-Day Win Rate"
+                    value={`${trainingMetrics.avgWinRate30d.toFixed(1)}%`}
+                    icon={Target}
+                    color={trainingMetrics.avgWinRate30d >= 55 ? 'green' : 'amber'}
+                    subtitle={`Avg P&L: $${trainingMetrics.avgPnL30d.toFixed(2)}`}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Zap className="w-5 h-5 text-green-400" />
+                      <h3 className="text-white font-semibold">Auto-Backtest</h3>
+                    </div>
+                    <div className="text-3xl font-bold text-green-400 mb-1">{trainingMetrics.autoBacktests}</div>
+                    <div className="text-sm text-gray-400">Automated training runs</div>
+                  </div>
+
+                  <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Sparkles className="w-5 h-5 text-purple-400" />
+                      <h3 className="text-white font-semibold">Synthetic Data</h3>
+                    </div>
+                    <div className="text-3xl font-bold text-purple-400 mb-1">{trainingMetrics.syntheticBacktests}</div>
+                    <div className="text-sm text-gray-400">Synthetic training sessions</div>
+                  </div>
+
+                  <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+                    <div className="flex items-center gap-2 mb-3">
+                      <LineChart className="w-5 h-5 text-emerald-400" />
+                      <h3 className="text-white font-semibold">Pattern Discoveries</h3>
+                    </div>
+                    <div className="text-3xl font-bold text-emerald-400 mb-1">{trainingMetrics.totalPatterns}</div>
+                    <div className="text-sm text-gray-400">Unique patterns found</div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
               <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
