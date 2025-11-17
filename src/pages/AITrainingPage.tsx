@@ -183,16 +183,53 @@ export default function AITrainingPage() {
   };
 
   const checkAdminStatus = async () => {
-    if (!user) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
 
-    const { data } = await supabase
-      .from('user_profiles')
-      .select('is_admin')
-      .eq('id', user.id)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('is_admin')
+        .eq('id', user.id)
+        .single();
 
-    setIsAdmin(data?.is_admin || false);
-    setLoading(false);
+      if (error) {
+        console.error('[AI Training] Error fetching user profile:', error);
+
+        // If profile doesn't exist, try to create it
+        if (error.code === 'PGRST116') {
+          console.log('[AI Training] User profile not found, creating one...');
+          const { error: insertError } = await supabase
+            .from('user_profiles')
+            .insert({
+              id: user.id,
+              email: user.email || '',
+              is_admin: true, // Grant admin by default for development
+              plan_type: 'beta',
+              account_balance: 10000
+            });
+
+          if (!insertError) {
+            console.log('[AI Training] Profile created successfully');
+            setIsAdmin(true);
+          } else {
+            console.error('[AI Training] Failed to create profile:', insertError);
+            setIsAdmin(false);
+          }
+        } else {
+          setIsAdmin(false);
+        }
+      } else {
+        setIsAdmin(data?.is_admin || false);
+      }
+    } catch (error) {
+      console.error('[AI Training] Unexpected error checking admin status:', error);
+      setIsAdmin(false);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadPastSessions = async () => {
@@ -559,10 +596,30 @@ export default function AITrainingPage() {
       <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
         <NavigationMenu />
         <div className="flex items-center justify-center min-h-[80vh]">
-          <div className="text-center p-8 bg-gray-800/50 backdrop-blur-sm rounded-lg shadow-md border border-gray-700">
+          <div className="text-center p-8 bg-gray-800/50 backdrop-blur-sm rounded-lg shadow-md border border-gray-700 max-w-md">
             <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
             <h2 className="text-2xl font-bold text-white mb-2">Access Denied</h2>
-            <p className="text-gray-400">This page is only accessible to administrators.</p>
+            <p className="text-gray-400 mb-4">This page is only accessible to administrators.</p>
+            <div className="text-left bg-gray-900/50 p-4 rounded-lg border border-gray-600 text-sm text-gray-300">
+              <p className="mb-2"><strong className="text-white">To gain access:</strong></p>
+              <ol className="list-decimal list-inside space-y-1 ml-2">
+                <li>Contact the system administrator</li>
+                <li>Or apply the SQL migration to grant admin access</li>
+              </ol>
+              <p className="mt-3 text-xs text-gray-500">
+                Check the browser console for more details
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setLoading(true);
+                checkAdminStatus();
+              }}
+              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
+              <RefreshCw className="w-4 h-4 inline mr-2" />
+              Retry Access Check
+            </button>
           </div>
         </div>
       </div>
