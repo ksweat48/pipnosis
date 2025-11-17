@@ -313,7 +313,7 @@ export async function fetchCompleteChartData(
   console.log(`[ChartData] Fetching complete data for ${symbol} ${timeframe}, limit: ${limit}`);
 
   const currentCandleStartTime = getCurrentCandleStart(timeframe);
-  console.log(`[ChartData] Current candle period starts at: ${new Date(currentCandleStartMs).toISOString()} (${currentCandleStartTime})`);
+  console.log(`[ChartData] Current candle period starts at: ${new Date(currentCandleStartTime * 1000).toISOString()} (${currentCandleStartTime})`);
 
   const [historicalCandles, recentPrices] = await Promise.all([
     fetchPreAggregatedCandles(symbol, timeframe, limit),
