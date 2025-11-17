@@ -235,20 +235,36 @@ class ChartCandlePoller {
     const key = this.getCacheKey(symbol, timeframe);
     const cache = this.cache.get(key);
 
+    // Validate that all candles have proper time format (numbers, not objects)
+    const validatedCandles = candles.filter(candle => {
+      if (typeof candle.time !== 'number' || isNaN(candle.time)) {
+        console.error(`[ChartPoller] Filtering out invalid candle with time:`, {
+          time: candle.time,
+          type: typeof candle.time
+        });
+        return false;
+      }
+      return true;
+    });
+
+    if (validatedCandles.length !== candles.length) {
+      console.warn(`[ChartPoller] Filtered out ${candles.length - validatedCandles.length} candles with invalid time format`);
+    }
+
     if (cache) {
-      cache.fullHistoricalCandles = candles;
-      console.log(`[ChartPoller] Cached ${candles.length} historical candles for ${symbol} ${timeframe}`);
+      cache.fullHistoricalCandles = validatedCandles;
+      console.log(`[ChartPoller] Cached ${validatedCandles.length} historical candles for ${symbol} ${timeframe}`);
     } else {
       // If cache doesn't exist yet, create it with the historical data
       this.cache.set(key, {
         symbol,
         timeframe,
-        lastCandleTime: candles.length > 0 ? candles[candles.length - 1].time : null,
+        lastCandleTime: validatedCandles.length > 0 ? validatedCandles[validatedCandles.length - 1].time : null,
         lastPollTime: Date.now(),
-        candles: candles.slice(-3), // Keep last 3 for quick updates
-        fullHistoricalCandles: candles
+        candles: validatedCandles.slice(-3), // Keep last 3 for quick updates
+        fullHistoricalCandles: validatedCandles
       });
-      console.log(`[ChartPoller] Created cache with ${candles.length} historical candles for ${symbol} ${timeframe}`);
+      console.log(`[ChartPoller] Created cache with ${validatedCandles.length} historical candles for ${symbol} ${timeframe}`);
     }
   }
 

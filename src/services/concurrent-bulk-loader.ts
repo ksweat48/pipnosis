@@ -274,9 +274,17 @@ class ConcurrentBulkLoader {
   private async upsertCandles(candles: any[]): Promise<void> {
     if (candles.length === 0) return;
 
+    // Filter out fields that don't exist in the forex_candles table
+    // The table has: id, symbol, timeframe, open_time, close_time, open, high, low, close,
+    // volume, created_at, tick_count, data_source, tick_volume, spread
+    const validCandles = candles.map(candle => {
+      const { timestamp, ...validFields } = candle; // Remove timestamp field added by cache
+      return validFields;
+    });
+
     const { error } = await supabase
       .from('forex_candles')
-      .upsert(candles, {
+      .upsert(validCandles, {
         onConflict: 'symbol,timeframe,open_time',
         ignoreDuplicates: false
       });
