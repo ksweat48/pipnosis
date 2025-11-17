@@ -9,16 +9,16 @@ import ConnectionStatusIndicator from './components/ConnectionStatusIndicator';
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
 const PublicLandingPage = lazy(() => import('./components/PublicLandingPage').then(m => ({ default: m.PublicLandingPage })));
 const AuthPage = lazy(() => import('./pages/AuthPage').then(m => ({ default: m.AuthPage })));
-const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
-const TradePage = lazy(() => import('./pages/TradePage'));
-const AITradePage = lazy(() => import('./pages/AITradePage'));
-const HistoryPage = lazy(() => import('./pages/HistoryPage'));
-const AnalysisPage = lazy(() => import('./pages/AnalysisPage'));
-const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
+const TradePage = lazy(() => import('./pages/TradePage').then(m => ({ default: m.TradePage })));
+const AITradePage = lazy(() => import('./pages/AITradePage').then(m => ({ default: m.AITradePage })));
+const HistoryPage = lazy(() => import('./pages/HistoryPage').then(m => ({ default: m.HistoryPage })));
+const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
-// Admin pages - only loaded when needed
+// Admin pages - only loaded when needed (AITrainingPage, SessionLearningsPage, SystemDiagnosticsPage use default export)
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
-const KPIsPage = lazy(() => import('./pages/KPIsPage'));
+const KPIsPage = lazy(() => import('./pages/KPIsPage').then(m => ({ default: m.KPIsPage })));
 const AITrainingPage = lazy(() => import('./pages/AITrainingPage'));
 const SessionLearningsPage = lazy(() => import('./pages/SessionLearningsPage'));
 const SystemDiagnosticsPage = lazy(() => import('./pages/SystemDiagnosticsPage'));
