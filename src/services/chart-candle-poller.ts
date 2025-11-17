@@ -105,17 +105,31 @@ class ChartCandlePoller {
         return;
       }
 
-      // Convert database format to chart format
-      const candles: CandleData[] = data
-        .map(candle => ({
-          time: Math.floor(new Date(candle.open_time).getTime() / 1000),
-          open: parseFloat(candle.open),
-          high: parseFloat(candle.high),
-          low: parseFloat(candle.low),
-          close: parseFloat(candle.close),
-          volume: parseFloat(candle.volume || '0')
-        }))
-        .reverse(); // Convert back to ascending order
+      // Convert database format to chart format with deduplication
+      const candleMap = new Map<number, CandleData>();
+
+      data.forEach(candle => {
+        const timestamp = Math.floor(new Date(candle.open_time).getTime() / 1000);
+        // Keep only the most recent entry for each timestamp (first in descending order)
+        if (!candleMap.has(timestamp)) {
+          candleMap.set(timestamp, {
+            time: timestamp,
+            open: parseFloat(candle.open),
+            high: parseFloat(candle.high),
+            low: parseFloat(candle.low),
+            close: parseFloat(candle.close),
+            volume: parseFloat(candle.volume || '0')
+          });
+        }
+      });
+
+      // Convert to array and sort ascending
+      const candles: CandleData[] = Array.from(candleMap.values())
+        .sort((a, b) => a.time - b.time);
+
+      if (data.length !== candles.length) {
+        console.log(`[ChartPoller] Deduplicated ${data.length - candles.length} overlapping candles for ${symbol} ${timeframe}`);
+      }
 
       const latestCandle = candles[candles.length - 1];
       const hasNewData = cache.lastCandleTime === null || latestCandle.time > cache.lastCandleTime;

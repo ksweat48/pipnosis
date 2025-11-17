@@ -36,6 +36,30 @@ const TIMEFRAME_MINUTES_MAP: Record<Timeframe, number> = {
 
 const MAX_PRICE_DEVIATION_PERCENT = 10;
 
+function deduplicateCandles(candles: CandleData[]): CandleData[] {
+  if (candles.length === 0) return [];
+
+  const uniqueMap = new Map<number, CandleData>();
+
+  // Keep the first occurrence of each timestamp
+  candles.forEach(candle => {
+    if (!uniqueMap.has(candle.time)) {
+      uniqueMap.set(candle.time, candle);
+    }
+  });
+
+  // Sort by time ascending
+  const deduplicated = Array.from(uniqueMap.values())
+    .sort((a, b) => a.time - b.time);
+
+  const duplicatesRemoved = candles.length - deduplicated.length;
+  if (duplicatesRemoved > 0) {
+    console.log(`[CandleData] Deduplicated: removed ${duplicatesRemoved} duplicate timestamps from ${candles.length} candles`);
+  }
+
+  return deduplicated;
+}
+
 export function getTimeframeMinutes(timeframe: Timeframe): number {
   return TIMEFRAME_MINUTES_MAP[timeframe] || 15;
 }
@@ -111,13 +135,21 @@ export async function fetchPreAggregatedCandles(
   try {
     const dbTimeframe = appTimeframeToDb(timeframe);
 
+    // CRITICAL FIX: Fetch from BOTH uppercase and lowercase formats to catch all data
+    // Then deduplicate by timestamp to prevent overlaps
+    const lowercaseFormat = timeframe.toLowerCase().replace(/^m/, '').replace(/^h/, '') +
+      (timeframe.startsWith('M') ? 'm' : timeframe.startsWith('H') ? 'h' : timeframe.startsWith('D') ? '' : '');
+    const lowercaseTimeframe = timeframe.startsWith('D') ? 'D1' :
+      timeframe.startsWith('W') ? 'W1' :
+      timeframe.replace(/^M/, '').replace(/^H/, '') + (timeframe.startsWith('M') ? 'm' : 'h');
+
     const { data: forexCandles, error: forexError } = await supabase
       .from('forex_candles')
       .select('open_time, open, high, low, close, volume')
       .eq('symbol', symbol)
-      .eq('timeframe', dbTimeframe)
+      .in('timeframe', [dbTimeframe, lowercaseTimeframe])
       .order('open_time', { ascending: false })
-      .limit(limit);
+      .limit(limit * 2); // Fetch more to account for potential duplicates
 
     if (forexError) {
       console.error('Error fetching pre-aggregated candles:', forexError);
@@ -129,16 +161,34 @@ export async function fetchPreAggregatedCandles(
       return [];
     }
 
-    const candles = forexCandles
-      .map((candle) => ({
-        time: Math.floor(new Date(candle.open_time).getTime() / 1000),
-        open: candle.open,
-        high: candle.high,
-        low: candle.low,
-        close: candle.close,
-        volume: candle.volume,
-      }))
-      .reverse();
+    // Convert to standard format and deduplicate by timestamp
+    const candleMap = new Map<number, CandleData>();
+
+    forexCandles.forEach((candle) => {
+      const timestamp = Math.floor(new Date(candle.open_time).getTime() / 1000);
+
+      // Only keep the first occurrence of each timestamp (most recent in query order)
+      if (!candleMap.has(timestamp)) {
+        candleMap.set(timestamp, {
+          time: timestamp,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          volume: candle.volume,
+        });
+      }
+    });
+
+    // Convert map to array, sort by time ascending, and limit to requested count
+    const candles = Array.from(candleMap.values())
+      .sort((a, b) => a.time - b.time)
+      .slice(-limit);
+
+    const duplicatesRemoved = forexCandles.length - candleMap.size;
+    if (duplicatesRemoved > 0) {
+      console.log(`[CandleData] Removed ${duplicatesRemoved} duplicate candles for ${symbol} ${timeframe}`);
+    }
 
     console.log(`Loaded ${candles.length} pre-aggregated candles from forex_candles for ${symbol} ${timeframe} (db: ${dbTimeframe})`);
     return candles;
@@ -271,20 +321,23 @@ export async function fetchCompleteChartData(
     console.warn(`[ChartData] Could not aggregate current candle from ${recentPrices.length} recent prices (likely failed validation)`);
   }
 
-  let finalHistorical = historicalCandles;
+  // CRITICAL FIX: Deduplicate and validate historical candles before merging
+  const deduplicatedHistorical = deduplicateCandles(historicalCandles);
+
+  let finalHistorical = deduplicatedHistorical;
   let finalCurrent: CandleData | null = currentCandle;
 
-  if (currentCandle && historicalCandles.length > 0) {
-    const lastHistoricalTime = historicalCandles[historicalCandles.length - 1].time;
+  if (currentCandle && deduplicatedHistorical.length > 0) {
+    const lastHistoricalTime = deduplicatedHistorical[deduplicatedHistorical.length - 1].time;
 
     if (currentCandle.time === lastHistoricalTime) {
       console.warn(`[ChartData] WARNING: Current candle overlaps with last historical - removing last historical`);
-      finalHistorical = [...historicalCandles.slice(0, -1)];
+      finalHistorical = [...deduplicatedHistorical.slice(0, -1)];
     } else if (currentCandle.time < lastHistoricalTime) {
       console.error(`[ChartData] ERROR: Current candle time ${currentCandle.time} < last historical ${lastHistoricalTime}`);
       console.error(`[ChartData] This indicates historical data includes incomplete candles - ignoring current`);
       return {
-        historical: historicalCandles,
+        historical: deduplicatedHistorical,
         current: null,
       };
     } else if (currentCandle.time === currentCandleStartTime) {

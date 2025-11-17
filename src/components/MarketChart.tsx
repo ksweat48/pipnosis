@@ -394,14 +394,22 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         ? historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time
         : 0;
 
+      // STRICT OVERLAP PREVENTION: Reject any candle with timestamp <= last historical
       if (candleTimeSeconds <= lastHistoricalTime) {
-        // Silently ignore old ticks from initialization
+        // Silently ignore old ticks that would create overlaps
         return;
       }
 
       // Also reject if this tick would create a candle older than our current forming candle
       if (currentCandleRef.current && candleTimeSeconds < currentCandleRef.current.time) {
         // This is an old tick, ignore it
+        return;
+      }
+
+      // Validate this candle is at least one interval after the last historical
+      const expectedMinTime = lastHistoricalTime + (getTimeframeMinutes(timeframe) * 60);
+      if (candleTimeSeconds < expectedMinTime && lastHistoricalTime > 0) {
+        console.warn(`[Chart] Rejecting tick: candle time ${candleTimeSeconds} < expected min time ${expectedMinTime}`);
         return;
       }
 
@@ -469,7 +477,16 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       ? historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time
       : 0;
 
+    // STRICT OVERLAP PREVENTION: Reject any candle with timestamp <= last historical
     if (latestCandle.time <= lastHistoricalTime) {
+      console.warn(`[Chart] OVERLAP PREVENTED: Rejecting polled candle at ${new Date(latestCandle.time * 1000).toISOString()} (last historical: ${new Date(lastHistoricalTime * 1000).toISOString()})`);
+      return;
+    }
+
+    // Validate this is at least one full interval after last historical
+    const expectedMinTime = lastHistoricalTime + (getTimeframeMinutes(timeframe) * 60);
+    if (latestCandle.time < expectedMinTime && lastHistoricalTime > 0) {
+      console.warn(`[Chart] GAP VIOLATION: Rejecting candle at ${latestCandle.time}, expected >= ${expectedMinTime}`);
       return;
     }
 
@@ -577,11 +594,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         return;
       }
 
+      // CRITICAL FIX: Deduplicate candles by timestamp and ensure strict ordering
       const sortedHistorical = [...chartData.historical].sort((a, b) => a.time - b.time);
-      const uniqueHistorical = sortedHistorical.filter((candle, index, array) => {
-        if (index === 0) return true;
-        return candle.time > array[index - 1].time;
-      });
+      const uniqueHistorical = [];
+      const seenTimestamps = new Set<number>();
+
+      for (const candle of sortedHistorical) {
+        if (!seenTimestamps.has(candle.time)) {
+          seenTimestamps.add(candle.time);
+          uniqueHistorical.push(candle);
+        } else {
+          console.warn(`[Chart Init] Skipping duplicate candle at ${new Date(candle.time * 1000).toISOString()}`);
+        }
+      }
 
       console.log(`[Chart Init] Checking for data gaps in ${uniqueHistorical.length} candles...`);
       const { candles: backfilledCandles, backfillResult } = await detectAndBackfillGaps(
@@ -647,6 +672,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         console.log(`[Chart Init] Current candle time: ${new Date(chartData.current.time * 1000).toISOString()}`);
         console.log(`[Chart Init] Last historical time: ${new Date(lastHistoricalTime * 1000).toISOString()}`);
 
+        // CRITICAL FIX: Strictly validate current candle is after historical data
         if (chartData.current.time > lastHistoricalTime) {
           const timeDiff = chartData.current.time - lastHistoricalTime;
           const expectedInterval = getTimeframeMinutes(timeframe) * 60;
@@ -663,9 +689,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           };
           candlestickSeriesRef.current?.update(chartData.current);
         } else if (chartData.current.time === lastHistoricalTime) {
-          console.warn(`[Chart Init] ⚠ Current candle matches last historical - this should not happen with proper filtering`);
+          console.error(`[Chart Init] ❌ OVERLAP PREVENTED: Current candle matches last historical timestamp - rejecting current candle`);
+          // Do not set current candle - it overlaps with historical data
+          currentCandleRef.current = null;
         } else {
-          console.error(`[Chart Init] ✗ ERROR: Current candle is older than last historical - data integrity issue`);
+          console.error(`[Chart Init] ❌ OVERLAP PREVENTED: Current candle (${chartData.current.time}) is older than last historical (${lastHistoricalTime}) - rejecting current candle`);
+          // Do not set current candle - it would create backwards time travel
+          currentCandleRef.current = null;
         }
       }
 
