@@ -1,10 +1,10 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 
-export function NavigationMenu() {
+const NavigationMenuComponent = () => {
   const location = useLocation();
   const { user, isAdmin, signOut } = useAuth();
   const { balance, totalPnL, openPositionsCount } = useUserBalance(user?.id || null);
@@ -193,4 +193,6 @@ export function NavigationMenu() {
       </div>
     </nav>
   );
-}
+};
+
+export const NavigationMenu = memo(NavigationMenuComponent);

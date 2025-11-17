@@ -1,4 +1,5 @@
 import React, { Component, ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 interface Props {
   children: ReactNode;
@@ -8,12 +9,13 @@ interface State {
   hasError: boolean;
   error: Error | null;
   errorInfo: React.ErrorInfo | null;
+  retryCount: number;
 }
 
 export class DatabaseErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null, errorInfo: null };
+    this.state = { hasError: false, error: null, errorInfo: null, retryCount: 0 };
   }
 
   static getDerivedStateFromError(error: Error): Partial<State> {
@@ -22,8 +24,21 @@ export class DatabaseErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('DatabaseErrorBoundary caught an error:', error, errorInfo);
-    this.setState({ error, errorInfo });
+    this.setState(prev => ({
+      error,
+      errorInfo,
+      retryCount: prev.retryCount + 1
+    }));
   }
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null, errorInfo: null });
+  };
+
+  handleGoHome = () => {
+    this.setState({ hasError: false, error: null, errorInfo: null });
+    window.location.href = '/';
+  };
 
   render(): ReactNode {
     if (this.state.hasError) {
@@ -61,18 +76,26 @@ export class DatabaseErrorBoundary extends Component<Props, State> {
 
               <div className="flex gap-3 justify-center">
                 <button
-                  onClick={() => window.location.reload()}
+                  onClick={this.handleReset}
                   className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-all"
                 >
-                  Reload Page
+                  Try Again
                 </button>
                 <button
-                  onClick={() => window.location.href = '/'}
+                  onClick={this.handleGoHome}
                   className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-all"
                 >
                   Go Home
                 </button>
               </div>
+
+              {this.state.retryCount > 2 && (
+                <div className="mt-4 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
+                  <p className="text-yellow-400 text-sm">
+                    Multiple database errors detected. You may need to check your connection or refresh the page manually.
+                  </p>
+                </div>
+              )}
 
               <p className="text-center text-gray-500 text-xs mt-6">
                 If this problem persists, please check your database connection settings.
