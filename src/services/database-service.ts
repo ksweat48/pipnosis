@@ -48,10 +48,15 @@ export async function saveCandlesToDatabase(
 
   console.log(`Saving ${candles.length} candles to database (overwrite: ${overwrite})`);
 
+  const cleanedCandles = candles.map(candle => {
+    const { id, cacheId, timestamp, ...validFields } = candle;
+    return validFields;
+  });
+
   try {
     const { error: forexError, count: forexCount } = await supabase
       .from('forex_candles')
-      .upsert(candles, {
+      .upsert(cleanedCandles, {
         onConflict: 'symbol,timeframe,open_time',
         ignoreDuplicates: !overwrite
       })

@@ -7,7 +7,7 @@ const CACHE_VALIDITY_MS = 5 * 60 * 1000;
 const STALE_DATA_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
 interface CachedCandle {
-  id: string;
+  cacheId: string;
   symbol: string;
   timeframe: string;
   timestamp: string;
@@ -50,7 +50,7 @@ class CandleCacheManager {
         const db = (event.target as IDBOpenDBRequest).result;
 
         if (!db.objectStoreNames.contains(STORE_NAME)) {
-          const objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          const objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'cacheId' });
           objectStore.createIndex('symbol_timeframe', ['symbol', 'timeframe'], { unique: false });
           objectStore.createIndex('timestamp', 'timestamp', { unique: false });
         }
@@ -110,13 +110,16 @@ class CandleCacheManager {
     await this.initDB();
     if (!this.db || candles.length === 0) return;
 
-    const candlesWithIds = candles.map(candle => ({
-      ...candle,
-      id: `${candle.symbol || symbol}_${candle.timeframe || timeframe}_${candle.open_time || candle.timestamp}`,
-      symbol: candle.symbol || symbol,
-      timeframe: candle.timeframe || timeframe,
-      timestamp: candle.open_time || candle.timestamp
-    }));
+    const candlesWithIds = candles.map(candle => {
+      const { id, ...candleWithoutId } = candle;
+      return {
+        ...candleWithoutId,
+        cacheId: `${candle.symbol || symbol}_${candle.timeframe || timeframe}_${candle.open_time || candle.timestamp}`,
+        symbol: candle.symbol || symbol,
+        timeframe: candle.timeframe || timeframe,
+        timestamp: candle.open_time || candle.timestamp
+      };
+    });
 
     const sortedCandles = [...candlesWithIds].sort((a, b) =>
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
