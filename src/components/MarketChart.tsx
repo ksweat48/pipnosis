@@ -509,6 +509,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         historicalCandlesRef.current = historicalCandlesRef.current.slice(-300);
       }
 
+      // Update the cached historical candles to keep them in sync
+      chartCandlePoller.setFullHistoricalCandles(symbol, timeframe, historicalCandlesRef.current);
+
       currentCandleRef.current = null;
     }
 
@@ -552,12 +555,16 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
 
-  const initializeChart = async () => {
+  const initializeChart = async (showLoadingState = true) => {
     try {
       console.log(`[Chart Init] Starting initialization for ${symbol} ${timeframe}`);
-      setIsLoading(true);
+      if (showLoadingState) {
+        setIsLoading(true);
+      }
       setError(null);
-      setLoadingProgress(null);
+      if (showLoadingState) {
+        setLoadingProgress(null);
+      }
 
       console.log(`[Chart Init] Priority 1: Loading ${symbol} ${timeframe}...`);
 
@@ -646,7 +653,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
       historicalCandlesRef.current = validatedCandles;
 
+      // CRITICAL FIX: Cache the full historical candles for instant restoration on timeframe switches
       if (validatedCandles.length > 0) {
+        chartCandlePoller.setFullHistoricalCandles(symbol, timeframe, validatedCandles);
+        console.log(`[Chart Init] 💾 Cached ${validatedCandles.length} candles for instant timeframe switching`);
+
         const firstCandle = validatedCandles[0];
         const lastCandle = validatedCandles[validatedCandles.length - 1];
         console.log(`[Chart Init] Historical range: ${new Date(firstCandle.time * 1000).toISOString()} to ${new Date(lastCandle.time * 1000).toISOString()}`);
@@ -798,15 +809,55 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       return;
     }
 
-    console.log('[Chart] Chart series exists, initializing data...');
-    currentCandleRef.current = null;
-    lastFetchTimeRef.current = null;
-    historicalCandlesRef.current = [];
-    liveTickStreamActive.current = false;
+    console.log('[Chart] Chart series exists, checking for cached data...');
+
+    // CRITICAL FIX: Check if we have cached data from the poller before clearing everything
+    const cachedCandles = chartCandlePoller.getCachedCandles(symbol, timeframe);
+    const hasCachedData = cachedCandles.length > 0;
+
+    if (hasCachedData) {
+      console.log(`[Chart] ✅ Found ${cachedCandles.length} cached candles for ${symbol} ${timeframe} - restoring immediately`);
+
+      // Restore cached data to chart immediately for instant display
+      historicalCandlesRef.current = cachedCandles;
+      candlestickSeriesRef.current.setData(cachedCandles);
+
+      // Update price and indicators with cached data
+      const lastCandle = cachedCandles[cachedCandles.length - 1];
+      const firstCandle = cachedCandles[0];
+      setCurrentPrice(lastCandle.close);
+      setPriceChange(((lastCandle.close - firstCandle.open) / firstCandle.open) * 100);
+      setLastUpdate(new Date());
+
+      // Update indicators with cached data
+      requestAnimationFrame(() => {
+        updateIndicators(cachedCandles);
+        if (chartRef.current && !userInteractedRef.current) {
+          chartRef.current.timeScale().scrollToRealTime();
+        }
+      });
+
+      setIsLoading(false);
+      setError(null);
+    } else {
+      console.log('[Chart] No cached data found, will load from database...');
+      // Clear state only if no cached data
+      currentCandleRef.current = null;
+      lastFetchTimeRef.current = null;
+      historicalCandlesRef.current = [];
+      liveTickStreamActive.current = false;
+    }
 
     concurrentBulkLoader.interruptForSymbol(symbol, timeframe);
 
-    initializeChart();
+    // Always run initialization to check for new data
+    if (!hasCachedData) {
+      initializeChart(true); // Show loading state when no cached data
+    } else {
+      // If we have cached data, still refresh in background but don't show loading state
+      console.log('[Chart] Refreshing data in background...');
+      initializeChart(false); // Don't show loading state when we have cached data
+    }
 
     console.log(`[Chart] 🚀 Starting hybrid mode: Live ticks + DB polling for ${symbol} ${timeframe}`);
     setSystemStatus('connecting');

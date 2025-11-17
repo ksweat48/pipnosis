@@ -14,6 +14,7 @@ interface CandleCache {
   lastCandleTime: number | null;
   lastPollTime: number;
   candles: CandleData[];
+  fullHistoricalCandles: CandleData[]; // Store full chart data for instant restoration
 }
 
 class ChartCandlePoller {
@@ -44,7 +45,8 @@ class ChartCandlePoller {
       timeframe,
       lastCandleTime: null,
       lastPollTime: 0,
-      candles: []
+      candles: [],
+      fullHistoricalCandles: []
     });
 
     // Initial poll
@@ -145,6 +147,20 @@ class ChartCandlePoller {
       cache.lastPollTime = Date.now();
       cache.candles = candles;
 
+      // If we have a new completed candle and we're tracking full historical candles, append it
+      if (hasNewData && cache.fullHistoricalCandles.length > 0) {
+        // Check if this is truly a new candle (not already in our historical cache)
+        const lastHistoricalTime = cache.fullHistoricalCandles[cache.fullHistoricalCandles.length - 1].time;
+        if (latestCandle.time > lastHistoricalTime) {
+          cache.fullHistoricalCandles.push(latestCandle);
+          // Keep the cache manageable - limit to 500 candles
+          if (cache.fullHistoricalCandles.length > 500) {
+            cache.fullHistoricalCandles = cache.fullHistoricalCandles.slice(-300);
+          }
+          console.log(`[ChartPoller] Updated historical cache with new candle, now ${cache.fullHistoricalCandles.length} candles`);
+        }
+      }
+
       // Notify listeners
       const result: PollResult = {
         candles,
@@ -207,7 +223,33 @@ class ChartCandlePoller {
     const key = this.getCacheKey(symbol, timeframe);
     const cache = this.cache.get(key);
 
+    // Return full historical candles if available, otherwise return recent candles
+    if (cache?.fullHistoricalCandles && cache.fullHistoricalCandles.length > 0) {
+      return cache.fullHistoricalCandles;
+    }
+
     return cache?.candles || [];
+  }
+
+  setFullHistoricalCandles(symbol: string, timeframe: Timeframe, candles: CandleData[]): void {
+    const key = this.getCacheKey(symbol, timeframe);
+    const cache = this.cache.get(key);
+
+    if (cache) {
+      cache.fullHistoricalCandles = candles;
+      console.log(`[ChartPoller] Cached ${candles.length} historical candles for ${symbol} ${timeframe}`);
+    } else {
+      // If cache doesn't exist yet, create it with the historical data
+      this.cache.set(key, {
+        symbol,
+        timeframe,
+        lastCandleTime: candles.length > 0 ? candles[candles.length - 1].time : null,
+        lastPollTime: Date.now(),
+        candles: candles.slice(-3), // Keep last 3 for quick updates
+        fullHistoricalCandles: candles
+      });
+      console.log(`[ChartPoller] Created cache with ${candles.length} historical candles for ${symbol} ${timeframe}`);
+    }
   }
 
   isCacheStale(symbol: string, timeframe: Timeframe): boolean {
