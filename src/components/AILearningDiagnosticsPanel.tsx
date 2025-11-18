@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { aiLearningHealthCheck, LearningHealthStatus, LearningDataSummary } from '../services/ai-learning-health-check';
+import { autoBacktestSystemDiagnostics, SystemDiagnosticReport } from '../services/auto-backtest-system-diagnostics';
 import {
   Activity,
   AlertCircle,
@@ -15,7 +16,8 @@ import {
   XCircle,
   AlertTriangle,
   BookOpen,
-  Zap
+  Zap,
+  Wrench
 } from 'lucide-react';
 
 export default function AILearningDiagnosticsPanel() {
@@ -25,6 +27,8 @@ export default function AILearningDiagnosticsPanel() {
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
+  const [systemDiagnostics, setSystemDiagnostics] = useState<SystemDiagnosticReport | null>(null);
+  const [runningSystemDiagnostics, setRunningSystemDiagnostics] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -73,6 +77,21 @@ export default function AILearningDiagnosticsPanel() {
       });
     } finally {
       setTesting(false);
+    }
+  };
+
+  const runSystemDiagnostics = async () => {
+    if (!user) return;
+
+    setRunningSystemDiagnostics(true);
+    setSystemDiagnostics(null);
+    try {
+      const report = await autoBacktestSystemDiagnostics.runFullDiagnostics(user.id);
+      setSystemDiagnostics(report);
+    } catch (error) {
+      console.error('[System Diagnostics] Failed:', error);
+    } finally {
+      setRunningSystemDiagnostics(false);
     }
   };
 
@@ -146,6 +165,14 @@ export default function AILearningDiagnosticsPanel() {
             >
               <Zap className={`w-4 h-4 ${testing ? 'animate-pulse' : ''}`} />
               {testing ? 'Testing...' : 'Run Full Test'}
+            </button>
+            <button
+              onClick={runSystemDiagnostics}
+              disabled={runningSystemDiagnostics}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md font-semibold transition-colors flex items-center gap-2 disabled:opacity-50"
+            >
+              <Wrench className={`w-4 h-4 ${runningSystemDiagnostics ? 'animate-pulse' : ''}`} />
+              {runningSystemDiagnostics ? 'Analyzing...' : 'System Diagnostics'}
             </button>
           </div>
         </div>
@@ -352,6 +379,134 @@ export default function AILearningDiagnosticsPanel() {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* System Diagnostics Report */}
+      {systemDiagnostics && (
+        <div className="space-y-4">
+          <div className={`${
+            systemDiagnostics.overallStatus === 'healthy' ? 'bg-green-900/20 border-green-500/50' :
+            systemDiagnostics.overallStatus === 'degraded' ? 'bg-yellow-900/20 border-yellow-500/50' :
+            'bg-red-900/20 border-red-500/50'
+          } border rounded-lg shadow-md p-6`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-semibold text-white flex items-center gap-2">
+                <Wrench className="w-5 h-5 text-purple-400" />
+                Comprehensive System Diagnostics Report
+              </h3>
+              <div className={`px-3 py-1 rounded-full font-semibold ${
+                systemDiagnostics.overallStatus === 'healthy' ? 'bg-green-500/20 text-green-400' :
+                systemDiagnostics.overallStatus === 'degraded' ? 'bg-yellow-500/20 text-yellow-400' :
+                'bg-red-500/20 text-red-400'
+              }`}>
+                {systemDiagnostics.overallStatus.toUpperCase()}
+              </div>
+            </div>
+
+            <p className="text-gray-300 mb-4">{systemDiagnostics.summary}</p>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="p-3 bg-gray-900/50 rounded-lg text-center">
+                <div className="text-2xl font-bold text-green-400">{systemDiagnostics.passed}</div>
+                <div className="text-xs text-gray-400">Passed</div>
+              </div>
+              <div className="p-3 bg-gray-900/50 rounded-lg text-center">
+                <div className="text-2xl font-bold text-red-400">{systemDiagnostics.failed}</div>
+                <div className="text-xs text-gray-400">Failed</div>
+              </div>
+              <div className="p-3 bg-gray-900/50 rounded-lg text-center">
+                <div className="text-2xl font-bold text-yellow-400">{systemDiagnostics.warnings}</div>
+                <div className="text-xs text-gray-400">Warnings</div>
+              </div>
+              <div className="p-3 bg-gray-900/50 rounded-lg text-center">
+                <div className="text-2xl font-bold text-gray-400">{systemDiagnostics.skipped}</div>
+                <div className="text-xs text-gray-400">Skipped</div>
+              </div>
+            </div>
+
+            {systemDiagnostics.criticalIssues.length > 0 && (
+              <div className="mb-6 p-4 bg-red-900/30 border border-red-500/50 rounded-lg">
+                <h4 className="text-sm font-semibold text-red-400 mb-3 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  Critical Issues ({systemDiagnostics.criticalIssues.length})
+                </h4>
+                <ul className="space-y-2">
+                  {systemDiagnostics.criticalIssues.map((issue, i) => (
+                    <li key={i} className="text-sm text-gray-300 flex items-start gap-2">
+                      <XCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                      <span>{issue}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {systemDiagnostics.recommendations.length > 0 && (
+              <div className="mb-6 p-4 bg-blue-900/30 border border-blue-500/50 rounded-lg">
+                <h4 className="text-sm font-semibold text-blue-400 mb-3 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  Recommendations ({systemDiagnostics.recommendations.length})
+                </h4>
+                <ul className="space-y-2">
+                  {systemDiagnostics.recommendations.map((rec, i) => (
+                    <li key={i} className="text-sm text-gray-300 flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+                      <span>{rec}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <h4 className="text-sm font-semibold text-white mb-3">Detailed Check Results by Category</h4>
+              {[...new Set(systemDiagnostics.checks.map(c => c.category))].map(category => (
+                <div key={category} className="p-4 bg-gray-900/50 rounded-lg">
+                  <h5 className="text-sm font-semibold text-white mb-3">{category}</h5>
+                  <div className="space-y-2">
+                    {systemDiagnostics.checks
+                      .filter(c => c.category === category)
+                      .map((check, i) => (
+                        <div key={i} className="flex items-start gap-3">
+                          {check.status === 'pass' && <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />}
+                          {check.status === 'fail' && <XCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />}
+                          {check.status === 'warning' && <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" />}
+                          {check.status === 'skipped' && <div className="w-4 h-4 rounded-full border-2 border-gray-500 flex-shrink-0 mt-0.5" />}
+                          <div className="flex-1">
+                            <div className="text-sm text-white font-medium">{check.name}</div>
+                            <div className={`text-xs ${
+                              check.status === 'pass' ? 'text-green-300' :
+                              check.status === 'fail' ? 'text-red-300' :
+                              check.status === 'warning' ? 'text-yellow-300' :
+                              'text-gray-400'
+                            }`}>
+                              {check.message}
+                            </div>
+                            {check.details && (
+                              <div className="text-xs text-gray-500 mt-1">
+                                {JSON.stringify(check.details)}
+                              </div>
+                            )}
+                            {check.recommendations && check.recommendations.length > 0 && (
+                              <ul className="mt-1 ml-4 space-y-1">
+                                {check.recommendations.map((rec, j) => (
+                                  <li key={j} className="text-xs text-blue-300">→ {rec}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 text-xs text-gray-500 text-right">
+              Report generated: {new Date(systemDiagnostics.timestamp).toLocaleString()}
+            </div>
+          </div>
         </div>
       )}
     </div>
