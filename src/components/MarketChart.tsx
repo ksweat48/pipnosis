@@ -97,7 +97,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [ema200Value, setEma200Value] = useState<number | null>(null);
   const [showIndicators, setShowIndicators] = useState(() => {
     const saved = localStorage.getItem(`indicators-visible-${symbol}`);
-    return saved !== null ? saved === 'true' : true;
+    return saved !== null ? saved === 'true' : false;
   });
   const [indicatorVisibility, setIndicatorVisibility] = useState<IndicatorVisibility>({
     vwap: true,
