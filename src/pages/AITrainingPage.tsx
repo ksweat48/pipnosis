@@ -845,9 +845,16 @@ export default function AITrainingPage() {
                   </div>
                   <button
                     onClick={async () => {
+                      // Show optimistic UI update immediately
+                      setAutoBacktestState(prev => prev ? { ...prev, isRunning: false } : null);
+
                       await simpleAutoBacktestService.stop();
+
+                      // Refresh state from database
+                      const freshState = await simpleAutoBacktestService.getState();
+                      setAutoBacktestState(freshState);
+
                       alert('Auto-backtest stopped successfully!');
-                      window.location.reload();
                     }}
                     className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white font-bold text-lg rounded-lg hover:bg-red-700 transition-colors shadow-lg hover:shadow-xl"
                   >
@@ -894,8 +901,15 @@ export default function AITrainingPage() {
                   <button
                     onClick={async () => {
                       if (user) {
+                        // Show optimistic UI update immediately
+                        setAutoBacktestState(prev => prev ? { ...prev, isRunning: true } : null);
+
                         const result = await simpleAutoBacktestService.start(user.id);
+
                         if (!result.success) {
+                          // Revert optimistic update on failure
+                          setAutoBacktestState(prev => prev ? { ...prev, isRunning: false } : null);
+
                           // Provide option to force stop if it's already running
                           const shouldForceStop = window.confirm(
                             `${result.message}\n\nWould you like to stop the existing session and start a new one?`
@@ -905,18 +919,38 @@ export default function AITrainingPage() {
                             // Wait a moment for state to update
                             await new Promise(resolve => setTimeout(resolve, 1000));
                             // Try starting again
+                            setAutoBacktestState(prev => prev ? { ...prev, isRunning: true } : null);
                             const retryResult = await simpleAutoBacktestService.start(user.id);
                             if (!retryResult.success) {
+                              setAutoBacktestState(prev => prev ? { ...prev, isRunning: false } : null);
                               alert('Failed to start: ' + retryResult.message);
+                            } else {
+                              // Refresh state from database immediately
+                              const freshState = await simpleAutoBacktestService.getState();
+                              setAutoBacktestState(freshState);
                             }
                           }
+                        } else {
+                          // Success! Refresh state from database immediately
+                          const freshState = await simpleAutoBacktestService.getState();
+                          setAutoBacktestState(freshState);
                         }
                       }
                     }}
-                    className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors mx-auto"
+                    disabled={autoBacktestState?.isRunning}
+                    className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors mx-auto disabled:bg-gray-600 disabled:cursor-not-allowed"
                   >
-                    <Play className="w-5 h-5" />
-                    Start Auto-Backtest
+                    {autoBacktestState?.isRunning ? (
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        Starting...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-5 h-5" />
+                        Start Auto-Backtest
+                      </>
+                    )}
                   </button>
                 </div>
 
@@ -935,9 +969,16 @@ export default function AITrainingPage() {
               <button
                 onClick={async () => {
                   if (user) {
+                    // Show optimistic UI update immediately
+                    setAutoBacktestState(prev => prev ? { ...prev, isRunning: false } : null);
+
                     await simpleAutoBacktestService.stop();
-                    alert('Auto-backtest has been stopped. The page will refresh to update the status.');
-                    window.location.reload();
+
+                    // Refresh state from database
+                    const freshState = await simpleAutoBacktestService.getState();
+                    setAutoBacktestState(freshState);
+
+                    alert('Auto-backtest has been stopped.');
                   }
                 }}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-600/20 border-2 border-red-500 text-red-400 font-bold rounded-lg hover:bg-red-600/30 transition-colors"
