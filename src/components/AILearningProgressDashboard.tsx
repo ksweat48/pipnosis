@@ -47,11 +47,85 @@ function AILearningProgressDashboard() {
   }>({ skillData: null, milestones: [], liveStats: null, backtestStats: null });
   const isLoadingRef = useRef(false);
 
+  // Stable loadData function that doesn't change on every render
+  const loadData = useCallback(async () => {
+    if (!user || isLoadingRef.current) return;
+
+    isLoadingRef.current = true;
+    setLoading(true);
+    try {
+      const [skill, milestonesData, adopted, experiments, effectiveness, liveStatsData] = await Promise.all([
+        aiSkillTracker.getSkillProgression(user.id),
+        aiSkillTracker.getRecentMilestones(user.id, 5),
+        aiIndicatorTracker.getAdoptedIndicators(user.id),
+        aiIndicatorTracker.getActiveExperiments(user.id),
+        aiIndicatorTracker.getIndicatorEffectiveness(user.id, selectedSymbol),
+        liveTradeLearningTrigger.getLearningStats(user.id)
+      ]);
+
+      // Fetch backtest stats
+      const { data: backtestInsights } = await supabase
+        .from('ai_learning_insights')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('learned_from_live_trading', false);
+
+      const newBacktestStats = {
+        total_insights: backtestInsights?.length || 0,
+        avg_confidence: backtestInsights && backtestInsights.length > 0
+          ? backtestInsights.reduce((sum, i) => sum + parseFloat(i.confidence_score.toString()), 0) / backtestInsights.length
+          : 0
+      };
+
+      // Fetch auto-backtest state for 30-day progress
+      const { simpleAutoBacktestService } = await import('../services/simple-auto-backtest-service');
+      const state = await simpleAutoBacktestService.getState();
+
+      // Deep equality check - only update if data actually changed
+      const skillChanged = JSON.stringify(previousDataRef.current.skillData) !== JSON.stringify(skill);
+      const milestonesChanged = JSON.stringify(previousDataRef.current.milestones) !== JSON.stringify(milestonesData);
+      const liveStatsChanged = JSON.stringify(previousDataRef.current.liveStats) !== JSON.stringify(liveStatsData);
+      const backtestStatsChanged = JSON.stringify(previousDataRef.current.backtestStats) !== JSON.stringify(newBacktestStats);
+
+      if (skillChanged) {
+        setSkillData(skill);
+        previousDataRef.current.skillData = skill;
+      }
+      if (milestonesChanged) {
+        setMilestones(milestonesData);
+        previousDataRef.current.milestones = milestonesData;
+      }
+      if (liveStatsChanged) {
+        setLiveStats(liveStatsData);
+        previousDataRef.current.liveStats = liveStatsData;
+      }
+      if (backtestStatsChanged) {
+        setBacktestStats(newBacktestStats);
+        previousDataRef.current.backtestStats = newBacktestStats;
+      }
+
+      // Always update these as they may change frequently
+      setAdoptedIndicators(adopted);
+      setActiveExperiments(experiments);
+      setIndicatorEffectiveness(effectiveness);
+      setAutoBacktestState(state);
+
+      if (!skillChanged && !milestonesChanged && !liveStatsChanged && !backtestStatsChanged) {
+        console.log('[AI Learning Dashboard] No significant changes detected, skipping update');
+      }
+    } catch (error) {
+      console.error('[AI Learning Dashboard] Error loading data:', error);
+    } finally {
+      setLoading(false);
+      isLoadingRef.current = false;
+    }
+  }, [user, selectedSymbol]);
+
   useEffect(() => {
     if (user) {
       loadData();
     }
-  }, [user, selectedSymbol]);
+  }, [user, loadData]);
 
   // Realtime subscriptions for skill progression and learning data
   useEffect(() => {
@@ -151,80 +225,7 @@ function AILearningProgressDashboard() {
       if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
-  }, [user]);
-
-  const loadData = async () => {
-    if (!user || isLoadingRef.current) return;
-
-    isLoadingRef.current = true;
-    setLoading(true);
-    try {
-      const [skill, milestonesData, adopted, experiments, effectiveness, liveStatsData] = await Promise.all([
-        aiSkillTracker.getSkillProgression(user.id),
-        aiSkillTracker.getRecentMilestones(user.id, 5),
-        aiIndicatorTracker.getAdoptedIndicators(user.id),
-        aiIndicatorTracker.getActiveExperiments(user.id),
-        aiIndicatorTracker.getIndicatorEffectiveness(user.id, selectedSymbol),
-        liveTradeLearningTrigger.getLearningStats(user.id)
-      ]);
-
-      // Fetch backtest stats
-      const { data: backtestInsights } = await supabase
-        .from('ai_learning_insights')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('learned_from_live_trading', false);
-
-      const newBacktestStats = {
-        total_insights: backtestInsights?.length || 0,
-        avg_confidence: backtestInsights && backtestInsights.length > 0
-          ? backtestInsights.reduce((sum, i) => sum + parseFloat(i.confidence_score.toString()), 0) / backtestInsights.length
-          : 0
-      };
-
-      // Fetch auto-backtest state for 30-day progress
-      const { simpleAutoBacktestService } = await import('../services/simple-auto-backtest-service');
-      const state = await simpleAutoBacktestService.getState();
-
-      // Deep equality check - only update if data actually changed
-      const skillChanged = JSON.stringify(previousDataRef.current.skillData) !== JSON.stringify(skill);
-      const milestonesChanged = JSON.stringify(previousDataRef.current.milestones) !== JSON.stringify(milestonesData);
-      const liveStatsChanged = JSON.stringify(previousDataRef.current.liveStats) !== JSON.stringify(liveStatsData);
-      const backtestStatsChanged = JSON.stringify(previousDataRef.current.backtestStats) !== JSON.stringify(newBacktestStats);
-
-      if (skillChanged) {
-        setSkillData(skill);
-        previousDataRef.current.skillData = skill;
-      }
-      if (milestonesChanged) {
-        setMilestones(milestonesData);
-        previousDataRef.current.milestones = milestonesData;
-      }
-      if (liveStatsChanged) {
-        setLiveStats(liveStatsData);
-        previousDataRef.current.liveStats = liveStatsData;
-      }
-      if (backtestStatsChanged) {
-        setBacktestStats(newBacktestStats);
-        previousDataRef.current.backtestStats = newBacktestStats;
-      }
-
-      // Always update these as they may change frequently
-      setAdoptedIndicators(adopted);
-      setActiveExperiments(experiments);
-      setIndicatorEffectiveness(effectiveness);
-      setAutoBacktestState(state);
-
-      if (!skillChanged && !milestonesChanged && !liveStatsChanged && !backtestStatsChanged) {
-        console.log('[AI Learning Dashboard] No significant changes detected, skipping update');
-      }
-    } catch (error) {
-      console.error('[AI Learning Dashboard] Error loading data:', error);
-    } finally {
-      setLoading(false);
-      isLoadingRef.current = false;
-    }
-  };
+  }, [user, loadData]);
 
   if (loading) {
     return (
@@ -846,13 +847,7 @@ function DailyLearningsSection({ userId }: { userId?: string }) {
   const [recentLearning, setRecentLearning] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
 
-  React.useEffect(() => {
-    if (userId) {
-      loadRecentLearning();
-    }
-  }, [userId]);
-
-  const loadRecentLearning = async () => {
+  const loadRecentLearning = React.useCallback(async () => {
     if (!userId) return;
 
     try {
@@ -864,7 +859,13 @@ function DailyLearningsSection({ userId }: { userId?: string }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
+
+  React.useEffect(() => {
+    if (userId) {
+      loadRecentLearning();
+    }
+  }, [userId, loadRecentLearning]);
 
   if (loading) {
     return (

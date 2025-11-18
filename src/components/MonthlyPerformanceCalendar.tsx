@@ -19,17 +19,62 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
   const pendingUpdateRef = useRef<MonthlySessionData | null>(null);
   const isLoadingRef = useRef(false);
 
-  useEffect(() => {
-    if (userId) {
-      loadInitialData();
+  // Stable function references that don't change on every render
+  const loadMonthData = useCallback(async () => {
+    // Prevent concurrent loads
+    if (isLoadingRef.current) {
+      console.log('[Monthly Calendar] Already loading, skipping...');
+      return;
     }
-  }, [userId]);
 
-  useEffect(() => {
-    if (userId && currentMonthNumber > 0) {
-      loadMonthData();
+    isLoadingRef.current = true;
+    setLoading(true);
+    try {
+      const data = await monthlySessionService.getMonthData(userId, currentMonthNumber);
+
+      // Deep equality check - only update if data actually changed
+      const dataHasChanged = !previousMonthDataRef.current ||
+        JSON.stringify(previousMonthDataRef.current) !== JSON.stringify(data);
+
+      if (dataHasChanged) {
+        console.log('[Monthly Calendar] Month data changed, updating...');
+        setMonthData(data);
+        previousMonthDataRef.current = data;
+      } else {
+        console.log('[Monthly Calendar] Month data unchanged, skipping update');
+      }
+    } catch (error) {
+      console.error('[Monthly Calendar] Error loading month data:', error);
+    } finally {
+      setLoading(false);
+      isLoadingRef.current = false;
     }
   }, [userId, currentMonthNumber]);
+
+  // Load initial data once when component mounts
+  useEffect(() => {
+    if (!userId) return;
+
+    const loadInitialData = async () => {
+      try {
+        const activeMonth = await monthlySessionService.getCurrentMonthNumber(userId);
+        const months = await monthlySessionService.getAvailableMonths(userId);
+
+        setAvailableMonths(months);
+        setCurrentMonthNumber(activeMonth || 1);
+      } catch (error) {
+        console.error('[Monthly Calendar] Error loading initial data:', error);
+      }
+    };
+
+    loadInitialData();
+  }, [userId]);
+
+  // Load month data when userId or currentMonthNumber changes
+  useEffect(() => {
+    if (!userId || currentMonthNumber <= 0) return;
+    loadMonthData();
+  }, [userId, currentMonthNumber, loadMonthData]);
 
   // Real-time subscription for current month updates with debouncing
   useEffect(() => {
@@ -80,50 +125,7 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
       if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
-  }, [userId, currentMonthNumber]);
-
-  const loadInitialData = async () => {
-    try {
-      const activeMonth = await monthlySessionService.getCurrentMonthNumber(userId);
-      const months = await monthlySessionService.getAvailableMonths(userId);
-
-      setAvailableMonths(months);
-      setCurrentMonthNumber(activeMonth || 1);
-    } catch (error) {
-      console.error('[Monthly Calendar] Error loading initial data:', error);
-    }
-  };
-
-  const loadMonthData = useCallback(async () => {
-    // Prevent concurrent loads
-    if (isLoadingRef.current) {
-      console.log('[Monthly Calendar] Already loading, skipping...');
-      return;
-    }
-
-    isLoadingRef.current = true;
-    setLoading(true);
-    try {
-      const data = await monthlySessionService.getMonthData(userId, currentMonthNumber);
-
-      // Deep equality check - only update if data actually changed
-      const dataHasChanged = !previousMonthDataRef.current ||
-        JSON.stringify(previousMonthDataRef.current) !== JSON.stringify(data);
-
-      if (dataHasChanged) {
-        console.log('[Monthly Calendar] Month data changed, updating...');
-        setMonthData(data);
-        previousMonthDataRef.current = data;
-      } else {
-        console.log('[Monthly Calendar] Month data unchanged, skipping update');
-      }
-    } catch (error) {
-      console.error('[Monthly Calendar] Error loading month data:', error);
-    } finally {
-      setLoading(false);
-      isLoadingRef.current = false;
-    }
-  }, [userId, currentMonthNumber]);
+  }, [userId, currentMonthNumber, loadMonthData]);
 
   const handlePrevMonth = useCallback(() => {
     if (currentMonthNumber > 1) {
