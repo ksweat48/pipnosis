@@ -844,11 +844,15 @@ export default function AITrainingPage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => simpleAutoBacktestService.stop()}
-                    className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors"
+                    onClick={async () => {
+                      await simpleAutoBacktestService.stop();
+                      alert('Auto-backtest stopped successfully!');
+                      window.location.reload();
+                    }}
+                    className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white font-bold text-lg rounded-lg hover:bg-red-700 transition-colors shadow-lg hover:shadow-xl"
                   >
-                    <Square className="w-4 h-4" />
-                    Stop
+                    <Square className="w-5 h-5" />
+                    STOP AUTO-BACKTEST
                   </button>
                 </div>
 
@@ -925,6 +929,23 @@ export default function AITrainingPage() {
                 )}
               </div>
             )}
+
+            {/* Emergency Stop Button - Always Visible */}
+            <div className="mt-4">
+              <button
+                onClick={async () => {
+                  if (user) {
+                    await simpleAutoBacktestService.stop();
+                    alert('Auto-backtest has been stopped. The page will refresh to update the status.');
+                    window.location.reload();
+                  }
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-600/20 border-2 border-red-500 text-red-400 font-bold rounded-lg hover:bg-red-600/30 transition-colors"
+              >
+                <Square className="w-5 h-5" />
+                EMERGENCY STOP - Force Stop Auto-Backtest
+              </button>
+            </div>
 
             <div className="mt-4 space-y-3">
               <div className="p-3 bg-yellow-900/20 border-l-4 border-yellow-400 rounded">
