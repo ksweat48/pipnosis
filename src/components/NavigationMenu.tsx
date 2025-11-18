@@ -108,7 +108,7 @@ const NavigationMenuComponent = () => {
                               className="w-full flex items-center gap-3 px-3 py-2 text-purple-400 hover:text-purple-300 hover:bg-purple-900/20 rounded transition-colors"
                             >
                               <Zap size={18} />
-                              <span>AI Training Lab</span>
+                              <span>Backtest Lab</span>
                             </Link>
 
                             <Link
@@ -121,30 +121,12 @@ const NavigationMenuComponent = () => {
                             </Link>
 
                             <Link
-                              to="/admin/diagnostics"
-                              onClick={() => setShowProfileMenu(false)}
-                              className="w-full flex items-center gap-3 px-3 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20 rounded transition-colors"
-                            >
-                              <Activity size={18} />
-                              <span>System Diagnostics</span>
-                            </Link>
-
-                            <Link
-                              to="/kpis"
-                              onClick={() => setShowProfileMenu(false)}
-                              className="w-full flex items-center gap-3 px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/20 rounded transition-colors"
-                            >
-                              <Target size={18} />
-                              <span>KPIs</span>
-                            </Link>
-
-                            <Link
                               to="/admin"
                               onClick={() => setShowProfileMenu(false)}
                               className="w-full flex items-center gap-3 px-3 py-2 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-900/20 rounded transition-colors"
                             >
                               <Database size={18} />
-                              <span>Data Management</span>
+                              <span>Admin Dashboard</span>
                             </Link>
                           </>
                         )}

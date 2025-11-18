@@ -7,6 +7,9 @@ import { PollingHealthDashboard } from '@/components/PollingHealthDashboard';
 import { ServerSideCandleMonitor } from '@/components/ServerSideCandleMonitor';
 import { HistoricalBackfillPanel } from '@/components/HistoricalBackfillPanel';
 import APIUsageMonitor from '@/components/APIUsageMonitor';
+import { GlobalPollingStatus } from '@/components/GlobalPollingStatus';
+import { PollingPreferences } from '@/components/PollingPreferences';
+import { CPUCreditDashboard } from '@/components/CPUCreditDashboard';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { simpleAutoBacktestService } from '@/services/simple-auto-backtest-service';
@@ -334,32 +337,32 @@ export function AdminDashboard() {
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <QuickActionCard
-                  title="AI Training Lab"
+                  title="Backtest Lab"
                   description="Run backtests and generate learning insights"
                   icon={Brain}
                   color="blue"
-                  onClick={() => navigate('/ai-training')}
+                  onClick={() => navigate('/admin/ai-training')}
                 />
                 <QuickActionCard
-                  title="Learning Center"
+                  title="AI Learning Center"
                   description="View AI progress, patterns, and strategies"
                   icon={BookOpen}
                   color="purple"
-                  onClick={() => navigate('/session-learnings')}
+                  onClick={() => navigate('/admin/learnings')}
                 />
                 <QuickActionCard
-                  title="System Diagnostics"
-                  description="Monitor pipeline health and performance"
-                  icon={Activity}
-                  color="cyan"
-                  onClick={() => navigate('/system-diagnostics')}
-                />
-                <QuickActionCard
-                  title="KPI Analytics"
-                  description="Track performance metrics and trends"
+                  title="API Usage & KPIs"
+                  description="Monitor API usage and performance metrics"
                   icon={BarChart3}
                   color="emerald"
-                  onClick={() => navigate('/kpis')}
+                  onClick={() => setActiveTab('api-usage')}
+                />
+                <QuickActionCard
+                  title="Data Management"
+                  description="Manage historical data and backfills"
+                  icon={Database}
+                  color="cyan"
+                  onClick={() => setActiveTab('data')}
                 />
               </div>
             </div>
@@ -375,7 +378,7 @@ export function AdminDashboard() {
                   { label: 'Skill Level', value: `${aiMetrics?.skillLevel || 0}%` },
                   { label: 'Total Sessions', value: aiMetrics?.totalBacktests || 0 }
                 ]}
-                onClick={() => navigate('/session-learnings')}
+                onClick={() => navigate('/admin/learnings')}
               />
               <NavigationCard
                 title="Pattern Discoveries"
@@ -386,7 +389,7 @@ export function AdminDashboard() {
                   { label: 'Patterns Found', value: aiMetrics?.patternDiscoveries || 0 },
                   { label: 'Insights', value: aiMetrics?.learningInsights || 0 }
                 ]}
-                onClick={() => navigate('/session-learnings')}
+                onClick={() => navigate('/admin/learnings')}
               />
               <NavigationCard
                 title="Strategy Arsenal"
@@ -397,7 +400,7 @@ export function AdminDashboard() {
                   { label: 'Active Strategies', value: '...' },
                   { label: 'Win Rate', value: `${aiMetrics?.avgWinRate.toFixed(1) || 0}%` }
                 ]}
-                onClick={() => navigate('/session-learnings')}
+                onClick={() => navigate('/admin/learnings')}
               />
             </div>
 
@@ -453,7 +456,31 @@ export function AdminDashboard() {
         )}
 
         {activeTab === 'api-usage' && (
-          <APIUsageMonitor />
+          <div className="space-y-6">
+            {/* KPI & API Usage Combined Section */}
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <Activity size={24} className="text-blue-400" />
+                <div>
+                  <h2 className="text-2xl font-bold text-white">System Performance & API Management</h2>
+                  <p className="text-gray-400 mt-1">Monitor real-time API usage, polling health, and performance metrics</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                <div className="lg:col-span-1">
+                  <GlobalPollingStatus />
+                </div>
+                <div className="lg:col-span-2 space-y-6">
+                  <PollingPreferences />
+                  <CPUCreditDashboard />
+                </div>
+              </div>
+            </div>
+
+            {/* API Usage Monitor */}
+            <APIUsageMonitor />
+          </div>
         )}
 
         {activeTab === 'settings' && (
