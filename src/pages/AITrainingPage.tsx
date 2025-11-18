@@ -1756,7 +1756,7 @@ export default function AITrainingPage() {
                 const startDate = new Date(session.start_date);
                 const endDate = new Date(session.end_date);
                 const durationDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-                const isAutoBacktest = session.session_name?.startsWith('Auto-BT-');
+                const isAutoBacktest = session.execution_mode === 'AUTO';
 
                 return (
                   <div

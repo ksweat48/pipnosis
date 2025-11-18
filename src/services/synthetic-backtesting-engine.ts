@@ -22,6 +22,7 @@ export interface SyntheticBacktestConfig {
   slippagePips: number;
   marketScenario: string;
   syntheticGenerationId?: string;
+  executionMode?: 'MANUAL' | 'AUTO';
 }
 
 export interface SyntheticBacktestTrade {
@@ -529,7 +530,8 @@ class SyntheticBacktestingEngine {
         commission_per_trade: config.commissionPerTrade,
         slippage_pips: config.slippagePips,
         status: 'pending',
-        is_synthetic: true
+        is_synthetic: true,
+        execution_mode: config.executionMode || 'MANUAL'
       })
       .select()
       .single();

@@ -459,7 +459,8 @@ class SimpleAutoBacktestService {
       positionSizePercent: 2,
       commissionPerTrade: 0,
       slippagePips: 1,
-      marketScenario: 'mixed'
+      marketScenario: 'mixed',
+      executionMode: 'AUTO'
     };
 
     // Execute daily backtest (includes AI learning automatically)
