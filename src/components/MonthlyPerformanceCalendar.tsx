@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Check, X, ChevronLeft, ChevronRight, Calendar, TrendingUp, TrendingDown } from 'lucide-react';
 import { monthlySessionService, MonthlySessionData, DailySessionResult } from '../services/monthly-session-service';
-import { supabase } from '../lib/supabase';
 
 interface MonthlyPerformanceCalendarProps {
   userId: string;
@@ -14,46 +13,23 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
   const [loading, setLoading] = useState(true);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
 
-  // Track previous data to prevent unnecessary updates
-  const previousMonthDataRef = useRef<MonthlySessionData | null>(null);
-  const pendingUpdateRef = useRef<MonthlySessionData | null>(null);
+  // Use refs to track values without triggering re-renders
+  const userIdRef = useRef(userId);
+  const currentMonthRef = useRef(currentMonthNumber);
   const isLoadingRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const previousDataRef = useRef<string>('');
 
-  // Stable function references that don't change on every render
-  const loadMonthData = useCallback(async () => {
-    if (!userId) return;
+  // Update refs when props/state change
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
 
-    // Prevent concurrent loads
-    if (isLoadingRef.current) {
-      console.log('[Monthly Calendar] Already loading, skipping...');
-      return;
-    }
+  useEffect(() => {
+    currentMonthRef.current = currentMonthNumber;
+  }, [currentMonthNumber]);
 
-    isLoadingRef.current = true;
-    setLoading(true);
-    try {
-      const data = await monthlySessionService.getMonthData(userId, currentMonthNumber);
-
-      // Deep equality check - only update if data actually changed
-      const dataHasChanged = !previousMonthDataRef.current ||
-        JSON.stringify(previousMonthDataRef.current) !== JSON.stringify(data);
-
-      if (dataHasChanged) {
-        console.log('[Monthly Calendar] Month data changed, updating...');
-        setMonthData(data);
-        previousMonthDataRef.current = data;
-      } else {
-        console.log('[Monthly Calendar] Month data unchanged, skipping update');
-      }
-    } catch (error) {
-      console.error('[Monthly Calendar] Error loading month data:', error);
-    } finally {
-      setLoading(false);
-      isLoadingRef.current = false;
-    }
-  }, [userId, currentMonthNumber]);
-
-  // Load initial data once when component mounts
+  // Load initial data and available months
   useEffect(() => {
     const loadInitialData = async () => {
       if (!userId) return;
@@ -62,8 +38,10 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
         const activeMonth = await monthlySessionService.getCurrentMonthNumber(userId);
         const months = await monthlySessionService.getAvailableMonths(userId);
 
-        setAvailableMonths(months);
-        setCurrentMonthNumber(activeMonth || 1);
+        if (isMountedRef.current) {
+          setAvailableMonths(months);
+          setCurrentMonthNumber(activeMonth || 1);
+        }
       } catch (error) {
         console.error('[Monthly Calendar] Error loading initial data:', error);
       }
@@ -72,87 +50,80 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
     loadInitialData();
   }, [userId]);
 
-  // Load month data when userId or currentMonthNumber changes
+  // Simple polling for auto-refresh every 5 seconds
   useEffect(() => {
-    if (userId && currentMonthNumber > 0) {
-      loadMonthData();
-    }
-  }, [userId, currentMonthNumber, loadMonthData]);
+    if (!userId) return;
 
-  // Real-time subscription for current month updates with debouncing
-  useEffect(() => {
-    // Always return a cleanup function to maintain consistent hook execution
-    if (!userId) {
-      return () => {}; // Empty cleanup
-    }
+    const loadMonthData = async () => {
+      // Prevent concurrent loads
+      if (isLoadingRef.current || !isMountedRef.current) return;
 
-    let debounceTimer: NodeJS.Timeout | null = null;
-    const debouncedLoadMonthData = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        loadMonthData();
-      }, 2000); // Wait 2 seconds before updating
+      isLoadingRef.current = true;
+      if (previousDataRef.current === '') {
+        setLoading(true);
+      }
+
+      try {
+        const data = await monthlySessionService.getMonthData(
+          userIdRef.current,
+          currentMonthRef.current
+        );
+
+        // Deep equality check - only update if data actually changed
+        const newDataString = JSON.stringify(data);
+        if (previousDataRef.current !== newDataString && isMountedRef.current) {
+          console.log('[Monthly Calendar] Month data changed, updating...');
+          setMonthData(data);
+          previousDataRef.current = newDataString;
+        }
+      } catch (error) {
+        console.error('[Monthly Calendar] Error loading month data:', error);
+      } finally {
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
+        isLoadingRef.current = false;
+      }
     };
 
-    const channel = supabase
-      .channel(`monthly-calendar-${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'auto_backtest_global_state',
-          filter: `user_id=eq.${userId}`
-        },
-        (payload) => {
-          console.log('[Monthly Calendar] Auto-backtest state updated:', payload);
-          // Reload current month data if it's the active month
-          if (currentMonthNumber === payload.new.current_month_number) {
-            debouncedLoadMonthData();
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'ai_session_learnings',
-          filter: `user_id=eq.${userId}`
-        },
-        () => {
-          console.log('[Monthly Calendar] New session learning created, reloading...');
-          debouncedLoadMonthData();
-        }
-      )
-      .subscribe();
+    // Load immediately
+    loadMonthData();
+
+    // Set up polling interval
+    const pollInterval = setInterval(loadMonthData, 5000);
 
     return () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
-  }, [userId, currentMonthNumber, loadMonthData]);
+  }, [userId, currentMonthNumber]);
 
-  const handlePrevMonth = useCallback(() => {
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const handlePrevMonth = () => {
     if (currentMonthNumber > 1) {
       setCurrentMonthNumber(currentMonthNumber - 1);
-      previousMonthDataRef.current = null; // Clear cache when changing months
+      previousDataRef.current = ''; // Clear cache when changing months
     }
-  }, [currentMonthNumber]);
+  };
 
-  const handleNextMonth = useCallback(() => {
+  const handleNextMonth = () => {
     const maxMonth = Math.max(...availableMonths, currentMonthNumber);
     if (currentMonthNumber < maxMonth) {
       setCurrentMonthNumber(currentMonthNumber + 1);
-      previousMonthDataRef.current = null; // Clear cache when changing months
+      previousDataRef.current = ''; // Clear cache when changing months
     }
-  }, [availableMonths, currentMonthNumber]);
+  };
 
-  const getDayData = useCallback((dayNumber: number): DailySessionResult | null => {
+  const getDayData = (dayNumber: number): DailySessionResult | null => {
     return monthData?.dailyResults.find(d => d.dayNumber === dayNumber) || null;
-  }, [monthData]);
+  };
 
-  const renderDaySquare = useCallback((dayNumber: number) => {
+  const renderDaySquare = (dayNumber: number) => {
     const dayData = getDayData(dayNumber);
     const isHovered = hoveredDay === dayNumber;
     const hasData = dayData !== null;
@@ -238,7 +209,7 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
         )}
       </div>
     );
-  }, [hoveredDay, monthData]);
+  };
 
   if (loading) {
     return (
@@ -257,20 +228,8 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
     );
   }
 
-  const profitableDays = useMemo(() =>
-    monthData.dailyResults.filter(d => d.isProfitable).length,
-    [monthData]
-  );
-  const losingDays = useMemo(() =>
-    monthData.dailyResults.filter(d => !d.isProfitable && d.totalTrades > 0).length,
-    [monthData]
-  );
-
-  // Memoize calendar grid to prevent re-renders
-  const calendarGrid = useMemo(() =>
-    Array.from({ length: 30 }, (_, i) => i + 1).map(dayNumber => renderDaySquare(dayNumber)),
-    [renderDaySquare]
-  );
+  const profitableDays = monthData.dailyResults.filter(d => d.isProfitable).length;
+  const losingDays = monthData.dailyResults.filter(d => !d.isProfitable && d.totalTrades > 0).length;
 
   return (
     <div className="space-y-4">
@@ -358,7 +317,7 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
 
       {/* 30-Day Calendar Grid */}
       <div className="grid grid-cols-6 gap-2">
-        {calendarGrid}
+        {Array.from({ length: 30 }, (_, i) => i + 1).map(dayNumber => renderDaySquare(dayNumber))}
       </div>
 
       {/* Legend */}

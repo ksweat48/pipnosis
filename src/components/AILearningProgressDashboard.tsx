@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { aiSkillTracker, SkillProgressionData, MilestoneData, SkillLevel } from '../services/ai-skill-tracker';
 import { aiIndicatorTracker, IndicatorExperiment, IndicatorEffectiveness } from '../services/ai-indicator-tracker';
@@ -38,197 +38,114 @@ function AILearningProgressDashboard() {
   const [backtestStats, setBacktestStats] = useState<any>(null);
   const [autoBacktestState, setAutoBacktestState] = useState<any>(null);
 
-  // Track previous data to prevent unnecessary re-renders
-  const previousDataRef = useRef<{
-    skillData: SkillProgressionData | null;
-    milestones: MilestoneData[];
-    liveStats: any;
-    backtestStats: any;
-  }>({ skillData: null, milestones: [], liveStats: null, backtestStats: null });
+  // Use refs to track values without triggering re-renders
+  const userIdRef = useRef(user?.id);
+  const selectedSymbolRef = useRef(selectedSymbol);
   const isLoadingRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const previousDataRef = useRef<string>('');
 
-  // Stable loadData function that doesn't change on every render
-  const loadData = useCallback(async () => {
-    if (!user || isLoadingRef.current) return;
-
-    isLoadingRef.current = true;
-    setLoading(true);
-    try {
-      const [skill, milestonesData, adopted, experiments, effectiveness, liveStatsData] = await Promise.all([
-        aiSkillTracker.getSkillProgression(user.id),
-        aiSkillTracker.getRecentMilestones(user.id, 5),
-        aiIndicatorTracker.getAdoptedIndicators(user.id),
-        aiIndicatorTracker.getActiveExperiments(user.id),
-        aiIndicatorTracker.getIndicatorEffectiveness(user.id, selectedSymbol),
-        liveTradeLearningTrigger.getLearningStats(user.id)
-      ]);
-
-      // Fetch backtest stats
-      const { data: backtestInsights } = await supabase
-        .from('ai_learning_insights')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('learned_from_live_trading', false);
-
-      const newBacktestStats = {
-        total_insights: backtestInsights?.length || 0,
-        avg_confidence: backtestInsights && backtestInsights.length > 0
-          ? backtestInsights.reduce((sum, i) => sum + parseFloat(i.confidence_score.toString()), 0) / backtestInsights.length
-          : 0
-      };
-
-      // Fetch auto-backtest state for 30-day progress
-      const { simpleAutoBacktestService } = await import('../services/simple-auto-backtest-service');
-      const state = await simpleAutoBacktestService.getState();
-
-      // Deep equality check - only update if data actually changed
-      const skillChanged = JSON.stringify(previousDataRef.current.skillData) !== JSON.stringify(skill);
-      const milestonesChanged = JSON.stringify(previousDataRef.current.milestones) !== JSON.stringify(milestonesData);
-      const liveStatsChanged = JSON.stringify(previousDataRef.current.liveStats) !== JSON.stringify(liveStatsData);
-      const backtestStatsChanged = JSON.stringify(previousDataRef.current.backtestStats) !== JSON.stringify(newBacktestStats);
-
-      if (skillChanged) {
-        setSkillData(skill);
-        previousDataRef.current.skillData = skill;
-      }
-      if (milestonesChanged) {
-        setMilestones(milestonesData);
-        previousDataRef.current.milestones = milestonesData;
-      }
-      if (liveStatsChanged) {
-        setLiveStats(liveStatsData);
-        previousDataRef.current.liveStats = liveStatsData;
-      }
-      if (backtestStatsChanged) {
-        setBacktestStats(newBacktestStats);
-        previousDataRef.current.backtestStats = newBacktestStats;
-      }
-
-      // Always update these as they may change frequently
-      setAdoptedIndicators(adopted);
-      setActiveExperiments(experiments);
-      setIndicatorEffectiveness(effectiveness);
-      setAutoBacktestState(state);
-
-      if (!skillChanged && !milestonesChanged && !liveStatsChanged && !backtestStatsChanged) {
-        console.log('[AI Learning Dashboard] No significant changes detected, skipping update');
-      }
-    } catch (error) {
-      console.error('[AI Learning Dashboard] Error loading data:', error);
-    } finally {
-      setLoading(false);
-      isLoadingRef.current = false;
-    }
-  }, [user, selectedSymbol]);
+  // Update refs when values change
+  useEffect(() => {
+    userIdRef.current = user?.id;
+  }, [user?.id]);
 
   useEffect(() => {
-    if (user) {
-      loadData();
-    }
-  }, [user, loadData]);
+    selectedSymbolRef.current = selectedSymbol;
+  }, [selectedSymbol]);
 
-  // Realtime subscriptions for skill progression and learning data
+  // Simple polling for auto-refresh every 10 seconds
   useEffect(() => {
-    // Always return a cleanup function to maintain consistent hook execution
-    if (!user) {
-      return () => {}; // Empty cleanup
-    }
+    if (!user) return;
 
-    console.log('[AI Learning Dashboard] Setting up realtime subscriptions for user:', user.id);
+    const loadData = async () => {
+      if (isLoadingRef.current || !isMountedRef.current || !userIdRef.current) return;
 
-    // Debounce timer to batch multiple updates
-    let debounceTimer: NodeJS.Timeout | null = null;
-    const debouncedLoadData = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        console.log('[AI Learning Dashboard] Loading data after debounce...');
-        loadData();
-      }, 3000); // Wait 3 seconds after last change (increased from 2s)
+      isLoadingRef.current = true;
+      if (previousDataRef.current === '') {
+        setLoading(true);
+      }
+
+      try {
+        const [skill, milestonesData, adopted, experiments, effectiveness, liveStatsData] = await Promise.all([
+          aiSkillTracker.getSkillProgression(userIdRef.current),
+          aiSkillTracker.getRecentMilestones(userIdRef.current, 5),
+          aiIndicatorTracker.getAdoptedIndicators(userIdRef.current),
+          aiIndicatorTracker.getActiveExperiments(userIdRef.current),
+          aiIndicatorTracker.getIndicatorEffectiveness(userIdRef.current, selectedSymbolRef.current),
+          liveTradeLearningTrigger.getLearningStats(userIdRef.current)
+        ]);
+
+        // Fetch backtest stats
+        const { data: backtestInsights } = await supabase
+          .from('ai_learning_insights')
+          .select('*')
+          .eq('user_id', userIdRef.current)
+          .eq('learned_from_live_trading', false);
+
+        const newBacktestStats = {
+          total_insights: backtestInsights?.length || 0,
+          avg_confidence: backtestInsights && backtestInsights.length > 0
+            ? backtestInsights.reduce((sum, i) => sum + parseFloat(i.confidence_score.toString()), 0) / backtestInsights.length
+            : 0
+        };
+
+        // Fetch auto-backtest state for 30-day progress
+        const { simpleAutoBacktestService } = await import('../services/simple-auto-backtest-service');
+        const state = await simpleAutoBacktestService.getState();
+
+        // Create a snapshot of all data for deep equality check
+        const newDataSnapshot = JSON.stringify({
+          skill,
+          milestonesData,
+          liveStatsData,
+          newBacktestStats,
+          adopted,
+          experiments,
+          effectiveness,
+          state
+        });
+
+        // Only update if data actually changed
+        if (previousDataRef.current !== newDataSnapshot && isMountedRef.current) {
+          console.log('[AI Learning Dashboard] Data changed, updating...');
+          setSkillData(skill);
+          setMilestones(milestonesData);
+          setLiveStats(liveStatsData);
+          setBacktestStats(newBacktestStats);
+          setAdoptedIndicators(adopted);
+          setActiveExperiments(experiments);
+          setIndicatorEffectiveness(effectiveness);
+          setAutoBacktestState(state);
+          previousDataRef.current = newDataSnapshot;
+        }
+      } catch (error) {
+        console.error('[AI Learning Dashboard] Error loading data:', error);
+      } finally {
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
+        isLoadingRef.current = false;
+      }
     };
 
-    // Set up realtime subscriptions
-    const channel = supabase
-      .channel(`ai-learning-${user.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'ai_skill_progression',
-          filter: `user_id=eq.${user.id}`
-        },
-        (payload) => {
-          console.log('[AI Learning Dashboard] Skill progression UPDATE detected:', payload);
-          debouncedLoadData();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'ai_skill_progression',
-          filter: `user_id=eq.${user.id}`
-        },
-        (payload) => {
-          console.log('[AI Learning Dashboard] Skill progression INSERT detected:', payload);
-          debouncedLoadData();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'ai_learning_insights',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          console.log('[AI Learning Dashboard] New learning insight created, reloading...');
-          debouncedLoadData();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'ai_learning_milestones',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          console.log('[AI Learning Dashboard] New milestone achieved, reloading...');
-          debouncedLoadData();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'ai_indicator_experiments',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          console.log('[AI Learning Dashboard] Indicator experiments updated, reloading...');
-          debouncedLoadData();
-        }
-      )
-      .subscribe((status) => {
-        console.log('[AI Learning Dashboard] Subscription status:', status);
-        if (status === 'SUBSCRIBED') {
-          console.log('[AI Learning Dashboard] ✅ Real-time updates are active!');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('[AI Learning Dashboard] ❌ Subscription error - real-time updates may not work');
-        }
-      });
+    // Load immediately
+    loadData();
+
+    // Set up polling interval
+    const pollInterval = setInterval(loadData, 10000);
 
     return () => {
-      console.log('[AI Learning Dashboard] Cleaning up real-time subscriptions');
-      if (debounceTimer) clearTimeout(debounceTimer);
-      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
-  }, [user, loadData]);
+  }, [user, selectedSymbol]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -849,26 +766,42 @@ function AILearningProgressDashboard() {
 function DailyLearningsSection({ userId }: { userId?: string }) {
   const [recentLearning, setRecentLearning] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
+  const userIdRef = React.useRef(userId);
+  const isMountedRef = React.useRef(true);
 
-  const loadRecentLearning = React.useCallback(async () => {
-    if (!userId) return;
-
-    try {
-      const { sessionLearningGenerator } = await import('../services/session-learning-generator');
-      const recent = await sessionLearningGenerator.getRecentLearnings(userId, 1);
-      setRecentLearning(recent[0] || null);
-    } catch (error) {
-      console.error('[Daily Learnings] Error loading:', error);
-    } finally {
-      setLoading(false);
-    }
+  // Update ref when userId changes
+  React.useEffect(() => {
+    userIdRef.current = userId;
   }, [userId]);
 
   React.useEffect(() => {
-    if (userId) {
-      loadRecentLearning();
-    }
-  }, [userId, loadRecentLearning]);
+    if (!userId) return;
+
+    const loadRecentLearning = async () => {
+      if (!isMountedRef.current || !userIdRef.current) return;
+
+      try {
+        const { sessionLearningGenerator } = await import('../services/session-learning-generator');
+        const recent = await sessionLearningGenerator.getRecentLearnings(userIdRef.current, 1);
+
+        if (isMountedRef.current) {
+          setRecentLearning(recent[0] || null);
+        }
+      } catch (error) {
+        console.error('[Daily Learnings] Error loading:', error);
+      } finally {
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadRecentLearning();
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [userId]);
 
   if (loading) {
     return (
