@@ -359,6 +359,120 @@ export default function PatternDiscoveryTimeline() {
           </div>
         )}
       </div>
+
+      {/* Strategy Arsenal Section */}
+      <StrategyArsenalSection userId={user?.id} />
+    </div>
+  );
+}
+
+function StrategyArsenalSection({ userId }: { userId?: string }) {
+  const [strategies, setStrategies] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    if (userId) {
+      loadStrategies();
+    }
+  }, [userId]);
+
+  const loadStrategies = async () => {
+    if (!userId) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('ai_discovered_strategies')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('validation_status', 'active')
+        .eq('passes_baseline', true)
+        .order('expectancy', { ascending: false })
+        .limit(5);
+
+      if (error) throw error;
+      setStrategies(data || []);
+    } catch (error) {
+      console.error('[Strategy Arsenal] Error loading:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6">
+        <h3 className="text-xl font-semibold text-white mb-4">Strategy Arsenal</h3>
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (strategies.length === 0) {
+    return (
+      <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6">
+        <h3 className="text-xl font-semibold text-white mb-4">Strategy Arsenal</h3>
+        <div className="text-center py-8 text-gray-500">
+          <p className="text-sm">No active strategies yet. Run backtests to discover strategies that beat the baseline.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const totalTrades = strategies.reduce((sum, s) => sum + s.total_trades, 0);
+  const avgWinRate = strategies.reduce((sum, s) => sum + s.win_rate, 0) / strategies.length;
+
+  return (
+    <div className="bg-gradient-to-br from-amber-900/20 to-orange-900/20 backdrop-blur-sm border-2 border-amber-500/30 rounded-lg shadow-md p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xl font-semibold text-white">Strategy Arsenal</h3>
+        <span className="text-sm text-gray-400">{strategies.length} active strategies</span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
+          <div className="text-xs text-gray-400 mb-1">Active Strategies</div>
+          <div className="text-lg font-bold text-amber-400">{strategies.length}</div>
+        </div>
+        <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
+          <div className="text-xs text-gray-400 mb-1">Avg Win Rate</div>
+          <div className="text-lg font-bold text-green-400">{avgWinRate.toFixed(1)}%</div>
+        </div>
+        <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
+          <div className="text-xs text-gray-400 mb-1">Total Trades</div>
+          <div className="text-lg font-bold text-white">{totalTrades}</div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {strategies.map((strategy) => (
+          <div key={strategy.id} className="p-3 bg-gray-900/50 rounded-lg border border-amber-500/30">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-semibold text-white text-sm">{strategy.strategy_name}</h4>
+              <span className="px-2 py-1 bg-green-600 text-white text-xs rounded">Active</span>
+            </div>
+            <div className="grid grid-cols-4 gap-3 text-xs">
+              <div>
+                <div className="text-gray-400">Win Rate</div>
+                <div className="font-bold text-green-400">{strategy.win_rate.toFixed(1)}%</div>
+              </div>
+              <div>
+                <div className="text-gray-400">Profit Factor</div>
+                <div className="font-bold text-blue-400">{strategy.profit_factor.toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-gray-400">Expectancy</div>
+                <div className="font-bold text-emerald-400">${strategy.expectancy.toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-gray-400">Trades</div>
+                <div className="font-bold text-white">{strategy.total_trades}</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

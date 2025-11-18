@@ -20,7 +20,8 @@ import {
   Lightbulb,
   Trophy,
   PlayCircle,
-  BarChart2
+  BarChart2,
+  BookOpen
 } from 'lucide-react';
 
 export default function AILearningProgressDashboard() {
@@ -878,6 +879,115 @@ export default function AILearningProgressDashboard() {
           />
         </div>
       </div>
+
+      {/* Daily Learnings Section */}
+      <DailyLearningsSection userId={user?.id} />
+    </div>
+  );
+}
+
+function DailyLearningsSection({ userId }: { userId?: string }) {
+  const [recentLearning, setRecentLearning] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    if (userId) {
+      loadRecentLearning();
+    }
+  }, [userId]);
+
+  const loadRecentLearning = async () => {
+    if (!userId) return;
+
+    try {
+      const { sessionLearningGenerator } = await import('../services/session-learning-generator');
+      const recent = await sessionLearningGenerator.getRecentLearnings(userId, 1);
+      setRecentLearning(recent[0] || null);
+    } catch (error) {
+      console.error('[Daily Learnings] Error loading:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6">
+        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+          <BookOpen className="w-5 h-5 text-blue-400" />
+          Daily Learnings
+        </h3>
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!recentLearning) {
+    return (
+      <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6">
+        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+          <BookOpen className="w-5 h-5 text-blue-400" />
+          Daily Learnings
+        </h3>
+        <div className="text-center py-8 text-gray-500">
+          <p className="text-sm">No learning data yet. Run backtests to generate insights.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 backdrop-blur-sm border-2 border-blue-500/30 rounded-lg shadow-md p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xl font-semibold text-white flex items-center gap-2">
+          <BookOpen className="w-5 h-5 text-blue-400" />
+          Daily Learnings
+        </h3>
+        <span className="text-sm text-gray-400">
+          {new Date(recentLearning.session_date).toLocaleDateString()}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
+          <div className="text-xs text-gray-400 mb-1">Session CSS</div>
+          <div className="text-lg font-bold text-blue-400">
+            {recentLearning.session_css?.toFixed(1) || 'N/A'}
+          </div>
+        </div>
+        <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
+          <div className="text-xs text-gray-400 mb-1">Session EV</div>
+          <div className={`text-lg font-bold ${recentLearning.session_ev > 0 ? 'text-green-400' : 'text-red-400'}`}>
+            {recentLearning.session_ev?.toFixed(2) || 'N/A'}
+          </div>
+        </div>
+        <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
+          <div className="text-xs text-gray-400 mb-1">Trades Taken</div>
+          <div className="text-lg font-bold text-white">
+            {recentLearning.trades_taken || 0}
+          </div>
+        </div>
+        <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
+          <div className="text-xs text-gray-400 mb-1">Patterns</div>
+          <div className="text-lg font-bold text-purple-400">
+            {recentLearning.patterns_discovered?.length || 0}
+          </div>
+        </div>
+      </div>
+
+      {recentLearning.key_learnings && recentLearning.key_learnings.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold text-gray-300 mb-2">Key Insights</h4>
+          {recentLearning.key_learnings.slice(0, 3).map((learning: string, index: number) => (
+            <div key={index} className="flex items-start gap-2 p-2 bg-gray-900/50 rounded">
+              <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-gray-300">{learning}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
