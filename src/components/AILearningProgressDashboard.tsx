@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { aiSkillTracker, SkillProgressionData, MilestoneData, SkillLevel } from '../services/ai-skill-tracker';
 import { aiIndicatorTracker, IndicatorExperiment, IndicatorEffectiveness } from '../services/ai-indicator-tracker';
@@ -25,7 +25,7 @@ import {
   BookOpen
 } from 'lucide-react';
 
-export default function AILearningProgressDashboard() {
+function AILearningProgressDashboard() {
   const { user } = useAuth();
   const [skillData, setSkillData] = useState<SkillProgressionData | null>(null);
   const [milestones, setMilestones] = useState<MilestoneData[]>([]);
@@ -37,6 +37,15 @@ export default function AILearningProgressDashboard() {
   const [liveStats, setLiveStats] = useState<any>(null);
   const [backtestStats, setBacktestStats] = useState<any>(null);
   const [autoBacktestState, setAutoBacktestState] = useState<any>(null);
+
+  // Track previous data to prevent unnecessary re-renders
+  const previousDataRef = useRef<{
+    skillData: SkillProgressionData | null;
+    milestones: MilestoneData[];
+    liveStats: any;
+    backtestStats: any;
+  }>({ skillData: null, milestones: [], liveStats: null, backtestStats: null });
+  const isLoadingRef = useRef(false);
 
   useEffect(() => {
     if (user) {
@@ -57,7 +66,7 @@ export default function AILearningProgressDashboard() {
       debounceTimer = setTimeout(() => {
         console.log('[AI Learning Dashboard] Loading data after debounce...');
         loadData();
-      }, 2000); // Wait 2 seconds after last change
+      }, 3000); // Wait 3 seconds after last change (increased from 2s)
     };
 
     // Set up realtime subscriptions
@@ -145,8 +154,9 @@ export default function AILearningProgressDashboard() {
   }, [user]);
 
   const loadData = async () => {
-    if (!user) return;
+    if (!user || isLoadingRef.current) return;
 
+    isLoadingRef.current = true;
     setLoading(true);
     try {
       const [skill, milestonesData, adopted, experiments, effectiveness, liveStatsData] = await Promise.all([
@@ -158,13 +168,6 @@ export default function AILearningProgressDashboard() {
         liveTradeLearningTrigger.getLearningStats(user.id)
       ]);
 
-      setSkillData(skill);
-      setMilestones(milestonesData);
-      setAdoptedIndicators(adopted);
-      setActiveExperiments(experiments);
-      setIndicatorEffectiveness(effectiveness);
-      setLiveStats(liveStatsData);
-
       // Fetch backtest stats
       const { data: backtestInsights } = await supabase
         .from('ai_learning_insights')
@@ -172,21 +175,54 @@ export default function AILearningProgressDashboard() {
         .eq('user_id', user.id)
         .eq('learned_from_live_trading', false);
 
-      setBacktestStats({
+      const newBacktestStats = {
         total_insights: backtestInsights?.length || 0,
         avg_confidence: backtestInsights && backtestInsights.length > 0
           ? backtestInsights.reduce((sum, i) => sum + parseFloat(i.confidence_score.toString()), 0) / backtestInsights.length
           : 0
-      });
+      };
 
       // Fetch auto-backtest state for 30-day progress
       const { simpleAutoBacktestService } = await import('../services/simple-auto-backtest-service');
       const state = await simpleAutoBacktestService.getState();
+
+      // Deep equality check - only update if data actually changed
+      const skillChanged = JSON.stringify(previousDataRef.current.skillData) !== JSON.stringify(skill);
+      const milestonesChanged = JSON.stringify(previousDataRef.current.milestones) !== JSON.stringify(milestonesData);
+      const liveStatsChanged = JSON.stringify(previousDataRef.current.liveStats) !== JSON.stringify(liveStatsData);
+      const backtestStatsChanged = JSON.stringify(previousDataRef.current.backtestStats) !== JSON.stringify(newBacktestStats);
+
+      if (skillChanged) {
+        setSkillData(skill);
+        previousDataRef.current.skillData = skill;
+      }
+      if (milestonesChanged) {
+        setMilestones(milestonesData);
+        previousDataRef.current.milestones = milestonesData;
+      }
+      if (liveStatsChanged) {
+        setLiveStats(liveStatsData);
+        previousDataRef.current.liveStats = liveStatsData;
+      }
+      if (backtestStatsChanged) {
+        setBacktestStats(newBacktestStats);
+        previousDataRef.current.backtestStats = newBacktestStats;
+      }
+
+      // Always update these as they may change frequently
+      setAdoptedIndicators(adopted);
+      setActiveExperiments(experiments);
+      setIndicatorEffectiveness(effectiveness);
       setAutoBacktestState(state);
+
+      if (!skillChanged && !milestonesChanged && !liveStatsChanged && !backtestStatsChanged) {
+        console.log('[AI Learning Dashboard] No significant changes detected, skipping update');
+      }
     } catch (error) {
       console.error('[AI Learning Dashboard] Error loading data:', error);
     } finally {
       setLoading(false);
+      isLoadingRef.current = false;
     }
   };
 
@@ -951,3 +987,5 @@ function JourneyCard({ title, trades, description, color }: any) {
     </div>
   );
 }
+
+export default memo(AILearningProgressDashboard);

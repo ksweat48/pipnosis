@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, memo } from 'react';
 import { AlertTriangle, TrendingUp, Zap, Target, Activity, Info } from 'lucide-react';
 import { plateauDetector, PlateauAnalysis } from '../services/plateau-detector';
 import { breakthroughEngine } from '../services/breakthrough-engine';
@@ -8,21 +8,33 @@ interface Props {
   userId: string;
 }
 
-export default function PlateauBreakthroughDashboard({ userId }: Props) {
+function PlateauBreakthroughDashboard({ userId }: Props) {
   const [plateauStatus, setPlateauStatus] = useState<PlateauAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [breakthroughRunning, setBreakthroughRunning] = useState(false);
 
+  // Track previous data to prevent unnecessary re-renders
+  const previousPlateauRef = useRef<PlateauAnalysis | null>(null);
+  const isLoadingRef = useRef(false);
+
   useEffect(() => {
     loadPlateauStatus();
-    // Longer interval to reduce unnecessary refreshes
-    const interval = setInterval(loadPlateauStatus, 60000);
+    // Much longer interval to reduce unnecessary refreshes (2 minutes)
+    const interval = setInterval(loadPlateauStatus, 120000);
     return () => clearInterval(interval);
   }, [userId]);
 
-  // Realtime subscription for plateau status updates
+  // Realtime subscription for plateau status updates with debouncing
   useEffect(() => {
     if (!userId) return;
+
+    let debounceTimer: NodeJS.Timeout | null = null;
+    const debouncedLoadStatus = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadPlateauStatus();
+      }, 3000); // Wait 3 seconds before updating
+    };
 
     const channel = supabase
       .channel(`plateau-status-${userId}`)
@@ -36,7 +48,7 @@ export default function PlateauBreakthroughDashboard({ userId }: Props) {
         },
         () => {
           console.log('[Plateau Dashboard] Skill progression updated, reloading...');
-          loadPlateauStatus();
+          debouncedLoadStatus();
         }
       )
       .on(
@@ -49,7 +61,7 @@ export default function PlateauBreakthroughDashboard({ userId }: Props) {
         },
         () => {
           console.log('[Plateau Dashboard] New backtest session detected, reloading...');
-          loadPlateauStatus();
+          debouncedLoadStatus();
         }
       )
       .on(
@@ -62,25 +74,42 @@ export default function PlateauBreakthroughDashboard({ userId }: Props) {
         },
         () => {
           console.log('[Plateau Dashboard] New synthetic backtest detected, reloading...');
-          loadPlateauStatus();
+          debouncedLoadStatus();
         }
       )
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, [userId]);
 
   const loadPlateauStatus = async () => {
+    if (isLoadingRef.current) return;
+
+    isLoadingRef.current = true;
     try {
       const analysis = await plateauDetector.detectPlateau(userId);
-      setPlateauStatus(analysis);
+
+      // Deep equality check - only update if data actually changed
+      const hasChanged = !previousPlateauRef.current ||
+        JSON.stringify(previousPlateauRef.current) !== JSON.stringify(analysis);
+
+      if (hasChanged) {
+        console.log('[Plateau Dashboard] Plateau status changed, updating...');
+        setPlateauStatus(analysis);
+        previousPlateauRef.current = analysis;
+      } else {
+        console.log('[Plateau Dashboard] No changes detected, skipping update');
+      }
+
       setBreakthroughRunning(breakthroughEngine.isBreakthroughRunning());
     } catch (error) {
       console.error('Error loading plateau status:', error);
     } finally {
       setLoading(false);
+      isLoadingRef.current = false;
     }
   };
 
@@ -261,3 +290,5 @@ export default function PlateauBreakthroughDashboard({ userId }: Props) {
     </div>
   );
 }
+
+export default memo(PlateauBreakthroughDashboard);

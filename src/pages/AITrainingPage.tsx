@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { useUserInteraction } from '../hooks/useUserInteraction';
 import { supabase } from '../lib/supabase';
 import { backtestingEngine, BacktestConfig, BacktestResult } from '../services/backtesting-engine';
 import { syntheticBacktestingEngine, SyntheticBacktestConfig, SyntheticBacktestResult } from '../services/synthetic-backtesting-engine';
@@ -59,6 +60,12 @@ export default function AITrainingPage() {
   // Ref to track previous state for comparison
   const previousStateRef = useRef<SimpleAutoBacktestState | null>(null);
 
+  // Track pending updates during user interaction
+  const pendingUpdatesRef = useRef<SimpleAutoBacktestState | null>(null);
+
+  // Detect user interaction to pause updates
+  const { isUserInteracting, isScrolling } = useUserInteraction(1500);
+
   const availableSymbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];
 
   useEffect(() => {
@@ -83,11 +90,11 @@ export default function AITrainingPage() {
     // Poll auto-backtest state from database (optimized for non-disruptive updates)
     let stateInterval: NodeJS.Timeout | null = null;
 
-    // Dynamic polling rate based on activity
+    // Dynamic polling rate based on activity and user interaction
     const getPollingRate = (state: SimpleAutoBacktestState | null) => {
-      if (!state) return 15000; // 15 seconds when no state
-      if (state.isRunning) return 5000; // 5 seconds when actively running
-      return 15000; // 15 seconds when idle
+      if (!state) return 20000; // 20 seconds when no state
+      if (state.isRunning) return 10000; // 10 seconds when actively running (reduced from 5s)
+      return 30000; // 30 seconds when idle (reduced from 15s)
     };
 
     const pollState = async () => {
@@ -99,9 +106,17 @@ export default function AITrainingPage() {
           JSON.stringify(previousStateRef.current) !== JSON.stringify(state);
 
         if (hasChanged) {
+          // If user is interacting, store update for later
+          if (isUserInteracting) {
+            console.log('[AI Training] User interacting, queuing state update');
+            pendingUpdatesRef.current = state;
+            return;
+          }
+
           console.log('[AI Training] State changed, updating UI');
           setAutoBacktestState(state);
           previousStateRef.current = state;
+          pendingUpdatesRef.current = null;
 
           // Auto-switch to auto mode if it's running
           if (state.isRunning) {
@@ -217,6 +232,16 @@ export default function AITrainingPage() {
       }
     };
   }, [user]);
+
+  // Apply pending updates when user stops interacting
+  useEffect(() => {
+    if (!isUserInteracting && pendingUpdatesRef.current) {
+      console.log('[AI Training] User stopped interacting, applying pending updates');
+      setAutoBacktestState(pendingUpdatesRef.current);
+      previousStateRef.current = pendingUpdatesRef.current;
+      pendingUpdatesRef.current = null;
+    }
+  }, [isUserInteracting]);
 
   useEffect(() => {
     // Update date range when switching between synthetic and real data

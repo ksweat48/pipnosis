@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Check, X, ChevronLeft, ChevronRight, Calendar, TrendingUp, TrendingDown } from 'lucide-react';
 import { monthlySessionService, MonthlySessionData, DailySessionResult } from '../services/monthly-session-service';
 import { supabase } from '../lib/supabase';
@@ -14,6 +14,11 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
   const [loading, setLoading] = useState(true);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
 
+  // Track previous data to prevent unnecessary updates
+  const previousMonthDataRef = useRef<MonthlySessionData | null>(null);
+  const pendingUpdateRef = useRef<MonthlySessionData | null>(null);
+  const isLoadingRef = useRef(false);
+
   useEffect(() => {
     if (userId) {
       loadInitialData();
@@ -26,9 +31,17 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
     }
   }, [userId, currentMonthNumber]);
 
-  // Real-time subscription for current month updates
+  // Real-time subscription for current month updates with debouncing
   useEffect(() => {
     if (!userId) return;
+
+    let debounceTimer: NodeJS.Timeout | null = null;
+    const debouncedLoadMonthData = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadMonthData();
+      }, 2000); // Wait 2 seconds before updating
+    };
 
     const channel = supabase
       .channel(`monthly-calendar-${userId}`)
@@ -44,7 +57,7 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
           console.log('[Monthly Calendar] Auto-backtest state updated:', payload);
           // Reload current month data if it's the active month
           if (currentMonthNumber === payload.new.current_month_number) {
-            loadMonthData();
+            debouncedLoadMonthData();
           }
         }
       )
@@ -58,12 +71,13 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
         },
         () => {
           console.log('[Monthly Calendar] New session learning created, reloading...');
-          loadMonthData();
+          debouncedLoadMonthData();
         }
       )
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, [userId, currentMonthNumber]);
@@ -80,36 +94,57 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
     }
   };
 
-  const loadMonthData = async () => {
+  const loadMonthData = useCallback(async () => {
+    // Prevent concurrent loads
+    if (isLoadingRef.current) {
+      console.log('[Monthly Calendar] Already loading, skipping...');
+      return;
+    }
+
+    isLoadingRef.current = true;
     setLoading(true);
     try {
       const data = await monthlySessionService.getMonthData(userId, currentMonthNumber);
-      setMonthData(data);
+
+      // Deep equality check - only update if data actually changed
+      const dataHasChanged = !previousMonthDataRef.current ||
+        JSON.stringify(previousMonthDataRef.current) !== JSON.stringify(data);
+
+      if (dataHasChanged) {
+        console.log('[Monthly Calendar] Month data changed, updating...');
+        setMonthData(data);
+        previousMonthDataRef.current = data;
+      } else {
+        console.log('[Monthly Calendar] Month data unchanged, skipping update');
+      }
     } catch (error) {
       console.error('[Monthly Calendar] Error loading month data:', error);
     } finally {
       setLoading(false);
+      isLoadingRef.current = false;
     }
-  };
+  }, [userId, currentMonthNumber]);
 
-  const handlePrevMonth = () => {
+  const handlePrevMonth = useCallback(() => {
     if (currentMonthNumber > 1) {
       setCurrentMonthNumber(currentMonthNumber - 1);
+      previousMonthDataRef.current = null; // Clear cache when changing months
     }
-  };
+  }, [currentMonthNumber]);
 
-  const handleNextMonth = () => {
+  const handleNextMonth = useCallback(() => {
     const maxMonth = Math.max(...availableMonths, currentMonthNumber);
     if (currentMonthNumber < maxMonth) {
       setCurrentMonthNumber(currentMonthNumber + 1);
+      previousMonthDataRef.current = null; // Clear cache when changing months
     }
-  };
+  }, [availableMonths, currentMonthNumber]);
 
-  const getDayData = (dayNumber: number): DailySessionResult | null => {
+  const getDayData = useCallback((dayNumber: number): DailySessionResult | null => {
     return monthData?.dailyResults.find(d => d.dayNumber === dayNumber) || null;
-  };
+  }, [monthData]);
 
-  const renderDaySquare = (dayNumber: number) => {
+  const renderDaySquare = useCallback((dayNumber: number) => {
     const dayData = getDayData(dayNumber);
     const isHovered = hoveredDay === dayNumber;
     const hasData = dayData !== null;
@@ -195,7 +230,7 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
         )}
       </div>
     );
-  };
+  }, [hoveredDay, monthData]);
 
   if (loading) {
     return (
@@ -214,8 +249,20 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
     );
   }
 
-  const profitableDays = monthData.dailyResults.filter(d => d.isProfitable).length;
-  const losingDays = monthData.dailyResults.filter(d => !d.isProfitable && d.totalTrades > 0).length;
+  const profitableDays = useMemo(() =>
+    monthData.dailyResults.filter(d => d.isProfitable).length,
+    [monthData]
+  );
+  const losingDays = useMemo(() =>
+    monthData.dailyResults.filter(d => !d.isProfitable && d.totalTrades > 0).length,
+    [monthData]
+  );
+
+  // Memoize calendar grid to prevent re-renders
+  const calendarGrid = useMemo(() =>
+    Array.from({ length: 30 }, (_, i) => i + 1).map(dayNumber => renderDaySquare(dayNumber)),
+    [renderDaySquare]
+  );
 
   return (
     <div className="space-y-4">
@@ -303,7 +350,7 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
 
       {/* 30-Day Calendar Grid */}
       <div className="grid grid-cols-6 gap-2">
-        {Array.from({ length: 30 }, (_, i) => i + 1).map(dayNumber => renderDaySquare(dayNumber))}
+        {calendarGrid}
       </div>
 
       {/* Legend */}
