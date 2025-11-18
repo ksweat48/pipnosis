@@ -36,6 +36,9 @@ interface SkillProgressionData {
   last10SessionPFAverage?: number;
   consistencyValidationPassed?: boolean;
   consistencyFailureReason?: string;
+  totalBacktestsCompleted?: number;
+  totalSyntheticBacktests?: number;
+  totalRealBacktests?: number;
 }
 
 interface MilestoneData {
@@ -148,7 +151,10 @@ class AISkillTracker {
         last10SessionWRSpread: data.last_10_session_wr_spread ? parseFloat(data.last_10_session_wr_spread.toString()) : undefined,
         last10SessionPFAverage: data.last_10_session_pf_average ? parseFloat(data.last_10_session_pf_average.toString()) : undefined,
         consistencyValidationPassed: data.consistency_validation_passed,
-        consistencyFailureReason: data.consistency_failure_reason
+        consistencyFailureReason: data.consistency_failure_reason,
+        totalBacktestsCompleted: data.total_backtests_completed || 0,
+        totalSyntheticBacktests: data.total_synthetic_backtests || 0,
+        totalRealBacktests: data.total_real_backtests || 0
       };
     } catch (error) {
       console.error('[AI Skill Tracker] Exception in getSkillProgression:', error);

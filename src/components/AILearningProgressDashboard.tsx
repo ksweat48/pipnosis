@@ -265,7 +265,7 @@ function AILearningProgressDashboard() {
           {/* Performance Requirements Card */}
           <div className="mt-4 p-4 bg-blue-500/10 rounded border border-blue-500/30">
             <h4 className="text-sm font-semibold text-blue-300 mb-3">Requirements for Next Level</h4>
-            <div className="grid grid-cols-3 gap-3 text-xs">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
               <div>
                 <div className="text-white/60 mb-1">Winning Trades</div>
                 <div className="font-bold text-white">
@@ -293,9 +293,69 @@ function AILearningProgressDashboard() {
                   {skillData.currentProfitFactor >= (skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) - skillData.currentProfitFactor).toFixed(2)}`}
                 </div>
               </div>
+              <div>
+                <div className="text-white/60 mb-1 flex items-center gap-1">
+                  Consistency
+                  <span className="text-white/40 text-[10px]" title="Win Rate Spread measures consistency across sessions. Lower is better.">ⓘ</span>
+                </div>
+                <div className="font-bold text-white">
+                  {(() => {
+                    const wrSpreadLimits: Record<number, number> = {
+                      1: 35.0, 2: 25.0, 3: 15.0, 4: 12.0, 5: 10.0, 6: 8.0
+                    };
+                    const currentSpread = skillData.last10SessionWRSpread !== undefined ? skillData.last10SessionWRSpread : 0;
+                    const requiredSpread = wrSpreadLimits[skillData.skillLevelNumeric] || 10.0;
+                    const sessionCount = (skillData as any).totalBacktestsCompleted || 0;
+
+                    if (sessionCount < 10) {
+                      return `${sessionCount}/10 sessions`;
+                    }
+                    return `${currentSpread.toFixed(1)}% / ≤${requiredSpread.toFixed(0)}%`;
+                  })()}
+                </div>
+                <div className={`text-xs mt-1 ${(() => {
+                  const wrSpreadLimits: Record<number, number> = {
+                    1: 35.0, 2: 25.0, 3: 15.0, 4: 12.0, 5: 10.0, 6: 8.0
+                  };
+                  const currentSpread = skillData.last10SessionWRSpread !== undefined ? skillData.last10SessionWRSpread : 0;
+                  const requiredSpread = wrSpreadLimits[skillData.skillLevelNumeric] || 10.0;
+                  const sessionCount = (skillData as any).totalBacktestsCompleted || 0;
+
+                  if (sessionCount < 10) {
+                    return 'text-blue-400';
+                  }
+                  if (skillData.consistencyValidationPassed === false) {
+                    return 'text-red-400';
+                  }
+                  if (currentSpread <= requiredSpread) {
+                    return 'text-green-400';
+                  }
+                  return 'text-yellow-400';
+                })()}`}>
+                  {(() => {
+                    const wrSpreadLimits: Record<number, number> = {
+                      1: 35.0, 2: 25.0, 3: 15.0, 4: 12.0, 5: 10.0, 6: 8.0
+                    };
+                    const currentSpread = skillData.last10SessionWRSpread !== undefined ? skillData.last10SessionWRSpread : 0;
+                    const requiredSpread = wrSpreadLimits[skillData.skillLevelNumeric] || 10.0;
+                    const sessionCount = (skillData as any).totalBacktestsCompleted || 0;
+
+                    if (sessionCount < 10) {
+                      return 'Building history';
+                    }
+                    if (skillData.consistencyValidationPassed === false) {
+                      return '✗ Failed';
+                    }
+                    if (currentSpread <= requiredSpread) {
+                      return '✓ Met';
+                    }
+                    return `Need -${(currentSpread - requiredSpread).toFixed(1)}%`;
+                  })()}
+                </div>
+              </div>
             </div>
             <p className="text-xs text-blue-300 mt-3">
-              <strong>Note:</strong> All three criteria must be met to advance. Progress slows when performance metrics are below targets.
+              <strong>Note:</strong> All FOUR criteria must be met to advance. Consistency requires 10+ sessions with stable win rates. Progress slows when performance metrics are below targets.
             </p>
           </div>
 
