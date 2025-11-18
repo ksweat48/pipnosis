@@ -78,9 +78,12 @@ export default function AITrainingPage() {
     }
 
     // Poll auto-backtest state from database (always poll to show cross-device state)
+    // Use faster polling rate for more responsive UI
     let stateInterval: NodeJS.Timeout | null = null;
-    if (user) {
-      stateInterval = setInterval(async () => {
+    let pollRate = 1500; // Start with 1.5 second polling
+
+    const pollState = async () => {
+      try {
         const state = await simpleAutoBacktestService.getState();
         setAutoBacktestState(state);
         // Auto-switch to auto mode if it's running
@@ -92,7 +95,17 @@ export default function AITrainingPage() {
         if (!state.isRunning && state.lastBacktestResult) {
           loadPastSessions();
         }
-      }, 3000); // Poll every 3 seconds
+      } catch (error) {
+        console.error('[AI Training] Error polling auto-backtest state:', error);
+      }
+    };
+
+    if (user) {
+      // Poll immediately on mount
+      pollState();
+
+      // Then poll at regular intervals
+      stateInterval = setInterval(pollState, pollRate);
     }
 
     // Set up realtime subscriptions for backtest sessions
@@ -805,17 +818,21 @@ export default function AITrainingPage() {
                 <input
                   type="checkbox"
                   checked={isAutoMode}
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const newMode = e.target.checked;
                     setIsAutoMode(newMode);
                     // Stop auto-backtest when switching to manual
                     if (!newMode && autoBacktestState?.isRunning) {
-                      simpleAutoBacktestService.stop();
+                      await simpleAutoBacktestService.stop();
+                      // Immediately refresh state
+                      const updatedState = await simpleAutoBacktestService.getState();
+                      setAutoBacktestState(updatedState);
                     }
                   }}
+                  disabled={autoBacktestTransitioning}
                   className="sr-only peer"
                 />
-                <div className="w-14 h-7 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
+                <div className="w-14 h-7 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed"></div>
               </label>
               <span className={`text-sm font-semibold ${isAutoMode ? 'text-white' : 'text-gray-400'}`}>
                 Auto
@@ -852,8 +869,25 @@ export default function AITrainingPage() {
                       if (!user || autoBacktestTransitioning) return;
 
                       setAutoBacktestTransitioning(true);
-                      await simpleAutoBacktestService.stop();
-                      setAutoBacktestTransitioning(false);
+
+                      try {
+                        await simpleAutoBacktestService.stop();
+
+                        // Force immediate state refresh to confirm database update
+                        const confirmedState = await simpleAutoBacktestService.getState();
+                        setAutoBacktestState(confirmedState);
+
+                        if (!confirmedState.isRunning) {
+                          console.log('[AI Training] ✅ Auto-backtest confirmed stopped');
+                        } else {
+                          console.warn('[AI Training] ⚠️ Auto-backtest stopped but state not confirmed');
+                        }
+                      } catch (error) {
+                        console.error('[AI Training] Error stopping auto-backtest:', error);
+                        alert('Error stopping auto-backtest. Check console for details.');
+                      } finally {
+                        setAutoBacktestTransitioning(false);
+                      }
                     }}
                     disabled={autoBacktestTransitioning}
                     className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white font-bold text-lg rounded-lg hover:bg-red-700 transition-colors shadow-lg hover:shadow-xl disabled:bg-gray-600 disabled:cursor-not-allowed"
@@ -912,8 +946,33 @@ export default function AITrainingPage() {
                       if (!user || autoBacktestTransitioning) return;
 
                       setAutoBacktestTransitioning(true);
-                      await simpleAutoBacktestService.start(user.id);
-                      setAutoBacktestTransitioning(false);
+
+                      // Optimistic UI update - immediately show starting state
+                      setAutoBacktestState(prev => prev ? { ...prev, isRunning: false } : null);
+
+                      try {
+                        const result = await simpleAutoBacktestService.start(user.id);
+
+                        if (result.success) {
+                          // Force immediate state refresh to confirm database update
+                          const confirmedState = await simpleAutoBacktestService.getState();
+                          setAutoBacktestState(confirmedState);
+
+                          if (confirmedState.isRunning) {
+                            console.log('[AI Training] ✅ Auto-backtest confirmed running');
+                          } else {
+                            console.warn('[AI Training] ⚠️ Auto-backtest started but state not confirmed');
+                          }
+                        } else {
+                          console.error('[AI Training] Failed to start auto-backtest:', result.message);
+                          alert('Failed to start auto-backtest. Please try again.');
+                        }
+                      } catch (error) {
+                        console.error('[AI Training] Error starting auto-backtest:', error);
+                        alert('Error starting auto-backtest. Check console for details.');
+                      } finally {
+                        setAutoBacktestTransitioning(false);
+                      }
                     }}
                     disabled={autoBacktestTransitioning}
                     className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors mx-auto disabled:bg-gray-600 disabled:cursor-not-allowed"

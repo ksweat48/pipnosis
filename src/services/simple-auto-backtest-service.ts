@@ -163,6 +163,7 @@ class SimpleAutoBacktestService {
 
     const deviceInfo = this.getDeviceInfo();
 
+    // Sync state to database with error handling
     await this.syncStateToDatabase({
       is_running: true,
       started_at: new Date().toISOString(),
@@ -170,6 +171,21 @@ class SimpleAutoBacktestService {
       started_from_device: deviceInfo,
       last_heartbeat: new Date().toISOString()
     });
+
+    // Verify database state was updated (read-back confirmation)
+    const { data: verifyState } = await supabase
+      .from('auto_backtest_global_state')
+      .select('is_running')
+      .eq('user_id', userId)
+      .single();
+
+    if (!verifyState?.is_running) {
+      console.error('[Auto-Backtest] Failed to verify running state in database');
+      this.isRunning = false;
+      return { success: false, message: 'Failed to start auto-backtest - database sync error' };
+    }
+
+    console.log('[Auto-Backtest] ✅ Database state confirmed - auto-backtest is running');
 
     this.startHeartbeat();
     this.runLoop();
@@ -207,6 +223,21 @@ class SimpleAutoBacktestService {
     // This handles cross-device/cross-tab scenarios
     if (this.userId) {
       await this.forceStopInDatabase(this.userId);
+    }
+
+    // Verify database state was updated
+    if (this.userId) {
+      const { data: verifyState } = await supabase
+        .from('auto_backtest_global_state')
+        .select('is_running')
+        .eq('user_id', this.userId)
+        .single();
+
+      if (verifyState?.is_running) {
+        console.warn('[Auto-Backtest] Warning: Database still shows running after stop');
+      } else {
+        console.log('[Auto-Backtest] ✅ Database state confirmed - auto-backtest is stopped');
+      }
     }
 
     // Reset session tracking
