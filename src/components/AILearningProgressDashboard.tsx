@@ -4,6 +4,7 @@ import { aiSkillTracker, SkillProgressionData, MilestoneData, SkillLevel } from 
 import { aiIndicatorTracker, IndicatorExperiment, IndicatorEffectiveness } from '../services/ai-indicator-tracker';
 import { liveTradeLearningTrigger } from '../services/live-trade-learning-trigger';
 import { supabase } from '../lib/supabase';
+import MonthlyPerformanceCalendar from './MonthlyPerformanceCalendar';
 import {
   Brain,
   TrendingUp,
@@ -401,6 +402,23 @@ export default function AILearningProgressDashboard() {
         </div>
       </div>
 
+      {/* Monthly Performance Calendar - NEW */}
+      {user && (
+        <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 backdrop-blur-sm border-2 border-blue-500/30 rounded-lg shadow-md p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <BookOpen className="w-6 h-6 text-blue-400" />
+            <h3 className="text-xl font-bold text-white">30-Day Monthly Performance</h3>
+          </div>
+          <p className="text-sm text-gray-400 mb-4">
+            Visual snapshot of each trading day's performance. Green checkmarks indicate profitable days, red X marks show losing days.
+          </p>
+          <MonthlyPerformanceCalendar userId={user.id} />
+        </div>
+      )}
+
+      {/* Daily Learnings Section - Moved here */}
+      <DailyLearningsSection userId={user?.id} />
+
       {/* Live vs Backtest Learning Stats */}
       {(liveStats || backtestStats) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -784,9 +802,6 @@ export default function AILearningProgressDashboard() {
           />
         </div>
       </div>
-
-      {/* Daily Learnings Section */}
-      <DailyLearningsSection userId={user?.id} />
     </div>
   );
 }
