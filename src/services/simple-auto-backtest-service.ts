@@ -126,31 +126,34 @@ class SimpleAutoBacktestService {
 
   /**
    * Start auto-backtest loop
+   * Automatically stops any existing sessions before starting
    */
   async start(userId: string): Promise<{ success: boolean; message: string }> {
+    console.log('[Auto-Backtest] Starting auto-backtest...');
+
+    // Always force stop any existing sessions first (local and database)
+    await this.forceStopInDatabase(userId);
+
+    // Reset local state completely
+    this.isRunning = false;
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
+    if (this.nextRunTimer) {
+      clearTimeout(this.nextRunTimer);
+      this.nextRunTimer = null;
+    }
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+
+    // Small delay to ensure cleanup completes
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Initialize fresh state
     await this.initialize(userId);
-
-    const { data: dbState } = await supabase
-      .from('auto_backtest_global_state')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
-
-    if (dbState && dbState.is_running) {
-      const lastHeartbeat = new Date(dbState.last_heartbeat);
-      const minutesSinceHeartbeat = (Date.now() - lastHeartbeat.getTime()) / 1000 / 60;
-
-      if (minutesSinceHeartbeat <= 5) {
-        return {
-          success: false,
-          message: `Auto-backtest is already running from: ${dbState.started_from_device || 'another device'}`
-        };
-      }
-    }
-
-    if (this.isRunning) {
-      return { success: false, message: 'Already running in this session' };
-    }
 
     console.log('[Auto-Backtest] 🚀 Starting 30-day progressive learning system');
     this.userId = userId;
@@ -176,11 +179,15 @@ class SimpleAutoBacktestService {
 
   /**
    * Stop auto-backtest loop
+   * Ensures complete cleanup of all state
    */
   async stop(): Promise<void> {
     console.log('[Auto-Backtest] 🛑 Stopping auto-backtest system');
+
+    // Set flag first to stop the loop
     this.isRunning = false;
 
+    // Clean up all timers and controllers
     if (this.abortController) {
       this.abortController.abort();
       this.abortController = null;
@@ -202,7 +209,11 @@ class SimpleAutoBacktestService {
       await this.forceStopInDatabase(this.userId);
     }
 
-    console.log('[Auto-Backtest] Stopped');
+    // Reset session tracking
+    this.sessionId = '';
+    this.monthlyParentSessionId = null;
+
+    console.log('[Auto-Backtest] Stopped and cleaned up');
   }
 
   /**

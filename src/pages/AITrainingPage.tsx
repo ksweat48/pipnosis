@@ -54,6 +54,7 @@ export default function AITrainingPage() {
   // Auto-backtest mode - default to Auto
   const [isAutoMode, setIsAutoMode] = useState(true);
   const [autoBacktestState, setAutoBacktestState] = useState<SimpleAutoBacktestState | null>(null);
+  const [autoBacktestTransitioning, setAutoBacktestTransitioning] = useState(false);
 
   const availableSymbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];
 
@@ -839,57 +840,65 @@ export default function AITrainingPage() {
                     <div>
                       <p className="text-lg font-bold text-green-400">Running</p>
                       <p className="text-sm text-gray-300">
-                        Backtest #{autoBacktestState.currentBacktestNumber} in progress
+                        {autoBacktestState.currentDayInMonth > 0
+                          ? `Month ${autoBacktestState.currentMonthNumber} - Day ${autoBacktestState.currentDayInMonth}/30`
+                          : `Preparing Month ${autoBacktestState.currentMonthNumber}...`
+                        }
                       </p>
                     </div>
                   </div>
                   <button
                     onClick={async () => {
-                      // Show optimistic UI update immediately
-                      setAutoBacktestState(prev => prev ? { ...prev, isRunning: false } : null);
+                      if (!user || autoBacktestTransitioning) return;
 
+                      setAutoBacktestTransitioning(true);
                       await simpleAutoBacktestService.stop();
-
-                      // Refresh state from database
-                      const freshState = await simpleAutoBacktestService.getState();
-                      setAutoBacktestState(freshState);
-
-                      alert('Auto-backtest stopped successfully!');
+                      setAutoBacktestTransitioning(false);
                     }}
-                    className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white font-bold text-lg rounded-lg hover:bg-red-700 transition-colors shadow-lg hover:shadow-xl"
+                    disabled={autoBacktestTransitioning}
+                    className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white font-bold text-lg rounded-lg hover:bg-red-700 transition-colors shadow-lg hover:shadow-xl disabled:bg-gray-600 disabled:cursor-not-allowed"
                   >
-                    <Square className="w-5 h-5" />
-                    STOP AUTO-BACKTEST
+                    {autoBacktestTransitioning ? (
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        Stopping...
+                      </>
+                    ) : (
+                      <>
+                        <Square className="w-5 h-5" />
+                        Stop Auto-Backtest
+                      </>
+                    )}
                   </button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="p-4 bg-gray-700/50 rounded-lg">
-                    <p className="text-sm text-gray-400 mb-1">Total Completed</p>
-                    <p className="text-3xl font-bold text-white">{autoBacktestState.totalBacktestsCompleted}</p>
+                    <p className="text-sm text-gray-400 mb-1">Months Completed</p>
+                    <p className="text-3xl font-bold text-white">{autoBacktestState.totalMonthsCompleted}</p>
                   </div>
                   <div className="p-4 bg-gray-700/50 rounded-lg">
-                    <p className="text-sm text-gray-400 mb-1">Current Backtest</p>
-                    <p className="text-3xl font-bold text-white">#{autoBacktestState.currentBacktestNumber}</p>
+                    <p className="text-sm text-gray-400 mb-1">Current Month</p>
+                    <p className="text-3xl font-bold text-white">#{autoBacktestState.currentMonthNumber}</p>
                   </div>
-                  {autoBacktestState.lastBacktestResult && (
+                  {autoBacktestState.lastDayResult && (
                     <div className="p-4 bg-gray-700/50 rounded-lg">
-                      <p className="text-sm text-gray-400 mb-1">Last Win Rate</p>
+                      <p className="text-sm text-gray-400 mb-1">Last Day Win Rate</p>
                       <p className={`text-3xl font-bold ${
-                        autoBacktestState.lastBacktestResult.winRate >= 50 ? 'text-green-400' : 'text-red-400'
+                        autoBacktestState.lastDayResult.winRate >= 50 ? 'text-green-400' : 'text-red-400'
                       }`}>
-                        {autoBacktestState.lastBacktestResult.winRate.toFixed(1)}%
+                        {autoBacktestState.lastDayResult.winRate.toFixed(1)}%
                       </p>
                     </div>
                   )}
                 </div>
 
-                {autoBacktestState.lastBacktestResult && (
+                {autoBacktestState.lastDayResult && (
                   <div className="p-3 bg-blue-900/20 border-l-4 border-blue-400 rounded">
                     <p className="text-sm text-blue-200">
-                      <strong>Last Completed:</strong> {autoBacktestState.lastBacktestResult.sessionName} •{' '}
-                      {autoBacktestState.lastBacktestResult.totalTrades} trades •{' '}
-                      ${autoBacktestState.lastBacktestResult.pnl.toFixed(2)} P&L
+                      <strong>Last Completed Day:</strong> Day {autoBacktestState.lastDayResult.dayNumber} •{' '}
+                      {autoBacktestState.lastDayResult.totalTrades} trades •{' '}
+                      ${autoBacktestState.lastDayResult.pnl.toFixed(2)} P&L
                     </p>
                   </div>
                 )}
@@ -900,47 +909,16 @@ export default function AITrainingPage() {
                   <p className="text-gray-400 mb-4">Auto-backtest is not running</p>
                   <button
                     onClick={async () => {
-                      if (user) {
-                        // Show optimistic UI update immediately
-                        setAutoBacktestState(prev => prev ? { ...prev, isRunning: true } : null);
+                      if (!user || autoBacktestTransitioning) return;
 
-                        const result = await simpleAutoBacktestService.start(user.id);
-
-                        if (!result.success) {
-                          // Revert optimistic update on failure
-                          setAutoBacktestState(prev => prev ? { ...prev, isRunning: false } : null);
-
-                          // Provide option to force stop if it's already running
-                          const shouldForceStop = window.confirm(
-                            `${result.message}\n\nWould you like to stop the existing session and start a new one?`
-                          );
-                          if (shouldForceStop) {
-                            await simpleAutoBacktestService.stop();
-                            // Wait a moment for state to update
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                            // Try starting again
-                            setAutoBacktestState(prev => prev ? { ...prev, isRunning: true } : null);
-                            const retryResult = await simpleAutoBacktestService.start(user.id);
-                            if (!retryResult.success) {
-                              setAutoBacktestState(prev => prev ? { ...prev, isRunning: false } : null);
-                              alert('Failed to start: ' + retryResult.message);
-                            } else {
-                              // Refresh state from database immediately
-                              const freshState = await simpleAutoBacktestService.getState();
-                              setAutoBacktestState(freshState);
-                            }
-                          }
-                        } else {
-                          // Success! Refresh state from database immediately
-                          const freshState = await simpleAutoBacktestService.getState();
-                          setAutoBacktestState(freshState);
-                        }
-                      }
+                      setAutoBacktestTransitioning(true);
+                      await simpleAutoBacktestService.start(user.id);
+                      setAutoBacktestTransitioning(false);
                     }}
-                    disabled={autoBacktestState?.isRunning}
+                    disabled={autoBacktestTransitioning}
                     className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors mx-auto disabled:bg-gray-600 disabled:cursor-not-allowed"
                   >
-                    {autoBacktestState?.isRunning ? (
+                    {autoBacktestTransitioning ? (
                       <>
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
                         Starting...
@@ -954,45 +932,22 @@ export default function AITrainingPage() {
                   </button>
                 </div>
 
-                {autoBacktestState && autoBacktestState.totalBacktestsCompleted > 0 && (
+                {autoBacktestState && autoBacktestState.totalMonthsCompleted > 0 && (
                   <div className="p-3 bg-gray-700/30 border border-gray-600 rounded">
                     <p className="text-sm text-gray-300">
-                      <strong>Total backtests completed:</strong> {autoBacktestState.totalBacktestsCompleted}
+                      <strong>Total months completed:</strong> {autoBacktestState.totalMonthsCompleted}
                     </p>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Emergency Stop Button - Always Visible */}
-            <div className="mt-4">
-              <button
-                onClick={async () => {
-                  if (user) {
-                    // Show optimistic UI update immediately
-                    setAutoBacktestState(prev => prev ? { ...prev, isRunning: false } : null);
-
-                    await simpleAutoBacktestService.stop();
-
-                    // Refresh state from database
-                    const freshState = await simpleAutoBacktestService.getState();
-                    setAutoBacktestState(freshState);
-
-                    alert('Auto-backtest has been stopped.');
-                  }
-                }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-600/20 border-2 border-red-500 text-red-400 font-bold rounded-lg hover:bg-red-600/30 transition-colors"
-              >
-                <Square className="w-5 h-5" />
-                EMERGENCY STOP - Force Stop Auto-Backtest
-              </button>
-            </div>
 
             <div className="mt-4 space-y-3">
               <div className="p-3 bg-yellow-900/20 border-l-4 border-yellow-400 rounded">
                 <p className="text-sm text-yellow-200">
-                  <strong>Auto Mode:</strong> System automatically runs backtests with randomized parameters (1-3 days, mixed conditions, all pairs).
-                  Each backtest includes AI learning and skill progression updates.
+                  <strong>Auto Mode:</strong> System automatically runs 30-day monthly sessions. Each day is a separate backtest with progressive AI learning.
+                  The AI learns and improves continuously from each day's results.
                 </p>
               </div>
 
