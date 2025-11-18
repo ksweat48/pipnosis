@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { aiSkillTracker, SkillProgressionData, MilestoneData, SkillLevel } from '../services/ai-skill-tracker';
 import { aiIndicatorTracker, IndicatorExperiment, IndicatorEffectiveness } from '../services/ai-indicator-tracker';
