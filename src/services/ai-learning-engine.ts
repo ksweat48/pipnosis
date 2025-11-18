@@ -102,13 +102,22 @@ class AILearningEngine {
 
       console.log(`[AI Learning Engine] 🎯 Analysis: ${winningTradesCount} winning trades, ${winRate.toFixed(1)}% WR, ${profitFactor.toFixed(2)} PF`);
 
+      // Prepare confidence data for accuracy calculation
+      const tradesWithConfidence = trades.map(t => ({
+        confidence: t.confidence,
+        outcome: t.outcome
+      }));
+
       const skillUpdate = await aiSkillTracker.updateAfterBacktest(
         userId,
         winningTradesCount,
         winRate,
         profitFactor,
         winningPatterns.length,
-        sessionType
+        sessionType,
+        0, // exploratoryTradesCount - would need to be tracked separately
+        trades.length, // totalTradesInSession
+        tradesWithConfidence // NEW: Pass confidence data for accuracy tracking
       );
 
       if (skillUpdate.leveledUp) {

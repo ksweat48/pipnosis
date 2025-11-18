@@ -234,6 +234,16 @@ class AISkillTracker {
    * Update skill progression after backtest
    * REVISED: Count ALL trades for progression, but with performance weighting
    * This prevents plateau where AI gets stuck due to only counting wins
+   *
+   * @param userId - User ID
+   * @param winningTradesCount - Number of winning trades in this session
+   * @param winRate - Win rate percentage for this session
+   * @param profitFactor - Profit factor for this session
+   * @param patternsLearned - Number of patterns learned
+   * @param sourceType - Type of backtest (backtest, synthetic, live)
+   * @param exploratoryTradesCount - Number of exploratory trades
+   * @param totalTradesInSession - Total number of trades in session (for confidence accuracy)
+   * @param tradesWithConfidence - Trades with confidence scores (for accuracy calculation)
    */
   async updateAfterBacktest(
     userId: string,
@@ -242,7 +252,9 @@ class AISkillTracker {
     profitFactor: number,
     patternsLearned: number,
     sourceType: 'backtest' | 'synthetic' | 'live' = 'backtest',
-    exploratoryTradesCount: number = 0
+    exploratoryTradesCount: number = 0,
+    totalTradesInSession: number = 0,
+    tradesWithConfidence: Array<{ confidence: number; outcome: 'win' | 'loss' | 'breakeven' }> = []
   ): Promise<{ leveledUp: boolean; newLevel?: SkillLevel; oldLevel?: SkillLevel; validationWarnings?: string[] }> {
     const validationWarnings: string[] = [];
 
@@ -457,6 +469,21 @@ class AISkillTracker {
 
       console.log(`[AI Skill Tracker] Final gated progress: ${gatedProgress.toFixed(1)}%`);
 
+      // === STEP 5.5: CALCULATE CONFIDENCE ACCURACY ===
+      let confidenceAccuracy = current.currentWinRate; // Default to current win rate
+
+      if (tradesWithConfidence.length >= 5) {
+        // Calculate confidence calibration: How accurate are our confidence predictions?
+        confidenceAccuracy = this.calculateConfidenceAccuracy(tradesWithConfidence);
+        console.log(`[AI Skill Tracker] 🎯 Confidence Accuracy: ${confidenceAccuracy.toFixed(1)}%`);
+      } else {
+        console.log(`[AI Skill Tracker] ⏭️  Skipping confidence accuracy (need 5+ trades, have ${tradesWithConfidence.length})`);
+      }
+
+      // === STEP 5.6: INCREMENT SESSION COUNTERS ===
+      const sessionCounters = this.calculateSessionCounters(current, sourceType);
+      console.log(`[AI Skill Tracker] 📊 Session counters: Total=${sessionCounters.total}, Synthetic=${sessionCounters.synthetic}, Real=${sessionCounters.real}`);
+
       // === STEP 6: UPDATE DATABASE ===
       const { error } = await supabase
         .from('ai_skill_progression')
@@ -481,6 +508,12 @@ class AISkillTracker {
           last_10_session_pf_average: consistencyValidation?.pfAverage || 0,
           consistency_validation_passed: !consistencyBlocked,
           consistency_failure_reason: consistencyBlocked ? consistencyValidation?.failureReason : null,
+          // NEW: Session counters
+          total_backtests_completed: sessionCounters.total,
+          total_synthetic_backtests: sessionCounters.synthetic,
+          total_real_backtests: sessionCounters.real,
+          // NEW: Confidence accuracy
+          current_confidence_accuracy: confidenceAccuracy,
           updated_at: new Date().toISOString()
         })
         .eq('user_id', userId);
@@ -801,6 +834,132 @@ class AISkillTracker {
   getSkillLevelDescription(level: SkillLevel): string {
     const threshold = this.SKILL_THRESHOLDS.find(t => t.level === level);
     return threshold?.description || '';
+  }
+
+  /**
+   * Calculate confidence accuracy: How well do confidence predictions match actual outcomes?
+   *
+   * For example, if we predict 80% confidence, do we win 80% of those trades?
+   *
+   * @param trades - Array of trades with confidence scores and outcomes
+   * @returns Confidence accuracy score (0-100)
+   */
+  private calculateConfidenceAccuracy(
+    trades: Array<{ confidence: number; outcome: 'win' | 'loss' | 'breakeven' }>
+  ): number {
+    if (trades.length === 0) return 0;
+
+    // Group trades by confidence bucket (70-75, 75-80, 80-85, 85-90, 90-95, 95-100)
+    const buckets: Record<string, { total: number; wins: number }> = {
+      '70-75': { total: 0, wins: 0 },
+      '75-80': { total: 0, wins: 0 },
+      '80-85': { total: 0, wins: 0 },
+      '85-90': { total: 0, wins: 0 },
+      '90-95': { total: 0, wins: 0 },
+      '95-100': { total: 0, wins: 0 }
+    };
+
+    for (const trade of trades) {
+      const bucket = this.getConfidenceBucket(trade.confidence);
+      if (bucket) {
+        buckets[bucket].total++;
+        if (trade.outcome === 'win') {
+          buckets[bucket].wins++;
+        }
+      }
+    }
+
+    // Calculate calibration error for each bucket
+    let totalError = 0;
+    let bucketsWithData = 0;
+
+    for (const [bucketName, data] of Object.entries(buckets)) {
+      if (data.total >= 2) { // Need at least 2 trades per bucket
+        const bucketMidpoint = this.getBucketMidpoint(bucketName);
+        const actualWinRate = (data.wins / data.total) * 100;
+        const error = Math.abs(bucketMidpoint - actualWinRate);
+        totalError += error;
+        bucketsWithData++;
+      }
+    }
+
+    if (bucketsWithData === 0) {
+      // Fallback: Simple win rate
+      const wins = trades.filter(t => t.outcome === 'win').length;
+      return (wins / trades.length) * 100;
+    }
+
+    // Average calibration error
+    const avgError = totalError / bucketsWithData;
+
+    // Convert to accuracy: Lower error = higher accuracy
+    // Perfect calibration = 0 error = 100% accuracy
+    // 50% error = 50% accuracy
+    const accuracy = Math.max(0, Math.min(100, 100 - avgError));
+
+    return accuracy;
+  }
+
+  /**
+   * Get confidence bucket for a given confidence score
+   */
+  private getConfidenceBucket(confidence: number): string | null {
+    if (confidence >= 70 && confidence < 75) return '70-75';
+    if (confidence >= 75 && confidence < 80) return '75-80';
+    if (confidence >= 80 && confidence < 85) return '80-85';
+    if (confidence >= 85 && confidence < 90) return '85-90';
+    if (confidence >= 90 && confidence < 95) return '90-95';
+    if (confidence >= 95 && confidence <= 100) return '95-100';
+    return null;
+  }
+
+  /**
+   * Get midpoint of confidence bucket
+   */
+  private getBucketMidpoint(bucket: string): number {
+    const midpoints: Record<string, number> = {
+      '70-75': 72.5,
+      '75-80': 77.5,
+      '80-85': 82.5,
+      '85-90': 87.5,
+      '90-95': 92.5,
+      '95-100': 97.5
+    };
+    return midpoints[bucket] || 80;
+  }
+
+  /**
+   * Calculate session counters based on source type
+   *
+   * @param current - Current skill progression data
+   * @param sourceType - Type of session that just completed
+   * @returns Updated session counters
+   */
+  private calculateSessionCounters(
+    current: SkillProgressionData,
+    sourceType: 'backtest' | 'synthetic' | 'live'
+  ): { total: number; synthetic: number; real: number } {
+    // Get current values from database (they may not exist in the interface yet)
+    const currentTotal = (current as any).totalBacktestsCompleted || 0;
+    const currentSynthetic = (current as any).totalSyntheticBacktests || 0;
+    const currentReal = (current as any).totalRealBacktests || 0;
+
+    let newTotal = currentTotal + 1;
+    let newSynthetic = currentSynthetic;
+    let newReal = currentReal;
+
+    if (sourceType === 'synthetic') {
+      newSynthetic++;
+    } else if (sourceType === 'backtest') {
+      newReal++;
+    }
+    // Note: 'live' trades don't count as backtests
+
+    return {
+      total: newTotal,
+      synthetic: newSynthetic,
+      real: newReal
+    };
   }
 
   /**
