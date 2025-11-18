@@ -196,11 +196,10 @@ class SimpleAutoBacktestService {
       this.heartbeatInterval = null;
     }
 
+    // Always stop in database, even if not running locally
+    // This handles cross-device/cross-tab scenarios
     if (this.userId) {
-      await this.syncStateToDatabase({
-        is_running: false,
-        stopped_at: new Date().toISOString()
-      });
+      await this.forceStopInDatabase(this.userId);
     }
 
     console.log('[Auto-Backtest] Stopped');

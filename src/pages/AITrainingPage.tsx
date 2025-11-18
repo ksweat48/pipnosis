@@ -892,7 +892,20 @@ export default function AITrainingPage() {
                       if (user) {
                         const result = await simpleAutoBacktestService.start(user.id);
                         if (!result.success) {
-                          alert(result.message);
+                          // Provide option to force stop if it's already running
+                          const shouldForceStop = window.confirm(
+                            `${result.message}\n\nWould you like to stop the existing session and start a new one?`
+                          );
+                          if (shouldForceStop) {
+                            await simpleAutoBacktestService.stop();
+                            // Wait a moment for state to update
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            // Try starting again
+                            const retryResult = await simpleAutoBacktestService.start(user.id);
+                            if (!retryResult.success) {
+                              alert('Failed to start: ' + retryResult.message);
+                            }
+                          }
                         }
                       }
                     }}
