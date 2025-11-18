@@ -77,23 +77,52 @@ export default function AITrainingPage() {
       });
     }
 
-    // Poll auto-backtest state from database (always poll to show cross-device state)
-    // Use faster polling rate for more responsive UI
+    // Poll auto-backtest state from database (optimized for non-disruptive updates)
     let stateInterval: NodeJS.Timeout | null = null;
-    let pollRate = 1500; // Start with 1.5 second polling
+    let previousStateRef = useRef<SimpleAutoBacktestState | null>(null);
+
+    // Dynamic polling rate based on activity
+    const getPollingRate = (state: SimpleAutoBacktestState | null) => {
+      if (!state) return 15000; // 15 seconds when no state
+      if (state.isRunning) return 5000; // 5 seconds when actively running
+      return 15000; // 15 seconds when idle
+    };
 
     const pollState = async () => {
       try {
         const state = await simpleAutoBacktestService.getState();
-        setAutoBacktestState(state);
-        // Auto-switch to auto mode if it's running
-        if (state.isRunning) {
-          setIsAutoMode(true);
-        }
 
-        // Check if a backtest just completed and reload sessions
-        if (!state.isRunning && state.lastBacktestResult) {
-          loadPastSessions();
+        // Deep equality check - only update if state actually changed
+        const hasChanged = !previousStateRef.current ||
+          JSON.stringify(previousStateRef.current) !== JSON.stringify(state);
+
+        if (hasChanged) {
+          console.log('[AI Training] State changed, updating UI');
+          setAutoBacktestState(state);
+          previousStateRef.current = state;
+
+          // Auto-switch to auto mode if it's running
+          if (state.isRunning) {
+            setIsAutoMode(true);
+          }
+
+          // Check if a backtest just completed and reload sessions
+          // Only reload if we have a new result (check by comparing timestamps)
+          const hadPreviousResult = previousStateRef.current?.lastBacktestResult;
+          const hasNewResult = state.lastBacktestResult &&
+            (!hadPreviousResult ||
+             state.lastBacktestResult.completedAt !== hadPreviousResult.completedAt);
+
+          if (!state.isRunning && hasNewResult) {
+            loadPastSessions();
+          }
+
+          // Adjust polling rate based on new state
+          if (stateInterval) {
+            clearInterval(stateInterval);
+            const newRate = getPollingRate(state);
+            stateInterval = setInterval(pollState, newRate);
+          }
         }
       } catch (error) {
         console.error('[AI Training] Error polling auto-backtest state:', error);
@@ -104,8 +133,9 @@ export default function AITrainingPage() {
       // Poll immediately on mount
       pollState();
 
-      // Then poll at regular intervals
-      stateInterval = setInterval(pollState, pollRate);
+      // Start with adaptive polling rate
+      const initialRate = getPollingRate(autoBacktestState);
+      stateInterval = setInterval(pollState, initialRate);
     }
 
     // Set up realtime subscriptions for backtest sessions
@@ -279,7 +309,14 @@ export default function AITrainingPage() {
     );
 
     // Take top 10 most recent
-    setPastSessions(combined.slice(0, 10));
+    const newSessions = combined.slice(0, 10);
+
+    // Only update state if sessions actually changed
+    const sessionsChanged = JSON.stringify(pastSessions) !== JSON.stringify(newSessions);
+    if (sessionsChanged) {
+      console.log('[AI Training] Past sessions changed, updating...');
+      setPastSessions(newSessions);
+    }
   };
 
   const handleRunBacktest = async () => {
