@@ -147,6 +147,26 @@ export default function SessionLearningsPage() {
           </div>
         </div>
 
+        {/* Current Skill Level Section (mobile view) */}
+        {!loading && trainingStats && (
+          <div className="lg:hidden bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-4">
+            <div className="flex items-center justify-around">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-emerald-400">{trainingStats.skillLevel}%</div>
+                <div className="text-xs text-gray-400 uppercase">AI Skill Level</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xl font-bold text-blue-400">{trainingStats.totalBacktests}</div>
+                <div className="text-xs text-gray-400 uppercase">Total Training Sessions</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xl font-bold text-purple-400">{trainingStats.totalInsights}</div>
+                <div className="text-xs text-gray-400 uppercase">Learning Insights</div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Recent Training Sessions */}
         {!loading && recentBacktests.length > 0 && (
           <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6">
