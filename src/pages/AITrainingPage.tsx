@@ -1928,7 +1928,11 @@ export default function AITrainingPage() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className={`text-lg font-bold ${session.win_rate >= 55 ? 'text-green-400' : 'text-red-400'}`}>
+                        <div className={`text-lg font-bold ${
+                          session.total_trades === 0
+                            ? 'text-gray-400'
+                            : session.win_rate >= 55 ? 'text-green-400' : 'text-red-400'
+                        }`}>
                           {session.win_rate.toFixed(1)}%
                         </div>
                         <div className="text-sm text-gray-400">
