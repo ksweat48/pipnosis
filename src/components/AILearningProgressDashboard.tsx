@@ -269,28 +269,28 @@ function AILearningProgressDashboard() {
               <div>
                 <div className="text-white/60 mb-1">Winning Trades</div>
                 <div className="font-bold text-white">
-                  {skillData.totalTradesAnalyzed} / {skillThresholds[skillData.skillLevelNumeric - 1]?.minTrades || '?'}
+                  {skillData.totalTradesAnalyzed} / {skillThresholds[skillData.skillLevelNumeric]?.minTrades || '?'}
                 </div>
-                <div className={`text-xs mt-1 ${skillData.totalTradesAnalyzed >= (skillThresholds[skillData.skillLevelNumeric - 1]?.minTrades || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {skillData.totalTradesAnalyzed >= (skillThresholds[skillData.skillLevelNumeric - 1]?.minTrades || 0) ? '✓ Met' : 'In progress'}
+                <div className={`text-xs mt-1 ${skillData.totalTradesAnalyzed >= (skillThresholds[skillData.skillLevelNumeric]?.minTrades || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {skillData.totalTradesAnalyzed >= (skillThresholds[skillData.skillLevelNumeric]?.minTrades || 0) ? '✓ Met' : 'In progress'}
                 </div>
               </div>
               <div>
                 <div className="text-white/60 mb-1">Win Rate</div>
                 <div className="font-bold text-white">
-                  {skillData.currentWinRate.toFixed(1)}% / {skillThresholds[skillData.skillLevelNumeric - 1]?.minWinRate || '?'}%
+                  {skillData.currentWinRate.toFixed(1)}% / {skillThresholds[skillData.skillLevelNumeric]?.minWinRate || '?'}%
                 </div>
-                <div className={`text-xs mt-1 ${skillData.currentWinRate >= (skillThresholds[skillData.skillLevelNumeric - 1]?.minWinRate || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {skillData.currentWinRate >= (skillThresholds[skillData.skillLevelNumeric - 1]?.minWinRate || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric - 1]?.minWinRate || 0) - skillData.currentWinRate).toFixed(1)}%`}
+                <div className={`text-xs mt-1 ${skillData.currentWinRate >= (skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {skillData.currentWinRate >= (skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) - skillData.currentWinRate).toFixed(1)}%`}
                 </div>
               </div>
               <div>
                 <div className="text-white/60 mb-1">Profit Factor</div>
                 <div className="font-bold text-white">
-                  {skillData.currentProfitFactor.toFixed(2)} / {skillThresholds[skillData.skillLevelNumeric - 1]?.minProfitFactor?.toFixed(2) || '?'}
+                  {skillData.currentProfitFactor.toFixed(2)} / {skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor?.toFixed(2) || '?'}
                 </div>
-                <div className={`text-xs mt-1 ${skillData.currentProfitFactor >= (skillThresholds[skillData.skillLevelNumeric - 1]?.minProfitFactor || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {skillData.currentProfitFactor >= (skillThresholds[skillData.skillLevelNumeric - 1]?.minProfitFactor || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric - 1]?.minProfitFactor || 0) - skillData.currentProfitFactor).toFixed(2)}`}
+                <div className={`text-xs mt-1 ${skillData.currentProfitFactor >= (skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {skillData.currentProfitFactor >= (skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) - skillData.currentProfitFactor).toFixed(2)}`}
                 </div>
               </div>
             </div>
@@ -298,6 +298,30 @@ function AILearningProgressDashboard() {
               <strong>Note:</strong> All three criteria must be met to advance. Progress slows when performance metrics are below targets.
             </p>
           </div>
+
+          {/* Consistency Validation Status */}
+          {skillData.consistencyValidationPassed === false && skillData.consistencyFailureReason && (
+            <div className="mt-3 p-3 bg-yellow-500/10 rounded border border-yellow-500/30">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-yellow-300 mb-1">Level Up Blocked - Consistency Check Failed</p>
+                  <p className="text-xs text-yellow-200 mb-2">{skillData.consistencyFailureReason}</p>
+                  <p className="text-xs text-yellow-100">
+                    <strong>What this means:</strong> Your performance varies too much between sessions. The AI needs to demonstrate consistent results across at least 10 sessions before advancing. Keep training to stabilize your win rate.
+                  </p>
+                  {skillData.last10SessionWRSpread !== undefined && (
+                    <div className="mt-2 text-xs text-yellow-200">
+                      <div>Win Rate Spread: {skillData.last10SessionWRSpread.toFixed(1)}% (Max allowed: 10%)</div>
+                      {skillData.last10SessionPFAverage !== undefined && (
+                        <div>Avg Profit Factor: {skillData.last10SessionPFAverage.toFixed(2)}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="mt-3 p-3 bg-emerald-500/10 rounded border border-emerald-500/30">
             <p className="text-xs text-emerald-300">

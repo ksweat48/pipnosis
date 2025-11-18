@@ -43,7 +43,15 @@ interface ConsistencyValidationResult {
 }
 
 class AISessionConsistencyTracker {
-  private readonly MAX_WR_SPREAD = 10.0; // Maximum 10% spread in win rate
+  // WR Spread thresholds by skill level transition (more lenient for early levels)
+  private readonly WR_SPREAD_LIMITS: Record<number, number> = {
+    1: 35.0,  // Novice -> Intermediate (very lenient - AI is still learning)
+    2: 25.0,  // Intermediate -> Pro (lenient)
+    3: 15.0,  // Pro -> Expert (moderate)
+    4: 12.0,  // Expert -> Master (stricter)
+    5: 10.0,  // Master -> Exceptional (strict)
+    6: 8.0    // Exceptional (maintain - very strict)
+  };
 
   // PF requirements by skill level (for next level advancement)
   private readonly PF_REQUIREMENTS: Record<number, number> = {
@@ -202,11 +210,14 @@ class AISessionConsistencyTracker {
 
       console.log(`[Session Consistency] PF Average: ${pfAverage.toFixed(2)}`);
 
-      // Get required PF for target level
+      // Get required PF and WR spread limit for target level
       const requiredPF = this.PF_REQUIREMENTS[targetSkillLevel] || 1.0;
+      const maxAllowedWRSpread = this.WR_SPREAD_LIMITS[targetSkillLevel] || 10.0;
+
+      console.log(`[Session Consistency] Level ${currentSkillLevel} -> ${targetSkillLevel}: Max WR spread allowed: ${maxAllowedWRSpread}%`);
 
       // Check violations
-      const wrSpreadViolation = wrSpread > this.MAX_WR_SPREAD;
+      const wrSpreadViolation = wrSpread > maxAllowedWRSpread;
       const pfAverageViolation = pfAverage < requiredPF;
 
       const passed = !wrSpreadViolation && !pfAverageViolation;
@@ -215,7 +226,7 @@ class AISessionConsistencyTracker {
       if (!passed) {
         const reasons: string[] = [];
         if (wrSpreadViolation) {
-          reasons.push(`WR spread too high: ${wrSpread.toFixed(1)}% (max: ${this.MAX_WR_SPREAD}%)`);
+          reasons.push(`WR spread too high: ${wrSpread.toFixed(1)}% (max: ${maxAllowedWRSpread}%)`);
         }
         if (pfAverageViolation) {
           reasons.push(`PF average too low: ${pfAverage.toFixed(2)} (required: ${requiredPF}+)`);
