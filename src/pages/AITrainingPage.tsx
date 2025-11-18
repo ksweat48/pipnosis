@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { backtestingEngine, BacktestConfig, BacktestResult } from '../services/backtesting-engine';
 import { syntheticBacktestingEngine, SyntheticBacktestConfig, SyntheticBacktestResult } from '../services/synthetic-backtesting-engine';
 import { aiCapabilityScorer, CapabilityScoreBreakdown } from '../services/ai-capability-scorer';
+import { llmEvaluationBacktest, LLMBacktestConfig, BacktestProgress } from '../services/llm-evaluation-backtest';
 import { backtestDiagnostics } from '../services/backtest-diagnostics';
 import { aiLearningEngine } from '../services/ai-learning-engine';
 import { aiSkillTracker } from '../services/ai-skill-tracker';
@@ -45,6 +46,10 @@ export default function AITrainingPage() {
 
   // Tab system - default to 'progress' tab
   const [activeTab, setActiveTab] = useState<'progress' | 'backtest'>('progress');
+
+  // Event-based backtest mode
+  const [useEventBasedBacktest, setUseEventBasedBacktest] = useState(false);
+  const [eventBacktestProgress, setEventBacktestProgress] = useState<BacktestProgress | null>(null);
 
   // Auto-backtest mode - default to Auto
   const [isAutoMode, setIsAutoMode] = useState(true);
@@ -269,6 +274,12 @@ export default function AITrainingPage() {
       return;
     }
 
+    // Handle Event-Based LLM Backtest
+    if (useEventBasedBacktest && !useSyntheticData) {
+      await handleEventBasedBacktest();
+      return;
+    }
+
     setBacktestLoading(true);
     setBacktestResult(null);
     setCapabilityScore(null);
@@ -457,12 +468,106 @@ export default function AITrainingPage() {
     }
   };
 
+  const handleEventBasedBacktest = async () => {
+    setBacktestLoading(true);
+    setBacktestResult(null);
+    setCapabilityScore(null);
+    setBacktestAborted(false);
+    setBacktestError(null);
+    setEventBacktestProgress(null);
+
+    try {
+      console.log('[AI Training] Starting Event-Based LLM Backtest...');
+
+      const config: LLMBacktestConfig = {
+        sessionName: `${sessionName} (Event-Based)`,
+        description: `Event-Based LLM Backtest - Risk: ${riskMode}, LLM: ${useGPT4 ? 'Enabled' : 'Disabled'}`,
+        symbol: selectedSymbols[0],
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        timeframe: '15m',
+        useLLM: useGPT4,
+        riskMode,
+        maxConcurrentTrades: 2,
+        initialBalance: 10000
+      };
+
+      const result = await llmEvaluationBacktest.runBacktest(
+        user.id,
+        config,
+        (progress) => {
+          setEventBacktestProgress(progress);
+          console.log(`[AI Training] Progress: ${progress.phase} - ${progress.percentComplete.toFixed(1)}%`);
+        }
+      );
+
+      // Convert SessionSummary to BacktestResult format
+      const backtestResult: any = {
+        sessionId: result.sessionId,
+        totalTrades: result.statistics.tradesExecuted,
+        winningTrades: result.statistics.tradesWon,
+        losingTrades: result.statistics.tradesLost,
+        breakevenTrades: result.statistics.tradesBreakeven,
+        totalPnL: result.statistics.totalPnL,
+        finalBalance: result.statistics.finalBalance,
+        winRate: result.statistics.winRate,
+        avgWin: result.statistics.avgWin,
+        avgLoss: result.statistics.avgLoss,
+        profitFactor: result.statistics.profitFactor,
+        sharpeRatio: 0,
+        maxDrawdown: result.statistics.maxDrawdown,
+        maxDrawdownPercent: (result.statistics.maxDrawdown / config.initialBalance) * 100,
+        trades: result.trades.map((t: any) => ({
+          id: t.id,
+          symbol: t.symbol,
+          direction: t.direction,
+          entryTime: t.entryTime,
+          exitTime: t.exitTime,
+          entryPrice: t.entryPrice,
+          exitPrice: t.exitPrice,
+          pnl: t.pnl,
+          outcome: t.outcome,
+          confidence: t.confidence
+        })),
+        missedOpportunities: [],
+        signalsGenerated: result.statistics.triggersDetected,
+        signalsExecuted: result.statistics.tradesExecuted,
+        signalsSkipped: result.statistics.triggersDetected - result.statistics.tradesExecuted,
+        isEventBased: true,
+        eventMetrics: {
+          candlesProcessed: result.statistics.candlesProcessed,
+          triggersDetected: result.statistics.triggersDetected,
+          triggerTypes: result.statistics.triggerTypes,
+          llmCallsMade: result.statistics.llmCallsMade,
+          llmTokensUsed: result.statistics.llmTokensUsed,
+          llmCostEstimate: result.statistics.llmCostEstimate,
+          avgHoldTimeMinutes: result.statistics.avgHoldTimeMinutes,
+          triggerToTradeRatio: result.statistics.triggerToTradeRatio,
+          triggerDistribution: result.triggerDistribution
+        }
+      };
+
+      setBacktestResult(backtestResult);
+      await loadPastSessions();
+
+      console.log('[AI Training] Event-Based Backtest complete!');
+    } catch (error: any) {
+      console.error('[AI Training] Event-Based Backtest error:', error);
+      setBacktestError(error?.message || 'Event-based backtest failed');
+      alert('Event-based backtest failed. Check console for details.\n\nError: ' + (error?.message || 'Unknown error'));
+    } finally {
+      setBacktestLoading(false);
+      setEventBacktestProgress(null);
+    }
+  };
+
   const handleCancelBacktest = () => {
     console.log('[AI Training] Backtest cancelled by user');
     setBacktestAborted(true);
     setBacktestLoading(false);
     setBacktestError('Backtest cancelled by user');
     setGenerationProgress(null);
+    setEventBacktestProgress(null);
   };
 
   const handleLoadSession = async (session: any) => {
@@ -946,6 +1051,58 @@ export default function AITrainingPage() {
             </div>
           </div>
 
+          {/* EVENT-BASED LLM BACKTEST MODE */}
+          <div className="mt-6 p-4 bg-gradient-to-r from-blue-900/30 to-purple-900/30 border-2 border-blue-500/30 rounded-lg">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Brain className="w-5 h-5 text-blue-400" />
+                <h3 className="font-semibold text-white">Event-Based LLM Backtest Mode</h3>
+                <span className="px-2 py-1 bg-blue-600 text-white text-xs font-bold rounded-full">
+                  NEW
+                </span>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useEventBasedBacktest}
+                  onChange={(e) => setUseEventBasedBacktest(e.target.checked)}
+                  className="w-5 h-5 text-blue-600"
+                  disabled={useSyntheticData}
+                />
+                <span className="text-sm font-semibold text-white">Enable Event-Based Mode</span>
+              </label>
+            </div>
+
+            {useEventBasedBacktest && !useSyntheticData && (
+              <div className="space-y-3">
+                <div className="p-3 bg-blue-900/20 border border-blue-700 rounded-lg">
+                  <p className="text-xs text-blue-200 mb-2">
+                    <strong>How it works:</strong> Flow V2 strategy detects high-probability triggers locally.
+                    When a valid setup is found, the LLM evaluates it before trade execution.
+                  </p>
+                  <p className="text-xs text-blue-200">
+                    <strong>Benefits:</strong> Reduces LLM API calls by 90%, processes candles quickly,
+                    and provides detailed trigger detection analytics.
+                  </p>
+                </div>
+                <div className="grid grid-cols-3 gap-3 text-xs">
+                  <div className="p-2 bg-gray-900/50 rounded border border-blue-700/30">
+                    <div className="text-blue-400 font-semibold mb-1">Step 1: Detect</div>
+                    <div className="text-gray-300">Flow V2 scans every candle for triggers</div>
+                  </div>
+                  <div className="p-2 bg-gray-900/50 rounded border border-blue-700/30">
+                    <div className="text-blue-400 font-semibold mb-1">Step 2: Evaluate</div>
+                    <div className="text-gray-300">LLM assesses high-confidence setups</div>
+                  </div>
+                  <div className="p-2 bg-gray-900/50 rounded border border-blue-700/30">
+                    <div className="text-blue-400 font-semibold mb-1">Step 3: Execute</div>
+                    <div className="text-gray-300">Only approved trades are taken</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* SYNTHETIC DATA CONTROLS */}
           <div className="mt-6 p-4 bg-gradient-to-r from-purple-50 to-orange-50 border-2 border-purple-200 rounded-lg">
             <div className="flex items-center justify-between mb-4">
@@ -1068,8 +1225,49 @@ export default function AITrainingPage() {
             )}
           </div>
 
+          {/* Event-Based Backtest Progress Display */}
+          {backtestLoading && eventBacktestProgress && (
+            <div className="mt-4 p-4 bg-blue-900/20 border-l-4 border-blue-400 rounded">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-400"></div>
+                <p className="text-sm text-blue-300 font-semibold">{eventBacktestProgress.message}</p>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-3 mb-2">
+                <div
+                  className="bg-blue-500 h-3 rounded-full transition-all duration-300"
+                  style={{ width: `${eventBacktestProgress.percentComplete}%` }}
+                ></div>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3 text-xs">
+                <div className="bg-gray-800/50 p-2 rounded">
+                  <div className="text-gray-400 mb-1">Candles</div>
+                  <div className="text-white font-semibold">{eventBacktestProgress.candlesProcessed} / {eventBacktestProgress.totalCandles}</div>
+                </div>
+                <div className="bg-gray-800/50 p-2 rounded">
+                  <div className="text-gray-400 mb-1">Triggers</div>
+                  <div className="text-yellow-400 font-semibold">{eventBacktestProgress.triggersDetected}</div>
+                </div>
+                <div className="bg-gray-800/50 p-2 rounded">
+                  <div className="text-gray-400 mb-1">LLM Calls</div>
+                  <div className="text-purple-400 font-semibold">{eventBacktestProgress.llmCallsMade}</div>
+                </div>
+                <div className="bg-gray-800/50 p-2 rounded">
+                  <div className="text-gray-400 mb-1">Trades</div>
+                  <div className="text-green-400 font-semibold">{eventBacktestProgress.tradesExecuted}</div>
+                </div>
+                <div className="bg-gray-800/50 p-2 rounded">
+                  <div className="text-gray-400 mb-1">Balance</div>
+                  <div className="text-white font-semibold">${eventBacktestProgress.currentBalance.toFixed(2)}</div>
+                </div>
+              </div>
+              <div className="mt-2 text-xs text-gray-400">
+                Phase: {eventBacktestProgress.phase} • {eventBacktestProgress.percentComplete.toFixed(1)}% complete
+              </div>
+            </div>
+          )}
+
           {/* Progress Display */}
-          {backtestLoading && generationProgress && (
+          {backtestLoading && generationProgress && !eventBacktestProgress && (
             <div className="mt-4 p-4 bg-emerald-900/20 border-l-4 border-emerald-400 rounded">
               <div className="flex items-center gap-2 mb-3">
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-400"></div>
@@ -1205,8 +1403,156 @@ export default function AITrainingPage() {
           </div>
         )}
 
+        {/* EVENT-BASED BACKTEST RESULTS */}
+        {backtestResult && 'isEventBased' in backtestResult && backtestResult.isEventBased && backtestResult.totalTrades > 0 && (
+          <div className="space-y-6">
+            {/* Event-Based Mode Banner */}
+            <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border-2 border-blue-500/30 rounded-lg p-4">
+              <div className="flex items-center gap-3">
+                <Brain className="w-6 h-6 text-blue-400" />
+                <div>
+                  <h3 className="font-bold text-white">EVENT-BASED LLM BACKTEST RESULTS</h3>
+                  <p className="text-sm text-blue-300">
+                    Flow V2 detected {backtestResult.eventMetrics.triggersDetected} triggers,
+                    LLM made {backtestResult.eventMetrics.llmCallsMade} evaluations,
+                    {backtestResult.totalTrades} trades executed
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Event Metrics Dashboard */}
+            <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+                <Activity className="w-5 h-5" />
+                Event Detection & LLM Evaluation Metrics
+              </h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <MetricCard
+                  label="Candles Processed"
+                  value={backtestResult.eventMetrics.candlesProcessed.toLocaleString()}
+                  icon={<BarChart3 className="w-5 h-5 text-gray-600" />}
+                />
+                <MetricCard
+                  label="Triggers Detected"
+                  value={backtestResult.eventMetrics.triggersDetected}
+                  icon={<Target className="w-5 h-5 text-yellow-600" />}
+                  valueColor="text-yellow-400"
+                />
+                <MetricCard
+                  label="LLM Evaluations"
+                  value={backtestResult.eventMetrics.llmCallsMade}
+                  icon={<Brain className="w-5 h-5 text-purple-600" />}
+                  valueColor="text-purple-400"
+                />
+                <MetricCard
+                  label="Trades Executed"
+                  value={backtestResult.totalTrades}
+                  icon={<TrendingUp className="w-5 h-5 text-green-600" />}
+                  valueColor="text-green-400"
+                />
+                <MetricCard
+                  label="Trigger → Trade"
+                  value={`${(backtestResult.eventMetrics.triggerToTradeRatio * 100).toFixed(1)}%`}
+                  icon={<Target className="w-5 h-5 text-blue-600" />}
+                />
+                <MetricCard
+                  label="Avg Hold Time"
+                  value={`${backtestResult.eventMetrics.avgHoldTimeMinutes.toFixed(0)}m`}
+                  icon={<Clock className="w-5 h-5 text-orange-600" />}
+                />
+                <MetricCard
+                  label="LLM Tokens Used"
+                  value={backtestResult.eventMetrics.llmTokensUsed.toLocaleString()}
+                  icon={<Sparkles className="w-5 h-5 text-indigo-600" />}
+                />
+                <MetricCard
+                  label="Estimated Cost"
+                  value={`$${backtestResult.eventMetrics.llmCostEstimate.toFixed(4)}`}
+                  icon={<BarChart3 className="w-5 h-5 text-red-600" />}
+                  valueColor="text-red-400"
+                />
+              </div>
+            </div>
+
+            {/* Trigger Distribution */}
+            {backtestResult.eventMetrics.triggerDistribution && backtestResult.eventMetrics.triggerDistribution.length > 0 && (
+              <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6">
+                <h2 className="text-xl font-semibold text-white mb-4">Trigger Type Distribution</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {backtestResult.eventMetrics.triggerDistribution.map((trigger: any) => (
+                    <div key={trigger.type} className="bg-gray-700/50 p-4 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-gray-300 font-medium">{trigger.type}</span>
+                        <span className="text-lg font-bold text-white">{trigger.count}</span>
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        Avg Confidence: <span className="text-yellow-400 font-semibold">{trigger.avgConfidence.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Performance Metrics */}
+            <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+                <BarChart3 className="w-5 h-5" />
+                Trading Performance
+              </h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <MetricCard
+                  label="Total Trades"
+                  value={backtestResult.totalTrades}
+                  icon={<TrendingUp className="w-5 h-5 text-blue-600" />}
+                />
+                <MetricCard
+                  label="Win Rate"
+                  value={`${backtestResult.winRate.toFixed(1)}%`}
+                  icon={<CheckCircle className="w-5 h-5 text-green-600" />}
+                  valueColor={backtestResult.winRate >= 55 ? 'text-green-600' : 'text-red-600'}
+                />
+                <MetricCard
+                  label="Total P&L"
+                  value={`$${backtestResult.totalPnL.toFixed(2)}`}
+                  icon={<TrendingUp className="w-5 h-5 text-blue-600" />}
+                  valueColor={backtestResult.totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}
+                />
+                <MetricCard
+                  label="Profit Factor"
+                  value={backtestResult.profitFactor.toFixed(2)}
+                  icon={<BarChart3 className="w-5 h-5 text-purple-600" />}
+                  valueColor={backtestResult.profitFactor >= 1.5 ? 'text-green-600' : 'text-red-600'}
+                />
+                <MetricCard
+                  label="Winning Trades"
+                  value={backtestResult.winningTrades}
+                  icon={<CheckCircle className="w-5 h-5 text-green-600" />}
+                />
+                <MetricCard
+                  label="Losing Trades"
+                  value={backtestResult.losingTrades}
+                  icon={<XCircle className="w-5 h-5 text-red-600" />}
+                />
+                <MetricCard
+                  label="Max Drawdown"
+                  value={`${backtestResult.maxDrawdownPercent.toFixed(2)}%`}
+                  icon={<TrendingUp className="w-5 h-5 text-orange-600" />}
+                />
+                <MetricCard
+                  label="Final Balance"
+                  value={`$${backtestResult.finalBalance.toFixed(2)}`}
+                  icon={<TrendingUp className="w-5 h-5 text-blue-600" />}
+                  valueColor={backtestResult.finalBalance >= 10000 ? 'text-green-600' : 'text-red-600'}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* REAL DATA BACKTEST RESULTS - Show basic metrics for real data */}
-        {backtestResult && backtestResult.totalTrades > 0 && !('isSynthetic' in backtestResult && backtestResult.isSynthetic) && (
+        {backtestResult && backtestResult.totalTrades > 0 && !('isSynthetic' in backtestResult && backtestResult.isSynthetic) && !('isEventBased' in backtestResult && backtestResult.isEventBased) && (
           <div className="space-y-6">
 
             {/* Capability Score Card - Only for real data with capability scores */}

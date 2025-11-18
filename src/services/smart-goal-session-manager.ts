@@ -12,6 +12,7 @@ import { llmStrategyBrain, MarketSnapshot, GoalContext, RelevantHistory } from '
 import { marketSnapshotBuilder } from './market-snapshot-builder';
 import { countdownNotificationSystem } from './countdown-notification-system';
 import { supabaseSummaryWriter } from './supabase-summary-writer';
+import { goalSessionLiveEngine, GoalSessionLiveConfig } from './goal-session-live-engine';
 
 export interface SmartGoalConfig {
   goalAmount: number;
@@ -100,6 +101,8 @@ class SmartGoalSessionManager {
     }
 
     this.scheduleNextScan(sessionId);
+
+    await this.startLiveEngine(sessionId, userId, config, accountBalance);
 
     console.log(`[Smart Goal] Created session ${sessionId}: Target $${config.goalAmount} via ${breakDown.targetTradeCount} trades`);
 
@@ -383,6 +386,77 @@ class SmartGoalSessionManager {
 
     console.log(`[Smart Goal] Session ${sessionId} resumed`);
     return true;
+  }
+
+  private async startLiveEngine(
+    sessionId: string,
+    userId: string,
+    config: SmartGoalConfig,
+    accountBalance: number
+  ): Promise<void> {
+    try {
+      const liveConfig: GoalSessionLiveConfig = {
+        goalSessionId: sessionId,
+        userId,
+        symbol: config.watchlist[0],
+        timeframe: '15m',
+        useLLM: true,
+        riskMode: config.riskMode,
+        maxConcurrentTrades: 2,
+        initialBalance: accountBalance,
+        autoExecute: config.autoExecute
+      };
+
+      const result = await goalSessionLiveEngine.startSession(liveConfig);
+
+      if (result.success) {
+        console.log('[Smart Goal] Live engine started successfully');
+
+        await supabase.from('goal_ai_conversations').insert({
+          goal_session_id: sessionId,
+          user_id: userId,
+          role: 'ai',
+          message: `Live trading engine activated! I'm now monitoring ${config.watchlist.join(', ')} for high-probability setups using the event-based LLM system. Scanning every 15 seconds for triggers.`,
+          context: { liveEngineStatus: 'started' },
+          sentiment: 'encouraging'
+        });
+      } else {
+        console.error('[Smart Goal] Failed to start live engine:', result.message);
+
+        await supabase.from('goal_ai_conversations').insert({
+          goal_session_id: sessionId,
+          user_id: userId,
+          role: 'ai',
+          message: `Note: Live engine startup encountered an issue: ${result.message}. Continuing with scheduled scans.`,
+          context: { liveEngineStatus: 'error', error: result.message },
+          sentiment: 'cautionary'
+        });
+      }
+    } catch (error) {
+      console.error('[Smart Goal] Error starting live engine:', error);
+    }
+  }
+
+  async stopLiveEngine(sessionId: string): Promise<void> {
+    try {
+      if (goalSessionLiveEngine.getActiveSessionId() === sessionId) {
+        const result = await goalSessionLiveEngine.stopSession();
+        if (result.success) {
+          console.log('[Smart Goal] Live engine stopped successfully');
+        } else {
+          console.error('[Smart Goal] Failed to stop live engine:', result.message);
+        }
+      }
+    } catch (error) {
+      console.error('[Smart Goal] Error stopping live engine:', error);
+    }
+  }
+
+  getLiveEngineStatus(sessionId: string): any {
+    if (goalSessionLiveEngine.getActiveSessionId() === sessionId) {
+      return goalSessionLiveEngine.getStatus();
+    }
+    return null;
   }
 }
 
