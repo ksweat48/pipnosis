@@ -1,17 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { NavigationMenu } from '../components/NavigationMenu';
-import SessionLearningDashboard from '../components/SessionLearningDashboard';
 import PatternDiscoveryTimeline from '../components/PatternDiscoveryTimeline';
-import StrategyArsenalDashboard from '../components/StrategyArsenalDashboard';
 import AILearningDiagnosticsPanel from '../components/AILearningDiagnosticsPanel';
 import AILearningProgressDashboard from '../components/AILearningProgressDashboard';
-import { BookOpen, Sparkles, Target, Activity, Brain, TrendingUp, Zap } from 'lucide-react';
+import { Sparkles, Activity, Brain, TrendingUp, Zap } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
 export default function SessionLearningsPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'progress' | 'learnings' | 'patterns' | 'strategy-arsenal' | 'diagnostics'>('progress');
+  const [activeTab, setActiveTab] = useState<'progress' | 'patterns' | 'diagnostics'>('progress');
   const [recentBacktests, setRecentBacktests] = useState<any[]>([]);
   const [trainingStats, setTrainingStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -208,17 +206,6 @@ export default function SessionLearningsPage() {
             AI Progress
           </button>
           <button
-            onClick={() => setActiveTab('learnings')}
-            className={`flex-1 px-6 py-3 rounded-md font-semibold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
-              activeTab === 'learnings'
-                ? 'bg-blue-600 text-white shadow-lg'
-                : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
-            }`}
-          >
-            <BookOpen className="w-5 h-5" />
-            Daily Learnings
-          </button>
-          <button
             onClick={() => setActiveTab('patterns')}
             className={`flex-1 px-6 py-3 rounded-md font-semibold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
               activeTab === 'patterns'
@@ -228,17 +215,6 @@ export default function SessionLearningsPage() {
           >
             <Sparkles className="w-5 h-5" />
             Patterns
-          </button>
-          <button
-            onClick={() => setActiveTab('strategy-arsenal')}
-            className={`flex-1 px-6 py-3 rounded-md font-semibold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
-              activeTab === 'strategy-arsenal'
-                ? 'bg-orange-600 text-white shadow-lg'
-                : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
-            }`}
-          >
-            <Target className="w-5 h-5" />
-            Strategy Arsenal
           </button>
           <button
             onClick={() => setActiveTab('diagnostics')}
@@ -256,9 +232,7 @@ export default function SessionLearningsPage() {
         {/* Tab Content */}
         <div>
           {activeTab === 'progress' && user && <AILearningProgressDashboard />}
-          {activeTab === 'learnings' && <SessionLearningDashboard />}
           {activeTab === 'patterns' && <PatternDiscoveryTimeline />}
-          {activeTab === 'strategy-arsenal' && <StrategyArsenalDashboard />}
           {activeTab === 'diagnostics' && <AILearningDiagnosticsPanel />}
         </div>
       </div>
