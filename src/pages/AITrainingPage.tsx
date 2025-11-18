@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
 import { backtestingEngine, BacktestConfig, BacktestResult } from '../services/backtesting-engine';
@@ -56,6 +56,9 @@ export default function AITrainingPage() {
   const [autoBacktestState, setAutoBacktestState] = useState<SimpleAutoBacktestState | null>(null);
   const [autoBacktestTransitioning, setAutoBacktestTransitioning] = useState(false);
 
+  // Ref to track previous state for comparison
+  const previousStateRef = useRef<SimpleAutoBacktestState | null>(null);
+
   const availableSymbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];
 
   useEffect(() => {
@@ -79,7 +82,6 @@ export default function AITrainingPage() {
 
     // Poll auto-backtest state from database (optimized for non-disruptive updates)
     let stateInterval: NodeJS.Timeout | null = null;
-    let previousStateRef = useRef<SimpleAutoBacktestState | null>(null);
 
     // Dynamic polling rate based on activity
     const getPollingRate = (state: SimpleAutoBacktestState | null) => {
