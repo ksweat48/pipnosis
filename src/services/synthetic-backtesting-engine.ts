@@ -764,16 +764,9 @@ class SyntheticBacktestingEngine {
         backtestType: 'synthetic'
       });
 
-      // === LEARNING CYCLE: Increment cycle position ===
-      console.log('[Synthetic Backtest] 🔄 Incrementing learning cycle position...');
-      const { aiAutomaticAdjustments } = await import('./ai-automatic-adjustments');
-      const cycleCompleted = await aiAutomaticAdjustments.incrementCyclePosition(userId);
-
-      if (cycleCompleted) {
-        console.log('[Synthetic Backtest] 🎉 Learning cycle completed! Applying automatic adjustments...');
-        const appliedAdjustments = await aiAutomaticAdjustments.applyPendingAdjustments(userId);
-        console.log(`[Synthetic Backtest] ✅ Applied ${appliedAdjustments.length} automatic adjustments`);
-      }
+      // === REMOVED: Old 10-session cycle system ===
+      // Progressive learning now happens after each daily session instead
+      console.log('[Synthetic Backtest] ✅ Progressive learning complete (no cycles needed)');
 
       // Update indicator effectiveness
       console.log('[Synthetic Backtest] 🔬 Updating indicator effectiveness...');

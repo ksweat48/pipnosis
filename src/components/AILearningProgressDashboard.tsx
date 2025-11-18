@@ -35,8 +35,7 @@ export default function AILearningProgressDashboard() {
   const [selectedSymbol, setSelectedSymbol] = useState('EURUSD');
   const [liveStats, setLiveStats] = useState<any>(null);
   const [backtestStats, setBacktestStats] = useState<any>(null);
-  const [cycleStatus, setCycleStatus] = useState<any>(null);
-  const [appliedAdjustments, setAppliedAdjustments] = useState<any[]>([]);
+  const [autoBacktestState, setAutoBacktestState] = useState<any>(null);
 
   useEffect(() => {
     if (user) {
@@ -179,15 +178,10 @@ export default function AILearningProgressDashboard() {
           : 0
       });
 
-      // Fetch cycle status and adjustments
-      const { aiAutomaticAdjustments } = await import('../services/ai-automatic-adjustments');
-      const [cycle, adjustments] = await Promise.all([
-        aiAutomaticAdjustments.getCycleStatus(user.id),
-        aiAutomaticAdjustments.getRecentAdjustments(user.id, 5)
-      ]);
-
-      setCycleStatus(cycle);
-      setAppliedAdjustments(adjustments);
+      // Fetch auto-backtest state for 30-day progress
+      const { simpleAutoBacktestService } = await import('../services/simple-auto-backtest-service');
+      const state = await simpleAutoBacktestService.getState();
+      setAutoBacktestState(state);
     } catch (error) {
       console.error('[AI Learning Dashboard] Error loading data:', error);
     } finally {
@@ -354,57 +348,54 @@ export default function AILearningProgressDashboard() {
             </p>
           </div>
 
-          {/* Consistency Validation Status */}
-          {skillData.currentCyclePosition !== undefined && (
-            <div className="mt-4 p-4 bg-purple-500/10 rounded border border-purple-500/30">
+          {/* 30-Day Monthly Progress */}
+          {autoBacktestState && autoBacktestState.isRunning && autoBacktestState.currentDayInMonth > 0 && (
+            <div className="mt-4 p-4 bg-blue-500/10 rounded border border-blue-500/30">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-semibold text-purple-300">Learning Cycle Status</h4>
-                <span className="text-xs text-purple-200 bg-purple-500/20 px-2 py-1 rounded">
-                  Session {skillData.currentCyclePosition}/10
+                <h4 className="text-sm font-semibold text-blue-300">30-Day Progressive Learning</h4>
+                <span className="text-xs text-blue-200 bg-blue-500/20 px-2 py-1 rounded">
+                  Day {autoBacktestState.currentDayInMonth}/30
                 </span>
               </div>
 
               <div className="w-full bg-black/30 rounded-full h-2 overflow-hidden mb-3">
                 <div
-                  className="h-2 bg-gradient-to-r from-purple-400 to-purple-600 transition-all duration-500 rounded-full"
-                  style={{ width: `${(skillData.currentCyclePosition / 10) * 100}%` }}
+                  className="h-2 bg-gradient-to-r from-blue-400 to-blue-600 transition-all duration-500 rounded-full"
+                  style={{ width: `${(autoBacktestState.currentDayInMonth / 30) * 100}%` }}
                 ></div>
               </div>
 
-              <p className="text-xs text-purple-200 mb-2">
-                <strong>Cycle {skillData.totalCyclesCompleted || 0} complete.</strong> Automatic adjustments apply every 10 sessions.
+              <p className="text-xs text-blue-200 mb-2">
+                <strong>Month #{autoBacktestState.currentMonthNumber}</strong> - AI learns after each daily session
               </p>
 
-              {skillData.last10SessionWRSpread !== undefined && skillData.last10SessionPFAverage !== undefined && (
-                <div className="grid grid-cols-2 gap-3 mt-3 text-xs">
-                  <div className="bg-black/20 p-2 rounded">
-                    <div className="text-white/60 mb-1">WR Spread (10 sessions)</div>
-                    <div className={`font-bold ${skillData.last10SessionWRSpread <= 10 ? 'text-green-400' : 'text-red-400'}`}>
-                      {skillData.last10SessionWRSpread.toFixed(1)}%
+              {autoBacktestState.lastDayResult && (
+                <div className="mt-3 bg-black/20 p-3 rounded">
+                  <div className="text-xs text-white/60 mb-2">Last Day Result (Day {autoBacktestState.lastDayResult.dayNumber}):</div>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <div className="text-white/60">Win Rate</div>
+                      <div className="text-green-400 font-bold">{autoBacktestState.lastDayResult.winRate.toFixed(1)}%</div>
                     </div>
-                    <div className={`text-xs mt-1 ${skillData.last10SessionWRSpread <= 10 ? 'text-green-400' : 'text-red-400'}`}>
-                      {skillData.last10SessionWRSpread <= 10 ? '✓ Consistent' : '⚠ Too variable'}
+                    <div>
+                      <div className="text-white/60">Trades</div>
+                      <div className="text-white font-bold">{autoBacktestState.lastDayResult.totalTrades}</div>
                     </div>
-                  </div>
-                  <div className="bg-black/20 p-2 rounded">
-                    <div className="text-white/60 mb-1">PF Average (10 sessions)</div>
-                    <div className={`font-bold ${skillData.last10SessionPFAverage >= 1.5 ? 'text-green-400' : 'text-yellow-400'}`}>
-                      {skillData.last10SessionPFAverage.toFixed(2)}
-                    </div>
-                    <div className="text-xs mt-1 text-white/60">
-                      Target: {skillThresholds[skillData.skillLevelNumeric + 1]?.minProfitFactor?.toFixed(2) || 'N/A'}
+                    <div>
+                      <div className="text-white/60">P&L</div>
+                      <div className={`font-bold ${autoBacktestState.lastDayResult.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        ${autoBacktestState.lastDayResult.pnl.toFixed(2)}
+                      </div>
                     </div>
                   </div>
                 </div>
               )}
 
-              {skillData.consistencyFailureReason && (
-                <div className="mt-3 p-2 bg-red-500/10 rounded border border-red-500/30">
-                  <p className="text-xs text-red-300">
-                    <strong>⚠ Level-up blocked:</strong> {skillData.consistencyFailureReason}
-                  </p>
-                </div>
-              )}
+              <div className="mt-3 p-2 bg-emerald-500/10 rounded border border-emerald-500/30">
+                <p className="text-xs text-emerald-300">
+                  ✓ Total months completed: <strong>{autoBacktestState.totalMonthsCompleted}</strong>
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -522,93 +513,7 @@ export default function AILearningProgressDashboard() {
         />
       </div>
 
-      {/* Automatic Adjustments Section */}
-      {(cycleStatus?.pendingAdjustments?.length > 0 || appliedAdjustments.length > 0) && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Pending Adjustments */}
-          {cycleStatus?.pendingAdjustments?.length > 0 && (
-            <div className="bg-gradient-to-br from-yellow-900/20 to-amber-900/20 backdrop-blur-sm border-2 border-yellow-500/30 rounded-lg p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <Clock className="w-5 h-5 text-yellow-400" />
-                <h3 className="text-lg font-semibold text-white">Pending Adjustments</h3>
-              </div>
-              <p className="text-xs text-gray-400 mb-4">
-                These adjustments will be applied automatically at cycle completion (session 10/10)
-              </p>
-              <div className="space-y-2">
-                {cycleStatus.pendingAdjustments.slice(0, 5).map((adj: any, idx: number) => (
-                  <div key={idx} className="bg-black/30 p-3 rounded border border-yellow-500/20">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="text-xs font-mono text-yellow-300 mb-1">
-                          {adj.adjustmentType.replace(/_/g, ' ').toUpperCase()}
-                        </div>
-                        <div className="text-sm text-white font-medium mb-1">
-                          {adj.targetName}
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          {adj.currentValue?.toString().substring(0, 30)} → {adj.proposedValue?.toString().substring(0, 30)}
-                        </div>
-                        <div className="text-xs text-gray-500 mt-1">
-                          {adj.reasoning.substring(0, 80)}{adj.reasoning.length > 80 ? '...' : ''}
-                        </div>
-                      </div>
-                      <div className="ml-2 px-2 py-1 bg-yellow-500/20 rounded text-xs font-bold text-yellow-300">
-                        P{adj.priority}
-                      </div>
-                    </div>
-                    {adj.accumulatedCount > 1 && (
-                      <div className="mt-2 text-xs text-yellow-400">
-                        ⚡ Suggested {adj.accumulatedCount}x (high confidence)
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Recently Applied Adjustments */}
-          {appliedAdjustments.length > 0 && (
-            <div className="bg-gradient-to-br from-emerald-900/20 to-green-900/20 backdrop-blur-sm border-2 border-emerald-500/30 rounded-lg p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <CheckCircle className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-lg font-semibold text-white">Recently Applied</h3>
-              </div>
-              <p className="text-xs text-gray-400 mb-4">
-                Automatic adjustments applied in recent learning cycles
-              </p>
-              <div className="space-y-2">
-                {appliedAdjustments.slice(0, 5).map((adj: any) => (
-                  <div key={adj.id} className="bg-black/30 p-3 rounded border border-emerald-500/20">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="text-xs font-mono text-emerald-300 mb-1">
-                          {adj.adjustmentType.replace(/_/g, ' ').toUpperCase()}
-                        </div>
-                        <div className="text-sm text-white font-medium mb-1">
-                          {adj.targetName}
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          Applied in cycle {adj.cycleNumber}
-                        </div>
-                        <div className="text-xs text-gray-500 mt-1">
-                          {adj.reasoning.substring(0, 80)}{adj.reasoning.length > 80 ? '...' : ''}
-                        </div>
-                      </div>
-                      {adj.wasBeneficial !== undefined && (
-                        <div className={`ml-2 px-2 py-1 rounded text-xs font-bold ${adj.wasBeneficial ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
-                          {adj.wasBeneficial ? '✓ Helpful' : '✗ Not helpful'}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Removed: Cycle-based automatic adjustments section */}
 
       {/* Skill Level Roadmap */}
       <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg shadow-md p-6">

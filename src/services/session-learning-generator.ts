@@ -505,7 +505,6 @@ class SessionLearningGenerator {
     css: number
   ): Promise<string[]> {
     const recommendations: string[] = [];
-    const { aiAutomaticAdjustments } = await import('./ai-automatic-adjustments');
 
     if (bestSetup && bestSetup.ev > 10) {
       recommendations.push(`🎯 Focus on ${bestSetup.name} - strong positive EV (${bestSetup.ev.toFixed(2)})`);

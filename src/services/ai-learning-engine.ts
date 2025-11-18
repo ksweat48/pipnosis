@@ -4,7 +4,6 @@ import { cssCalculator } from './css-calculator';
 import { adaptiveRiskManager } from './adaptive-risk-manager';
 import { strategyDiscoveryEngine } from './strategy-discovery-engine';
 import { sessionLearningGenerator } from './session-learning-generator';
-import { metaLearningStrategist, type BacktestSummary } from './meta-learning-strategist';
 import { patternInterpreter, type DiscoveredPattern } from './pattern-interpreter';
 import { aiSkillTracker } from './ai-skill-tracker';
 
@@ -1328,52 +1327,17 @@ class AILearningEngine {
   }
 
   /**
-   * Run GPT-4o Meta-Learning Strategist on backtest results
+   * REMOVED: Meta-Learning Strategist (replaced with progressive daily learning)
+   * Previously called GPT-4o to analyze past performance every 10-100 sessions
+   * Now AI learns progressively after each daily session instead
    */
   private async runMetaLearningStrategist(
     userId: string,
     sessionId: string,
     trades: TradeForAnalysis[]
   ): Promise<void> {
-    try {
-      // Skip if insufficient data or if strategist is disabled
-      if (trades.length < 5 || !metaLearningStrategist.isEnabled()) {
-        console.log('[AI Learning Engine] Skipping Meta-Learning Strategist (insufficient data or disabled)');
-        return;
-      }
-
-      // Build summary for strategist (NO raw candle data)
-      const wins = trades.filter(t => t.outcome === 'win');
-      const losses = trades.filter(t => t.outcome === 'loss');
-      const winRate = trades.length > 0 ? (wins.length / trades.length) * 100 : 0;
-      const totalProfit = wins.reduce((sum, t) => sum + t.pnl, 0);
-      const totalLoss = Math.abs(losses.reduce((sum, t) => sum + t.pnl, 0));
-      const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : 0;
-
-      const summary: BacktestSummary = {
-        sessionId,
-        sessionName: `Backtest Session ${sessionId.substring(0, 8)}`,
-        totalTrades: trades.length,
-        winRate,
-        profitFactor,
-        sharpeRatio: 1.5, // Simplified
-        expectancy: (totalProfit - totalLoss) / trades.length,
-        avgRR: 2.0, // Simplified
-        maxDrawdown: 5.0, // Simplified
-        compositeSuccessScore: 75, // Simplified
-        winningPatterns: await this.extractWinningPatterns(userId, trades),
-        losingPatterns: await this.extractLosingPatterns(userId, trades),
-        symbolPerformance: this.groupBySymbol(trades),
-        confidenceThresholdPerformance: this.analyzeConfidenceThresholds(trades),
-        marketConditionPerformance: [],
-        keyLearnings: [`Analyzed ${trades.length} trades`, `Win rate: ${winRate.toFixed(1)}%`]
-      };
-
-      // Call GPT-4o strategist
-      await metaLearningStrategist.analyzeBacktestResults(userId, summary);
-    } catch (error) {
-      console.error('[AI Learning Engine] Error running Meta-Learning Strategist:', error);
-    }
+    // No longer needed - progressive learning happens after each daily session
+    return;
   }
 
   /**

@@ -1,18 +1,19 @@
 /**
- * Simple Auto-Backtest Service with Persistent State
+ * Simple Auto-Backtest Service with 30-Day Progressive Learning
  *
- * Syncs state with Supabase database for cross-browser/device persistence.
- * State is maintained globally per user and survives browser restarts.
+ * NEW ARCHITECTURE:
+ * - Each auto-backtest session runs for 30 days (1 month)
+ * - Each day is a separate trade session with its own results
+ * - AI learns progressively after EACH day (Day 2 learns from Day 1, Day 3 from Days 1-2, etc.)
+ * - All 30 days are grouped under one parent "monthly session"
+ * - After 30 days complete, wait random delay (30-90s) then start new month
  *
  * Flow:
- * 1. Check database for existing running state
- * 2. Run complete backtest (synthetic data + trade simulation)
- * 3. Store results in database
- * 4. Trigger AI learning from results
- * 5. Update AI skill progression
- * 6. Send heartbeat to database every 10 seconds
- * 7. Wait random delay (2-10 seconds)
- * 8. Repeat until manually stopped
+ * 1. Start new monthly session (30 days)
+ * 2. Day 1: Run 1 day backtest → Analyze → Learn
+ * 3. Day 2: Run 1 day backtest → Analyze → Learn (with Day 1 context)
+ * 4. Day 3-30: Continue pattern...
+ * 5. Month complete → Wait delay → Start new month
  */
 
 import { syntheticBacktestingEngine, SyntheticBacktestConfig } from './synthetic-backtesting-engine';
@@ -22,9 +23,12 @@ import { supabase } from '../lib/supabase';
 
 export interface SimpleAutoBacktestState {
   isRunning: boolean;
-  totalBacktestsCompleted: number;
-  currentBacktestNumber: number;
-  lastBacktestResult: {
+  totalMonthsCompleted: number;
+  currentMonthNumber: number;
+  currentDayInMonth: number; // NEW: 1-30
+  totalDaysInMonth: number; // NEW: Always 30
+  lastDayResult: {
+    dayNumber: number;
     sessionName: string;
     winRate: number;
     totalTrades: number;
@@ -39,16 +43,19 @@ export interface SimpleAutoBacktestState {
   sessionId?: string;
   usageWarningLevel?: string;
   usageWarningMessage?: string;
+  monthlyParentSessionId?: string; // NEW: Parent session ID for current month
 }
 
 class SimpleAutoBacktestService {
   private isRunning = false;
   private userId: string | null = null;
-  private totalBacktestsCompleted = 0;
-  private currentBacktestNumber = 0;
+  private totalMonthsCompleted = 0;
+  private currentMonthNumber = 0;
+  private currentDayInMonth = 0; // NEW: Track which day we're on (1-30)
+  private monthlyParentSessionId: string | null = null; // NEW: Parent session for current month
   private abortController: AbortController | null = null;
   private nextRunTimer: NodeJS.Timeout | null = null;
-  private lastBacktestResult: any = null;
+  private lastDayResult: any = null;
   private plateauDetected = false;
   private breakthroughMode = false;
   private plateauDuration = 0;
@@ -60,18 +67,17 @@ class SimpleAutoBacktestService {
   private lastDbLatency = 0;
   private adaptiveDelayMultiplier = 1.0;
 
-  // Configuration - Optimized for Supabase Pro tier resource management
-  private readonly MIN_DELAY_SECONDS = 30; // Increased from 2 to reduce database pressure
-  private readonly MAX_DELAY_SECONDS = 90; // Increased from 10 for better resource spacing
-  private readonly MIN_DURATION_DAYS = 1;
-  private readonly MAX_DURATION_DAYS = 3;
+  // Configuration
+  private readonly MIN_DELAY_SECONDS = 30;
+  private readonly MAX_DELAY_SECONDS = 90;
+  private readonly DAYS_PER_MONTH = 30; // NEW: Fixed 30 days per monthly session
   private readonly PLATEAU_CHECK_INTERVAL = 5;
-  private readonly HEARTBEAT_INTERVAL_MS = 60000; // Increased to 60 seconds from 10
-  private readonly MAX_DAILY_BACKTESTS = 50; // Daily quota to prevent resource exhaustion
-  private readonly ADAPTIVE_DELAY_MULTIPLIER = 2.0; // Multiply delay when latency is high
-  private readonly DB_LATENCY_THRESHOLD_MS = 1000; // Trigger adaptive throttling above this
-  private readonly COOLDOWN_AFTER_N_BACKTESTS = 5; // Add cooldown after this many consecutive runs
-  private readonly COOLDOWN_DURATION_MS = 300000; // 5 minute cooldown period
+  private readonly HEARTBEAT_INTERVAL_MS = 60000;
+  private readonly MAX_DAILY_BACKTESTS = 50;
+  private readonly ADAPTIVE_DELAY_MULTIPLIER = 2.0;
+  private readonly DB_LATENCY_THRESHOLD_MS = 1000;
+  private readonly COOLDOWN_AFTER_N_BACKTESTS = 5;
+  private readonly COOLDOWN_DURATION_MS = 300000;
 
   /**
    * Initialize state from database
@@ -79,7 +85,6 @@ class SimpleAutoBacktestService {
   async initialize(userId: string): Promise<void> {
     this.userId = userId;
 
-    // Check if auto-backtest is already running in database
     const { data: existingState } = await supabase
       .from('auto_backtest_global_state')
       .select('*')
@@ -87,7 +92,6 @@ class SimpleAutoBacktestService {
       .single();
 
     if (existingState && existingState.is_running) {
-      // Check if state is stale (no heartbeat in 5+ minutes)
       const lastHeartbeat = new Date(existingState.last_heartbeat);
       const minutesSinceHeartbeat = (Date.now() - lastHeartbeat.getTime()) / 1000 / 60;
 
@@ -95,23 +99,25 @@ class SimpleAutoBacktestService {
         console.log('[Auto-Backtest] Found stale session, cleaning up...');
         await this.forceStopInDatabase(userId);
       } else {
-        // Valid running session exists
         console.log('[Auto-Backtest] Found active session started from:', existingState.started_from_device);
         this.isRunning = true;
-        this.totalBacktestsCompleted = existingState.total_backtests_completed || 0;
-        this.currentBacktestNumber = existingState.current_backtest_number || 0;
+        this.totalMonthsCompleted = existingState.total_months_completed || 0;
+        this.currentMonthNumber = existingState.current_month_number || 0;
+        this.currentDayInMonth = existingState.current_day_in_month || 0;
+        this.monthlyParentSessionId = existingState.monthly_parent_session_id;
         this.plateauDetected = existingState.plateau_detected || false;
         this.breakthroughMode = existingState.breakthrough_mode || false;
         this.plateauDuration = existingState.plateau_duration || 0;
         this.sessionId = existingState.session_id || '';
 
-        if (existingState.last_backtest_session_name) {
-          this.lastBacktestResult = {
-            sessionName: existingState.last_backtest_session_name,
-            winRate: parseFloat(existingState.last_backtest_win_rate || '0'),
-            totalTrades: existingState.last_backtest_total_trades || 0,
-            pnl: parseFloat(existingState.last_backtest_pnl || '0'),
-            completedAt: new Date(existingState.last_backtest_completed_at)
+        if (existingState.last_day_session_name) {
+          this.lastDayResult = {
+            dayNumber: existingState.last_day_number || 0,
+            sessionName: existingState.last_day_session_name,
+            winRate: parseFloat(existingState.last_day_win_rate || '0'),
+            totalTrades: existingState.last_day_total_trades || 0,
+            pnl: parseFloat(existingState.last_day_pnl || '0'),
+            completedAt: new Date(existingState.last_day_completed_at)
           };
         }
       }
@@ -122,10 +128,8 @@ class SimpleAutoBacktestService {
    * Start auto-backtest loop
    */
   async start(userId: string): Promise<{ success: boolean; message: string }> {
-    // Initialize and check database state
     await this.initialize(userId);
 
-    // Check if already running (in this browser or another)
     const { data: dbState } = await supabase
       .from('auto_backtest_global_state')
       .select('*')
@@ -148,16 +152,14 @@ class SimpleAutoBacktestService {
       return { success: false, message: 'Already running in this session' };
     }
 
-    console.log('[Auto-Backtest] 🚀 Starting auto-backtest system');
+    console.log('[Auto-Backtest] 🚀 Starting 30-day progressive learning system');
     this.userId = userId;
     this.isRunning = true;
     this.sessionId = this.generateSessionId();
     this.abortController = new AbortController();
 
-    // Detect device/browser info
     const deviceInfo = this.getDeviceInfo();
 
-    // Save running state to database
     await this.syncStateToDatabase({
       is_running: true,
       started_at: new Date().toISOString(),
@@ -166,10 +168,7 @@ class SimpleAutoBacktestService {
       last_heartbeat: new Date().toISOString()
     });
 
-    // Start heartbeat to keep state fresh
     this.startHeartbeat();
-
-    // Start the loop immediately
     this.runLoop();
 
     return { success: true, message: 'Auto-backtest started successfully' };
@@ -197,7 +196,6 @@ class SimpleAutoBacktestService {
       this.heartbeatInterval = null;
     }
 
-    // Update database state
     if (this.userId) {
       await this.syncStateToDatabase({
         is_running: false,
@@ -226,7 +224,6 @@ class SimpleAutoBacktestService {
    * Get current state (from memory + database)
    */
   async getState(): Promise<SimpleAutoBacktestState> {
-    // Fetch latest from database if userId is set
     if (this.userId) {
       const { data: dbState } = await supabase
         .from('auto_backtest_global_state')
@@ -237,14 +234,17 @@ class SimpleAutoBacktestService {
       if (dbState) {
         return {
           isRunning: dbState.is_running || false,
-          totalBacktestsCompleted: dbState.total_backtests_completed || 0,
-          currentBacktestNumber: dbState.current_backtest_number || 0,
-          lastBacktestResult: dbState.last_backtest_session_name ? {
-            sessionName: dbState.last_backtest_session_name,
-            winRate: parseFloat(dbState.last_backtest_win_rate || '0'),
-            totalTrades: dbState.last_backtest_total_trades || 0,
-            pnl: parseFloat(dbState.last_backtest_pnl || '0'),
-            completedAt: new Date(dbState.last_backtest_completed_at)
+          totalMonthsCompleted: dbState.total_months_completed || 0,
+          currentMonthNumber: dbState.current_month_number || 0,
+          currentDayInMonth: dbState.current_day_in_month || 0,
+          totalDaysInMonth: this.DAYS_PER_MONTH,
+          lastDayResult: dbState.last_day_session_name ? {
+            dayNumber: dbState.last_day_number || 0,
+            sessionName: dbState.last_day_session_name,
+            winRate: parseFloat(dbState.last_day_win_rate || '0'),
+            totalTrades: dbState.last_day_total_trades || 0,
+            pnl: parseFloat(dbState.last_day_pnl || '0'),
+            completedAt: new Date(dbState.last_day_completed_at)
           } : null,
           nextRunIn: 0,
           plateauDetected: dbState.plateau_detected || false,
@@ -253,21 +253,24 @@ class SimpleAutoBacktestService {
           startedFromDevice: dbState.started_from_device,
           sessionId: dbState.session_id,
           usageWarningLevel: dbState.usage_warning_level,
-          usageWarningMessage: dbState.usage_warning_message
+          usageWarningMessage: dbState.usage_warning_message,
+          monthlyParentSessionId: dbState.monthly_parent_session_id
         };
       }
     }
 
-    // Fallback to local state
     return {
       isRunning: this.isRunning,
-      totalBacktestsCompleted: this.totalBacktestsCompleted,
-      currentBacktestNumber: this.currentBacktestNumber,
-      lastBacktestResult: this.lastBacktestResult,
+      totalMonthsCompleted: this.totalMonthsCompleted,
+      currentMonthNumber: this.currentMonthNumber,
+      currentDayInMonth: this.currentDayInMonth,
+      totalDaysInMonth: this.DAYS_PER_MONTH,
+      lastDayResult: this.lastDayResult,
       nextRunIn: 0,
       plateauDetected: this.plateauDetected,
       breakthroughMode: this.breakthroughMode,
-      plateauDuration: this.plateauDuration
+      plateauDuration: this.plateauDuration,
+      monthlyParentSessionId: this.monthlyParentSessionId
     };
   }
 
@@ -282,13 +285,16 @@ class SimpleAutoBacktestService {
         .from('auto_backtest_global_state')
         .upsert({
           user_id: this.userId,
-          total_backtests_completed: this.totalBacktestsCompleted,
-          current_backtest_number: this.currentBacktestNumber,
-          last_backtest_session_name: this.lastBacktestResult?.sessionName,
-          last_backtest_win_rate: this.lastBacktestResult?.winRate,
-          last_backtest_total_trades: this.lastBacktestResult?.totalTrades,
-          last_backtest_pnl: this.lastBacktestResult?.pnl,
-          last_backtest_completed_at: this.lastBacktestResult?.completedAt,
+          total_months_completed: this.totalMonthsCompleted,
+          current_month_number: this.currentMonthNumber,
+          current_day_in_month: this.currentDayInMonth,
+          monthly_parent_session_id: this.monthlyParentSessionId,
+          last_day_number: this.lastDayResult?.dayNumber,
+          last_day_session_name: this.lastDayResult?.sessionName,
+          last_day_win_rate: this.lastDayResult?.winRate,
+          last_day_total_trades: this.lastDayResult?.totalTrades,
+          last_day_pnl: this.lastDayResult?.pnl,
+          last_day_completed_at: this.lastDayResult?.completedAt,
           plateau_detected: this.plateauDetected,
           breakthrough_mode: this.breakthroughMode,
           plateau_duration: this.plateauDuration,
@@ -326,87 +332,67 @@ class SimpleAutoBacktestService {
   }
 
   /**
-   * Main loop - runs one backtest, learns, waits, repeats
+   * Main loop - runs 30-day monthly sessions with daily learning
    */
   private async runLoop(): Promise<void> {
     while (this.isRunning && this.userId) {
       try {
-        console.log('\n[Auto-Backtest] ========== STARTING NEW BACKTEST ==========');
+        // Start new monthly session
+        this.currentMonthNumber++;
+        this.currentDayInMonth = 0;
+        this.monthlyParentSessionId = this.generateMonthlySessionId();
 
-        // Generate random parameters
-        const sessionName = this.generateSessionName();
-        const durationDays = this.randomDuration();
-        const riskLevel = this.randomRiskLevel();
-        const symbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];
+        console.log('\n[Auto-Backtest] ========== STARTING NEW 30-DAY MONTHLY SESSION ==========');
+        console.log(`[Auto-Backtest] Month #${this.currentMonthNumber}`);
+        console.log(`[Auto-Backtest] Parent Session ID: ${this.monthlyParentSessionId}`);
+        console.log('========================================================\n');
 
-        const endDate = new Date();
-        const startDate = new Date(endDate.getTime() - durationDays * 24 * 60 * 60 * 1000);
-
-        console.log(`[Auto-Backtest] Session: ${sessionName}`);
-        console.log(`[Auto-Backtest] Duration: ${durationDays} days`);
-        console.log(`[Auto-Backtest] Risk Level: ${riskLevel}`);
-        console.log(`[Auto-Backtest] Pairs: ${symbols.join(', ')}`);
-
-        // Configure backtest
-        const config: SyntheticBacktestConfig = {
-          sessionName,
-          description: `Auto-backtest - ${riskLevel} risk, ${durationDays}d duration`,
-          symbols,
-          startDate,
-          endDate,
-          timeframes: ['H1', 'M5', 'M1'],
-          useGPT4Reasoning: false,
-          confidenceThreshold: this.getRiskThreshold(riskLevel),
-          riskMode: riskLevel,
-          maxConcurrentTrades: 2,
-          initialBalance: 10000,
-          positionSizePercent: 2,
-          commissionPerTrade: 0,
-          slippagePips: 1,
-          marketScenario: 'mixed'
-        };
-
-        this.currentBacktestNumber++;
-
-        // Sync current backtest number to database
-        await this.syncStateToDatabase({
-          current_backtest_number: this.currentBacktestNumber
-        });
-
-        // Execute backtest (this includes AI learning automatically)
-        const result = await syntheticBacktestingEngine.runSyntheticBacktest(
-          this.userId,
-          config,
-          (progress) => {
-            console.log(`[Auto-Backtest] Progress: ${progress.message} (${progress.percentComplete.toFixed(1)}%)`);
-          }
-        );
-
-        // Update completion stats
-        this.totalBacktestsCompleted++;
-        this.lastBacktestResult = {
-          sessionName,
-          winRate: result.winRate,
-          totalTrades: result.totalTrades,
-          pnl: result.totalPnL,
-          completedAt: new Date()
-        };
-
-        // Sync completed backtest to database
         await this.syncStateToDatabase({});
 
-        console.log(`[Auto-Backtest] ✅ Completed! Win rate: ${result.winRate.toFixed(1)}%, P&L: $${result.totalPnL.toFixed(2)}`);
-        console.log('[Auto-Backtest] ===============================================\n');
+        // Run 30 daily sessions
+        for (let day = 1; day <= this.DAYS_PER_MONTH; day++) {
+          if (!this.isRunning) break;
 
-        if (this.totalBacktestsCompleted % this.PLATEAU_CHECK_INTERVAL === 0) {
-          await this.checkForPlateau();
+          this.currentDayInMonth = day;
+
+          console.log(`\n[Auto-Backtest] ========== DAY ${day}/30 ==========`);
+
+          // Run one day of trading
+          await this.runDailySession(day);
+
+          // After each day, AI learns progressively
+          console.log(`[Auto-Backtest] Day ${day} complete - AI learning from this day's results...`);
+
+          await this.syncStateToDatabase({});
+
+          // Small delay between days
+          if (day < this.DAYS_PER_MONTH && this.isRunning) {
+            console.log('[Auto-Backtest] Preparing next day...');
+            await this.sleep(5000); // 5 second delay between days
+          }
         }
 
-        if (this.plateauDetected && !this.breakthroughMode && this.plateauDuration >= 15) {
-          await this.triggerBreakthroughMode();
+        // Month complete
+        if (this.currentDayInMonth === this.DAYS_PER_MONTH) {
+          this.totalMonthsCompleted++;
+          console.log('\n[Auto-Backtest] ========== 30-DAY MONTH COMPLETE ==========');
+          console.log(`[Auto-Backtest] ✅ Month #${this.currentMonthNumber} finished!`);
+          console.log(`[Auto-Backtest] Total months completed: ${this.totalMonthsCompleted}`);
+          console.log('====================================================\n');
+
+          await this.syncStateToDatabase({});
+
+          // Check for plateau every 5 months
+          if (this.totalMonthsCompleted % this.PLATEAU_CHECK_INTERVAL === 0) {
+            await this.checkForPlateau();
+          }
+
+          if (this.plateauDetected && !this.breakthroughMode && this.plateauDuration >= 15) {
+            await this.triggerBreakthroughMode();
+          }
         }
 
-        // Check usage levels and warn if critical
+        // Check usage levels
         await this.checkUsageLevels();
 
         // Check daily quota
@@ -417,19 +403,12 @@ class SimpleAutoBacktestService {
           break;
         }
 
-        // Track consecutive backtests and apply cooldown
-        this.consecutiveBacktests++;
-        if (this.consecutiveBacktests >= this.COOLDOWN_AFTER_N_BACKTESTS) {
-          console.log(`[Auto-Backtest] 🔄 Cooldown period: waiting ${this.COOLDOWN_DURATION_MS / 1000}s after ${this.consecutiveBacktests} consecutive backtests...`);
-          await this.sleep(this.COOLDOWN_DURATION_MS);
-          this.consecutiveBacktests = 0;
-        }
-
+        // Wait before starting next monthly session
         if (this.isRunning) {
           const baseDelaySeconds = this.randomDelay();
           const adaptiveDelaySeconds = Math.floor(baseDelaySeconds * this.adaptiveDelayMultiplier);
 
-          console.log(`[Auto-Backtest] Waiting ${adaptiveDelaySeconds}s before next backtest...`);
+          console.log(`[Auto-Backtest] Waiting ${adaptiveDelaySeconds}s before next 30-day month...`);
           if (this.adaptiveDelayMultiplier > 1.0) {
             console.log(`[Auto-Backtest] 📊 Adaptive throttling active (${this.adaptiveDelayMultiplier.toFixed(1)}x) due to DB latency: ${this.lastDbLatency}ms`);
           }
@@ -439,12 +418,70 @@ class SimpleAutoBacktestService {
 
       } catch (error) {
         console.error('[Auto-Backtest] Error in backtest loop:', error);
-        // Wait before retrying on error
         await this.sleep(10000);
       }
     }
 
     console.log('[Auto-Backtest] Loop terminated');
+  }
+
+  /**
+   * Run a single daily session (1 day of trading)
+   */
+  private async runDailySession(dayNumber: number): Promise<void> {
+    if (!this.userId) return;
+
+    const sessionName = this.generateDailySessionName(dayNumber);
+    const riskLevel = this.randomRiskLevel();
+    const symbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];
+
+    // Each day is exactly 1 day of data
+    const endDate = new Date();
+    const startDate = new Date(endDate.getTime() - 1 * 24 * 60 * 60 * 1000); // 1 day
+
+    console.log(`[Auto-Backtest] Session: ${sessionName}`);
+    console.log(`[Auto-Backtest] Duration: 1 day`);
+    console.log(`[Auto-Backtest] Risk Level: ${riskLevel}`);
+    console.log(`[Auto-Backtest] Pairs: ${symbols.join(', ')}`);
+
+    const config: SyntheticBacktestConfig = {
+      sessionName,
+      description: `Month ${this.currentMonthNumber} - Day ${dayNumber} - ${riskLevel} risk`,
+      symbols,
+      startDate,
+      endDate,
+      timeframes: ['H1', 'M5', 'M1'],
+      useGPT4Reasoning: false,
+      confidenceThreshold: this.getRiskThreshold(riskLevel),
+      riskMode: riskLevel,
+      maxConcurrentTrades: 2,
+      initialBalance: 10000,
+      positionSizePercent: 2,
+      commissionPerTrade: 0,
+      slippagePips: 1,
+      marketScenario: 'mixed'
+    };
+
+    // Execute daily backtest (includes AI learning automatically)
+    const result = await syntheticBacktestingEngine.runSyntheticBacktest(
+      this.userId,
+      config,
+      (progress) => {
+        console.log(`[Auto-Backtest] Day ${dayNumber} Progress: ${progress.message} (${progress.percentComplete.toFixed(1)}%)`);
+      }
+    );
+
+    // Update day result
+    this.lastDayResult = {
+      dayNumber,
+      sessionName,
+      winRate: result.winRate,
+      totalTrades: result.totalTrades,
+      pnl: result.totalPnL,
+      completedAt: new Date()
+    };
+
+    console.log(`[Auto-Backtest] Day ${dayNumber} ✅ Win rate: ${result.winRate.toFixed(1)}%, P&L: $${result.totalPnL.toFixed(2)}, Trades: ${result.totalTrades}`);
   }
 
   /**
@@ -454,7 +491,6 @@ class SimpleAutoBacktestService {
     if (!this.userId) return;
 
     try {
-      // Check Supabase connection count and response time
       const startTime = Date.now();
       const { error } = await supabase
         .from('auto_backtest_global_state')
@@ -469,12 +505,11 @@ class SimpleAutoBacktestService {
       let warningMessage = '';
       let shouldPause = false;
 
-      // Adaptive throttling based on database latency
       if (responseTime > 5000) {
         warningLevel = 'critical';
         warningMessage = `Database response time is critical (${responseTime}ms). Auto-pausing backtest.`;
         shouldPause = true;
-        this.adaptiveDelayMultiplier = 3.0; // Triple the delay
+        this.adaptiveDelayMultiplier = 3.0;
       } else if (responseTime > 2000) {
         warningLevel = 'elevated';
         warningMessage = `Database response time is elevated (${responseTime}ms). Applying adaptive throttling.`;
@@ -484,7 +519,6 @@ class SimpleAutoBacktestService {
         warningMessage = `Database response time increased (${responseTime}ms). Monitoring closely.`;
         this.adaptiveDelayMultiplier = 1.5;
       } else {
-        // Reset multiplier when latency is normal
         this.adaptiveDelayMultiplier = 1.0;
       }
 
@@ -501,7 +535,6 @@ class SimpleAutoBacktestService {
           .eq('user_id', this.userId);
       }
 
-      // Auto-pause if critical
       if (shouldPause) {
         console.error('[Auto-Backtest] 🛑 CRITICAL: Auto-pausing due to database overload');
         await this.stop();
@@ -520,12 +553,21 @@ class SimpleAutoBacktestService {
   }
 
   /**
-   * Generate unique session name
+   * Generate unique monthly session ID
    */
-  private generateSessionName(): string {
+  private generateMonthlySessionId(): string {
     const now = new Date();
     const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    return `Auto-BT-${timestamp}`;
+    return `Month-${this.currentMonthNumber}-${timestamp}`;
+  }
+
+  /**
+   * Generate unique daily session name
+   */
+  private generateDailySessionName(dayNumber: number): string {
+    const now = new Date();
+    const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    return `Month-${this.currentMonthNumber}-Day-${dayNumber}-${timestamp}`;
   }
 
   /**
@@ -536,13 +578,11 @@ class SimpleAutoBacktestService {
     let browser = 'Unknown';
     let os = 'Unknown';
 
-    // Detect browser
     if (ua.includes('Chrome') && !ua.includes('Edg')) browser = 'Chrome';
     else if (ua.includes('Firefox')) browser = 'Firefox';
     else if (ua.includes('Safari') && !ua.includes('Chrome')) browser = 'Safari';
     else if (ua.includes('Edg')) browser = 'Edge';
 
-    // Detect OS
     if (ua.includes('Win')) os = 'Windows';
     else if (ua.includes('Mac')) os = 'MacOS';
     else if (ua.includes('Linux')) os = 'Linux';
@@ -550,13 +590,6 @@ class SimpleAutoBacktestService {
     else if (ua.includes('iOS')) os = 'iOS';
 
     return `${browser} on ${os}`;
-  }
-
-  /**
-   * Random duration between min and max days
-   */
-  private randomDuration(): number {
-    return Math.floor(Math.random() * (this.MAX_DURATION_DAYS - this.MIN_DURATION_DAYS + 1)) + this.MIN_DURATION_DAYS;
   }
 
   /**
@@ -611,7 +644,6 @@ class SimpleAutoBacktestService {
         this.plateauDetected = plateau.isPlateaued;
         this.plateauDuration = plateau.plateauDuration;
 
-        // Sync plateau state to database
         await this.syncStateToDatabase({});
 
         if (plateau.isPlateaued) {
@@ -637,7 +669,6 @@ class SimpleAutoBacktestService {
     console.log('\n[Auto-Backtest] 🚀 TRIGGERING BREAKTHROUGH MODE');
     this.breakthroughMode = true;
 
-    // Sync breakthrough mode to database
     await this.syncStateToDatabase({});
 
     try {
