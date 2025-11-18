@@ -44,6 +44,8 @@ export interface SimpleAutoBacktestState {
   usageWarningLevel?: string;
   usageWarningMessage?: string;
   monthlyParentSessionId?: string; // NEW: Parent session ID for current month
+  lastErrorMessage?: string | null;
+  lastErrorAt?: Date | null;
 }
 
 class SimpleAutoBacktestService {
@@ -131,66 +133,107 @@ class SimpleAutoBacktestService {
   async start(userId: string): Promise<{ success: boolean; message: string }> {
     console.log('[Auto-Backtest] Starting auto-backtest...');
 
-    // Always force stop any existing sessions first (local and database)
-    await this.forceStopInDatabase(userId);
+    try {
+      // Always force stop any existing sessions first (local and database)
+      await this.forceStopInDatabase(userId);
 
-    // Reset local state completely
-    this.isRunning = false;
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
-    }
-    if (this.nextRunTimer) {
-      clearTimeout(this.nextRunTimer);
-      this.nextRunTimer = null;
-    }
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-
-    // Small delay to ensure cleanup completes
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Initialize fresh state
-    await this.initialize(userId);
-
-    console.log('[Auto-Backtest] 🚀 Starting 30-day progressive learning system');
-    this.userId = userId;
-    this.isRunning = true;
-    this.sessionId = this.generateSessionId();
-    this.abortController = new AbortController();
-
-    const deviceInfo = this.getDeviceInfo();
-
-    // Sync state to database with error handling
-    await this.syncStateToDatabase({
-      is_running: true,
-      started_at: new Date().toISOString(),
-      session_id: this.sessionId,
-      started_from_device: deviceInfo,
-      last_heartbeat: new Date().toISOString()
-    });
-
-    // Verify database state was updated (read-back confirmation)
-    const { data: verifyState } = await supabase
-      .from('auto_backtest_global_state')
-      .select('is_running')
-      .eq('user_id', userId)
-      .single();
-
-    if (!verifyState?.is_running) {
-      console.error('[Auto-Backtest] Failed to verify running state in database');
+      // Reset local state completely
       this.isRunning = false;
-      return { success: false, message: 'Failed to start auto-backtest - database sync error' };
+      if (this.abortController) {
+        this.abortController.abort();
+        this.abortController = null;
+      }
+      if (this.nextRunTimer) {
+        clearTimeout(this.nextRunTimer);
+        this.nextRunTimer = null;
+      }
+      if (this.heartbeatInterval) {
+        clearInterval(this.heartbeatInterval);
+        this.heartbeatInterval = null;
+      }
+
+      // Small delay to ensure cleanup completes
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Initialize fresh state
+      await this.initialize(userId);
+
+      console.log('[Auto-Backtest] 🚀 Starting 30-day progressive learning system');
+      this.userId = userId;
+      this.isRunning = true;
+      this.sessionId = this.generateSessionId();
+      this.abortController = new AbortController();
+
+      const deviceInfo = this.getDeviceInfo();
+
+      // Sync state to database with error handling
+      console.log('[Auto-Backtest] Syncing state to database...');
+      await this.syncStateToDatabase({
+        is_running: true,
+        started_at: new Date().toISOString(),
+        session_id: this.sessionId,
+        started_from_device: deviceInfo,
+        last_heartbeat: new Date().toISOString(),
+        last_error_message: null,
+        last_error_at: null
+      });
+
+      // Verify database state was updated (read-back confirmation)
+      console.log('[Auto-Backtest] Verifying database state...');
+      const { data: verifyState, error: verifyError } = await supabase
+        .from('auto_backtest_global_state')
+        .select('is_running')
+        .eq('user_id', userId)
+        .single();
+
+      if (verifyError) {
+        console.error('[Auto-Backtest] Database verification error:', verifyError);
+        this.isRunning = false;
+        return { success: false, message: `Database error: ${verifyError.message}` };
+      }
+
+      if (!verifyState?.is_running) {
+        console.error('[Auto-Backtest] Failed to verify running state in database');
+        this.isRunning = false;
+        return { success: false, message: 'Failed to start auto-backtest - database sync error' };
+      }
+
+      console.log('[Auto-Backtest] ✅ Database state confirmed - auto-backtest is running');
+
+      this.startHeartbeat();
+
+      // Start the loop but catch errors
+      this.runLoop().catch(async (error) => {
+        console.error('[Auto-Backtest] Fatal error in run loop:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        await this.syncStateToDatabase({
+          is_running: false,
+          stopped_at: new Date().toISOString(),
+          last_error_message: `Fatal error: ${errorMessage}`,
+          last_error_at: new Date().toISOString()
+        });
+        this.isRunning = false;
+      });
+
+      return { success: true, message: 'Auto-backtest started successfully' };
+    } catch (error) {
+      console.error('[Auto-Backtest] Error in start():', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.isRunning = false;
+
+      // Try to save error to database
+      try {
+        await this.syncStateToDatabase({
+          is_running: false,
+          last_error_message: `Start failed: ${errorMessage}`,
+          last_error_at: new Date().toISOString()
+        });
+      } catch (dbError) {
+        console.error('[Auto-Backtest] Could not save error to database:', dbError);
+      }
+
+      return { success: false, message: `Failed to start: ${errorMessage}` };
     }
-
-    console.log('[Auto-Backtest] ✅ Database state confirmed - auto-backtest is running');
-
-    this.startHeartbeat();
-    this.runLoop();
-
-    return { success: true, message: 'Auto-backtest started successfully' };
   }
 
   /**
@@ -295,7 +338,9 @@ class SimpleAutoBacktestService {
           sessionId: dbState.session_id,
           usageWarningLevel: dbState.usage_warning_level,
           usageWarningMessage: dbState.usage_warning_message,
-          monthlyParentSessionId: dbState.monthly_parent_session_id
+          monthlyParentSessionId: dbState.monthly_parent_session_id,
+          lastErrorMessage: dbState.last_error_message || null,
+          lastErrorAt: dbState.last_error_at ? new Date(dbState.last_error_at) : null
         };
       }
     }
@@ -311,7 +356,9 @@ class SimpleAutoBacktestService {
       plateauDetected: this.plateauDetected,
       breakthroughMode: this.breakthroughMode,
       plateauDuration: this.plateauDuration,
-      monthlyParentSessionId: this.monthlyParentSessionId
+      monthlyParentSessionId: this.monthlyParentSessionId,
+      lastErrorMessage: null,
+      lastErrorAt: null
     };
   }
 
@@ -470,60 +517,77 @@ class SimpleAutoBacktestService {
    * Run a single daily session (1 day of trading)
    */
   private async runDailySession(dayNumber: number): Promise<void> {
-    if (!this.userId) return;
+    if (!this.userId) {
+      throw new Error('No user ID available for daily session');
+    }
 
-    const sessionName = this.generateDailySessionName(dayNumber);
-    const riskLevel = this.randomRiskLevel();
-    const symbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];
+    try {
+      const sessionName = this.generateDailySessionName(dayNumber);
+      const riskLevel = this.randomRiskLevel();
+      const symbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];
 
-    // Each day is exactly 1 day of data
-    const endDate = new Date();
-    const startDate = new Date(endDate.getTime() - 1 * 24 * 60 * 60 * 1000); // 1 day
+      // Each day is exactly 1 day of data
+      const endDate = new Date();
+      const startDate = new Date(endDate.getTime() - 1 * 24 * 60 * 60 * 1000); // 1 day
 
-    console.log(`[Auto-Backtest] Session: ${sessionName}`);
-    console.log(`[Auto-Backtest] Duration: 1 day`);
-    console.log(`[Auto-Backtest] Risk Level: ${riskLevel}`);
-    console.log(`[Auto-Backtest] Pairs: ${symbols.join(', ')}`);
+      console.log(`[Auto-Backtest] Session: ${sessionName}`);
+      console.log(`[Auto-Backtest] Duration: 1 day`);
+      console.log(`[Auto-Backtest] Risk Level: ${riskLevel}`);
+      console.log(`[Auto-Backtest] Pairs: ${symbols.join(', ')}`);
 
-    const config: SyntheticBacktestConfig = {
-      sessionName,
-      description: `Month ${this.currentMonthNumber} - Day ${dayNumber} - ${riskLevel} risk`,
-      symbols,
-      startDate,
-      endDate,
-      timeframes: ['H1', 'M5', 'M1'],
-      useGPT4Reasoning: false,
-      confidenceThreshold: this.getRiskThreshold(riskLevel),
-      riskMode: riskLevel,
-      maxConcurrentTrades: 2,
-      initialBalance: 10000,
-      positionSizePercent: 2,
-      commissionPerTrade: 0,
-      slippagePips: 1,
-      marketScenario: 'mixed',
-      executionMode: 'AUTO'
-    };
+      const config: SyntheticBacktestConfig = {
+        sessionName,
+        description: `Month ${this.currentMonthNumber} - Day ${dayNumber} - ${riskLevel} risk`,
+        symbols,
+        startDate,
+        endDate,
+        timeframes: ['H1', 'M5', 'M1'],
+        useGPT4Reasoning: false,
+        confidenceThreshold: this.getRiskThreshold(riskLevel),
+        riskMode: riskLevel,
+        maxConcurrentTrades: 2,
+        initialBalance: 10000,
+        positionSizePercent: 2,
+        commissionPerTrade: 0,
+        slippagePips: 1,
+        marketScenario: 'mixed',
+        executionMode: 'AUTO'
+      };
 
-    // Execute daily backtest (includes AI learning automatically)
-    const result = await syntheticBacktestingEngine.runSyntheticBacktest(
-      this.userId,
-      config,
-      (progress) => {
-        console.log(`[Auto-Backtest] Day ${dayNumber} Progress: ${progress.message} (${progress.percentComplete.toFixed(1)}%)`);
-      }
-    );
+      console.log('[Auto-Backtest] Starting synthetic backtest engine...');
+      // Execute daily backtest (includes AI learning automatically)
+      const result = await syntheticBacktestingEngine.runSyntheticBacktest(
+        this.userId,
+        config,
+        (progress) => {
+          console.log(`[Auto-Backtest] Day ${dayNumber} Progress: ${progress.message} (${progress.percentComplete.toFixed(1)}%)`);
+        }
+      );
 
-    // Update day result
-    this.lastDayResult = {
-      dayNumber,
-      sessionName,
-      winRate: result.winRate,
-      totalTrades: result.totalTrades,
-      pnl: result.totalPnL,
-      completedAt: new Date()
-    };
+      // Update day result
+      this.lastDayResult = {
+        dayNumber,
+        sessionName,
+        winRate: result.winRate,
+        totalTrades: result.totalTrades,
+        pnl: result.totalPnL,
+        completedAt: new Date()
+      };
 
-    console.log(`[Auto-Backtest] Day ${dayNumber} ✅ Win rate: ${result.winRate.toFixed(1)}%, P&L: $${result.totalPnL.toFixed(2)}, Trades: ${result.totalTrades}`);
+      console.log(`[Auto-Backtest] Day ${dayNumber} ✅ Win rate: ${result.winRate.toFixed(1)}%, P&L: $${result.totalPnL.toFixed(2)}, Trades: ${result.totalTrades}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[Auto-Backtest] ERROR in runDailySession (Day ${dayNumber}):`, errorMessage);
+      console.error('[Auto-Backtest] Error details:', error);
+
+      // Save error to database
+      await this.syncStateToDatabase({
+        last_error_message: `Day ${dayNumber} failed: ${errorMessage}`,
+        last_error_at: new Date().toISOString()
+      });
+
+      throw error; // Re-throw to be caught by the main loop
+    }
   }
 
   /**

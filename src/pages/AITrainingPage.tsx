@@ -965,11 +965,12 @@ export default function AITrainingPage() {
                           }
                         } else {
                           console.error('[AI Training] Failed to start auto-backtest:', result.message);
-                          alert('Failed to start auto-backtest. Please try again.');
+                          alert(`Failed to start auto-backtest:\n\n${result.message}\n\nPlease check the console for more details.`);
                         }
                       } catch (error) {
                         console.error('[AI Training] Error starting auto-backtest:', error);
-                        alert('Error starting auto-backtest. Check console for details.');
+                        const errorMsg = error instanceof Error ? error.message : String(error);
+                        alert(`Error starting auto-backtest:\n\n${errorMsg}\n\nPlease check the console for more details.`);
                       } finally {
                         setAutoBacktestTransitioning(false);
                       }
@@ -1019,6 +1020,29 @@ export default function AITrainingPage() {
                       <span className="ml-2 text-xs opacity-70">• Session: {autoBacktestState.sessionId.slice(-8)}</span>
                     )}
                   </p>
+                </div>
+              )}
+
+              {/* Error display indicator */}
+              {autoBacktestState && autoBacktestState.lastErrorMessage && (
+                <div className="p-3 bg-red-900/20 border-l-4 border-red-400 rounded">
+                  <p className="text-sm text-red-200">
+                    <strong>❌ Last Error:</strong> {autoBacktestState.lastErrorMessage}
+                    {autoBacktestState.lastErrorAt && (
+                      <span className="block mt-1 text-xs opacity-70">
+                        {new Date(autoBacktestState.lastErrorAt).toLocaleString()}
+                      </span>
+                    )}
+                  </p>
+                  <button
+                    onClick={() => {
+                      // Clear error by refreshing state
+                      simpleAutoBacktestService.getState().then(setAutoBacktestState);
+                    }}
+                    className="mt-2 text-xs text-red-300 hover:text-red-100 underline"
+                  >
+                    Dismiss
+                  </button>
                 </div>
               )}
 
