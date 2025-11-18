@@ -21,6 +21,8 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
 
   // Stable function references that don't change on every render
   const loadMonthData = useCallback(async () => {
+    if (!userId) return;
+
     // Prevent concurrent loads
     if (isLoadingRef.current) {
       console.log('[Monthly Calendar] Already loading, skipping...');
@@ -53,9 +55,9 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
 
   // Load initial data once when component mounts
   useEffect(() => {
-    if (!userId) return;
-
     const loadInitialData = async () => {
+      if (!userId) return;
+
       try {
         const activeMonth = await monthlySessionService.getCurrentMonthNumber(userId);
         const months = await monthlySessionService.getAvailableMonths(userId);
@@ -72,13 +74,17 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
 
   // Load month data when userId or currentMonthNumber changes
   useEffect(() => {
-    if (!userId || currentMonthNumber <= 0) return;
-    loadMonthData();
+    if (userId && currentMonthNumber > 0) {
+      loadMonthData();
+    }
   }, [userId, currentMonthNumber, loadMonthData]);
 
   // Real-time subscription for current month updates with debouncing
   useEffect(() => {
-    if (!userId) return;
+    // Always return a cleanup function to maintain consistent hook execution
+    if (!userId) {
+      return () => {}; // Empty cleanup
+    }
 
     let debounceTimer: NodeJS.Timeout | null = null;
     const debouncedLoadMonthData = () => {

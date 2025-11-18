@@ -129,7 +129,10 @@ function AILearningProgressDashboard() {
 
   // Realtime subscriptions for skill progression and learning data
   useEffect(() => {
-    if (!user) return;
+    // Always return a cleanup function to maintain consistent hook execution
+    if (!user) {
+      return () => {}; // Empty cleanup
+    }
 
     console.log('[AI Learning Dashboard] Setting up realtime subscriptions for user:', user.id);
 
