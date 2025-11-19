@@ -99,12 +99,22 @@ function Last10TradesConfidenceWidget({ userId, className = '' }: Last10TradesCo
   return (
     <div className={`bg-gradient-to-br from-blue-900/20 to-purple-900/20 backdrop-blur-sm border-2 border-blue-500/30 rounded-lg p-6 ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-          <Target className="w-5 h-5 text-blue-400" />
-          Last 10 Trades Confidence Performance
-        </h3>
-        {getTrendIcon()}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Target className="w-5 h-5 text-blue-400" />
+            Latest Session Confidence Performance
+          </h3>
+          {getTrendIcon()}
+        </div>
+        {data.mostRecentSessionName && (
+          <div className="text-xs text-gray-400">
+            Session: <span className="text-blue-400 font-semibold">{data.mostRecentSessionName}</span>
+            {data.totalTradesInRecentSession && (
+              <span className="ml-2">({data.totalTradesInRecentSession} trades total, showing {data.trades.length})</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Summary Stats */}
@@ -117,7 +127,7 @@ function Last10TradesConfidenceWidget({ userId, className = '' }: Last10TradesCo
         </div>
 
         <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
-          <div className="text-xs text-gray-400 mb-1">vs Previous 10</div>
+          <div className="text-xs text-gray-400 mb-1">vs Previous Session</div>
           <div className={`text-2xl font-bold ${getTrendColor()}`}>
             {data.improvementVsPrevious10 >= 0 ? '+' : ''}
             {data.improvementVsPrevious10.toFixed(1)}%
@@ -192,7 +202,12 @@ function Last10TradesConfidenceWidget({ userId, className = '' }: Last10TradesCo
 
               {/* Accuracy Indicator */}
               <div className="flex-1 flex justify-end">
-                {trade.wasAccurate ? (
+                {trade.outcome === 'breakeven' ? (
+                  <div className="flex items-center gap-1 text-gray-400">
+                    <Minus className="w-5 h-5" />
+                    <span className="text-xs font-semibold">Neutral</span>
+                  </div>
+                ) : trade.wasAccurate ? (
                   <div className="flex items-center gap-1 text-green-400">
                     <CheckCircle className="w-5 h-5" />
                     <span className="text-xs font-semibold">Accurate</span>
@@ -221,7 +236,8 @@ function Last10TradesConfidenceWidget({ userId, className = '' }: Last10TradesCo
       <div className="mt-4 p-3 bg-blue-500/10 rounded border border-blue-500/30">
         <p className="text-xs text-blue-300">
           <strong>Accuracy Tracking:</strong> Measures if AI's confidence prediction matched the trade outcome.
-          High confidence (≥70%) should result in wins. System is {data.trend} based on recent performance.
+          High confidence (≥70%) should result in wins. Breakeven trades are excluded from accuracy calculations.
+          System is {data.trend} based on recent performance.
         </p>
       </div>
     </div>

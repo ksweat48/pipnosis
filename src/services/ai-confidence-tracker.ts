@@ -45,10 +45,14 @@ export interface Last10TradesData {
     wasAccurate: boolean;
     pnl: number;
     entryTime: Date;
+    sessionId?: string;
+    sessionName?: string;
   }>;
   accuracyPercentage: number;
   improvementVsPrevious10: number;
   trend: 'improving' | 'stable' | 'declining';
+  mostRecentSessionName?: string;
+  totalTradesInRecentSession?: number;
 }
 
 class AIConfidenceTracker {
@@ -121,19 +125,20 @@ class AIConfidenceTracker {
 
   /**
    * Determine if confidence prediction was accurate
+   * NOTE: Breakeven trades are excluded from accuracy calculations (return false)
    */
   private isConfidenceAccurate(confidence: number, outcome: string): boolean {
+    // Breakeven trades are NOT counted in accuracy - they provide no signal
+    if (outcome === 'breakeven') return false;
+
     // High confidence (>= 70) should result in wins
     if (confidence >= 70 && outcome === 'win') return true;
 
     // Low confidence (< 50) is okay with losses
     if (confidence < 50 && outcome === 'loss') return true;
 
-    // Medium confidence (50-70) is neutral - always considered reasonable
+    // Medium confidence (50-70) with any outcome is considered reasonable
     if (confidence >= 50 && confidence < 70) return true;
-
-    // Breakeven is always neutral
-    if (outcome === 'breakeven') return true;
 
     return false;
   }
@@ -162,16 +167,28 @@ class AIConfidenceTracker {
 
   /**
    * Get last N trades with confidence data
+   * Shows most recent completed session's trades (up to 20 trades)
    */
   async getLast10TradesConfidence(userId: string): Promise<Last10TradesData> {
     try {
-      // Fetch last 10 trades
+      // First, get the most recent session
+      const { data: recentSession } = await supabase
+        .from('synthetic_backtest_sessions')
+        .select('id, session_name, total_trades, completed_at')
+        .eq('user_id', userId)
+        .not('completed_at', 'is', null)
+        .order('completed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // Fetch trades from most recent session (limit to 20 for display)
       const { data: trades, error } = await supabase
         .from('ai_confidence_calibration')
         .select('*')
         .eq('user_id', userId)
+        .eq('session_id', recentSession?.id || '')
         .order('entry_time', { ascending: false })
-        .limit(10);
+        .limit(20);
 
       if (error) throw error;
 
@@ -184,27 +201,43 @@ class AIConfidenceTracker {
         };
       }
 
-      // Calculate accuracy for last 10
-      const accurateTrades = trades.filter(t => t.was_accurate).length;
-      const accuracyPercentage = (accurateTrades / trades.length) * 100;
+      // Calculate accuracy for these trades (excluding breakeven trades)
+      const nonBreakevenTrades = trades.filter(t => t.actual_outcome !== 'breakeven');
+      const accurateTrades = nonBreakevenTrades.filter(t => t.was_accurate).length;
+      const accuracyPercentage = nonBreakevenTrades.length > 0
+        ? (accurateTrades / nonBreakevenTrades.length) * 100
+        : 0;
 
-      // Fetch previous 10 for comparison
-      const { data: previousTrades } = await supabase
-        .from('ai_confidence_calibration')
-        .select('was_accurate')
+      // Fetch previous session for comparison
+      const { data: previousSession } = await supabase
+        .from('synthetic_backtest_sessions')
+        .select('id')
         .eq('user_id', userId)
-        .order('entry_time', { ascending: false })
-        .range(10, 19);
+        .not('completed_at', 'is', null)
+        .order('completed_at', { ascending: false })
+        .range(1, 1)
+        .maybeSingle();
 
       let improvementVsPrevious10 = 0;
       let trend: 'improving' | 'stable' | 'declining' = 'stable';
 
-      if (previousTrades && previousTrades.length > 0) {
-        const previousAccuracy = (previousTrades.filter(t => t.was_accurate).length / previousTrades.length) * 100;
-        improvementVsPrevious10 = accuracyPercentage - previousAccuracy;
+      if (previousSession) {
+        const { data: previousTrades } = await supabase
+          .from('ai_confidence_calibration')
+          .select('was_accurate, actual_outcome')
+          .eq('user_id', userId)
+          .eq('session_id', previousSession.id);
 
-        if (improvementVsPrevious10 > 5) trend = 'improving';
-        else if (improvementVsPrevious10 < -5) trend = 'declining';
+        if (previousTrades && previousTrades.length > 0) {
+          const previousNonBreakeven = previousTrades.filter(t => t.actual_outcome !== 'breakeven');
+          const previousAccuracy = previousNonBreakeven.length > 0
+            ? (previousNonBreakeven.filter(t => t.was_accurate).length / previousNonBreakeven.length) * 100
+            : 0;
+          improvementVsPrevious10 = accuracyPercentage - previousAccuracy;
+
+          if (improvementVsPrevious10 > 5) trend = 'improving';
+          else if (improvementVsPrevious10 < -5) trend = 'declining';
+        }
       }
 
       return {
@@ -215,11 +248,15 @@ class AIConfidenceTracker {
           outcome: t.actual_outcome,
           wasAccurate: t.was_accurate,
           pnl: parseFloat(t.pnl || '0'),
-          entryTime: new Date(t.entry_time)
+          entryTime: new Date(t.entry_time),
+          sessionId: t.session_id,
+          sessionName: recentSession?.session_name
         })),
         accuracyPercentage,
         improvementVsPrevious10,
-        trend
+        trend,
+        mostRecentSessionName: recentSession?.session_name,
+        totalTradesInRecentSession: recentSession?.total_trades || trades.length
       };
     } catch (error) {
       console.error('[Confidence Tracker] Error getting last 10 trades:', error);
@@ -310,10 +347,13 @@ class AIConfidenceTracker {
 
       if (error || !trades || trades.length === 0) return;
 
-      // Calculate metrics
+      // Calculate metrics (excluding breakeven trades from accuracy)
       const totalTrades = trades.length;
-      const accuratePredictions = trades.filter(t => t.was_accurate).length;
-      const accuracyPercentage = (accuratePredictions / totalTrades) * 100;
+      const nonBreakevenTrades = trades.filter(t => t.actual_outcome !== 'breakeven');
+      const accuratePredictions = nonBreakevenTrades.filter(t => t.was_accurate).length;
+      const accuracyPercentage = nonBreakevenTrades.length > 0
+        ? (accuratePredictions / nonBreakevenTrades.length) * 100
+        : 0;
 
       // Calculate calibration by bucket
       const calibrationByBucket: Record<string, number> = {};
