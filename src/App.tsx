@@ -22,6 +22,7 @@ const KPIsPage = lazy(() => import('./pages/KPIsPage').then(m => ({ default: m.K
 const AITrainingPage = lazy(() => import('./pages/AITrainingPage'));
 const SessionLearningsPage = lazy(() => import('./pages/SessionLearningsPage'));
 const SystemDiagnosticsPage = lazy(() => import('./pages/SystemDiagnosticsPage'));
+const AILearningCenterPage = lazy(() => import('./pages/AILearningCenterPage'));
 
 // Loading component
 const LoadingFallback = () => (
@@ -93,6 +94,14 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute>
             <SettingsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/ai-learning-center"
+        element={
+          <ProtectedRoute>
+            <AILearningCenterPage />
           </ProtectedRoute>
         }
       />

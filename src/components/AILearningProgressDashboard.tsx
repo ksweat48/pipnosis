@@ -5,6 +5,8 @@ import { aiIndicatorTracker, IndicatorExperiment, IndicatorEffectiveness } from 
 import { liveTradeLearningTrigger } from '../services/live-trade-learning-trigger';
 import { supabase } from '../lib/supabase';
 import MonthlyPerformanceCalendar from './MonthlyPerformanceCalendar';
+import ConfidenceOverviewCard from './ConfidenceOverviewCard';
+import Last10TradesConfidenceWidget from './Last10TradesConfidenceWidget';
 import {
   Brain,
   TrendingUp,
@@ -571,6 +573,14 @@ function AILearningProgressDashboard() {
           trend="neutral"
         />
       </div>
+
+      {/* Confidence Prediction Accuracy Section */}
+      {user && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <ConfidenceOverviewCard userId={user.id} />
+          <Last10TradesConfidenceWidget userId={user.id} />
+        </div>
+      )}
 
       {/* Removed: Cycle-based automatic adjustments section */}
 

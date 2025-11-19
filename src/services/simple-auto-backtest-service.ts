@@ -658,6 +658,14 @@ class SimpleAutoBacktestService {
       };
 
       console.log(`[Auto-Backtest] Day ${dayNumber} ✅ Win rate: ${result.winRate.toFixed(1)}%, P&L: $${result.totalPnL.toFixed(2)}, Trades: ${result.totalTrades}`);
+
+      // Process confidence tracking for completed trades
+      try {
+        const { aiConfidenceTracker } = await import('./ai-confidence-tracker');
+        await aiConfidenceTracker.processSyntheticBacktestTrades(this.userId, result.sessionId);
+      } catch (confError) {
+        console.error('[Auto-Backtest] Error processing confidence tracking:', confError);
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`[Auto-Backtest] ERROR in runDailySession (Day ${dayNumber}):`, errorMessage);
