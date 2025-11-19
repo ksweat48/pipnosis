@@ -39,6 +39,7 @@ interface SkillProgressionData {
   totalBacktestsCompleted?: number;
   totalSyntheticBacktests?: number;
   totalRealBacktests?: number;
+  totalTradesForPFCalc?: number; // Total trades (wins+losses) used for profit factor weighting
 }
 
 interface MilestoneData {
@@ -154,7 +155,8 @@ class AISkillTracker {
         consistencyFailureReason: data.consistency_failure_reason,
         totalBacktestsCompleted: data.total_backtests_completed || 0,
         totalSyntheticBacktests: data.total_synthetic_backtests || 0,
-        totalRealBacktests: data.total_real_backtests || 0
+        totalRealBacktests: data.total_real_backtests || 0,
+        totalTradesForPFCalc: data.total_trades_for_pf_calc || data.total_trades_analyzed // Fallback to winning trades if not set
       };
     } catch (error) {
       console.error('[AI Skill Tracker] Exception in getSkillProgression:', error);
@@ -250,6 +252,7 @@ class AISkillTracker {
    * @param exploratoryTradesCount - Number of exploratory trades
    * @param totalTradesInSession - Total number of trades in session (for confidence accuracy)
    * @param tradesWithConfidence - Trades with confidence scores (for accuracy calculation)
+   * @param totalTradesInSession - TOTAL trades in session (wins + losses + breakeven) for proper profit factor weighting
    */
   async updateAfterBacktest(
     userId: string,
@@ -257,7 +260,7 @@ class AISkillTracker {
     winRate: number,
     profitFactor: number,
     patternsLearned: number,
-    sourceType: 'backtest' | 'synthetic' | 'live' = 'backtest',
+    sourceType: 'backtest' | 'synthetic' | 'live' | 'event_based_backtest' = 'backtest',
     exploratoryTradesCount: number = 0,
     totalTradesInSession: number = 0,
     tradesWithConfidence: Array<{ confidence: number; outcome: 'win' | 'loss' | 'breakeven' }> = []
@@ -359,12 +362,31 @@ class AISkillTracker {
         winRate,
         winningTradesCount
       );
+
+      // CRITICAL FIX: Profit factor should be weighted by TOTAL trades (not just winning trades)
+      // If totalTradesInSession is not provided, estimate from win rate
+      const estimatedTotalTrades = totalTradesInSession > 0
+        ? totalTradesInSession
+        : winRate > 0 && winRate < 100
+          ? Math.round(winningTradesCount / (winRate / 100))
+          : winningTradesCount;
+
+      const currentTotalTradesForPF = current.totalTradesForPFCalc || current.totalTradesAnalyzed;
+      const newTotalTradesForPF = currentTotalTradesForPF + estimatedTotalTrades;
+
+      console.log(`[AI Skill Tracker] Profit Factor Calculation:`);
+      console.log(`[AI Skill Tracker]   Current PF: ${current.currentProfitFactor.toFixed(2)} (from ${currentTotalTradesForPF} total trades)`);
+      console.log(`[AI Skill Tracker]   Session PF: ${profitFactor.toFixed(2)} (from ${estimatedTotalTrades} total trades)`);
+
       const newProfitFactor = this.calculateWeightedAverage(
         current.currentProfitFactor,
-        current.totalTradesAnalyzed,
+        currentTotalTradesForPF,
         profitFactor,
-        winningTradesCount
+        estimatedTotalTrades
       );
+
+      console.log(`[AI Skill Tracker]   New PF: ${newProfitFactor.toFixed(2)} (weighted across ${newTotalTradesForPF} total trades)`);
+
       const newPatternsLearned = current.totalPatternsLearned + patternsLearned;
 
       // Calculate CSS and avgRR from recent trades
@@ -501,6 +523,7 @@ class AISkillTracker {
           current_win_rate: newWinRate,
           gap_to_target: 80 - newWinRate,
           current_profit_factor: newProfitFactor,
+          total_trades_for_pf_calc: newTotalTradesForPF, // Track total trades for proper PF weighting
           trades_needed_for_next_level: gatedTradesNeeded,
           estimated_trades_to_master: Math.max(0, 50000 - newSuccessfulTrades),
           estimated_trades_to_exceptional: Math.max(0, 100000 - newSuccessfulTrades),

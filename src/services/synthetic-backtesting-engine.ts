@@ -732,7 +732,8 @@ class SyntheticBacktestingEngine {
         result.profitFactor,
         patternsLearned,
         'synthetic', // Mark as synthetic source for 0.5x weighting
-        exploratoryWinningTrades // NEW: Pass exploratory trades for 0.25x weighting
+        exploratoryWinningTrades, // NEW: Pass exploratory trades for 0.25x weighting
+        result.totalTrades // CRITICAL FIX: Pass total trades for proper profit factor weighting
       );
 
       if (skillUpdate.leveledUp) {

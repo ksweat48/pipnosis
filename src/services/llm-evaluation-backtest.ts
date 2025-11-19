@@ -329,7 +329,8 @@ class LLMEvaluationBacktest {
         summary.statistics.profitFactor,
         0,
         'event_based_backtest',
-        exploratoryWinningTrades
+        exploratoryWinningTrades,
+        summary.statistics.tradesExecuted // CRITICAL FIX: Pass total trades for proper profit factor weighting
       );
 
       if (skillUpdate.leveledUp) {

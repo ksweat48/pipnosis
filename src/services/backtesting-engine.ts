@@ -172,7 +172,8 @@ class BacktestingEngine {
         result.profitFactor,
         0,
         'backtest',
-        exploratoryWinningTrades // NEW: Pass exploratory trades for 0.25x weighting
+        exploratoryWinningTrades, // NEW: Pass exploratory trades for 0.25x weighting
+        result.totalTrades // CRITICAL FIX: Pass total trades for proper profit factor weighting
       );
 
       if (skillUpdate.leveledUp) {

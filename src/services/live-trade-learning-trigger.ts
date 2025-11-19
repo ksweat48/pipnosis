@@ -105,19 +105,45 @@ class LiveTradeLearningTrigger {
 
         if (trade) {
           // Calculate metrics
-          const isWinningTrade = parseFloat(trade.profit_loss.toString()) > 0;
-          const winRate = isWinningTrade ? 100 : 0;
-          const profitFactor = isWinningTrade ? 2.0 : 0.5;
+          const profitLoss = parseFloat(trade.profit_loss.toString());
+          const isWinningTrade = profitLoss > 0;
+
+          // Get recent trades to calculate rolling profit factor
+          const { data: recentTrades } = await supabase
+            .from('trade_history')
+            .select('profit_loss')
+            .eq('user_id', userId)
+            .order('closed_at', { ascending: false })
+            .limit(20);
+
+          // Calculate profit factor from recent trades
+          let profitFactor = 1.0; // Default
+          if (recentTrades && recentTrades.length >= 5) {
+            const totalWins = recentTrades
+              .filter(t => parseFloat(t.profit_loss.toString()) > 0)
+              .reduce((sum, t) => sum + parseFloat(t.profit_loss.toString()), 0);
+            const totalLosses = Math.abs(recentTrades
+              .filter(t => parseFloat(t.profit_loss.toString()) < 0)
+              .reduce((sum, t) => sum + parseFloat(t.profit_loss.toString()), 0));
+
+            profitFactor = totalLosses > 0 ? totalWins / totalLosses : (totalWins > 0 ? 5.0 : 1.0);
+          }
+
+          // Calculate win rate from recent trades
+          const winRate = recentTrades && recentTrades.length > 0
+            ? (recentTrades.filter(t => parseFloat(t.profit_loss.toString()) > 0).length / recentTrades.length) * 100
+            : isWinningTrade ? 100 : 0;
 
           // ONLY update skill progression if trade was a winner
           if (isWinningTrade) {
-            console.log(`[LiveTradeLearningTrigger] 🎯 Trade was profitable! Adding to skill progression (1.5x weight)`);
+            console.log(`[LiveTradeLearningTrigger] 🎯 Trade was profitable! Adding to skill progression (2.0x weight)`);
+            console.log(`[LiveTradeLearningTrigger] 📊 Rolling metrics: WR=${winRate.toFixed(1)}%, PF=${profitFactor.toFixed(2)}`);
 
-            // Update skill progression using live trading method (1.5x impact)
+            // Update skill progression using live trading method (2.0x impact)
             // Pass 1 winning trade count
             await aiSkillTracker.updateAfterLiveTrading(
               userId,
-              1, // 1 winning trade (with 1.5x multiplier applied inside)
+              1, // 1 winning trade (with 2.0x multiplier applied inside)
               winRate,
               profitFactor,
               learningResult.learningsExtracted
