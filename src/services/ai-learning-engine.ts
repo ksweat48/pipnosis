@@ -6,6 +6,7 @@ import { strategyDiscoveryEngine } from './strategy-discovery-engine';
 import { sessionLearningGenerator } from './session-learning-generator';
 import { patternInterpreter, type DiscoveredPattern } from './pattern-interpreter';
 import { aiSkillTracker } from './ai-skill-tracker';
+import { llmPostSessionAnalyzer } from './llm-post-session-analyzer';
 
 interface TradeForAnalysis {
   id?: string;
@@ -84,9 +85,9 @@ class AILearningEngine {
       console.log('[AI Learning Engine] 🔍 Discovering new strategies...');
       await strategyDiscoveryEngine.discoverStrategiesFromTrades(userId, trades);
 
-      // 11. GPT-4o META-LEARNING STRATEGIST: High-level strategic analysis
-      console.log('[AI Learning Engine] 🤖 Invoking GPT-4o Meta-Learning Strategist...');
-      await this.runMetaLearningStrategist(userId, sessionId, trades);
+      // 11. LLM POST-SESSION ANALYZER: Deep pattern discovery and strategic insights
+      console.log('[AI Learning Engine] 🤖 Invoking LLM Post-Session Analyzer...');
+      await llmPostSessionAnalyzer.analyzeSession(userId, sessionId, trades, sessionType);
 
       // 12. GPT-4o PATTERN INTERPRETER: Explain discovered patterns
       console.log('[AI Learning Engine] 📖 Generating pattern interpretations...');

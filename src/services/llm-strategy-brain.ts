@@ -7,6 +7,7 @@
  */
 
 import { PIPNOSIS_CORE_RULES, PipnosisCoreRules } from '../lib/pipnosis-core-rules';
+import { llmContextEnricher, type EnrichedContext } from './llm-context-enricher';
 
 export interface MarketSnapshot {
   symbol: string;
@@ -106,10 +107,22 @@ class GPT4Provider extends LLMProvider {
   async makeDecision(
     snapshot: MarketSnapshot,
     goalContext?: GoalContext,
-    history?: RelevantHistory
+    history?: RelevantHistory,
+    userId?: string
   ): Promise<LLMTradeDecision> {
     const systemPrompt = this.buildSystemPrompt();
-    const userPrompt = this.buildUserPrompt(snapshot, goalContext, history);
+
+    let enrichedContext: EnrichedContext | null = null;
+    if (userId) {
+      enrichedContext = await llmContextEnricher.enrichDecisionContext(
+        userId,
+        snapshot.symbol,
+        75,
+        snapshot.timeframes
+      );
+    }
+
+    const userPrompt = this.buildUserPrompt(snapshot, goalContext, history, enrichedContext);
 
     try {
       const response = await fetch(this.config.endpoint, {
@@ -155,7 +168,8 @@ class GPT4Provider extends LLMProvider {
   private buildUserPrompt(
     snapshot: MarketSnapshot,
     goalContext?: GoalContext,
-    history?: RelevantHistory
+    history?: RelevantHistory,
+    enrichedContext?: EnrichedContext | null
   ): string {
     const primaryTF = 'M15';
     const tfData = snapshot.timeframes[primaryTF];
@@ -202,6 +216,37 @@ MULTI-TIMEFRAME CONTEXT:`;
 - Best Setup: ${history.bestSetupType}
 - Avg Duration: ${history.avgTradeDuration.toFixed(0)} minutes
 - Key Lessons: ${history.keyLessons.join(', ')}`;
+    }
+
+    if (enrichedContext) {
+      prompt += `\n\nSELF-AWARE AI CONTEXT:
+Historical Performance (${enrichedContext.historicalPerformance.symbol}):
+- Recent Win Rate: ${enrichedContext.historicalPerformance.recentWinRate.toFixed(1)}%
+- Recent Profit Factor: ${enrichedContext.historicalPerformance.recentProfitFactor.toFixed(2)}
+- Trades Analyzed: ${enrichedContext.historicalPerformance.tradesAnalyzed}
+- Best Setup Type: ${enrichedContext.historicalPerformance.bestSetupType}
+
+LLM-Discovered Insights:`;
+      if (enrichedContext.llmInsights.length > 0) {
+        enrichedContext.llmInsights.slice(0, 3).forEach((insight, i) => {
+          prompt += `\n  ${i + 1}. ${insight.title} (${insight.confidence.toFixed(0)}% confidence)
+     - ${insight.description}
+     - Apply when: ${insight.whenToApply}
+     - Avoid when: ${insight.whenToAvoid}`;
+        });
+      } else {
+        prompt += `\n  No LLM insights available yet - learning in progress`;
+      }
+
+      prompt += `\n\nConfidence Calibration:
+- Recommended Threshold: ${enrichedContext.confidenceCalibration.recommendedThreshold}%
+- Reasoning: ${enrichedContext.confidenceCalibration.reasoning}
+- Recent Accuracy: ${enrichedContext.confidenceCalibration.recentAccuracy.toFixed(1)}%
+
+Strategic Guidance:`;
+      enrichedContext.strategicGuidance.forEach(guidance => {
+        prompt += `\n- ${guidance}`;
+      });
     }
 
     prompt += `\n\nProvide your decision in this EXACT JSON format (no markdown):
