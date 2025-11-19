@@ -76,48 +76,34 @@ class MonthlySessionService {
     const monthNumber = state.current_month_number;
     const daysCompleted = state.current_day_in_month;
 
-    // Fetch daily session learnings for current month
-    // We look for sessions that match the naming pattern Month-X-Day-Y
-    const { data: sessions } = await supabase
-      .from('ai_session_learnings')
+    // Fetch daily results from dedicated table
+    const { data: dailyResultsData, error } = await supabase
+      .from('daily_session_results')
       .select('*')
       .eq('user_id', userId)
-      .eq('session_type', 'backtest')
-      .order('session_date', { ascending: true })
-      .limit(30);
+      .eq('month_number', monthNumber)
+      .order('day_number', { ascending: true });
+
+    if (error) {
+      console.error('[Monthly Session] Error fetching daily results:', error);
+    }
 
     const dailyResults: DailySessionResult[] = [];
 
-    // Parse sessions to extract day-specific results
-    if (sessions) {
-      for (let day = 1; day <= daysCompleted; day++) {
-        // Find session matching this day
-        const daySession = sessions.find(s => {
-          // Extract day number from session name or match by date
-          return s.session_date && this.isDayInMonth(s.session_date, day, monthNumber, state);
-        });
-
-        if (daySession) {
-          dailyResults.push(this.parseDailyResult(daySession, day));
-        }
-      }
-    }
-
-    // If we have the last_day result in state, ensure it's included
-    if (state.last_day_number && state.last_day_number <= daysCompleted) {
-      const existingDay = dailyResults.find(d => d.dayNumber === state.last_day_number);
-      if (!existingDay && state.last_day_session_name) {
+    // Parse daily results from database
+    if (dailyResultsData && dailyResultsData.length > 0) {
+      for (const dayData of dailyResultsData) {
         dailyResults.push({
-          dayNumber: state.last_day_number,
-          sessionDate: new Date(state.last_day_completed_at),
-          sessionName: state.last_day_session_name,
-          winRate: parseFloat(state.last_day_win_rate || '0'),
-          totalTrades: state.last_day_total_trades || 0,
-          pnl: parseFloat(state.last_day_pnl || '0'),
-          sessionCss: 0,
-          sessionEv: 0,
-          isProfitable: parseFloat(state.last_day_pnl || '0') > 0,
-          keyLearnings: []
+          dayNumber: dayData.day_number,
+          sessionDate: new Date(dayData.session_date),
+          sessionName: dayData.session_name,
+          winRate: parseFloat(dayData.win_rate || '0'),
+          totalTrades: dayData.total_trades || 0,
+          pnl: parseFloat(dayData.pnl || '0'),
+          sessionCss: parseFloat(dayData.session_css || '0'),
+          sessionEv: parseFloat(dayData.session_ev || '0'),
+          isProfitable: dayData.is_profitable || false,
+          keyLearnings: dayData.key_learnings || []
         });
       }
     }
@@ -152,33 +138,35 @@ class MonthlySessionService {
    * Get historical month data (completed months)
    */
   private async getHistoricalMonthData(userId: string, monthNumber: number): Promise<MonthlySessionData | null> {
-    // For historical months, we need to reconstruct from ai_session_learnings
-    // This is a best-effort approach since we may not have perfect records
-
-    const { data: sessions } = await supabase
-      .from('ai_session_learnings')
+    // Fetch daily results from dedicated table for historical month
+    const { data: dailyResultsData, error } = await supabase
+      .from('daily_session_results')
       .select('*')
       .eq('user_id', userId)
-      .eq('session_type', 'backtest')
-      .order('session_date', { ascending: true });
+      .eq('month_number', monthNumber)
+      .order('day_number', { ascending: true });
 
-    if (!sessions || sessions.length === 0) {
+    if (error) {
+      console.error('[Monthly Session] Error fetching historical month data:', error);
       return null;
     }
 
-    // Try to group sessions into months of 30 days
-    // This is approximate since we don't have explicit month markers in old data
-    const sessionsPerMonth = 30;
-    const monthStartIndex = (monthNumber - 1) * sessionsPerMonth;
-    const monthSessions = sessions.slice(monthStartIndex, monthStartIndex + sessionsPerMonth);
-
-    if (monthSessions.length === 0) {
+    if (!dailyResultsData || dailyResultsData.length === 0) {
       return null;
     }
 
-    const dailyResults: DailySessionResult[] = monthSessions.map((session, index) =>
-      this.parseDailyResult(session, index + 1)
-    );
+    const dailyResults: DailySessionResult[] = dailyResultsData.map(dayData => ({
+      dayNumber: dayData.day_number,
+      sessionDate: new Date(dayData.session_date),
+      sessionName: dayData.session_name,
+      winRate: parseFloat(dayData.win_rate || '0'),
+      totalTrades: dayData.total_trades || 0,
+      pnl: parseFloat(dayData.pnl || '0'),
+      sessionCss: parseFloat(dayData.session_css || '0'),
+      sessionEv: parseFloat(dayData.session_ev || '0'),
+      isProfitable: dayData.is_profitable || false,
+      keyLearnings: dayData.key_learnings || []
+    }));
 
     const monthTotalPnl = dailyResults.reduce((sum, day) => sum + day.pnl, 0);
     const monthAvgWinRate = dailyResults.length > 0
@@ -186,56 +174,24 @@ class MonthlySessionService {
       : 0;
     const monthTotalTrades = dailyResults.reduce((sum, day) => sum + day.totalTrades, 0);
 
+    // Get start and end dates from daily results
+    const startDate = dailyResults.length > 0 ? dailyResults[0].sessionDate : new Date();
+    const endDate = dailyResults.length > 0 ? dailyResults[dailyResults.length - 1].sessionDate : new Date();
+
     return {
       monthNumber,
-      monthlyParentSessionId: `historical-month-${monthNumber}`,
-      startDate: new Date(monthSessions[0].session_date),
-      endDate: new Date(monthSessions[monthSessions.length - 1].session_date),
-      daysCompleted: monthSessions.length,
+      monthlyParentSessionId: dailyResultsData[0]?.monthly_parent_session_id || `historical-month-${monthNumber}`,
+      startDate,
+      endDate,
+      daysCompleted: dailyResults.length,
       totalDays: 30,
       dailyResults,
       monthTotalPnl,
       monthAvgWinRate,
       monthTotalTrades,
       isCurrentMonth: false,
-      isComplete: monthSessions.length >= 30
+      isComplete: dailyResults.length >= 30
     };
-  }
-
-  /**
-   * Parse daily session result from database record
-   */
-  private parseDailyResult(session: any, dayNumber: number): DailySessionResult {
-    const pnl = parseFloat(session.session_ev || session.best_setup_ev || '0');
-
-    return {
-      dayNumber,
-      sessionDate: new Date(session.session_date),
-      sessionName: `Day ${dayNumber}`,
-      winRate: parseFloat(session.best_setup_win_rate || '0'),
-      totalTrades: session.trades_taken || 0,
-      pnl,
-      sessionCss: parseFloat(session.session_css || '0'),
-      sessionEv: parseFloat(session.session_ev || '0'),
-      isProfitable: pnl > 0,
-      keyLearnings: session.key_learnings || []
-    };
-  }
-
-  /**
-   * Check if a session date belongs to a specific day in a month
-   */
-  private isDayInMonth(sessionDate: string, dayNumber: number, monthNumber: number, state: any): boolean {
-    // Simple heuristic: check if the session is recent enough
-    // In a perfect world, we'd track this explicitly in the database
-    const date = new Date(sessionDate);
-    const now = new Date();
-    const daysDiff = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-
-    // If we're in month 1, day should be within last 30 days
-    const expectedDaysAgo = (state.current_month_number - monthNumber) * 30 + (30 - dayNumber);
-
-    return Math.abs(daysDiff - expectedDaysAgo) < 2; // Allow 2 day tolerance
   }
 
   /**

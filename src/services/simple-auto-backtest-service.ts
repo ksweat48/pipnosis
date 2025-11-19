@@ -659,6 +659,9 @@ class SimpleAutoBacktestService {
 
       console.log(`[Auto-Backtest] Day ${dayNumber} ✅ Win rate: ${result.winRate.toFixed(1)}%, P&L: $${result.totalPnL.toFixed(2)}, Trades: ${result.totalTrades}`);
 
+      // Save daily result to database for calendar persistence
+      await this.saveDailyResult(dayNumber, sessionName, result);
+
       // Process confidence tracking for completed trades
       try {
         const { aiConfidenceTracker } = await import('./ai-confidence-tracker');
@@ -678,6 +681,47 @@ class SimpleAutoBacktestService {
       });
 
       throw error; // Re-throw to be caught by the main loop
+    }
+  }
+
+  /**
+   * Save daily result to database for calendar persistence
+   */
+  private async saveDailyResult(dayNumber: number, sessionName: string, result: any): Promise<void> {
+    if (!this.userId) return;
+
+    try {
+      console.log(`[Auto-Backtest] 💾 Saving day ${dayNumber} result to database...`);
+
+      const { error } = await supabase
+        .from('daily_session_results')
+        .upsert({
+          user_id: this.userId,
+          month_number: this.currentMonthNumber,
+          day_number: dayNumber,
+          session_date: new Date().toISOString(),
+          session_name: sessionName,
+          monthly_parent_session_id: this.monthlyParentSessionId,
+          win_rate: result.winRate || 0,
+          total_trades: result.totalTrades || 0,
+          pnl: result.totalPnL || 0,
+          is_profitable: (result.totalPnL || 0) > 0,
+          session_css: result.css || 0,
+          session_ev: result.ev || 0,
+          profit_factor: result.profitFactor || 0,
+          key_learnings: result.keyLearnings || []
+        }, {
+          onConflict: 'user_id,month_number,day_number'
+        });
+
+      if (error) {
+        console.error('[Auto-Backtest] Error saving daily result:', error);
+        throw error;
+      }
+
+      console.log(`[Auto-Backtest] ✅ Day ${dayNumber} result saved - ${(result.totalPnL || 0) > 0 ? '✓ Profitable' : '✗ Loss'}`);
+    } catch (error) {
+      console.error('[Auto-Backtest] Failed to save daily result:', error);
     }
   }
 
