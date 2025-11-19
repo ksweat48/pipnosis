@@ -1,19 +1,20 @@
 /**
- * Simple Auto-Backtest Service with 30-Day Progressive Learning
+ * Simple Auto-Backtest Service with 10-Session Rolling Learning Cycles
  *
  * NEW ARCHITECTURE:
- * - Each auto-backtest session runs for 30 days (1 month)
+ * - Each auto-backtest session runs for 30 days (1 month) with 3 learning cycles
  * - Each day is a separate trade session with its own results
- * - AI learns progressively after EACH day (Day 2 learns from Day 1, Day 3 from Days 1-2, etc.)
- * - All 30 days are grouped under one parent "monthly session"
+ * - AI learns every 10 sessions (days 10, 20, 30) using rolling windows
+ * - Learning cycles: Sessions 1-10, then 11-20, then 21-30
+ * - All learnings are cumulative and carry forward to next cycles
  * - After 30 days complete, wait random delay (30-90s) then start new month
  *
  * Flow:
  * 1. Start new monthly session (30 days)
- * 2. Day 1: Run 1 day backtest → Analyze → Learn
- * 3. Day 2: Run 1 day backtest → Analyze → Learn (with Day 1 context)
- * 4. Day 3-30: Continue pattern...
- * 5. Month complete → Wait delay → Start new month
+ * 2. Days 1-10: Run backtests → Day 10: LLM analyzes and learns
+ * 3. Days 11-20: Run backtests (with day 10 learnings) → Day 20: LLM analyzes and learns
+ * 4. Days 21-30: Run backtests (with cumulative learnings) → Day 30: LLM analyzes and learns
+ * 5. Month complete → Wait delay → Start new month with all cumulative learnings
  */
 
 import { syntheticBacktestingEngine, SyntheticBacktestConfig } from './synthetic-backtesting-engine';
@@ -72,7 +73,8 @@ class SimpleAutoBacktestService {
   // Configuration
   private readonly MIN_DELAY_SECONDS = 30;
   private readonly MAX_DELAY_SECONDS = 90;
-  private readonly DAYS_PER_MONTH = 30; // NEW: Fixed 30 days per monthly session
+  private readonly DAYS_PER_MONTH = 30; // Fixed 30 days per monthly session
+  private readonly LEARNING_CYCLE_INTERVAL = 10; // NEW: Learn every 10 sessions
   private readonly PLATEAU_CHECK_INTERVAL = 5;
   private readonly HEARTBEAT_INTERVAL_MS = 60000;
   private readonly MAX_DAILY_BACKTESTS = 50;
@@ -437,21 +439,35 @@ class SimpleAutoBacktestService {
 
         await this.syncStateToDatabase({});
 
-        // Run 30 daily sessions
+        // Run 30 daily sessions with learning every 10 sessions
         for (let day = 1; day <= this.DAYS_PER_MONTH; day++) {
           if (!this.isRunning) break;
 
           this.currentDayInMonth = day;
 
-          console.log(`\n[Auto-Backtest] ========== DAY ${day}/30 ==========`);
+          const currentCycle = Math.ceil(day / this.LEARNING_CYCLE_INTERVAL);
+          const dayInCycle = ((day - 1) % this.LEARNING_CYCLE_INTERVAL) + 1;
+
+          console.log(`\n[Auto-Backtest] ========== DAY ${day}/30 (Cycle ${currentCycle}, Day ${dayInCycle}/10) ==========`);
 
           // Run one day of trading
           await this.runDailySession(day);
 
-          // After each day, AI learns progressively
-          console.log(`[Auto-Backtest] Day ${day} complete - AI learning from this day's results...`);
+          console.log(`[Auto-Backtest] Day ${day} complete`);
 
           await this.syncStateToDatabase({});
+
+          // NEW: Trigger LLM learning every 10 sessions
+          if (day % this.LEARNING_CYCLE_INTERVAL === 0 && this.isRunning) {
+            console.log(`\n[Auto-Backtest] ========== 10-SESSION LEARNING CYCLE COMPLETE ==========`);
+            console.log(`[Auto-Backtest] 🧠 Triggering LLM Brain to analyze last 10 sessions...`);
+            console.log(`[Auto-Backtest] Sessions analyzed: ${day - 9} through ${day}`);
+
+            await this.triggerLLMLearningCycle(day);
+
+            console.log(`[Auto-Backtest] ✅ LLM learning complete - improvements applied`);
+            console.log(`[Auto-Backtest] Continuing with next 10-session cycle...\n`);
+          }
 
           // Small delay between days
           if (day < this.DAYS_PER_MONTH && this.isRunning) {
@@ -511,6 +527,73 @@ class SimpleAutoBacktestService {
     }
 
     console.log('[Auto-Backtest] Loop terminated');
+  }
+
+  /**
+   * Trigger LLM Brain to analyze last 10 sessions and implement improvements
+   */
+  private async triggerLLMLearningCycle(dayNumber: number): Promise<void> {
+    if (!this.userId) return;
+
+    try {
+      const cycleNumber = Math.ceil(dayNumber / this.LEARNING_CYCLE_INTERVAL);
+      const startDay = ((cycleNumber - 1) * this.LEARNING_CYCLE_INTERVAL) + 1;
+      const endDay = dayNumber;
+
+      console.log(`[Auto-Backtest] 🔍 Analyzing sessions ${startDay}-${endDay} (10-session rolling window)`);
+
+      // Import session learning generator
+      const { sessionLearningGenerator } = await import('./session-learning-generator');
+
+      // Generate comprehensive learning from the last 10 sessions
+      const learningData = await sessionLearningGenerator.generateRolling10SessionLearning(
+        this.userId,
+        startDay,
+        endDay,
+        this.monthlyParentSessionId || undefined
+      );
+
+      if (learningData) {
+        console.log('[Auto-Backtest] 📊 Learning Analysis Complete:');
+        console.log(`  - Key Learnings: ${learningData.keyLearnings?.length || 0}`);
+        console.log(`  - Recommendations: ${learningData.recommendations?.length || 0}`);
+        console.log(`  - Best Setup: ${learningData.bestSetup?.name || 'N/A'}`);
+        console.log(`  - Worst Setup: ${learningData.worstSetup?.name || 'N/A'}`);
+
+        // Run consistency validation every 10 sessions
+        await this.runConsistencyValidation(dayNumber);
+      }
+
+    } catch (error) {
+      console.error('[Auto-Backtest] Error in LLM learning cycle:', error);
+    }
+  }
+
+  /**
+   * Run consistency validation at 10-session intervals
+   */
+  private async runConsistencyValidation(sessionCount: number): Promise<void> {
+    if (!this.userId) return;
+
+    try {
+      console.log('[Auto-Backtest] 🎯 Running consistency validation...');
+
+      const { aiSessionConsistencyTracker } = await import('./ai-session-consistency-tracker');
+      const validation = await aiSessionConsistencyTracker.validateConsistency(this.userId);
+
+      if (validation) {
+        console.log(`[Auto-Backtest] Consistency Validation Results:`);
+        console.log(`  - Passed: ${validation.isPassing ? '✅ YES' : '❌ NO'}`);
+        console.log(`  - WR Spread: ${validation.winRateSpread?.toFixed(2)}% (Max: ${validation.allowedWinRateSpread?.toFixed(2)}%)`);
+        console.log(`  - PF Average: ${validation.profitFactorAverage?.toFixed(2)} (Min: ${validation.minimumProfitFactor?.toFixed(2)})`);
+
+        if (!validation.isPassing && validation.failureReason) {
+          console.warn(`[Auto-Backtest] ⚠️  Consistency Issue: ${validation.failureReason}`);
+        }
+      }
+    } catch (error) {
+      console.error('[Auto-Backtest] Error in consistency validation:', error);
+    }
   }
 
   /**

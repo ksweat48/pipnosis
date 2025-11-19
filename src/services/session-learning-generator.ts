@@ -620,6 +620,163 @@ class SessionLearningGenerator {
   }
 
   /**
+   * Generate learning summary from a 10-session rolling window
+   * This is called every 10 sessions to analyze and implement improvements
+   */
+  async generateRolling10SessionLearning(
+    userId: string,
+    startSession: number,
+    endSession: number,
+    monthlyParentSessionId?: string
+  ): Promise<SessionLearningData | null> {
+    console.log(`\n[Session Learning] 🧠 Generating 10-session rolling window learning (Sessions ${startSession}-${endSession})`);
+
+    try {
+      // Fetch all synthetic backtest sessions from this 10-session window
+      const { data: sessions, error } = await supabase
+        .from('synthetic_backtest_sessions')
+        .select('*, synthetic_backtest_trades(*)')
+        .eq('user_id', userId)
+        .eq('execution_mode', 'AUTO')
+        .order('created_at', { ascending: true })
+        .limit(10);
+
+      if (error) {
+        console.error('[Session Learning] Error fetching sessions:', error);
+        return null;
+      }
+
+      if (!sessions || sessions.length === 0) {
+        console.log('[Session Learning] No sessions found in this window');
+        return null;
+      }
+
+      // Aggregate all trades from the 10 sessions
+      const allTrades: any[] = [];
+      for (const session of sessions) {
+        if (session.synthetic_backtest_trades) {
+          allTrades.push(...session.synthetic_backtest_trades);
+        }
+      }
+
+      console.log(`[Session Learning] Analyzing ${allTrades.length} trades across ${sessions.length} sessions`);
+
+      if (allTrades.length === 0) {
+        console.log('[Session Learning] No trades to analyze');
+        return null;
+      }
+
+      // Analyze best and worst setups from all trades
+      const { bestSetup, worstSetup } = await this.analyzeBestWorstSetupsFromTrades(allTrades);
+
+      // Detect new patterns discovered
+      const patternsDiscovered = await this.fetchRecentPatterns(userId, 'active');
+
+      // Detect degraded patterns
+      const patternsDegraded = await this.fetchRecentPatterns(userId, 'degraded');
+
+      // Extract key learnings from the 10-session window
+      const keyLearnings = this.extractKeyLearningsFromTrades(allTrades);
+
+      // Calculate aggregate metrics
+      const sessionCSS = this.calculateCSSFromTrades(allTrades);
+      const sessionEV = this.calculateEVFromTrades(allTrades);
+
+      // Generate recommendations and queue adjustments
+      const recommendations = await this.generateRecommendations(
+        userId,
+        bestSetup,
+        worstSetup,
+        patternsDegraded,
+        sessionCSS
+      );
+
+      const learningData: SessionLearningData = {
+        sessionDate: new Date(),
+        sessionType: 'backtest',
+        bestSetup,
+        worstSetup,
+        confidenceAdjustments: [],
+        filterAdjustments: [],
+        patternsDiscovered,
+        patternsDegraded,
+        keyLearnings,
+        sessionCSS,
+        sessionEV,
+        tradesTaken: allTrades.length,
+        tradesAvoided: 0,
+        recommendations
+      };
+
+      // Save to database with special marker for 10-session learning
+      await this.save10SessionLearningToDatabase(userId, learningData, startSession, endSession);
+
+      console.log('[Session Learning] ✅ 10-session learning complete');
+      console.log(`[Session Learning]   - ${keyLearnings.length} key learnings extracted`);
+      console.log(`[Session Learning]   - ${recommendations.length} recommendations generated`);
+      console.log(`[Session Learning]   - Improvements queued for immediate application`);
+
+      return learningData;
+    } catch (error) {
+      console.error('[Session Learning] Error generating 10-session learning:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Save 10-session learning cycle to database
+   */
+  private async save10SessionLearningToDatabase(
+    userId: string,
+    learning: SessionLearningData,
+    startSession: number,
+    endSession: number
+  ): Promise<void> {
+    try {
+      const cycleNumber = Math.ceil(endSession / 10);
+
+      const { error } = await supabase
+        .from('ai_session_learnings')
+        .insert({
+          user_id: userId,
+          session_date: learning.sessionDate.toISOString().split('T')[0],
+          session_type: 'backtest',
+          best_setup_name: learning.bestSetup?.name,
+          best_setup_ev: learning.bestSetup?.ev,
+          best_setup_win_rate: learning.bestSetup?.winRate,
+          best_setup_trades_count: learning.bestSetup?.tradesCount,
+          worst_setup_name: learning.worstSetup?.name,
+          worst_setup_ev: learning.worstSetup?.ev,
+          worst_setup_win_rate: learning.worstSetup?.winRate,
+          worst_setup_trades_count: learning.worstSetup?.tradesCount,
+          confidence_adjustments: learning.confidenceAdjustments,
+          net_confidence_shift: 0,
+          filter_adjustments: learning.filterAdjustments,
+          threshold_adjustments: [],
+          patterns_discovered: learning.patternsDiscovered,
+          patterns_degraded: learning.patternsDegraded,
+          key_learnings: learning.keyLearnings,
+          session_css: learning.sessionCSS,
+          session_ev: learning.sessionEV,
+          trades_taken: learning.tradesTaken,
+          trades_avoided: learning.tradesAvoided,
+          actionable_recommendations: learning.recommendations,
+          metadata: {
+            learning_cycle: cycleNumber,
+            session_range: `${startSession}-${endSession}`,
+            cycle_type: '10_session_rolling_window'
+          }
+        });
+
+      if (error) {
+        console.error('[Session Learning] Error saving 10-session learning:', error);
+      }
+    } catch (error) {
+      console.error('[Session Learning] Exception saving 10-session learning:', error);
+    }
+  }
+
+  /**
    * Get recent learning summaries
    */
   async getRecentLearnings(
