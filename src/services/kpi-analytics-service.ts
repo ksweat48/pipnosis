@@ -72,14 +72,20 @@ class KPIAnalyticsService {
       return [];
     }
 
-    return data || [];
+    // Map current_pnl to profit_loss for consistency
+    const mappedData = (data || []).map(trade => ({
+      ...trade,
+      profit_loss: parseFloat(trade.current_pnl || 0),
+      trade_direction: trade.position_type, // Map position_type to trade_direction
+    }));
+
+    return mappedData;
   }
 
   private async fetchTradeHistory(): Promise<TradeData[]> {
     const { data, error } = await supabase
       .from('trade_history')
       .select('*')
-      .eq('status', 'closed')
       .not('closed_at', 'is', null);
 
     if (error) {
@@ -87,7 +93,13 @@ class KPIAnalyticsService {
       return [];
     }
 
-    return data || [];
+    // Map pnl or profit_loss to standard format
+    const mappedData = (data || []).map(trade => ({
+      ...trade,
+      profit_loss: parseFloat(trade.profit_loss || trade.pnl || 0),
+    }));
+
+    return mappedData;
   }
 
   private async processTradeForKPI(trade: TradeData): Promise<void> {
