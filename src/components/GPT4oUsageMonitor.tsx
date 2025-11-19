@@ -24,14 +24,22 @@ interface UsageStats {
 export default function GPT4oUsageMonitor() {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [errorCount, setErrorCount] = useState(0);
+  const [isDisabled, setIsDisabled] = useState(false);
 
   useEffect(() => {
     loadUsageStats();
-    const interval = setInterval(loadUsageStats, 30000); // Refresh every 30 seconds
+    const interval = setInterval(loadUsageStats, 60000); // Refresh every 60 seconds (reduced from 30)
     return () => clearInterval(interval);
   }, []);
 
   const loadUsageStats = async () => {
+    // Circuit breaker: stop polling after 5 consecutive errors
+    if (isDisabled) {
+      console.log('[GPT4o Monitor] Disabled due to repeated errors');
+      return;
+    }
+
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -41,21 +49,31 @@ export default function GPT4oUsageMonitor() {
       const weekAgo = new Date(today);
       weekAgo.setDate(weekAgo.getDate() - 7);
 
-      // Get usage statistics
+      // Get usage statistics - note: using called_at not created_at
       const { data: usage, error } = await supabase
         .from('gpt4o_usage_tracking')
         .select('*')
         .eq('user_id', user.id)
-        .gte('created_at', weekAgo.toISOString())
-        .order('created_at', { ascending: false });
+        .gte('called_at', weekAgo.toISOString())
+        .order('called_at', { ascending: false });
 
       if (error) {
-        console.error('Error loading usage stats:', error);
+        console.warn('[GPT4o Monitor] Error loading usage stats:', error.message);
+        setErrorCount(prev => prev + 1);
+
+        // Disable after 5 errors
+        if (errorCount >= 4) {
+          console.error('[GPT4o Monitor] Too many errors, disabling monitor');
+          setIsDisabled(true);
+        }
         return;
       }
 
+      // Reset error count on success
+      setErrorCount(0);
+
       // Calculate statistics
-      const todayUsage = usage?.filter(u => new Date(u.created_at) >= today) || [];
+      const todayUsage = usage?.filter(u => new Date(u.called_at) >= today) || [];
       const todayTokens = todayUsage.reduce((sum, u) => sum + (u.total_tokens || 0), 0);
       const todayCost = todayUsage.reduce((sum, u) => sum + (u.estimated_cost_usd || 0), 0);
 
@@ -73,7 +91,7 @@ export default function GPT4oUsageMonitor() {
       // Get recent calls
       const recentCalls = (usage?.slice(0, 10) || []).map(u => ({
         service: u.service_type,
-        timestamp: u.created_at,
+        timestamp: u.called_at,
         tokens: u.total_tokens || 0,
         success: u.success,
         error: u.error_message
@@ -88,7 +106,14 @@ export default function GPT4oUsageMonitor() {
         recentCalls
       });
     } catch (error) {
-      console.error('Error in loadUsageStats:', error);
+      console.warn('[GPT4o Monitor] Exception in loadUsageStats:', error);
+      setErrorCount(prev => prev + 1);
+
+      // Disable after 5 errors
+      if (errorCount >= 4) {
+        console.error('[GPT4o Monitor] Too many errors, disabling monitor');
+        setIsDisabled(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -102,6 +127,18 @@ export default function GPT4oUsageMonitor() {
           <h3 className="text-lg font-semibold">GPT-4o Usage Monitor</h3>
         </div>
         <p className="text-slate-400">Loading usage statistics...</p>
+      </div>
+    );
+  }
+
+  if (isDisabled) {
+    return (
+      <div className="bg-slate-800 rounded-lg p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Activity className="w-5 h-5 text-slate-400" />
+          <h3 className="text-lg font-semibold text-slate-300">GPT-4o Usage Monitor</h3>
+        </div>
+        <p className="text-slate-400">Monitor temporarily disabled due to connection issues.</p>
       </div>
     );
   }
