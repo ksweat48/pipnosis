@@ -186,6 +186,7 @@ class KPIAnalyticsService {
 
   private async updateMetricsForPeriod(period: string): Promise<void> {
     try {
+      console.log(`\n[KPI] 🔄 Updating metrics for period: ${period}`);
       const { periodStart, periodEnd } = this.getPeriodDates(period);
 
       let query = supabase
@@ -201,7 +202,14 @@ class KPIAnalyticsService {
       const { data: trades, error } = await query;
 
       if (error || !trades) {
-        console.error(`Error fetching trades for ${period}:`, error);
+        console.error(`[KPI] ❌ Error fetching trades for ${period}:`, error);
+        return;
+      }
+
+      console.log(`[KPI] 📥 Fetched ${trades.length} trades for ${period}`);
+
+      if (trades.length === 0) {
+        console.log(`[KPI] ⚠️  No trades found for ${period}, skipping metric calculation`);
         return;
       }
 
@@ -230,17 +238,59 @@ class KPIAnalyticsService {
         updated_at: new Date().toISOString(),
       };
 
-      const { error: upsertError } = await supabase
-        .from('ai_learning_metrics')
-        .upsert(metricsData, {
-          onConflict: 'metric_period,period_start,period_end'
-        });
+      console.log(`[KPI] 💾 Attempting to upsert metrics for ${period}...`);
+      console.log(`[KPI] 📊 Profit Factor to save: ${metrics.profitFactor}`);
 
-      if (upsertError) {
-        console.error(`Error upserting metrics for ${period}:`, upsertError);
+      // CRITICAL FIX: Delete existing record first to ensure fresh data
+      const deleteConditions: any = { metric_period: period };
+      if (period !== 'all_time') {
+        deleteConditions.period_start = periodStart.toISOString().split('T')[0];
+        deleteConditions.period_end = periodEnd.toISOString().split('T')[0];
+      } else {
+        // For all_time, delete records where both period_start and period_end are null
+        const { error: deleteError } = await supabase
+          .from('ai_learning_metrics')
+          .delete()
+          .eq('metric_period', 'all_time')
+          .is('period_start', null)
+          .is('period_end', null);
+
+        if (deleteError) {
+          console.warn(`[KPI] ⚠️  Error deleting old all_time metrics:`, deleteError);
+        } else {
+          console.log(`[KPI] 🗑️  Deleted old all_time metrics`);
+        }
+      }
+
+      if (period !== 'all_time') {
+        const { error: deleteError } = await supabase
+          .from('ai_learning_metrics')
+          .delete()
+          .match(deleteConditions);
+
+        if (deleteError) {
+          console.warn(`[KPI] ⚠️  Error deleting old ${period} metrics:`, deleteError);
+        } else {
+          console.log(`[KPI] 🗑️  Deleted old ${period} metrics`);
+        }
+      }
+
+      // Now insert fresh data
+      const { data: insertedData, error: insertError } = await supabase
+        .from('ai_learning_metrics')
+        .insert(metricsData)
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error(`[KPI] ❌ Error inserting metrics for ${period}:`, insertError);
+        console.error(`[KPI] 📋 Attempted to insert:`, JSON.stringify(metricsData, null, 2));
+      } else {
+        console.log(`[KPI] ✅ Successfully saved metrics for ${period}`);
+        console.log(`[KPI] 🎯 Saved Profit Factor: ${insertedData.profit_factor}`);
       }
     } catch (error) {
-      console.error(`Error updating metrics for ${period}:`, error);
+      console.error(`[KPI] ❌ Error updating metrics for ${period}:`, error);
     }
   }
 
@@ -273,16 +323,37 @@ class KPIAnalyticsService {
   }
 
   private calculateMetrics(trades: any[]): any {
+    console.log(`[KPI] 📊 Calculating metrics for ${trades.length} trades...`);
+
     const winningTrades = trades.filter(t => t.is_win);
     const losingTrades = trades.filter(t => !t.is_win);
+
+    console.log(`[KPI] ✅ Winning trades: ${winningTrades.length}`);
+    console.log(`[KPI] ❌ Losing trades: ${losingTrades.length}`);
 
     const totalProfit = winningTrades.reduce((sum, t) => sum + parseFloat(t.profit_loss || 0), 0);
     const totalLoss = Math.abs(losingTrades.reduce((sum, t) => sum + parseFloat(t.profit_loss || 0), 0));
 
+    console.log(`[KPI] 💰 Total Profit: $${totalProfit.toFixed(2)}`);
+    console.log(`[KPI] 💸 Total Loss: $${totalLoss.toFixed(2)}`);
+
     const winRate = trades.length > 0 ? (winningTrades.length / trades.length) * 100 : 0;
     const averageWin = winningTrades.length > 0 ? totalProfit / winningTrades.length : 0;
     const averageLoss = losingTrades.length > 0 ? totalLoss / losingTrades.length : 0;
-    const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : 0;
+
+    // CRITICAL FIX: Match backtesting engine logic
+    // When totalLoss is 0, return high value (999.99) indicating unlimited upside
+    // When totalProfit is 0, return 0.00
+    let profitFactor = 0;
+    if (totalLoss === 0 && totalProfit > 0) {
+      profitFactor = 999.99;
+      console.log(`[KPI] 🚀 Profit Factor: 999.99 (no losses!)`);
+    } else if (totalLoss > 0) {
+      profitFactor = totalProfit / totalLoss;
+      console.log(`[KPI] 📈 Profit Factor: ${profitFactor.toFixed(2)}`);
+    } else {
+      console.log(`[KPI] ⚠️  Profit Factor: 0.00 (no profits or losses)`);
+    }
 
     const strategyPerformance = this.groupByStrategy(trades);
     const bestStrategy = strategyPerformance.best?.strategy || 'None';
@@ -407,7 +478,14 @@ class KPIAnalyticsService {
     const largestWin = wins.length > 0 ? Math.max(...wins.map(t => parseFloat(t.profit_loss))) : 0;
     const largestLoss = losses.length > 0 ? Math.abs(Math.min(...losses.map(t => parseFloat(t.profit_loss)))) : 0;
 
-    const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : 0;
+    // CRITICAL FIX: Match calculation logic for strategy analytics
+    let profitFactor = 0;
+    if (totalLoss === 0 && totalProfit > 0) {
+      profitFactor = 999.99;
+    } else if (totalLoss > 0) {
+      profitFactor = totalProfit / totalLoss;
+    }
+
     const riskRewardRatio = averageLossSize > 0 ? averageWinSize / averageLossSize : 0;
 
     const avgDuration = trades.length > 0
@@ -566,8 +644,59 @@ class KPIAnalyticsService {
   }
 
   async refreshKPIData(): Promise<void> {
-    console.log('Manual KPI refresh triggered');
+    console.log('[KPI] 🔄 Manual KPI refresh triggered');
     await this.collectTradePerformanceData();
+  }
+
+  async forceRefreshKPIData(): Promise<void> {
+    console.log('[KPI] 🔥 FORCE REFRESH: Clearing all existing KPI data and recalculating from scratch...');
+
+    try {
+      // Clear all existing metrics
+      const { error: clearMetricsError } = await supabase
+        .from('ai_learning_metrics')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
+
+      if (clearMetricsError) {
+        console.error('[KPI] ❌ Error clearing metrics:', clearMetricsError);
+      } else {
+        console.log('[KPI] 🗑️  Cleared all existing ai_learning_metrics');
+      }
+
+      // Clear all existing strategy analytics
+      const { error: clearStrategyError } = await supabase
+        .from('strategy_analytics')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
+
+      if (clearStrategyError) {
+        console.error('[KPI] ❌ Error clearing strategy analytics:', clearStrategyError);
+      } else {
+        console.log('[KPI] 🗑️  Cleared all existing strategy_analytics');
+      }
+
+      // Clear all existing user performance summaries
+      const { error: clearUserPerfError } = await supabase
+        .from('user_performance_summary')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
+
+      if (clearUserPerfError) {
+        console.error('[KPI] ❌ Error clearing user performance:', clearUserPerfError);
+      } else {
+        console.log('[KPI] 🗑️  Cleared all existing user_performance_summary');
+      }
+
+      // Now recalculate everything from scratch
+      console.log('[KPI] 🔄 Recalculating all KPIs from trade data...');
+      await this.collectTradePerformanceData();
+
+      console.log('[KPI] ✅ Force refresh completed successfully!');
+    } catch (error) {
+      console.error('[KPI] ❌ Error during force refresh:', error);
+      throw error;
+    }
   }
 }
 

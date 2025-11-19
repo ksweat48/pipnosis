@@ -307,6 +307,28 @@ export function KPIsPage() {
     }
   };
 
+  const handleForceRefresh = async () => {
+    const confirmed = window.confirm(
+      '⚠️ Force Refresh will delete all existing KPI data and recalculate from scratch. This may take a few moments. Continue?'
+    );
+
+    if (!confirmed) return;
+
+    setRefreshing(true);
+    setError(null);
+    try {
+      await kpiAnalyticsService.forceRefreshKPIData();
+      await loadKPIData();
+      setLastRefresh(new Date());
+    } catch (error) {
+      console.error('Error force refreshing KPI data:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setError(`Failed to force refresh KPI data: ${errorMessage}`);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const timeframeOptions = [
     { value: 'daily', label: 'Today' },
     { value: 'weekly', label: 'This Week' },
@@ -388,9 +410,20 @@ export function KPIsPage() {
               onClick={handleRefresh}
               disabled={refreshing}
               className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-all disabled:opacity-50"
+              title="Refresh KPI data"
             >
               <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
               <span className="hidden sm:inline">Refresh</span>
+            </button>
+
+            <button
+              onClick={handleForceRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-all disabled:opacity-50 font-medium"
+              title="Delete all KPI data and recalculate from scratch"
+            >
+              <Zap size={18} />
+              <span className="hidden sm:inline">Force Refresh</span>
             </button>
           </div>
         </div>
