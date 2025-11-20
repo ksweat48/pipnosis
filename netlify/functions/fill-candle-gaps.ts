@@ -9,7 +9,7 @@ const metaApiRegion = process.env.METAAPI_REGION || 'new-york';
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-const ACTIVE_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD'];
+const ACTIVE_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY'];
 const TIMEFRAMES = [
   { name: 'M1', minutes: 1 },
   { name: 'M5', minutes: 5 },

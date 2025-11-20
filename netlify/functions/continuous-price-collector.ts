@@ -9,7 +9,7 @@ const metaApiRegion = process.env.METAAPI_REGION || 'new-york';
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-const ACTIVE_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD'];
+const ACTIVE_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY'];
 
 interface MetaApiPrice {
   symbol: string;
