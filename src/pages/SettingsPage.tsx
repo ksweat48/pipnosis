@@ -40,16 +40,15 @@ export function SettingsPage() {
   const [savingIndicators, setSavingIndicators] = useState(false);
   const [indicatorMessage, setIndicatorMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [developerMode, setDeveloperMode] = useState(false);
+  const [savingDeveloperMode, setSavingDeveloperMode] = useState(false);
+  const [developerMessage, setDeveloperMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   useEffect(() => {
     if (user) {
       loadUserData();
       loadIndicatorPreferences();
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (user) {
-      loadIndicatorPreferences();
+      loadDeveloperModeSettings();
     }
   }, [user]);
 
@@ -90,6 +89,22 @@ export function SettingsPage() {
       setIndicatorVisibility(visibility);
     } catch (error) {
       console.error('Error loading indicator preferences:', error);
+    }
+  };
+
+  const loadDeveloperModeSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('developer_mode_settings')
+        .select('developer_mode_enabled')
+        .eq('user_id', user?.id)
+        .maybeSingle();
+
+      if (data) {
+        setDeveloperMode(data.developer_mode_enabled);
+      }
+    } catch (error) {
+      console.error('Error loading developer mode settings:', error);
     }
   };
 
@@ -150,6 +165,42 @@ export function SettingsPage() {
       ...prev,
       [indicator]: !prev[indicator]
     }));
+  };
+
+  const handleSaveDeveloperMode = async () => {
+    try {
+      setSavingDeveloperMode(true);
+      setDeveloperMessage(null);
+
+      const { error } = await supabase
+        .from('developer_mode_settings')
+        .upsert({
+          user_id: user?.id,
+          developer_mode_enabled: developerMode,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id'
+        });
+
+      if (error) throw error;
+
+      setDeveloperMessage({
+        type: 'success',
+        text: `Developer Mode ${developerMode ? 'enabled' : 'disabled'}! ${developerMode ? 'You will now see detailed AI decision logs.' : 'AI decision logs hidden.'}`
+      });
+
+      setTimeout(() => {
+        setDeveloperMessage(null);
+      }, 4000);
+    } catch (error) {
+      console.error('Error saving developer mode:', error);
+      setDeveloperMessage({
+        type: 'error',
+        text: 'Failed to save developer mode settings. Please try again.'
+      });
+    } finally {
+      setSavingDeveloperMode(false);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -508,6 +559,90 @@ export function SettingsPage() {
                     <>
                       <Save size={18} />
                       <span>Save Display Settings</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <Activity size={20} className="text-purple-400" />
+                <h2 className="text-xl font-semibold text-white">Developer Mode</h2>
+              </div>
+
+              <p className="text-sm text-gray-400 mb-6">
+                Enable detailed logging of AI decision-making process. When active, you'll see step-by-step reasoning from all 5 LLM layers, pattern enforcement decisions, and confidence calibrations.
+              </p>
+
+              {developerMessage && (
+                <div
+                  className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
+                    developerMessage.type === 'success'
+                      ? 'bg-green-900/20 border border-green-700/30 text-green-400'
+                      : 'bg-red-900/20 border border-red-700/30 text-red-400'
+                  }`}
+                >
+                  {developerMessage.type === 'success' ? (
+                    <CheckCircle size={20} />
+                  ) : (
+                    <AlertCircle size={20} />
+                  )}
+                  <span>{developerMessage.text}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700 mb-6">
+                <div className="flex items-center gap-3">
+                  <Activity size={18} className="text-purple-400" />
+                  <div>
+                    <div className="text-white font-medium">AI Decision Logging</div>
+                    <div className="text-xs text-gray-400">Show detailed Layer 1-5 reasoning and HARD GATE checks</div>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={developerMode}
+                    onChange={(e) => setDeveloperMode(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                </label>
+              </div>
+
+              <div className="p-4 bg-purple-900/20 border border-purple-700/30 rounded-lg mb-6">
+                <div className="flex items-start gap-3">
+                  <AlertCircle size={18} className="text-purple-400 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-purple-300">
+                    <p className="font-medium mb-2">What You'll See When Enabled:</p>
+                    <ul className="space-y-1 text-purple-300/80">
+                      <li>• Layer 1: Market regime validation decisions</li>
+                      <li>• Layer 2: Setup quality scoring (0-100)</li>
+                      <li>• Layer 3: Mistake prevention checks</li>
+                      <li>• Layer 4: Confidence calibration adjustments</li>
+                      <li>• Layer 5: Final execution decisions</li>
+                      <li>• HARD GATE: Pattern avoidance enforcement</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  onClick={handleSaveDeveloperMode}
+                  disabled={savingDeveloperMode}
+                  className="flex items-center gap-2 px-6 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
+                >
+                  {savingDeveloperMode ? (
+                    <>
+                      <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save size={18} />
+                      <span>Save Developer Mode</span>
                     </>
                   )}
                 </button>

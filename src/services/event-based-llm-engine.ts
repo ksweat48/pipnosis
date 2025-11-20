@@ -10,6 +10,12 @@ import { supabase } from '../lib/supabase';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { triggerDetectionRules, TriggerEvent, MarketSnapshot } from './trigger-detection-rules';
 import { llmSnapshotBuilder, LLMSnapshot, LLMTradeDecision } from './llm-snapshot-builder';
+import { avoidPatternEnforcer } from './avoid-pattern-enforcer';
+import { llmRegimeValidator } from './llm-regime-validator';
+import { llmSetupQuality } from './llm-setup-quality';
+import { llmMistakePrevention } from './llm-mistake-prevention';
+import { llmConfidenceCalibrator } from './llm-confidence-calibrator';
+import { developerModeLogger } from './developer-mode-logger';
 
 export interface EventBasedEngineConfig {
   symbol: string;
@@ -53,6 +59,11 @@ export interface EngineStatistics {
   winRate: number;
   avgHoldTime: number;
   triggerToTradeRatio: number;
+  hardGateBlocks: number;
+  layer1Aborts: number;
+  layer2Aborts: number;
+  layer3Aborts: number;
+  fullPipelineExecutions: number;
 }
 
 class EventBasedLLMEngine {
@@ -60,11 +71,32 @@ class EventBasedLLMEngine {
   private readonly GPT_MODEL = 'gpt-4o';
   private sessionTokenUsage: number = 0;
   private readonly MAX_TOKENS_PER_SESSION = 50000;
+  private userId: string | null = null;
+  private sessionId: string | null = null;
+  private use5LayerPipeline: boolean = true;
 
   constructor() {
     this.apiKey = typeof import.meta !== 'undefined' && import.meta.env
       ? import.meta.env.VITE_OPENAI_API_KEY || ''
       : process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
+  }
+
+  /**
+   * Initialize engine with user context for 5-layer pipeline
+   */
+  async initialize(userId: string, sessionId: string | null = null): Promise<void> {
+    this.userId = userId;
+    this.sessionId = sessionId;
+    await developerModeLogger.initialize(userId);
+    console.log('[Event Engine] 5-Layer Pipeline initialized for user:', userId);
+  }
+
+  /**
+   * Enable or disable 5-layer pipeline (default: enabled)
+   */
+  set5LayerPipeline(enabled: boolean): void {
+    this.use5LayerPipeline = enabled;
+    console.log(`[Event Engine] 5-Layer Pipeline: ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
 
   /**
@@ -177,12 +209,341 @@ class EventBasedLLMEngine {
   }
 
   /**
-   * Call LLM for trade decision
+   * Call LLM for trade decision - now uses 5-layer pipeline
    */
   private async callLLM(
     trigger: TriggerEvent,
     snapshot: MarketSnapshot,
     openPositions: SimulatedTrade[]
+  ): Promise<LLMTradeDecision> {
+    if (this.use5LayerPipeline && this.userId) {
+      return this.execute5LayerPipeline(trigger, snapshot, openPositions);
+    } else {
+      return this.executeSingleLLMCall(trigger, snapshot, openPositions);
+    }
+  }
+
+  /**
+   * Execute complete 5-layer pipeline with HARD GATE
+   */
+  private async execute5LayerPipeline(
+    trigger: TriggerEvent,
+    snapshot: MarketSnapshot,
+    openPositions: SimulatedTrade[]
+  ): Promise<LLMTradeDecision> {
+    const pipelineStart = Date.now();
+    let totalTokens = 0;
+
+    console.log('\n========================================');
+    console.log('🚀 STARTING 5-LAYER LLM PIPELINE');
+    console.log(`Symbol: ${snapshot.symbol} | Trigger: ${trigger.type} | Confidence: ${trigger.confidence}%`);
+    console.log('========================================\n');
+
+    try {
+      // ============================================================
+      // HARD GATE: Avoid Pattern Enforcer
+      // ============================================================
+      console.log('[HARD GATE] 🚫 Checking avoid patterns...');
+      const hardGateResult = await avoidPatternEnforcer.enforceAvoidPatterns(
+        this.userId!,
+        snapshot,
+        trigger.type,
+        'moderate'
+      );
+
+      await developerModeLogger.logAvoidPatternEvent(
+        snapshot.symbol,
+        trigger.type,
+        hardGateResult.is_blocked,
+        hardGateResult.block_reason,
+        hardGateResult.matched_patterns
+      );
+
+      if (hardGateResult.is_blocked) {
+        console.log(`[HARD GATE] 🚫 BLOCKED: ${hardGateResult.block_reason}`);
+        await this.logPipelineCompletion(snapshot.symbol, trigger.type, {
+          hardGateResult: 'blocked',
+          layer1Passed: false,
+          layer2Passed: false,
+          layer3Passed: false,
+          layer4Completed: false,
+          layer5Executed: false,
+          finalDecision: 'NO_TRADE',
+          totalProcessingTimeMs: Date.now() - pipelineStart,
+          totalTokensUsed: 0,
+          layersExecuted: 0,
+          abortLayer: 0,
+          abortReason: hardGateResult.block_reason
+        });
+        return {
+          action: 'NO_TRADE',
+          confidence: 0,
+          reasoning: hardGateResult.block_reason || 'Setup matches losing pattern'
+        };
+      }
+
+      console.log('[HARD GATE] ✅ ALLOWED');
+
+      // ============================================================
+      // LAYER 1: Regime Validator
+      // ============================================================
+      console.log('\n[LAYER 1] 🔍 Regime Validation...');
+      const layer1Start = Date.now();
+      const regimeResult = await llmRegimeValidator.validateRegime(
+        snapshot,
+        trigger.type,
+        trigger.confidence
+      );
+      const layer1Duration = Date.now() - layer1Start;
+      totalTokens += 200;
+
+      await developerModeLogger.logLayerDecision(
+        this.sessionId,
+        snapshot.symbol,
+        1,
+        'Regime Validator',
+        regimeResult.recommendation,
+        regimeResult,
+        layer1Duration,
+        200,
+        regimeResult.regime_ok
+      );
+
+      if (!regimeResult.regime_ok || regimeResult.recommendation === 'abort') {
+        console.log(`[LAYER 1] ❌ REJECTED: ${regimeResult.reasoning}`);
+        await this.logPipelineCompletion(snapshot.symbol, trigger.type, {
+          hardGateResult: 'allowed',
+          layer1Passed: false,
+          layer2Passed: false,
+          layer3Passed: false,
+          layer4Completed: false,
+          layer5Executed: false,
+          finalDecision: 'NO_TRADE',
+          totalProcessingTimeMs: Date.now() - pipelineStart,
+          totalTokensUsed: totalTokens,
+          layersExecuted: 1,
+          abortLayer: 1,
+          abortReason: regimeResult.reasoning
+        });
+        this.sessionTokenUsage += totalTokens;
+        return {
+          action: 'NO_TRADE',
+          confidence: 0,
+          reasoning: `Regime validation failed: ${regimeResult.reasoning}`
+        };
+      }
+
+      console.log(`[LAYER 1] ✅ PASSED - ${regimeResult.detected_regime.trend}/${regimeResult.detected_regime.volatility}`);
+
+      // ============================================================
+      // LAYER 2: Setup Quality Scorer
+      // ============================================================
+      console.log('\n[LAYER 2] 📊 Setup Quality Scoring...');
+      const layer2Start = Date.now();
+      const qualityResult = await llmSetupQuality.scoreSetup(
+        snapshot,
+        trigger.type,
+        trigger.confidence,
+        regimeResult,
+        65
+      );
+      const layer2Duration = Date.now() - layer2Start;
+      totalTokens += 300;
+
+      await developerModeLogger.logLayerDecision(
+        this.sessionId,
+        snapshot.symbol,
+        2,
+        'Setup Quality',
+        qualityResult.recommendation,
+        qualityResult,
+        layer2Duration,
+        300,
+        qualityResult.meets_threshold
+      );
+
+      if (!qualityResult.meets_threshold) {
+        console.log(`[LAYER 2] ❌ REJECTED: Quality ${qualityResult.quality_score}/100`);
+        await this.logPipelineCompletion(snapshot.symbol, trigger.type, {
+          hardGateResult: 'allowed',
+          layer1Passed: true,
+          layer2Passed: false,
+          layer3Passed: false,
+          layer4Completed: false,
+          layer5Executed: false,
+          finalDecision: 'NO_TRADE',
+          totalProcessingTimeMs: Date.now() - pipelineStart,
+          totalTokensUsed: totalTokens,
+          layersExecuted: 2,
+          abortLayer: 2,
+          abortReason: qualityResult.reasoning
+        });
+        this.sessionTokenUsage += totalTokens;
+        return {
+          action: 'NO_TRADE',
+          confidence: 0,
+          reasoning: `Quality insufficient: ${qualityResult.reasoning}`
+        };
+      }
+
+      console.log(`[LAYER 2] ✅ PASSED - Quality: ${qualityResult.quality_score}/100`);
+
+      // ============================================================
+      // LAYER 3: Mistake Prevention Brain
+      // ============================================================
+      console.log('\n[LAYER 3] 🛡️ Mistake Prevention...');
+      const layer3Start = Date.now();
+      const mistakeResult = await llmMistakePrevention.checkForMistakes(
+        this.userId!,
+        snapshot,
+        trigger.type,
+        regimeResult,
+        qualityResult
+      );
+      const layer3Duration = Date.now() - layer3Start;
+      totalTokens += 300;
+
+      await developerModeLogger.logLayerDecision(
+        this.sessionId,
+        snapshot.symbol,
+        3,
+        'Mistake Prevention',
+        mistakeResult.recommendation,
+        mistakeResult,
+        layer3Duration,
+        300,
+        mistakeResult.allow_trade
+      );
+
+      if (!mistakeResult.allow_trade) {
+        console.log(`[LAYER 3] 🚫 BLOCKED: ${mistakeResult.preventive_reasoning}`);
+        await this.logPipelineCompletion(snapshot.symbol, trigger.type, {
+          hardGateResult: 'allowed',
+          layer1Passed: true,
+          layer2Passed: true,
+          layer3Passed: false,
+          layer4Completed: false,
+          layer5Executed: false,
+          finalDecision: 'NO_TRADE',
+          totalProcessingTimeMs: Date.now() - pipelineStart,
+          totalTokensUsed: totalTokens,
+          layersExecuted: 3,
+          abortLayer: 3,
+          abortReason: mistakeResult.preventive_reasoning
+        });
+        this.sessionTokenUsage += totalTokens;
+        return {
+          action: 'NO_TRADE',
+          confidence: 0,
+          reasoning: `Mistake prevention: ${mistakeResult.preventive_reasoning}`
+        };
+      }
+
+      console.log(`[LAYER 3] ✅ PASSED - Risk: ${mistakeResult.risk_level}`);
+
+      // ============================================================
+      // LAYER 4: Confidence Calibrator
+      // ============================================================
+      console.log('\n[LAYER 4] 🎯 Confidence Calibration...');
+      const layer4Start = Date.now();
+      const calibrationResult = await llmConfidenceCalibrator.calibrateConfidence(
+        this.userId!,
+        snapshot.symbol,
+        trigger.confidence,
+        {
+          triggerType: trigger.type,
+          regimeQuality: regimeResult.confidence_in_regime,
+          setupQuality: qualityResult.quality_score,
+          riskLevel: mistakeResult.risk_level
+        }
+      );
+      const layer4Duration = Date.now() - layer4Start;
+      totalTokens += 200;
+
+      await developerModeLogger.logLayerDecision(
+        this.sessionId,
+        snapshot.symbol,
+        4,
+        'Confidence Calibrator',
+        calibrationResult.recommendation,
+        calibrationResult,
+        layer4Duration,
+        200,
+        true
+      );
+
+      const adjustment = calibrationResult.calibrated_confidence - trigger.confidence;
+      console.log(`[LAYER 4] ✅ ${trigger.confidence}% → ${calibrationResult.calibrated_confidence}% (${adjustment > 0 ? '+' : ''}${adjustment.toFixed(1)}%)`);
+
+      // ============================================================
+      // LAYER 5: Execution Brain (existing logic)
+      // ============================================================
+      console.log('\n[LAYER 5] 🎯 Execution Decision...');
+      const layer5Start = Date.now();
+      const executionResult = await this.executeSingleLLMCall(trigger, snapshot, openPositions, calibrationResult.calibrated_confidence);
+      const layer5Duration = Date.now() - layer5Start;
+      totalTokens += 500;
+
+      await developerModeLogger.logLayerDecision(
+        this.sessionId,
+        snapshot.symbol,
+        5,
+        'Execution Brain',
+        executionResult.action,
+        executionResult,
+        layer5Duration,
+        500,
+        true
+      );
+
+      console.log(`[LAYER 5] ✅ ${executionResult.action}`);
+
+      // Log complete pipeline
+      const totalDuration = Date.now() - pipelineStart;
+      await this.logPipelineCompletion(snapshot.symbol, trigger.type, {
+        hardGateResult: 'allowed',
+        layer1Passed: true,
+        layer2Passed: true,
+        layer3Passed: true,
+        layer4Completed: true,
+        layer5Executed: true,
+        finalDecision: executionResult.action,
+        finalConfidence: trigger.confidence,
+        calibratedConfidence: calibrationResult.calibrated_confidence,
+        totalProcessingTimeMs: totalDuration,
+        totalTokensUsed: totalTokens,
+        layersExecuted: 5,
+        abortLayer: null,
+        abortReason: null
+      });
+
+      this.sessionTokenUsage += totalTokens;
+
+      console.log('\n========================================');
+      console.log('✅ PIPELINE COMPLETE');
+      console.log(`Duration: ${totalDuration}ms | Tokens: ${totalTokens}`);
+      console.log('========================================\n');
+
+      return executionResult;
+
+    } catch (error) {
+      console.error('[5-Layer Pipeline] Error:', error);
+      return {
+        action: 'NO_TRADE',
+        confidence: 0,
+        reasoning: 'Pipeline error: ' + (error as Error).message
+      };
+    }
+  }
+
+  /**
+   * Original single LLM call (Layer 5 only, or fallback)
+   */
+  private async executeSingleLLMCall(
+    trigger: TriggerEvent,
+    snapshot: MarketSnapshot,
+    openPositions: SimulatedTrade[],
+    overrideConfidence?: number
   ): Promise<LLMTradeDecision> {
     try {
       const llmSnapshot = llmSnapshotBuilder.buildSnapshot(
@@ -195,7 +556,6 @@ class EventBasedLLMEngine {
 
       const prompt = llmSnapshotBuilder.formatSnapshotAsPrompt(llmSnapshot);
 
-      console.log('[Event Engine] 🤖 Calling LLM for evaluation...');
       const startTime = Date.now();
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -234,7 +594,6 @@ class EventBasedLLMEngine {
       const data = await response.json();
       const latency = Date.now() - startTime;
       const tokensUsed = data.usage?.total_tokens || 0;
-      this.sessionTokenUsage += tokensUsed;
 
       console.log(`[Event Engine] LLM response received (${latency}ms, ${tokensUsed} tokens)`);
 
@@ -243,7 +602,13 @@ class EventBasedLLMEngine {
         throw new Error('No content in LLM response');
       }
 
-      return llmSnapshotBuilder.parseLLMResponse(content);
+      const decision = llmSnapshotBuilder.parseLLMResponse(content);
+
+      if (overrideConfidence !== undefined) {
+        decision.confidence = overrideConfidence;
+      }
+
+      return decision;
     } catch (error) {
       console.error('[Event Engine] LLM call failed:', error);
       return {
@@ -252,6 +617,19 @@ class EventBasedLLMEngine {
         reasoning: 'LLM call failed: ' + (error as Error).message
       };
     }
+  }
+
+  /**
+   * Log pipeline completion to database
+   */
+  private async logPipelineCompletion(symbol: string, triggerType: string, data: any): Promise<void> {
+    if (!this.userId) return;
+    await developerModeLogger.logPipelineExecution(
+      this.sessionId,
+      symbol,
+      triggerType,
+      data
+    );
   }
 
   /**

@@ -4,6 +4,7 @@ import { syntheticBacktestAnalytics, ComprehensiveAnalytics } from './synthetic-
 import { aiLearningEngine, TradeForAnalysis } from './ai-learning-engine';
 import { aiSkillTracker } from './ai-skill-tracker';
 import { aiIndicatorTracker } from './ai-indicator-tracker';
+import { continuousLearningLoop } from './continuous-learning-loop';
 
 export interface SyntheticBacktestConfig {
   sessionName: string;
@@ -186,6 +187,12 @@ class SyntheticBacktestingEngine {
       console.log(`[Synthetic Backtest] ❌ Losing: ${result.losingTrades}`);
       console.log(`[Synthetic Backtest] 📈 Profit Factor: ${result.profitFactor.toFixed(2)}`);
       console.log('==========================\n');
+
+      // Auto-start continuous learning loop to validate insights
+      if (!continuousLearningLoop.isActive()) {
+        console.log('[Synthetic Backtest] 🔄 Starting continuous learning loop for insight validation...');
+        await continuousLearningLoop.start(userId);
+      }
 
       return result;
     } catch (error) {

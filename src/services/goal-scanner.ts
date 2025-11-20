@@ -2,6 +2,8 @@ import { supabase } from '../lib/supabase';
 import { forecastEngine, MarketConditions } from './forecast-engine';
 import { goalSessionManager } from './goal-session-manager';
 import { tradeExecutionEngine } from './trade-execution-engine';
+import { eventBasedLLMEngine } from './event-based-llm-engine';
+import { llmContextEnricher } from './llm-context-enricher';
 
 export interface ScanResult {
   symbol: string;
@@ -343,6 +345,55 @@ class GoalScanner {
 
     const riskReward = Math.abs(scanResult.takeProfit! - scanResult.entry!) / stopDistance;
     const expectedProfit = (scanResult.takeProfit! - scanResult.entry!) * positionSize * (direction === 'buy' ? 1 : -1);
+
+    // NEW: LLM-enhanced decision validation for Smart Goal Mode
+    const userId = sessionConfig.user_id;
+    if (userId && sessionConfig.use_llm_validation) {
+      console.log('[Goal Scanner] 🤖 Running LLM validation on setup...');
+
+      try {
+        // Get enriched context from historical performance
+        const enrichedContext = await llmContextEnricher.enrichDecisionContext(
+          userId,
+          scanResult.symbol,
+          scanResult.confidence!,
+          scanResult.marketConditions
+        );
+
+        // Build market snapshot for LLM
+        const snapshot = {
+          symbol: scanResult.symbol,
+          currentPrice: scanResult.entry!,
+          direction,
+          setupType: scanResult.setupType!,
+          confidence: scanResult.confidence!,
+          marketConditions: scanResult.marketConditions,
+          riskReward,
+          historicalContext: enrichedContext
+        };
+
+        // Run through 5-layer LLM pipeline
+        await eventBasedLLMEngine.initialize(userId, sessionId);
+        const llmResult = await eventBasedLLMEngine.execute5LayerPipeline(
+          snapshot,
+          'goal_mode_signal'
+        );
+
+        if (!llmResult.shouldExecute) {
+          console.log(`[Goal Scanner] ❌ LLM rejected trade: ${llmResult.reasoning}`);
+          return null;
+        }
+
+        // Update confidence and reasoning with LLM insights
+        scanResult.confidence = llmResult.finalConfidence;
+        scanResult.reasoning = `${scanResult.reasoning} | LLM Analysis: ${llmResult.reasoning}`;
+
+        console.log(`[Goal Scanner] ✅ LLM approved trade (${llmResult.finalConfidence}% confidence)`);
+      } catch (error) {
+        console.error('[Goal Scanner] LLM validation error:', error);
+        // Continue with original signal if LLM fails
+      }
+    }
 
     return {
       sessionId,
