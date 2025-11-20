@@ -20,7 +20,7 @@ const NavigationMenuComponent = () => {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <nav className="bg-gray-900/50 backdrop-blur-sm border-b border-gray-800 relative z-[9999]">
+    <nav className="bg-gray-900 border-b border-gray-800 relative z-[9999]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-8">
