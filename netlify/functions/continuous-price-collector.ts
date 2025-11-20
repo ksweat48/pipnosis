@@ -1,0 +1,136 @@
+import type { Handler } from '@netlify/functions';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const metaApiToken = process.env.METAAPI_TOKEN!;
+const metaApiAccountId = process.env.METAAPI_ACCOUNT_ID!;
+const metaApiRegion = process.env.METAAPI_REGION || 'new-york';
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+const ACTIVE_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD'];
+
+interface MetaApiPrice {
+  symbol: string;
+  bid: number;
+  ask: number;
+  time: string;
+  brokerTime: string;
+}
+
+async function fetchPriceFromMetaApi(symbol: string): Promise<MetaApiPrice | null> {
+  try {
+    const url = `https://mt-client-api-v1.${metaApiRegion}.agiliumtrade.ai/users/current/accounts/${metaApiAccountId}/symbols/${symbol}/current-price`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'auth-token': metaApiToken,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      console.error(`[PriceCollector] MetaAPI error for ${symbol}: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+
+    if (!data.bid || !data.ask) {
+      console.error(`[PriceCollector] Invalid price data for ${symbol}`);
+      return null;
+    }
+
+    return {
+      symbol,
+      bid: parseFloat(data.bid),
+      ask: parseFloat(data.ask),
+      time: data.time || new Date().toISOString(),
+      brokerTime: data.brokerTime || data.time || new Date().toISOString()
+    };
+  } catch (error) {
+    console.error(`[PriceCollector] Error fetching ${symbol}:`, error);
+    return null;
+  }
+}
+
+async function savePriceToDatabase(priceData: MetaApiPrice): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('realtime_prices')
+      .insert({
+        symbol: priceData.symbol,
+        bid: priceData.bid,
+        ask: priceData.ask,
+        spread: priceData.ask - priceData.bid,
+        broker_time: priceData.brokerTime,
+        created_at: new Date().toISOString()
+      });
+
+    if (error) {
+      console.error(`[PriceCollector] Database error for ${priceData.symbol}:`, error.message);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error(`[PriceCollector] Unexpected error saving ${priceData.symbol}:`, error);
+    return false;
+  }
+}
+
+export const handler: Handler = async (event, context) => {
+  console.log('[PriceCollector] Starting continuous price collection...');
+  const startTime = Date.now();
+
+  try {
+    const results = await Promise.allSettled(
+      ACTIVE_SYMBOLS.map(async (symbol) => {
+        const priceData = await fetchPriceFromMetaApi(symbol);
+        if (priceData) {
+          const saved = await savePriceToDatabase(priceData);
+          return { symbol, success: saved, price: priceData };
+        }
+        return { symbol, success: false, price: null };
+      })
+    );
+
+    const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+    const failed = results.length - successful;
+
+    const duration = Date.now() - startTime;
+    console.log(`[PriceCollector] ✅ Completed in ${duration}ms: ${successful} prices saved, ${failed} failed`);
+
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value.success && result.value.price) {
+        const { symbol, price } = result.value;
+        console.log(`  - ${symbol}: ${price.bid}/${price.ask} (spread: ${(price.ask - price.bid).toFixed(5)})`);
+      }
+    });
+
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        success: true,
+        pricesCollected: successful,
+        pricesFailed: failed,
+        durationMs: duration,
+        timestamp: new Date().toISOString()
+      })
+    };
+  } catch (error) {
+    console.error('[PriceCollector] Unexpected error:', error);
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      })
+    };
+  }
+};
