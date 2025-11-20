@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase';
 import { kpiAggregator } from '../services/kpi-aggregator';
 import { KPIMetricCard } from '../components/KPIMetricCard';
 import { LLMLayerFunnel } from '../components/LLMLayerFunnel';
+import { NavigationMenu } from '../components/NavigationMenu';
 
 type TabId = 'overview' | 'llm-layers' | 'avoid-patterns' | 'learning-loop' | 'strategy-evolution' | 'smart-goal' | 'mastery';
 
@@ -124,8 +125,10 @@ function AILearningCenterPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6">
-      <div className="max-w-7xl mx-auto">
+    <>
+      <NavigationMenu />
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6">
+        <div className="max-w-7xl mx-auto">
         <div className="bg-gradient-to-br from-emerald-900/30 to-blue-900/30 backdrop-blur-sm border-2 border-emerald-500/30 rounded-lg shadow-md p-6 mb-6">
           <div className="flex items-center justify-between">
             <div>
@@ -235,7 +238,8 @@ function AILearningCenterPage() {
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
