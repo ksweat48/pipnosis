@@ -13,7 +13,6 @@ const NavigationMenuComponent = () => {
   const navItems = [
     { path: '/trade', label: 'Charts', icon: TrendingUp },
     { path: '/ai-trade', label: 'AI Trade', icon: Bot },
-    { path: '/ai-learning-center', label: 'Learning Center', icon: Target },
     { path: '/history', label: 'History', icon: History },
     { path: '/analysis', label: 'Analysis', icon: BarChart3 },
   ];
@@ -113,12 +112,12 @@ const NavigationMenuComponent = () => {
                             </Link>
 
                             <Link
-                              to="/admin/learnings"
+                              to="/ai-learning-center"
                               onClick={() => setShowProfileMenu(false)}
                               className="w-full flex items-center gap-3 px-3 py-2 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 rounded transition-colors"
                             >
-                              <BookOpen size={18} />
-                              <span>AI Learning Center</span>
+                              <Target size={18} />
+                              <span>Learning Center</span>
                             </Link>
 
                             <Link
