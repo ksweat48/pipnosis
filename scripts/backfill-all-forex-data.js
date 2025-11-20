@@ -1,25 +1,37 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.VITE_SUPABASE_SERVICE_ROLE_KEY
-);
+dotenv.config({ path: join(__dirname, '..', '.env') });
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('❌ Missing required environment variables:');
+  console.error('VITE_SUPABASE_URL:', supabaseUrl ? '✅' : '❌');
+  console.error('SUPABASE_SERVICE_ROLE_KEY:', supabaseServiceKey ? '✅' : '❌');
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const PAIRS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
 const TIMEFRAMES = [
-  { name: '1m', minutes: 1 },
-  { name: '5m', minutes: 5 },
-  { name: '15m', minutes: 15 },
-  { name: '30m', minutes: 30 },
-  { name: '1h', minutes: 60 },
-  { name: '4h', minutes: 240 },
-  { name: '1d', minutes: 1440 }
+  { name: 'M1', minutes: 1 },
+  { name: 'M5', minutes: 5 },
+  { name: 'M15', minutes: 15 },
+  { name: 'M30', minutes: 30 },
+  { name: 'H1', minutes: 60 },
+  { name: 'H4', minutes: 240 },
+  { name: 'D1', minutes: 1440 }
 ];
 
-const RATE_LIMIT_DELAY = 12000;
+const RATE_LIMIT_DELAY = 2000;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -41,10 +53,14 @@ async function generateSyntheticCandle(symbol, timeframe, timestamp) {
   const close = low + Math.random() * (high - low);
   const volume = Math.floor(Math.random() * 10000) + 1000;
 
+  const openTime = new Date(timestamp).toISOString();
+  const closeTime = new Date(timestamp + (timeframe.minutes * 60 * 1000)).toISOString();
+
   return {
     symbol,
     timeframe: timeframe.name,
-    timestamp: new Date(timestamp).toISOString(),
+    open_time: openTime,
+    close_time: closeTime,
     open: parseFloat(open.toFixed(5)),
     high: parseFloat(high.toFixed(5)),
     low: parseFloat(low.toFixed(5)),
@@ -81,7 +97,7 @@ async function backfillPairTimeframe(symbol, timeframe) {
     const { error } = await supabase
       .from('forex_candles')
       .upsert(batch, {
-        onConflict: 'symbol,timeframe,timestamp',
+        onConflict: 'symbol,timeframe,open_time',
         ignoreDuplicates: false
       });
 
