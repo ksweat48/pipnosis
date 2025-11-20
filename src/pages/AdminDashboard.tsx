@@ -24,9 +24,6 @@ import {
   Zap,
   Target,
   Sparkles,
-  TrendingUp,
-  Award,
-  LineChart,
   ArrowRight,
   Play,
   Pause,
@@ -344,13 +341,6 @@ export function AdminDashboard() {
                   onClick={() => navigate('/admin/ai-training')}
                 />
                 <QuickActionCard
-                  title="AI Learning Center"
-                  description="View AI progress, patterns, and strategies"
-                  icon={BookOpen}
-                  color="purple"
-                  onClick={() => navigate('/admin/learnings')}
-                />
-                <QuickActionCard
                   title="API Usage & KPIs"
                   description="Monitor API usage and performance metrics"
                   icon={BarChart3}
@@ -367,42 +357,6 @@ export function AdminDashboard() {
               </div>
             </div>
 
-            {/* Navigation Cards to AI Features */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <NavigationCard
-                title="AI Progress Dashboard"
-                description="Track skill level, milestones, and learning velocity"
-                icon={TrendingUp}
-                color="emerald"
-                stats={[
-                  { label: 'Skill Level', value: `${aiMetrics?.skillLevel || 0}%` },
-                  { label: 'Total Sessions', value: aiMetrics?.totalBacktests || 0 }
-                ]}
-                onClick={() => navigate('/admin/learnings')}
-              />
-              <NavigationCard
-                title="Pattern Discoveries"
-                description="View patterns the AI has learned and their effectiveness"
-                icon={Sparkles}
-                color="purple"
-                stats={[
-                  { label: 'Patterns Found', value: aiMetrics?.patternDiscoveries || 0 },
-                  { label: 'Insights', value: aiMetrics?.learningInsights || 0 }
-                ]}
-                onClick={() => navigate('/admin/learnings')}
-              />
-              <NavigationCard
-                title="Strategy Arsenal"
-                description="AI-discovered strategies that beat baseline"
-                icon={Award}
-                color="amber"
-                stats={[
-                  { label: 'Active Strategies', value: '...' },
-                  { label: 'Win Rate', value: `${aiMetrics?.avgWinRate.toFixed(1) || 0}%` }
-                ]}
-                onClick={() => navigate('/admin/learnings')}
-              />
-            </div>
 
             {/* System Health Overview */}
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
@@ -584,53 +538,6 @@ function QuickActionCard({ title, description, icon: Icon, color, onClick }: Qui
   );
 }
 
-interface NavigationCardProps {
-  title: string;
-  description: string;
-  icon: React.ElementType;
-  color: string;
-  stats: Array<{ label: string; value: string | number }>;
-  onClick: () => void;
-}
-
-function NavigationCard({ title, description, icon: Icon, color, stats, onClick }: NavigationCardProps) {
-  const colorClasses: Record<string, string> = {
-    emerald: 'from-emerald-900/30 to-green-900/30 border-emerald-500/30',
-    purple: 'from-purple-900/30 to-pink-900/30 border-purple-500/30',
-    amber: 'from-amber-900/30 to-orange-900/30 border-amber-500/30',
-  };
-
-  const iconColorClasses: Record<string, string> = {
-    emerald: 'text-emerald-400',
-    purple: 'text-purple-400',
-    amber: 'text-amber-400',
-  };
-
-  return (
-    <button
-      onClick={onClick}
-      className={`bg-gradient-to-br ${colorClasses[color]} backdrop-blur-sm border-2 rounded-xl p-6 transition-all text-left hover:scale-105 group`}
-    >
-      <div className="flex items-start justify-between mb-4">
-        <div className="p-3 bg-gray-900/50 rounded-lg">
-          <Icon className={iconColorClasses[color]} size={24} />
-        </div>
-        <ArrowRight className="text-gray-400 group-hover:text-white group-hover:translate-x-1 transition-all" size={20} />
-      </div>
-      <h3 className="text-white font-bold text-lg mb-2">{title}</h3>
-      <p className="text-gray-300 text-sm mb-4">{description}</p>
-      <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-700/50">
-        {stats.map((stat, index) => (
-          <div key={index}>
-            <div className="text-xs text-gray-400">{stat.label}</div>
-            <div className="text-white font-bold">{stat.value}</div>
-          </div>
-        ))}
-      </div>
-    </button>
-  );
-}
-
 interface HealthStatusCardProps {
   label: string;
   status: 'active' | 'idle' | 'error';
@@ -672,6 +579,3 @@ function HealthStatusCard({ label, status, details }: HealthStatusCardProps) {
     </div>
   );
 }
-
-// Import BookOpen at the top
-import { BookOpen } from 'lucide-react';

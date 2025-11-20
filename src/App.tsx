@@ -16,11 +16,10 @@ const HistoryPage = lazy(() => import('./pages/HistoryPage').then(m => ({ defaul
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
-// Admin pages - only loaded when needed (AITrainingPage, SessionLearningsPage, SystemDiagnosticsPage use default export)
+// Admin pages - only loaded when needed (AITrainingPage, SystemDiagnosticsPage use default export)
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 const KPIsPage = lazy(() => import('./pages/KPIsPage').then(m => ({ default: m.KPIsPage })));
 const AITrainingPage = lazy(() => import('./pages/AITrainingPage'));
-const SessionLearningsPage = lazy(() => import('./pages/SessionLearningsPage'));
 const SystemDiagnosticsPage = lazy(() => import('./pages/SystemDiagnosticsPage'));
 const AILearningCenterPage = lazy(() => import('./pages/AILearningCenterPage'));
 
@@ -143,14 +142,6 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute adminOnly={true}>
             <AITrainingPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/learnings"
-        element={
-          <ProtectedRoute adminOnly={true}>
-            <SessionLearningsPage />
           </ProtectedRoute>
         }
       />
