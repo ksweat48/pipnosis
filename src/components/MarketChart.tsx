@@ -34,7 +34,6 @@ import { ManualTradePanel } from '@/components/ManualTradePanel';
 import { getForexMarketStatus, type MarketStatus } from '@/utils/marketHours';
 import { concurrentBulkLoader } from '@/services/concurrent-bulk-loader';
 import { ChartLoadingOverlay, BackgroundLoadingIndicator } from '@/components/ChartLoadingOverlay';
-import { MarketStatusBanner } from '@/components/MarketStatusBanner';
 
 interface MarketChartProps {
   symbol: string;
@@ -863,55 +862,21 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     console.log(`[Chart] 🚀 Starting hybrid mode: Live ticks + DB polling for ${symbol} ${timeframe}`);
     setSystemStatus('connecting');
 
-    // Check market status before starting polling
-    const currentMarketStatus = getForexMarketStatus();
+    // Start live tick stream from BackgroundAggregator
+    console.log(`[Chart] 📡 Subscribing to live tick stream...`);
+    const unsubscribeTicks = backgroundCandleAggregator.onTickUpdate((tick) => {
+      updateCurrentCandleFromTick(tick);
+    });
 
-    if (!currentMarketStatus.isOpen) {
-      console.log(`[Chart] 🔴 Market is closed - pausing real-time updates`);
+    // Start database polling for validation and completed candles
+    console.log(`[Chart] 💾 Starting database polling (3s interval)...`);
+    chartCandlePoller.startPolling(symbol, timeframe).then(() => {
+      console.log(`[Chart] ✅ Database polling active for ${symbol} ${timeframe}`);
+      setSystemStatus('connected');
+    }).catch((error) => {
+      console.error(`[Chart] ❌ Failed to start polling:`, error);
       setSystemStatus('disconnected');
-      setMarketStatus('offline');
-    } else {
-      // Start live tick stream from BackgroundAggregator
-      console.log(`[Chart] 📡 Subscribing to live tick stream...`);
-      const unsubscribeTicks = backgroundCandleAggregator.onTickUpdate((tick) => {
-        updateCurrentCandleFromTick(tick);
-      });
-
-      // Start database polling for validation and completed candles
-      console.log(`[Chart] 💾 Starting database polling (3s interval)...`);
-      chartCandlePoller.startPolling(symbol, timeframe).then(() => {
-        console.log(`[Chart] ✅ Database polling active for ${symbol} ${timeframe}`);
-        setSystemStatus('connected');
-      }).catch((error) => {
-        console.error(`[Chart] ❌ Failed to start polling:`, error);
-        setSystemStatus('disconnected');
-      });
-    }
-
-    // Set up market status monitoring
-    const marketStatusInterval = setInterval(() => {
-      const marketStatus = getForexMarketStatus();
-      if (!marketStatus.isOpen && systemStatus !== 'disconnected') {
-        console.log(`[Chart] 🔴 Market closed - pausing updates`);
-        chartCandlePoller.pause();
-        setSystemStatus('disconnected');
-        setMarketStatus('offline');
-      } else if (marketStatus.isOpen && systemStatus === 'disconnected') {
-        console.log(`[Chart] 🟢 Market reopened - resuming updates`);
-        chartCandlePoller.resume();
-        chartCandlePoller.forceRefresh(symbol, timeframe);
-        setSystemStatus('connected');
-        setMarketStatus('live');
-      }
-    }, 60000);
-
-    let unsubscribeTicks: (() => void) | null = null;
-
-    if (currentMarketStatus.isOpen) {
-      unsubscribeTicks = backgroundCandleAggregator.onTickUpdate((tick) => {
-        updateCurrentCandleFromTick(tick);
-      });
-    }
+    });
 
     const unsubscribePoller = chartCandlePoller.onUpdate(symbol, timeframe, (result) => {
       if (result.hasNewData && result.candles.length > 0) {
@@ -949,12 +914,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     return () => {
       console.log(`[Chart] 🛑 Stopping hybrid mode for ${symbol} ${timeframe}`);
-      if (unsubscribeTicks) unsubscribeTicks();
+      unsubscribeTicks();
       unsubscribePoller();
       chartCandlePoller.stopPolling(symbol, timeframe);
       globalPollingCoordinator.setSymbolViewed(symbol, false);
       clearInterval(healthCheck);
-      clearInterval(marketStatusInterval);
       if (renderFrameRef.current) {
         cancelAnimationFrame(renderFrameRef.current);
       }
@@ -1178,8 +1142,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           </div>
         </div>
       )}
-
-      <MarketStatusBanner className="mb-3" />
 
       <div className="relative isolate">
         {isLoading && (

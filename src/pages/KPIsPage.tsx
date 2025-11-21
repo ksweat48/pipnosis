@@ -388,9 +388,8 @@ export function KPIsPage() {
               <p className="text-gray-400 mt-1">Monitor and improve AI trading effectiveness</p>
             </div>
           </div>
-        </div>
 
-            <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4">
             <div className="flex gap-2">
               {timeframeOptions.map((option) => (
                 <button
@@ -427,12 +426,14 @@ export function KPIsPage() {
               <span className="hidden sm:inline">Force Refresh</span>
             </button>
           </div>
-            <div className="text-xs text-gray-500 mb-6 flex items-center gap-2">
-              <Calendar size={14} />
-              Last updated: {lastRefresh.toLocaleString()}
-            </div>
+        </div>
 
-            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6 mb-8">
+        <div className="text-xs text-gray-500 mb-6 flex items-center gap-2">
+          <Calendar size={14} />
+          Last updated: {lastRefresh.toLocaleString()}
+        </div>
+
+        <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6 mb-8">
           <div className="flex items-center gap-3 mb-6">
             <Settings size={24} className="text-blue-400" />
             <div>
