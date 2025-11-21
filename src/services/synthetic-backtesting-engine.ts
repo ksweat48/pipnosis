@@ -10,6 +10,14 @@ export interface SyntheticBacktestConfig {
   sessionName: string;
   description?: string;
   symbols: string[];
+  selectedPair?: {
+    symbol: string;
+    confidence: number;
+    reasoning: string;
+    expectedEV: number;
+    riskLevel: string;
+    metrics?: any;
+  };
   startDate: Date;
   endDate: Date;
   timeframes: string[];
@@ -525,6 +533,9 @@ class SyntheticBacktestingEngine {
         session_name: config.sessionName,
         description: config.description,
         symbols: config.symbols,
+        selected_pair: config.selectedPair?.symbol,
+        pair_confidence: config.selectedPair?.confidence,
+        pair_selection_reasoning: config.selectedPair?.reasoning,
         start_date: config.startDate.toISOString(),
         end_date: config.endDate.toISOString(),
         timeframes: config.timeframes,

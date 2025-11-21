@@ -1,20 +1,21 @@
 /**
- * Simple Auto-Backtest Service with 10-Session Rolling Learning Cycles
+ * Simple Auto-Backtest Service with Daily Learning Cycles
  *
- * NEW ARCHITECTURE:
- * - Each auto-backtest session runs for 30 days (1 month) with 3 learning cycles
- * - Each day is a separate trade session with its own results
- * - AI learns every 10 sessions (days 10, 20, 30) using rolling windows
- * - Learning cycles: Sessions 1-10, then 11-20, then 21-30
- * - All learnings are cumulative and carry forward to next cycles
+ * NEW ARCHITECTURE (Daily Learning System):
+ * - Each day is a complete learning cycle (30 cycles per month, not 3)
+ * - Daily flow: Pair Selection → Backtest → LLM Analysis → Memory Update
+ * - LLM selects ONE optimal pair before each session
+ * - Post-session analysis runs IMMEDIATELY after every day
+ * - All learnings are instant and cumulative
  * - After 30 days complete, wait random delay (30-90s) then start new month
  *
- * Flow:
- * 1. Start new monthly session (30 days)
- * 2. Days 1-10: Run backtests → Day 10: LLM analyzes and learns
- * 3. Days 11-20: Run backtests (with day 10 learnings) → Day 20: LLM analyzes and learns
- * 4. Days 21-30: Run backtests (with cumulative learnings) → Day 30: LLM analyzes and learns
- * 5. Month complete → Wait delay → Start new month with all cumulative learnings
+ * Daily Flow (Repeated 30 times per month):
+ * 1. PHASE 1: Pre-Session Pair Selection (LLM analyzes all pairs, picks best)
+ * 2. PHASE 2: Run 1-Day Backtest (only for selected pair)
+ * 3. PHASE 3: Post-Session LLM Analysis (immediate learning extraction)
+ * 4. PHASE 4: Update Memory Systems (insights, patterns, calibration)
+ * 5. PHASE 5: Update KPIs Daily
+ * 6. Move to next day immediately
  */
 
 import { syntheticBacktestingEngine, SyntheticBacktestConfig } from './synthetic-backtesting-engine';
@@ -31,6 +32,8 @@ export interface SimpleAutoBacktestState {
   lastDayResult: {
     dayNumber: number;
     sessionName: string;
+    symbol: string;
+    pairConfidence: number;
     winRate: number;
     totalTrades: number;
     pnl: number;
@@ -74,7 +77,7 @@ class SimpleAutoBacktestService {
   private readonly MIN_DELAY_SECONDS = 30;
   private readonly MAX_DELAY_SECONDS = 90;
   private readonly DAYS_PER_MONTH = 30; // Fixed 30 days per monthly session
-  private readonly LEARNING_CYCLE_INTERVAL = 10; // NEW: Learn every 10 sessions
+  // LEARNING_CYCLE_INTERVAL removed - learning happens DAILY now
   private readonly PLATEAU_CHECK_INTERVAL = 5;
   private readonly HEARTBEAT_INTERVAL_MS = 60000;
   private readonly MAX_DAILY_BACKTESTS = 50;
@@ -439,35 +442,43 @@ class SimpleAutoBacktestService {
 
         await this.syncStateToDatabase({});
 
-        // Run 30 daily sessions with learning every 10 sessions
+        // Run 30 daily sessions with DAILY LEARNING (30 cycles, not 3)
         for (let day = 1; day <= this.DAYS_PER_MONTH; day++) {
           if (!this.isRunning) break;
 
           this.currentDayInMonth = day;
 
-          const currentCycle = Math.ceil(day / this.LEARNING_CYCLE_INTERVAL);
-          const dayInCycle = ((day - 1) % this.LEARNING_CYCLE_INTERVAL) + 1;
+          console.log(`\n[Auto-Backtest] ========== DAY ${day}/30 (Daily Learning Cycle) ==========`);
 
-          console.log(`\n[Auto-Backtest] ========== DAY ${day}/30 (Cycle ${currentCycle}, Day ${dayInCycle}/10) ==========`);
+          // PHASE 1: Pre-Session Pair Selection
+          console.log(`[Auto-Backtest] 🎯 PHASE 1: LLM Pair Selection...`);
+          const { llmPairSelector } = await import('./llm-pair-selector');
+          const selectedPair = await llmPairSelector.selectPairForDay(this.userId!);
 
-          // Run one day of trading
-          await this.runDailySession(day);
+          console.log(`[Auto-Backtest] ✅ Selected Pair: ${selectedPair.symbol}`);
+          console.log(`[Auto-Backtest]   Confidence: ${selectedPair.confidence}%`);
+          console.log(`[Auto-Backtest]   Reasoning: ${selectedPair.reasoning}`);
 
-          console.log(`[Auto-Backtest] Day ${day} complete`);
+          // PHASE 2: Run Daily Session (ONE pair only)
+          console.log(`[Auto-Backtest] 📊 PHASE 2: Running backtest for ${selectedPair.symbol}...`);
+          await this.runDailySession(day, selectedPair);
+
+          // PHASE 3: Post-Session LLM Analysis (IMMEDIATE)
+          console.log(`[Auto-Backtest] 🧠 PHASE 3: Post-session LLM analysis...`);
+          await this.triggerDailyLearningCycle(day, selectedPair);
+
+          // PHASE 4: Update Memory Systems
+          console.log(`[Auto-Backtest] 💾 PHASE 4: Updating memory systems...`);
+          await this.updateMemorySystems(day);
+
+          // PHASE 5: Update KPIs Daily
+          console.log(`[Auto-Backtest] 📊 PHASE 5: Updating daily KPIs...`);
+          const { kpiAggregator } = await import('./kpi-aggregator');
+          await kpiAggregator.updateAllKPIs(this.userId!);
+
+          console.log(`[Auto-Backtest] ✅ Day ${day} complete with full learning cycle`);
 
           await this.syncStateToDatabase({});
-
-          // NEW: Trigger LLM learning every 10 sessions
-          if (day % this.LEARNING_CYCLE_INTERVAL === 0 && this.isRunning) {
-            console.log(`\n[Auto-Backtest] ========== 10-SESSION LEARNING CYCLE COMPLETE ==========`);
-            console.log(`[Auto-Backtest] 🧠 Triggering LLM Brain to analyze last 10 sessions...`);
-            console.log(`[Auto-Backtest] Sessions analyzed: ${day - 9} through ${day}`);
-
-            await this.triggerLLMLearningCycle(day);
-
-            console.log(`[Auto-Backtest] ✅ LLM learning complete - improvements applied`);
-            console.log(`[Auto-Backtest] Continuing with next 10-session cycle...\n`);
-          }
 
           // Small delay between days
           if (day < this.DAYS_PER_MONTH && this.isRunning) {
@@ -530,48 +541,58 @@ class SimpleAutoBacktestService {
   }
 
   /**
-   * Trigger LLM Brain to analyze last 10 sessions and implement improvements
+   * Trigger DAILY learning analysis (runs after EVERY session)
    */
-  private async triggerLLMLearningCycle(dayNumber: number): Promise<void> {
+  private async triggerDailyLearningCycle(
+    dayNumber: number,
+    selectedPair: { symbol: string; confidence: number }
+  ): Promise<void> {
     if (!this.userId) return;
 
     try {
-      const cycleNumber = Math.ceil(dayNumber / this.LEARNING_CYCLE_INTERVAL);
-      const startDay = ((cycleNumber - 1) * this.LEARNING_CYCLE_INTERVAL) + 1;
-      const endDay = dayNumber;
+      console.log(`[Auto-Backtest] 🧠 Running DAILY learning analysis for Day ${dayNumber}...`);
 
-      console.log(`[Auto-Backtest] 🔍 Analyzing sessions ${startDay}-${endDay} (10-session rolling window)`);
+      // Get today's session
+      const { data: todaySession } = await supabase
+        .from('daily_session_results')
+        .select('*')
+        .eq('user_id', this.userId)
+        .eq('month_number', this.currentMonthNumber)
+        .eq('day_number', dayNumber)
+        .single();
 
-      // Import session learning generator
-      const { sessionLearningGenerator } = await import('./session-learning-generator');
-
-      // Generate comprehensive learning from the last 10 sessions
-      const learningData = await sessionLearningGenerator.generateRolling10SessionLearning(
-        this.userId,
-        startDay,
-        endDay,
-        this.monthlyParentSessionId || undefined
-      );
-
-      if (learningData) {
-        console.log('[Auto-Backtest] 📊 Learning Analysis Complete:');
-        console.log(`  - Key Learnings: ${learningData.keyLearnings?.length || 0}`);
-        console.log(`  - Recommendations: ${learningData.recommendations?.length || 0}`);
-        console.log(`  - Best Setup: ${learningData.bestSetup?.name || 'N/A'}`);
-        console.log(`  - Worst Setup: ${learningData.worstSetup?.name || 'N/A'}`);
-
-        // Run consistency validation every 10 sessions
-        await this.runConsistencyValidation(dayNumber);
-
-        // CRITICAL: Update KPIs after 10-session learning cycle completes
-        console.log('[Auto-Backtest] 📊 Updating KPIs after 10-session learning cycle...');
-        const { kpiAggregator } = await import('./kpi-aggregator');
-        await kpiAggregator.updateAllKPIs(this.userId);
-        console.log('[Auto-Backtest] ✅ KPIs refreshed with new learning insights');
+      if (!todaySession) {
+        console.error('[Auto-Backtest] No session found for daily learning');
+        return;
       }
 
+      // Import learning services
+      const { progressiveDailyLearning } = await import('./progressive-daily-learning');
+      const { llmPostSessionAnalyzer } = await import('./llm-post-session-analyzer');
+
+      // Run progressive daily learning (already exists!)
+      console.log('[Auto-Backtest] 📚 Processing daily progressive learning...');
+      await progressiveDailyLearning.processDailySession(this.userId, todaySession);
+
+      // Run LLM post-session analysis
+      console.log('[Auto-Backtest] 🤖 Running LLM post-session analysis...');
+      const trades = await this.fetchSessionTrades(todaySession.session_name);
+      if (trades.length > 0) {
+        await llmPostSessionAnalyzer.analyzeSession(
+          this.userId,
+          todaySession.session_name,
+          trades,
+          'synthetic'
+        );
+      }
+
+      // Calculate pair selection accuracy
+      await this.calculatePairSelectionAccuracy(selectedPair, todaySession);
+
+      console.log(`[Auto-Backtest] ✅ Daily learning complete for Day ${dayNumber}`);
+
     } catch (error) {
-      console.error('[Auto-Backtest] Error in LLM learning cycle:', error);
+      console.error('[Auto-Backtest] Error in daily learning cycle:', error);
     }
   }
 
@@ -603,9 +624,12 @@ class SimpleAutoBacktestService {
   }
 
   /**
-   * Run a single daily session (1 day of trading)
+   * Run a single daily session (1 day of trading) with LLM-selected pair
    */
-  private async runDailySession(dayNumber: number): Promise<void> {
+  private async runDailySession(
+    dayNumber: number,
+    selectedPair: { symbol: string; confidence: number; reasoning: string; expectedEV: number; riskLevel: string }
+  ): Promise<void> {
     if (!this.userId) {
       throw new Error('No user ID available for daily session');
     }
@@ -613,7 +637,9 @@ class SimpleAutoBacktestService {
     try {
       const sessionName = this.generateDailySessionName(dayNumber);
       const riskLevel = this.randomRiskLevel();
-      const symbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];
+
+      // USE ONLY THE SELECTED PAIR (not all 5)
+      const symbols = [selectedPair.symbol];
 
       // Each day is exactly 1 day of data
       const endDate = new Date();
@@ -621,13 +647,14 @@ class SimpleAutoBacktestService {
 
       console.log(`[Auto-Backtest] Session: ${sessionName}`);
       console.log(`[Auto-Backtest] Duration: 1 day`);
+      console.log(`[Auto-Backtest] Pair: ${selectedPair.symbol} (LLM Confidence: ${selectedPair.confidence}%)`);
       console.log(`[Auto-Backtest] Risk Level: ${riskLevel}`);
-      console.log(`[Auto-Backtest] Pairs: ${symbols.join(', ')}`);
 
       const config: SyntheticBacktestConfig = {
         sessionName,
-        description: `Month ${this.currentMonthNumber} - Day ${dayNumber} - ${riskLevel} risk`,
+        description: `Month ${this.currentMonthNumber} - Day ${dayNumber} - ${selectedPair.symbol} - ${riskLevel} risk`,
         symbols,
+        selectedPair, // NEW: Store selected pair info
         startDate,
         endDate,
         timeframes: ['H1', 'M5', 'M1'],
@@ -653,10 +680,12 @@ class SimpleAutoBacktestService {
         }
       );
 
-      // Update day result
+      // Update day result with selected pair info
       this.lastDayResult = {
         dayNumber,
         sessionName,
+        symbol: selectedPair.symbol, // NEW
+        pairConfidence: selectedPair.confidence, // NEW
         winRate: result.winRate,
         totalTrades: result.totalTrades,
         pnl: result.totalPnL,
@@ -666,7 +695,7 @@ class SimpleAutoBacktestService {
       console.log(`[Auto-Backtest] Day ${dayNumber} ✅ Win rate: ${result.winRate.toFixed(1)}%, P&L: $${result.totalPnL.toFixed(2)}, Trades: ${result.totalTrades}`);
 
       // Save daily result to database for calendar persistence
-      await this.saveDailyResult(dayNumber, sessionName, result);
+      await this.saveDailyResult(dayNumber, sessionName, result, selectedPair);
 
       // Process confidence tracking for completed trades
       try {
@@ -674,16 +703,6 @@ class SimpleAutoBacktestService {
         await aiConfidenceTracker.processSyntheticBacktestTrades(this.userId, result.sessionId);
       } catch (confError) {
         console.error('[Auto-Backtest] Error processing confidence tracking:', confError);
-      }
-
-      // CRITICAL: Update KPIs immediately after each day completes
-      try {
-        console.log(`[Auto-Backtest] 📊 Updating KPIs for day ${dayNumber}...`);
-        const { kpiAggregator } = await import('./kpi-aggregator');
-        await kpiAggregator.updateAllKPIs(this.userId);
-        console.log(`[Auto-Backtest] ✅ KPIs updated - Learning Center data refreshed`);
-      } catch (kpiError) {
-        console.error('[Auto-Backtest] Error updating KPIs:', kpiError);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -703,7 +722,12 @@ class SimpleAutoBacktestService {
   /**
    * Save daily result to database for calendar persistence
    */
-  private async saveDailyResult(dayNumber: number, sessionName: string, result: any): Promise<void> {
+  private async saveDailyResult(
+    dayNumber: number,
+    sessionName: string,
+    result: any,
+    selectedPair: { symbol: string; confidence: number }
+  ): Promise<void> {
     if (!this.userId) return;
 
     try {
@@ -718,6 +742,8 @@ class SimpleAutoBacktestService {
           session_date: new Date().toISOString(),
           session_name: sessionName,
           monthly_parent_session_id: this.monthlyParentSessionId,
+          selected_pair: selectedPair.symbol, // NEW
+          pair_confidence: selectedPair.confidence, // NEW
           win_rate: result.winRate || 0,
           total_trades: result.totalTrades || 0,
           pnl: result.totalPnL || 0,
@@ -948,6 +974,74 @@ class SimpleAutoBacktestService {
     } finally {
       this.breakthroughMode = false;
       await this.syncStateToDatabase({});
+    }
+  }
+
+  /**
+   * Calculate pair selection accuracy (expected vs actual)
+   */
+  private async calculatePairSelectionAccuracy(
+    selectedPair: { symbol: string; confidence: number },
+    sessionResult: any
+  ): Promise<void> {
+    if (!this.userId) return;
+
+    try {
+      const actualPerformance = sessionResult.win_rate;
+      const expectedPerformance = selectedPair.confidence;
+      const accuracy = 100 - Math.abs(actualPerformance - expectedPerformance);
+
+      console.log(`[Auto-Backtest] Pair Selection Accuracy: ${accuracy.toFixed(1)}%`);
+      console.log(`[Auto-Backtest]   Expected: ${expectedPerformance}%, Actual: ${actualPerformance.toFixed(1)}%`);
+
+      await supabase
+        .from('pair_selection_history')
+        .update({
+          actual_win_rate: actualPerformance,
+          accuracy
+        })
+        .eq('user_id', this.userId)
+        .eq('symbol', selectedPair.symbol)
+        .order('session_date', { ascending: false })
+        .limit(1);
+    } catch (error) {
+      console.error('[Auto-Backtest] Error calculating pair selection accuracy:', error);
+    }
+  }
+
+  /**
+   * Fetch trades from a session for analysis
+   */
+  private async fetchSessionTrades(sessionName: string): Promise<any[]> {
+    try {
+      const { data: trades } = await supabase
+        .from('synthetic_backtest_trades')
+        .select('*')
+        .ilike('session_name', `%${sessionName}%`)
+        .order('entry_time', { ascending: true });
+
+      return trades || [];
+    } catch (error) {
+      console.error('[Auto-Backtest] Error fetching session trades:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Update memory systems after daily learning
+   */
+  private async updateMemorySystems(dayNumber: number): Promise<void> {
+    if (!this.userId) return;
+
+    try {
+      console.log('[Auto-Backtest] Updating AI memory systems...');
+
+      const { aiSkillTracker } = await import('./ai-skill-tracker');
+      await aiSkillTracker.recalculateProgression(this.userId);
+
+      console.log('[Auto-Backtest] ✅ Memory systems updated');
+    } catch (error) {
+      console.error('[Auto-Backtest] Error updating memory systems:', error);
     }
   }
 

@@ -1984,12 +1984,27 @@ export default function AITrainingPage() {
                               {session.risk_mode.toUpperCase()} RISK
                             </span>
                           )}
-                          {session.symbols && (
-                            <span className="text-xs">
-                              {Array.isArray(session.symbols) ? session.symbols.length : 0} pairs
-                            </span>
-                          )}
                         </div>
+
+                        {/* Display selected pair (new daily learning system) */}
+                        {session.selected_pair && (
+                          <div className="text-sm text-blue-300 mt-1 flex items-center gap-2">
+                            <span className="text-gray-500">Pair:</span>
+                            <span className="font-mono font-bold">{session.selected_pair}</span>
+                            {session.pair_confidence && (
+                              <span className="text-gray-400">
+                                ({session.pair_confidence}% confidence)
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {/* Fallback: show all pairs for old sessions */}
+                        {!session.selected_pair && session.symbols && Array.isArray(session.symbols) && session.symbols.length > 0 && (
+                          <div className="text-xs text-blue-300 mt-1 flex items-center gap-1">
+                            <span className="text-gray-500">Pairs:</span>
+                            <span className="font-mono">{session.symbols.join(' • ')}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="text-right">
                         <div className={`text-lg font-bold ${
