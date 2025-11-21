@@ -43,16 +43,16 @@ TIMEFRAMES = {
     'W1': Interval.in_weekly,
 }
 
-# Optimized fetch limits per timeframe for maximum historical coverage
+# Optimized fetch limits per timeframe for 200-candle backfill
 FETCH_LIMITS = {
-    'M1': 7200,    # ~5 days
-    'M5': 6048,    # ~3 weeks
-    'M15': 5760,   # ~60 days (2 months)
-    'M30': 4320,   # ~90 days (3 months)
-    'H1': 4320,    # ~180 days (6 months)
-    'H4': 2160,    # ~360 days (1 year)
-    'D1': 365,     # ~1 year
-    'W1': 260,     # ~5 years
+    'M1': 200,     # 3.3 hours
+    'M5': 200,     # 16.7 hours
+    'M15': 200,    # 2 days
+    'M30': 200,    # 4.2 days
+    'H1': 200,     # 8.3 days
+    'H4': 200,     # 33 days
+    'D1': 200,     # 200 days (6.7 months)
+    'W1': 200,     # 1400 days (3.8 years)
 }
 
 TIMEFRAME_MINUTES = {
