@@ -41,6 +41,9 @@
   timeout = 300
   schedule = "*/5 * * * *"
 
+[functions."polling-health"]
+  timeout = 10
+
 [functions."connection-health"]
   timeout = 26
 
