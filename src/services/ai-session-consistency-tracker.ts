@@ -53,14 +53,14 @@ class AISessionConsistencyTracker {
     6: 8.0    // Exceptional (maintain - very strict)
   };
 
-  // PF requirements by skill level (for next level advancement)
+  // PF requirements by skill level (for next level advancement) - aligned with 10-session avg
   private readonly PF_REQUIREMENTS: Record<number, number> = {
     1: 1.0,  // Novice -> Intermediate
-    2: 1.0,  // Intermediate -> Pro
+    2: 1.2,  // Intermediate -> Pro
     3: 1.5,  // Pro -> Expert
     4: 1.8,  // Expert -> Master
     5: 2.0,  // Master -> Exceptional
-    6: 2.2   // Exceptional (maintain)
+    6: 2.5   // Exceptional (maintain)
   };
 
   /**

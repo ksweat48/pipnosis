@@ -9,6 +9,7 @@ interface SkillLevelThresholds {
   minTrades: number;
   minWinRate: number;
   minProfitFactor: number;
+  minConsistency: number;
   minAvgRR: number;
   minCSS: number;
   description: string;
@@ -40,6 +41,10 @@ interface SkillProgressionData {
   totalSyntheticBacktests?: number;
   totalRealBacktests?: number;
   totalTradesForPFCalc?: number; // Total trades (wins+losses) used for profit factor weighting
+  last10SessionWRAvg?: number;
+  last10SessionPFAvg?: number;
+  last10SessionConsistencyPct?: number;
+  totalLosingTrades?: number;
 }
 
 interface MilestoneData {
@@ -59,6 +64,7 @@ class AISkillTracker {
       minTrades: 500,
       minWinRate: 35,
       minProfitFactor: 1.0,
+      minConsistency: 0,
       minAvgRR: 0,
       minCSS: 0,
       description: 'Starting to learn basic patterns.'
@@ -68,6 +74,7 @@ class AISkillTracker {
       minTrades: 1000,
       minWinRate: 45,
       minProfitFactor: 1.2,
+      minConsistency: 35,
       minAvgRR: 0,
       minCSS: 0,
       description: 'Understanding market patterns.'
@@ -77,6 +84,7 @@ class AISkillTracker {
       minTrades: 5000,
       minWinRate: 55,
       minProfitFactor: 1.5,
+      minConsistency: 45,
       minAvgRR: 0,
       minCSS: 0,
       description: 'Consistently profitable trader.'
@@ -86,6 +94,7 @@ class AISkillTracker {
       minTrades: 10000,
       minWinRate: 65,
       minProfitFactor: 1.8,
+      minConsistency: 55,
       minAvgRR: 0,
       minCSS: 0,
       description: 'Mastering market dynamics.'
@@ -95,6 +104,7 @@ class AISkillTracker {
       minTrades: 50000,
       minWinRate: 75,
       minProfitFactor: 2.0,
+      minConsistency: 65,
       minAvgRR: 0,
       minCSS: 0,
       description: 'Elite level performance.'
@@ -104,6 +114,7 @@ class AISkillTracker {
       minTrades: 100000,
       minWinRate: 85,
       minProfitFactor: 2.5,
+      minConsistency: 75,
       minAvgRR: 0,
       minCSS: 0,
       description: 'Exceptional trading consistency.'
@@ -156,7 +167,11 @@ class AISkillTracker {
         totalBacktestsCompleted: data.total_backtests_completed || 0,
         totalSyntheticBacktests: data.total_synthetic_backtests || 0,
         totalRealBacktests: data.total_real_backtests || 0,
-        totalTradesForPFCalc: data.total_trades_for_pf_calc || data.total_trades_analyzed // Fallback to winning trades if not set
+        totalTradesForPFCalc: data.total_trades_for_pf_calc || data.total_trades_analyzed,
+        last10SessionWRAvg: data.last_10_session_wr_avg ? parseFloat(data.last_10_session_wr_avg.toString()) : undefined,
+        last10SessionPFAvg: data.last_10_session_pf_avg ? parseFloat(data.last_10_session_pf_avg.toString()) : undefined,
+        last10SessionConsistencyPct: data.last_10_session_consistency_pct ? parseFloat(data.last_10_session_consistency_pct.toString()) : undefined,
+        totalLosingTrades: data.total_losing_trades || 0
       };
     } catch (error) {
       console.error('[AI Skill Tracker] Exception in getSkillProgression:', error);
@@ -401,12 +416,23 @@ class AISkillTracker {
         console.log(`[AI Skill Tracker] Recent performance: CSS=${cssValue.toFixed(2)}, Avg R:R=${avgRR.toFixed(2)}`);
       }
 
-      // === STEP 4: DETERMINE SKILL LEVEL WITH GATING ===
+      // === STEP 4: DETERMINE SKILL LEVEL WITH 10-SESSION VALIDATION ===
       const oldLevel = current.currentSkillLevel;
-      let newLevel = this.calculateSkillLevel(newSuccessfulTrades, newWinRate, newProfitFactor);
+      const skillLevelResult = await this.calculateSkillLevelWith10SessionValidation(
+        userId,
+        newSuccessfulTrades,
+        newWinRate,
+        newProfitFactor
+      );
+      let newLevel = skillLevelResult.level;
       let leveledUp = this.getSkillLevelNumeric(newLevel) > this.getSkillLevelNumeric(oldLevel);
 
       console.log(`[AI Skill Tracker] Skill level: ${oldLevel} → ${newLevel}${leveledUp ? ' 🎉 LEVEL UP!' : ''}`);
+      if (skillLevelResult.blockingReasons.length > 0) {
+        console.log(`[AI Skill Tracker] Blocking reasons:`);
+        skillLevelResult.blockingReasons.forEach(reason => console.log(`[AI Skill Tracker]   - ${reason}`));
+        validationWarnings.push(...skillLevelResult.blockingReasons);
+      }
 
       // === STEP 4.5: CONSISTENCY VALIDATION ===
       let consistencyValidation: ConsistencyValidationResult | null = null;
@@ -512,6 +538,10 @@ class AISkillTracker {
       const sessionCounters = this.calculateSessionCounters(current, sourceType);
       console.log(`[AI Skill Tracker] 📊 Session counters: Total=${sessionCounters.total}, Synthetic=${sessionCounters.synthetic}, Real=${sessionCounters.real}`);
 
+      // === STEP 5.7: CALCULATE 10-SESSION AVERAGES FOR STORAGE ===
+      const tenSessionAverages = await this.calculate10SessionAverages(userId);
+      console.log(`[AI Skill Tracker] 📈 10-Session Averages for storage: WR=${tenSessionAverages.avgWinRate.toFixed(1)}%, PF=${tenSessionAverages.avgProfitFactor.toFixed(2)}, Consistency=${tenSessionAverages.consistencyPct.toFixed(0)}%`);
+
       // === STEP 6: UPDATE DATABASE ===
       const { error } = await supabase
         .from('ai_skill_progression')
@@ -537,6 +567,10 @@ class AISkillTracker {
           last_10_session_pf_average: consistencyValidation?.pfAverage || 0,
           consistency_validation_passed: !consistencyBlocked,
           consistency_failure_reason: consistencyBlocked ? consistencyValidation?.failureReason : null,
+          // NEW: 10-session averages for skill level validation
+          last_10_session_wr_avg: tenSessionAverages.avgWinRate,
+          last_10_session_pf_avg: tenSessionAverages.avgProfitFactor,
+          last_10_session_consistency_pct: tenSessionAverages.consistencyPct,
           // NEW: Session counters
           total_backtests_completed: sessionCounters.total,
           total_synthetic_backtests: sessionCounters.synthetic,
@@ -584,7 +618,119 @@ class AISkillTracker {
   }
 
   /**
+   * Calculate 10-session rolling averages for skill level validation
+   * Returns averages for win rate, profit factor, and consistency percentage
+   */
+  private async calculate10SessionAverages(userId: string): Promise<{
+    avgWinRate: number;
+    avgProfitFactor: number;
+    consistencyPct: number;
+    sessionCount: number;
+  }> {
+    try {
+      const { data: sessions, error } = await supabase
+        .from('synthetic_backtest_sessions')
+        .select('win_rate, profit_factor, total_trades, wins_count')
+        .eq('user_id', userId)
+        .eq('status', 'completed')
+        .not('win_rate', 'is', null)
+        .not('profit_factor', 'is', null)
+        .gt('total_trades', 0)
+        .order('completed_at', { ascending: false })
+        .limit(10);
+
+      if (error || !sessions || sessions.length === 0) {
+        console.log('[AI Skill Tracker] No sessions found for 10-session calculation');
+        return { avgWinRate: 0, avgProfitFactor: 0, consistencyPct: 0, sessionCount: 0 };
+      }
+
+      const validSessions = sessions.filter(s => {
+        const winRate = parseFloat(s.win_rate?.toString() || '0');
+        const profitFactor = parseFloat(s.profit_factor?.toString() || '0');
+        return winRate > 0 && profitFactor > 0;
+      });
+
+      if (validSessions.length === 0) {
+        return { avgWinRate: 0, avgProfitFactor: 0, consistencyPct: 0, sessionCount: 0 };
+      }
+
+      const totalWinRate = validSessions.reduce((sum, s) => sum + parseFloat(s.win_rate?.toString() || '0'), 0);
+      const totalProfitFactor = validSessions.reduce((sum, s) => sum + parseFloat(s.profit_factor?.toString() || '0'), 0);
+
+      const avgWinRate = totalWinRate / validSessions.length;
+      const avgProfitFactor = totalProfitFactor / validSessions.length;
+
+      const consistentSessions = validSessions.filter(s => {
+        const wr = parseFloat(s.win_rate?.toString() || '0');
+        const pf = parseFloat(s.profit_factor?.toString() || '0');
+        return wr >= 35 && pf >= 1.0;
+      });
+
+      const consistencyPct = (consistentSessions.length / validSessions.length) * 100;
+
+      console.log(`[AI Skill Tracker] 10-Session Averages: WR=${avgWinRate.toFixed(1)}%, PF=${avgProfitFactor.toFixed(2)}, Consistency=${consistencyPct.toFixed(0)}% (${validSessions.length} sessions)`);
+
+      return {
+        avgWinRate,
+        avgProfitFactor,
+        consistencyPct,
+        sessionCount: validSessions.length
+      };
+    } catch (error) {
+      console.error('[AI Skill Tracker] Error calculating 10-session averages:', error);
+      return { avgWinRate: 0, avgProfitFactor: 0, consistencyPct: 0, sessionCount: 0 };
+    }
+  }
+
+  /**
    * Calculate skill level based on specification requirements
+   * Must meet ALL FOUR criteria to advance: trades, 10-session win rate avg, 10-session PF avg, and consistency
+   * IMPORTANT: Only winning trades count toward totalTrades
+   */
+  private async calculateSkillLevelWith10SessionValidation(
+    userId: string,
+    totalTrades: number,
+    winRate: number,
+    profitFactor: number
+  ): Promise<{ level: SkillLevel; blockingReasons: string[] }> {
+    const sessionAverages = await this.calculate10SessionAverages(userId);
+    const blockingReasons: string[] = [];
+
+    if (sessionAverages.sessionCount < 10) {
+      console.log(`[AI Skill Tracker] Insufficient sessions (${sessionAverages.sessionCount}/10) - using instant metrics`);
+      const level = this.calculateSkillLevel(totalTrades, winRate, profitFactor);
+      return { level, blockingReasons: [] };
+    }
+
+    for (let i = this.SKILL_THRESHOLDS.length - 1; i >= 0; i--) {
+      const threshold = this.SKILL_THRESHOLDS[i];
+      const meetsTradeCount = totalTrades >= threshold.minTrades;
+      const meetsWinRate = sessionAverages.avgWinRate >= threshold.minWinRate;
+      const meetsProfitFactor = sessionAverages.avgProfitFactor >= threshold.minProfitFactor;
+      const meetsConsistency = sessionAverages.consistencyPct >= threshold.minConsistency;
+
+      if (meetsTradeCount && meetsWinRate && meetsProfitFactor && meetsConsistency) {
+        return { level: threshold.level, blockingReasons: [] };
+      }
+
+      if (i === this.SKILL_THRESHOLDS.length - 1 || totalTrades >= threshold.minTrades) {
+        if (!meetsWinRate) {
+          blockingReasons.push(`10-session avg WR ${sessionAverages.avgWinRate.toFixed(1)}% < required ${threshold.minWinRate}%`);
+        }
+        if (!meetsProfitFactor) {
+          blockingReasons.push(`10-session avg PF ${sessionAverages.avgProfitFactor.toFixed(2)} < required ${threshold.minProfitFactor.toFixed(2)}`);
+        }
+        if (!meetsConsistency) {
+          blockingReasons.push(`10-session consistency ${sessionAverages.consistencyPct.toFixed(0)}% < required ${threshold.minConsistency}%`);
+        }
+      }
+    }
+
+    return { level: 'Novice', blockingReasons };
+  }
+
+  /**
+   * Calculate skill level based on specification requirements (legacy - instant metrics)
    * Must meet ALL three criteria to advance: trades, win rate, and profit factor
    * IMPORTANT: Only winning trades count toward totalTrades
    */

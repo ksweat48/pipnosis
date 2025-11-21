@@ -242,8 +242,16 @@ function AILearningProgressDashboard() {
             <div className="text-4xl font-bold text-white mb-2">
               {skillData.totalTradesAnalyzed.toLocaleString()}
             </div>
-            <p className="text-white/80 text-sm">Successful Trades</p>
-            <p className="text-white/60 text-xs mt-1">Only winning trades count!</p>
+            <p className="text-white/80 text-sm">Winning Trades</p>
+            {skillData.totalLosingTrades !== undefined && skillData.totalLosingTrades > 0 && (
+              <div className="mt-2">
+                <div className="text-2xl font-bold text-white/60">
+                  {skillData.totalLosingTrades.toLocaleString()}
+                </div>
+                <p className="text-white/60 text-xs">Losing Trades</p>
+              </div>
+            )}
+            <p className="text-white/50 text-xs mt-2">Win Rate: {skillData.currentWinRate.toFixed(1)}%</p>
           </div>
         </div>
 
@@ -278,27 +286,27 @@ function AILearningProgressDashboard() {
                 </div>
               </div>
               <div>
-                <div className="text-white/60 mb-1">Win Rate</div>
+                <div className="text-white/60 mb-1">Win Rate (10-session avg)</div>
                 <div className="font-bold text-white">
-                  {skillData.currentWinRate.toFixed(1)}% / {skillThresholds[skillData.skillLevelNumeric]?.minWinRate || '?'}%
+                  {skillData.last10SessionWRAvg !== undefined ? skillData.last10SessionWRAvg.toFixed(1) : skillData.currentWinRate.toFixed(1)}% / {skillThresholds[skillData.skillLevelNumeric]?.minWinRate || '?'}%
                 </div>
-                <div className={`text-xs mt-1 ${skillData.currentWinRate >= (skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {skillData.currentWinRate >= (skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) - skillData.currentWinRate).toFixed(1)}%`}
+                <div className={`text-xs mt-1 ${(skillData.last10SessionWRAvg || skillData.currentWinRate) >= (skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {(skillData.last10SessionWRAvg || skillData.currentWinRate) >= (skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric]?.minWinRate || 0) - (skillData.last10SessionWRAvg || skillData.currentWinRate)).toFixed(1)}%`}
                 </div>
               </div>
               <div>
-                <div className="text-white/60 mb-1">Profit Factor</div>
+                <div className="text-white/60 mb-1">Profit Factor (10-session avg)</div>
                 <div className="font-bold text-white">
-                  {skillData.currentProfitFactor.toFixed(2)} / {skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor?.toFixed(2) || '?'}
+                  {skillData.last10SessionPFAvg !== undefined ? skillData.last10SessionPFAvg.toFixed(2) : skillData.currentProfitFactor.toFixed(2)} / {skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor?.toFixed(2) || '?'}
                 </div>
-                <div className={`text-xs mt-1 ${skillData.currentProfitFactor >= (skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {skillData.currentProfitFactor >= (skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) - skillData.currentProfitFactor).toFixed(2)}`}
+                <div className={`text-xs mt-1 ${(skillData.last10SessionPFAvg || skillData.currentProfitFactor) >= (skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {(skillData.last10SessionPFAvg || skillData.currentProfitFactor) >= (skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) ? '✓ Met' : `Need +${((skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor || 0) - (skillData.last10SessionPFAvg || skillData.currentProfitFactor)).toFixed(2)}`}
                 </div>
               </div>
               <div>
                 <div className="text-white/60 mb-1 flex items-center gap-1">
-                  Consistency
-                  <span className="text-white/40 text-[10px]" title="Win Rate Spread measures consistency across sessions. Lower is better.">ⓘ</span>
+                  Consistency (10-session)
+                  <span className="text-white/40 text-[10px]" title="% of last 10 sessions meeting minimum standards. All metrics judged on 10-session rolling average.">ⓘ</span>
                 </div>
                 <div className="font-bold text-white">
                   {(() => {
@@ -357,7 +365,7 @@ function AILearningProgressDashboard() {
               </div>
             </div>
             <p className="text-xs text-blue-300 mt-3">
-              <strong>Note:</strong> All FOUR criteria must be met to advance. Consistency requires 10+ sessions with stable win rates. Progress slows when performance metrics are below targets.
+              <strong>Note:</strong> All FOUR criteria must be met to advance. All metrics judged on 10-session rolling average. Consistency = % of sessions meeting minimum standards.
             </p>
           </div>
 

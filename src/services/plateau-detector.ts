@@ -5,6 +5,8 @@ interface PlateauAnalysis {
   plateauDuration: number;
   currentWinRate: number;
   winRateRange: { min: number; max: number };
+  profitFactorRange: { min: number; max: number; avg: number };
+  profitFactorSpread: number;
   lastBreakthrough: Date | null;
   consecutiveSessionsInRange: number;
   recommendation: string;
@@ -14,6 +16,7 @@ interface PlateauAnalysis {
 interface PerformanceWindow {
   sessionId: string;
   winRate: number;
+  profitFactor: number;
   completedAt: Date;
   totalTrades: number;
 }
@@ -28,7 +31,7 @@ class PlateauDetector {
     console.log('\n[Plateau Detector] 🔍 Analyzing performance for plateau detection...');
 
     try {
-      const recentSessions = await this.getRecentBacktestSessions(userId, 20);
+      const recentSessions = await this.getRecentBacktestSessions(userId, 10);
 
       if (recentSessions.length < this.PLATEAU_THRESHOLD_SESSIONS) {
         console.log(`[Plateau Detector] Insufficient data (${recentSessions.length} sessions)`);
@@ -37,11 +40,17 @@ class PlateauDetector {
 
       const currentWinRate = recentSessions[0].winRate;
       const winRates = recentSessions.map(s => s.winRate);
+      const profitFactors = recentSessions.map(s => s.profitFactor);
 
       const minWR = Math.min(...winRates);
       const maxWR = Math.max(...winRates);
       const range = maxWR - minWR;
       const avgWR = winRates.reduce((sum, wr) => sum + wr, 0) / winRates.length;
+
+      const minPF = Math.min(...profitFactors);
+      const maxPF = Math.max(...profitFactors);
+      const avgPF = profitFactors.reduce((sum, pf) => sum + pf, 0) / profitFactors.length;
+      const pfSpread = maxPF - minPF;
 
       let consecutiveInRange = 0;
       for (const session of recentSessions) {
@@ -82,6 +91,8 @@ class PlateauDetector {
         plateauDuration: consecutiveInRange,
         currentWinRate,
         winRateRange: { min: minWR, max: maxWR },
+        profitFactorRange: { min: minPF, max: maxPF, avg: avgPF },
+        profitFactorSpread: pfSpread,
         lastBreakthrough,
         consecutiveSessionsInRange: consecutiveInRange,
         recommendation,
@@ -92,6 +103,7 @@ class PlateauDetector {
 
       console.log(`[Plateau Detector] ${isPlateaued ? '⚠️  PLATEAU DETECTED' : '✅ No Plateau'}`);
       console.log(`[Plateau Detector]   Win Rate: ${currentWinRate.toFixed(1)}% (Range: ${minWR.toFixed(1)}% - ${maxWR.toFixed(1)}%)`);
+      console.log(`[Plateau Detector]   Profit Factor: ${avgPF.toFixed(2)} (Range: ${minPF.toFixed(2)} - ${maxPF.toFixed(2)}, Spread: ${pfSpread.toFixed(2)})`);
       console.log(`[Plateau Detector]   Duration: ${consecutiveInRange} sessions`);
       console.log(`[Plateau Detector]   Exploration: ${shouldTriggerExploration ? 'TRIGGER NOW' : 'Not needed'}`);
 
@@ -106,10 +118,11 @@ class PlateauDetector {
   private async getRecentBacktestSessions(userId: string, limit: number): Promise<PerformanceWindow[]> {
     const { data, error } = await supabase
       .from('synthetic_backtest_sessions')
-      .select('id, win_rate, completed_at, total_trades')
+      .select('id, win_rate, profit_factor, completed_at, total_trades')
       .eq('user_id', userId)
       .eq('status', 'completed')
       .not('win_rate', 'is', null)
+      .not('profit_factor', 'is', null)
       .not('total_trades', 'is', null)
       .gt('total_trades', 0)
       .order('completed_at', { ascending: false })
@@ -124,12 +137,14 @@ class PlateauDetector {
       .filter(s => {
         const totalTrades = s.total_trades || 0;
         const winRate = parseFloat(s.win_rate?.toString() || '0');
-        return totalTrades >= this.MIN_TRADES_REQUIRED && winRate > 0;
+        const profitFactor = parseFloat(s.profit_factor?.toString() || '0');
+        return totalTrades >= this.MIN_TRADES_REQUIRED && winRate > 0 && profitFactor > 0;
       })
       .slice(0, limit)
       .map(s => ({
         sessionId: s.id,
         winRate: parseFloat(s.win_rate?.toString() || '0'),
+        profitFactor: parseFloat(s.profit_factor?.toString() || '0'),
         completedAt: new Date(s.completed_at),
         totalTrades: s.total_trades || 0
       }));
@@ -175,6 +190,10 @@ class PlateauDetector {
         current_win_rate: analysis.currentWinRate,
         win_rate_range_min: analysis.winRateRange.min,
         win_rate_range_max: analysis.winRateRange.max,
+        profit_factor_min: analysis.profitFactorRange.min,
+        profit_factor_max: analysis.profitFactorRange.max,
+        profit_factor_avg: analysis.profitFactorRange.avg,
+        profit_factor_spread: analysis.profitFactorSpread,
         consecutive_sessions_in_range: analysis.consecutiveSessionsInRange,
         recommendation: analysis.recommendation,
         should_trigger_exploration: analysis.shouldTriggerExploration,

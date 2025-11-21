@@ -211,6 +211,18 @@ function PlateauBreakthroughDashboard({ userId }: Props) {
           </div>
 
           <div className="bg-gray-700 rounded-lg p-3">
+            <div className="text-xs text-gray-400 mb-1">Profit Factor Range</div>
+            <div className="text-lg font-semibold text-white">
+              {plateauStatus.profitFactorRange?.min ? plateauStatus.profitFactorRange.min.toFixed(2) : '—'} - {plateauStatus.profitFactorRange?.max ? plateauStatus.profitFactorRange.max.toFixed(2) : '—'}
+            </div>
+            <div className="text-xs text-gray-400">
+              Avg: {plateauStatus.profitFactorRange?.avg ? plateauStatus.profitFactorRange.avg.toFixed(2) : '—'} | <span className={`${
+                (plateauStatus.profitFactorSpread || 0) > 0.5 ? 'text-green-400' : (plateauStatus.profitFactorSpread || 0) > 0.3 ? 'text-yellow-400' : 'text-red-400'
+              }`}>{plateauStatus.profitFactorSpread ? plateauStatus.profitFactorSpread.toFixed(2) : '—'} spread</span>
+            </div>
+          </div>
+
+          <div className="bg-gray-700 rounded-lg p-3">
             <div className="text-xs text-gray-400 mb-1">Plateau Duration</div>
             <div className="text-2xl font-bold text-white">
               {plateauStatus.plateauDuration}
