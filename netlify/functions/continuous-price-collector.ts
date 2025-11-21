@@ -9,7 +9,7 @@ const metaApiRegion = process.env.METAAPI_REGION || 'new-york';
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-const ACTIVE_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY'];
+const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
 
 interface MetaApiPrice {
   symbol: string;
@@ -58,14 +58,19 @@ async function fetchPriceFromMetaApi(symbol: string): Promise<MetaApiPrice | nul
 
 async function savePriceToDatabase(priceData: MetaApiPrice): Promise<boolean> {
   try {
+    const mid = (priceData.bid + priceData.ask) / 2;
+    const spread = priceData.ask - priceData.bid;
+
     const { error } = await supabase
       .from('realtime_prices')
       .insert({
         symbol: priceData.symbol,
         bid: priceData.bid,
         ask: priceData.ask,
-        spread: priceData.ask - priceData.bid,
+        mid: mid,
+        spread: spread,
         broker_time: priceData.brokerTime,
+        source: 'netlify_continuous_collector',
         created_at: new Date().toISOString()
       });
 

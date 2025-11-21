@@ -96,12 +96,25 @@ async function fetchPriceFromMetaApi(symbol: string): Promise<PriceData | null> 
 
     const data = await response.json();
 
+    // Validate bid and ask are present and valid numbers
+    if (!data.bid || !data.ask) {
+      console.error(`❌ MetaAPI ${symbol}: Missing bid or ask in response:`, data);
+      return null;
+    }
+
     const bid = parseFloat(data.bid);
     const ask = parseFloat(data.ask);
+
+    // Validate parsed numbers
+    if (isNaN(bid) || isNaN(ask) || bid <= 0 || ask <= 0) {
+      console.error(`❌ MetaAPI ${symbol}: Invalid bid/ask values: bid=${bid}, ask=${ask}`);
+      return null;
+    }
+
     const mid = (bid + ask) / 2;
     const spread = ask - bid;
 
-    console.log(`✅ MetaAPI ${symbol}: ${bid}/${ask}`);
+    console.log(`✅ MetaAPI ${symbol}: ${bid}/${ask} (mid: ${mid})`);
 
     return {
       symbol,
