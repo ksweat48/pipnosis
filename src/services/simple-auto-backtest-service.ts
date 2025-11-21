@@ -562,6 +562,12 @@ class SimpleAutoBacktestService {
 
         // Run consistency validation every 10 sessions
         await this.runConsistencyValidation(dayNumber);
+
+        // CRITICAL: Update KPIs after 10-session learning cycle completes
+        console.log('[Auto-Backtest] 📊 Updating KPIs after 10-session learning cycle...');
+        const { kpiAggregator } = await import('./kpi-aggregator');
+        await kpiAggregator.updateAllKPIs(this.userId);
+        console.log('[Auto-Backtest] ✅ KPIs refreshed with new learning insights');
       }
 
     } catch (error) {
@@ -668,6 +674,16 @@ class SimpleAutoBacktestService {
         await aiConfidenceTracker.processSyntheticBacktestTrades(this.userId, result.sessionId);
       } catch (confError) {
         console.error('[Auto-Backtest] Error processing confidence tracking:', confError);
+      }
+
+      // CRITICAL: Update KPIs immediately after each day completes
+      try {
+        console.log(`[Auto-Backtest] 📊 Updating KPIs for day ${dayNumber}...`);
+        const { kpiAggregator } = await import('./kpi-aggregator');
+        await kpiAggregator.updateAllKPIs(this.userId);
+        console.log(`[Auto-Backtest] ✅ KPIs updated - Learning Center data refreshed`);
+      } catch (kpiError) {
+        console.error('[Auto-Backtest] Error updating KPIs:', kpiError);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

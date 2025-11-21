@@ -33,6 +33,47 @@ function AILearningCenterPage() {
     }
   }, [user, dateRange]);
 
+  useEffect(() => {
+    if (!user) return;
+
+    // Auto-refresh KPIs every 60 seconds when auto-backtest is running
+    const refreshInterval = setInterval(async () => {
+      const { data: autoBacktestState } = await supabase
+        .from('auto_backtest_global_state')
+        .select('is_running')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (autoBacktestState?.is_running) {
+        console.log('[Learning Center] Auto-backtest active - refreshing KPIs...');
+        await loadAllKPIs();
+      }
+    }, 60000); // Every 60 seconds
+
+    // Subscribe to backtest completion events for immediate refresh
+    const channel = supabase
+      .channel('backtest-completions')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'daily_session_results',
+          filter: `user_id=eq.${user.id}`
+        },
+        async (payload) => {
+          console.log('[Learning Center] New backtest data detected - refreshing KPIs...');
+          await loadAllKPIs();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(refreshInterval);
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
   const loadAllKPIs = async () => {
     if (!user) return;
 
@@ -252,6 +293,33 @@ function OverviewTab({ llmLayerKPIs, avoidPatternKPIs, learningKPIs, strategyKPI
   const totalBlockRate = avoidPatternKPIs.length > 0
     ? avoidPatternKPIs.reduce((sum: number, k: any) => sum + (k.block_rate || 0), 0) / avoidPatternKPIs.length
     : 0;
+
+  // Check if we have any actual data
+  const hasAnyData = llmLayerKPIs.length > 0 || avoidPatternKPIs.length > 0 || learningKPIs || masteryKPIs;
+
+  if (!hasAnyData) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-white">System Overview</h2>
+        <div className="bg-gradient-to-br from-blue-900/30 to-purple-900/30 backdrop-blur-sm border-2 border-blue-500/30 rounded-lg p-8 text-center">
+          <Brain className="w-16 h-16 text-blue-400 mx-auto mb-4" />
+          <h3 className="text-xl font-bold text-white mb-2">AI Learning System Ready</h3>
+          <p className="text-gray-400 mb-4">
+            Run backtests or live trades to generate learning data. The AI will analyze your trades and build intelligence over time.
+          </p>
+          <div className="bg-gray-800/50 rounded-lg p-4 text-left">
+            <p className="text-sm text-gray-300 mb-2">To generate learning data:</p>
+            <ul className="text-sm text-gray-400 space-y-1">
+              <li>• Navigate to AI Training & Backtesting Lab</li>
+              <li>• Enable Auto-Backtest Mode</li>
+              <li>• AI will run 30-day sessions with learning every 10 days</li>
+              <li>• Learning insights appear here automatically</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
