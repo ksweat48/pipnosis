@@ -268,9 +268,9 @@ console.log(`Found ${signals.length} tradable setups`);
 3. Add these variables:
 
 ```
-VITE_OPENAI_API_KEY=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
-
-OPENAI_API_KEY=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
+# OpenAI API Key - Get from https://platform.openai.com/api-keys
+# SECURITY: Store in Netlify Environment Variables, NOT in code!
+OPENAI_API_KEY=your_openai_api_key_here
 ```
 
 ### Deploy Command

@@ -381,9 +381,9 @@ SELECT * FROM calculate_gpt4o_costs('user-id', '2025-11-01', '2025-11-30');
 ## 🐛 Troubleshooting
 
 ### GPT-4o Insights Not Showing
-1. Check if OpenAI API key is set in `.env`:
+1. Check if OpenAI API key is set in Netlify Environment Variables:
    ```
-   VITE_OPENAI_API_KEY=sk-proj-...
+   OPENAI_API_KEY=your_key_here
    ```
 2. Verify you've run at least one backtest with 5+ trades
 3. Check `gpt4o_usage_tracking` table for errors

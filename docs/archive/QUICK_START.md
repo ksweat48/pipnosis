@@ -23,9 +23,10 @@ curl -X POST -d '{}' https://api.netlify.com/build_hooks/68965660f2a0a7d94873ccc
 - `VITE_OPENAI_API_KEY`
 - `OPENAI_API_KEY`
 
-Both should have the value:
+SECURITY NOTE: Get your key from https://platform.openai.com/api-keys
+Store in Netlify Environment Variables ONLY (never commit to code):
 ```
-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
+OPENAI_API_KEY=your_openai_api_key_here
 ```
 
 ### 2. Test in Demo Mode

@@ -1,4 +1,5 @@
 import { TechnicalSignal } from './technicalScanEngine';
+import { openAIClient } from '@/services/openai-client';
 
 interface Candle {
   time: string | Date;
@@ -28,7 +29,6 @@ export interface AIMarketAnalysis {
 }
 
 class AIMarketEngine {
-  private apiKey: string;
   private apiCallCount: number = 0;
   private lastApiCall: Date | null = null;
   private cache: Map<string, { analysis: AIMarketAnalysis; timestamp: Date }> = new Map();
@@ -37,14 +37,12 @@ class AIMarketEngine {
   private readonly MIN_CALL_INTERVAL_MS = 3 * 60 * 1000;
 
   constructor() {
-    this.apiKey = typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env.VITE_OPENAI_API_KEY || ''
-      : process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
+    // No API key needed - using secure proxy function
   }
 
   private canMakeApiCall(): { allowed: boolean; reason?: string } {
-    if (!this.apiKey) {
-      return { allowed: false, reason: 'OpenAI API key not configured' };
+    if (!openAIClient.isAvailable()) {
+      return { allowed: false, reason: 'OpenAI service not available' };
     }
 
     if (this.apiCallCount >= this.MAX_CALLS_PER_HOUR) {
@@ -160,36 +158,13 @@ Provide your analysis in the following JSON format (respond ONLY with valid JSON
 
       const prompt = this.buildAnalysisPrompt(symbol, timeframe, candles, technicalSignal);
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are an expert forex technical analyst. Provide concise, actionable trading analysis in JSON format.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          temperature: 0.3,
-          max_tokens: 800
-        })
+      const systemPrompt = 'You are an expert forex technical analyst. Provide concise, actionable trading analysis in JSON format.';
+
+      const content = await openAIClient.complete(systemPrompt, prompt, {
+        model: 'gpt-4o',
+        temperature: 0.3,
+        max_tokens: 800
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`OpenAI API error: ${errorData.error?.message || response.statusText}`);
-      }
-
-      const data = await response.json();
-      const content = data.choices[0]?.message?.content;
 
       if (!content) {
         throw new Error('No content in OpenAI response');
