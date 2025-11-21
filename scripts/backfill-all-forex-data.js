@@ -37,7 +37,58 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function generateSyntheticCandle(symbol, timeframe, timestamp) {
+function normalizeTimestamp(timestampMs, intervalMs) {
+  return Math.floor(timestampMs / intervalMs) * intervalMs;
+}
+
+function getLastCompletedCandleStart(timeframe) {
+  const now = Date.now();
+  const intervalMs = timeframe.minutes * 60 * 1000;
+  const currentCandleStart = normalizeTimestamp(now, intervalMs);
+  return currentCandleStart - intervalMs;
+}
+
+function isTimestampAligned(timestampMs, intervalMs) {
+  return timestampMs % intervalMs === 0;
+}
+
+function validateCandleTimestamps(candles, timeframe) {
+  const errors = [];
+  const intervalMs = timeframe.minutes * 60 * 1000;
+
+  candles.forEach((candle, index) => {
+    const candleTimeMs = new Date(candle.open_time).getTime();
+
+    if (!isTimestampAligned(candleTimeMs, intervalMs)) {
+      errors.push(
+        `Candle ${index}: timestamp ${candle.open_time} is not aligned to ${timeframe.name}`
+      );
+    }
+
+    if (index > 0) {
+      const prevTimeMs = new Date(candles[index - 1].open_time).getTime();
+      const expectedTimeMs = prevTimeMs + intervalMs;
+
+      if (candleTimeMs < prevTimeMs) {
+        errors.push(`Candle ${index}: timestamp is before previous candle`);
+      } else if (candleTimeMs === prevTimeMs) {
+        errors.push(`Candle ${index}: duplicate timestamp ${candle.open_time}`);
+      } else if (candleTimeMs !== expectedTimeMs) {
+        const gapMinutes = (candleTimeMs - expectedTimeMs) / 60000;
+        errors.push(
+          `Candle ${index}: gap detected - ${gapMinutes} minutes between candles`
+        );
+      }
+    }
+  });
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+}
+
+async function generateSyntheticCandle(symbol, timeframe, timestampMs) {
   const basePrice = {
     'XAUUSD': 2000 + Math.random() * 100,
     'US30': 35000 + Math.random() * 500,
@@ -53,8 +104,8 @@ async function generateSyntheticCandle(symbol, timeframe, timestamp) {
   const close = low + Math.random() * (high - low);
   const volume = Math.floor(Math.random() * 10000) + 1000;
 
-  const openTime = new Date(timestamp).toISOString();
-  const closeTime = new Date(timestamp + (timeframe.minutes * 60 * 1000)).toISOString();
+  const openTime = new Date(timestampMs).toISOString();
+  const closeTime = new Date(timestampMs + (timeframe.minutes * 60 * 1000)).toISOString();
 
   return {
     symbol,
@@ -73,20 +124,38 @@ async function generateSyntheticCandle(symbol, timeframe, timestamp) {
 async function backfillPairTimeframe(symbol, timeframe) {
   console.log(`\n🔄 Starting backfill for ${symbol} ${timeframe.name}...`);
 
-  const now = Date.now();
-  const threeMonthsAgo = now - (90 * 24 * 60 * 60 * 1000);
   const intervalMs = timeframe.minutes * 60 * 1000;
 
-  const candles = [];
-  let timestamp = threeMonthsAgo;
+  const lastCompletedCandleMs = getLastCompletedCandleStart(timeframe);
 
-  while (timestamp <= now) {
-    const candle = await generateSyntheticCandle(symbol, timeframe, timestamp);
+  const threeMonthsAgo = lastCompletedCandleMs - (90 * 24 * 60 * 60 * 1000);
+  const startTimestampMs = normalizeTimestamp(threeMonthsAgo, intervalMs);
+
+  console.log(`📅 Start: ${new Date(startTimestampMs).toISOString()}`);
+  console.log(`📅 End: ${new Date(lastCompletedCandleMs).toISOString()} (last completed candle)`);
+
+  const candles = [];
+  let timestampMs = startTimestampMs;
+
+  while (timestampMs <= lastCompletedCandleMs) {
+    const candle = await generateSyntheticCandle(symbol, timeframe, timestampMs);
     candles.push(candle);
-    timestamp += intervalMs;
+    timestampMs += intervalMs;
   }
 
   console.log(`📊 Generated ${candles.length} candles for ${symbol} ${timeframe.name}`);
+
+  const validation = validateCandleTimestamps(candles, timeframe);
+  if (!validation.isValid) {
+    console.error(`❌ Validation failed for ${symbol} ${timeframe.name}:`);
+    validation.errors.slice(0, 5).forEach(err => console.error(`   ${err}`));
+    if (validation.errors.length > 5) {
+      console.error(`   ... and ${validation.errors.length - 5} more errors`);
+    }
+    return 0;
+  }
+
+  console.log(`✅ Validation passed: All timestamps properly aligned`);
 
   const batchSize = 1000;
   let inserted = 0;
@@ -109,12 +178,39 @@ async function backfillPairTimeframe(symbol, timeframe) {
     }
   }
 
+  const { data: verifyData, error: verifyError } = await supabase
+    .from('forex_candles')
+    .select('open_time', { count: 'exact' })
+    .eq('symbol', symbol)
+    .eq('timeframe', timeframe.name)
+    .eq('data_source', 'synthetic_backfill')
+    .order('open_time', { ascending: true });
+
+  if (!verifyError && verifyData) {
+    console.log(`🔍 Post-insert verification: ${verifyData.length} candles in database`);
+
+    if (verifyData.length >= 2) {
+      const firstCandle = new Date(verifyData[0].open_time);
+      const secondCandle = new Date(verifyData[1].open_time);
+      const diffMs = secondCandle - firstCandle;
+      const expectedDiffMs = intervalMs;
+
+      if (diffMs === expectedDiffMs) {
+        console.log(`✅ Timestamp alignment verified: ${diffMs/60000} minute intervals`);
+      } else {
+        console.warn(`⚠️  Warning: Unexpected interval ${diffMs/60000} minutes (expected ${expectedDiffMs/60000})`);
+      }
+    }
+  }
+
   console.log(`✨ Completed ${symbol} ${timeframe.name}: ${inserted} candles inserted`);
   return inserted;
 }
 
 async function backfillAll() {
   console.log('🚀 Starting comprehensive forex data backfill');
+  console.log('🔧 Using timestamp normalization to prevent overlaps');
+  console.log('⏰ Excluding current forming candle (only completed candles)');
   console.log(`📅 Backfilling 3 months of data`);
   console.log(`💱 Pairs: ${PAIRS.join(', ')}`);
   console.log(`⏱️  Timeframes: ${TIMEFRAMES.map(t => t.name).join(', ')}`);
@@ -156,6 +252,31 @@ async function backfillAll() {
   console.log(`✅ Total combinations: ${stats.totalCombinations}`);
   console.log(`✅ Total candles inserted: ${stats.totalCandles.toLocaleString()}`);
   console.log('='.repeat(60) + '\n');
+
+  console.log('🔍 Running final data quality check...\n');
+
+  for (const pair of PAIRS) {
+    for (const timeframe of TIMEFRAMES) {
+      const { data, error } = await supabase
+        .from('forex_candles')
+        .select('open_time')
+        .eq('symbol', pair)
+        .eq('timeframe', timeframe.name)
+        .eq('data_source', 'synthetic_backfill')
+        .order('open_time', { ascending: true })
+        .limit(2);
+
+      if (!error && data && data.length === 2) {
+        const diff = new Date(data[1].open_time) - new Date(data[0].open_time);
+        const expectedDiff = timeframe.minutes * 60 * 1000;
+        if (diff !== expectedDiff) {
+          console.warn(`⚠️  ${pair} ${timeframe.name}: Unexpected interval ${diff/60000}min (expected ${expectedDiff/60000}min)`);
+        }
+      }
+    }
+  }
+
+  console.log('\n✅ Data quality check complete!\n');
 }
 
 backfillAll().catch(console.error);
