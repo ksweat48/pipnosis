@@ -105,8 +105,14 @@ class SimpleAutoBacktestService {
       if (minutesSinceHeartbeat > 5) {
         console.log('[Auto-Backtest] Found stale session, cleaning up...');
         await this.forceStopInDatabase(userId);
+        // Stale session = will do fresh start, so clear the old month's results
+        if (existingState.current_month_number) {
+          console.log('[Auto-Backtest] Clearing stale session data...');
+          await this.clearDailyResultsForMonth(userId, existingState.current_month_number);
+        }
       } else {
-        console.log('[Auto-Backtest] Found active session started from:', existingState.started_from_device);
+        console.log('[Auto-Backtest] Found active session - resuming with existing progress');
+        console.log('[Auto-Backtest] Started from:', existingState.started_from_device);
         this.isRunning = true;
         this.totalMonthsCompleted = existingState.total_months_completed || 0;
         this.currentMonthNumber = existingState.current_month_number || 0;
@@ -162,6 +168,21 @@ class SimpleAutoBacktestService {
 
       // Initialize fresh state
       await this.initialize(userId);
+
+      // Determine if this is a fresh start (new month) or recovery
+      // Get current state to see what month we're on
+      const { data: existingState } = await supabase
+        .from('auto_backtest_global_state')
+        .select('current_month_number, current_day_in_month')
+        .eq('user_id', userId)
+        .single();
+
+      // Calculate next month number
+      const nextMonthNumber = (existingState?.current_month_number || 0) + 1;
+
+      // Clear day boxes for the new month (fresh start)
+      console.log(`[Auto-Backtest] Starting fresh Month ${nextMonthNumber} - clearing calendar`);
+      await this.clearDailyResultsForMonth(userId, nextMonthNumber);
 
       console.log('[Auto-Backtest] 🚀 Starting 30-day progressive learning system');
       this.userId = userId;
@@ -439,6 +460,9 @@ class SimpleAutoBacktestService {
         console.log(`[Auto-Backtest] Month #${this.currentMonthNumber}`);
         console.log(`[Auto-Backtest] Parent Session ID: ${this.monthlyParentSessionId}`);
         console.log('========================================================\n');
+
+        // Clear day boxes for this new month
+        await this.clearDailyResultsForMonth(this.userId!, this.currentMonthNumber);
 
         await this.syncStateToDatabase({});
 
@@ -889,6 +913,32 @@ class SimpleAutoBacktestService {
   private getRiskThreshold(riskLevel: 'low' | 'medium' | 'high'): number {
     const thresholds = { low: 85, medium: 75, high: 70 };
     return thresholds[riskLevel];
+  }
+
+  /**
+   * Clear daily session results for a specific month
+   * Called when starting a fresh month to reset the calendar
+   */
+  private async clearDailyResultsForMonth(userId: string, monthNumber: number): Promise<void> {
+    try {
+      console.log(`[Auto-Backtest] 🧹 Clearing daily results for Month ${monthNumber}...`);
+
+      const { error } = await supabase
+        .from('daily_session_results')
+        .delete()
+        .eq('user_id', userId)
+        .eq('month_number', monthNumber);
+
+      if (error) {
+        console.error('[Auto-Backtest] Error clearing daily results:', error);
+        throw error;
+      }
+
+      console.log(`[Auto-Backtest] ✅ Daily results cleared for Month ${monthNumber} - calendar boxes reset`);
+    } catch (error) {
+      console.error('[Auto-Backtest] Failed to clear daily results:', error);
+      // Don't fail the start, just log the error
+    }
   }
 
   /**
