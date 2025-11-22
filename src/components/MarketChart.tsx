@@ -31,7 +31,7 @@ import {
 } from '@/utils/technicalIndicators';
 import { RSIPanel, ATRPanel, VolumePanel, PatternDetectionPanel } from '@/components/IndicatorPanels';
 import { ManualTradePanel } from '@/components/ManualTradePanel';
-import { getForexMarketStatus, type MarketStatus } from '@/utils/marketHours';
+import { getForexMarketStatus, getTimeUntilMarketChange, type MarketStatus } from '@/utils/marketHours';
 import { concurrentBulkLoader } from '@/services/concurrent-bulk-loader';
 import { ChartLoadingOverlay, BackgroundLoadingIndicator } from '@/components/ChartLoadingOverlay';
 
@@ -117,8 +117,33 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const renderFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
+    let previousMarketStatus = forexMarketStatus.isOpen;
+
     const updateMarketStatus = () => {
-      setForexMarketStatus(getForexMarketStatus());
+      const newStatus = getForexMarketStatus();
+      const wasOpen = previousMarketStatus;
+      const isNowOpen = newStatus.isOpen;
+
+      setForexMarketStatus(newStatus);
+
+      // Market just closed - freeze time range
+      if (wasOpen && !isNowOpen && chartRef.current) {
+        console.log('[Chart] 🔒 Market closed - freezing time range');
+        const timeScale = chartRef.current.timeScale();
+        const currentRange = timeScale.getVisibleLogicalRange();
+
+        if (currentRange) {
+          timeScale.setVisibleLogicalRange(currentRange);
+        }
+      }
+
+      // Market just opened - resume real-time scrolling
+      if (!wasOpen && isNowOpen && chartRef.current) {
+        console.log('[Chart] 🔓 Market opened - resuming updates');
+        chartRef.current.timeScale().scrollToRealTime();
+      }
+
+      previousMarketStatus = isNowOpen;
     };
 
     updateMarketStatus();
@@ -372,6 +397,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       return;
     }
 
+    // Check if market is open before processing tick
+    if (!forexMarketStatus.isOpen) {
+      return;
+    }
+
     const now = Date.now();
     if (now - lastTickUpdateRef.current < 16) {
       return;
@@ -470,6 +500,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
   const updateCurrentCandleFromPoller = (latestCandle: CandleData) => {
     if (!candlestickSeriesRef.current) {
+      return;
+    }
+
+    // Check if market is open before processing poller update
+    if (!forexMarketStatus.isOpen) {
       return;
     }
 
@@ -607,6 +642,15 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       const seenTimestamps = new Set<number>();
 
       for (const candle of sortedHistorical) {
+        // Filter out Saturday candles (market is always closed)
+        const candleDate = new Date(candle.time * 1000);
+        const dayOfWeek = candleDate.getUTCDay();
+
+        if (dayOfWeek === 6) {
+          console.log(`[Chart Init] Filtering out Saturday candle at ${candleDate.toISOString()}`);
+          continue;
+        }
+
         if (!seenTimestamps.has(candle.time)) {
           seenTimestamps.add(candle.time);
           uniqueHistorical.push(candle);
@@ -1194,7 +1238,25 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           </div>
         )}
 
-        <div ref={chartContainerRef} className="rounded-lg overflow-hidden" />
+        <div className="relative">
+          <div ref={chartContainerRef} className="rounded-lg overflow-hidden" />
+
+          {/* Market Closed Overlay */}
+          {!forexMarketStatus.isOpen && (
+            <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm flex items-center justify-center z-10 pointer-events-none rounded-lg">
+              <div className="bg-red-900/40 border border-red-500/50 rounded-xl px-8 py-6 text-center">
+                <Clock className="w-12 h-12 text-red-400 mx-auto mb-3" />
+                <h3 className="text-xl font-bold text-white mb-2">Market Closed</h3>
+                <p className="text-red-200">
+                  {(() => {
+                    const timeUntil = getTimeUntilMarketChange();
+                    return `Market ${timeUntil.isOpening ? 'opens' : 'closes'} in ${timeUntil.hours}h ${timeUntil.minutes}m`;
+                  })()}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
