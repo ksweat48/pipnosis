@@ -286,7 +286,10 @@ function AILearningProgressDashboard() {
                 </div>
               </div>
               <div>
-                <div className="text-white/60 mb-1">Win Rate (daily rolling)</div>
+                <div className="text-white/60 mb-1 flex items-center gap-1">
+                  Win Rate (10-session avg)
+                  <span className="text-white/40 text-[10px]" title="Average win rate over your last 10 completed backtest sessions. Updates after each session.">ⓘ</span>
+                </div>
                 <div className="font-bold text-white">
                   {skillData.last10SessionWRAvg !== undefined ? skillData.last10SessionWRAvg.toFixed(1) : skillData.currentWinRate.toFixed(1)}% / {skillThresholds[skillData.skillLevelNumeric]?.minWinRate || '?'}%
                 </div>
@@ -295,7 +298,10 @@ function AILearningProgressDashboard() {
                 </div>
               </div>
               <div>
-                <div className="text-white/60 mb-1">Profit Factor (daily rolling)</div>
+                <div className="text-white/60 mb-1 flex items-center gap-1">
+                  Profit Factor (10-session avg)
+                  <span className="text-white/40 text-[10px]" title="Average profit factor over your last 10 completed backtest sessions. Updates after each session.">ⓘ</span>
+                </div>
                 <div className="font-bold text-white">
                   {skillData.last10SessionPFAvg !== undefined ? skillData.last10SessionPFAvg.toFixed(2) : skillData.currentProfitFactor.toFixed(2)} / {skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor?.toFixed(2) || '?'}
                 </div>
@@ -305,8 +311,8 @@ function AILearningProgressDashboard() {
               </div>
               <div>
                 <div className="text-white/60 mb-1 flex items-center gap-1">
-                  Consistency (daily)
-                  <span className="text-white/40 text-[10px]" title="% of recent sessions meeting minimum standards. Metrics update after each daily session.">ⓘ</span>
+                  Consistency (10-session)
+                  <span className="text-white/40 text-[10px]" title="Win rate spread over last 10 sessions. Lower spread = more consistent performance. Updates after each session.">ⓘ</span>
                 </div>
                 <div className="font-bold text-white">
                   {(() => {

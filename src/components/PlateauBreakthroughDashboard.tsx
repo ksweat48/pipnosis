@@ -198,8 +198,14 @@ function PlateauBreakthroughDashboard({ userId }: Props) {
             </div>
           </div>
 
-          <div className="bg-gray-700 rounded-lg p-3">
-            <div className="text-xs text-gray-400 mb-1">Win Rate Range</div>
+          <div className="bg-gray-700 rounded-lg p-3 relative group">
+            <div className="flex items-center gap-1 mb-1">
+              <div className="text-xs text-gray-400">Win Rate Range</div>
+              <Info className="w-3 h-3 text-gray-500 cursor-help" />
+            </div>
+            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 bg-gray-900 border border-gray-600 rounded-lg text-xs text-gray-300 z-10">
+              Min to max win rate across your last 30 backtest sessions. Used to detect if performance is stuck in a narrow range (plateau).
+            </div>
             <div className="text-lg font-semibold text-white">
               {plateauStatus.winRateRange.min > 0 ? plateauStatus.winRateRange.min.toFixed(1) : '—'}% - {plateauStatus.winRateRange.max.toFixed(1)}%
             </div>
@@ -210,8 +216,14 @@ function PlateauBreakthroughDashboard({ userId }: Props) {
             </div>
           </div>
 
-          <div className="bg-gray-700 rounded-lg p-3">
-            <div className="text-xs text-gray-400 mb-1">Profit Factor Range</div>
+          <div className="bg-gray-700 rounded-lg p-3 relative group">
+            <div className="flex items-center gap-1 mb-1">
+              <div className="text-xs text-gray-400">Profit Factor Range</div>
+              <Info className="w-3 h-3 text-gray-500 cursor-help" />
+            </div>
+            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 bg-gray-900 border border-gray-600 rounded-lg text-xs text-gray-300 z-10">
+              Min to max profit factor across your last 30 backtest sessions. Shows your performance volatility for plateau detection.
+            </div>
             <div className="text-lg font-semibold text-white">
               {plateauStatus.profitFactorRange?.min ? plateauStatus.profitFactorRange.min.toFixed(2) : '—'} - {plateauStatus.profitFactorRange?.max ? plateauStatus.profitFactorRange.max.toFixed(2) : '—'}
             </div>
