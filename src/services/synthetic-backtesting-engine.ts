@@ -141,6 +141,27 @@ class SyntheticBacktestingEngine {
 
     console.log(`[Synthetic Backtest] Using synthetic generation: ${this.syntheticGenerationId}`);
 
+    // Verify candles exist before starting backtest
+    console.log(`[Synthetic Backtest] Verifying synthetic data availability...`);
+    const { count: candleCount, error: countError } = await supabase
+      .from('synthetic_candles')
+      .select('id', { count: 'exact', head: true })
+      .eq('generation_id', this.syntheticGenerationId)
+      .eq('symbol', config.symbols[0]);
+
+    if (countError) {
+      console.error(`[Synthetic Backtest] Error checking candle count:`, countError);
+    }
+
+    if (!candleCount || candleCount === 0) {
+      throw new Error(
+        `No synthetic candles found for generation ${this.syntheticGenerationId} and symbol ${config.symbols[0]}. ` +
+        `Synthetic data generation may have failed. Please check synthetic_candles table.`
+      );
+    }
+
+    console.log(`[Synthetic Backtest] ✅ Verified ${candleCount} synthetic candles available`);
+
     const session = await this.createSyntheticSession(userId, config);
     this.sessionId = session.id;
     this.backtestId = session.id;
@@ -222,11 +243,15 @@ class SyntheticBacktestingEngine {
     );
 
     if (!candles || candles.length === 0) {
-      console.log(`[Synthetic Backtest] No candles found for ${symbol}`);
-      return;
+      console.error(`[Synthetic Backtest] ❌ CRITICAL: No candles found for ${symbol}`);
+      console.error(`[Synthetic Backtest] Date range: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
+      console.error(`[Synthetic Backtest] Synthetic Generation ID: ${this.syntheticGenerationId}`);
+      console.error(`[Synthetic Backtest] This will result in 0 trades!`);
+      throw new Error(`No candles found for ${symbol} in date range ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
     }
 
-    console.log(`[Synthetic Backtest] Processing ${candles.length} candles for ${symbol}`);
+    console.log(`[Synthetic Backtest] ✅ Processing ${candles.length} H1 candles for ${symbol}`);
+    console.log(`[Synthetic Backtest] Date range: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
 
     let signalsGenerated = 0;
     let signalsExecuted = 0;
@@ -276,6 +301,12 @@ class SyntheticBacktestingEngine {
     console.log(`  Signals generated: ${signalsGenerated}`);
     console.log(`  Signals executed: ${signalsExecuted}`);
     console.log(`  Signals skipped: ${signalsSkipped}`);
+
+    // Warn if no signals were generated at all
+    if (signalsGenerated === 0) {
+      console.warn(`[Synthetic Backtest] ⚠️ WARNING: ZERO signals generated for ${symbol}!`);
+      console.warn(`[Synthetic Backtest] This suggests signal generation logic needs adjustment`);
+    }
   }
 
   private async generateSignalAtTime(symbol: string, time: Date): Promise<any | null> {
@@ -284,9 +315,11 @@ class SyntheticBacktestingEngine {
       const m5Candles = await this.getSyntheticCandles(symbol, 'M5', new Date(time.getTime() - 100 * 5 * 60 * 1000), time);
       const m1Candles = await this.getSyntheticCandles(symbol, 'M1', new Date(time.getTime() - 100 * 60 * 1000), time);
 
-      if (!h1Candles || h1Candles.length < 2) return null;
-      if (!m5Candles || m5Candles.length < 50) return null;
-      if (!m1Candles || m1Candles.length < 50) return null;
+      // Reduced requirements to work with 7-day data windows
+      // 7 days = 168 H1 candles, 2016 M5 candles, 10080 M1 candles
+      if (!h1Candles || h1Candles.length < 10) return null; // Was 2, now 10 for better analysis
+      if (!m5Candles || m5Candles.length < 20) return null; // Was 50, now 20 (still sufficient)
+      if (!m1Candles || m1Candles.length < 20) return null; // Was 50, now 20 (still sufficient)
 
       const currentPrice = m1Candles[m1Candles.length - 1].close;
       const direction = Math.random() > 0.5 ? 'buy' : 'sell';

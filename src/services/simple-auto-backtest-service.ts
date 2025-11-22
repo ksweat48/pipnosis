@@ -487,7 +487,28 @@ class SimpleAutoBacktestService {
 
           // PHASE 2: Run Daily Session (ONE pair only)
           console.log(`[Auto-Backtest] 📊 PHASE 2: Running backtest for ${selectedPair.symbol}...`);
-          await this.runDailySession(day, selectedPair);
+          try {
+            await this.runDailySession(day, selectedPair);
+          } catch (sessionError) {
+            const errorMessage = sessionError instanceof Error ? sessionError.message : String(sessionError);
+            console.error(`[Auto-Backtest] ❌ CRITICAL: Day ${day} failed:`, errorMessage);
+
+            // If 0 trades generated, this is a data problem - STOP the loop
+            if (errorMessage.includes('No trades generated') || errorMessage.includes('No candles found')) {
+              console.error(`[Auto-Backtest] ⚠️ STOPPING: Data generation issue detected`);
+              console.error(`[Auto-Backtest] Please check:`);
+              console.error(`[Auto-Backtest]   1. Synthetic data is being generated`);
+              console.error(`[Auto-Backtest]   2. Database has synthetic_candles entries`);
+              console.error(`[Auto-Backtest]   3. Date ranges are valid`);
+              await this.stop();
+              return; // Exit the loop entirely
+            }
+
+            // For other errors, wait and continue
+            console.log(`[Auto-Backtest] Waiting 30s before continuing...`);
+            await this.sleep(30000);
+            continue; // Skip to next day
+          }
 
           // PHASE 3: Copy Synthetic Trades to History (NEW!)
           console.log(`[Auto-Backtest] 📋 PHASE 3: Copying trades to history...`);
@@ -539,10 +560,10 @@ class SimpleAutoBacktestService {
 
           await this.syncStateToDatabase({});
 
-          // Small delay between days
+          // Small delay between days (increased to reduce database strain)
           if (day < this.DAYS_PER_MONTH && this.isRunning) {
             console.log('[Auto-Backtest] Preparing next day...');
-            await this.sleep(5000); // 5 second delay between days
+            await this.sleep(10000); // 10 second delay between days (was 5s)
           }
         }
 
@@ -711,12 +732,14 @@ class SimpleAutoBacktestService {
       // USE ONLY THE SELECTED PAIR (not all 5)
       const symbols = [selectedPair.symbol];
 
-      // Each day is exactly 1 day of data
+      // Each day uses 7 days of data to ensure enough candles for signal generation
+      // H1 needs 50+ candles, M5 needs 50+, M1 needs 50+
+      // 7 days = 168 H1 candles, plenty for analysis
       const endDate = new Date();
-      const startDate = new Date(endDate.getTime() - 1 * 24 * 60 * 60 * 1000); // 1 day
+      const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000); // 7 days for sufficient data
 
       console.log(`[Auto-Backtest] Session: ${sessionName}`);
-      console.log(`[Auto-Backtest] Duration: 1 day`);
+      console.log(`[Auto-Backtest] Data Window: 7 days (ensures sufficient candles)`);
       console.log(`[Auto-Backtest] Pair: ${selectedPair.symbol} (LLM Confidence: ${selectedPair.confidence}%)`);
       console.log(`[Auto-Backtest] Risk Level: ${riskLevel}`);
 
@@ -749,6 +772,19 @@ class SimpleAutoBacktestService {
           console.log(`[Auto-Backtest] Day ${dayNumber} Progress: ${progress.message} (${progress.percentComplete.toFixed(1)}%)`);
         }
       );
+
+      // CRITICAL: Validate that trades were actually generated
+      if (result.totalTrades === 0) {
+        console.warn(`[Auto-Backtest] ⚠️ WARNING: Day ${dayNumber} generated ZERO trades!`);
+        console.warn(`[Auto-Backtest] This indicates a problem with:`);
+        console.warn(`[Auto-Backtest]   - Synthetic data generation`);
+        console.warn(`[Auto-Backtest]   - Candle retrieval`);
+        console.warn(`[Auto-Backtest]   - Signal generation logic`);
+        console.warn(`[Auto-Backtest] Symbols: ${symbols.join(', ')}`);
+        console.warn(`[Auto-Backtest] Date range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+
+        throw new Error(`Day ${dayNumber} failed: No trades generated. Check synthetic data availability.`);
+      }
 
       // Update day result with selected pair info
       this.lastDayResult = {
