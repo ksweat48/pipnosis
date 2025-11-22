@@ -9,6 +9,7 @@ import { kpiAggregator } from '../services/kpi-aggregator';
 import { KPIMetricCard } from '../components/KPIMetricCard';
 import { LLMLayerFunnel } from '../components/LLMLayerFunnel';
 import { NavigationMenu } from '../components/NavigationMenu';
+import { AIThoughtStreamOverview } from '../components/AIThoughtStreamOverview';
 
 type TabId = 'overview' | 'daily-insights' | 'llm-layers' | 'avoid-patterns' | 'learning-loop' | 'strategy-evolution' | 'smart-goal' | 'mastery';
 
@@ -245,16 +246,7 @@ function AILearningCenterPage() {
           ) : (
             <>
               {activeTab === 'overview' && (
-                <OverviewTab
-                  llmLayerKPIs={llmLayerKPIs}
-                  avoidPatternKPIs={avoidPatternKPIs}
-                  learningKPIs={learningKPIs}
-                  strategyKPIs={strategyKPIs}
-                  smartGoalKPIs={smartGoalKPIs}
-                  masteryKPIs={masteryKPIs}
-                  anomalies={anomalies}
-                  dailyMetaAnalysis={dailyMetaAnalysis}
-                />
+                <AIThoughtStreamOverview onRefresh={loadAllKPIs} />
               )}
 
               {activeTab === 'daily-insights' && (

@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { evCalculator } from './ev-calculator';
 import { cssCalculator } from './css-calculator';
+import { aiThoughtGenerator } from './ai-thought-generator';
 
 /**
  * Session Learning Generator
@@ -196,6 +197,23 @@ class SessionLearningGenerator {
 
       // Save to database
       await this.saveLearningToDatabase(userId, learningData);
+
+      // Generate AI thought stream daily reflection
+      const sessionNumber = await this.getSessionNumber(userId);
+      await aiThoughtGenerator.generateDailyReflection(userId, sessionId, {
+        sessionDate: new Date(),
+        sessionNumber,
+        winRate: trades.length > 0 ? (wins.length / trades.length) * 100 : 0,
+        profitFactor: sessionCSS / 50, // Simplified conversion
+        tradesCount: trades.length,
+        bestPattern: bestSetup?.name,
+        worstPattern: worstSetup?.name,
+        discoveries: patternsDiscovered,
+        challenges: patternsDegraded,
+        adjustments: recommendations.slice(0, 2),
+        currentGoal: 'Reach 65% win rate',
+        goalProgress: Math.min(100, ((wins.length / trades.length) * 100 / 65) * 100)
+      });
 
       console.log('[Session Learning] ✅ Backtest learning summary generated');
     } catch (error) {
@@ -978,6 +996,30 @@ class SessionLearningGenerator {
     if (trades.length === 0) return 0;
     const totalPnL = trades.reduce((sum, t) => sum + (t.pnl || 0), 0);
     return totalPnL / trades.length;
+  }
+
+  /**
+   * Get current session number for user
+   */
+  private async getSessionNumber(userId: string): Promise<number> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_daily_reflections')
+        .select('session_number')
+        .eq('user_id', userId)
+        .order('session_number', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data) {
+        return 1; // First session
+      }
+
+      return data.session_number + 1;
+    } catch (error) {
+      console.error('[Session Learning] Error getting session number:', error);
+      return 1;
+    }
   }
 }
 
