@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { aiDataAccessValidator, type ValidationResult } from './ai-data-access-validator';
 
 /**
  * AI Thought Generator
@@ -7,6 +8,8 @@ import { supabase } from '../lib/supabase';
  * Thoughts are casual, conversational, and show emotions (excitement, confusion, frustration).
  *
  * Think of this as the AI's internal monologue - what it's thinking as it learns to trade.
+ *
+ * Now includes self-awareness: AI will explicitly warn when it cannot access data needed to improve.
  */
 
 type ThoughtCategory =
@@ -82,19 +85,23 @@ class AIThoughtGenerator {
       adjustments: string[];
       currentGoal?: string;
       goalProgress?: number;
-    }
+    },
+    validationResult?: ValidationResult
   ): Promise<void> {
     console.log('[AI Thought Generator] 📝 Generating daily reflection...');
 
     try {
-      // Generate the main reflection text
-      const reflectionText = this.createReflectionNarrative(sessionData);
+      // Validate data access if not provided
+      const validation = validationResult || await aiDataAccessValidator.quickHealthCheck(userId);
 
-      // Determine mood based on performance
-      const mood = this.determineMood(sessionData.winRate, sessionData.goalProgress || 0);
+      // Generate the main reflection text (with critical warnings if needed)
+      const reflectionText = this.createReflectionNarrative(sessionData, validation);
 
-      // Generate tomorrow's focus areas
-      const tomorrowFocus = this.generateTomorrowFocus(sessionData);
+      // Determine mood based on performance AND data access
+      const mood = this.determineMood(sessionData.winRate, sessionData.goalProgress || 0, validation);
+
+      // Generate tomorrow's focus areas (prioritize fixing data issues)
+      const tomorrowFocus = this.generateTomorrowFocus(sessionData, validation);
 
       const { error } = await supabase.from('ai_daily_reflections').upsert({
         user_id: userId,
@@ -130,18 +137,50 @@ class AIThoughtGenerator {
   /**
    * Create narrative reflection text
    */
-  private createReflectionNarrative(data: any): string {
+  private createReflectionNarrative(data: any, validation: ValidationResult): string {
     const parts: string[] = [];
 
-    // Opening
-    if (data.sessionNumber <= 5) {
-      parts.push(`Day ${data.sessionNumber} - Still pretty new to this.`);
-    } else if (data.sessionNumber <= 20) {
-      parts.push(`Day ${data.sessionNumber} - Getting the hang of things.`);
-    } else if (data.sessionNumber <= 50) {
-      parts.push(`Day ${data.sessionNumber} - Feeling more confident now.`);
-    } else {
-      parts.push(`Day ${data.sessionNumber} - Trading like a pro!`);
+    // CRITICAL: Check for data access issues FIRST
+    const criticalIssues = validation.issues.filter(i => i.severity === 'critical');
+    const warningIssues = validation.issues.filter(i => i.severity === 'warning');
+
+    if (criticalIssues.length > 0) {
+      // AI is blind - express frustration and explain what's wrong
+      parts.push(`Day ${data.sessionNumber} - Feeling really frustrated. 🚨 CRITICAL ISSUE:`);
+
+      criticalIssues.forEach(issue => {
+        parts.push(`${issue.explanation} ${issue.suggestedFix}`);
+      });
+
+      parts.push('Without access to this data, I am basically blind and cannot learn anything meaningful. Please fix these issues urgently so I can continue improving.');
+
+      // Stop here - don't pretend to analyze when data is missing
+      return parts.join(' ');
+    }
+
+    if (warningIssues.length > 0) {
+      // Data quality issues - mention but continue
+      parts.push(`Day ${data.sessionNumber} - Feeling cautious today. ⚠️ WARNING:`);
+
+      warningIssues.forEach(issue => {
+        parts.push(`${issue.explanation}`);
+      });
+
+      parts.push('I can still function but my learning effectiveness is reduced.');
+      parts.push(''); // Add spacing
+    }
+
+    // Normal opening (only if no critical issues)
+    if (criticalIssues.length === 0 && warningIssues.length === 0) {
+      if (data.sessionNumber <= 5) {
+        parts.push(`Day ${data.sessionNumber} - Still pretty new to this.`);
+      } else if (data.sessionNumber <= 20) {
+        parts.push(`Day ${data.sessionNumber} - Getting the hang of things.`);
+      } else if (data.sessionNumber <= 50) {
+        parts.push(`Day ${data.sessionNumber} - Feeling more confident now.`);
+      } else {
+        parts.push(`Day ${data.sessionNumber} - Trading like a pro!`);
+      }
     }
 
     // Performance summary
@@ -200,9 +239,22 @@ class AIThoughtGenerator {
   }
 
   /**
-   * Determine AI's mood based on performance
+   * Determine AI's mood based on performance AND data access
    */
-  private determineMood(winRate: number, goalProgress: number): string {
+  private determineMood(winRate: number, goalProgress: number, validation: ValidationResult): string {
+    // Critical issues override everything
+    const criticalIssues = validation.issues.filter(i => i.severity === 'critical');
+    if (criticalIssues.length > 0) {
+      return 'frustrated'; // AI is blind and frustrated
+    }
+
+    // Warning issues make AI cautious regardless of performance
+    const warningIssues = validation.issues.filter(i => i.severity === 'warning');
+    if (warningIssues.length > 0) {
+      return 'cautious';
+    }
+
+    // Normal mood determination
     if (winRate >= 70) return 'excited';
     if (winRate >= 60) return 'confident';
     if (winRate >= 50) return 'focused';
@@ -211,11 +263,30 @@ class AIThoughtGenerator {
   }
 
   /**
-   * Generate tomorrow's focus areas
+   * Generate tomorrow's focus areas (prioritize data issues)
    */
-  private generateTomorrowFocus(data: any): string[] {
+  private generateTomorrowFocus(data: any, validation: ValidationResult): string[] {
     const focus: string[] = [];
 
+    // PRIORITY 1: Fix critical data issues
+    const criticalIssues = validation.issues.filter(i => i.severity === 'critical');
+    if (criticalIssues.length > 0) {
+      focus.push('🚨 URGENT: Fix data access issues before anything else');
+      criticalIssues.forEach(issue => {
+        focus.push(`Fix ${issue.table}: ${issue.suggestedFix}`);
+      });
+      return focus; // Stop here - nothing else matters if AI is blind
+    }
+
+    // PRIORITY 2: Address warning-level data issues
+    const warningIssues = validation.issues.filter(i => i.severity === 'warning');
+    if (warningIssues.length > 0) {
+      warningIssues.forEach(issue => {
+        focus.push(`⚠️ ${issue.suggestedFix}`);
+      });
+    }
+
+    // PRIORITY 3: Normal trading improvements
     if (data.winRate < 55) {
       focus.push('Improve win rate by being more selective with entries');
     }
@@ -225,7 +296,7 @@ class AIThoughtGenerator {
     }
 
     if (data.bestPattern) {
-      focus.push(`Trade more ${data.bestPattern} setups - they're working well`);
+      focus.push(`Trade more ${data.bestPattern} setups - they are working well`);
     }
 
     if (data.worstPattern) {

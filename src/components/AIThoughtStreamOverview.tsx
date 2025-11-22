@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, Calendar, TrendingUp, Target, Lightbulb, AlertCircle, Zap, RefreshCw } from 'lucide-react';
+import { Brain, Calendar, TrendingUp, Target, Lightbulb, AlertCircle, Zap, RefreshCw, AlertTriangle, XCircle } from 'lucide-react';
 import { aiThoughtGenerator } from '../services/ai-thought-generator';
+import { aiDataAccessValidator, type ValidationResult } from '../services/ai-data-access-validator';
 import { useAuth } from '../hooks/useAuth';
 
 interface AIThoughtStreamOverviewProps {
@@ -13,6 +14,8 @@ export function AIThoughtStreamOverview({ onRefresh }: AIThoughtStreamOverviewPr
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedReflection, setSelectedReflection] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [validation, setValidation] = useState<ValidationResult | null>(null);
+  const [showValidationDetails, setShowValidationDetails] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -25,6 +28,10 @@ export function AIThoughtStreamOverview({ onRefresh }: AIThoughtStreamOverviewPr
 
     setLoading(true);
     try {
+      // Validate data access
+      const validationResult = await aiDataAccessValidator.quickHealthCheck(user.id, true);
+      setValidation(validationResult);
+
       const data = await aiThoughtGenerator.getDailyReflections(user.id, 30);
       setReflections(data);
 
@@ -113,6 +120,11 @@ export function AIThoughtStreamOverview({ onRefresh }: AIThoughtStreamOverviewPr
     );
   }
 
+  const criticalIssues = validation?.issues.filter(i => i.severity === 'critical') || [];
+  const warningIssues = validation?.issues.filter(i => i.severity === 'warning') || [];
+  const hasCriticalIssues = criticalIssues.length > 0;
+  const hasWarnings = warningIssues.length > 0;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -131,6 +143,62 @@ export function AIThoughtStreamOverview({ onRefresh }: AIThoughtStreamOverviewPr
           Refresh
         </button>
       </div>
+
+      {/* Critical Alert Banner */}
+      {hasCriticalIssues && (
+        <div className="bg-red-900/50 border-2 border-red-500 rounded-lg p-6 animate-pulse">
+          <div className="flex items-start gap-4">
+            <XCircle className="w-8 h-8 text-red-400 flex-shrink-0 mt-1" />
+            <div className="flex-1">
+              <h3 className="text-xl font-bold text-red-300 mb-2">🚨 CRITICAL: AI Cannot Learn</h3>
+              <p className="text-red-200 mb-4">
+                The AI is experiencing critical data access issues that prevent it from learning.
+                These must be fixed immediately.
+              </p>
+              <div className="space-y-2 mb-4">
+                {criticalIssues.map((issue, idx) => (
+                  <div key={idx} className="bg-red-950/50 rounded p-3">
+                    <div className="font-semibold text-red-300">{issue.table}</div>
+                    <div className="text-sm text-red-200">{issue.explanation}</div>
+                    <div className="text-xs text-red-400 mt-1">Fix: {issue.suggestedFix}</div>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setShowValidationDetails(!showValidationDetails)}
+                className="text-sm text-red-300 hover:text-red-100 underline"
+              >
+                {showValidationDetails ? 'Hide' : 'Show'} Technical Details
+              </button>
+              {showValidationDetails && validation && (
+                <div className="mt-4 bg-gray-900/50 rounded p-3 text-xs text-gray-400 font-mono">
+                  <pre>{JSON.stringify(validation, null, 2)}</pre>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Warning Banner */}
+      {!hasCriticalIssues && hasWarnings && (
+        <div className="bg-yellow-900/30 border-2 border-yellow-500/50 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-6 h-6 text-yellow-400 flex-shrink-0" />
+            <div className="flex-1">
+              <h4 className="text-lg font-semibold text-yellow-300 mb-2">⚠️ AI Learning Degraded</h4>
+              <p className="text-yellow-200 text-sm mb-2">
+                The AI can still function but learning effectiveness is reduced:
+              </p>
+              <ul className="text-sm text-yellow-200 space-y-1">
+                {warningIssues.map((issue, idx) => (
+                  <li key={idx}>• {issue.explanation}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Session Timeline */}
