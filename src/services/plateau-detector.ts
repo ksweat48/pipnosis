@@ -22,16 +22,16 @@ interface PerformanceWindow {
 }
 
 class PlateauDetector {
-  private readonly PLATEAU_THRESHOLD_SESSIONS = 10;
+  private readonly PLATEAU_THRESHOLD_SESSIONS = 5;
   private readonly PLATEAU_RANGE_PERCENT = 5;
-  private readonly EXPLORATION_TRIGGER_SESSIONS = 15;
+  private readonly EXPLORATION_TRIGGER_SESSIONS = 8;
   private readonly MIN_TRADES_REQUIRED = 5;
 
   async detectPlateau(userId: string): Promise<PlateauAnalysis | null> {
     console.log('\n[Plateau Detector] 🔍 Analyzing performance for plateau detection...');
 
     try {
-      const recentSessions = await this.getRecentBacktestSessions(userId, 10);
+      const recentSessions = await this.getRecentBacktestSessions(userId, 30);
 
       if (recentSessions.length < this.PLATEAU_THRESHOLD_SESSIONS) {
         console.log(`[Plateau Detector] Insufficient data (${recentSessions.length} sessions)`);

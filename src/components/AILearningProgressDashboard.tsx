@@ -274,7 +274,7 @@ function AILearningProgressDashboard() {
 
           {/* Performance Requirements Card */}
           <div className="mt-4 p-4 bg-blue-500/10 rounded border border-blue-500/30">
-            <h4 className="text-sm font-semibold text-blue-300 mb-3">Requirements for Next Level</h4>
+            <h4 className="text-sm font-semibold text-blue-300 mb-3">Requirements for Next Level (updates daily)</h4>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
               <div>
                 <div className="text-white/60 mb-1">Winning Trades</div>
@@ -286,7 +286,7 @@ function AILearningProgressDashboard() {
                 </div>
               </div>
               <div>
-                <div className="text-white/60 mb-1">Win Rate (10-session avg)</div>
+                <div className="text-white/60 mb-1">Win Rate (daily rolling)</div>
                 <div className="font-bold text-white">
                   {skillData.last10SessionWRAvg !== undefined ? skillData.last10SessionWRAvg.toFixed(1) : skillData.currentWinRate.toFixed(1)}% / {skillThresholds[skillData.skillLevelNumeric]?.minWinRate || '?'}%
                 </div>
@@ -295,7 +295,7 @@ function AILearningProgressDashboard() {
                 </div>
               </div>
               <div>
-                <div className="text-white/60 mb-1">Profit Factor (10-session avg)</div>
+                <div className="text-white/60 mb-1">Profit Factor (daily rolling)</div>
                 <div className="font-bold text-white">
                   {skillData.last10SessionPFAvg !== undefined ? skillData.last10SessionPFAvg.toFixed(2) : skillData.currentProfitFactor.toFixed(2)} / {skillThresholds[skillData.skillLevelNumeric]?.minProfitFactor?.toFixed(2) || '?'}
                 </div>
@@ -305,8 +305,8 @@ function AILearningProgressDashboard() {
               </div>
               <div>
                 <div className="text-white/60 mb-1 flex items-center gap-1">
-                  Consistency (10-session)
-                  <span className="text-white/40 text-[10px]" title="% of last 10 sessions meeting minimum standards. All metrics judged on 10-session rolling average.">ⓘ</span>
+                  Consistency (daily)
+                  <span className="text-white/40 text-[10px]" title="% of recent sessions meeting minimum standards. Metrics update after each daily session.">ⓘ</span>
                 </div>
                 <div className="font-bold text-white">
                   {(() => {
@@ -365,7 +365,7 @@ function AILearningProgressDashboard() {
               </div>
             </div>
             <p className="text-xs text-blue-300 mt-3">
-              <strong>Note:</strong> All FOUR criteria must be met to advance. All metrics judged on 10-session rolling average. Consistency = % of sessions meeting minimum standards.
+              <strong>Note:</strong> All FOUR criteria must be met to advance. All metrics update after each daily session. Consistency = % of sessions meeting minimum standards.
             </p>
           </div>
 

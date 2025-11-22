@@ -500,6 +500,19 @@ class SimpleAutoBacktestService {
           const { kpiAggregator } = await import('./kpi-aggregator');
           await kpiAggregator.updateAllKPIs(this.userId!);
 
+          // PHASE 6: Update Performance Metrics (DAILY)
+          console.log(`[Auto-Backtest] 📈 PHASE 6: Updating performance metrics...`);
+          const { aiSkillTracker } = await import('./ai-skill-tracker');
+          const { plateauDetector } = await import('./plateau-detector');
+
+          // Update skill progression after each day
+          await aiSkillTracker.recalculateSkillProgression(this.userId!);
+          console.log(`[Auto-Backtest]   ✓ Skill progression updated`);
+
+          // Detect plateau after each day
+          await plateauDetector.detectPlateau(this.userId!);
+          console.log(`[Auto-Backtest]   ✓ Plateau analysis complete`);
+
           console.log(`[Auto-Backtest] ✅ Day ${day} complete with full learning cycle`);
 
           await this.syncStateToDatabase({});
