@@ -600,15 +600,26 @@ class SimpleAutoBacktestService {
 
       // Run LLM post-session analysis
       console.log('[Auto-Backtest] 🤖 Running LLM post-session analysis...');
+      console.log(`[Auto-Backtest] Fetching trades for session: ${todaySession.session_name}`);
       const trades = await this.fetchSessionTrades(todaySession.session_name);
-      if (trades.length > 0) {
-        await llmPostSessionAnalyzer.analyzeSession(
-          this.userId,
-          todaySession.session_name,
-          trades,
-          'synthetic'
-        );
+      console.log(`[Auto-Backtest] Found ${trades.length} trades for learning analysis`);
+
+      if (trades.length === 0) {
+        console.warn('[Auto-Backtest] ⚠️ NO TRADES FOUND - AI learning skipped!');
+        console.warn('[Auto-Backtest] Session name:', todaySession.session_name);
+        console.warn('[Auto-Backtest] Check if trades were saved to trade_history table');
+        console.warn('[Auto-Backtest] This explains why AI Learning Center shows no data');
+        return;
       }
+
+      console.log(`[Auto-Backtest] Running LLM analysis on ${trades.length} trades...`);
+      await llmPostSessionAnalyzer.analyzeSession(
+        this.userId,
+        todaySession.session_name,
+        trades,
+        'synthetic'
+      );
+      console.log('[Auto-Backtest] ✅ LLM analysis complete - data should appear in AI Learning Center');
 
       // Calculate pair selection accuracy
       await this.calculatePairSelectionAccuracy(selectedPair, todaySession);

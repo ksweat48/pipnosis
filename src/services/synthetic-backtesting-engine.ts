@@ -239,6 +239,11 @@ class SyntheticBacktestingEngine {
         console.log(`[Synthetic Backtest] 🕒 Processing candle ${i + 1}/${candles.length} at ${currentTime.toISOString()}`);
         // Update progress every 10 candles
         await this.updateProgress(i + 1, candles.length);
+        // Check account health every 10 candles
+        if (!this.checkAccountHealth()) {
+          console.error('[Synthetic Backtest] Stopping due to account health issues');
+          break;
+        }
       }
 
       await this.updateOpenTrades(candles[i]);
@@ -316,7 +321,24 @@ class SyntheticBacktestingEngine {
   private executeTrade(signal: any, entryTime: Date): SyntheticBacktestTrade {
     this.tradeCounter++;
 
-    const positionSize = (this.currentBalance * (this.config?.positionSizePercent || 2)) / 100;
+    const positionSize = this.calculatePositionSize(
+      signal.symbol,
+      signal.entryPrice,
+      signal.stopLoss,
+      this.currentBalance
+    );
+
+    if (positionSize <= 0 || positionSize > 10) {
+      console.error(`[Synthetic Backtest] Invalid position size: ${positionSize}`);
+      throw new Error('Invalid position size calculated');
+    }
+
+    if (signal.stopLoss === signal.entryPrice || signal.takeProfit === signal.entryPrice) {
+      console.error('[Synthetic Backtest] Invalid SL/TP - same as entry');
+      throw new Error('Invalid stop loss or take profit');
+    }
+
+    console.log(`[Synthetic Backtest] Position size: ${positionSize.toFixed(3)} lots (Balance: $${this.currentBalance.toFixed(2)})`);
 
     return {
       tradeNumber: this.tradeCounter,
@@ -371,7 +393,7 @@ class SyntheticBacktestingEngine {
     trade.exitTime = exitTime;
     trade.exitReason = exitReason;
 
-    const pipValue = 0.0001;
+    const pipValue = this.getPipValue(trade.symbol);
     let pipsGained = 0;
 
     if (trade.direction === 'buy') {
@@ -382,9 +404,8 @@ class SyntheticBacktestingEngine {
 
     trade.pipsGained = pipsGained;
 
-    const pipValueInMoney = 10;
-    const lotSize = trade.positionSize / 100000;
-    trade.pnl = pipsGained * pipValueInMoney * lotSize;
+    const valuePerLotPerPoint = this.getValuePerLotPerPoint(trade.symbol);
+    trade.pnl = pipsGained * valuePerLotPerPoint * trade.positionSize;
 
     trade.pnlPercent = (trade.pnl / this.currentBalance) * 100;
 
@@ -406,10 +427,12 @@ class SyntheticBacktestingEngine {
 
     this.equityCurve.push({
       time: exitTime,
-      balance: this.currentBalance
+      balance: this.currentBalance,
+      pnl: trade.pnl
     });
 
-    // Update progress tracking with trade result
+    await this.saveTradeToDatabase(trade);
+
     await this.updateProgressWithTradeResult(trade.outcome, trade.pnl);
   }
 
@@ -919,6 +942,147 @@ class SyntheticBacktestingEngine {
       console.log(`[Synthetic Backtest] Progress tracking completed with status: ${status}`);
     } catch (error) {
       console.error('[Synthetic Backtest] Error completing progress tracking:', error);
+    }
+  }
+
+  /**
+   * Get pip value for symbol
+   */
+  private getPipValue(symbol: string): number {
+    if (symbol.includes('JPY')) return 0.01;
+    if (symbol.includes('XAU') || symbol.includes('GOLD')) return 0.01;
+    if (symbol.includes('US30') || symbol.includes('NAS100')) return 1.0;
+    return 0.0001;
+  }
+
+  /**
+   * Get contract size for symbol
+   */
+  private getContractSize(symbol: string): number {
+    if (symbol.includes('XAU') || symbol.includes('GOLD')) return 100;
+    if (symbol.includes('US30') || symbol.includes('NAS100')) return 1;
+    return 100000;
+  }
+
+  /**
+   * Get value per lot per point/pip for symbol
+   */
+  private getValuePerLotPerPoint(symbol: string): number {
+    if (symbol.includes('XAU') || symbol.includes('GOLD')) return 1.0;
+    if (symbol.includes('US30')) return 1.0;
+    if (symbol.includes('JPY')) return 1000;
+    return 10;
+  }
+
+  /**
+   * Calculate proper position size based on risk management
+   * Returns position size in STANDARD LOTS
+   */
+  private calculatePositionSize(
+    symbol: string,
+    entryPrice: number,
+    stopLoss: number,
+    accountBalance: number
+  ): number {
+    const riskPercent = this.config?.positionSizePercent || 2;
+    const riskAmount = (accountBalance * riskPercent) / 100;
+
+    const priceRisk = Math.abs(entryPrice - stopLoss);
+    const pipValue = this.getPipValue(symbol);
+    const pointsRisked = priceRisk / pipValue;
+
+    const valuePerLotPerPoint = this.getValuePerLotPerPoint(symbol);
+    let positionSize = riskAmount / (pointsRisked * valuePerLotPerPoint);
+
+    const maxPositionValue = accountBalance * 0.05;
+    const contractSize = this.getContractSize(symbol);
+    const maxLots = maxPositionValue / (entryPrice * contractSize);
+
+    positionSize = Math.min(positionSize, maxLots);
+    positionSize = Math.max(0.01, positionSize);
+    positionSize = Math.min(5.0, positionSize);
+
+    return positionSize;
+  }
+
+  /**
+   * Check if account is in acceptable state
+   */
+  private checkAccountHealth(): boolean {
+    const initialBalance = this.config?.initialBalance || 10000;
+    const currentDrawdown = ((initialBalance - this.currentBalance) / initialBalance) * 100;
+
+    if (currentDrawdown > 50) {
+      console.error(`[Synthetic Backtest] ❌ ACCOUNT BLOWN - ${currentDrawdown.toFixed(1)}% drawdown`);
+      return false;
+    }
+
+    if (currentDrawdown > 20) {
+      console.warn(`[Synthetic Backtest] ⚠️ Significant drawdown: ${currentDrawdown.toFixed(1)}%`);
+    }
+
+    if (this.currentBalance > initialBalance * 100) {
+      console.error(`[Synthetic Backtest] ❌ Unrealistic balance detected: $${this.currentBalance.toFixed(2)}`);
+      return false;
+    }
+
+    if (this.currentBalance < 0) {
+      console.error(`[Synthetic Backtest] ❌ Negative balance: $${this.currentBalance.toFixed(2)}`);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Save closed trade to database for AI learning
+   */
+  private async saveTradeToDatabase(trade: SyntheticBacktestTrade): Promise<void> {
+    if (!this.userId || !this.sessionId) return;
+
+    try {
+      const { error } = await supabase
+        .from('trade_history')
+        .insert({
+          user_id: this.userId,
+          session_id: this.sessionId,
+          session_name: this.config?.sessionName || 'Unknown',
+          symbol: trade.symbol,
+          timeframe: trade.timeframe,
+          direction: trade.direction,
+          entry_time: trade.entryTime.toISOString(),
+          entry_price: trade.entryPrice,
+          exit_time: trade.exitTime?.toISOString(),
+          exit_price: trade.exitPrice,
+          exit_reason: trade.exitReason,
+          position_size: trade.positionSize,
+          stop_loss: trade.stopLoss,
+          take_profit: trade.takeProfit,
+          pnl: trade.pnl,
+          pnl_percent: trade.pnlPercent,
+          pips_gained: trade.pipsGained,
+          outcome: trade.outcome,
+          flow_v2_confidence: trade.flowV2Confidence,
+          ai_reasoning_used: trade.aiReasoningUsed,
+          ai_conviction: trade.aiConviction,
+          ai_rationale: trade.aiRationale,
+          setup_type: trade.setupType,
+          quality_score: trade.qualityScore,
+          holding_duration_minutes: trade.holdingDurationMinutes,
+          risk_reward_ratio: trade.riskRewardRatio,
+          execution_reason: trade.executionReason,
+          created_at: new Date().toISOString(),
+          closed_at: trade.exitTime?.toISOString(),
+          is_synthetic: true
+        });
+
+      if (error) {
+        console.error('[Synthetic Backtest] Error saving trade to database:', error);
+      } else {
+        console.log(`[Synthetic Backtest] ✅ Trade #${trade.tradeNumber} saved to database`);
+      }
+    } catch (error) {
+      console.error('[Synthetic Backtest] Failed to save trade:', error);
     }
   }
 
