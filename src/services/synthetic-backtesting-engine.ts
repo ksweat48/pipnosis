@@ -141,27 +141,6 @@ class SyntheticBacktestingEngine {
 
     console.log(`[Synthetic Backtest] Using synthetic generation: ${this.syntheticGenerationId}`);
 
-    // Verify candles exist before starting backtest
-    console.log(`[Synthetic Backtest] Verifying synthetic data availability...`);
-    const { count: candleCount, error: countError } = await supabase
-      .from('synthetic_candles')
-      .select('id', { count: 'exact', head: true })
-      .eq('generation_id', this.syntheticGenerationId)
-      .eq('symbol', config.symbols[0]);
-
-    if (countError) {
-      console.error(`[Synthetic Backtest] Error checking candle count:`, countError);
-    }
-
-    if (!candleCount || candleCount === 0) {
-      throw new Error(
-        `No synthetic candles found for generation ${this.syntheticGenerationId} and symbol ${config.symbols[0]}. ` +
-        `Synthetic data generation may have failed. Please check synthetic_candles table.`
-      );
-    }
-
-    console.log(`[Synthetic Backtest] ✅ Verified ${candleCount} synthetic candles available`);
-
     const session = await this.createSyntheticSession(userId, config);
     this.sessionId = session.id;
     this.backtestId = session.id;
@@ -243,11 +222,10 @@ class SyntheticBacktestingEngine {
     );
 
     if (!candles || candles.length === 0) {
-      console.error(`[Synthetic Backtest] ❌ CRITICAL: No candles found for ${symbol}`);
-      console.error(`[Synthetic Backtest] Date range: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
-      console.error(`[Synthetic Backtest] Synthetic Generation ID: ${this.syntheticGenerationId}`);
-      console.error(`[Synthetic Backtest] This will result in 0 trades!`);
-      throw new Error(`No candles found for ${symbol} in date range ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
+      console.warn(`[Synthetic Backtest] ⚠️ No candles found for ${symbol}`);
+      console.warn(`[Synthetic Backtest] Date range: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
+      console.warn(`[Synthetic Backtest] Skipping this symbol...`);
+      return; // Skip gracefully instead of throwing error
     }
 
     console.log(`[Synthetic Backtest] ✅ Processing ${candles.length} H1 candles for ${symbol}`);

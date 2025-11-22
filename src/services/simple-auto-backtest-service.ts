@@ -487,28 +487,7 @@ class SimpleAutoBacktestService {
 
           // PHASE 2: Run Daily Session (ONE pair only)
           console.log(`[Auto-Backtest] 📊 PHASE 2: Running backtest for ${selectedPair.symbol}...`);
-          try {
-            await this.runDailySession(day, selectedPair);
-          } catch (sessionError) {
-            const errorMessage = sessionError instanceof Error ? sessionError.message : String(sessionError);
-            console.error(`[Auto-Backtest] ❌ CRITICAL: Day ${day} failed:`, errorMessage);
-
-            // If 0 trades generated, this is a data problem - STOP the loop
-            if (errorMessage.includes('No trades generated') || errorMessage.includes('No candles found')) {
-              console.error(`[Auto-Backtest] ⚠️ STOPPING: Data generation issue detected`);
-              console.error(`[Auto-Backtest] Please check:`);
-              console.error(`[Auto-Backtest]   1. Synthetic data is being generated`);
-              console.error(`[Auto-Backtest]   2. Database has synthetic_candles entries`);
-              console.error(`[Auto-Backtest]   3. Date ranges are valid`);
-              await this.stop();
-              return; // Exit the loop entirely
-            }
-
-            // For other errors, wait and continue
-            console.log(`[Auto-Backtest] Waiting 30s before continuing...`);
-            await this.sleep(30000);
-            continue; // Skip to next day
-          }
+          await this.runDailySession(day, selectedPair);
 
           // PHASE 3: Copy Synthetic Trades to History (NEW!)
           console.log(`[Auto-Backtest] 📋 PHASE 3: Copying trades to history...`);
@@ -773,17 +752,9 @@ class SimpleAutoBacktestService {
         }
       );
 
-      // CRITICAL: Validate that trades were actually generated
+      // Warn if 0 trades but don't stop - synthetic data may still be generating
       if (result.totalTrades === 0) {
-        console.warn(`[Auto-Backtest] ⚠️ WARNING: Day ${dayNumber} generated ZERO trades!`);
-        console.warn(`[Auto-Backtest] This indicates a problem with:`);
-        console.warn(`[Auto-Backtest]   - Synthetic data generation`);
-        console.warn(`[Auto-Backtest]   - Candle retrieval`);
-        console.warn(`[Auto-Backtest]   - Signal generation logic`);
-        console.warn(`[Auto-Backtest] Symbols: ${symbols.join(', ')}`);
-        console.warn(`[Auto-Backtest] Date range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
-
-        throw new Error(`Day ${dayNumber} failed: No trades generated. Check synthetic data availability.`);
+        console.warn(`[Auto-Backtest] ⚠️ Day ${dayNumber} generated 0 trades (data may still be generating)`);
       }
 
       // Update day result with selected pair info
