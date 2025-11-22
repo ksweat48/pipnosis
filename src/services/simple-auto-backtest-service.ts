@@ -3,7 +3,7 @@
  *
  * NEW ARCHITECTURE (Daily Learning System):
  * - Each day is a complete learning cycle (30 cycles per month, not 3)
- * - Daily flow: Pair Selection → Backtest → LLM Analysis → Memory Update
+ * - Daily flow: Pair Selection → Backtest → Copy Trades → LLM Analysis → Memory Update
  * - LLM selects ONE optimal pair before each session
  * - Post-session analysis runs IMMEDIATELY after every day
  * - All learnings are instant and cumulative
@@ -12,10 +12,12 @@
  * Daily Flow (Repeated 30 times per month):
  * 1. PHASE 1: Pre-Session Pair Selection (LLM analyzes all pairs, picks best)
  * 2. PHASE 2: Run 1-Day Backtest (only for selected pair)
- * 3. PHASE 3: Post-Session LLM Analysis (immediate learning extraction)
- * 4. PHASE 4: Update Memory Systems (insights, patterns, calibration)
- * 5. PHASE 5: Update KPIs Daily
- * 6. Move to next day immediately
+ * 3. PHASE 3: Copy Synthetic Trades to History (enables Progressive Daily Learning)
+ * 4. PHASE 4: Post-Session LLM Analysis (immediate learning extraction)
+ * 5. PHASE 5: Update Memory Systems (insights, patterns, calibration)
+ * 6. PHASE 6: Update KPIs Daily
+ * 7. PHASE 7: Update Performance Metrics (skill progression, plateau detection)
+ * 8. Move to next day immediately
  */
 
 import { syntheticBacktestingEngine, SyntheticBacktestConfig } from './synthetic-backtesting-engine';
@@ -487,21 +489,41 @@ class SimpleAutoBacktestService {
           console.log(`[Auto-Backtest] 📊 PHASE 2: Running backtest for ${selectedPair.symbol}...`);
           await this.runDailySession(day, selectedPair);
 
-          // PHASE 3: Post-Session LLM Analysis (IMMEDIATE)
-          console.log(`[Auto-Backtest] 🧠 PHASE 3: Post-session LLM analysis...`);
+          // PHASE 3: Copy Synthetic Trades to History (NEW!)
+          console.log(`[Auto-Backtest] 📋 PHASE 3: Copying trades to history...`);
+          const { data: todaySessionData } = await supabase
+            .from('synthetic_backtest_sessions')
+            .select('id')
+            .eq('user_id', this.userId!)
+            .ilike('session_name', `%Day ${day}%`)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (todaySessionData) {
+            const { syntheticTradeCopier } = await import('./synthetic-trade-copier');
+            const copiedCount = await syntheticTradeCopier.copySyntheticTradesToHistory(
+              todaySessionData.id,
+              this.userId!
+            );
+            console.log(`[Auto-Backtest]   ✓ Copied ${copiedCount} trades to history`);
+          }
+
+          // PHASE 4: Post-Session LLM Analysis (IMMEDIATE)
+          console.log(`[Auto-Backtest] 🧠 PHASE 4: Post-session LLM analysis...`);
           await this.triggerDailyLearningCycle(day, selectedPair);
 
-          // PHASE 4: Update Memory Systems
-          console.log(`[Auto-Backtest] 💾 PHASE 4: Updating memory systems...`);
+          // PHASE 5: Update Memory Systems
+          console.log(`[Auto-Backtest] 💾 PHASE 5: Updating memory systems...`);
           await this.updateMemorySystems(day);
 
-          // PHASE 5: Update KPIs Daily
-          console.log(`[Auto-Backtest] 📊 PHASE 5: Updating daily KPIs...`);
+          // PHASE 6: Update KPIs Daily
+          console.log(`[Auto-Backtest] 📊 PHASE 6: Updating daily KPIs...`);
           const { kpiAggregator } = await import('./kpi-aggregator');
           await kpiAggregator.updateAllKPIs(this.userId!);
 
-          // PHASE 6: Update Performance Metrics (DAILY)
-          console.log(`[Auto-Backtest] 📈 PHASE 6: Updating performance metrics...`);
+          // PHASE 7: Update Performance Metrics (DAILY)
+          console.log(`[Auto-Backtest] 📈 PHASE 7: Updating performance metrics...`);
           const { aiSkillTracker } = await import('./ai-skill-tracker');
           const { plateauDetector } = await import('./plateau-detector');
 
