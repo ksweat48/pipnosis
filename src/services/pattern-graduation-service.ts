@@ -174,7 +174,7 @@ class PatternGraduationService {
         .from('ai_pattern_graduations')
         .select('*')
         .eq('user_id', userId)
-        .order('graduated_at', { ascending: false });
+        .order('graduation_date', { ascending: false });
 
       if (error) {
         console.error('[Pattern Graduation] Error fetching graduations:', error);

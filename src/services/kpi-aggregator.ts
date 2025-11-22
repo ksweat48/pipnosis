@@ -257,8 +257,8 @@ class KPIAggregator {
         .select('*')
         .eq('user_id', userId)
         .eq('symbol', symbol)
-        .gte('discovered_at', `${date}T00:00:00`)
-        .lte('discovered_at', `${date}T23:59:59`);
+        .gte('discovery_date', `${date}T00:00:00`)
+        .lte('discovery_date', `${date}T23:59:59`);
 
       const patternsDiscovered = patterns?.length || 0;
 
