@@ -10,6 +10,7 @@ import APIUsageMonitor from '@/components/APIUsageMonitor';
 import { GlobalPollingStatus } from '@/components/GlobalPollingStatus';
 import { PollingPreferences } from '@/components/PollingPreferences';
 import { CPUCreditDashboard } from '@/components/CPUCreditDashboard';
+import { PipnosisMasteryCurve } from '@/components/PipnosisMasteryCurve';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { simpleAutoBacktestService } from '@/services/simple-auto-backtest-service';
@@ -267,6 +268,9 @@ export function AdminDashboard() {
 
         {activeTab === 'overview' && (
           <div className="space-y-6">
+            {/* Pipnosis Mastery Curve - TOP PRIORITY */}
+            <PipnosisMasteryCurve userId={user?.id || null} />
+
             {/* AI Training Status Banner */}
             {aiMetrics?.isAutoRunning && (
               <div className="bg-gradient-to-r from-green-900/30 to-emerald-900/30 border-2 border-green-500/30 rounded-xl p-6">
