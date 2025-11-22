@@ -470,79 +470,134 @@ class SimpleAutoBacktestService {
 
         // Run 30 daily sessions with DAILY LEARNING (30 cycles, not 3)
         for (let day = 1; day <= this.DAYS_PER_MONTH; day++) {
-          if (!this.isRunning) break;
+          if (!this.isRunning) {
+            console.log(`[Auto-Backtest] ⏸️ Stopped by user at Day ${day}`);
+            break;
+          }
 
           this.currentDayInMonth = day;
 
           console.log(`\n[Auto-Backtest] ========== DAY ${day}/30 (Daily Learning Cycle) ==========`);
+          console.log(`[Auto-Backtest] Progress: ${((day - 1) / this.DAYS_PER_MONTH * 100).toFixed(1)}% complete`);
+          console.log(`[Auto-Backtest] Month: ${this.currentMonthNumber}`);
 
-          // PHASE 1: Pre-Session Pair Selection
-          console.log(`[Auto-Backtest] 🎯 PHASE 1: LLM Pair Selection...`);
-          const { llmPairSelector } = await import('./llm-pair-selector');
-          const selectedPair = await llmPairSelector.selectPairForDay(this.userId!);
+          try {
+            // PHASE 1: Pre-Session Pair Selection
+            console.log(`[Auto-Backtest] 🎯 PHASE 1: LLM Pair Selection...`);
+            const { llmPairSelector } = await import('./llm-pair-selector');
+            const selectedPair = await llmPairSelector.selectPairForDay(this.userId!);
 
-          console.log(`[Auto-Backtest] ✅ Selected Pair: ${selectedPair.symbol}`);
-          console.log(`[Auto-Backtest]   Confidence: ${selectedPair.confidence}%`);
-          console.log(`[Auto-Backtest]   Reasoning: ${selectedPair.reasoning}`);
+            console.log(`[Auto-Backtest] ✅ Selected Pair: ${selectedPair.symbol}`);
+            console.log(`[Auto-Backtest]   Confidence: ${selectedPair.confidence}%`);
+            console.log(`[Auto-Backtest]   Reasoning: ${selectedPair.reasoning}`);
 
-          // PHASE 2: Run Daily Session (ONE pair only)
-          console.log(`[Auto-Backtest] 📊 PHASE 2: Running backtest for ${selectedPair.symbol}...`);
-          await this.runDailySession(day, selectedPair);
+            // Update database state before starting backtest
+            await this.syncStateToDatabase({
+              last_status_message: `Day ${day}: Running backtest for ${selectedPair.symbol}`,
+              last_status_updated_at: new Date().toISOString()
+            });
 
-          // PHASE 3: Copy Synthetic Trades to History (NEW!)
-          console.log(`[Auto-Backtest] 📋 PHASE 3: Copying trades to history...`);
-          const { data: todaySessionData } = await supabase
-            .from('synthetic_backtest_sessions')
-            .select('id')
-            .eq('user_id', this.userId!)
-            .ilike('session_name', `%Day ${day}%`)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            // PHASE 2: Run Daily Session (ONE pair only)
+            console.log(`[Auto-Backtest] 📊 PHASE 2: Running backtest for ${selectedPair.symbol}...`);
+            await this.runDailySession(day, selectedPair);
+            console.log(`[Auto-Backtest] ✓ Backtest complete`);
 
-          if (todaySessionData) {
-            const { syntheticTradeCopier } = await import('./synthetic-trade-copier');
-            const copiedCount = await syntheticTradeCopier.copySyntheticTradesToHistory(
-              todaySessionData.id,
-              this.userId!
-            );
-            console.log(`[Auto-Backtest]   ✓ Copied ${copiedCount} trades to history`);
-          }
+            // Update database state
+            await this.syncStateToDatabase({
+              last_status_message: `Day ${day}: Copying trades to history`,
+              last_status_updated_at: new Date().toISOString()
+            });
 
-          // PHASE 4: Post-Session LLM Analysis (IMMEDIATE)
-          console.log(`[Auto-Backtest] 🧠 PHASE 4: Post-session LLM analysis...`);
-          await this.triggerDailyLearningCycle(day, selectedPair);
+            // PHASE 3: Copy Synthetic Trades to History (NEW!)
+            console.log(`[Auto-Backtest] 📋 PHASE 3: Copying trades to history...`);
+            const { data: todaySessionData } = await supabase
+              .from('synthetic_backtest_sessions')
+              .select('id')
+              .eq('user_id', this.userId!)
+              .ilike('session_name', `%Day ${day}%`)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
 
-          // PHASE 5: Update Memory Systems
-          console.log(`[Auto-Backtest] 💾 PHASE 5: Updating memory systems...`);
-          await this.updateMemorySystems(day);
+            if (todaySessionData) {
+              const { syntheticTradeCopier } = await import('./synthetic-trade-copier');
+              const copiedCount = await syntheticTradeCopier.copySyntheticTradesToHistory(
+                todaySessionData.id,
+                this.userId!
+              );
+              console.log(`[Auto-Backtest]   ✓ Copied ${copiedCount} trades to history`);
+            } else {
+              console.warn(`[Auto-Backtest]   ⚠️ No session data found to copy trades`);
+            }
 
-          // PHASE 6: Update KPIs Daily
-          console.log(`[Auto-Backtest] 📊 PHASE 6: Updating daily KPIs...`);
-          const { kpiAggregator } = await import('./kpi-aggregator');
-          await kpiAggregator.updateAllKPIs(this.userId!);
+            // Update database state
+            await this.syncStateToDatabase({
+              last_status_message: `Day ${day}: Running LLM analysis and generating reflection`,
+              last_status_updated_at: new Date().toISOString()
+            });
 
-          // PHASE 7: Update Performance Metrics (DAILY)
-          console.log(`[Auto-Backtest] 📈 PHASE 7: Updating performance metrics...`);
-          const { aiSkillTracker } = await import('./ai-skill-tracker');
-          const { plateauDetector } = await import('./plateau-detector');
+            // PHASE 4: Post-Session LLM Analysis + Reflection Generation (IMMEDIATE)
+            console.log(`[Auto-Backtest] 🧠 PHASE 4: Post-session LLM analysis + reflection...`);
+            await this.triggerDailyLearningCycle(day, selectedPair);
+            console.log(`[Auto-Backtest] ✓ Analysis and reflection complete`);
 
-          // Update skill progression after each day
-          await aiSkillTracker.recalculateSkillProgression(this.userId!);
-          console.log(`[Auto-Backtest]   ✓ Skill progression updated`);
+            // PHASE 5: Update Memory Systems
+            console.log(`[Auto-Backtest] 💾 PHASE 5: Updating memory systems...`);
+            await this.updateMemorySystems(day);
+            console.log(`[Auto-Backtest] ✓ Memory systems updated`);
 
-          // Detect plateau after each day
-          await plateauDetector.detectPlateau(this.userId!);
-          console.log(`[Auto-Backtest]   ✓ Plateau analysis complete`);
+            // PHASE 6: Update KPIs Daily
+            console.log(`[Auto-Backtest] 📊 PHASE 6: Updating daily KPIs...`);
+            const { kpiAggregator } = await import('./kpi-aggregator');
+            await kpiAggregator.updateAllKPIs(this.userId!);
+            console.log(`[Auto-Backtest] ✓ KPIs updated`);
 
-          console.log(`[Auto-Backtest] ✅ Day ${day} complete with full learning cycle`);
+            // PHASE 7: Update Performance Metrics (DAILY)
+            console.log(`[Auto-Backtest] 📈 PHASE 7: Updating performance metrics...`);
+            const { aiSkillTracker } = await import('./ai-skill-tracker');
+            const { plateauDetector } = await import('./plateau-detector');
 
-          await this.syncStateToDatabase({});
+            // Update skill progression after each day
+            await aiSkillTracker.recalculateSkillProgression(this.userId!);
+            console.log(`[Auto-Backtest]   ✓ Skill progression updated`);
 
-          // Small delay between days (increased to reduce database strain)
-          if (day < this.DAYS_PER_MONTH && this.isRunning) {
-            console.log('[Auto-Backtest] Preparing next day...');
-            await this.sleep(10000); // 10 second delay between days (was 5s)
+            // Detect plateau after each day
+            await plateauDetector.detectPlateau(this.userId!);
+            console.log(`[Auto-Backtest]   ✓ Plateau analysis complete`);
+
+            console.log(`[Auto-Backtest] ========================================`);
+            console.log(`[Auto-Backtest] ✅ Day ${day} COMPLETE with full learning cycle`);
+            console.log(`[Auto-Backtest] ========================================\n`);
+
+            // Final state update for this day
+            await this.syncStateToDatabase({
+              last_status_message: `Day ${day} complete - ${((day / this.DAYS_PER_MONTH) * 100).toFixed(1)}% of month done`,
+              last_status_updated_at: new Date().toISOString()
+            });
+
+            // Small delay between days (increased to reduce database strain)
+            if (day < this.DAYS_PER_MONTH && this.isRunning) {
+              console.log(`[Auto-Backtest] 💤 Preparing Day ${day + 1}... (10s delay)`);
+              await this.sleep(10000); // 10 second delay between days (was 5s)
+            }
+
+          } catch (dayError) {
+            console.error(`[Auto-Backtest] ❌ ERROR on Day ${day}:`, dayError);
+            console.error(`[Auto-Backtest] Error type:`, dayError instanceof Error ? dayError.constructor.name : typeof dayError);
+            console.error(`[Auto-Backtest] Error message:`, dayError instanceof Error ? dayError.message : String(dayError));
+
+            // Save error to database
+            await this.syncStateToDatabase({
+              last_error_message: `Day ${day} failed: ${dayError instanceof Error ? dayError.message : String(dayError)}`,
+              last_error_at: new Date().toISOString(),
+              last_status_message: `Day ${day} failed - check logs`,
+              last_status_updated_at: new Date().toISOString()
+            });
+
+            // Continue to next day instead of stopping entire month
+            console.warn(`[Auto-Backtest] ⚠️ Skipping Day ${day} and continuing to next day...`);
+            await this.sleep(5000); // Short delay before continuing
+            continue;
           }
         }
 
@@ -610,6 +665,7 @@ class SimpleAutoBacktestService {
 
     try {
       console.log(`[Auto-Backtest] 🧠 Running DAILY learning analysis for Day ${dayNumber}...`);
+      console.log(`[Auto-Backtest] ========================================`);
 
       // Get today's session
       const { data: todaySession } = await supabase
@@ -621,17 +677,23 @@ class SimpleAutoBacktestService {
         .single();
 
       if (!todaySession) {
-        console.error('[Auto-Backtest] No session found for daily learning');
-        return;
+        console.error('[Auto-Backtest] ❌ CRITICAL: No session found for daily learning');
+        console.error('[Auto-Backtest] This indicates runDailySession() may have failed');
+        throw new Error(`No session data found for Day ${dayNumber}`);
       }
+
+      console.log(`[Auto-Backtest] ✓ Session data loaded: ${todaySession.session_name}`);
 
       // Import learning services
       const { progressiveDailyLearning } = await import('./progressive-daily-learning');
       const { llmPostSessionAnalyzer } = await import('./llm-post-session-analyzer');
+      const { aiThoughtGenerator } = await import('./ai-thought-generator');
+      const { aiDataAccessValidator } = await import('./ai-data-access-validator');
 
       // Run progressive daily learning (already exists!)
       console.log('[Auto-Backtest] 📚 Processing daily progressive learning...');
       await progressiveDailyLearning.processDailySession(this.userId, todaySession);
+      console.log('[Auto-Backtest] ✓ Progressive learning complete');
 
       // Run LLM post-session analysis
       console.log('[Auto-Backtest] 🤖 Running LLM post-session analysis...');
@@ -639,30 +701,75 @@ class SimpleAutoBacktestService {
       const trades = await this.fetchSessionTrades(todaySession.session_name);
       console.log(`[Auto-Backtest] Found ${trades.length} trades for learning analysis`);
 
-      if (trades.length === 0) {
-        console.warn('[Auto-Backtest] ⚠️ NO TRADES FOUND - AI learning skipped!');
-        console.warn('[Auto-Backtest] Session name:', todaySession.session_name);
-        console.warn('[Auto-Backtest] Check if trades were saved to trade_history table');
-        console.warn('[Auto-Backtest] This explains why AI Learning Center shows no data');
-        return;
-      }
+      // Prepare discoveries and challenges for reflection
+      let discoveries: string[] = [];
+      let challenges: string[] = [];
+      let adjustments: string[] = [];
 
-      console.log(`[Auto-Backtest] Running LLM analysis on ${trades.length} trades...`);
-      await llmPostSessionAnalyzer.analyzeSession(
-        this.userId,
-        todaySession.session_name,
-        trades,
-        'synthetic'
-      );
-      console.log('[Auto-Backtest] ✅ LLM analysis complete - data should appear in AI Learning Center');
+      if (trades.length === 0) {
+        console.warn('[Auto-Backtest] ⚠️ NO TRADES FOUND - Will generate reflection anyway');
+        console.warn('[Auto-Backtest] Session name:', todaySession.session_name);
+        console.warn('[Auto-Backtest] AI can reflect on why no trades happened');
+
+        // Add challenge about no trades
+        challenges.push('No trades were generated today - need to investigate if strategy is too restrictive or market conditions were unsuitable');
+        adjustments.push('Review entry criteria and market conditions for next session');
+      } else {
+        console.log(`[Auto-Backtest] Running LLM analysis on ${trades.length} trades...`);
+        const analysisResult = await llmPostSessionAnalyzer.analyzeSession(
+          this.userId,
+          todaySession.session_name,
+          trades,
+          'synthetic'
+        );
+        console.log('[Auto-Backtest] ✓ LLM analysis complete');
+
+        // Extract learnings from analysis (if available)
+        discoveries = todaySession.key_learnings || [];
+        if (todaySession.win_rate > 60) {
+          discoveries.push(`Strong performance with ${todaySession.win_rate.toFixed(1)}% win rate`);
+        }
+      }
 
       // Calculate pair selection accuracy
       await this.calculatePairSelectionAccuracy(selectedPair, todaySession);
+      console.log('[Auto-Backtest] ✓ Pair selection accuracy calculated');
 
+      // CRITICAL: Generate daily reflection for AI Learning Journey
+      console.log('[Auto-Backtest] 📝 Generating daily reflection for Learning Journey...');
+
+      // Validate AI data access
+      const validation = await aiDataAccessValidator.quickHealthCheck(this.userId, false);
+
+      await aiThoughtGenerator.generateDailyReflection(
+        this.userId,
+        todaySession.session_name, // session ID
+        {
+          sessionDate: new Date(todaySession.session_date),
+          sessionNumber: dayNumber,
+          winRate: todaySession.win_rate || 0,
+          profitFactor: todaySession.profit_factor || 0,
+          tradesCount: todaySession.total_trades || 0,
+          bestPattern: selectedPair.symbol, // Use selected pair as context
+          worstPattern: undefined,
+          discoveries,
+          challenges,
+          adjustments,
+          currentGoal: `Complete 30-day learning cycle (Day ${dayNumber}/30)`,
+          goalProgress: (dayNumber / 30) * 100
+        },
+        validation
+      );
+      console.log('[Auto-Backtest] ✅ Daily reflection saved to Learning Journey!');
+
+      console.log(`[Auto-Backtest] ========================================`);
       console.log(`[Auto-Backtest] ✅ Daily learning complete for Day ${dayNumber}`);
 
     } catch (error) {
-      console.error('[Auto-Backtest] Error in daily learning cycle:', error);
+      console.error('[Auto-Backtest] ❌ ERROR in daily learning cycle:', error);
+      console.error('[Auto-Backtest] Error details:', error instanceof Error ? error.message : String(error));
+      // Don't throw - let the day complete even if learning fails
+      console.warn('[Auto-Backtest] Continuing to next day despite learning error...');
     }
   }
 
