@@ -1167,6 +1167,79 @@ class AISkillTracker {
       return [];
     }
   }
+
+  /**
+   * Convenience method to recalculate skill progression after a session
+   * Fetches session data and updates skill progression automatically
+   */
+  async recalculateSkillProgression(
+    userId: string,
+    sessionResults?: {
+      total_trades: number;
+      win_rate: number;
+      profit_factor: number;
+      key_learnings?: string[];
+    }
+  ): Promise<{ success: boolean; leveledUp: boolean; newLevel?: SkillLevel }> {
+    try {
+      console.log('[AI Skill Tracker] 🔄 Recalculating skill progression...');
+
+      // If no session results provided, fetch most recent
+      if (!sessionResults) {
+        const { data } = await supabase
+          .from('daily_session_results')
+          .select('total_trades, win_rate, profit_factor, key_learnings')
+          .eq('user_id', userId)
+          .order('session_date', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!data) {
+          console.warn('[AI Skill Tracker] No session results found to calculate from');
+          return { success: false, leveledUp: false };
+        }
+
+        sessionResults = data;
+      }
+
+      // Validate session results
+      if (!sessionResults.total_trades || sessionResults.total_trades === 0) {
+        console.log('[AI Skill Tracker] No trades in session, skipping progression update');
+        return { success: true, leveledUp: false };
+      }
+
+      // Calculate winning trades from win rate
+      const winningTradesCount = Math.round(
+        sessionResults.total_trades * (sessionResults.win_rate / 100)
+      );
+
+      console.log(`[AI Skill Tracker] Session data: ${sessionResults.total_trades} trades, ${sessionResults.win_rate.toFixed(1)}% WR, ${winningTradesCount} wins`);
+
+      // Update skill progression using the main method
+      const result = await this.updateAfterBacktest(
+        userId,
+        winningTradesCount,
+        sessionResults.win_rate || 0,
+        sessionResults.profit_factor || 0,
+        sessionResults.key_learnings?.length || 0,
+        'synthetic', // Default to synthetic for auto-backtest
+        0, // No exploratory trades
+        sessionResults.total_trades
+      );
+
+      console.log(`[AI Skill Tracker] ✅ Progression updated - Level up: ${result.leveledUp ? 'YES' : 'NO'}`);
+
+      return {
+        success: true,
+        leveledUp: result.leveledUp,
+        newLevel: result.newLevel
+      };
+
+    } catch (error) {
+      console.error('[AI Skill Tracker] ❌ Error recalculating skill progression:', error);
+      return { success: false, leveledUp: false };
+    }
+  }
 }
 
 export const aiSkillTracker = new AISkillTracker();

@@ -558,12 +558,46 @@ class SimpleAutoBacktestService {
             const { plateauDetector } = await import('./plateau-detector');
 
             // Update skill progression after each day
-            await aiSkillTracker.recalculateSkillProgression(this.userId!);
-            console.log(`[Auto-Backtest]   ✓ Skill progression updated`);
+            try {
+              // Fetch today's session results to pass to skill tracker
+              const { data: todayResults } = await supabase
+                .from('daily_session_results')
+                .select('total_trades, win_rate, profit_factor, key_learnings')
+                .eq('user_id', this.userId!)
+                .eq('month_number', this.currentMonthNumber)
+                .eq('day_number', day)
+                .single();
+
+              if (todayResults) {
+                const skillResult = await aiSkillTracker.recalculateSkillProgression(
+                  this.userId!,
+                  todayResults
+                );
+
+                if (skillResult.success) {
+                  console.log(`[Auto-Backtest]   ✓ Skill progression updated`);
+                  if (skillResult.leveledUp) {
+                    console.log(`[Auto-Backtest]   🎉 LEVEL UP! New level: ${skillResult.newLevel}`);
+                  }
+                } else {
+                  console.warn(`[Auto-Backtest]   ⚠️ Skill progression update skipped (no trades or error)`);
+                }
+              } else {
+                console.warn(`[Auto-Backtest]   ⚠️ No session results found for Day ${day}`);
+              }
+            } catch (skillError) {
+              console.error(`[Auto-Backtest]   ❌ Error updating skill progression:`, skillError);
+              console.error(`[Auto-Backtest]   This is non-critical, continuing...`);
+            }
 
             // Detect plateau after each day
-            await plateauDetector.detectPlateau(this.userId!);
-            console.log(`[Auto-Backtest]   ✓ Plateau analysis complete`);
+            try {
+              await plateauDetector.detectPlateau(this.userId!);
+              console.log(`[Auto-Backtest]   ✓ Plateau analysis complete`);
+            } catch (plateauError) {
+              console.error(`[Auto-Backtest]   ❌ Error in plateau detection:`, plateauError);
+              console.error(`[Auto-Backtest]   This is non-critical, continuing...`);
+            }
 
             console.log(`[Auto-Backtest] ========================================`);
             console.log(`[Auto-Backtest] ✅ Day ${day} COMPLETE with full learning cycle`);
@@ -1246,8 +1280,20 @@ class SimpleAutoBacktestService {
     try {
       console.log('[Auto-Backtest] Updating AI memory systems...');
 
+      // Note: Skill progression is already updated in Phase 7
+      // This phase is for other memory-related updates like pattern calibration
+
       const { aiSkillTracker } = await import('./ai-skill-tracker');
-      await aiSkillTracker.recalculateProgression(this.userId);
+
+      // Just fetch current progression to log it (already updated in Phase 7)
+      const skillProgression = await aiSkillTracker.getSkillProgression(this.userId);
+      if (skillProgression) {
+        console.log(`[Auto-Backtest]   Current skill level: ${skillProgression.currentSkillLevel}`);
+        console.log(`[Auto-Backtest]   Total trades analyzed: ${skillProgression.totalTradesAnalyzed}`);
+        console.log(`[Auto-Backtest]   Current win rate: ${skillProgression.currentWinRate.toFixed(1)}%`);
+      }
+
+      // TODO: Add other memory system updates here (pattern calibration, confidence updates, etc.)
 
       console.log('[Auto-Backtest] ✅ Memory systems updated');
     } catch (error) {
