@@ -12,17 +12,32 @@ interface DailyLearningAggregation {
   estimatedImprovementPotential: string;
 }
 
-interface WeeklyMetaAnalysis {
-  weekStart: string;
-  weekEnd: string;
-  overallWinRate: number;
-  overallProfitFactor: number;
-  bestDays: string[];
-  worstDays: string[];
+interface DailyMetaAnalysis {
+  date: string;
+  todayWinRate: number;
+  yesterdayWinRate: number | null;
+  winRateDelta: number | null;
+  performanceTrend: 'improving' | 'declining' | 'stable';
+  todayProfitFactor: number;
+  yesterdayProfitFactor: number | null;
+  profitFactorDelta: number | null;
+  todayTotalTrades: number;
+  yesterdayTotalTrades: number | null;
   strategicRecommendations: string[];
   patternsToEmphasize: string[];
   patternsToAvoid: string[];
-  confidenceCalibration: { current: number; recommended: number };
+  confidenceCalibration: {
+    currentAccuracy: number;
+    recommendedThreshold: number;
+    adjustmentReasoning: string;
+    overconfidentSessions: number;
+    underconfidentSessions: number;
+  };
+  recommendedPairs: Array<{ symbol: string; confidence: number; reasoning: string }>;
+  pairsToAvoid: string[];
+  keyDiscoveries: string[];
+  improvementFocus: string[];
+  estimatedImprovementPotential: string;
 }
 
 class ProgressiveDailyLearning {
@@ -64,29 +79,51 @@ class ProgressiveDailyLearning {
     }
   }
 
-  async generateWeeklyMetaAnalysis(userId: string): Promise<WeeklyMetaAnalysis | null> {
-    console.log('[Progressive Daily Learning] 📈 Generating weekly meta-analysis');
+  async processDailySession(userId: string, todaySession: any): Promise<void> {
+    console.log('[Progressive Daily Learning] 📊 Processing daily session...');
 
     try {
-      const weekData = await this.getWeeklyData(userId);
+      const today = new Date(todaySession.date || todaySession.created_at);
+      const aggregation = await this.aggregateDailyLearnings(userId, today);
 
-      if (weekData.dailyAggregations.length === 0) {
-        console.log('[Progressive Daily Learning] Insufficient data for weekly analysis');
+      if (aggregation) {
+        const metaAnalysis = await this.generateDailyMetaAnalysis(userId, today);
+        console.log('[Progressive Daily Learning] ✅ Daily session processed');
+      }
+    } catch (error) {
+      console.error('[Progressive Daily Learning] Error processing daily session:', error);
+    }
+  }
+
+  async generateDailyMetaAnalysis(userId: string, date?: Date): Promise<DailyMetaAnalysis | null> {
+    const today = date || new Date();
+    const dateStr = today.toISOString().split('T')[0];
+
+    console.log(`[Progressive Daily Learning] 🧠 Generating daily meta-analysis for ${dateStr}`);
+
+    try {
+      const todayAgg = await this.getDailyAggregation(userId, today);
+      if (!todayAgg) {
+        console.log('[Progressive Daily Learning] No aggregation found for today');
         return null;
       }
 
-      const metaAnalysis = await this.buildWeeklyMetaAnalysis(userId, weekData);
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayAgg = await this.getDailyAggregation(userId, yesterday);
 
-      await this.storeWeeklyMetaAnalysis(userId, metaAnalysis);
+      const metaAnalysis = await this.buildDailyMetaAnalysis(userId, todayAgg, yesterdayAgg);
 
-      console.log('[Progressive Daily Learning] ✅ Weekly meta-analysis complete');
-      console.log(`  Overall Win Rate: ${metaAnalysis.overallWinRate.toFixed(1)}%`);
-      console.log(`  Best Days: ${metaAnalysis.bestDays.length}`);
+      await this.storeDailyMetaAnalysis(userId, metaAnalysis);
+
+      console.log('[Progressive Daily Learning] ✅ Daily meta-analysis complete');
+      console.log(`  Performance Trend: ${metaAnalysis.performanceTrend}`);
+      console.log(`  Win Rate: ${metaAnalysis.todayWinRate.toFixed(1)}% (${metaAnalysis.winRateDelta ? (metaAnalysis.winRateDelta > 0 ? '+' : '') + metaAnalysis.winRateDelta.toFixed(1) : 'N/A'}%)`);
       console.log(`  Strategic Recommendations: ${metaAnalysis.strategicRecommendations.length}`);
 
       return metaAnalysis;
     } catch (error) {
-      console.error('[Progressive Daily Learning] Error in weekly meta-analysis:', error);
+      console.error('[Progressive Daily Learning] Error in daily meta-analysis:', error);
       return null;
     }
   }
@@ -256,107 +293,202 @@ class ProgressiveDailyLearning {
     }
   }
 
-  private async getWeeklyData(userId: string): Promise<any> {
-    const today = new Date();
-    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+  private async buildDailyMetaAnalysis(
+    userId: string,
+    todayAgg: DailyLearningAggregation,
+    yesterdayAgg: DailyLearningAggregation | null
+  ): Promise<DailyMetaAnalysis> {
+    const winRateDelta = yesterdayAgg ? todayAgg.winRate - yesterdayAgg.winRate : null;
+    const profitFactorDelta = yesterdayAgg ? todayAgg.profitFactor - yesterdayAgg.profitFactor : null;
 
-    const { data: dailyAggregations } = await supabase
-      .from('daily_learning_aggregations')
-      .select('*')
-      .eq('user_id', userId)
-      .gte('date', weekAgo.toISOString().split('T')[0])
-      .order('date', { ascending: true });
+    let performanceTrend: 'improving' | 'declining' | 'stable' = 'stable';
+    if (winRateDelta !== null) {
+      if (winRateDelta > 3) performanceTrend = 'improving';
+      else if (winRateDelta < -3) performanceTrend = 'declining';
+    }
 
-    const { data: weeklyTrades } = await supabase
-      .from('trade_history')
-      .select('*')
-      .eq('user_id', userId)
-      .gte('closed_at', weekAgo.toISOString())
-      .order('closed_at', { ascending: true });
+    const strategicRecommendations: string[] = [];
+    const patternsToEmphasize: string[] = [];
+    const patternsToAvoid: string[] = [];
+    const keyDiscoveries: string[] = [];
+    const improvementFocus: string[] = [];
+
+    if (performanceTrend === 'improving') {
+      strategicRecommendations.push(`Continue current approach - ${winRateDelta?.toFixed(1)}% win rate improvement`);
+      keyDiscoveries.push('Positive momentum detected - maintain strategy');
+    } else if (performanceTrend === 'declining') {
+      strategicRecommendations.push(`Review and adjust - ${Math.abs(winRateDelta || 0).toFixed(1)}% win rate decline`);
+      improvementFocus.push('Analyze losing patterns from today');
+      improvementFocus.push('Return to yesterday\'s successful approach');
+    }
+
+    if (todayAgg.winRate >= 70) {
+      strategicRecommendations.push('Strong performance - consider slight position size increase');
+      patternsToEmphasize.push(...todayAgg.topPatterns.slice(0, 3).map(p => p.name));
+    } else if (todayAgg.winRate < 50) {
+      strategicRecommendations.push('Reduce position size until performance improves');
+      improvementFocus.push('Focus on quality over quantity');
+    }
+
+    if (todayAgg.profitFactor >= 2.0) {
+      keyDiscoveries.push(`Excellent profit factor of ${todayAgg.profitFactor.toFixed(2)}`);
+    } else if (todayAgg.profitFactor < 1.0) {
+      strategicRecommendations.push('Tighten stop losses and improve R:R ratio');
+      improvementFocus.push('Capital preservation is priority');
+    }
+
+    const recommendedPairs = this.generatePairRecommendations(todayAgg, yesterdayAgg);
+    const pairsToAvoid = this.identifyPairsToAvoid(userId, todayAgg);
+
+    const confidenceCalibration = await this.calculateConfidenceCalibration(userId);
 
     return {
-      dailyAggregations: dailyAggregations || [],
-      weeklyTrades: weeklyTrades || []
+      date: todayAgg.date,
+      todayWinRate: todayAgg.winRate,
+      yesterdayWinRate: yesterdayAgg?.winRate || null,
+      winRateDelta,
+      performanceTrend,
+      todayProfitFactor: todayAgg.profitFactor,
+      yesterdayProfitFactor: yesterdayAgg?.profitFactor || null,
+      profitFactorDelta,
+      todayTotalTrades: todayAgg.totalTrades,
+      yesterdayTotalTrades: yesterdayAgg?.totalTrades || null,
+      strategicRecommendations,
+      patternsToEmphasize,
+      patternsToAvoid,
+      confidenceCalibration,
+      recommendedPairs,
+      pairsToAvoid,
+      keyDiscoveries,
+      improvementFocus,
+      estimatedImprovementPotential: todayAgg.estimatedImprovementPotential
     };
   }
 
-  private async buildWeeklyMetaAnalysis(userId: string, weekData: any): Promise<WeeklyMetaAnalysis> {
-    const { dailyAggregations, weeklyTrades } = weekData;
+  private generatePairRecommendations(
+    todayAgg: DailyLearningAggregation,
+    yesterdayAgg: DailyLearningAggregation | null
+  ): Array<{ symbol: string; confidence: number; reasoning: string }> {
+    const recommendations: Array<{ symbol: string; confidence: number; reasoning: string }> = [];
 
-    const weekStart = dailyAggregations[0]?.date || new Date().toISOString().split('T')[0];
-    const weekEnd = dailyAggregations[dailyAggregations.length - 1]?.date || new Date().toISOString().split('T')[0];
+    const availablePairs = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY'];
 
-    const allWins = weeklyTrades.filter((t: any) => parseFloat(t.profit_loss) > 0);
-    const overallWinRate = weeklyTrades.length > 0 ? (allWins.length / weeklyTrades.length) * 100 : 0;
+    for (const pair of availablePairs) {
+      const pairPatterns = todayAgg.topPatterns.filter(p =>
+        p.name.toLowerCase().includes(pair.toLowerCase().substring(0, 3))
+      );
 
-    const totalWins = allWins.reduce((sum: number, t: any) => sum + parseFloat(t.profit_loss), 0);
-    const totalLosses = Math.abs(
-      weeklyTrades
-        .filter((t: any) => parseFloat(t.profit_loss) < 0)
-        .reduce((sum: number, t: any) => sum + parseFloat(t.profit_loss), 0)
-    );
-    const overallProfitFactor = totalLosses > 0 ? totalWins / totalLosses : 0;
-
-    const sortedByWinRate = [...dailyAggregations].sort((a, b) => b.win_rate - a.win_rate);
-    const bestDays = sortedByWinRate.slice(0, 2).map(d => d.date);
-    const worstDays = sortedByWinRate.slice(-2).map(d => d.date);
-
-    const allRecommendations = dailyAggregations.flatMap((d: any) => d.recommended_adjustments || []);
-    const strategicRecommendations = [...new Set(allRecommendations)].slice(0, 5);
-
-    const patternFrequency: Record<string, number> = {};
-    for (const day of dailyAggregations) {
-      for (const pattern of day.top_patterns || []) {
-        patternFrequency[pattern.name] = (patternFrequency[pattern.name] || 0) + 1;
+      if (pairPatterns.length > 0 && pairPatterns[0].winRate >= 65) {
+        recommendations.push({
+          symbol: pair,
+          confidence: pairPatterns[0].confidence,
+          reasoning: `Strong ${pairPatterns[0].winRate.toFixed(1)}% win rate with ${pairPatterns[0].name}`
+        });
       }
     }
 
-    const patternsToEmphasize = Object.entries(patternFrequency)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([name]) => name);
+    recommendations.sort((a, b) => b.confidence - a.confidence);
+    return recommendations.slice(0, 3);
+  }
 
-    const avgWinRate = dailyAggregations.reduce((sum: number, d: any) => sum + d.win_rate, 0) / dailyAggregations.length;
-    const currentThreshold = 75;
-    const recommendedThreshold = avgWinRate >= 70 ? 70 : avgWinRate >= 60 ? 75 : 80;
+  private identifyPairsToAvoid(userId: string, todayAgg: DailyLearningAggregation): string[] {
+    const pairsToAvoid: string[] = [];
+
+    const poorPatterns = todayAgg.topPatterns.filter(p => p.winRate < 45);
+    for (const pattern of poorPatterns) {
+      const pairMatch = pattern.name.match(/(EURUSD|XAUUSD|GBPUSD|USDJPY)/i);
+      if (pairMatch && !pairsToAvoid.includes(pairMatch[0])) {
+        pairsToAvoid.push(pairMatch[0]);
+      }
+    }
+
+    return pairsToAvoid;
+  }
+
+  private async calculateConfidenceCalibration(userId: string): Promise<{
+    currentAccuracy: number;
+    recommendedThreshold: number;
+    adjustmentReasoning: string;
+    overconfidentSessions: number;
+    underconfidentSessions: number;
+  }> {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const { data: recentTrades } = await supabase
+      .from('synthetic_backtest_trades')
+      .select('confidence, outcome')
+      .gte('entry_time', thirtyDaysAgo.toISOString())
+      .order('entry_time', { ascending: false })
+      .limit(100);
+
+    if (!recentTrades || recentTrades.length === 0) {
+      return {
+        currentAccuracy: 70,
+        recommendedThreshold: 75,
+        adjustmentReasoning: 'Insufficient data for calibration',
+        overconfidentSessions: 0,
+        underconfidentSessions: 0
+      };
+    }
+
+    const highConfTrades = recentTrades.filter(t => (t.confidence || 0) >= 75);
+    const highConfWins = highConfTrades.filter(t => t.outcome === 'win');
+    const currentAccuracy = highConfTrades.length > 0
+      ? (highConfWins.length / highConfTrades.length) * 100
+      : 70;
+
+    let recommendedThreshold = 75;
+    let adjustmentReasoning = 'Calibration optimal';
+
+    if (currentAccuracy >= 75) {
+      recommendedThreshold = 70;
+      adjustmentReasoning = 'High accuracy - can lower confidence threshold';
+    } else if (currentAccuracy < 65) {
+      recommendedThreshold = 80;
+      adjustmentReasoning = 'Low accuracy - increase confidence threshold';
+    }
 
     return {
-      weekStart,
-      weekEnd,
-      overallWinRate,
-      overallProfitFactor,
-      bestDays,
-      worstDays,
-      strategicRecommendations,
-      patternsToEmphasize,
-      patternsToAvoid: [],
-      confidenceCalibration: {
-        current: currentThreshold,
-        recommended: recommendedThreshold
-      }
+      currentAccuracy,
+      recommendedThreshold,
+      adjustmentReasoning,
+      overconfidentSessions: 0,
+      underconfidentSessions: 0
     };
   }
 
-  private async storeWeeklyMetaAnalysis(userId: string, analysis: WeeklyMetaAnalysis): Promise<void> {
+  private async storeDailyMetaAnalysis(userId: string, analysis: DailyMetaAnalysis): Promise<void> {
     try {
       await supabase
-        .from('weekly_meta_analyses')
-        .insert({
+        .from('daily_meta_analysis')
+        .upsert({
           user_id: userId,
-          week_start: analysis.weekStart,
-          week_end: analysis.weekEnd,
-          overall_win_rate: analysis.overallWinRate,
-          overall_profit_factor: analysis.overallProfitFactor,
-          best_days: analysis.bestDays,
-          worst_days: analysis.worstDays,
+          date: analysis.date,
+          today_win_rate: analysis.todayWinRate,
+          yesterday_win_rate: analysis.yesterdayWinRate,
+          win_rate_delta: analysis.winRateDelta,
+          performance_trend: analysis.performanceTrend,
+          today_profit_factor: analysis.todayProfitFactor,
+          yesterday_profit_factor: analysis.yesterdayProfitFactor,
+          profit_factor_delta: analysis.profitFactorDelta,
+          today_total_trades: analysis.todayTotalTrades,
+          yesterday_total_trades: analysis.yesterdayTotalTrades,
           strategic_recommendations: analysis.strategicRecommendations,
           patterns_to_emphasize: analysis.patternsToEmphasize,
           patterns_to_avoid: analysis.patternsToAvoid,
           confidence_calibration: analysis.confidenceCalibration,
-          created_at: new Date().toISOString()
+          recommended_pairs: analysis.recommendedPairs,
+          pairs_to_avoid: analysis.pairsToAvoid,
+          key_discoveries: analysis.keyDiscoveries,
+          improvement_focus: analysis.improvementFocus,
+          estimated_improvement_potential: analysis.estimatedImprovementPotential,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id,date'
         });
     } catch (error) {
-      console.error('[Progressive Daily Learning] Error storing weekly meta-analysis:', error);
+      console.error('[Progressive Daily Learning] Error storing daily meta-analysis:', error);
     }
   }
 
@@ -386,12 +518,51 @@ class ProgressiveDailyLearning {
     };
   }
 
-  async getRecentWeeklyAnalyses(userId: string, limit: number = 4): Promise<WeeklyMetaAnalysis[]> {
+  async getYesterdayMetaAnalysis(userId: string): Promise<DailyMetaAnalysis | null> {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dateStr = yesterday.toISOString().split('T')[0];
+
     const { data, error } = await supabase
-      .from('weekly_meta_analyses')
+      .from('daily_meta_analysis')
       .select('*')
       .eq('user_id', userId)
-      .order('week_end', { ascending: false })
+      .eq('date', dateStr)
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return {
+      date: data.date,
+      todayWinRate: data.today_win_rate,
+      yesterdayWinRate: data.yesterday_win_rate,
+      winRateDelta: data.win_rate_delta,
+      performanceTrend: data.performance_trend,
+      todayProfitFactor: data.today_profit_factor,
+      yesterdayProfitFactor: data.yesterday_profit_factor,
+      profitFactorDelta: data.profit_factor_delta,
+      todayTotalTrades: data.today_total_trades,
+      yesterdayTotalTrades: data.yesterday_total_trades,
+      strategicRecommendations: data.strategic_recommendations,
+      patternsToEmphasize: data.patterns_to_emphasize,
+      patternsToAvoid: data.patterns_to_avoid,
+      confidenceCalibration: data.confidence_calibration,
+      recommendedPairs: data.recommended_pairs,
+      pairsToAvoid: data.pairs_to_avoid,
+      keyDiscoveries: data.key_discoveries,
+      improvementFocus: data.improvement_focus,
+      estimatedImprovementPotential: data.estimated_improvement_potential
+    };
+  }
+
+  async getRecentDailyAnalyses(userId: string, limit: number = 7): Promise<DailyMetaAnalysis[]> {
+    const { data, error } = await supabase
+      .from('daily_meta_analysis')
+      .select('*')
+      .eq('user_id', userId)
+      .order('date', { ascending: false })
       .limit(limit);
 
     if (error || !data) {
@@ -399,19 +570,28 @@ class ProgressiveDailyLearning {
     }
 
     return data.map(d => ({
-      weekStart: d.week_start,
-      weekEnd: d.week_end,
-      overallWinRate: d.overall_win_rate,
-      overallProfitFactor: d.overall_profit_factor,
-      bestDays: d.best_days,
-      worstDays: d.worst_days,
+      date: d.date,
+      todayWinRate: d.today_win_rate,
+      yesterdayWinRate: d.yesterday_win_rate,
+      winRateDelta: d.win_rate_delta,
+      performanceTrend: d.performance_trend,
+      todayProfitFactor: d.today_profit_factor,
+      yesterdayProfitFactor: d.yesterday_profit_factor,
+      profitFactorDelta: d.profit_factor_delta,
+      todayTotalTrades: d.today_total_trades,
+      yesterdayTotalTrades: d.yesterday_total_trades,
       strategicRecommendations: d.strategic_recommendations,
       patternsToEmphasize: d.patterns_to_emphasize,
       patternsToAvoid: d.patterns_to_avoid,
-      confidenceCalibration: d.confidence_calibration
+      confidenceCalibration: d.confidence_calibration,
+      recommendedPairs: d.recommended_pairs,
+      pairsToAvoid: d.pairs_to_avoid,
+      keyDiscoveries: d.key_discoveries,
+      improvementFocus: d.improvement_focus,
+      estimatedImprovementPotential: d.estimated_improvement_potential
     }));
   }
 }
 
 export const progressiveDailyLearning = new ProgressiveDailyLearning();
-export type { DailyLearningAggregation, WeeklyMetaAnalysis };
+export type { DailyLearningAggregation, DailyMetaAnalysis };

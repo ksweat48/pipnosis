@@ -83,13 +83,15 @@ class LLMPairSelector {
         volatility,
         trendRegimes,
         patternInsights,
-        calibration
+        calibration,
+        yesterdayInsights
       ] = await Promise.all([
         this.getPairHistoricalPerformance(userId, availablePairs),
         this.calculatePairVolatility(availablePairs),
         this.detectTrendRegimes(availablePairs),
         this.getPatternInsightsPerPair(userId, availablePairs),
-        this.getConfidenceCalibrationPerPair(userId, availablePairs)
+        this.getConfidenceCalibrationPerPair(userId, availablePairs),
+        this.getYesterdayMetaAnalysis(userId)
       ]);
 
       const evScores = this.calculateExpectedEVPerPair(pairPerformance);
@@ -106,7 +108,8 @@ class LLMPairSelector {
           trendRegimes,
           patternInsights,
           calibration,
-          evScores
+          evScores,
+          yesterdayInsights
         );
 
         await this.storePairSelection(userId, selectedPair);
@@ -383,13 +386,33 @@ class LLMPairSelector {
     return evScores;
   }
 
+  private async getYesterdayMetaAnalysis(userId: string): Promise<any | null> {
+    try {
+      const { progressiveDailyLearning } = await import('./progressive-daily-learning');
+      const yesterdayAnalysis = await progressiveDailyLearning.getYesterdayMetaAnalysis(userId);
+
+      if (yesterdayAnalysis) {
+        console.log('[LLM Pair Selector] 📅 Yesterday\'s insights loaded:');
+        console.log(`  Performance Trend: ${yesterdayAnalysis.performanceTrend}`);
+        console.log(`  Win Rate Delta: ${yesterdayAnalysis.winRateDelta?.toFixed(1) || 'N/A'}%`);
+        console.log(`  Recommended Pairs: ${yesterdayAnalysis.recommendedPairs?.length || 0}`);
+      }
+
+      return yesterdayAnalysis;
+    } catch (error) {
+      console.warn('[LLM Pair Selector] Could not load yesterday\'s insights:', error);
+      return null;
+    }
+  }
+
   private async selectPairWithGPT4o(
     performance: PairPerformanceData[],
     volatility: PairVolatility[],
     trends: TrendRegime[],
     patterns: PatternInsight[],
     calibration: ConfidenceCalibration[],
-    evScores: Record<string, number>
+    evScores: Record<string, number>,
+    yesterdayInsights: any | null
   ): Promise<SelectedPairResult> {
     console.log('[LLM Pair Selector] Calling GPT-4o for pair selection...');
 
@@ -413,6 +436,40 @@ class LLMPairSelector {
       `- ${c.symbol}: ${c.calibrationAccuracy.toFixed(1)}% accurate${c.overconfident ? ' (overconfident)' : c.underconfident ? ' (underconfident)' : ''}`
     ).join('\n');
 
+    let yesterdayInsightsText = '';
+    if (yesterdayInsights) {
+      yesterdayInsightsText = `
+
+YESTERDAY'S STRATEGIC INSIGHTS:
+- Performance Trend: ${yesterdayInsights.performanceTrend} (Win Rate Delta: ${yesterdayInsights.winRateDelta?.toFixed(1) || 'N/A'}%)
+- Yesterday Win Rate: ${yesterdayInsights.todayWinRate?.toFixed(1)}%
+
+Strategic Recommendations from Yesterday:
+${yesterdayInsights.strategicRecommendations?.map((r: string) => `- ${r}`).join('\n') || 'None'}
+
+Patterns to Emphasize:
+${yesterdayInsights.patternsToEmphasize?.map((p: string) => `- ${p}`).join('\n') || 'None'}
+
+Patterns to AVOID:
+${yesterdayInsights.patternsToAvoid?.map((p: string) => `- ${p}`).join('\n') || 'None'}
+
+Recommended Pairs from Yesterday:
+${yesterdayInsights.recommendedPairs?.map((p: any) => `- ${p.symbol} (Confidence: ${p.confidence}): ${p.reasoning}`).join('\n') || 'None'}
+
+Pairs to Avoid:
+${yesterdayInsights.pairsToAvoid?.join(', ') || 'None'}
+
+Confidence Calibration Advice:
+${yesterdayInsights.confidenceCalibration?.adjustmentReasoning || 'No adjustments'}
+Recommended Threshold: ${yesterdayInsights.confidenceCalibration?.recommendedThreshold || 75}%
+
+Key Discoveries:
+${yesterdayInsights.keyDiscoveries?.map((d: string) => `- ${d}`).join('\n') || 'None'}
+
+Improvement Focus Areas:
+${yesterdayInsights.improvementFocus?.map((f: string) => `- ${f}`).join('\n') || 'None'}`;
+    }
+
     const prompt = `You are Pipnosis AI, an expert forex trading system. Analyze the following data and select ONE currency pair to trade today.
 
 Available Pairs: EURUSD, XAUUSD, GBPUSD, USDJPY, US30
@@ -433,7 +490,7 @@ Confidence Calibration:
 ${calibrationText}
 
 Expected EV Scores:
-${Object.entries(evScores).map(([symbol, ev]) => `- ${symbol}: ${ev.toFixed(2)}`).join('\n')}
+${Object.entries(evScores).map(([symbol, ev]) => `- ${symbol}: ${ev.toFixed(2)}`).join('\n')}${yesterdayInsightsText}
 
 Select the SINGLE BEST pair for today's trading session. Consider:
 1. High win rate and positive EV
@@ -441,6 +498,9 @@ Select the SINGLE BEST pair for today's trading session. Consider:
 3. Winning patterns available
 4. Good confidence calibration
 5. Recent improving performance
+6. YESTERDAY'S STRATEGIC INSIGHTS - Apply yesterday's recommendations and avoid yesterday's problem patterns
+7. If yesterday showed declining performance, consider switching pairs or adjusting approach
+8. If yesterday recommended specific pairs, prioritize those if performance supports it
 
 Return ONLY valid JSON in this exact format:
 {

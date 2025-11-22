@@ -210,22 +210,38 @@ class KPIAggregator {
       ? recentInsights.reduce((sum, i) => sum + (i.success_rate_when_applied || 0), 0) / recentInsights.length
       : 0;
 
+    const { data: dailyMetaAnalysis } = await supabase
+      .from('daily_meta_analysis')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', date)
+      .maybeSingle();
+
+    const metaAnalysisGenerated = dailyMetaAnalysis ? 1 : 0;
+    const strategicRecommendations = dailyMetaAnalysis?.strategic_recommendations?.length || 0;
+    const confidenceAdjustments = dailyMetaAnalysis?.confidence_calibration?.recommended_threshold
+      ? Math.abs(dailyMetaAnalysis.confidence_calibration.recommended_threshold - 75)
+      : 0;
+    const performanceTrendPositive = dailyMetaAnalysis?.performance_trend === 'improving' ? 1 : 0;
+
     await supabase
       .from('continuous_learning_kpis')
       .upsert({
         user_id: userId,
         date,
-        loop_activations: insightsValidated,
+        loop_activations: insightsValidated + metaAnalysisGenerated,
         insights_validated: insightsValidated,
         insights_updated: insightsUpdated,
         insights_pruned: insightsPruned,
         insights_created: insightsCreated,
         validation_accuracy: validationAccuracy,
-        confidence_recalibrations: insightsUpdated,
-        avg_confidence_adjustment: 0,
-        rolling_css: 0,
+        confidence_recalibrations: insightsUpdated + (confidenceAdjustments > 0 ? 1 : 0),
+        avg_confidence_adjustment: confidenceAdjustments,
+        rolling_css: performanceTrendPositive,
         learning_velocity: insightsCreated / Math.max(1, insightsValidated) * 100,
         system_health_score: validationAccuracy,
+        daily_meta_analysis_generated: metaAnalysisGenerated,
+        strategic_recommendations_count: strategicRecommendations,
         updated_at: new Date().toISOString()
       }, {
         onConflict: 'user_id,date'

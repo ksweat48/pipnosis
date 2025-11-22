@@ -10,7 +10,7 @@ import { KPIMetricCard } from '../components/KPIMetricCard';
 import { LLMLayerFunnel } from '../components/LLMLayerFunnel';
 import { NavigationMenu } from '../components/NavigationMenu';
 
-type TabId = 'overview' | 'llm-layers' | 'avoid-patterns' | 'learning-loop' | 'strategy-evolution' | 'smart-goal' | 'mastery';
+type TabId = 'overview' | 'daily-insights' | 'llm-layers' | 'avoid-patterns' | 'learning-loop' | 'strategy-evolution' | 'smart-goal' | 'mastery';
 
 function AILearningCenterPage() {
   const { user } = useAuth();
@@ -26,6 +26,7 @@ function AILearningCenterPage() {
   const [smartGoalKPIs, setSmartGoalKPIs] = useState<any>(null);
   const [masteryKPIs, setMasteryKPIs] = useState<any>(null);
   const [anomalies, setAnomalies] = useState<any[]>([]);
+  const [dailyMetaAnalysis, setDailyMetaAnalysis] = useState<any>(null);
 
   useEffect(() => {
     if (user) {
@@ -81,14 +82,15 @@ function AILearningCenterPage() {
     try {
       const today = new Date().toISOString().split('T')[0];
 
-      const [llmData, avoidData, learningData, strategyData, goalData, masteryData, anomalyData] = await Promise.all([
+      const [llmData, avoidData, learningData, strategyData, goalData, masteryData, anomalyData, dailyMetaData] = await Promise.all([
         supabase.from('llm_layer_kpis').select('*').eq('user_id', user.id).eq('date', today).order('layer_number'),
         supabase.from('avoid_pattern_kpis').select('*').eq('user_id', user.id).eq('date', today),
         supabase.from('continuous_learning_kpis').select('*').eq('user_id', user.id).eq('date', today).maybeSingle(),
         supabase.from('strategy_evolution_kpis').select('*').eq('user_id', user.id).eq('date', today),
         supabase.from('smart_goal_kpis').select('*').eq('user_id', user.id).eq('date', today).maybeSingle(),
         supabase.from('ai_mastery_kpis').select('*').eq('user_id', user.id).eq('date', today).maybeSingle(),
-        supabase.from('kpi_anomalies').select('*').eq('user_id', user.id).eq('acknowledged', false).order('detected_at', { ascending: false }).limit(10)
+        supabase.from('kpi_anomalies').select('*').eq('user_id', user.id).eq('acknowledged', false).order('detected_at', { ascending: false }).limit(10),
+        supabase.from('daily_meta_analysis').select('*').eq('user_id', user.id).eq('date', today).maybeSingle()
       ]);
 
       setLLMLayerKPIs(llmData.data || []);
@@ -98,6 +100,7 @@ function AILearningCenterPage() {
       setSmartGoalKPIs(goalData.data);
       setMasteryKPIs(masteryData.data);
       setAnomalies(anomalyData.data || []);
+      setDailyMetaAnalysis(dailyMetaData.data);
     } catch (error) {
       console.error('Error loading KPIs:', error);
     } finally {
@@ -157,10 +160,11 @@ function AILearningCenterPage() {
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: Brain },
+    { id: 'daily-insights', label: 'Daily Meta-Analysis', icon: TrendingUp },
     { id: 'llm-layers', label: 'LLM Decision Stack', icon: Layers },
     { id: 'avoid-patterns', label: 'Avoid Patterns', icon: Shield },
     { id: 'learning-loop', label: 'Continuous Learning', icon: Activity },
-    { id: 'strategy-evolution', label: 'Strategy Evolution', icon: TrendingUp },
+    { id: 'strategy-evolution', label: 'Strategy Evolution', icon: Activity },
     { id: 'smart-goal', label: 'Smart Goal Mode', icon: Target },
     { id: 'mastery', label: 'AI Mastery', icon: Award }
   ];
@@ -249,7 +253,12 @@ function AILearningCenterPage() {
                   smartGoalKPIs={smartGoalKPIs}
                   masteryKPIs={masteryKPIs}
                   anomalies={anomalies}
+                  dailyMetaAnalysis={dailyMetaAnalysis}
                 />
+              )}
+
+              {activeTab === 'daily-insights' && (
+                <DailyInsightsTab dailyMetaAnalysis={dailyMetaAnalysis} />
               )}
 
               {activeTab === 'llm-layers' && (
@@ -284,7 +293,7 @@ function AILearningCenterPage() {
   );
 }
 
-function OverviewTab({ llmLayerKPIs, avoidPatternKPIs, learningKPIs, strategyKPIs, smartGoalKPIs, masteryKPIs, anomalies }: any) {
+function OverviewTab({ llmLayerKPIs, avoidPatternKPIs, learningKPIs, strategyKPIs, smartGoalKPIs, masteryKPIs, anomalies, dailyMetaAnalysis }: any) {
   const avgLLMPassRate = llmLayerKPIs.length > 0
     ? llmLayerKPIs.reduce((sum: number, l: any) => sum + l.pass_rate, 0) / llmLayerKPIs.length
     : 0;
@@ -360,6 +369,45 @@ function OverviewTab({ llmLayerKPIs, avoidPatternKPIs, learningKPIs, strategyKPI
           isAnomaly={masteryKPIs?.moving_win_rate_100 < 45}
         />
       </div>
+
+      {dailyMetaAnalysis && (
+        <div className="bg-gradient-to-br from-blue-900/30 to-emerald-900/30 backdrop-blur-sm border-2 border-emerald-500/30 rounded-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+              <TrendingUp className="w-6 h-6 text-emerald-400" />
+              Today's Performance Trend
+            </h3>
+            <span className={`text-lg font-semibold capitalize ${
+              dailyMetaAnalysis.performance_trend === 'improving' ? 'text-emerald-400' :
+              dailyMetaAnalysis.performance_trend === 'declining' ? 'text-red-400' : 'text-yellow-400'
+            }`}>
+              {dailyMetaAnalysis.performance_trend === 'improving' ? '📈 ' : dailyMetaAnalysis.performance_trend === 'declining' ? '📉 ' : '➡️ '}
+              {dailyMetaAnalysis.performance_trend}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <span className="text-gray-400 text-sm block mb-1">Today's Win Rate</span>
+              <div className="text-2xl font-bold text-white">{dailyMetaAnalysis.today_win_rate.toFixed(1)}%</div>
+              {dailyMetaAnalysis.win_rate_delta !== null && (
+                <div className={`text-sm ${dailyMetaAnalysis.win_rate_delta > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {dailyMetaAnalysis.win_rate_delta > 0 ? '+' : ''}{dailyMetaAnalysis.win_rate_delta.toFixed(1)}% vs yesterday
+                </div>
+              )}
+            </div>
+            <div>
+              <span className="text-gray-400 text-sm block mb-1">Strategic Insights</span>
+              <div className="text-2xl font-bold text-white">{dailyMetaAnalysis.strategic_recommendations?.length || 0}</div>
+              <div className="text-sm text-gray-400">recommendations generated</div>
+            </div>
+            <div>
+              <span className="text-gray-400 text-sm block mb-1">Recommended Pairs</span>
+              <div className="text-2xl font-bold text-white">{dailyMetaAnalysis.recommended_pairs?.length || 0}</div>
+              <div className="text-sm text-gray-400">for tomorrow's session</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {anomalies.length > 0 && (
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-6">
@@ -649,6 +697,211 @@ function MasteryTab({ masteryKPIs }: any) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function DailyInsightsTab({ dailyMetaAnalysis }: any) {
+  if (!dailyMetaAnalysis) {
+    return (
+      <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-8 text-center">
+        <TrendingUp className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+        <h3 className="text-xl font-semibold text-white mb-2">No Daily Meta-Analysis Yet</h3>
+        <p className="text-gray-400">
+          Daily strategic analysis will appear here after your first backtest session completes.
+        </p>
+      </div>
+    );
+  }
+
+  const trendColor = dailyMetaAnalysis.performance_trend === 'improving'
+    ? 'text-emerald-400'
+    : dailyMetaAnalysis.performance_trend === 'declining'
+    ? 'text-red-400'
+    : 'text-yellow-400';
+
+  const trendIcon = dailyMetaAnalysis.performance_trend === 'improving'
+    ? '📈'
+    : dailyMetaAnalysis.performance_trend === 'declining'
+    ? '📉'
+    : '➡️';
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-6">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-gray-400 text-sm">Performance Trend</span>
+            <span className="text-2xl">{trendIcon}</span>
+          </div>
+          <div className={`text-2xl font-bold ${trendColor} capitalize`}>
+            {dailyMetaAnalysis.performance_trend}
+          </div>
+          {dailyMetaAnalysis.win_rate_delta !== null && (
+            <div className="text-sm text-gray-400 mt-1">
+              {dailyMetaAnalysis.win_rate_delta > 0 ? '+' : ''}{dailyMetaAnalysis.win_rate_delta.toFixed(1)}% vs yesterday
+            </div>
+          )}
+        </div>
+
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-6">
+          <span className="text-gray-400 text-sm block mb-2">Today's Win Rate</span>
+          <div className="text-2xl font-bold text-white">{dailyMetaAnalysis.today_win_rate.toFixed(1)}%</div>
+          {dailyMetaAnalysis.yesterday_win_rate && (
+            <div className="text-sm text-gray-400 mt-1">
+              Yesterday: {dailyMetaAnalysis.yesterday_win_rate.toFixed(1)}%
+            </div>
+          )}
+        </div>
+
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-6">
+          <span className="text-gray-400 text-sm block mb-2">Today's Profit Factor</span>
+          <div className="text-2xl font-bold text-white">{dailyMetaAnalysis.today_profit_factor.toFixed(2)}</div>
+          {dailyMetaAnalysis.yesterday_profit_factor && (
+            <div className="text-sm text-gray-400 mt-1">
+              Yesterday: {dailyMetaAnalysis.yesterday_profit_factor.toFixed(2)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <Target className="w-5 h-5 text-blue-400" />
+          Strategic Recommendations
+        </h3>
+        {dailyMetaAnalysis.strategic_recommendations?.length > 0 ? (
+          <ul className="space-y-2">
+            {dailyMetaAnalysis.strategic_recommendations.map((rec: string, idx: number) => (
+              <li key={idx} className="flex items-start gap-2">
+                <span className="text-emerald-400 mt-1">•</span>
+                <span className="text-gray-300">{rec}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-gray-400">No strategic recommendations generated.</p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-emerald-900/50 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-emerald-400 mb-4">Patterns to Emphasize</h3>
+          {dailyMetaAnalysis.patterns_to_emphasize?.length > 0 ? (
+            <ul className="space-y-2">
+              {dailyMetaAnalysis.patterns_to_emphasize.map((pattern: string, idx: number) => (
+                <li key={idx} className="flex items-center gap-2">
+                  <span className="text-emerald-400">✓</span>
+                  <span className="text-gray-300">{pattern}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-gray-400">No specific patterns identified yet.</p>
+          )}
+        </div>
+
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-red-900/50 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-red-400 mb-4">Patterns to Avoid</h3>
+          {dailyMetaAnalysis.patterns_to_avoid?.length > 0 ? (
+            <ul className="space-y-2">
+              {dailyMetaAnalysis.patterns_to_avoid.map((pattern: string, idx: number) => (
+                <li key={idx} className="flex items-center gap-2">
+                  <span className="text-red-400">✗</span>
+                  <span className="text-gray-300">{pattern}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-gray-400">No patterns to avoid identified.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <Shield className="w-5 h-5 text-purple-400" />
+          Confidence Calibration
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <span className="text-gray-400 text-sm block mb-1">Current Accuracy</span>
+            <div className="text-xl font-semibold text-white">
+              {dailyMetaAnalysis.confidence_calibration?.current_accuracy?.toFixed(1) || 'N/A'}%
+            </div>
+          </div>
+          <div>
+            <span className="text-gray-400 text-sm block mb-1">Recommended Threshold</span>
+            <div className="text-xl font-semibold text-emerald-400">
+              {dailyMetaAnalysis.confidence_calibration?.recommended_threshold || 75}%
+            </div>
+          </div>
+        </div>
+        {dailyMetaAnalysis.confidence_calibration?.adjustment_reasoning && (
+          <div className="mt-4 p-3 bg-gray-900/50 rounded-lg">
+            <p className="text-gray-300 text-sm">{dailyMetaAnalysis.confidence_calibration.adjustment_reasoning}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <Activity className="w-5 h-5 text-orange-400" />
+          Recommended Pairs for Tomorrow
+        </h3>
+        {dailyMetaAnalysis.recommended_pairs?.length > 0 ? (
+          <div className="space-y-3">
+            {dailyMetaAnalysis.recommended_pairs.map((pair: any, idx: number) => (
+              <div key={idx} className="p-4 bg-gray-900/50 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-lg font-semibold text-white">{pair.symbol}</span>
+                  <span className="text-emerald-400 font-semibold">{pair.confidence}% confidence</span>
+                </div>
+                <p className="text-sm text-gray-400">{pair.reasoning}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-gray-400">No specific pair recommendations yet.</p>
+        )}
+        {dailyMetaAnalysis.pairs_to_avoid?.length > 0 && (
+          <div className="mt-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg">
+            <span className="text-red-400 font-semibold">Pairs to Avoid: </span>
+            <span className="text-gray-300">{dailyMetaAnalysis.pairs_to_avoid.join(', ')}</span>
+          </div>
+        )}
+      </div>
+
+      {dailyMetaAnalysis.key_discoveries?.length > 0 && (
+        <div className="bg-gradient-to-br from-blue-900/30 to-purple-900/30 backdrop-blur-sm border border-blue-500/30 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <Award className="w-5 h-5 text-blue-400" />
+            Key Discoveries
+          </h3>
+          <ul className="space-y-2">
+            {dailyMetaAnalysis.key_discoveries.map((discovery: string, idx: number) => (
+              <li key={idx} className="flex items-start gap-2">
+                <span className="text-blue-400 mt-1">💡</span>
+                <span className="text-gray-300">{discovery}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {dailyMetaAnalysis.improvement_focus?.length > 0 && (
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Improvement Focus Areas</h3>
+          <ul className="space-y-2">
+            {dailyMetaAnalysis.improvement_focus.map((focus: string, idx: number) => (
+              <li key={idx} className="flex items-start gap-2">
+                <span className="text-yellow-400 mt-1">▸</span>
+                <span className="text-gray-300">{focus}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
