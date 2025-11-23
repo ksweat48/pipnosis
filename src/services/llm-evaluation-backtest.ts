@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import { eventBasedLLMEngine, EventBasedEngineConfig, SimulatedTrade } from './event-based-llm-engine';
 import { localSessionMemory, SessionSummary } from './local-session-memory';
 import { aiSkillTracker } from './ai-skill-tracker';
+import { developerModeLogger } from './developer-mode-logger';
 
 export interface LLMBacktestConfig {
   sessionName: string;
@@ -52,7 +53,19 @@ class LLMEvaluationBacktest {
     console.log(`[LLM Backtest] Symbol: ${config.symbol}`);
     console.log(`[LLM Backtest] Period: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
     console.log(`[LLM Backtest] LLM Enabled: ${config.useLLM}`);
+    console.log(`[LLM Backtest] User ID: ${userId}`);
+    console.log(`[LLM Backtest] Max Concurrent Trades: ${config.maxConcurrentTrades}`);
+    console.log(`[LLM Backtest] Risk Mode: ${config.riskMode}`);
     console.log('=======================================\n');
+
+    // Auto-enable developer mode for comprehensive logging
+    await developerModeLogger.initialize(userId);
+    await developerModeLogger.enableDeveloperMode(true);
+    console.log('[LLM Backtest] ✓ Developer mode enabled for diagnostic logging');
+
+    // Initialize event engine with user context for 5-layer pipeline
+    await eventBasedLLMEngine.initialize(userId, sessionId);
+    console.log('[LLM Backtest] ✓ Event engine initialized with 5-layer pipeline');
 
     onProgress?.({
       phase: 'loading',
@@ -72,7 +85,8 @@ class LLMEvaluationBacktest {
       throw new Error(`Insufficient historical data: only ${candles.length} candles found`);
     }
 
-    console.log(`[LLM Backtest] Loaded ${candles.length} candles`);
+    console.log(`[LLM Backtest] ✓ Loaded ${candles.length} candles from ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
+    console.log(`[LLM Backtest] Date range: ${candles[0]?.open_time} to ${candles[candles.length-1]?.open_time}`);
 
     localSessionMemory.createSession(sessionId, userId, config.sessionName, {
       symbol: config.symbol,
@@ -81,6 +95,8 @@ class LLMEvaluationBacktest {
       riskMode: config.riskMode,
       initialBalance: config.initialBalance
     });
+
+    console.log(`[LLM Backtest] ✓ Session memory created: ${sessionId}\n`);
 
     onProgress?.({
       phase: 'processing',
@@ -105,6 +121,13 @@ class LLMEvaluationBacktest {
 
     let openTrades: SimulatedTrade[] = [];
     const closedTrades: SimulatedTrade[] = [];
+    let triggersDetected = 0;
+    let triggersValidated = 0;
+    let llmCallsMade = 0;
+    let tradesGenerated = 0;
+    let candlesWithNoTriggers = 0;
+
+    console.log(`[LLM Backtest] Starting candle processing loop (${candles.length - 50} candles)...\n`);
 
     for (let i = 50; i < candles.length; i++) {
       localSessionMemory.recordCandleProcessed(sessionId);
@@ -118,16 +141,30 @@ class LLMEvaluationBacktest {
       );
 
       if (result.trigger) {
+        triggersDetected++;
+        if (result.trigger.confidence >= 60) {
+          triggersValidated++;
+        }
         localSessionMemory.recordTrigger(sessionId, result.trigger);
+      } else {
+        candlesWithNoTriggers++;
       }
 
       if (result.llmCalled) {
+        llmCallsMade++;
         localSessionMemory.recordLLMCall(sessionId, 0, {});
       }
 
       if (result.trade) {
+        tradesGenerated++;
         openTrades.push(result.trade);
         localSessionMemory.recordTrade(sessionId, result.trade);
+        console.log(`\n[LLM Backtest] ✅ TRADE #${tradesGenerated} EXECUTED`);
+        console.log(`  Direction: ${result.trade.direction.toUpperCase()}`);
+        console.log(`  Entry: ${result.trade.entryPrice}`);
+        console.log(`  Confidence: ${result.trade.confidence}%`);
+        console.log(`  Trigger Type: ${result.trade.triggerType}`);
+        console.log(`  Candle: ${i}/${candles.length}\n`);
       }
 
       openTrades = eventBasedLLMEngine.updateOpenTrades(openTrades, candles[i]);
@@ -142,6 +179,8 @@ class LLMEvaluationBacktest {
       if (i % 100 === 0 || i === candles.length - 1) {
         const stats = localSessionMemory.getSessionStatistics(sessionId);
         const progressPercent = 10 + Math.floor(((i - 50) / (candles.length - 50)) * 80);
+
+        console.log(`[LLM Backtest] Progress: ${i}/${candles.length} candles | Triggers: ${triggersDetected} (${triggersValidated} validated) | LLM Calls: ${llmCallsMade} | Trades: ${tradesGenerated}`);
 
         onProgress?.({
           phase: 'processing',
@@ -200,14 +239,22 @@ class LLMEvaluationBacktest {
 
     console.log('\n=== EVENT-BASED LLM BACKTEST COMPLETE ===');
     console.log(`[LLM Backtest] Candles Processed: ${summary.statistics.candlesProcessed}`);
+    console.log(`[LLM Backtest] Candles with No Triggers: ${candlesWithNoTriggers} (${(candlesWithNoTriggers/summary.statistics.candlesProcessed*100).toFixed(1)}%)`);
     console.log(`[LLM Backtest] Triggers Detected: ${summary.statistics.triggersDetected}`);
-    console.log(`[LLM Backtest] LLM Calls: ${summary.statistics.llmCallsMade}`);
+    console.log(`[LLM Backtest] Triggers Validated (>=60%): ${triggersValidated}`);
+    console.log(`[LLM Backtest] LLM Calls Made: ${summary.statistics.llmCallsMade}`);
     console.log(`[LLM Backtest] Trades Executed: ${summary.statistics.tradesExecuted}`);
+    console.log(`[LLM Backtest] Trigger→Trade Conversion: ${(summary.statistics.triggerToTradeRatio * 100).toFixed(1)}%`);
     console.log(`[LLM Backtest] Win Rate: ${summary.statistics.winRate.toFixed(2)}%`);
     console.log(`[LLM Backtest] Total P&L: $${summary.statistics.totalPnL.toFixed(2)}`);
     console.log(`[LLM Backtest] Profit Factor: ${summary.statistics.profitFactor.toFixed(2)}`);
     console.log(`[LLM Backtest] Avg Hold Time: ${summary.statistics.avgHoldTimeMinutes.toFixed(1)} min`);
-    console.log(`[LLM Backtest] Trigger→Trade Ratio: ${(summary.statistics.triggerToTradeRatio * 100).toFixed(1)}%`);
+    console.log('\n[LLM Backtest] DIAGNOSTIC SUMMARY:');
+    console.log(`  • Total Triggers: ${triggersDetected}`);
+    console.log(`  • Validated Triggers: ${triggersValidated}`);
+    console.log(`  • LLM Pipeline Calls: ${llmCallsMade}`);
+    console.log(`  • Trades Generated: ${tradesGenerated}`);
+    console.log(`  • Rejection Rate: ${triggersValidated > 0 ? (((triggersValidated - tradesGenerated) / triggersValidated * 100).toFixed(1)) : 'N/A'}%`);
     console.log('==========================================\n');
 
     await this.updateAISkillProgression(userId, summary);

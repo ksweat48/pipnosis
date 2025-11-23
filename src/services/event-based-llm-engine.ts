@@ -108,10 +108,12 @@ class EventBasedLLMEngine {
     openTrades: SimulatedTrade[] = []
   ): Promise<{ trade: SimulatedTrade | null; trigger: TriggerEvent | null; llmCalled: boolean }> {
     if (candles.length < 50) {
+      console.log(`[Event Engine] ⚠️ Insufficient candles: ${candles.length}/50 required`);
       return { trade: null, trigger: null, llmCalled: false };
     }
 
     if (openTrades.length >= config.maxConcurrentTrades) {
+      console.log(`[Event Engine] ⚠️ Max concurrent trades reached: ${openTrades.length}/${config.maxConcurrentTrades}`);
       return { trade: null, trigger: null, llmCalled: false };
     }
 
@@ -120,32 +122,50 @@ class EventBasedLLMEngine {
     const triggers = triggerDetectionRules.detectTriggers(snapshot);
 
     if (triggers.length === 0) {
+      console.log(`[Event Engine] 📊 No triggers detected (${config.symbol} @ ${snapshot.timestamp.toISOString()})`);
       return { trade: null, trigger: null, llmCalled: false };
     }
 
     const topTrigger = triggers[0];
 
+    console.log(`[Event Engine] 🎯 ${triggers.length} trigger(s) detected! Top: ${topTrigger.type} (${topTrigger.confidence}%)`);
+
     if (!triggerDetectionRules.validateTrigger(topTrigger)) {
+      console.log(`[Event Engine] ❌ Trigger validation FAILED: ${topTrigger.type}`);
       return { trade: null, trigger: topTrigger, llmCalled: false };
     }
 
-    console.log(`[Event Engine] 🎯 Trigger detected: ${topTrigger.type} (${topTrigger.confidence}%)`);
+    console.log(`[Event Engine] ✅ Trigger validated: ${topTrigger.type} (${topTrigger.confidence}%)`);
 
     if (!config.useLLM || !this.apiKey) {
+      console.log(`[Event Engine] 🔧 LLM disabled or no API key - using rule-based fallback`);
+      console.log(`  useLLM: ${config.useLLM}, hasApiKey: ${!!this.apiKey}`);
       const ruleBasedTrade = this.executeRuleBasedDecision(topTrigger, snapshot, config, openTrades);
+      if (ruleBasedTrade) {
+        console.log(`[Event Engine] ✓ Rule-based trade generated: ${ruleBasedTrade.direction.toUpperCase()}`);
+      } else {
+        console.log(`[Event Engine] ✗ Rule-based decision: NO_TRADE`);
+      }
       return { trade: ruleBasedTrade, trigger: topTrigger, llmCalled: false };
     }
 
     if (this.sessionTokenUsage >= this.MAX_TOKENS_PER_SESSION) {
-      console.warn('[Event Engine] Token budget exhausted, using rule-based fallback');
+      console.warn(`[Event Engine] ⚠️ Token budget exhausted: ${this.sessionTokenUsage}/${this.MAX_TOKENS_PER_SESSION}`);
+      console.warn('[Event Engine] Falling back to rule-based decisions');
       const ruleBasedTrade = this.executeRuleBasedDecision(topTrigger, snapshot, config, openTrades);
       return { trade: ruleBasedTrade, trigger: topTrigger, llmCalled: false };
     }
 
+    console.log(`[Event Engine] 🚀 Calling 5-Layer LLM Pipeline... (Tokens: ${this.sessionTokenUsage}/${this.MAX_TOKENS_PER_SESSION})`);
+
     const llmDecision = await this.callLLM(topTrigger, snapshot, openTrades);
 
+    console.log(`[Event Engine] 📋 LLM Decision: ${llmDecision.action}`);
+
     if (llmDecision.action === 'NO_TRADE') {
-      console.log('[Event Engine] ✗ LLM declined: ' + llmDecision.reasoning);
+      console.log(`[Event Engine] ✗ LLM declined trade`);
+      console.log(`  Reason: ${llmDecision.reasoning}`);
+      console.log(`  Confidence: ${llmDecision.confidence}%`);
       return { trade: null, trigger: topTrigger, llmCalled: true };
     }
 
