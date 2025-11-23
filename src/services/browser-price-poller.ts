@@ -15,6 +15,7 @@ import { tickBufferService } from './tick-buffer-service';
 import { logger, LogCategory } from '@/lib/logger';
 import { pollingHealthMonitor } from './polling-health-monitor';
 import { circuitBreakerService } from './circuit-breaker-service';
+import { pageContext } from './page-context';
 
 const FOREX_PAIRS = ['EURUSD', 'XAUUSD', 'US30', 'GBPUSD', 'USDJPY'];
 const POLL_INTERVAL_NORMAL_MS = 3000;
@@ -110,6 +111,15 @@ class BrowserPricePoller {
 
   private async poll(): Promise<void> {
     if (!this.isActive || this.mode === 'stopped') {
+      return;
+    }
+
+    // Check if browser polling should be active on current page
+    if (!pageContext.shouldEnableBrowserPolling()) {
+      logger.info(
+        LogCategory.BROWSER_POLLER,
+        `⏸️ Browser polling paused (page: ${pageContext.getCurrentPage()}, backtest: ${pageContext.isBacktestRunning()}) - Server cron provides updates every 2 min`
+      );
       return;
     }
 

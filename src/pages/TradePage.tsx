@@ -15,9 +15,16 @@ import { promptValidationService } from '@/services/prompt-validation';
 import { extendedSearchService } from '@/services/extended-search';
 import { multiSymbolScanner } from '@/strategies/core/multiSymbolScanner';
 import { StrategyOption, Notification } from '@/types/strategy';
+import { pageContext } from '@/services/page-context';
 
 export function TradePage() {
   const { user } = useAuth();
+
+  // Set page context on mount
+  useEffect(() => {
+    pageContext.setPage('trade');
+    return () => pageContext.setPage('other');
+  }, []);
   const [strategyOptions, setStrategyOptions] = useState<StrategyOption[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState('EURUSD');
   const [notifications, setNotifications] = useState<Notification[]>([]);
