@@ -249,7 +249,61 @@ Strategic Guidance:`;
       });
     }
 
-    prompt += `\n\nProvide your decision in this EXACT JSON format (no markdown):
+    prompt += `\n\n═══════════════════════════════════════════════════════════════════
+YOU HAVE FULL TRADING AUTONOMY - CRITICAL INSTRUCTIONS
+═══════════════════════════════════════════════════════════════════
+
+STOP LOSS PLACEMENT (YOU DECIDE - NO FORMULAS):
+✓ Base on market structure, NOT arbitrary percentages or ATR formulas
+✓ Consider: key support/resistance, swing highs/lows, volatility context
+✓ Place at logical invalidation points where setup is definitively broken
+✓ Tighter stops in range-bound, wider in volatile trending markets
+✗ NEVER use fixed percentages like "1% below entry"
+✗ NEVER use simple ATR multipliers like "1.5 × ATR"
+
+TAKE PROFIT PLACEMENT (YOU DECIDE - NO RATIOS):
+✓ Base on resistance levels, price targets, market momentum
+✓ Consider: nearest key resistance, Fibonacci extensions, trend strength
+✓ In strong trends: extend TP to capture maximum profit
+✓ In ranging: take profits at resistance levels
+✓ Adjust based on goal progress (larger TP when far from goal)
+✗ NEVER use fixed ratios like "2.5 × risk"
+✗ NEVER use arbitrary R:R without market context
+
+POSITION SIZING (YOU DECIDE DYNAMICALLY):
+✓ Base on: setup quality, confidence level, recent performance
+✓ High confidence (85%+) + excellent setup quality → larger size (3-5%)
+✓ Medium confidence (70-85%) → moderate size (2-3%)
+✓ After losing streak → reduce to 1-2%
+✓ When close to goal → smaller sizes to protect gains
+✓ Factor in volatility: reduce size in high volatility
+✗ NEVER use fixed 2% for everything
+
+TRADE DURATION (YOU DECIDE - MAX ${PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_MINUTES} MINUTES):
+✓ Scalps: 5-30 minutes for quick moves
+✓ Intraday swing: 1-4 hours for trend following
+✓ Consider momentum strength and timeframe
+✗ Maximum: ${PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_HOURS} hours (hard limit)
+
+PROFIT MAXIMIZATION MANDATE (WITHIN SAFETY CONSTRAINTS):
+✓ Hold winners as long as market structure supports
+✓ Extend TP when momentum accelerates after entry
+✓ Use trailing stops aggressively in strong trends
+✓ Consider partial exits: take 50% at 1:1 R:R, trail remainder
+✓ Exit early only if setup deteriorates or structure breaks
+✓ In strong trends: let winners run for maximum profit
+✗ Don't exit winners prematurely just to "lock in gains"
+✗ Don't increase risk after entry
+✗ Never exceed ${PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_MINUTES} minute max hold
+
+HARD CONSTRAINTS (NON-NEGOTIABLE):
+✗ Max hold time: ${PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_HOURS} hours
+✗ No overnight holds
+✗ Minimum R:R at entry: 1.5:1
+✗ Never widen stop loss after entry
+✗ Never exceed user's max risk percentage
+
+Provide your decision in this EXACT JSON format (no markdown):
 {
   "action": "enter_long|enter_short|no_trade|hold|close",
   "confidence": <0-100>,
@@ -258,22 +312,18 @@ Strategic Guidance:`;
     "max": <price>,
     "ideal": <price>
   },
-  "stopLoss": <price>,
-  "takeProfit": <price>,
-  "positionSizePercent": <1-5>,
+  "stopLoss": <price determined by market structure>,
+  "takeProfit": <price determined by targets/resistance>,
+  "positionSizePercent": <1-5 based on confidence and quality>,
   "expectedDurationMinutes": <10-${PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_MINUTES}>,
-  "reasoning": "<concise 2-3 sentence explanation>",
+  "reasoning": "<concise 2-3 sentence explanation including WHY you chose this SL/TP/size>",
   "riskAssessment": "<1-2 sentence risk analysis>",
   "setupType": "<descriptive name>",
   "keyFactors": ["<factor1>", "<factor2>", "<factor3>"],
   "alternativeScenarios": ["<scenario1>", "<scenario2>"]
 }
 
-CRITICAL REMINDERS:
-- Maximum trade duration: ${PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_HOURS} hours (${PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_MINUTES} minutes)
-- Preferred duration: under ${PIPNOSIS_CORE_RULES.TRADE_DURATION_PREFERRED_MAX_HOURS} hours
-- Only suggest trades you expect to close within hours, not days
-- If no short-term opportunity exists, recommend "no_trade"`;
+Remember: You're an elite AI trader making intelligent decisions based on market analysis, NOT following dumb formulas!`;
 
     return prompt;
   }

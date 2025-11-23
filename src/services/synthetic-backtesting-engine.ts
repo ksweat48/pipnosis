@@ -5,6 +5,7 @@ import { aiLearningEngine, TradeForAnalysis } from './ai-learning-engine';
 import { aiSkillTracker } from './ai-skill-tracker';
 import { aiIndicatorTracker } from './ai-indicator-tracker';
 import { continuousLearningLoop } from './continuous-learning-loop';
+import { pipnosisDecisionBrain, type DecisionContext, type TradeDecision } from './pipnosis-decision-brain';
 
 export interface SyntheticBacktestConfig {
   sessionName: string;
@@ -293,41 +294,161 @@ class SyntheticBacktestingEngine {
       const m5Candles = await this.getSyntheticCandles(symbol, 'M5', new Date(time.getTime() - 100 * 5 * 60 * 1000), time);
       const m1Candles = await this.getSyntheticCandles(symbol, 'M1', new Date(time.getTime() - 100 * 60 * 1000), time);
 
-      // Reduced requirements to work with 7-day data windows
-      // 7 days = 168 H1 candles, 2016 M5 candles, 10080 M1 candles
-      if (!h1Candles || h1Candles.length < 10) return null; // Was 2, now 10 for better analysis
-      if (!m5Candles || m5Candles.length < 20) return null; // Was 50, now 20 (still sufficient)
-      if (!m1Candles || m1Candles.length < 20) return null; // Was 50, now 20 (still sufficient)
+      if (!h1Candles || h1Candles.length < 10) return null;
+      if (!m5Candles || m5Candles.length < 20) return null;
+      if (!m1Candles || m1Candles.length < 20) return null;
 
       const currentPrice = m1Candles[m1Candles.length - 1].close;
-      const direction = Math.random() > 0.5 ? 'buy' : 'sell';
-      const confidence = 70 + Math.floor(Math.random() * 30);
 
-      // Wider stop loss to reduce breakeven trades (0.5% instead of 0.2%)
-      const atrBuffer = currentPrice * 0.005;
-      const stopLoss = direction === 'buy' ? currentPrice - atrBuffer : currentPrice + atrBuffer;
-      const takeProfit = direction === 'buy' ? currentPrice + (atrBuffer * 2.5) : currentPrice - (atrBuffer * 2.5);
-      const riskReward = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
+      const atr = this.calculateATR(m1Candles.slice(-14));
+      const ema9 = this.calculateEMA(m1Candles.slice(-9), 9);
+      const ema21 = this.calculateEMA(m1Candles.slice(-21), 21);
+      const ema50 = this.calculateEMA(m1Candles.slice(-50), 50);
+      const rsi = this.calculateRSI(m1Candles.slice(-14), 14);
+      const vwap = this.calculateVWAP(m1Candles);
 
-      const shouldExecute = confidence >= this.config!.confidenceThreshold && riskReward >= 1.5;
+      const trend = ema9 > ema21 ? 'bullish' : ema9 < ema21 ? 'bearish' : 'sideways';
+      const volatility = atr > currentPrice * 0.002 ? 'high' : atr < currentPrice * 0.001 ? 'low' : 'medium';
+
+      const context: DecisionContext = {
+        mode: 'backtest',
+        symbol,
+        timeframe: 'M1',
+        currentPrice,
+        snapshot: {
+          ohlc: m1Candles.map(c => ({
+            time: c.time,
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close,
+            volume: c.volume
+          })),
+          indicators: {
+            ema9,
+            ema21,
+            ema50,
+            rsi,
+            atr,
+            vwap
+          },
+          trend,
+          volatility
+        },
+        triggerContext: {
+          type: 'Flow Trader V2',
+          confidence: 75,
+          context: 'Synthetic backtest signal generation'
+        },
+        userRiskSettings: {
+          maxRiskPercent: this.config!.positionSizePercent,
+          maxConcurrentTrades: this.config!.maxConcurrentTrades,
+          accountBalance: this.currentBalance,
+          riskMode: this.config!.riskMode
+        },
+        sessionContext: {
+          userId: this.userId!,
+          sessionId: this.sessionId,
+          openPositions: this.openTrades.length,
+          currentExposure: (this.openTrades.length / this.config!.maxConcurrentTrades) * 100
+        }
+      };
+
+      console.log(`[LLM Brain] Calling unified decision brain for ${symbol} at ${time.toISOString()}`);
+      const decision: TradeDecision = await pipnosisDecisionBrain.decideTrade(context);
+
+      if (decision.action === 'no_trade' || !decision.direction) {
+        return null;
+      }
+
+      const shouldExecute = decision.confidence >= this.config!.confidenceThreshold;
 
       return {
         symbol,
-        direction,
-        entryPrice: currentPrice,
-        stopLoss,
-        takeProfit,
-        confidence,
-        riskReward,
+        direction: decision.direction,
+        entryPrice: decision.entryPrice || currentPrice,
+        stopLoss: decision.stopLoss!,
+        takeProfit: decision.takeProfit!,
+        confidence: decision.confidence,
+        riskReward: decision.expectedRMultiple || 2.0,
         shouldExecute,
-        h1Bias: direction === 'buy' ? 'bullish' : 'bearish',
+        h1Bias: decision.direction === 'buy' ? 'bullish' : 'bearish',
         m5FilterPassed: true,
         m1ExecutionReady: true,
-        setupType: 'Flow Trader V2'
+        setupType: decision.setupType,
+        positionSizePercent: decision.positionSizePercent || this.config!.positionSizePercent,
+        maxHoldMinutes: decision.maxHoldMinutes || 120,
+        aiReasoning: decision.reasoning,
+        aiRiskAssessment: decision.riskAssessment,
+        pipelineResults: decision.pipelineResults
       };
     } catch (error) {
+      console.error(`[LLM Brain] Error generating signal: ${error}`);
       return null;
     }
+  }
+
+  private calculateATR(candles: any[], period: number = 14): number {
+    if (candles.length < period) return 0.0001;
+
+    let sum = 0;
+    for (let i = 1; i < Math.min(period, candles.length); i++) {
+      const high = candles[i].high;
+      const low = candles[i].low;
+      const prevClose = candles[i - 1].close;
+      const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+      sum += tr;
+    }
+    return sum / Math.min(period - 1, candles.length - 1);
+  }
+
+  private calculateEMA(candles: any[], period: number): number {
+    if (candles.length === 0) return 0;
+    if (candles.length < period) return candles[candles.length - 1].close;
+
+    const multiplier = 2 / (period + 1);
+    let ema = candles.slice(0, period).reduce((sum, c) => sum + c.close, 0) / period;
+
+    for (let i = period; i < candles.length; i++) {
+      ema = (candles[i].close - ema) * multiplier + ema;
+    }
+    return ema;
+  }
+
+  private calculateRSI(candles: any[], period: number = 14): number {
+    if (candles.length < period + 1) return 50;
+
+    let gains = 0;
+    let losses = 0;
+
+    for (let i = 1; i <= period; i++) {
+      const change = candles[i].close - candles[i - 1].close;
+      if (change > 0) gains += change;
+      else losses += Math.abs(change);
+    }
+
+    const avgGain = gains / period;
+    const avgLoss = losses / period;
+
+    if (avgLoss === 0) return 100;
+    const rs = avgGain / avgLoss;
+    return 100 - (100 / (1 + rs));
+  }
+
+  private calculateVWAP(candles: any[]): number {
+    if (candles.length === 0) return 0;
+
+    let cumVolPrice = 0;
+    let cumVol = 0;
+
+    for (const candle of candles) {
+      const typical = (candle.high + candle.low + candle.close) / 3;
+      const vol = candle.volume || 1000;
+      cumVolPrice += typical * vol;
+      cumVol += vol;
+    }
+
+    return cumVol > 0 ? cumVolPrice / cumVol : candles[candles.length - 1].close;
   }
 
   private executeTrade(signal: any, entryTime: Date): SyntheticBacktestTrade {
@@ -337,7 +458,8 @@ class SyntheticBacktestingEngine {
       signal.symbol,
       signal.entryPrice,
       signal.stopLoss,
-      this.currentBalance
+      this.currentBalance,
+      signal.positionSizePercent
     );
 
     if (positionSize <= 0 || positionSize > 10) {
@@ -350,12 +472,15 @@ class SyntheticBacktestingEngine {
       throw new Error('Invalid stop loss or take profit');
     }
 
-    console.log(`[Synthetic Backtest] Position size: ${positionSize.toFixed(3)} lots (Balance: $${this.currentBalance.toFixed(2)})`);
+    console.log(`[LLM Brain] ✅ Trade Executed - ${signal.direction.toUpperCase()} ${signal.symbol}`);
+    console.log(`  Entry: ${signal.entryPrice} | SL: ${signal.stopLoss} | TP: ${signal.takeProfit}`);
+    console.log(`  Position: ${positionSize.toFixed(3)} lots (${signal.positionSizePercent}% risk)`);
+    console.log(`  Reasoning: ${signal.aiReasoning || 'N/A'}`);
 
     return {
       tradeNumber: this.tradeCounter,
       symbol: signal.symbol,
-      timeframe: 'H1',
+      timeframe: 'M1',
       entryTime,
       entryPrice: signal.entryPrice,
       direction: signal.direction,
@@ -368,9 +493,12 @@ class SyntheticBacktestingEngine {
       m5FilterPassed: signal.m5FilterPassed,
       m1ExecutionReady: signal.m1ExecutionReady,
       setupType: signal.setupType,
-      aiReasoningUsed: false,
+      aiReasoningUsed: true,
+      aiConviction: signal.confidence,
+      aiRationale: signal.aiReasoning,
+      aiRiskAssessment: signal.aiRiskAssessment,
       shouldExecute: true,
-      executionReason: `Synthetic test trade with ${signal.confidence}% confidence`,
+      executionReason: `LLM-driven trade: ${signal.setupType}`,
       pnl: 0,
       pnlPercent: 0,
       pipsGained: 0,
@@ -995,9 +1123,10 @@ class SyntheticBacktestingEngine {
     symbol: string,
     entryPrice: number,
     stopLoss: number,
-    accountBalance: number
+    accountBalance: number,
+    llmPositionSizePercent?: number
   ): number {
-    const riskPercent = this.config?.positionSizePercent || 2;
+    const riskPercent = llmPositionSizePercent || this.config?.positionSizePercent || 2;
     const riskAmount = (accountBalance * riskPercent) / 100;
 
     const priceRisk = Math.abs(entryPrice - stopLoss);
