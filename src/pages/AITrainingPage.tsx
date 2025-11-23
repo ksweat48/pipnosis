@@ -17,7 +17,7 @@ import PlateauBreakthroughDashboard from '../components/PlateauBreakthroughDashb
 import { NavigationMenu } from '../components/NavigationMenu';
 import { simpleAutoBacktestService, SimpleAutoBacktestState } from '../services/simple-auto-backtest-service';
 import { pageContext } from '../services/page-context';
-import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock, Sparkles, RefreshCw, Brain, Zap, Square, Activity } from 'lucide-react';
+import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock, Sparkles, RefreshCw, Brain, Zap, Square, Activity, Pause } from 'lucide-react';
 
 export default function AITrainingPage() {
   const { user } = useAuth();
@@ -953,46 +953,70 @@ export default function AITrainingPage() {
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={async () => {
-                      if (!user || autoBacktestTransitioning) return;
+                  <div className="flex gap-3">
+                    <button
+                      onClick={async () => {
+                        if (!user || autoBacktestTransitioning) return;
 
-                      setAutoBacktestTransitioning(true);
+                        setAutoBacktestTransitioning(true);
 
-                      try {
-                        await simpleAutoBacktestService.stop();
+                        try {
+                          await simpleAutoBacktestService.pause();
 
-                        // Force immediate state refresh to confirm database update
-                        const confirmedState = await simpleAutoBacktestService.getState();
-                        setAutoBacktestState(confirmedState);
+                          const confirmedState = await simpleAutoBacktestService.getState();
+                          setAutoBacktestState(confirmedState);
 
-                        if (!confirmedState.isRunning) {
-                          console.log('[AI Training] ✅ Auto-backtest confirmed stopped');
-                        } else {
-                          console.warn('[AI Training] ⚠️ Auto-backtest stopped but state not confirmed');
+                          if (confirmedState.isPaused) {
+                            console.log('[AI Training] ✅ Auto-backtest paused at Month', confirmedState.currentMonthNumber, 'Day', confirmedState.currentDayInMonth);
+                          }
+                        } catch (error) {
+                          console.error('[AI Training] Error pausing auto-backtest:', error);
+                          alert('Error pausing auto-backtest. Check console for details.');
+                        } finally {
+                          setAutoBacktestTransitioning(false);
                         }
-                      } catch (error) {
-                        console.error('[AI Training] Error stopping auto-backtest:', error);
-                        alert('Error stopping auto-backtest. Check console for details.');
-                      } finally {
-                        setAutoBacktestTransitioning(false);
-                      }
-                    }}
-                    disabled={autoBacktestTransitioning}
-                    className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white font-bold text-lg rounded-lg hover:bg-red-700 transition-colors shadow-lg hover:shadow-xl disabled:bg-gray-600 disabled:cursor-not-allowed"
-                  >
-                    {autoBacktestTransitioning ? (
-                      <>
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                        Stopping...
-                      </>
-                    ) : (
-                      <>
-                        <Square className="w-5 h-5" />
-                        Stop Auto-Backtest
-                      </>
-                    )}
-                  </button>
+                      }}
+                      disabled={autoBacktestTransitioning}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-yellow-600 text-white font-semibold rounded-lg hover:bg-yellow-700 transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed"
+                    >
+                      <Pause className="w-5 h-5" />
+                      Pause
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!user || autoBacktestTransitioning) return;
+
+                        const confirmStop = confirm(
+                          'Are you sure you want to STOP and RESET?\n\n' +
+                          'This will clear all progress and start from Month 1 Day 1 next time.\n\n' +
+                          '(Use PAUSE to keep your progress instead)'
+                        );
+
+                        if (!confirmStop) return;
+
+                        setAutoBacktestTransitioning(true);
+
+                        try {
+                          await simpleAutoBacktestService.stop(true);
+
+                          const confirmedState = await simpleAutoBacktestService.getState();
+                          setAutoBacktestState(confirmedState);
+
+                          console.log('[AI Training] ✅ Auto-backtest stopped and reset');
+                        } catch (error) {
+                          console.error('[AI Training] Error stopping auto-backtest:', error);
+                          alert('Error stopping auto-backtest. Check console for details.');
+                        } finally {
+                          setAutoBacktestTransitioning(false);
+                        }
+                      }}
+                      disabled={autoBacktestTransitioning}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed"
+                    >
+                      <Square className="w-5 h-5" />
+                      Stop & Reset
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1026,6 +1050,107 @@ export default function AITrainingPage() {
                   </div>
                 )}
               </div>
+            ) : autoBacktestState?.isPaused ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Pause className="w-6 h-6 text-yellow-400" />
+                    <div>
+                      <p className="text-lg font-bold text-yellow-400">Paused</p>
+                      <p className="text-sm text-gray-300">
+                        Saved at Month {autoBacktestState.currentMonthNumber} - Day {autoBacktestState.currentDayInMonth}/30
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={async () => {
+                        if (!user || autoBacktestTransitioning) return;
+
+                        setAutoBacktestTransitioning(true);
+
+                        try {
+                          const result = await simpleAutoBacktestService.resume(user.id);
+
+                          if (result.success) {
+                            const confirmedState = await simpleAutoBacktestService.getState();
+                            setAutoBacktestState(confirmedState);
+
+                            console.log('[AI Training] ✅ Auto-backtest resumed from Month', confirmedState.currentMonthNumber, 'Day', confirmedState.currentDayInMonth);
+                          } else {
+                            console.error('[AI Training] Failed to resume:', result.message);
+                            alert(`Failed to resume:\n\n${result.message}`);
+                          }
+                        } catch (error) {
+                          console.error('[AI Training] Error resuming auto-backtest:', error);
+                          alert('Error resuming auto-backtest. Check console for details.');
+                        } finally {
+                          setAutoBacktestTransitioning(false);
+                        }
+                      }}
+                      disabled={autoBacktestTransitioning}
+                      className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed"
+                    >
+                      <Play className="w-5 h-5" />
+                      Resume
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!user || autoBacktestTransitioning) return;
+
+                        const confirmStop = confirm(
+                          'Are you sure you want to STOP and RESET?\n\n' +
+                          'This will clear your saved progress and start from Month 1 Day 1 next time.'
+                        );
+
+                        if (!confirmStop) return;
+
+                        setAutoBacktestTransitioning(true);
+
+                        try {
+                          await simpleAutoBacktestService.stop(true);
+
+                          const confirmedState = await simpleAutoBacktestService.getState();
+                          setAutoBacktestState(confirmedState);
+
+                          console.log('[AI Training] ✅ Auto-backtest stopped and reset');
+                        } catch (error) {
+                          console.error('[AI Training] Error stopping auto-backtest:', error);
+                          alert('Error stopping auto-backtest. Check console for details.');
+                        } finally {
+                          setAutoBacktestTransitioning(false);
+                        }
+                      }}
+                      disabled={autoBacktestTransitioning}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed"
+                    >
+                      <Square className="w-5 h-5" />
+                      Stop & Reset
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-4 bg-gray-700/50 rounded-lg">
+                    <p className="text-sm text-gray-400 mb-1">Months Completed</p>
+                    <p className="text-3xl font-bold text-white">{autoBacktestState.totalMonthsCompleted}</p>
+                  </div>
+                  <div className="p-4 bg-gray-700/50 rounded-lg">
+                    <p className="text-sm text-gray-400 mb-1">Current Month</p>
+                    <p className="text-3xl font-bold text-white">#{autoBacktestState.currentMonthNumber}</p>
+                  </div>
+                  {autoBacktestState.lastDayResult && (
+                    <div className="p-4 bg-gray-700/50 rounded-lg">
+                      <p className="text-sm text-gray-400 mb-1">Last Day Win Rate</p>
+                      <p className={`text-3xl font-bold ${
+                        autoBacktestState.lastDayResult.winRate >= 50 ? 'text-green-400' : 'text-red-400'
+                      }`}>
+                        {autoBacktestState.lastDayResult.winRate.toFixed(1)}%
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
             ) : (
               <div className="space-y-4">
                 <div className="p-4 bg-gray-700/50 rounded-lg text-center">
@@ -1036,14 +1161,10 @@ export default function AITrainingPage() {
 
                       setAutoBacktestTransitioning(true);
 
-                      // Optimistic UI update - immediately show starting state
-                      setAutoBacktestState(prev => prev ? { ...prev, isRunning: false } : null);
-
                       try {
                         const result = await simpleAutoBacktestService.start(user.id);
 
                         if (result.success) {
-                          // Force immediate state refresh to confirm database update
                           const confirmedState = await simpleAutoBacktestService.getState();
                           setAutoBacktestState(confirmedState);
 

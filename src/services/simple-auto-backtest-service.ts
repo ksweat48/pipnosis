@@ -27,6 +27,7 @@ import { supabase } from '../lib/supabase';
 
 export interface SimpleAutoBacktestState {
   isRunning: boolean;
+  isPaused: boolean; // NEW: Tracks if paused with saved position
   totalMonthsCompleted: number;
   currentMonthNumber: number;
   currentDayInMonth: number; // NEW: 1-30
@@ -52,6 +53,8 @@ export interface SimpleAutoBacktestState {
   monthlyParentSessionId?: string; // NEW: Parent session ID for current month
   lastErrorMessage?: string | null;
   lastErrorAt?: Date | null;
+  pausedAt?: Date | null; // NEW: When paused
+  resumedAt?: Date | null; // NEW: When resumed
 }
 
 class SimpleAutoBacktestService {
@@ -268,8 +271,8 @@ class SimpleAutoBacktestService {
    * Stop auto-backtest loop
    * Ensures complete cleanup of all state
    */
-  async stop(): Promise<void> {
-    console.log('[Auto-Backtest] 🛑 Stopping auto-backtest system');
+  async stop(clearProgress = true): Promise<void> {
+    console.log(`[Auto-Backtest] 🛑 ${clearProgress ? 'Stopping and resetting' : 'Pausing'} auto-backtest system`);
 
     // Set flag first to stop the loop
     this.isRunning = false;
@@ -290,32 +293,175 @@ class SimpleAutoBacktestService {
       this.heartbeatInterval = null;
     }
 
-    // Always stop in database, even if not running locally
-    // This handles cross-device/cross-tab scenarios
-    if (this.userId) {
-      await this.forceStopInDatabase(this.userId);
+    if (clearProgress) {
+      // FULL STOP: Clear all progress and reset to beginning
+      console.log('[Auto-Backtest] Clearing all progress - will start from Month 1 Day 1 next time');
+      this.totalMonthsCompleted = 0;
+      this.currentMonthNumber = 0;
+      this.currentDayInMonth = 0;
+      this.monthlyParentSessionId = null;
+      this.lastDayResult = null;
+
+      if (this.userId) {
+        await supabase
+          .from('auto_backtest_global_state')
+          .update({
+            is_running: false,
+            is_paused: false,
+            current_month_number: 0,
+            current_day_in_month: 0,
+            total_months_completed: 0,
+            monthly_parent_session_id: null,
+            stopped_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', this.userId);
+
+        console.log('[Auto-Backtest] ✅ Progress cleared - ready for fresh start');
+      }
+    } else {
+      // PAUSE: Keep progress, just mark as not running
+      if (this.userId) {
+        await this.forceStopInDatabase(this.userId);
+      }
     }
 
     // Verify database state was updated
     if (this.userId) {
       const { data: verifyState } = await supabase
         .from('auto_backtest_global_state')
-        .select('is_running')
+        .select('is_running, current_month_number, current_day_in_month')
         .eq('user_id', this.userId)
         .single();
 
       if (verifyState?.is_running) {
         console.warn('[Auto-Backtest] Warning: Database still shows running after stop');
       } else {
-        console.log('[Auto-Backtest] ✅ Database state confirmed - auto-backtest is stopped');
+        if (clearProgress) {
+          console.log('[Auto-Backtest] ✅ Stopped and reset - position cleared');
+        } else {
+          console.log('[Auto-Backtest] ✅ Paused - position saved at Month', verifyState?.current_month_number, 'Day', verifyState?.current_day_in_month);
+        }
       }
     }
 
     // Reset session tracking
     this.sessionId = '';
-    this.monthlyParentSessionId = null;
+    if (clearProgress) {
+      this.monthlyParentSessionId = null;
+    }
 
     console.log('[Auto-Backtest] Stopped and cleaned up');
+  }
+
+  /**
+   * Pause auto-backtest (saves position for resume)
+   */
+  async pause(): Promise<void> {
+    console.log(`[Auto-Backtest] ⏸️ Pausing at Month ${this.currentMonthNumber}, Day ${this.currentDayInMonth}`);
+
+    // Stop processing but keep position
+    this.isRunning = false;
+
+    // Clean up timers
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
+
+    if (this.nextRunTimer) {
+      clearTimeout(this.nextRunTimer);
+      this.nextRunTimer = null;
+    }
+
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+
+    // Save state as paused (position preserved)
+    if (this.userId) {
+      await supabase
+        .from('auto_backtest_global_state')
+        .update({
+          is_running: false,
+          is_paused: true,
+          paused_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', this.userId);
+
+      console.log('[Auto-Backtest] ✅ Paused - position saved');
+    }
+  }
+
+  /**
+   * Resume auto-backtest from paused state
+   */
+  async resume(userId: string): Promise<{ success: boolean; message?: string }> {
+    console.log('[Auto-Backtest] ▶️ Resuming from paused state...');
+
+    try {
+      // Load saved state from database
+      const state = await this.getState();
+
+      if (!state.isPaused) {
+        return {
+          success: false,
+          message: 'Cannot resume - not in paused state'
+        };
+      }
+
+      if (state.currentMonthNumber === 0 && state.currentDayInMonth === 0) {
+        return {
+          success: false,
+          message: 'No saved position to resume from'
+        };
+      }
+
+      // Restore position from saved state
+      this.userId = userId;
+      this.currentMonthNumber = state.currentMonthNumber;
+      this.currentDayInMonth = state.currentDayInMonth;
+      this.totalMonthsCompleted = state.totalMonthsCompleted;
+      this.monthlyParentSessionId = state.monthlyParentSessionId || null;
+      this.lastDayResult = state.lastDayResult;
+      this.plateauDetected = state.plateauDetected;
+      this.breakthroughMode = state.breakthroughMode;
+      this.plateauDuration = state.plateauDuration;
+
+      console.log(`[Auto-Backtest] Resuming from Month ${this.currentMonthNumber}, Day ${this.currentDayInMonth}`);
+
+      // Mark as running and clear pause state
+      this.isRunning = true;
+      await supabase
+        .from('auto_backtest_global_state')
+        .update({
+          is_running: true,
+          is_paused: false,
+          resumed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', userId);
+
+      // Start background monitoring
+      this.startHeartbeat();
+
+      // Continue from saved day (runDailyBacktest will pick up from currentDayInMonth)
+      this.runDailyBacktest();
+
+      return {
+        success: true,
+        message: `Resumed from Month ${this.currentMonthNumber}, Day ${this.currentDayInMonth}`
+      };
+
+    } catch (error) {
+      console.error('[Auto-Backtest] Error resuming:', error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
   }
 
   /**
@@ -346,6 +492,7 @@ class SimpleAutoBacktestService {
       if (dbState) {
         return {
           isRunning: dbState.is_running || false,
+          isPaused: dbState.is_paused || false,
           totalMonthsCompleted: dbState.total_months_completed || 0,
           currentMonthNumber: dbState.current_month_number || 0,
           currentDayInMonth: dbState.current_day_in_month || 0,
@@ -368,13 +515,16 @@ class SimpleAutoBacktestService {
           usageWarningMessage: dbState.usage_warning_message,
           monthlyParentSessionId: dbState.monthly_parent_session_id,
           lastErrorMessage: dbState.last_error_message || null,
-          lastErrorAt: dbState.last_error_at ? new Date(dbState.last_error_at) : null
+          lastErrorAt: dbState.last_error_at ? new Date(dbState.last_error_at) : null,
+          pausedAt: dbState.paused_at ? new Date(dbState.paused_at) : null,
+          resumedAt: dbState.resumed_at ? new Date(dbState.resumed_at) : null
         };
       }
     }
 
     return {
       isRunning: this.isRunning,
+      isPaused: false,
       totalMonthsCompleted: this.totalMonthsCompleted,
       currentMonthNumber: this.currentMonthNumber,
       currentDayInMonth: this.currentDayInMonth,
@@ -386,7 +536,9 @@ class SimpleAutoBacktestService {
       plateauDuration: this.plateauDuration,
       monthlyParentSessionId: this.monthlyParentSessionId,
       lastErrorMessage: null,
-      lastErrorAt: null
+      lastErrorAt: null,
+      pausedAt: null,
+      resumedAt: null
     };
   }
 
