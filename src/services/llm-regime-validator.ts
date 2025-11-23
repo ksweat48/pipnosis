@@ -213,22 +213,31 @@ Be critical. If regime doesn't match trigger, REJECT immediately.`;
     const isTrending = snapshot.priceAction.trend !== 'sideways';
     const hasModerateVolatility = snapshot.priceAction.volatility !== 'low';
 
+    // FIXED: Fallback validation should be PERMISSIVE to allow learning from all conditions
+    // The subsequent layers (2-5) will filter out bad setups
+    // Blocking at Layer 1 prevents the AI from learning what works in different regimes
+    const shouldProceed = true; // Always proceed in fallback mode (LLM disabled)
+
+    console.log(`[LLM Regime Validator] FALLBACK MODE - Allowing all regimes for AI learning`);
+    console.log(`  Detected: ${snapshot.priceAction.trend} / ${snapshot.priceAction.volatility}`);
+    console.log(`  Reasoning: LLM disabled - deferring regime filtering to subsequent layers`);
+
     return {
-      regime_ok: isTrending && hasModerateVolatility,
+      regime_ok: shouldProceed,
       detected_regime: {
         trend: snapshot.priceAction.trend,
         volatility: snapshot.priceAction.volatility,
         momentum: Math.abs(snapshot.priceAction.momentum) > 0.5 ? 'moderate' : 'weak'
       },
       expected_regime: {
-        trend: 'trending',
-        volatility: 'medium_or_high'
+        trend: 'any', // Changed from 'trending' to 'any'
+        volatility: 'any' // Changed from 'medium_or_high' to 'any'
       },
-      validation_details: `Fallback validation (${reason}). Basic regime check applied.`,
-      confidence_in_regime: 50,
-      warnings: [`Fallback validation used: ${reason}`],
-      recommendation: isTrending && hasModerateVolatility ? 'proceed' : 'abort',
-      reasoning: 'Rule-based fallback: checking for trending market with moderate volatility'
+      validation_details: `Fallback validation (${reason}). Permissive mode - allowing all regimes for AI learning.`,
+      confidence_in_regime: 60, // Slightly higher than before since we're being permissive
+      warnings: [`Fallback validation used: ${reason}. Layer 1 bypassed - subsequent layers will filter.`],
+      recommendation: 'proceed', // Always proceed in fallback mode
+      reasoning: 'Rule-based fallback: LLM disabled, allowing all market regimes. Layers 2-5 will filter quality.'
     };
   }
 
