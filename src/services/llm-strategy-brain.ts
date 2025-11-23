@@ -88,7 +88,9 @@ abstract class LLMProvider {
   abstract makeDecision(
     snapshot: MarketSnapshot,
     goalContext?: GoalContext,
-    history?: RelevantHistory
+    history?: RelevantHistory,
+    userId?: string,
+    skillContext?: any
   ): Promise<LLMTradeDecision>;
 
   protected buildSystemPrompt(): string {
@@ -108,7 +110,8 @@ class GPT4Provider extends LLMProvider {
     snapshot: MarketSnapshot,
     goalContext?: GoalContext,
     history?: RelevantHistory,
-    userId?: string
+    userId?: string,
+    skillContext?: any
   ): Promise<LLMTradeDecision> {
     const systemPrompt = this.buildSystemPrompt();
 
@@ -122,7 +125,7 @@ class GPT4Provider extends LLMProvider {
       );
     }
 
-    const userPrompt = this.buildUserPrompt(snapshot, goalContext, history, enrichedContext);
+    const userPrompt = this.buildUserPrompt(snapshot, goalContext, history, enrichedContext, skillContext);
 
     try {
       const response = await fetch(this.config.endpoint, {
@@ -169,7 +172,8 @@ class GPT4Provider extends LLMProvider {
     snapshot: MarketSnapshot,
     goalContext?: GoalContext,
     history?: RelevantHistory,
-    enrichedContext?: EnrichedContext | null
+    enrichedContext?: EnrichedContext | null,
+    skillContext?: any
   ): string {
     const primaryTF = 'M15';
     const tfData = snapshot.timeframes[primaryTF];
@@ -247,6 +251,37 @@ Strategic Guidance:`;
       enrichedContext.strategicGuidance.forEach(guidance => {
         prompt += `\n- ${guidance}`;
       });
+    }
+
+    if (skillContext) {
+      prompt += `\n\n═══════════════════════════════════════════════════════════════════
+AI SKILL LEVEL PROGRESSION OBJECTIVE
+═══════════════════════════════════════════════════════════════════
+
+Current Level: ${skillContext.currentLevel} (${skillContext.currentLevelNumeric}/6)
+Target Level: ${skillContext.targetLevel}
+
+CURRENT PERFORMANCE:
+• Win Rate: ${skillContext.currentPerformance.winRate.toFixed(1)}%
+• Profit Factor: ${skillContext.currentPerformance.profitFactor.toFixed(2)}
+• Total Trades Analyzed: ${skillContext.currentPerformance.totalTrades}
+• Consistency: ${skillContext.currentPerformance.consistency.toFixed(1)}%
+
+REQUIREMENTS TO LEVEL UP:
+• Win Rate Required: ${skillContext.targetRequirements.minWinRate}% (Gap: ${skillContext.gaps.winRateGap > 0 ? '+' : ''}${skillContext.gaps.winRateGap.toFixed(1)}%)
+• Profit Factor Required: ${skillContext.targetRequirements.minProfitFactor.toFixed(2)} (Gap: ${skillContext.gaps.profitFactorGap > 0 ? '+' : ''}${skillContext.gaps.profitFactorGap.toFixed(2)})
+• Trades Required: ${skillContext.targetRequirements.minTrades} (Remaining: ${Math.abs(skillContext.gaps.tradesGap)})
+• Consistency Required: ${skillContext.targetRequirements.minConsistency}% (Gap: ${skillContext.gaps.consistencyGap > 0 ? '+' : ''}${skillContext.gaps.consistencyGap.toFixed(1)}%)
+
+YOUR MISSION:
+Your trading decisions in this session directly affect your ability to level up.
+Prioritize actions that improve your OVERALL win rate, profit factor, and consistency.
+Be more selective when gaps are negative.
+Favor higher-quality setups and healthier risk-reward structures over sheer trade count.
+
+STRATEGIC GUIDANCE (PRIORITY: WIN RATE → PROFIT FACTOR → CONSISTENCY):
+${skillContext.strategicGuidance.map((g: string) => `• ${g}`).join('\n')}
+`;
     }
 
     prompt += `\n\n═══════════════════════════════════════════════════════════════════
@@ -410,7 +445,9 @@ class LLMStrategyBrain {
   async makeDecision(
     snapshot: MarketSnapshot,
     goalContext?: GoalContext,
-    history?: RelevantHistory
+    history?: RelevantHistory,
+    userId?: string,
+    skillContext?: any
   ): Promise<LLMTradeDecision> {
     const provider = this.providers.get(this.primaryProvider);
 
@@ -420,7 +457,7 @@ class LLMStrategyBrain {
     }
 
     try {
-      const decision = await provider.makeDecision(snapshot, goalContext, history);
+      const decision = await provider.makeDecision(snapshot, goalContext, history, userId, skillContext);
       console.log(`[LLM Strategy Brain] Decision: ${decision.action}, Confidence: ${decision.confidence}%`);
       return decision;
     } catch (error) {

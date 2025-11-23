@@ -17,8 +17,38 @@ import { llmMistakePrevention } from './llm-mistake-prevention';
 import { llmConfidenceCalibrator } from './llm-confidence-calibrator';
 import { llmStrategyBrain, type MarketSnapshot as LLMMarketSnapshot } from './llm-strategy-brain';
 import { developerModeLogger } from './developer-mode-logger';
+import { aiSkillTracker, type SkillLevel } from './ai-skill-tracker';
 
 export type TradingMode = 'backtest' | 'live_demo' | 'smart_goal';
+
+export interface SkillLevelContext {
+  currentLevel: SkillLevel;
+  currentLevelNumeric: number;
+  targetLevel: SkillLevel;
+
+  currentPerformance: {
+    winRate: number;
+    profitFactor: number;
+    totalTrades: number;
+    consistency: number;
+  };
+
+  targetRequirements: {
+    minWinRate: number;
+    minProfitFactor: number;
+    minTrades: number;
+    minConsistency: number;
+  };
+
+  gaps: {
+    winRateGap: number;
+    profitFactorGap: number;
+    tradesGap: number;
+    consistencyGap: number;
+  };
+
+  strategicGuidance: string[];
+}
 
 export type ExitStrategy = 'fixed_tp' | 'trailing_stop' | 'partial_exit' | 'indicator_based' | 'time_based';
 
@@ -90,6 +120,7 @@ export interface DecisionContext {
       tradesCompleted: number;
     };
   };
+  skillLevelContext?: SkillLevelContext;
   historicalContext?: {
     recentWinRate?: number;
     recentProfitFactor?: number;
@@ -149,6 +180,21 @@ class PipnosisDecisionBrain {
     console.log(`${'='.repeat(80)}\n`);
 
     try {
+      // ============================================================
+      // SKILL LEVEL CONTEXT (ADMIN ONLY)
+      // ============================================================
+      if (!context.skillLevelContext) {
+        const isAdmin = await this.checkIfUserIsAdmin(context.sessionContext.userId);
+        if (isAdmin) {
+          context.skillLevelContext = await this.fetchSkillLevelContext(context.sessionContext.userId);
+          if (context.skillLevelContext) {
+            console.log(`[SKILL CONTEXT] 📊 Level: ${context.skillLevelContext.currentLevel} → ${context.skillLevelContext.targetLevel}`);
+            console.log(`[SKILL CONTEXT] WR: ${context.skillLevelContext.currentPerformance.winRate.toFixed(1)}% / ${context.skillLevelContext.targetRequirements.minWinRate}% (Gap: ${context.skillLevelContext.gaps.winRateGap > 0 ? '+' : ''}${context.skillLevelContext.gaps.winRateGap.toFixed(1)}%)`);
+            console.log(`[SKILL CONTEXT] PF: ${context.skillLevelContext.currentPerformance.profitFactor.toFixed(2)} / ${context.skillLevelContext.targetRequirements.minProfitFactor.toFixed(2)} (Gap: ${context.skillLevelContext.gaps.profitFactorGap > 0 ? '+' : ''}${context.skillLevelContext.gaps.profitFactorGap.toFixed(2)})`);
+          }
+        }
+      }
+
       const pipelineResult: PipelineExecutionResult = {
         hardGateResult: 'allowed',
         layer1Passed: false,
@@ -576,7 +622,8 @@ class PipnosisDecisionBrain {
       llmSnapshot,
       goalContext,
       historyContext,
-      context.sessionContext.userId
+      context.sessionContext.userId,
+      context.skillLevelContext
     );
 
     const direction = llmDecision.action === 'enter_long' ? 'buy' : llmDecision.action === 'enter_short' ? 'sell' : undefined;
@@ -648,6 +695,139 @@ class PipnosisDecisionBrain {
     } catch (error) {
       console.error('[Pipeline Log] Error logging execution:', error);
     }
+  }
+
+  private async checkIfUserIsAdmin(userId: string): Promise<boolean> {
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('is_admin')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (error || !data) return false;
+      return data.is_admin === true;
+    } catch (error) {
+      console.error('[Skill Context] Error checking admin status:', error);
+      return false;
+    }
+  }
+
+  private async fetchSkillLevelContext(userId: string): Promise<SkillLevelContext | null> {
+    try {
+      const skillProgression = await aiSkillTracker.getSkillProgression(userId);
+      if (!skillProgression) return null;
+
+      const thresholds = aiSkillTracker.getSkillLevelThresholds();
+      const currentLevelIndex = thresholds.findIndex(t => t.level === skillProgression.currentSkillLevel);
+
+      if (currentLevelIndex === -1 || currentLevelIndex >= thresholds.length - 1) {
+        return null;
+      }
+
+      const currentThreshold = thresholds[currentLevelIndex];
+      const nextThreshold = thresholds[currentLevelIndex + 1];
+
+      const winRateGap = skillProgression.currentWinRate - nextThreshold.minWinRate;
+      const profitFactorGap = skillProgression.currentProfitFactor - nextThreshold.minProfitFactor;
+      const tradesGap = skillProgression.totalTradesAnalyzed - nextThreshold.minTrades;
+      const consistencyGap = 50 - nextThreshold.minConsistency;
+
+      const strategicGuidance = this.generateStrategicGuidance({
+        winRateGap,
+        profitFactorGap,
+        tradesGap,
+        consistencyGap,
+        currentLevel: skillProgression.currentSkillLevel,
+        targetLevel: nextThreshold.level
+      });
+
+      return {
+        currentLevel: skillProgression.currentSkillLevel,
+        currentLevelNumeric: skillProgression.skillLevelNumeric,
+        targetLevel: nextThreshold.level,
+        currentPerformance: {
+          winRate: skillProgression.currentWinRate,
+          profitFactor: skillProgression.currentProfitFactor,
+          totalTrades: skillProgression.totalTradesAnalyzed,
+          consistency: 50
+        },
+        targetRequirements: {
+          minWinRate: nextThreshold.minWinRate,
+          minProfitFactor: nextThreshold.minProfitFactor,
+          minTrades: nextThreshold.minTrades,
+          minConsistency: nextThreshold.minConsistency
+        },
+        gaps: {
+          winRateGap,
+          profitFactorGap,
+          tradesGap,
+          consistencyGap
+        },
+        strategicGuidance
+      };
+    } catch (error) {
+      console.error('[Skill Context] Error fetching skill progression:', error);
+      return null;
+    }
+  }
+
+  private generateStrategicGuidance(params: {
+    winRateGap: number;
+    profitFactorGap: number;
+    tradesGap: number;
+    consistencyGap: number;
+    currentLevel: SkillLevel;
+    targetLevel: SkillLevel;
+  }): string[] {
+    const guidance: string[] = [];
+
+    if (params.winRateGap < 0) {
+      const gapAbs = Math.abs(params.winRateGap);
+      if (gapAbs > 10) {
+        guidance.push(`CRITICAL: Increase win rate by ${gapAbs.toFixed(1)}% - Be highly selective, only take 75+ quality setups`);
+      } else if (gapAbs > 5) {
+        guidance.push(`Win rate needs ${gapAbs.toFixed(1)}% improvement - Raise quality bar to 70+ minimum`);
+      } else {
+        guidance.push(`Win rate nearly on target (need +${gapAbs.toFixed(1)}%) - Maintain current selectiveness`);
+      }
+    } else {
+      guidance.push(`Win rate ABOVE target (+${params.winRateGap.toFixed(1)}%) - Excellent selectiveness`);
+    }
+
+    if (params.profitFactorGap < 0) {
+      const gapAbs = Math.abs(params.profitFactorGap);
+      if (gapAbs > 0.5) {
+        guidance.push(`Profit factor low (need +${gapAbs.toFixed(2)}) - Focus on higher R:R setups (2.5:1+) and let winners run`);
+      } else if (gapAbs > 0.2) {
+        guidance.push(`Profit factor needs improvement (+${gapAbs.toFixed(2)}) - Extend take profits in strong trends`);
+      } else {
+        guidance.push(`Profit factor close to target (+${gapAbs.toFixed(2)}) - Continue current R:R strategy`);
+      }
+    } else {
+      guidance.push(`Profit factor ABOVE target (+${params.profitFactorGap.toFixed(2)}) - Excellent trade management`);
+    }
+
+    if (params.consistencyGap < 0) {
+      guidance.push(`Consistency needs improvement - Avoid erratic pairs and marginal setups`);
+    }
+
+    if (params.tradesGap < 0) {
+      const remaining = Math.abs(params.tradesGap);
+      if (remaining > 50000) {
+        guidance.push(`Long journey ahead (${remaining.toLocaleString()} trades to ${params.targetLevel}) - Focus on quality learning, not speed`);
+      } else if (remaining > 1000) {
+        guidance.push(`${remaining.toLocaleString()} trades remaining to ${params.targetLevel} - Maintain quality while building experience`);
+      } else {
+        guidance.push(`Almost there! ${remaining} trades to ${params.targetLevel} - Don't compromise quality at the finish line`);
+      }
+    }
+
+    if (guidance.length === 0) {
+      guidance.push(`All metrics on track for ${params.targetLevel} - Maintain current strategy`);
+    }
+
+    return guidance;
   }
 }
 
