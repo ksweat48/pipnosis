@@ -16,6 +16,7 @@ import AILearningProgressDashboard from '../components/AILearningProgressDashboa
 import PlateauBreakthroughDashboard from '../components/PlateauBreakthroughDashboard';
 import { NavigationMenu } from '../components/NavigationMenu';
 import { simpleAutoBacktestService, SimpleAutoBacktestState } from '../services/simple-auto-backtest-service';
+import { pageContext } from '../services/page-context';
 import { Play, TrendingUp, AlertCircle, Calendar, Settings, BarChart3, Target, CheckCircle, XCircle, Clock, Sparkles, RefreshCw, Brain, Zap, Square, Activity } from 'lucide-react';
 
 export default function AITrainingPage() {
@@ -67,6 +68,17 @@ export default function AITrainingPage() {
   const { isUserInteracting, isScrolling } = useUserInteraction(1500);
 
   const availableSymbols = ['EURUSD', 'XAUUSD', 'GBPUSD', 'USDJPY', 'US30'];
+
+  // Set page context on mount to disable browser polling
+  useEffect(() => {
+    console.log('[AI Training] Setting page context to ai-training');
+    pageContext.setPage('ai-training');
+
+    return () => {
+      console.log('[AI Training] Clearing page context');
+      pageContext.setPage('other');
+    };
+  }, []);
 
   useEffect(() => {
     checkAdminStatus();
@@ -380,6 +392,9 @@ export default function AITrainingPage() {
       if (useSyntheticData) {
         console.log('[AI Training] Running SYNTHETIC backtest with scenario:', marketScenario);
 
+        // Notify page context that backtest is starting
+        pageContext.setBacktestRunning(true);
+
         const config: SyntheticBacktestConfig = {
           sessionName: `${sessionName} (SYNTHETIC)`,
           description: `Synthetic ${marketScenario} scenario - Risk: ${riskMode}, Threshold: ${confidenceThreshold}%`,
@@ -541,6 +556,8 @@ export default function AITrainingPage() {
         alert('Backtest failed. Check console for details.\n\nError: ' + errorMessage);
       }
     } finally {
+      // Always clear backtest running state
+      pageContext.setBacktestRunning(false);
       setBacktestLoading(false);
       clearTimeout(timeoutId);
     }
@@ -553,6 +570,9 @@ export default function AITrainingPage() {
     setBacktestAborted(false);
     setBacktestError(null);
     setEventBacktestProgress(null);
+
+    // Notify page context that backtest is starting
+    pageContext.setBacktestRunning(true);
 
     try {
       console.log('[AI Training] Starting Event-Based LLM Backtest...');
@@ -634,6 +654,8 @@ export default function AITrainingPage() {
       setBacktestError(error?.message || 'Event-based backtest failed');
       alert('Event-based backtest failed. Check console for details.\n\nError: ' + (error?.message || 'Unknown error'));
     } finally {
+      // Always clear backtest running state
+      pageContext.setBacktestRunning(false);
       setBacktestLoading(false);
       setEventBacktestProgress(null);
     }
@@ -646,6 +668,9 @@ export default function AITrainingPage() {
     setBacktestError('Backtest cancelled by user');
     setGenerationProgress(null);
     setEventBacktestProgress(null);
+
+    // Clear backtest running state
+    pageContext.setBacktestRunning(false);
   };
 
   const handleLoadSession = async (session: any) => {
