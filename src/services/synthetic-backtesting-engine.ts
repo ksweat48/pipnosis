@@ -303,9 +303,10 @@ class SyntheticBacktestingEngine {
       const direction = Math.random() > 0.5 ? 'buy' : 'sell';
       const confidence = 70 + Math.floor(Math.random() * 30);
 
-      const atrBuffer = currentPrice * 0.002;
+      // Wider stop loss to reduce breakeven trades (0.5% instead of 0.2%)
+      const atrBuffer = currentPrice * 0.005;
       const stopLoss = direction === 'buy' ? currentPrice - atrBuffer : currentPrice + atrBuffer;
-      const takeProfit = direction === 'buy' ? currentPrice + (atrBuffer * 2) : currentPrice - (atrBuffer * 2);
+      const takeProfit = direction === 'buy' ? currentPrice + (atrBuffer * 2.5) : currentPrice - (atrBuffer * 2.5);
       const riskReward = Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss);
 
       const shouldExecute = confidence >= this.config!.confidenceThreshold && riskReward >= 1.5;
@@ -422,9 +423,10 @@ class SyntheticBacktestingEngine {
 
     this.currentBalance += trade.pnl;
 
-    if (trade.pnl > 0.5) {
+    // Stricter breakeven threshold: only very small P&L counts as breakeven
+    if (trade.pnl > 1.0) {
       trade.outcome = 'win';
-    } else if (trade.pnl < -0.5) {
+    } else if (trade.pnl < -1.0) {
       trade.outcome = 'loss';
     } else {
       trade.outcome = 'breakeven';

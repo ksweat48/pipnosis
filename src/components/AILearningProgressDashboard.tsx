@@ -477,13 +477,13 @@ function AILearningProgressDashboard() {
       <DailyLearningsSection userId={user?.id} />
 
       {/* Live vs Backtest Learning Stats */}
-      {(liveStats || backtestStats) && (
+      {(!autoBacktestState?.isRunning && (liveStats || backtestStats)) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Live Trading Learning */}
           <div className="bg-gradient-to-br from-green-900/20 to-emerald-900/20 backdrop-blur-sm border-2 border-green-500/30 rounded-lg p-6">
             <div className="flex items-center gap-3 mb-4">
               <PlayCircle className="w-6 h-6 text-green-400" />
-              <h3 className="text-xl font-bold text-white">Live Demo Trading Learning</h3>
+              <h3 className="text-xl font-bold text-white">Historical Live Demo Trades</h3>
             </div>
             <div className="space-y-3">
               <div className="flex justify-between items-center">

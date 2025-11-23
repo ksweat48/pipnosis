@@ -430,6 +430,33 @@ function OverviewTab({ llmLayerKPIs, avoidPatternKPIs, learningKPIs, strategyKPI
 }
 
 function LLMLayersTab({ llmLayerKPIs }: any) {
+  if (!llmLayerKPIs || llmLayerKPIs.length === 0) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-white">5-Layer LLM Decision Stack</h2>
+        <div className="bg-gradient-to-br from-purple-900/30 to-blue-900/30 backdrop-blur-sm border-2 border-purple-500/30 rounded-lg p-8 text-center">
+          <Layers className="w-16 h-16 text-purple-400 mx-auto mb-4" />
+          <h3 className="text-xl font-bold text-white mb-2">LLM Decision Data Unavailable</h3>
+          <p className="text-gray-400 mb-4">
+            The 5-Layer LLM Decision Stack requires live AI decision-making during trade execution.
+          </p>
+          <div className="bg-gray-800/50 rounded-lg p-4 text-left max-w-md mx-auto">
+            <p className="text-sm text-gray-300 mb-2">This feature is available when:</p>
+            <ul className="text-sm text-gray-400 space-y-1">
+              <li>• Running live demo trades with AI analysis</li>
+              <li>• LLM makes real-time decisions on trade setups</li>
+              <li>• Each layer evaluates and filters trade opportunities</li>
+              <li>• Decision logs are created for analysis</li>
+            </ul>
+            <p className="text-xs text-yellow-400 mt-3">
+              Note: Synthetic backtests use mathematical simulations without live LLM calls
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-white">5-Layer LLM Decision Stack</h2>
@@ -475,6 +502,33 @@ function LLMLayersTab({ llmLayerKPIs }: any) {
 }
 
 function AvoidPatternsTab({ avoidPatternKPIs }: any) {
+  if (!avoidPatternKPIs || avoidPatternKPIs.length === 0) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-white">Avoid Pattern Enforcement</h2>
+        <div className="bg-gradient-to-br from-red-900/30 to-orange-900/30 backdrop-blur-sm border-2 border-red-500/30 rounded-lg p-8 text-center">
+          <Shield className="w-16 h-16 text-red-400 mx-auto mb-4" />
+          <h3 className="text-xl font-bold text-white mb-2">Pattern Enforcement Data Unavailable</h3>
+          <p className="text-gray-400 mb-4">
+            Avoid pattern enforcement tracks real-time blocking of bad trade setups during live execution.
+          </p>
+          <div className="bg-gray-800/50 rounded-lg p-4 text-left max-w-md mx-auto">
+            <p className="text-sm text-gray-300 mb-2">This feature is available when:</p>
+            <ul className="text-sm text-gray-400 space-y-1">
+              <li>• AI learns from losing trades and creates avoid patterns</li>
+              <li>• Live trading system evaluates new setups</li>
+              <li>• Patterns are enforced in real-time before trade entry</li>
+              <li>• Enforcement logs are created for analysis</li>
+            </ul>
+            <p className="text-xs text-yellow-400 mt-3">
+              Note: Synthetic backtests don't use real-time pattern enforcement
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-white">Avoid Pattern Enforcement</h2>
@@ -536,6 +590,33 @@ function LearningLoopTab({ learningKPIs }: any) {
 }
 
 function StrategyEvolutionTab({ strategyKPIs }: any) {
+  if (!strategyKPIs || strategyKPIs.length === 0) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-white">Strategy Evolution</h2>
+        <div className="bg-gradient-to-br from-green-900/30 to-emerald-900/30 backdrop-blur-sm border-2 border-green-500/30 rounded-lg p-8 text-center">
+          <TrendingUp className="w-16 h-16 text-green-400 mx-auto mb-4" />
+          <h3 className="text-xl font-bold text-white mb-2">Strategy Evolution Data Unavailable</h3>
+          <p className="text-gray-400 mb-4">
+            Strategy evolution tracks discovered patterns and adapts trading strategies over time.
+          </p>
+          <div className="bg-gray-800/50 rounded-lg p-4 text-left max-w-md mx-auto">
+            <p className="text-sm text-gray-300 mb-2">This feature populates as AI discovers:</p>
+            <ul className="text-sm text-gray-400 space-y-1">
+              <li>• Winning patterns from successful trades</li>
+              <li>• Losing patterns to avoid</li>
+              <li>• Market condition adaptations</li>
+              <li>• Strategy refinements over time</li>
+            </ul>
+            <p className="text-xs text-blue-400 mt-3">
+              Data will appear after AI completes multiple learning cycles
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-white">Strategy Evolution</h2>

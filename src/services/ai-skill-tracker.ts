@@ -12,6 +12,7 @@ interface SkillLevelThresholds {
   minConsistency: number;
   minAvgRR: number;
   minCSS: number;
+  minPnLPer5Sessions: number; // NEW: Minimum P&L required over last 5 sessions to level up
   description: string;
 }
 
@@ -67,6 +68,7 @@ class AISkillTracker {
       minConsistency: 0,
       minAvgRR: 0,
       minCSS: 0,
+      minPnLPer5Sessions: 100,
       description: 'Starting to learn basic patterns.'
     },
     {
@@ -77,6 +79,7 @@ class AISkillTracker {
       minConsistency: 35,
       minAvgRR: 0,
       minCSS: 0,
+      minPnLPer5Sessions: 250,
       description: 'Understanding market patterns.'
     },
     {
@@ -87,6 +90,7 @@ class AISkillTracker {
       minConsistency: 45,
       minAvgRR: 0,
       minCSS: 0,
+      minPnLPer5Sessions: 500,
       description: 'Consistently profitable trader.'
     },
     {
@@ -97,6 +101,7 @@ class AISkillTracker {
       minConsistency: 55,
       minAvgRR: 0,
       minCSS: 0,
+      minPnLPer5Sessions: 750,
       description: 'Mastering market dynamics.'
     },
     {
@@ -107,6 +112,7 @@ class AISkillTracker {
       minConsistency: 65,
       minAvgRR: 0,
       minCSS: 0,
+      minPnLPer5Sessions: 1000,
       description: 'Elite level performance.'
     },
     {
@@ -117,6 +123,7 @@ class AISkillTracker {
       minConsistency: 75,
       minAvgRR: 0,
       minCSS: 0,
+      minPnLPer5Sessions: 1500,
       description: 'Exceptional trading consistency.'
     }
   ];
@@ -702,14 +709,27 @@ class AISkillTracker {
       return { level, blockingReasons: [] };
     }
 
+    // Get last 5 sessions P&L for profitability validation
+    const { data: recentSessions } = await supabase
+      .from('daily_session_results')
+      .select('net_pnl')
+      .eq('user_id', userId)
+      .order('session_date', { ascending: false })
+      .limit(5);
+
+    const last5SessionsPnL = recentSessions && recentSessions.length === 5
+      ? recentSessions.reduce((sum, s) => sum + (s.net_pnl || 0), 0)
+      : 0;
+
     for (let i = this.SKILL_THRESHOLDS.length - 1; i >= 0; i--) {
       const threshold = this.SKILL_THRESHOLDS[i];
       const meetsTradeCount = totalTrades >= threshold.minTrades;
       const meetsWinRate = sessionAverages.avgWinRate >= threshold.minWinRate;
       const meetsProfitFactor = sessionAverages.avgProfitFactor >= threshold.minProfitFactor;
       const meetsConsistency = sessionAverages.consistencyPct >= threshold.minConsistency;
+      const meetsPnLRequirement = last5SessionsPnL >= threshold.minPnLPer5Sessions;
 
-      if (meetsTradeCount && meetsWinRate && meetsProfitFactor && meetsConsistency) {
+      if (meetsTradeCount && meetsWinRate && meetsProfitFactor && meetsConsistency && meetsPnLRequirement) {
         return { level: threshold.level, blockingReasons: [] };
       }
 
@@ -722,6 +742,9 @@ class AISkillTracker {
         }
         if (!meetsConsistency) {
           blockingReasons.push(`10-session consistency ${sessionAverages.consistencyPct.toFixed(0)}% < required ${threshold.minConsistency}%`);
+        }
+        if (!meetsPnLRequirement) {
+          blockingReasons.push(`Last 5 sessions P&L $${last5SessionsPnL.toFixed(2)} < required $${threshold.minPnLPer5Sessions}`);
         }
       }
     }

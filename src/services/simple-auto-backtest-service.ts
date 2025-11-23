@@ -795,6 +795,24 @@ class SimpleAutoBacktestService {
           console.log(`[Auto-Backtest] Total months completed: ${this.totalMonthsCompleted}`);
           console.log('====================================================\n');
 
+          // Verify AI learning pipeline is working (Issue 8)
+          try {
+            console.log('[Auto-Backtest] 🔍 Verifying AI learning pipeline...');
+            const { aiLearningDiagnostics } = await import('./ai-learning-diagnostics');
+            const diagnostics = await aiLearningDiagnostics.verifyLearningPipeline(this.userId!);
+
+            if (!diagnostics.isWorking) {
+              console.warn('[Auto-Backtest] ⚠️ AI Learning Pipeline Issues:');
+              diagnostics.issues.forEach(issue => console.warn(`  - ${issue}`));
+            } else {
+              console.log('[Auto-Backtest] ✅ AI learning pipeline verified working');
+              console.log(`[Auto-Backtest]   Skill Level: ${diagnostics.checks.skillProgression.currentLevel}`);
+              console.log(`[Auto-Backtest]   Total Wins: ${diagnostics.checks.skillProgression.totalWinningTrades}`);
+            }
+          } catch (diagError) {
+            console.error('[Auto-Backtest] Error verifying learning pipeline:', diagError);
+          }
+
           await this.syncStateToDatabase({});
 
           // Check for plateau every 5 months

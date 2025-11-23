@@ -32,7 +32,7 @@ export function AIThoughtStreamOverview({ onRefresh }: AIThoughtStreamOverviewPr
       const validationResult = await aiDataAccessValidator.quickHealthCheck(user.id, true);
       setValidation(validationResult);
 
-      const data = await aiThoughtGenerator.getDailyReflections(user.id, 30);
+      const data = await aiThoughtGenerator.getDailyReflections(user.id, 90);
       setReflections(data);
 
       // Auto-select most recent reflection
