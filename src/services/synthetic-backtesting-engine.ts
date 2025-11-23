@@ -1052,55 +1052,73 @@ class SyntheticBacktestingEngine {
     if (!this.userId || !this.sessionId) return;
 
     try {
-      // Map synthetic backtest fields to trade_history schema
-      // NOTE: This is a temporary mapping until we enhance the schema with missing columns
+      // Full data capture using native columns (schema enhanced!)
       const { error } = await supabase
         .from('trade_history')
         .insert({
+          // Core identification
           user_id: this.userId,
-          // position_id is nullable, leave it out for synthetic trades
           symbol: trade.symbol,
-          position_type: trade.direction, // direction → position_type
-          lot_size: trade.positionSize || 0.01, // position_size → lot_size
+
+          // Session tracking (native columns)
+          session_id: this.sessionId,
+          session_name: this.config?.sessionName || 'Synthetic Backtest',
+          timeframe: trade.timeframe,
+
+          // Position details (both for compatibility)
+          position_type: trade.direction,
+          direction: trade.direction,
+          lot_size: trade.positionSize || 0.01,
+
+          // Price levels
           entry_price: trade.entryPrice,
-          exit_price: trade.exitPrice || trade.entryPrice, // exit_price required
+          exit_price: trade.exitPrice || trade.entryPrice,
           stop_loss: trade.stopLoss,
           take_profit: trade.takeProfit,
-          profit_loss: trade.pnl || 0, // pnl → profit_loss
-          opened_at: trade.entryTime.toISOString(), // entry_time → opened_at
-          closed_at: trade.exitTime?.toISOString() || new Date().toISOString(), // exit_time → closed_at
-          close_reason: trade.exitReason || trade.outcome || 'session_end', // exit_reason → close_reason
-          strategy_name: this.config?.sessionName || 'Synthetic Backtest',
-          notes: JSON.stringify({
-            // Store extra data in notes as JSON until we add proper columns
-            session_id: this.sessionId,
-            timeframe: trade.timeframe,
-            pnl_percent: trade.pnlPercent,
-            pips_gained: trade.pipsGained,
-            outcome: trade.outcome,
-            ai_conviction: trade.aiConviction,
-            quality_score: trade.qualityScore,
-            holding_duration_minutes: trade.holdingDurationMinutes,
-            risk_reward_ratio: trade.riskRewardRatio,
-            execution_reason: trade.executionReason,
-            is_synthetic: true
-          }),
+
+          // Timestamps
+          opened_at: trade.entryTime.toISOString(),
+          closed_at: trade.exitTime?.toISOString() || new Date().toISOString(),
           created_at: new Date().toISOString(),
-          // Use enhanced columns that exist
-          confidence_score: trade.flowV2Confidence || 75.0, // flow_v2_confidence → confidence_score
+
+          // Results (native columns)
+          profit_loss: trade.pnl || 0,
+          pnl_percent: trade.pnlPercent,
+          pips_gained: trade.pipsGained,
+          outcome: trade.outcome,
+          close_reason: trade.exitReason || trade.outcome || 'session_end',
+
+          // AI Analysis (native columns)
+          ai_reasoning_used: trade.aiReasoningUsed,
+          ai_conviction: trade.aiConviction,
+          ai_rationale: trade.aiRationale,
+          confidence_score: trade.flowV2Confidence || 75.0,
+
+          // Trade Quality (native columns)
+          quality_score: trade.qualityScore,
           setup_type: trade.setupType,
+          holding_duration_minutes: trade.holdingDurationMinutes,
+          risk_reward_ratio: trade.riskRewardRatio,
+          execution_reason: trade.executionReason,
+
+          // Source tracking
+          is_synthetic: true,
+          strategy_name: this.config?.sessionName || 'Synthetic Backtest',
+
+          // Legacy fields for additional context
           market_conditions: {
-            ai_reasoning_used: trade.aiReasoningUsed,
-            ai_rationale: trade.aiRationale,
+            h1_bias: trade.h1Bias,
+            m5_filter_passed: trade.m5FilterPassed,
             timeframe: trade.timeframe
-          }
+          },
+          notes: `Trade #${trade.tradeNumber} - ${trade.setupType || 'Unknown Setup'}`
         });
 
       if (error) {
         console.error('[Synthetic Backtest] Error saving trade to database:', error);
         console.error('[Synthetic Backtest] Error details:', JSON.stringify(error, null, 2));
       } else {
-        console.log(`[Synthetic Backtest] ✅ Trade #${trade.tradeNumber} saved to database`);
+        console.log(`[Synthetic Backtest] ✅ Trade #${trade.tradeNumber} saved to database (full data capture)`);
       }
     } catch (error) {
       console.error('[Synthetic Backtest] Failed to save trade:', error);
