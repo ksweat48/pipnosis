@@ -46,7 +46,8 @@ class LLMRegimeValidator {
   async validateRegime(
     snapshot: MarketSnapshot,
     triggerType: string,
-    triggerConfidence: number
+    triggerConfidence: number,
+    skillContext?: any
   ): Promise<RegimeValidationResult> {
     if (!this.enabled) {
       return this.createFallbackValidation(snapshot, 'LLM disabled');
@@ -56,7 +57,7 @@ class LLMRegimeValidator {
     const startTime = Date.now();
 
     try {
-      const prompt = this.buildValidationPrompt(snapshot, triggerType, triggerConfidence);
+      const prompt = this.buildValidationPrompt(snapshot, triggerType, triggerConfidence, skillContext);
       const response = await this.callGPT4o(prompt);
       const result = this.parseValidationResult(response);
 
@@ -77,14 +78,37 @@ class LLMRegimeValidator {
   private buildValidationPrompt(
     snapshot: MarketSnapshot,
     triggerType: string,
-    triggerConfidence: number
+    triggerConfidence: number,
+    skillContext?: any
   ): string {
     const currentCandle = snapshot.ohlc[snapshot.ohlc.length - 1];
     const prevCandle = snapshot.ohlc[snapshot.ohlc.length - 2];
 
-    return `You are the Regime Validation Layer (Layer 1 of 5) in Pipnosis AI Trading System.
+    let prompt = `You are the Regime Validation Layer (Layer 1 of 5) in Pipnosis AI Trading System.
 
-Your SOLE responsibility: Validate that the current market regime matches the conditions required for the detected trigger.
+Your SOLE responsibility: Validate that the current market regime matches the conditions required for the detected trigger.`;
+
+    if (skillContext) {
+      prompt += `
+
+SKILL LEVEL CONTEXT:
+Current Level: ${skillContext.currentLevel} → Target: ${skillContext.targetLevel}
+Win Rate Gap: ${skillContext.gaps.winRateGap > 0 ? '+' : ''}${skillContext.gaps.winRateGap.toFixed(1)}%
+Profit Factor Gap: ${skillContext.gaps.profitFactorGap > 0 ? '+' : ''}${skillContext.gaps.profitFactorGap.toFixed(2)}
+
+REGIME VALIDATION GUIDANCE:
+${skillContext.gaps.winRateGap < 0
+  ? `Win rate below target - Be MORE conservative accepting regimes. Only accept clear, high-quality regimes.`
+  : `Win rate above target - Standard regime acceptance criteria apply.`}
+${skillContext.gaps.winRateGap < -10
+  ? `CRITICAL: Win rate severely low. Reject choppy, sideways, or unclear regimes. Only accept strong trending regimes.`
+  : ''}
+${skillContext.gaps.consistencyGap < 0
+  ? `Consistency needs improvement - Avoid erratic or unstable regimes.`
+  : ''}`;
+    }
+
+    prompt += `
 
 CURRENT MARKET STATE:
 Symbol: ${snapshot.symbol}

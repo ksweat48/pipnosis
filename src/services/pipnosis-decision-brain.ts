@@ -252,7 +252,8 @@ class PipnosisDecisionBrain {
       const regimeResult = await llmRegimeValidator.validateRegime(
         marketSnapshot,
         context.triggerContext?.type || 'manual_entry',
-        context.triggerContext?.confidence || 75
+        context.triggerContext?.confidence || 75,
+        context.skillLevelContext
       );
 
       const layer1Duration = Date.now() - layer1Start;
@@ -305,7 +306,8 @@ class PipnosisDecisionBrain {
         context.triggerContext?.type || 'manual_entry',
         context.triggerContext?.confidence || 75,
         regimeResult,
-        65
+        undefined,
+        context.skillLevelContext
       );
 
       const layer2Duration = Date.now() - layer2Start;

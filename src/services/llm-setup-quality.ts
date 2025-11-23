@@ -47,19 +47,20 @@ class LLMSetupQuality {
     triggerType: string,
     triggerConfidence: number,
     regimeValidation: RegimeValidationResult,
-    customThreshold?: number
+    customThreshold?: number,
+    skillContext?: any
   ): Promise<SetupQualityResult> {
     if (!this.enabled) {
       return this.createFallbackScore(snapshot, triggerConfidence, customThreshold);
     }
 
-    const threshold = customThreshold || this.DEFAULT_THRESHOLD;
+    const threshold = this.calculateDynamicThreshold(customThreshold, skillContext);
 
     console.log(`\n[LLM Layer 2 - Setup Quality] 📊 Scoring setup for ${snapshot.symbol}`);
     const startTime = Date.now();
 
     try {
-      const prompt = this.buildScoringPrompt(snapshot, triggerType, triggerConfidence, regimeValidation, threshold);
+      const prompt = this.buildScoringPrompt(snapshot, triggerType, triggerConfidence, regimeValidation, threshold, skillContext);
       const response = await this.callGPT4o(prompt);
       const result = this.parseScoringResult(response, threshold);
 
@@ -82,14 +83,38 @@ class LLMSetupQuality {
     triggerType: string,
     triggerConfidence: number,
     regimeValidation: RegimeValidationResult,
-    threshold: number
+    threshold: number,
+    skillContext?: any
   ): string {
     const currentCandle = snapshot.ohlc[snapshot.ohlc.length - 1];
     const recentCandles = snapshot.ohlc.slice(-5);
 
-    return `You are the Setup Quality Scorer (Layer 2 of 5) in Pipnosis AI Trading System.
+    let prompt = `You are the Setup Quality Scorer (Layer 2 of 5) in Pipnosis AI Trading System.
 
-Your responsibility: Evaluate the quality of this trading setup on a 0-100 scale.
+Your responsibility: Evaluate the quality of this trading setup on a 0-100 scale.`;
+
+    if (skillContext) {
+      prompt += `
+
+SKILL LEVEL CONTEXT & QUALITY THRESHOLD:
+Current Level: ${skillContext.currentLevel} → Target: ${skillContext.targetLevel}
+Win Rate Gap: ${skillContext.gaps.winRateGap > 0 ? '+' : ''}${skillContext.gaps.winRateGap.toFixed(1)}%
+Dynamic Quality Threshold: ${threshold}/100 (${skillContext.gaps.winRateGap < 0 ? 'RAISED due to low win rate' : 'Standard'})
+
+QUALITY SCORING GUIDANCE:
+${skillContext.gaps.winRateGap < -10
+  ? `CRITICAL: Win rate severely below target. Only score 75+ for truly exceptional setups. Be extremely critical.`
+  : skillContext.gaps.winRateGap < -5
+  ? `Win rate below target. Raise quality standards - minimum 70+ for acceptable setups.`
+  : skillContext.gaps.winRateGap < 0
+  ? `Win rate slightly below target. Maintain stricter quality assessment.`
+  : `Win rate on target or above. Standard quality criteria apply.`}
+${skillContext.gaps.profitFactorGap < 0
+  ? `Profit factor needs improvement - favor setups with strong R:R potential (2.5:1+).`
+  : ''}`;
+    }
+
+    prompt += `
 
 REGIME VALIDATION (Layer 1 passed):
 ✅ Regime: ${regimeValidation.detected_regime.trend} / ${regimeValidation.detected_regime.volatility}
@@ -195,6 +220,27 @@ Be honest and critical. Score below ${threshold} = REJECT.`;
       recommendation: parsed.recommendation || 'reject',
       reasoning: parsed.reasoning || ''
     };
+  }
+
+  private calculateDynamicThreshold(customThreshold?: number, skillContext?: any): number {
+    if (customThreshold) return customThreshold;
+    if (!skillContext) return this.DEFAULT_THRESHOLD;
+
+    const winRateGap = skillContext.gaps.winRateGap;
+
+    if (winRateGap < -10) {
+      console.log('[Setup Quality] 🔴 Dynamic threshold: 75 (CRITICAL - Win rate severely low)');
+      return 75;
+    } else if (winRateGap < -5) {
+      console.log('[Setup Quality] 🟡 Dynamic threshold: 70 (Win rate below target)');
+      return 70;
+    } else if (winRateGap < 0) {
+      console.log('[Setup Quality] 🟠 Dynamic threshold: 67 (Win rate slightly below)');
+      return 67;
+    } else {
+      console.log('[Setup Quality] 🟢 Dynamic threshold: 65 (Standard - Win rate on track)');
+      return this.DEFAULT_THRESHOLD;
+    }
   }
 
   private createFallbackScore(
