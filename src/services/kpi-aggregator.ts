@@ -297,22 +297,28 @@ class KPIAggregator {
   }
 
   private async updateSmartGoalKPIs(userId: string, date: string): Promise<void> {
+    // Fix: Table is 'goal_sessions' not 'smart_goal_sessions'
+    // Fix: Column is 'start_time' not 'started_at'
     const { data: goalSessions } = await supabase
-      .from('smart_goal_sessions')
+      .from('goal_sessions')
       .select('*')
       .eq('user_id', userId)
-      .gte('started_at', `${date}T00:00:00`)
-      .lte('started_at', `${date}T23:59:59`);
+      .gte('start_time', `${date}T00:00:00`)
+      .lte('start_time', `${date}T23:59:59`);
 
-    const goalsActive = goalSessions?.filter(s => s.status === 'active').length || 0;
-    const goalsCompleted = goalSessions?.filter(s => s.status === 'completed').length || 0;
+    const goalsActive = goalSessions?.filter(s => s.status === 'active' || s.status === 'scanning' || s.status === 'trade_pending' || s.status === 'in_trade').length || 0;
+    const goalsCompleted = goalSessions?.filter(s => s.status === 'goal_achieved').length || 0;
 
-    const { data: goalTrades } = await supabase
-      .from('smart_goal_trades')
+    // Fix: Table is 'goal_session_trades' not 'smart_goal_trades'
+    // Fix: No user_id column, need to get trades through session IDs
+    // Fix: Column is 'opened_at' not 'executed_at'
+    const sessionIds = goalSessions?.map(s => s.id) || [];
+    const { data: goalTrades } = sessionIds.length > 0 ? await supabase
+      .from('goal_session_trades')
       .select('*')
-      .eq('user_id', userId)
-      .gte('executed_at', `${date}T00:00:00`)
-      .lte('executed_at', `${date}T23:59:59`);
+      .in('goal_session_id', sessionIds)
+      .gte('opened_at', `${date}T00:00:00`)
+      .lte('opened_at', `${date}T23:59:59`) : { data: [] };
 
     const totalTrades = goalTrades?.length || 0;
     const llmTrades = goalTrades?.filter(t => t.decision_source === 'llm').length || 0;
