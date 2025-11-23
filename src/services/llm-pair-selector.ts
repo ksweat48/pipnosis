@@ -615,7 +615,8 @@ Return ONLY valid JSON in this exact format:
     scored.sort((a, b) => b.score - a.score);
     const best = scored[0];
 
-    const confidence = Math.min(95, Math.max(40, best.score));
+    // Calculate meaningful confidence based on actual pair quality
+    const confidence = this.calculatePairSelectionConfidence(best);
     const reasoning = `Fallback: ${best.perf.winRate.toFixed(1)}% WR, ${best.perf.recentTrend} trend, ${best.pattern?.winningPatterns || 0} patterns`;
 
     console.log(`[LLM Pair Selector] ✅ Selected: ${best.symbol} (${confidence.toFixed(0)}% confidence)`);
@@ -637,6 +638,91 @@ Return ONLY valid JSON in this exact format:
         calibrationAccuracy: 50
       }
     };
+  }
+
+  /**
+   * Calculate meaningful confidence based on actual pair quality
+   * Returns 30-95% confidence based on multiple quality factors
+   */
+  private calculatePairSelectionConfidence(best: any): number {
+    let confidence = 50; // Start at neutral
+
+    // Factor 1: Win Rate Quality (±20 points)
+    // 55%+ WR = excellent, 45-55% = acceptable, <45% = concerning
+    const wr = best.perf.winRate;
+    if (wr >= 60) confidence += 20;
+    else if (wr >= 55) confidence += 15;
+    else if (wr >= 52) confidence += 10;
+    else if (wr >= 50) confidence += 5;
+    else if (wr >= 48) confidence += 0;
+    else if (wr >= 45) confidence -= 5;
+    else confidence -= 10;
+
+    // Factor 2: Profit Factor Quality (±15 points)
+    // PF > 1.5 = excellent, 1.2-1.5 = good, 1.0-1.2 = acceptable, <1.0 = losing
+    const pf = best.perf.profitFactor;
+    if (pf >= 1.8) confidence += 15;
+    else if (pf >= 1.5) confidence += 12;
+    else if (pf >= 1.3) confidence += 8;
+    else if (pf >= 1.2) confidence += 5;
+    else if (pf >= 1.0) confidence += 0;
+    else if (pf >= 0.9) confidence -= 8;
+    else confidence -= 15;
+
+    // Factor 3: Recent Trend (±10 points)
+    if (best.perf.recentTrend === 'improving') confidence += 10;
+    else if (best.perf.recentTrend === 'declining') confidence -= 10;
+
+    // Factor 4: Pattern Quality (±10 points)
+    const winningPatterns = best.pattern?.winningPatterns || 0;
+    const avoidPatterns = best.pattern?.avoidPatterns || 0;
+    if (winningPatterns >= 5 && avoidPatterns === 0) confidence += 10;
+    else if (winningPatterns >= 3 && avoidPatterns === 0) confidence += 5;
+    else if (avoidPatterns >= 3) confidence -= 10;
+    else if (avoidPatterns >= 1) confidence -= 5;
+
+    // Factor 5: Trend Regime Strength (±10 points)
+    if (best.trend?.regime === 'strong_uptrend' || best.trend?.regime === 'strong_downtrend') {
+      confidence += 10;
+    } else if (best.trend?.regime === 'sideways' || best.trend?.regime === 'choppy') {
+      confidence -= 5;
+    }
+
+    // Factor 6: Trade Volume (data quality indicator) (±5 points)
+    const totalTrades = best.perf.totalTrades;
+    if (totalTrades >= 50) confidence += 5;
+    else if (totalTrades >= 30) confidence += 3;
+    else if (totalTrades >= 20) confidence += 0;
+    else if (totalTrades >= 10) confidence -= 3;
+    else confidence -= 8; // Very low data = low confidence
+
+    // Factor 7: Expected EV (±10 points)
+    const ev = best.perf.avgEV;
+    if (ev >= 2.0) confidence += 10;
+    else if (ev >= 1.0) confidence += 7;
+    else if (ev >= 0.5) confidence += 4;
+    else if (ev >= 0) confidence += 0;
+    else if (ev >= -0.5) confidence -= 5;
+    else confidence -= 10;
+
+    // Factor 8: Volatility Suitability (±5 points)
+    const volLevel = best.vol?.volatilityLevel;
+    if (volLevel === 'moderate') confidence += 5;
+    else if (volLevel === 'high') confidence += 3;
+    else if (volLevel === 'extreme') confidence -= 8;
+    else if (volLevel === 'low') confidence -= 3;
+
+    // Clamp confidence to reasonable range: 30% (terrible) to 95% (excellent)
+    confidence = Math.max(30, Math.min(95, confidence));
+
+    console.log(`[Confidence Calc] Components:`);
+    console.log(`  Base: 50%`);
+    console.log(`  WR ${wr.toFixed(1)}%: ${wr >= 55 ? '+' : ''}${(wr >= 55 ? 15 : wr >= 50 ? 5 : -5)}`);
+    console.log(`  PF ${pf.toFixed(2)}: ${pf >= 1.3 ? '+' : ''}${(pf >= 1.5 ? 12 : pf >= 1.2 ? 5 : -8)}`);
+    console.log(`  Trend: ${best.perf.recentTrend}`);
+    console.log(`  Total: ${confidence.toFixed(0)}%`);
+
+    return confidence;
   }
 
   private getDefaultPair(): SelectedPairResult {
