@@ -6,6 +6,7 @@ import { aiSkillTracker } from './ai-skill-tracker';
 import { aiIndicatorTracker } from './ai-indicator-tracker';
 import { continuousLearningLoop } from './continuous-learning-loop';
 import { pipnosisDecisionBrain, type DecisionContext, type TradeDecision } from './pipnosis-decision-brain';
+import { llmExitOptimizer, type OpenTradeContext, type ExitOptimizationResult } from './llm-exit-optimizer';
 
 export interface SyntheticBacktestConfig {
   sessionName: string;
@@ -512,6 +513,28 @@ class SyntheticBacktestingEngine {
     const currentTime = new Date(candle.open_time);
 
     for (const trade of [...this.openTrades]) {
+      // ============================================================
+      // LAYER 6: EXIT OPTIMIZATION BRAIN (Before TP/SL Check)
+      // ============================================================
+      // Only run exit optimizer if:
+      // 1. Trade has been open for at least 5 minutes (avoid spam)
+      // 2. LLM exit optimizer is enabled
+      // 3. Config allows exit optimization
+      const tradeDurationMinutes = (currentTime.getTime() - trade.entryTime.getTime()) / 60000;
+
+      if (llmExitOptimizer.isEnabled() &&
+          tradeDurationMinutes >= 5 &&
+          this.config.useGPT4Reasoning) {
+
+        await this.processExitOptimization(trade, candle, currentPrice, currentTime);
+      }
+
+      // After exit optimization, check if trade was already closed
+      if (trade.outcome !== 'open') {
+        continue;
+      }
+
+      // Standard TP/SL checks
       const isTP = trade.direction === 'buy'
         ? currentPrice >= trade.takeProfit
         : currentPrice <= trade.takeProfit;
@@ -525,6 +548,207 @@ class SyntheticBacktestingEngine {
       } else if (isSL) {
         await this.closeTrade(trade, currentPrice, currentTime, 'stop_loss');
       }
+    }
+  }
+
+  /**
+   * Process Layer 6: Exit Optimization for an open trade
+   */
+  private async processExitOptimization(
+    trade: SyntheticBacktestTrade,
+    candle: any,
+    currentPrice: number,
+    currentTime: Date
+  ): Promise<void> {
+    try {
+      const tradeDurationMinutes = (currentTime.getTime() - trade.entryTime.getTime()) / 60000;
+      const unrealizedPnL = this.calculateUnrealizedPnL(trade, currentPrice);
+      const unrealizedPnLPercent = (unrealizedPnL / this.currentBalance) * 100;
+
+      // Build OpenTradeContext
+      const tradeContext: OpenTradeContext = {
+        tradeId: `BT-${this.config.sessionName}-${trade.tradeNumber}`,
+        symbol: trade.symbol,
+        direction: trade.direction,
+        entryPrice: trade.entryPrice,
+        entryTime: trade.entryTime,
+        currentPrice: currentPrice,
+        positionSize: trade.positionSize,
+        stopLoss: trade.stopLoss,
+        takeProfit: trade.takeProfit,
+        unrealizedPnL: unrealizedPnL,
+        unrealizedPnLPercent: unrealizedPnLPercent,
+        durationMinutes: tradeDurationMinutes,
+        maxDurationMinutes: 360,
+        originalConfidence: trade.flowV2Confidence,
+        setupType: trade.setupType,
+        accountBalance: this.currentBalance,
+        accountExposure: this.openTrades.length,
+        openPositionsCount: this.openTrades.length
+      };
+
+      // Build market snapshot
+      const marketSnapshot = this.buildMarketSnapshot(candle, trade.symbol);
+
+      // Get skill context if available
+      const skillContext = await this.fetchSkillContext();
+
+      // Call Layer 6: Exit Optimizer
+      const exitDecision: ExitOptimizationResult = await llmExitOptimizer.optimizeExit(
+        this.userId,
+        tradeContext,
+        marketSnapshot,
+        skillContext
+      );
+
+      console.log(`[Layer 6] Exit decision for ${trade.symbol}: ${exitDecision.action}`);
+
+      // Execute exit decision if safety validated
+      if (exitDecision.safetyValidated) {
+        await this.executeExitDecision(trade, exitDecision, currentPrice, currentTime);
+      }
+
+    } catch (error) {
+      console.error('[Layer 6] Error processing exit optimization:', error);
+    }
+  }
+
+  /**
+   * Execute exit decision from Layer 6
+   */
+  private async executeExitDecision(
+    trade: SyntheticBacktestTrade,
+    decision: ExitOptimizationResult,
+    currentPrice: number,
+    currentTime: Date
+  ): Promise<void> {
+    switch (decision.action) {
+      case 'close_now':
+      case 'early_tp':
+        console.log(`[Layer 6] 🎯 Closing trade early: ${decision.reasoning}`);
+        await this.closeTrade(trade, currentPrice, currentTime, `exit_optimizer: ${decision.action}`);
+        break;
+
+      case 'partial_close':
+        if (decision.partialClosePercent && decision.partialClosePercent > 0) {
+          console.log(`[Layer 6] 📉 Partial close ${decision.partialClosePercent}%: ${decision.reasoning}`);
+          trade.positionSize *= (1 - decision.partialClosePercent / 100);
+          console.log(`  New position size: ${trade.positionSize.toFixed(3)} lots`);
+        }
+        break;
+
+      case 'tighten_sl':
+        if (decision.newStopLoss) {
+          const oldSL = trade.stopLoss;
+          trade.stopLoss = decision.newStopLoss;
+          console.log(`[Layer 6] 🛡️ Tightened SL: ${oldSL.toFixed(5)} → ${decision.newStopLoss.toFixed(5)}`);
+          console.log(`  Reason: ${decision.reasoning}`);
+        }
+        break;
+
+      case 'activate_trailing_stop':
+        if (decision.trailingStopDistance) {
+          console.log(`[Layer 6] 📊 Trailing stop activated (${decision.trailingStopDistance} pips)`);
+        }
+        break;
+
+      case 'reduce_tp':
+        if (decision.newTakeProfit) {
+          const oldTP = trade.takeProfit;
+          trade.takeProfit = decision.newTakeProfit;
+          console.log(`[Layer 6] 🎯 Reduced TP: ${oldTP.toFixed(5)} → ${decision.newTakeProfit.toFixed(5)}`);
+        }
+        break;
+
+      case 'hold':
+        break;
+
+      default:
+        console.log(`[Layer 6] Unknown action: ${decision.action}`);
+    }
+  }
+
+  /**
+   * Calculate unrealized P&L for an open trade
+   */
+  private calculateUnrealizedPnL(trade: SyntheticBacktestTrade, currentPrice: number): number {
+    const pipValue = this.getPipValue(trade.symbol);
+    let pipsGained = 0;
+
+    if (trade.direction === 'buy') {
+      pipsGained = (currentPrice - trade.entryPrice) / pipValue;
+    } else {
+      pipsGained = (trade.entryPrice - currentPrice) / pipValue;
+    }
+
+    const valuePerLotPerPoint = this.getValuePerLotPerPoint(trade.symbol);
+    return pipsGained * valuePerLotPerPoint * trade.positionSize;
+  }
+
+  /**
+   * Build market snapshot for Layer 6
+   */
+  private buildMarketSnapshot(candle: any, symbol: string): any {
+    return {
+      symbol: symbol,
+      timestamp: new Date(candle.open_time),
+      ohlc: [{
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: candle.volume || 1000
+      }],
+      indicators: {
+        vwap: candle.vwap || candle.close,
+        ema20: candle.ema20 || candle.close,
+        ema50: candle.ema50 || candle.close,
+        atr: candle.atr || 0.0010,
+        volumeBaseline: 1000
+      },
+      priceAction: {
+        trend: candle.close > candle.open ? 'bullish' : 'bearish',
+        volatility: 'medium',
+        momentum: (candle.close - candle.open) / candle.open * 100
+      }
+    };
+  }
+
+  /**
+   * Fetch skill context for Layer 6
+   */
+  private async fetchSkillContext(): Promise<any> {
+    try {
+      const progression = await aiSkillTracker.getProgression(this.userId);
+      if (!progression) return undefined;
+
+      return {
+        currentLevel: progression.skill_level,
+        currentLevelNumeric: progression.skill_level_numeric,
+        targetLevel: progression.target_skill_level,
+        currentPerformance: {
+          winRate: progression.current_win_rate || 0,
+          profitFactor: progression.current_profit_factor || 0,
+          totalTrades: progression.total_trades || 0,
+          consistency: progression.current_consistency_score || 0
+        },
+        targetRequirements: {
+          minWinRate: progression.target_win_rate || 0,
+          minProfitFactor: progression.target_profit_factor || 0,
+          minTrades: progression.min_trades_required || 0,
+          minConsistency: progression.min_consistency_required || 0
+        },
+        gaps: {
+          winRateGap: (progression.current_win_rate || 0) - (progression.target_win_rate || 0),
+          profitFactorGap: (progression.current_profit_factor || 0) - (progression.target_profit_factor || 0),
+          tradesGap: (progression.total_trades || 0) - (progression.min_trades_required || 0),
+          consistencyGap: (progression.current_consistency_score || 0) - (progression.min_consistency_required || 0)
+        },
+        strategicGuidance: ['Focus on high-quality setups', 'Protect capital']
+      };
+    } catch (error) {
+      console.error('[Layer 6] Error fetching skill context:', error);
+      return undefined;
     }
   }
 
