@@ -356,13 +356,13 @@ class PipnosisDecisionBrain {
       console.log('\n[LAYER 3] 🛡️ Mistake Prevention...');
       const layer3Start = Date.now();
 
-      const mistakeResult = await llmMistakePrevention.evaluateSetup(
+      const mistakeResult = await llmMistakePrevention.checkForMistakes(
         context.sessionContext.userId,
-        context.symbol,
-        context.triggerContext?.type || 'manual_entry',
         marketSnapshot,
+        context.triggerContext?.type || 'manual_entry',
         regimeResult,
-        qualityResult
+        qualityResult,
+        context.skillLevelContext
       );
 
       const layer3Duration = Date.now() - layer3Start;
@@ -419,7 +419,8 @@ class PipnosisDecisionBrain {
           regimeQuality: regimeResult.confidence_in_regime,
           setupQuality: qualityResult.quality_score,
           riskLevel: mistakeResult.risk_level
-        }
+        },
+        context.skillLevelContext
       );
 
       const layer4Duration = Date.now() - layer4Start;

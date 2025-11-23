@@ -49,7 +49,8 @@ class LLMMistakePrevention {
     snapshot: MarketSnapshot,
     triggerType: string,
     regimeValidation: RegimeValidationResult,
-    setupQuality: SetupQualityResult
+    setupQuality: SetupQualityResult,
+    skillContext?: any
   ): Promise<MistakePreventionResult> {
     if (!this.enabled) {
       return this.createFallbackCheck(userId, snapshot);
@@ -72,7 +73,8 @@ class LLMMistakePrevention {
         setupQuality,
         losingPatterns,
         recentLosses,
-        correlatedLosses
+        correlatedLosses,
+        skillContext
       );
 
       const response = await this.callGPT4o(prompt);
@@ -186,7 +188,8 @@ class LLMMistakePrevention {
     setupQuality: SetupQualityResult,
     losingPatterns: any[],
     recentLosses: any,
-    correlatedLossRisk: boolean
+    correlatedLossRisk: boolean,
+    skillContext?: any
   ): string {
     const currentCandle = snapshot.ohlc[snapshot.ohlc.length - 1];
 
@@ -197,9 +200,36 @@ class LLMMistakePrevention {
       ).join('\n\n');
     }
 
-    return `You are the Mistake Prevention Brain (Layer 3 of 5) in Pipnosis AI Trading System.
+    let prompt = `You are the Mistake Prevention Brain (Layer 3 of 5) in Pipnosis AI Trading System.
 
-Your critical responsibility: BLOCK this trade if it matches past mistakes or shows high risk of repeating losses.
+Your critical responsibility: BLOCK this trade if it matches past mistakes or shows high risk of repeating losses.`;
+
+    if (skillContext) {
+      prompt += `
+
+SKILL LEVEL CONTEXT & BLOCKING GUIDANCE:
+Current Level: ${skillContext.currentLevel} → Target: ${skillContext.targetLevel}
+Win Rate Gap: ${skillContext.gaps.winRateGap > 0 ? '+' : ''}${skillContext.gaps.winRateGap.toFixed(1)}%
+Consistency Gap: ${skillContext.gaps.consistencyGap > 0 ? '+' : ''}${skillContext.gaps.consistencyGap.toFixed(1)}%
+
+MISTAKE PREVENTION GUIDANCE:
+${skillContext.gaps.winRateGap < -10
+  ? `CRITICAL: Win rate severely low. Be EXTREMELY aggressive in blocking marginal setups.
+     Block if ANY similarity to past losses OR if recent loss rate > 40%.`
+  : skillContext.gaps.winRateGap < -5
+  ? `Win rate below target. Be MORE aggressive blocking. Block if recent loss rate > 50% OR 2+ consecutive losses.`
+  : skillContext.gaps.winRateGap < 0
+  ? `Win rate slightly below. Standard blocking criteria with slight bias toward caution.`
+  : `Win rate on target. Standard blocking criteria.`}
+${skillContext.gaps.consistencyGap < 0
+  ? `Consistency needs improvement. Block if correlated loss risk is present OR pattern similarity > 60%.`
+  : ''}
+${recentLosses.consecutive_losses >= 3 && skillContext.gaps.winRateGap < 0
+  ? `⚠️ 3+ consecutive losses + low win rate = MANDATORY cooling-off period. BLOCK this trade.`
+  : ''}`;
+    }
+
+    prompt += `
 
 PREVIOUS LAYERS PASSED:
 ✅ Layer 1 - Regime validated: ${regimeValidation.detected_regime.trend} / ${regimeValidation.detected_regime.volatility}

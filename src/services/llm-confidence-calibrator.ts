@@ -49,7 +49,8 @@ class LLMConfidenceCalibrator {
       regimeQuality: number;
       setupQuality: number;
       riskLevel: string;
-    }
+    },
+    skillContext?: any
   ): Promise<ConfidenceCalibrationResult> {
     if (!this.enabled) {
       return this.createFallbackCalibration(userId, symbol, originalConfidence);
@@ -66,7 +67,8 @@ class LLMConfidenceCalibrator {
         originalConfidence,
         setupContext,
         historicalAccuracy,
-        recentPerformance
+        recentPerformance,
+        skillContext
       );
 
       const response = await this.callGPT4o(prompt);
@@ -174,11 +176,34 @@ class LLMConfidenceCalibrator {
     originalConfidence: number,
     setupContext: any,
     historicalAccuracy: number,
-    recentPerformance: any
+    recentPerformance: any,
+    skillContext?: any
   ): string {
-    return `You are the Confidence Calibration Layer (Layer 4 of 5) in Pipnosis AI Trading System.
+    let prompt = `You are the Confidence Calibration Layer (Layer 4 of 5) in Pipnosis AI Trading System.
 
-Your responsibility: Adjust the AI's predicted confidence to match historical reality.
+Your responsibility: Adjust the AI's predicted confidence to match historical reality.`;
+
+    if (skillContext) {
+      prompt += `
+
+SKILL LEVEL CONTEXT & CALIBRATION GUIDANCE:
+Current Level: ${skillContext.currentLevel} → Target: ${skillContext.targetLevel}
+Win Rate Gap: ${skillContext.gaps.winRateGap > 0 ? '+' : ''}${skillContext.gaps.winRateGap.toFixed(1)}%
+Current Win Rate: ${skillContext.currentPerformance.winRate.toFixed(1)}%
+
+CONFIDENCE CALIBRATION GUIDANCE:
+${skillContext.gaps.winRateGap < -5
+  ? `Win rate below target. Apply MORE CONSERVATIVE calibration - reduce confidence by additional 5-10%.
+     We need to be more cautious until win rate improves.`
+  : skillContext.gaps.winRateGap < 0
+  ? `Win rate slightly below. Apply slightly conservative calibration - reduce confidence by 2-5%.`
+  : `Win rate on/above target. Standard calibration applies.`}
+${skillContext.currentPerformance.winRate < 40
+  ? `CRITICAL: Win rate under 40%. Maximum conservative calibration. Cap final confidence at 70% even if higher.`
+  : ''}`;
+    }
+
+    prompt += `
 
 ORIGINAL AI CONFIDENCE: ${originalConfidence}%
 
