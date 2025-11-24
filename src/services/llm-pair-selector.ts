@@ -506,7 +506,8 @@ Return ONLY valid JSON in this exact format:
         { temperature: 0.3, max_tokens: 300 }
       );
 
-      const parsed = this.parsePairSelectionResponse(response, performance, volatility, trends, patterns, calibration);
+      const responseText = response.choices[0]?.message?.content || '';
+      const parsed = this.parsePairSelectionResponse(responseText, performance, volatility, trends, patterns, calibration);
       console.log(`[LLM Pair Selector] ✅ Selected: ${parsed.symbol} (${parsed.confidence}% confidence)`);
       console.log(`[LLM Pair Selector] Reasoning: ${parsed.reasoning}`);
 
@@ -526,6 +527,12 @@ Return ONLY valid JSON in this exact format:
     calibration: ConfidenceCalibration[]
   ): SelectedPairResult {
     try {
+      // DEFENSIVE: Ensure response is a string
+      if (typeof response !== 'string') {
+        console.error('[LLM Pair Selector] Response is not a string:', typeof response);
+        throw new Error('Invalid response type');
+      }
+
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON found in response');
 

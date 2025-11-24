@@ -151,6 +151,8 @@ Respond in this EXACT JSON format (no markdown):
 }
 
 Be critical. If regime doesn't match trigger, REJECT immediately.`;
+
+    return prompt;
   }
 
   private async callGPT4o(prompt: string): Promise<string> {
