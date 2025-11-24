@@ -11,6 +11,7 @@ import { GlobalPollingStatus } from '@/components/GlobalPollingStatus';
 import { PollingPreferences } from '@/components/PollingPreferences';
 import { CPUCreditDashboard } from '@/components/CPUCreditDashboard';
 import { PipnosisMasteryCurve } from '@/components/PipnosisMasteryCurve';
+import { OpenAIUsageDashboard } from '@/components/OpenAIUsageDashboard';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { simpleAutoBacktestService } from '@/services/simple-auto-backtest-service';
@@ -414,31 +415,7 @@ export function AdminDashboard() {
         )}
 
         {activeTab === 'api-usage' && (
-          <div className="space-y-6">
-            {/* KPI & API Usage Combined Section */}
-            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-6">
-                <Activity size={24} className="text-blue-400" />
-                <div>
-                  <h2 className="text-2xl font-bold text-white">System Performance & API Management</h2>
-                  <p className="text-gray-400 mt-1">Monitor real-time API usage, polling health, and performance metrics</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                <div className="lg:col-span-1">
-                  <GlobalPollingStatus />
-                </div>
-                <div className="lg:col-span-2 space-y-6">
-                  <PollingPreferences />
-                  <CPUCreditDashboard />
-                </div>
-              </div>
-            </div>
-
-            {/* API Usage Monitor */}
-            <APIUsageMonitor />
-          </div>
+          <OpenAIUsageDashboard />
         )}
 
         {activeTab === 'settings' && (
