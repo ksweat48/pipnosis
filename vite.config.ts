@@ -99,12 +99,13 @@ export default defineConfig({
     // Ignore TypeScript errors during build
     emptyOutDir: true,
     // Optimized terser options for production
+    // TEMPORARILY DISABLED console log stripping for debugging
     terserOptions: {
       compress: {
-        drop_console: true,
-        drop_debugger: true,
-        pure_funcs: ['console.log', 'console.info', 'console.debug'],
-        passes: 3,
+        drop_console: false, // KEEP console logs for debugging
+        drop_debugger: false, // KEEP debugger statements
+        pure_funcs: [], // Don't remove any console methods
+        passes: 2,
         unsafe_arrows: true,
         unsafe_methods: true,
         toplevel: true,
