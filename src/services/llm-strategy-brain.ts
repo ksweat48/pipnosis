@@ -453,6 +453,9 @@ class LLMStrategyBrain {
 
     if (!provider) {
       console.warn('[LLM Strategy Brain] Primary provider not available, using fallback');
+      console.warn('  → Reason: No OpenAI API key configured');
+      console.warn('  → Set VITE_OPENAI_API_KEY environment variable to enable LLM');
+      console.warn('  → Using rule-based fallback (VWAP/EMA/RSI logic)');
       return this.fallbackDecision(snapshot);
     }
 
@@ -473,10 +476,14 @@ class LLMStrategyBrain {
   }
 
   private fallbackDecision(snapshot: MarketSnapshot): LLMTradeDecision {
+    console.log('[LLM Strategy Brain] 🔧 FALLBACK MODE: Using simple rule-based logic');
+    console.log('  Note: This is NOT the AI engine - just basic technical analysis');
+
     const primaryTF = 'M15';
     const tfData = snapshot.timeframes[primaryTF];
 
     if (!tfData) {
+      console.log('[Fallback] ❌ Insufficient timeframe data - NO TRADE');
       return {
         action: 'no_trade',
         confidence: 0,
@@ -494,6 +501,7 @@ class LLMStrategyBrain {
     const emaBearish = tfData.ema9 < tfData.ema21 && tfData.ema21 < tfData.ema50;
 
     if (Math.abs(priceVsVwapPercent) < 0.15 && emaAligned && tfData.rsi > 45 && tfData.rsi < 65) {
+      console.log('[Fallback] ✅ LONG setup detected (VWAP bounce + EMA bullish)');
       return {
         action: 'enter_long',
         confidence: 70,
@@ -514,6 +522,7 @@ class LLMStrategyBrain {
     }
 
     if (Math.abs(priceVsVwapPercent) < 0.15 && emaBearish && tfData.rsi > 35 && tfData.rsi < 55) {
+      console.log('[Fallback] ✅ SHORT setup detected (VWAP rejection + EMA bearish)');
       return {
         action: 'enter_short',
         confidence: 70,
@@ -532,6 +541,11 @@ class LLMStrategyBrain {
         keyFactors: ['VWAP resistance', 'Bearish EMAs', 'Weak momentum']
       };
     }
+
+    console.log('[Fallback] ❌ NO TRADE - Conditions not met');
+    console.log(`  Price vs VWAP: ${priceVsVwapPercent.toFixed(2)}% (need <0.15%)`);
+    console.log(`  EMA Aligned: ${emaAligned}, EMA Bearish: ${emaBearish}`);
+    console.log(`  RSI: ${tfData.rsi.toFixed(1)} (need 45-65 for long, 35-55 for short)`);
 
     return {
       action: 'no_trade',
