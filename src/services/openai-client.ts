@@ -52,8 +52,7 @@ class OpenAIClient {
   private readonly functionUrl: string;
 
   constructor() {
-    const netlifyUrl = import.meta.env.VITE_NETLIFY_SITE_URL || '';
-    this.functionUrl = `${netlifyUrl}/.netlify/functions/openai-chat`;
+    this.functionUrl = '/.netlify/functions/openai-chat';
   }
 
   private async getAuthToken(): Promise<string | null> {

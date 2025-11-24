@@ -1,4 +1,5 @@
 import { MarketSnapshot } from './trigger-detection-rules';
+import { openaiProxyClient } from './openai-proxy-client';
 
 export interface RegimeValidationResult {
   regime_ok: boolean;
@@ -19,24 +20,12 @@ export interface RegimeValidationResult {
 }
 
 class LLMRegimeValidator {
-  private apiKey: string;
   private model: string = 'gpt-4o';
-  private endpoint: string = 'https://api.openai.com/v1/chat/completions';
-  private enabled: boolean = false;
+  private enabled: boolean = true;
   private callCount: number = 0;
 
   constructor() {
-    this.apiKey = typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env.VITE_OPENAI_API_KEY || ''
-      : process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
-
-    this.enabled = !!this.apiKey;
-
-    if (this.enabled) {
-      console.log('[LLM Regime Validator] 🔍 Layer 1 initialized');
-    } else {
-      console.warn('[LLM Regime Validator] No API key, validator disabled');
-    }
+    console.log('[LLM Regime Validator] 🔍 Layer 1 initialized (using Netlify proxy)');
   }
 
   isEnabled(): boolean {
@@ -165,32 +154,22 @@ Be critical. If regime doesn't match trigger, REJECT immediately.`;
   }
 
   private async callGPT4o(prompt: string): Promise<string> {
-    const response = await fetch(this.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a regime validation specialist. Be critical and precise. Reject setups when regime is unclear or conflicting.'
-          },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.2,
-        max_tokens: 400
-      })
+    const response = await openaiProxyClient.chat({
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a regime validation specialist. Be critical and precise. Reject setups when regime is unclear or conflicting.'
+        },
+        { role: 'user', content: prompt }
+      ],
+      model: this.model,
+      temperature: 0.2,
+      max_tokens: 400,
+      requestType: 'layer-1-regime-validation',
+      endpoint: 'llm-regime-validator'
     });
 
-    if (!response.ok) {
-      throw new Error(`GPT-4o API error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.choices[0]?.message?.content || '';
+    return response.choices[0]?.message?.content || '';
   }
 
   private parseValidationResult(content: string): RegimeValidationResult {

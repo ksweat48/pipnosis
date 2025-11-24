@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { MarketSnapshot } from './trigger-detection-rules';
 import { RegimeValidationResult } from './llm-regime-validator';
 import { SetupQualityResult } from './llm-setup-quality';
+import { openaiProxyClient } from './openai-proxy-client';
 
 export interface MistakePreventionResult {
   allow_trade: boolean;
@@ -20,24 +21,12 @@ export interface MistakePreventionResult {
 }
 
 class LLMMistakePrevention {
-  private apiKey: string;
   private model: string = 'gpt-4o';
-  private endpoint: string = 'https://api.openai.com/v1/chat/completions';
-  private enabled: boolean = false;
+  private enabled: boolean = true;
   private callCount: number = 0;
 
   constructor() {
-    this.apiKey = typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env.VITE_OPENAI_API_KEY || ''
-      : process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
-
-    this.enabled = !!this.apiKey;
-
-    if (this.enabled) {
-      console.log('[LLM Mistake Prevention] 🛡️ Layer 3 initialized');
-    } else {
-      console.warn('[LLM Mistake Prevention] No API key, prevention disabled');
-    }
+    console.log('[LLM Mistake Prevention] 🛡️ Layer 3 initialized (using Netlify proxy)');
   }
 
   isEnabled(): boolean {
@@ -280,32 +269,22 @@ Be RUTHLESS. When in doubt, BLOCK. Protecting capital is priority #1.`;
   }
 
   private async callGPT4o(prompt: string): Promise<string> {
-    const response = await fetch(this.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a mistake prevention specialist. Be ruthless in protecting capital. When in doubt, block the trade.'
-          },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.1,
-        max_tokens: 500
-      })
+    const response = await openaiProxyClient.chat({
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a mistake prevention specialist. Be ruthless in protecting capital. When in doubt, block the trade.'
+        },
+        { role: 'user', content: prompt }
+      ],
+      model: this.model,
+      temperature: 0.1,
+      max_tokens: 500,
+      requestType: 'layer-3-mistake-prevention',
+      endpoint: 'llm-mistake-prevention'
     });
 
-    if (!response.ok) {
-      throw new Error(`GPT-4o API error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.choices[0]?.message?.content || '';
+    return response.choices[0]?.message?.content || '';
   }
 
   private parsePreventionResult(content: string, patternCount: number): MistakePreventionResult {

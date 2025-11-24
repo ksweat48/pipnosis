@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { openaiProxyClient } from './openai-proxy-client';
 
 export interface ConfidenceCalibrationResult {
   original_confidence: number;
@@ -22,24 +23,12 @@ export interface ConfidenceCalibrationResult {
 }
 
 class LLMConfidenceCalibrator {
-  private apiKey: string;
   private model: string = 'gpt-4o';
-  private endpoint: string = 'https://api.openai.com/v1/chat/completions';
-  private enabled: boolean = false;
+  private enabled: boolean = true;
   private callCount: number = 0;
 
   constructor() {
-    this.apiKey = typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env.VITE_OPENAI_API_KEY || ''
-      : process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
-
-    this.enabled = !!this.apiKey;
-
-    if (this.enabled) {
-      console.log('[LLM Confidence Calibrator] 🎯 Layer 4 initialized');
-    } else {
-      console.warn('[LLM Confidence Calibrator] No API key, calibrator disabled');
-    }
+    console.log('[LLM Confidence Calibrator] 🎯 Layer 4 initialized (using Netlify proxy)');
   }
 
   isEnabled(): boolean {
@@ -362,32 +351,22 @@ Be data-driven. Trust historical accuracy over predictions.`;
   }
 
   private async callGPT4o(prompt: string): Promise<string> {
-    const response = await fetch(this.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a statistical calibration expert. Adjust predictions to match historical reality. Be data-driven and precise.'
-          },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.1,
-        max_tokens: 400
-      })
+    const response = await openaiProxyClient.chat({
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a statistical calibration expert. Adjust predictions to match historical reality. Be data-driven and precise.'
+        },
+        { role: 'user', content: prompt }
+      ],
+      model: this.model,
+      temperature: 0.1,
+      max_tokens: 400,
+      requestType: 'layer-4-confidence-calibration',
+      endpoint: 'llm-confidence-calibrator'
     });
 
-    if (!response.ok) {
-      throw new Error(`GPT-4o API error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.choices[0]?.message?.content || '';
+    return response.choices[0]?.message?.content || '';
   }
 
   private parseCalibrationResult(content: string, originalConfidence: number): ConfidenceCalibrationResult {

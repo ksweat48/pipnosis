@@ -1,5 +1,6 @@
 import { MarketSnapshot } from './trigger-detection-rules';
 import { RegimeValidationResult } from './llm-regime-validator';
+import { openaiProxyClient } from './openai-proxy-client';
 
 export interface SetupQualityResult {
   quality_score: number;
@@ -17,25 +18,13 @@ export interface SetupQualityResult {
 }
 
 class LLMSetupQuality {
-  private apiKey: string;
   private model: string = 'gpt-4o';
-  private endpoint: string = 'https://api.openai.com/v1/chat/completions';
-  private enabled: boolean = false;
+  private enabled: boolean = true;
   private callCount: number = 0;
   private readonly DEFAULT_THRESHOLD = 65;
 
   constructor() {
-    this.apiKey = typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env.VITE_OPENAI_API_KEY || ''
-      : process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
-
-    this.enabled = !!this.apiKey;
-
-    if (this.enabled) {
-      console.log('[LLM Setup Quality] 📊 Layer 2 initialized');
-    } else {
-      console.warn('[LLM Setup Quality] No API key, scorer disabled');
-    }
+    console.log('[LLM Setup Quality] 📊 Layer 2 initialized (using Netlify proxy)');
   }
 
   isEnabled(): boolean {
@@ -172,32 +161,22 @@ Be honest and critical. Score below ${threshold} = REJECT.`;
   }
 
   private async callGPT4o(prompt: string): Promise<string> {
-    const response = await fetch(this.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a setup quality analyst. Be honest and critical. Only approve high-quality setups.'
-          },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.3,
-        max_tokens: 500
-      })
+    const response = await openaiProxyClient.chat({
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a setup quality analyst. Be honest and critical. Only approve high-quality setups.'
+        },
+        { role: 'user', content: prompt }
+      ],
+      model: this.model,
+      temperature: 0.3,
+      max_tokens: 500,
+      requestType: 'layer-2-setup-quality',
+      endpoint: 'llm-setup-quality'
     });
 
-    if (!response.ok) {
-      throw new Error(`GPT-4o API error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.choices[0]?.message?.content || '';
+    return response.choices[0]?.message?.content || '';
   }
 
   private parseScoringResult(content: string, threshold: number): SetupQualityResult {
