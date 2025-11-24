@@ -13,6 +13,12 @@ export interface ConfidenceCalibrationResult {
     confidence_interval: string;
   };
   recommendation: 'increase' | 'maintain' | 'decrease';
+  // Learning Mode metadata
+  learningMode: boolean;
+  totalHistoricalTrades: number;
+  minimumConfidenceApplied: number;
+  penaltyApplied: number;
+  calibratorCanBlockTrade: boolean;
 }
 
 class LLMConfidenceCalibrator {
@@ -60,6 +66,10 @@ class LLMConfidenceCalibrator {
     const startTime = Date.now();
 
     try {
+      // Get total historical trades to determine mode
+      const totalHistoricalTrades = await this.getTotalHistoricalTrades(userId);
+      const isLearningMode = totalHistoricalTrades < 100;
+
       const historicalAccuracy = await this.getHistoricalAccuracyAtLevel(userId, symbol, originalConfidence);
       const recentPerformance = await this.getRecentPerformanceContext(userId);
 
@@ -72,7 +82,15 @@ class LLMConfidenceCalibrator {
       );
 
       const response = await this.callGPT4o(prompt);
-      const result = this.parseCalibrationResult(response, originalConfidence);
+      const rawResult = this.parseCalibrationResult(response, originalConfidence);
+
+      // Apply Learning Mode vs Mature Mode rules
+      const result = this.applyModeLimits(
+        rawResult,
+        originalConfidence,
+        isLearningMode,
+        totalHistoricalTrades
+      );
 
       this.callCount++;
       const duration = Date.now() - startTime;
@@ -80,9 +98,18 @@ class LLMConfidenceCalibrator {
       const adjustment = result.calibrated_confidence - originalConfidence;
       const direction = adjustment > 0 ? '⬆️' : adjustment < 0 ? '⬇️' : '➡️';
 
-      console.log(`[LLM Layer 4] ${direction} ${originalConfidence}% → ${result.calibrated_confidence}% (${adjustment > 0 ? '+' : ''}${adjustment.toFixed(1)}%) (${duration}ms)`);
-      console.log(`  Historical Accuracy: ${result.historical_accuracy_at_level.toFixed(1)}%`);
-      console.log(`  Curve Type: ${result.calibration_curve_type}`);
+      // Enhanced logging with mode information
+      console.log(`\n=== CALIBRATOR DEBUG ===`);
+      console.log(`Mode: ${isLearningMode ? 'Learning' : 'Mature'}`);
+      console.log(`Total Trades: ${totalHistoricalTrades}`);
+      console.log(`Initial Confidence: ${originalConfidence}%`);
+      console.log(`Adjustment: ${adjustment > 0 ? '+' : ''}${adjustment.toFixed(1)}%`);
+      console.log(`Final Confidence: ${result.calibrated_confidence}%`);
+      console.log(`Minimum Allowed: ${result.minimumConfidenceApplied}%`);
+      console.log(`Blocking Allowed: ${result.calibratorCanBlockTrade}`);
+      console.log(`Historical Accuracy: ${result.historical_accuracy_at_level.toFixed(1)}%`);
+      console.log(`Curve Type: ${result.calibration_curve_type}`);
+      console.log(`========================\n`);
 
       return result;
     } catch (error) {
@@ -127,6 +154,87 @@ class LLMConfidenceCalibrator {
     if (confidence >= 60 && confidence < 80) return '60-80';
     if (confidence >= 80 && confidence <= 100) return '80-100';
     return '60-80';
+  }
+
+  /**
+   * Get total historical trades for this user to determine Learning vs Mature mode
+   */
+  private async getTotalHistoricalTrades(userId: string): Promise<number> {
+    try {
+      const { count } = await supabase
+        .from('trade_history')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .neq('outcome', 'open');
+
+      return count || 0;
+    } catch (error) {
+      console.warn('[Confidence Calibrator] Error getting total trades:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Apply Learning Mode vs Mature Mode limits to calibration result
+   */
+  private applyModeLimits(
+    rawResult: ConfidenceCalibrationResult,
+    originalConfidence: number,
+    isLearningMode: boolean,
+    totalHistoricalTrades: number
+  ): ConfidenceCalibrationResult {
+    let maxPenalty: number;
+    let minimumConfidence: number;
+    let calibratorCanBlockTrade: boolean;
+
+    if (isLearningMode) {
+      // LEARNING MODE (0-100 trades)
+      maxPenalty = 5; // Cap penalty to -5%
+      minimumConfidence = 60; // Minimum 60% confidence
+      calibratorCanBlockTrade = false; // Cannot block trades
+      console.log('[Layer 4] LEARNING MODE ACTIVE - Minimal penalties, LLM authority preserved');
+    } else {
+      // MATURE MODE (101+ trades)
+      maxPenalty = 10; // Allow full -10% penalty
+      minimumConfidence = 70; // Require 70% minimum
+      calibratorCanBlockTrade = true; // Can block trades
+      console.log('[Layer 4] MATURE MODE ACTIVE - Full discipline engaged');
+    }
+
+    // Calculate the adjustment
+    let adjustment = rawResult.calibrated_confidence - originalConfidence;
+
+    // Cap negative adjustments in Learning Mode
+    if (isLearningMode && adjustment < 0) {
+      const cappedAdjustment = Math.max(adjustment, -maxPenalty);
+      if (cappedAdjustment !== adjustment) {
+        console.log(`[Layer 4] Penalty capped: ${adjustment.toFixed(1)}% → ${cappedAdjustment.toFixed(1)}% (Learning Mode)`);
+        adjustment = cappedAdjustment;
+      }
+    }
+
+    // Apply the capped adjustment
+    let calibratedConfidence = originalConfidence + adjustment;
+
+    // Ensure minimum confidence is met
+    if (calibratedConfidence < minimumConfidence) {
+      console.log(`[Layer 4] Confidence below minimum: ${calibratedConfidence.toFixed(1)}% → ${minimumConfidence}%`);
+      calibratedConfidence = minimumConfidence;
+    }
+
+    // Clamp to 0-100 range
+    calibratedConfidence = Math.max(0, Math.min(100, calibratedConfidence));
+
+    return {
+      ...rawResult,
+      calibrated_confidence: calibratedConfidence,
+      adjustment_applied: calibratedConfidence - originalConfidence,
+      learningMode: isLearningMode,
+      totalHistoricalTrades: totalHistoricalTrades,
+      minimumConfidenceApplied: minimumConfidence,
+      penaltyApplied: adjustment,
+      calibratorCanBlockTrade: calibratorCanBlockTrade
+    };
   }
 
   private async getRecentPerformanceContext(userId: string): Promise<any> {
@@ -310,10 +418,14 @@ Be data-driven. Trust historical accuracy over predictions.`;
     symbol: string,
     originalConfidence: number
   ): Promise<ConfidenceCalibrationResult> {
+    const totalHistoricalTrades = await this.getTotalHistoricalTrades(userId);
+    const isLearningMode = totalHistoricalTrades < 100;
     const historicalAccuracy = await this.getHistoricalAccuracyAtLevel(userId, symbol, originalConfidence);
     const recentPerformance = await this.getRecentPerformanceContext(userId);
 
     let adjustment = 0;
+    const maxPenalty = isLearningMode ? 5 : 10;
+
     if (recentPerformance.calibration_error > 10) {
       adjustment = -5;
     } else if (recentPerformance.calibration_error < -10) {
@@ -326,12 +438,19 @@ Be data-driven. Trust historical accuracy over predictions.`;
       adjustment += 5;
     }
 
-    const calibrated = Math.max(0, Math.min(100, originalConfidence + adjustment));
+    // Cap adjustment in Learning Mode
+    if (isLearningMode && adjustment < 0) {
+      adjustment = Math.max(adjustment, -maxPenalty);
+    }
+
+    const minimumConfidence = isLearningMode ? 60 : 70;
+    let calibrated = originalConfidence + adjustment;
+    calibrated = Math.max(minimumConfidence, Math.min(100, calibrated));
 
     return {
       original_confidence: originalConfidence,
       calibrated_confidence: calibrated,
-      adjustment_applied: adjustment,
+      adjustment_applied: calibrated - originalConfidence,
       calibration_curve_type: 'balanced',
       historical_accuracy_at_level: historicalAccuracy,
       adjustment_reasoning: 'Fallback calibration based on historical accuracy and recent trends',
@@ -340,7 +459,12 @@ Be data-driven. Trust historical accuracy over predictions.`;
         upper_bound: calibrated + 5,
         confidence_interval: '±5%'
       },
-      recommendation: adjustment > 0 ? 'increase' : adjustment < 0 ? 'decrease' : 'maintain'
+      recommendation: adjustment > 0 ? 'increase' : adjustment < 0 ? 'decrease' : 'maintain',
+      learningMode: isLearningMode,
+      totalHistoricalTrades: totalHistoricalTrades,
+      minimumConfidenceApplied: minimumConfidence,
+      penaltyApplied: adjustment,
+      calibratorCanBlockTrade: !isLearningMode
     };
   }
 

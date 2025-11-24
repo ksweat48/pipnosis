@@ -495,6 +495,38 @@ class EventBasedLLMEngine {
       const adjustment = calibrationResult.calibrated_confidence - trigger.confidence;
       console.log(`[LAYER 4] ✅ ${trigger.confidence}% → ${calibrationResult.calibrated_confidence}% (${adjustment > 0 ? '+' : ''}${adjustment.toFixed(1)}%)`);
 
+      // Check if calibrator blocks trade in Mature Mode
+      if (calibrationResult.calibratorCanBlockTrade && calibrationResult.calibrated_confidence < calibrationResult.minimumConfidenceApplied) {
+        console.log(`[LAYER 4] 🚫 BLOCKED: Confidence ${calibrationResult.calibrated_confidence}% < ${calibrationResult.minimumConfidenceApplied}% (Mature Mode)`);
+        await this.logPipelineCompletion(snapshot.symbol, trigger.type, {
+          hardGateResult: 'allowed',
+          layer1Passed: true,
+          layer2Passed: true,
+          layer3Passed: true,
+          layer4Completed: true,
+          layer5Executed: false,
+          finalDecision: 'NO_TRADE',
+          finalConfidence: trigger.confidence,
+          calibratedConfidence: calibrationResult.calibrated_confidence,
+          totalProcessingTimeMs: Date.now() - pipelineStart,
+          totalTokensUsed: totalTokens,
+          layersExecuted: 4,
+          abortLayer: 4,
+          abortReason: `Confidence too low: ${calibrationResult.calibrated_confidence}% (min ${calibrationResult.minimumConfidenceApplied}%)`
+        });
+        this.sessionTokenUsage += totalTokens;
+        return {
+          action: 'NO_TRADE',
+          confidence: 0,
+          reasoning: `Confidence calibration blocked trade: ${calibrationResult.calibrated_confidence}% below minimum ${calibrationResult.minimumConfidenceApplied}%`
+        };
+      }
+
+      // In Learning Mode, log pass-through even if confidence is low
+      if (calibrationResult.learningMode && calibrationResult.calibrated_confidence < 70) {
+        console.log(`[LAYER 4] ⚠️ Low confidence (${calibrationResult.calibrated_confidence}%) but LEARNING MODE allows pass-through`);
+      }
+
       // ============================================================
       // LAYER 5: Execution Brain (existing logic)
       // ============================================================
