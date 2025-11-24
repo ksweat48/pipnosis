@@ -47,6 +47,9 @@
 [functions."connection-health"]
   timeout = 26
 
+[functions."openai-chat"]
+  timeout = 26
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
