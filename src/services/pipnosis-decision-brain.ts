@@ -705,7 +705,7 @@ class PipnosisDecisionBrain {
       const { data, error } = await supabase
         .from('user_profiles')
         .select('is_admin')
-        .eq('user_id', userId)
+        .eq('id', userId)
         .maybeSingle();
 
       if (error || !data) return false;
