@@ -680,7 +680,7 @@ class PipnosisDecisionBrain {
     result: PipelineExecutionResult
   ): Promise<void> {
     try {
-      await supabase.from('llm_pipeline_execution_log').insert({
+      const { data, error } = await supabase.from('llm_pipeline_execution_log').insert({
         user_id: context.sessionContext.userId,
         session_id: context.sessionContext.sessionId,
         symbol: context.symbol,
@@ -690,7 +690,7 @@ class PipnosisDecisionBrain {
         layer_1_passed: result.layer1Passed,
         layer_2_passed: result.layer2Passed,
         layer_3_passed: result.layer3Passed,
-        layer_4_passed: result.layer4Passed,
+        layer_4_completed: result.layer4Passed,
         layer_5_executed: result.layer5Executed,
         final_decision: result.finalDecision,
         abort_layer: result.abortLayer,
@@ -700,6 +700,10 @@ class PipnosisDecisionBrain {
         layers_executed: result.layersExecuted,
         created_at: new Date().toISOString()
       });
+
+      if (error) {
+        console.error('[Pipeline Log] Database error:', error.message, error.details, error.hint);
+      }
     } catch (error) {
       console.error('[Pipeline Log] Error logging execution:', error);
     }
