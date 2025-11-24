@@ -8,6 +8,7 @@
 
 import { PIPNOSIS_CORE_RULES, PipnosisCoreRules } from '../lib/pipnosis-core-rules';
 import { llmContextEnricher, type EnrichedContext } from './llm-context-enricher';
+import { openAIClient } from './openai-client';
 
 export interface MarketSnapshot {
   symbol: string;
@@ -69,9 +70,7 @@ export interface LLMTradeDecision {
 
 export interface LLMProviderConfig {
   name: string;
-  apiKey: string;
   model: string;
-  endpoint: string;
   maxTokens: number;
   temperature: number;
 }
@@ -128,29 +127,21 @@ class GPT4Provider extends LLMProvider {
     const userPrompt = this.buildUserPrompt(snapshot, goalContext, history, enrichedContext, skillContext);
 
     try {
-      const response = await fetch(this.config.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.apiKey}`
-        },
-        body: JSON.stringify({
+      const response = await openAIClient.chat(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        {
           model: this.config.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
           temperature: this.config.temperature,
-          max_tokens: this.config.maxTokens
-        })
-      });
+          max_tokens: this.config.maxTokens,
+          requestType: 'trade_decision',
+          endpoint: 'llm-strategy-brain'
+        }
+      );
 
-      if (!response.ok) {
-        throw new Error(`GPT-4 API error: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const content = data.choices[0]?.message?.content;
+      const content = response.choices[0]?.message?.content;
 
       if (!content) {
         throw new Error('No content in GPT-4 response');
@@ -421,24 +412,18 @@ class LLMStrategyBrain {
   }
 
   private initializeProviders(): void {
-    const apiKey = typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env.VITE_OPENAI_API_KEY || ''
-      : process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
-
-    if (apiKey) {
+    if (openAIClient.isAvailable()) {
       const gpt4Config: LLMProviderConfig = {
         name: 'GPT-4',
-        apiKey,
         model: 'gpt-4o',
-        endpoint: 'https://api.openai.com/v1/chat/completions',
         maxTokens: 1000,
         temperature: 0.3
       };
 
       this.providers.set('gpt4', new GPT4Provider(gpt4Config));
-      console.log('[LLM Strategy Brain] GPT-4 provider initialized');
+      console.log('[LLM Strategy Brain] GPT-4 provider initialized (via secure proxy)');
     } else {
-      console.warn('[LLM Strategy Brain] No API key found, LLM features disabled');
+      console.warn('[LLM Strategy Brain] Secure proxy not available, LLM features disabled');
     }
   }
 
@@ -453,8 +438,7 @@ class LLMStrategyBrain {
 
     if (!provider) {
       console.warn('[LLM Strategy Brain] Primary provider not available, using fallback');
-      console.warn('  → Reason: No OpenAI API key configured');
-      console.warn('  → Set VITE_OPENAI_API_KEY environment variable to enable LLM');
+      console.warn('  → Reason: Secure OpenAI proxy not available or user not authenticated');
       console.warn('  → Using rule-based fallback (VWAP/EMA/RSI logic)');
       return this.fallbackDecision(snapshot);
     }

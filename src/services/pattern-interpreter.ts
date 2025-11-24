@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { openAIClient } from './openai-client';
 
 /**
  * Pattern Interpreter (GPT-4o)
@@ -238,105 +239,60 @@ As an expert trader, interpret this pattern and provide:
     patternId: string = 'unknown',
     retryCount: number = 0
   ): Promise<{ content: string; tokensUsed: number } | null> {
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API_KEY;
-
-    if (!apiKey) {
-      console.error('[Pattern Interpreter] OpenAI API key not found');
+    if (!openAIClient.isAvailable()) {
+      console.error('[Pattern Interpreter] OpenAI client not available');
       return null;
     }
 
     const startTime = Date.now();
 
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
+      const response = await openAIClient.chat(
+        [
+          {
+            role: 'system',
+            content: 'You are an expert forex trader and trading pattern analyst. You explain trading patterns in clear, practical terms and provide actionable guidance.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        {
           model: this.MODEL,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are an expert forex trader and trading pattern analyst. You explain trading patterns in clear, practical terms and provide actionable guidance.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          max_tokens: this.MAX_TOKENS,
           temperature: 0.7,
-          response_format: { type: 'json_object' }
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: { message: errorText } };
+          max_tokens: this.MAX_TOKENS,
+          requestType: 'pattern_interpretation',
+          endpoint: 'pattern-interpreter'
         }
+      );
 
-        // Handle quota exceeded error specifically
-        if (response.status === 429 || errorData.error?.code === 'insufficient_quota') {
-          console.error('[Pattern Interpreter] ❌ OpenAI quota exceeded. Please add credits to your OpenAI account.');
-          console.error('[Pattern Interpreter] Visit: https://platform.openai.com/account/billing');
+      const latency = Date.now() - startTime;
+      const tokensUsed = response.usage?.total_tokens || 0;
+      const content = response.choices[0]?.message?.content;
 
-          // Track quota error
-          await this.trackUsage(
-            userId,
-            'pattern_interpreter',
-            'interpretPattern',
-            0,
-            0,
-            0,
-            Date.now() - startTime,
-            false,
-            'QUOTA_EXCEEDED: OpenAI API quota limit reached. Add credits at https://platform.openai.com/account/billing',
-            'quota_error'
-          );
-
-          this.enabled = false;
-          console.warn('[Pattern Interpreter] Service automatically disabled due to quota limits');
-          return null;
-        }
-
-        // Handle rate limit with exponential backoff
-        if (response.status === 429 && retryCount < 2) {
-          const waitTime = Math.pow(2, retryCount) * 1000;
-          console.warn(`[Pattern Interpreter] Rate limited. Retrying in ${waitTime}ms...`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-          return this.callGPT4o(prompt, userId, patternId, retryCount + 1);
-        }
-
-        console.error('[Pattern Interpreter] API error:', errorData);
+      if (!content) {
+        console.error('[Pattern Interpreter] No content in response');
         return null;
       }
 
-      const data = await response.json();
-      const responseTime = Date.now() - startTime;
-
-      // Track usage
+      // Track usage (usage tracking now handled by proxy)
       await this.trackUsage(
         userId,
         'pattern_interpreter',
         'interpretPattern',
-        data.usage.prompt_tokens,
-        data.usage.completion_tokens,
-        data.usage.total_tokens,
-        responseTime,
+        response.usage?.prompt_tokens || 0,
+        response.usage?.completion_tokens || 0,
+        tokensUsed,
+        latency,
         true,
         null,
         patternId
       );
 
       return {
-        content: data.choices[0].message.content,
-        tokensUsed: data.usage.total_tokens
+        content,
+        tokensUsed
       };
     } catch (error) {
       console.error('[Pattern Interpreter] API call failed:', error);

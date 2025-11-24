@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { FlowV2Signal } from '../strategies/flow-trader-v2';
+import { openAIClient } from './openai-client';
 
 export interface ReasoningDecision {
   strategySelected: string;
@@ -19,18 +20,14 @@ export interface MarketRegime {
 }
 
 class AutonomousReasoningEngine {
-  private apiKey: string;
   private readonly COST_PER_1K_TOKENS = 0.005;
-  private readonly MAX_TOKENS_PER_SESSION = 30000; // Reduced from 50000
-  private readonly MAX_DAILY_TOKENS = 50000; // Daily limit per user
+  private readonly MAX_TOKENS_PER_SESSION = 30000;
+  private readonly MAX_DAILY_TOKENS = 50000;
   private sessionTokenUsage: Map<string, number> = new Map();
   private dailyTokenUsage: Map<string, { date: string; tokens: number }> = new Map();
   private enabled: boolean = true;
 
   constructor() {
-    this.apiKey = typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env.VITE_OPENAI_API_KEY || ''
-      : process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
   }
 
   async reasonAboutSignal(
@@ -46,8 +43,8 @@ class AutonomousReasoningEngine {
         return this.fallbackReasoning(signal, sessionConfig, openTrades);
       }
 
-      if (!this.apiKey) {
-        console.log('[Reasoning Engine] No API key, using fallback logic');
+      if (!openAIClient.isAvailable()) {
+        console.log('[Reasoning Engine] OpenAI client unavailable, using fallback logic');
         return this.fallbackReasoning(signal, sessionConfig, openTrades);
       }
 
@@ -71,58 +68,33 @@ class AutonomousReasoningEngine {
       console.log(`[Reasoning Engine] Analyzing ${signal.symbol} signal with GPT-4o...`);
       const startTime = Date.now();
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
-        },
-        body: JSON.stringify({
+      const response = await openAIClient.chat(
+        [
+          {
+            role: 'system',
+            content: 'You are Pipnosis, an expert autonomous trading AI. Analyze trade signals with precision, assess risks honestly, and provide clear reasoning. Your goal is 80%+ win rate with strong risk management. Respond in valid JSON only.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        {
           model: 'gpt-4o',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are Pipnosis, an expert autonomous trading AI. Analyze trade signals with precision, assess risks honestly, and provide clear reasoning. Your goal is 80%+ win rate with strong risk management. Respond in valid JSON only.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
           temperature: 0.3,
-          max_tokens: 800 // Reduced from 1000
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: { message: errorText } };
+          max_tokens: 800,
+          requestType: 'signal_reasoning',
+          endpoint: 'autonomous-reasoning-engine'
         }
+      );
 
-        // Handle quota exceeded error
-        if (response.status === 429 || errorData.error?.code === 'insufficient_quota') {
-          console.error('[Reasoning Engine] ❌ OpenAI quota exceeded. Please add credits.');
-          console.error('[Reasoning Engine] Visit: https://platform.openai.com/account/billing');
-          this.enabled = false;
-          console.warn('[Reasoning Engine] Service automatically disabled due to quota limits');
-        }
-
-        console.error('[Reasoning Engine] API error:', errorData);
-        return this.fallbackReasoning(signal, sessionConfig, openTrades);
-      }
-
-      const data = await response.json();
       const latency = Date.now() - startTime;
-      const tokensUsed = data.usage?.total_tokens || 0;
+      const tokensUsed = response.usage?.total_tokens || 0;
 
       this.sessionTokenUsage.set(sessionId, tokenUsage + tokensUsed);
       this.updateDailyTokenUsage(userId, tokensUsed);
 
-      const content = data.choices[0]?.message?.content;
+      const content = response.choices[0]?.message?.content;
       if (!content) {
         throw new Error('No content in API response');
       }

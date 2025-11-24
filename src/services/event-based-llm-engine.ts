@@ -16,6 +16,7 @@ import { llmSetupQuality } from './llm-setup-quality';
 import { llmMistakePrevention } from './llm-mistake-prevention';
 import { llmConfidenceCalibrator } from './llm-confidence-calibrator';
 import { developerModeLogger } from './developer-mode-logger';
+import { openAIClient } from './openai-client';
 
 export interface EventBasedEngineConfig {
   symbol: string;
@@ -67,7 +68,6 @@ export interface EngineStatistics {
 }
 
 class EventBasedLLMEngine {
-  private apiKey: string;
   private readonly GPT_MODEL = 'gpt-4o';
   private sessionTokenUsage: number = 0;
   private readonly MAX_TOKENS_PER_SESSION = 50000;
@@ -76,9 +76,6 @@ class EventBasedLLMEngine {
   private use5LayerPipeline: boolean = true;
 
   constructor() {
-    this.apiKey = typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env.VITE_OPENAI_API_KEY || ''
-      : process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
   }
 
   /**
@@ -618,46 +615,32 @@ class EventBasedLLMEngine {
 
       const startTime = Date.now();
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
-        },
-        body: JSON.stringify({
+      const response = await openAIClient.chat(
+        [
+          {
+            role: 'system',
+            content: 'You are Pipnosis, an elite short-term intraday AI trader. Respond with valid JSON only.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        {
           model: this.GPT_MODEL,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are Pipnosis, an elite short-term intraday AI trader. Respond with valid JSON only.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
           temperature: 0.3,
-          max_tokens: 800
-        })
-      });
+          max_tokens: 800,
+          requestType: 'trade_decision',
+          endpoint: 'event-based-llm-engine'
+        }
+      );
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[Event Engine] LLM API error:', errorText);
-        return {
-          action: 'NO_TRADE',
-          confidence: 0,
-          reasoning: 'LLM API error'
-        };
-      }
-
-      const data = await response.json();
       const latency = Date.now() - startTime;
-      const tokensUsed = data.usage?.total_tokens || 0;
+      const tokensUsed = response.usage?.total_tokens || 0;
 
       console.log(`[Event Engine] LLM response received (${latency}ms, ${tokensUsed} tokens)`);
 
-      const content = data.choices[0]?.message?.content;
+      const content = response.choices[0]?.message?.content;
       if (!content) {
         throw new Error('No content in LLM response');
       }

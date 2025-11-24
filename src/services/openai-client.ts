@@ -24,6 +24,8 @@ interface ChatCompletionOptions {
   model?: string;
   temperature?: number;
   max_tokens?: number;
+  requestType?: string;
+  endpoint?: string;
 }
 
 interface ChatCompletionResponse {
@@ -54,40 +56,87 @@ class OpenAIClient {
     this.functionUrl = `${netlifyUrl}/.netlify/functions/openai-chat`;
   }
 
+  private async getAuthToken(): Promise<string | null> {
+    try {
+      const { createClient } = await import('../lib/supabase');
+      const { supabase } = await import('../lib/supabase');
+      const { data: { session } } = await supabase.auth.getSession();
+      return session?.access_token || null;
+    } catch (error) {
+      console.error('[OpenAI Client] Failed to get auth token:', error);
+      return null;
+    }
+  }
+
   async chat(
     messages: ChatMessage[],
     options: ChatCompletionOptions = {}
   ): Promise<ChatCompletionResponse> {
     try {
-      console.log('[OpenAI Client] Calling secure proxy function');
+      const authToken = await this.getAuthToken();
+      if (!authToken) {
+        throw new Error('Authentication required. Please log in to use AI features.');
+      }
+
+      console.log('[OpenAI Client] Calling secure proxy function', {
+        endpoint: options.endpoint || 'unknown',
+        requestType: options.requestType || 'unknown',
+        model: options.model || 'gpt-4o-mini'
+      });
 
       const response = await fetch(this.functionUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
         },
         body: JSON.stringify({
           messages,
           model: options.model || 'gpt-4o-mini',
           temperature: options.temperature ?? 0.7,
-          max_tokens: options.max_tokens ?? 2000
+          max_tokens: options.max_tokens ?? 2000,
+          requestType: options.requestType,
+          endpoint: options.endpoint
         })
       });
 
       if (!response.ok) {
+        if (response.status === 429) {
+          const errorData = await response.json().catch(() => ({}));
+          const resetIn = errorData.resetIn || 3600;
+          const resetMinutes = Math.ceil(resetIn / 60);
+          throw new Error(
+            `Rate limit exceeded. ${errorData.message || 'Too many requests'}. Resets in ${resetMinutes} minute${resetMinutes !== 1 ? 's' : ''}.`
+          );
+        }
+
+        if (response.status === 401) {
+          throw new Error('Authentication expired. Please log in again to continue using AI features.');
+        }
+
         const errorData = await response.json().catch(() => ({}));
         throw new Error(
-          `OpenAI API error: ${response.status} - ${errorData.error || 'Unknown error'}`
+          `OpenAI API error: ${response.status} - ${errorData.error || errorData.message || 'Unknown error'}`
         );
       }
+
+      const rateLimitHourly = response.headers.get('X-RateLimit-Remaining-Hourly');
+      const rateLimitDaily = response.headers.get('X-RateLimit-Remaining-Daily');
 
       const data: ChatCompletionResponse = await response.json();
 
       console.log('[OpenAI Client] Success:', {
         model: data.model,
         tokens: data.usage?.total_tokens || 0,
+        cost: this.estimateCost(data.model, data.usage?.total_tokens || 0),
+        rateLimitHourly,
+        rateLimitDaily,
         finishReason: data.choices[0]?.finish_reason
       });
+
+      if (rateLimitHourly && parseInt(rateLimitHourly) < 10) {
+        console.warn(`[OpenAI Client] ⚠️ Low hourly quota: ${rateLimitHourly} requests remaining`);
+      }
 
       return data;
 
@@ -95,6 +144,18 @@ class OpenAIClient {
       console.error('[OpenAI Client] Error:', error);
       throw error;
     }
+  }
+
+  private estimateCost(model: string, tokens: number): string {
+    const pricing: Record<string, number> = {
+      'gpt-4o': 0.005,
+      'gpt-4o-mini': 0.0003,
+      'gpt-4-turbo': 0.02,
+      'gpt-4': 0.045
+    };
+    const avgCostPer1k = pricing[model] || pricing['gpt-4o-mini'];
+    const cost = (tokens / 1000) * avgCostPer1k;
+    return `$${cost.toFixed(6)}`;
   }
 
   async complete(
@@ -123,6 +184,8 @@ class OpenAIClient {
       model: 'gpt-4o-mini',
       temperature: 0.3,
       max_tokens: 1000,
+      requestType: 'market_analysis',
+      endpoint: 'openai-client',
       ...options
     });
   }
@@ -139,6 +202,8 @@ class OpenAIClient {
       model: 'gpt-4o-mini',
       temperature: 0.2,
       max_tokens: 800,
+      requestType: 'trade_evaluation',
+      endpoint: 'openai-client',
       ...options
     });
   }
@@ -155,6 +220,8 @@ class OpenAIClient {
       model: 'gpt-4o',
       temperature: 0.4,
       max_tokens: 2000,
+      requestType: 'trade_insights',
+      endpoint: 'openai-client',
       ...options
     });
   }
