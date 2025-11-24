@@ -212,9 +212,10 @@ class PipnosisDecisionBrain {
       // HARD GATE: Avoid Pattern Enforcer
       // ============================================================
       console.log('[HARD GATE] 🚫 Checking Avoid Pattern Enforcer...');
-      const hardGateResult = await avoidPatternEnforcer.evaluateSetup(
+      const marketSnapshot = this.buildMarketSnapshotForLLM(context);
+      const hardGateResult = await avoidPatternEnforcer.enforceAvoidPatterns(
         context.sessionContext.userId,
-        context.symbol,
+        marketSnapshot,
         context.triggerContext?.type || 'manual_entry',
         'moderate'
       );
@@ -248,7 +249,6 @@ class PipnosisDecisionBrain {
       console.log('\n[LAYER 1] 🔍 Regime Validation...');
       const layer1Start = Date.now();
 
-      const marketSnapshot = this.buildMarketSnapshotForLLM(context);
       const regimeResult = await llmRegimeValidator.validateRegime(
         marketSnapshot,
         context.triggerContext?.type || 'manual_entry',
