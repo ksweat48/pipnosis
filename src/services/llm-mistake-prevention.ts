@@ -3,6 +3,10 @@ import { MarketSnapshot } from './trigger-detection-rules';
 import { RegimeValidationResult } from './llm-regime-validator';
 import { SetupQualityResult } from './llm-setup-quality';
 import { openaiProxyClient } from './openai-proxy-client';
+import { llmCostOptimizer } from './llm-cost-optimizer';
+import { llmResponseCache } from './llm-response-cache';
+import { compressSnapshot, buildCompressedMistakePrompt } from './llm-prompt-compressor';
+import { calculateCost } from '../config/llm-optimization-config';
 
 export interface MistakePreventionResult {
   allow_trade: boolean;
@@ -21,12 +25,11 @@ export interface MistakePreventionResult {
 }
 
 class LLMMistakePrevention {
-  private model: string = 'gpt-4o';
   private enabled: boolean = true;
   private callCount: number = 0;
 
   constructor() {
-    console.log('[LLM Mistake Prevention] 🛡️ Layer 3 initialized (using Netlify proxy)');
+    console.log('[LLM Mistake Prevention] 🛡️ Layer 3 initialized (optimized mode)');
   }
 
   isEnabled(): boolean {
@@ -39,7 +42,9 @@ class LLMMistakePrevention {
     triggerType: string,
     regimeValidation: RegimeValidationResult,
     setupQuality: SetupQualityResult,
-    skillContext?: any
+    skillContext?: any,
+    sessionId?: string,
+    isBacktest?: boolean
   ): Promise<MistakePreventionResult> {
     if (!this.enabled) {
       return this.createFallbackCheck(userId, snapshot);
@@ -55,27 +60,75 @@ class LLMMistakePrevention {
         this.checkCorrelatedLossRisk(userId, snapshot.symbol)
       ]);
 
-      const prompt = this.buildPreventionPrompt(
-        snapshot,
-        triggerType,
-        regimeValidation,
-        setupQuality,
-        losingPatterns,
-        recentLosses,
-        correlatedLosses,
-        skillContext
+      // Check cache first
+      const cacheContext = {
+        symbol: snapshot.symbol,
+        quality: Math.floor(setupQuality.quality_score / 10) * 10,
+        consecutive: recentLosses.consecutive_losses,
+        similar: losingPatterns.length,
+      };
+
+      const cached = llmResponseCache.get<MistakePreventionResult>('layer3_mistake', cacheContext);
+      if (cached) {
+        console.log('[LLM Layer 3] 💾 Cache hit - skipping API call');
+        return cached;
+      }
+
+      // Select optimal model
+      const model = llmCostOptimizer.selectModel('layer3_mistake', { isBacktest });
+
+      // Check rate limits
+      const canProceed = await llmCostOptimizer.canMakeRequest(model);
+      if (!canProceed) {
+        console.warn('[LLM Layer 3] Rate limit reached, using fallback');
+        return this.createFallbackCheck(userId, snapshot);
+      }
+
+      // Build compressed prompt
+      const compactSnap = compressSnapshot(snapshot);
+      const prompt = buildCompressedMistakePrompt(
+        compactSnap,
+        setupQuality.quality_score,
+        regimeValidation.confidence_in_regime,
+        {
+          consec: recentLosses.consecutive_losses,
+          loss_rate: recentLosses.recent_loss_rate,
+          similar: losingPatterns.length,
+          corr_risk: correlatedLosses
+        }
       );
 
-      const response = await this.callGPT4o(prompt);
-      const result = this.parsePreventionResult(response, losingPatterns.length);
+      // Call LLM
+      const response = await this.callLLM(prompt, model);
+      const result = this.parsePreventionResult(response.content, losingPatterns.length);
 
+      // Track usage
+      llmCostOptimizer.trackRequest(model);
       this.callCount++;
-      const duration = Date.now() - startTime;
 
+      // Calculate and log cost
+      const cost = calculateCost(model, response.usage.prompt_tokens, response.usage.completion_tokens);
+      console.log(`[LLM Layer 3] Model: ${model}, Tokens: ${response.usage.total_tokens}, Cost: $${cost.toFixed(4)}`);
+
+      if (sessionId) {
+        await llmCostOptimizer.logCost(
+          userId,
+          sessionId,
+          'layer3_mistake',
+          model,
+          response.usage.prompt_tokens,
+          response.usage.completion_tokens,
+          cost,
+          { triggerType, symbol: snapshot.symbol, allow: result.allow_trade }
+        );
+      }
+
+      // Cache result
+      llmResponseCache.set('layer3_mistake', cacheContext, result);
+
+      const duration = Date.now() - startTime;
       console.log(`[LLM Layer 3] ${result.allow_trade ? '✅ ALLOW' : '🚫 BLOCK'} (${duration}ms)`);
       console.log(`  Risk Level: ${result.risk_level}`);
-      console.log(`  Mistake Flags: ${result.mistake_flags.length}`);
-      console.log(`  Similar Losing Patterns: ${result.similar_losing_patterns_found}`);
 
       return result;
     } catch (error) {
@@ -270,23 +323,26 @@ Be RUTHLESS. When in doubt, BLOCK. Protecting capital is priority #1.`;
     return prompt;
   }
 
-  private async callGPT4o(prompt: string): Promise<string> {
+  private async callLLM(prompt: string, model: 'gpt-4o' | 'gpt-4o-mini'): Promise<{ content: string; usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } }> {
     const response = await openaiProxyClient.chat({
       messages: [
         {
           role: 'system',
-          content: 'You are a mistake prevention specialist. Be ruthless in protecting capital. When in doubt, block the trade.'
+          content: 'Mistake prevention. Protect capital. When in doubt, block.'
         },
         { role: 'user', content: prompt }
       ],
-      model: this.model,
+      model: model,
       temperature: 0.1,
-      max_tokens: 500,
+      max_tokens: 200,
       requestType: 'layer-3-mistake-prevention',
       endpoint: 'llm-mistake-prevention'
     });
 
-    return response.choices[0]?.message?.content || '';
+    return {
+      content: response.choices[0]?.message?.content || '',
+      usage: response.usage
+    };
   }
 
   private parsePreventionResult(content: string, patternCount: number): MistakePreventionResult {

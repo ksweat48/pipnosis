@@ -1,6 +1,9 @@
 import { MarketSnapshot } from './trigger-detection-rules';
 import { RegimeValidationResult } from './llm-regime-validator';
 import { openaiProxyClient } from './openai-proxy-client';
+import { llmCostOptimizer } from './llm-cost-optimizer';
+import { compressSnapshot, compressSkillContext, buildCompressedSetupPrompt } from './llm-prompt-compressor';
+import { calculateCost } from '../config/llm-optimization-config';
 
 export interface SetupQualityResult {
   quality_score: number;
@@ -18,13 +21,12 @@ export interface SetupQualityResult {
 }
 
 class LLMSetupQuality {
-  private model: string = 'gpt-4o';
   private enabled: boolean = true;
   private callCount: number = 0;
   private readonly DEFAULT_THRESHOLD = 65;
 
   constructor() {
-    console.log('[LLM Setup Quality] 📊 Layer 2 initialized (using Netlify proxy)');
+    console.log('[LLM Setup Quality] 📊 Layer 2 initialized (optimized mode)');
   }
 
   isEnabled(): boolean {
@@ -37,7 +39,10 @@ class LLMSetupQuality {
     triggerConfidence: number,
     regimeValidation: RegimeValidationResult,
     customThreshold?: number,
-    skillContext?: any
+    skillContext?: any,
+    userId?: string,
+    sessionId?: string,
+    isBacktest?: boolean
   ): Promise<SetupQualityResult> {
     if (!this.enabled) {
       return this.createFallbackScore(snapshot, triggerConfidence, customThreshold);
@@ -49,16 +54,59 @@ class LLMSetupQuality {
     const startTime = Date.now();
 
     try {
-      const prompt = this.buildScoringPrompt(snapshot, triggerType, triggerConfidence, regimeValidation, threshold, skillContext);
-      const response = await this.callGPT4o(prompt);
-      const result = this.parseScoringResult(response, threshold);
+      // NO CACHE for Layer 2 - needs candle accuracy
 
+      // Select optimal model
+      const model = llmCostOptimizer.selectModel('layer2_setup', { isBacktest });
+
+      // Check rate limits
+      const canProceed = await llmCostOptimizer.canMakeRequest(model);
+      if (!canProceed) {
+        console.warn('[LLM Layer 2] Rate limit reached, using fallback');
+        return this.createFallbackScore(snapshot, triggerConfidence, threshold);
+      }
+
+      // Build compressed prompt
+      const compactSnap = compressSnapshot(snapshot);
+      compactSnap.trig = triggerType;
+      compactSnap.trig_c = triggerConfidence;
+      const compactSkill = compressSkillContext(skillContext);
+
+      const prompt = buildCompressedSetupPrompt(
+        compactSnap,
+        regimeValidation.confidence_in_regime,
+        threshold,
+        compactSkill
+      );
+
+      // Call LLM
+      const response = await this.callLLM(prompt, model);
+      const result = this.parseScoringResult(response.content, threshold);
+
+      // Track usage
+      llmCostOptimizer.trackRequest(model);
       this.callCount++;
-      const duration = Date.now() - startTime;
 
+      // Calculate and log cost
+      const cost = calculateCost(model, response.usage.prompt_tokens, response.usage.completion_tokens);
+      console.log(`[LLM Layer 2] Model: ${model}, Tokens: ${response.usage.total_tokens}, Cost: $${cost.toFixed(4)}`);
+
+      if (userId && sessionId) {
+        await llmCostOptimizer.logCost(
+          userId,
+          sessionId,
+          'layer2_setup',
+          model,
+          response.usage.prompt_tokens,
+          response.usage.completion_tokens,
+          cost,
+          { triggerType, symbol: snapshot.symbol, quality: result.quality_score }
+        );
+      }
+
+      const duration = Date.now() - startTime;
       console.log(`[LLM Layer 2] ${result.meets_threshold ? '✅' : '❌'} Quality score: ${result.quality_score}/100 (${duration}ms)`);
       console.log(`  Recommendation: ${result.recommendation}`);
-      console.log(`  Strengths: ${result.setup_strengths.length} | Weaknesses: ${result.setup_weaknesses.length}`);
 
       return result;
     } catch (error) {
@@ -162,23 +210,26 @@ Be honest and critical. Score below ${threshold} = REJECT.`;
     return prompt;
   }
 
-  private async callGPT4o(prompt: string): Promise<string> {
+  private async callLLM(prompt: string, model: 'gpt-4o' | 'gpt-4o-mini'): Promise<{ content: string; usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } }> {
     const response = await openaiProxyClient.chat({
       messages: [
         {
           role: 'system',
-          content: 'You are a setup quality analyst. Be honest and critical. Only approve high-quality setups.'
+          content: 'Setup quality analyst. Critical, honest.'
         },
         { role: 'user', content: prompt }
       ],
-      model: this.model,
+      model: model,
       temperature: 0.3,
-      max_tokens: 500,
+      max_tokens: 250,
       requestType: 'layer-2-setup-quality',
       endpoint: 'llm-setup-quality'
     });
 
-    return response.choices[0]?.message?.content || '';
+    return {
+      content: response.choices[0]?.message?.content || '',
+      usage: response.usage
+    };
   }
 
   private parseScoringResult(content: string, threshold: number): SetupQualityResult {
