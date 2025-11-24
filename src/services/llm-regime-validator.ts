@@ -1,5 +1,9 @@
 import { MarketSnapshot } from './trigger-detection-rules';
 import { openaiProxyClient } from './openai-proxy-client';
+import { llmCostOptimizer } from './llm-cost-optimizer';
+import { llmResponseCache } from './llm-response-cache';
+import { compressSnapshot, compressSkillContext, buildCompressedRegimePrompt } from './llm-prompt-compressor';
+import { calculateCost } from '../config/llm-optimization-config';
 
 export interface RegimeValidationResult {
   regime_ok: boolean;
@@ -20,12 +24,11 @@ export interface RegimeValidationResult {
 }
 
 class LLMRegimeValidator {
-  private model: string = 'gpt-4o';
   private enabled: boolean = true;
   private callCount: number = 0;
 
   constructor() {
-    console.log('[LLM Regime Validator] 🔍 Layer 1 initialized (using Netlify proxy)');
+    console.log('[LLM Regime Validator] 🔍 Layer 1 initialized (optimized mode)');
   }
 
   isEnabled(): boolean {
@@ -36,7 +39,10 @@ class LLMRegimeValidator {
     snapshot: MarketSnapshot,
     triggerType: string,
     triggerConfidence: number,
-    skillContext?: any
+    skillContext?: any,
+    userId?: string,
+    sessionId?: string,
+    isBacktest?: boolean
   ): Promise<RegimeValidationResult> {
     if (!this.enabled) {
       return this.createFallbackValidation(snapshot, 'LLM disabled');
@@ -46,13 +52,68 @@ class LLMRegimeValidator {
     const startTime = Date.now();
 
     try {
-      const prompt = this.buildValidationPrompt(snapshot, triggerType, triggerConfidence, skillContext);
-      const response = await this.callGPT4o(prompt);
-      const result = this.parseValidationResult(response);
+      // Check cache first
+      const cacheContext = {
+        symbol: snapshot.symbol,
+        trend: snapshot.priceAction?.trend,
+        volatility: snapshot.priceAction?.volatility,
+        trigger: triggerType,
+        confidence: Math.floor(triggerConfidence / 10) * 10, // Bucket by 10s
+      };
 
+      const cached = llmResponseCache.get<RegimeValidationResult>('layer1_regime', cacheContext);
+      if (cached) {
+        console.log('[LLM Layer 1] 💾 Cache hit - skipping API call');
+        return cached;
+      }
+
+      // Select optimal model
+      const model = llmCostOptimizer.selectModel('layer1_regime', { isBacktest });
+
+      // Check rate limits
+      const canProceed = await llmCostOptimizer.canMakeRequest(model);
+      if (!canProceed) {
+        console.warn('[LLM Layer 1] Rate limit reached, using fallback');
+        return this.createFallbackValidation(snapshot, 'Rate limit');
+      }
+
+      // Build compressed prompt
+      const compactSnap = compressSnapshot(snapshot);
+      compactSnap.trig = triggerType;
+      compactSnap.trig_c = triggerConfidence;
+      const compactSkill = compressSkillContext(skillContext);
+
+      const prompt = buildCompressedRegimePrompt(compactSnap, compactSkill);
+
+      // Call LLM
+      const response = await this.callLLM(prompt, model);
+      const result = this.parseValidationResult(response.content);
+
+      // Track usage
+      llmCostOptimizer.trackRequest(model);
       this.callCount++;
-      const duration = Date.now() - startTime;
 
+      // Calculate and log cost
+      const cost = calculateCost(model, response.usage.prompt_tokens, response.usage.completion_tokens);
+      console.log(`[LLM Layer 1] Model: ${model}, Tokens: ${response.usage.total_tokens}, Cost: $${cost.toFixed(4)}`);
+
+      if (userId && sessionId) {
+        await llmCostOptimizer.logCost(
+          userId,
+          sessionId,
+          'layer1_regime',
+          model,
+          response.usage.prompt_tokens,
+          response.usage.completion_tokens,
+          cost,
+          { triggerType, symbol: snapshot.symbol }
+        );
+      }
+
+      // Cache result
+      llmResponseCache.set('layer1_regime', cacheContext, result);
+
+      const duration = Date.now() - startTime;
       console.log(`[LLM Layer 1] ${result.regime_ok ? '✅' : '❌'} Regime validation: ${result.recommendation} (${duration}ms)`);
       console.log(`  Detected: ${result.detected_regime.trend} / ${result.detected_regime.volatility}`);
       console.log(`  Confidence: ${result.confidence_in_regime}%`);
@@ -155,23 +216,26 @@ Be critical. If regime doesn't match trigger, REJECT immediately.`;
     return prompt;
   }
 
-  private async callGPT4o(prompt: string): Promise<string> {
+  private async callLLM(prompt: string, model: 'gpt-4o' | 'gpt-4o-mini'): Promise<{ content: string; usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } }> {
     const response = await openaiProxyClient.chat({
       messages: [
         {
           role: 'system',
-          content: 'You are a regime validation specialist. Be critical and precise. Reject setups when regime is unclear or conflicting.'
+          content: 'Regime validator. Critical, precise. Reject if unclear.'
         },
         { role: 'user', content: prompt }
       ],
-      model: this.model,
+      model: model,
       temperature: 0.2,
-      max_tokens: 400,
+      max_tokens: 200,
       requestType: 'layer-1-regime-validation',
       endpoint: 'llm-regime-validator'
     });
 
-    return response.choices[0]?.message?.content || '';
+    return {
+      content: response.choices[0]?.message?.content || '',
+      usage: response.usage
+    };
   }
 
   private parseValidationResult(content: string): RegimeValidationResult {
