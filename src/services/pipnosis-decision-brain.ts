@@ -253,7 +253,10 @@ class PipnosisDecisionBrain {
         marketSnapshot,
         context.triggerContext?.type || 'manual_entry',
         context.triggerContext?.confidence || 75,
-        context.skillLevelContext
+        context.skillLevelContext,
+        context.sessionContext.userId,
+        context.sessionContext.sessionId || undefined,
+        context.mode === 'backtest'
       );
 
       const layer1Duration = Date.now() - layer1Start;
@@ -307,7 +310,10 @@ class PipnosisDecisionBrain {
         context.triggerContext?.confidence || 75,
         regimeResult,
         undefined,
-        context.skillLevelContext
+        context.skillLevelContext,
+        context.sessionContext.userId,
+        context.sessionContext.sessionId || undefined,
+        context.mode === 'backtest'
       );
 
       const layer2Duration = Date.now() - layer2Start;
@@ -362,7 +368,9 @@ class PipnosisDecisionBrain {
         context.triggerContext?.type || 'manual_entry',
         regimeResult,
         qualityResult,
-        context.skillLevelContext
+        context.skillLevelContext,
+        context.sessionContext.sessionId || undefined,
+        context.mode === 'backtest'
       );
 
       const layer3Duration = Date.now() - layer3Start;
@@ -420,7 +428,9 @@ class PipnosisDecisionBrain {
           setupQuality: qualityResult.quality_score,
           riskLevel: mistakeResult.risk_level
         },
-        context.skillLevelContext
+        context.skillLevelContext,
+        context.sessionContext.sessionId || undefined,
+        context.mode === 'backtest'
       );
 
       const layer4Duration = Date.now() - layer4Start;
@@ -626,12 +636,20 @@ class PipnosisDecisionBrain {
       keyLessons: context.historicalContext.keyLessons || []
     } : undefined;
 
+    // Pass setupQuality to Layer 5 via skillContext
+    const enhancedSkillContext = {
+      ...context.skillLevelContext,
+      setupQuality: qualityResult.quality_score
+    };
+
     const llmDecision = await llmStrategyBrain.makeDecision(
       llmSnapshot,
       goalContext,
       historyContext,
       context.sessionContext.userId,
-      context.skillLevelContext
+      enhancedSkillContext,
+      context.sessionContext.sessionId || undefined,
+      context.mode === 'backtest'
     );
 
     const direction = llmDecision.action === 'enter_long' ? 'buy' : llmDecision.action === 'enter_short' ? 'sell' : undefined;

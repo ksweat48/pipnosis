@@ -376,7 +376,7 @@ class AdaptiveRiskManager {
         activatedAt: data.defensive_mode_activated_at,
         deactivatedAt: data.defensive_mode_deactivated_at,
         durationMinutes,
-        tradesD uringDefensiveMode: data.trades_during_defensive_mode,
+        tradesDuringDefensiveMode: data.trades_during_defensive_mode,
         activationReason: data.defensive_mode_activation_reason,
         triggerType: data.defensive_mode_trigger_type,
         currentDrawdown: parseFloat(data.current_drawdown_percent.toString()),

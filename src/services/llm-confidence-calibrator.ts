@@ -454,7 +454,12 @@ Be data-driven. Trust historical accuracy over predictions.`;
         upper_bound: clamped + 5,
         confidence_interval: '±5%'
       },
-      recommendation: parsed.recommendation || 'maintain'
+      recommendation: parsed.recommendation || 'maintain',
+      learningMode: false,
+      totalHistoricalTrades: 0,
+      minimumConfidenceApplied: 0,
+      penaltyApplied: 0,
+      calibratorCanBlockTrade: false
     };
   }
 

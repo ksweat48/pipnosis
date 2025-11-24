@@ -11,6 +11,9 @@ import { llmContextEnricher, type EnrichedContext } from './llm-context-enricher
 import { openAIClient } from './openai-client';
 import { validateAndNormalizeSnapshot, getBestTimeframe } from '../utils/snapshotValidator';
 import type { MarketSnapshot as ValidatedMarketSnapshot } from '../utils/snapshotValidator';
+import { llmCostOptimizer } from './llm-cost-optimizer';
+import { compressSnapshot, buildCompressedStrategyPrompt } from './llm-prompt-compressor';
+import { calculateCost } from '../config/llm-optimization-config';
 
 export interface MarketSnapshot {
   symbol: string;
@@ -91,7 +94,9 @@ abstract class LLMProvider {
     goalContext?: GoalContext,
     history?: RelevantHistory,
     userId?: string,
-    skillContext?: any
+    skillContext?: any,
+    sessionId?: string,
+    isBacktest?: boolean
   ): Promise<LLMTradeDecision>;
 
   protected buildSystemPrompt(): string {
@@ -112,7 +117,9 @@ class GPT4Provider extends LLMProvider {
     goalContext?: GoalContext,
     history?: RelevantHistory,
     userId?: string,
-    skillContext?: any
+    skillContext?: any,
+    sessionId?: string,
+    isBacktest?: boolean
   ): Promise<LLMTradeDecision> {
     // Validate and normalize snapshot before processing
     let normalizedSnapshot: ValidatedMarketSnapshot;
@@ -121,6 +128,20 @@ class GPT4Provider extends LLMProvider {
     } catch (error) {
       console.error('[GPT-4 Provider] Snapshot validation failed:', error);
       throw error;
+    }
+
+    // Select optimal model based on quality
+    const setupQuality = skillContext?.setupQuality || 75;
+    const model = llmCostOptimizer.selectModel('layer5_strategy', {
+      isBacktest,
+      setupQuality
+    });
+
+    // Check rate limits
+    const canProceed = await llmCostOptimizer.canMakeRequest(model);
+    if (!canProceed) {
+      console.warn('[Layer 5] Rate limit reached, using fallback');
+      throw new Error('Rate limit reached');
     }
 
     const systemPrompt = this.buildSystemPrompt();
@@ -135,18 +156,35 @@ class GPT4Provider extends LLMProvider {
       );
     }
 
-    const userPrompt = this.buildUserPrompt(normalizedSnapshot, goalContext, history, enrichedContext, skillContext);
+    // Use compressed prompt for cost optimization
+    const compactSnap = compressSnapshot(normalizedSnapshot);
+    const userPrompt = buildCompressedStrategyPrompt(
+      compactSnap,
+      setupQuality,
+      goalContext ? {
+        tgt: goalContext.targetAmount,
+        curr: goalContext.currentProfit,
+        prog: goalContext.progressPercent,
+        trades: goalContext.tradesCompleted
+      } : undefined,
+      history ? {
+        wr: history.recentWinRate,
+        pf: history.recentProfitFactor,
+        best: history.bestSetupType,
+        worst: history.worstSetupType
+      } : undefined
+    );
 
     try {
       const response = await openAIClient.chat(
         [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: 'Pipnosis AI. Execute proven strategies.' },
           { role: 'user', content: userPrompt }
         ],
         {
-          model: this.config.model,
-          temperature: this.config.temperature,
-          max_tokens: this.config.maxTokens,
+          model: model,
+          temperature: 0.3,
+          max_tokens: 400,
           requestType: 'trade_decision',
           endpoint: 'llm-strategy-brain'
         }
@@ -158,8 +196,28 @@ class GPT4Provider extends LLMProvider {
         throw new Error('No content in GPT-4 response');
       }
 
+      // Track usage
+      llmCostOptimizer.trackRequest(model);
       this.callCount++;
       this.lastCallTime = new Date();
+
+      // Calculate and log cost
+      const usage = response.usage || { prompt_tokens: 350, completion_tokens: 150, total_tokens: 500 };
+      const cost = calculateCost(model, usage.prompt_tokens, usage.completion_tokens);
+      console.log(`[Layer 5] Model: ${model}, Tokens: ${usage.total_tokens}, Cost: $${cost.toFixed(4)}`);
+
+      if (userId && sessionId) {
+        await llmCostOptimizer.logCost(
+          userId,
+          sessionId,
+          'layer5_strategy',
+          model,
+          usage.prompt_tokens,
+          usage.completion_tokens,
+          cost,
+          { symbol: normalizedSnapshot.symbol, action: 'pending' }
+        );
+      }
 
       const decision = this.parseResponse(content);
       return this.validateAndEnforceRules(decision, snapshot);
@@ -452,7 +510,9 @@ class LLMStrategyBrain {
     goalContext?: GoalContext,
     history?: RelevantHistory,
     userId?: string,
-    skillContext?: any
+    skillContext?: any,
+    sessionId?: string,
+    isBacktest?: boolean
   ): Promise<LLMTradeDecision> {
     const provider = this.providers.get(this.primaryProvider);
 
@@ -464,7 +524,7 @@ class LLMStrategyBrain {
     }
 
     try {
-      const decision = await provider.makeDecision(snapshot, goalContext, history, userId, skillContext);
+      const decision = await provider.makeDecision(snapshot, goalContext, history, userId, skillContext, sessionId, isBacktest);
       console.log(`[LLM Strategy Brain] Decision: ${decision.action}, Confidence: ${decision.confidence}%`);
       return decision;
     } catch (error) {
