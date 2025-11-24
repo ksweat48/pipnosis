@@ -95,20 +95,28 @@ class SimpleAutoBacktestService {
    * Initialize state from database
    */
   async initialize(userId: string): Promise<void> {
+    console.log('[Auto-Backtest] 🔧 Initializing service for user:', userId);
     this.userId = userId;
 
-    const { data: existingState } = await supabase
+    console.log('[Auto-Backtest] 📊 Checking database for existing state...');
+    const { data: existingState, error: stateError } = await supabase
       .from('auto_backtest_global_state')
       .select('*')
       .eq('user_id', userId)
       .single();
 
+    if (stateError && stateError.code !== 'PGRST116') {
+      console.error('[Auto-Backtest] ❌ Error loading state:', stateError);
+      throw new Error(`Failed to load auto-backtest state: ${stateError.message}`);
+    }
+
     if (existingState && existingState.is_running) {
       const lastHeartbeat = new Date(existingState.last_heartbeat);
       const minutesSinceHeartbeat = (Date.now() - lastHeartbeat.getTime()) / 1000 / 60;
+      console.log(`[Auto-Backtest] ⏰ Found existing session. Last heartbeat: ${minutesSinceHeartbeat.toFixed(1)} minutes ago`);
 
       if (minutesSinceHeartbeat > 5) {
-        console.log('[Auto-Backtest] Found stale session, cleaning up...');
+        console.log('[Auto-Backtest] 🧹 Found stale session (>5 min), cleaning up...');
         await this.forceStopInDatabase(userId);
         // Stale session = will do fresh start, so clear the old month's results
         if (existingState.current_month_number) {
@@ -116,8 +124,10 @@ class SimpleAutoBacktestService {
           await this.clearDailyResultsForMonth(userId, existingState.current_month_number);
         }
       } else {
-        console.log('[Auto-Backtest] Found active session - resuming with existing progress');
-        console.log('[Auto-Backtest] Started from:', existingState.started_from_device);
+        console.log('[Auto-Backtest] ✅ Found active session - will resume with existing progress');
+        console.log('[Auto-Backtest] 📱 Started from:', existingState.started_from_device);
+        console.log('[Auto-Backtest] 📅 Progress: Month', existingState.current_month_number, '- Day', existingState.current_day_in_month, '/30');
+        console.log('[Auto-Backtest] 📝 Last status:', existingState.last_status_message);
         this.isRunning = true;
         this.totalMonthsCompleted = existingState.total_months_completed || 0;
         this.currentMonthNumber = existingState.current_month_number || 0;
@@ -147,12 +157,17 @@ class SimpleAutoBacktestService {
    * Automatically stops any existing sessions before starting
    */
   async start(userId: string): Promise<{ success: boolean; message: string }> {
-    console.log('[Auto-Backtest] Starting auto-backtest...');
+    console.log('\n[Auto-Backtest] ========================================');
+    console.log('[Auto-Backtest] 🚀 START REQUEST RECEIVED');
+    console.log('[Auto-Backtest] User ID:', userId);
+    console.log('[Auto-Backtest] ========================================\n');
 
     try {
-      // Always force stop any existing sessions first (local and database)
+      console.log('[Auto-Backtest] Step 1: Force stopping any existing sessions...');
       await this.forceStopInDatabase(userId);
+      console.log('[Auto-Backtest] ✓ Existing sessions stopped');
 
+      console.log('[Auto-Backtest] Step 2: Resetting local state...');
       // Reset local state completely
       this.isRunning = false;
       if (this.abortController) {
@@ -167,38 +182,54 @@ class SimpleAutoBacktestService {
         clearInterval(this.heartbeatInterval);
         this.heartbeatInterval = null;
       }
+      console.log('[Auto-Backtest] ✓ Local state reset complete');
 
       // Small delay to ensure cleanup completes
+      console.log('[Auto-Backtest] ⏱️ Waiting 500ms for cleanup...');
       await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('[Auto-Backtest] ✓ Cleanup complete');
 
       // Initialize fresh state
+      console.log('[Auto-Backtest] Step 3: Initializing fresh state...');
       await this.initialize(userId);
+      console.log('[Auto-Backtest] ✓ Initialization complete');
 
       // Determine if this is a fresh start (new month) or recovery
       // Get current state to see what month we're on
-      const { data: existingState } = await supabase
+      console.log('[Auto-Backtest] Step 4: Determining next month number...');
+      const { data: existingState, error: stateCheckError } = await supabase
         .from('auto_backtest_global_state')
         .select('current_month_number, current_day_in_month')
         .eq('user_id', userId)
         .single();
 
+      if (stateCheckError && stateCheckError.code !== 'PGRST116') {
+        console.error('[Auto-Backtest] ❌ Error checking state:', stateCheckError);
+        throw new Error(`Failed to check state: ${stateCheckError.message}`);
+      }
+
       // Calculate next month number
       const nextMonthNumber = (existingState?.current_month_number || 0) + 1;
+      console.log(`[Auto-Backtest] 📅 Next month will be: Month ${nextMonthNumber}`);
 
       // Clear day boxes for the new month (fresh start)
-      console.log(`[Auto-Backtest] Starting fresh Month ${nextMonthNumber} - clearing calendar`);
+      console.log(`[Auto-Backtest] Step 5: Clearing calendar for Month ${nextMonthNumber}...`);
       await this.clearDailyResultsForMonth(userId, nextMonthNumber);
+      console.log('[Auto-Backtest] ✓ Calendar cleared');
 
+      console.log('[Auto-Backtest] Step 6: Setting up new session...');
       console.log('[Auto-Backtest] 🚀 Starting 30-day progressive learning system');
       this.userId = userId;
       this.isRunning = true;
       this.sessionId = this.generateSessionId();
       this.abortController = new AbortController();
+      console.log('[Auto-Backtest] 🆔 Session ID:', this.sessionId);
 
       const deviceInfo = this.getDeviceInfo();
+      console.log('[Auto-Backtest] 📱 Device:', deviceInfo);
 
       // Sync state to database with error handling
-      console.log('[Auto-Backtest] Syncing state to database...');
+      console.log('[Auto-Backtest] Step 7: Syncing state to database...');
       await this.syncStateToDatabase({
         is_running: true,
         started_at: new Date().toISOString(),
@@ -208,9 +239,10 @@ class SimpleAutoBacktestService {
         last_error_message: null,
         last_error_at: null
       });
+      console.log('[Auto-Backtest] ✓ State synced to database');
 
       // Verify database state was updated (read-back confirmation)
-      console.log('[Auto-Backtest] Verifying database state...');
+      console.log('[Auto-Backtest] Step 8: Verifying database state...');
       const { data: verifyState, error: verifyError } = await supabase
         .from('auto_backtest_global_state')
         .select('is_running')
@@ -218,24 +250,36 @@ class SimpleAutoBacktestService {
         .single();
 
       if (verifyError) {
-        console.error('[Auto-Backtest] Database verification error:', verifyError);
+        console.error('[Auto-Backtest] ❌ Database verification error:', verifyError);
         this.isRunning = false;
         return { success: false, message: `Database error: ${verifyError.message}` };
       }
 
       if (!verifyState?.is_running) {
-        console.error('[Auto-Backtest] Failed to verify running state in database');
+        console.error('[Auto-Backtest] ❌ Failed to verify running state in database');
+        console.error('[Auto-Backtest] Database returned:', verifyState);
         this.isRunning = false;
         return { success: false, message: 'Failed to start auto-backtest - database sync error' };
       }
 
       console.log('[Auto-Backtest] ✅ Database state confirmed - auto-backtest is running');
+      console.log('[Auto-Backtest] Step 9: Starting heartbeat...');
 
       this.startHeartbeat();
+      console.log('[Auto-Backtest] ✓ Heartbeat started');
+
+      console.log('[Auto-Backtest] Step 10: Starting main loop...');
+      console.log('[Auto-Backtest] ========================================');
+      console.log('[Auto-Backtest] 🎉 AUTO-BACKTEST STARTED SUCCESSFULLY');
+      console.log('[Auto-Backtest] ========================================\n');
 
       // Start the loop but catch errors
       this.runLoop().catch(async (error) => {
-        console.error('[Auto-Backtest] Fatal error in run loop:', error);
+        console.error('\n[Auto-Backtest] ========================================');
+        console.error('[Auto-Backtest] ❌ FATAL ERROR IN RUN LOOP');
+        console.error('[Auto-Backtest] ========================================');
+        console.error('[Auto-Backtest] Error:', error);
+        console.error('[Auto-Backtest] Stack:', error instanceof Error ? error.stack : 'No stack trace');
         const errorMessage = error instanceof Error ? error.message : String(error);
         await this.syncStateToDatabase({
           is_running: false,
@@ -244,11 +288,17 @@ class SimpleAutoBacktestService {
           last_error_at: new Date().toISOString()
         });
         this.isRunning = false;
+        console.error('[Auto-Backtest] ========================================\n');
       });
 
       return { success: true, message: 'Auto-backtest started successfully' };
     } catch (error) {
-      console.error('[Auto-Backtest] Error in start():', error);
+      console.error('\n[Auto-Backtest] ========================================');
+      console.error('[Auto-Backtest] ❌ ERROR STARTING AUTO-BACKTEST');
+      console.error('[Auto-Backtest] ========================================');
+      console.error('[Auto-Backtest] Error:', error);
+      console.error('[Auto-Backtest] Stack:', error instanceof Error ? error.stack : 'No stack trace');
+      console.error('[Auto-Backtest] ========================================\n');
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.isRunning = false;
 

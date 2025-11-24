@@ -87,15 +87,23 @@ export default function AITrainingPage() {
 
     // Initialize auto-backtest service with database state
     if (user) {
+      console.log('[AI Training Page] Initializing auto-backtest service...');
       simpleAutoBacktestService.initialize(user.id).then(() => {
+        console.log('[AI Training Page] Service initialized, loading state...');
         // Load initial state from database
         simpleAutoBacktestService.getState().then(state => {
+          console.log('[AI Training Page] Auto-backtest state loaded:', state);
           setAutoBacktestState(state);
           // If auto-backtest is running, switch to auto mode
           if (state.isRunning) {
+            console.log('[AI Training Page] Auto-backtest is running, switching to auto mode');
             setIsAutoMode(true);
           }
+        }).catch(error => {
+          console.error('[AI Training Page] Error loading auto-backtest state:', error);
         });
+      }).catch(error => {
+        console.error('[AI Training Page] Error initializing auto-backtest service:', error);
       });
     }
 
