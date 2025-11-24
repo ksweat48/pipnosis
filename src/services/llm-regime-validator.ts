@@ -101,28 +101,28 @@ ${skillContext.gaps.consistencyGap < 0
 
 CURRENT MARKET STATE:
 Symbol: ${snapshot.symbol}
-Current Price: ${currentCandle.close.toFixed(5)}
-Trend: ${snapshot.priceAction.trend}
-Volatility: ${snapshot.priceAction.volatility}
-Momentum: ${snapshot.priceAction.momentum.toFixed(2)}
+Current Price: ${currentCandle?.close?.toFixed(5) || 'N/A'}
+Trend: ${snapshot.priceAction?.trend || 'unknown'}
+Volatility: ${snapshot.priceAction?.volatility || 'unknown'}
+Momentum: ${typeof snapshot.priceAction?.momentum === 'number' ? snapshot.priceAction.momentum.toFixed(2) : snapshot.priceAction?.momentum || 'N/A'}
 
 TRIGGER DETECTED:
 Type: ${triggerType}
 Confidence: ${triggerConfidence}%
 
 TECHNICAL INDICATORS:
-VWAP: ${snapshot.indicators.vwap.toFixed(5)}
-EMA20: ${snapshot.indicators.ema20.toFixed(5)}
-EMA50: ${snapshot.indicators.ema50.toFixed(5)}
-ATR: ${snapshot.indicators.atr.toFixed(5)}
-Price vs VWAP: ${((currentCandle.close - snapshot.indicators.vwap) / snapshot.indicators.vwap * 100).toFixed(2)}%
+VWAP: ${snapshot.indicators?.vwap?.toFixed(5) || 'N/A'}
+EMA20: ${snapshot.indicators?.ema20?.toFixed(5) || 'N/A'}
+EMA50: ${snapshot.indicators?.ema50?.toFixed(5) || 'N/A'}
+ATR: ${snapshot.indicators?.atr?.toFixed(5) || 'N/A'}
+Price vs VWAP: ${(snapshot.indicators?.vwap && currentCandle?.close) ? ((currentCandle.close - snapshot.indicators.vwap) / snapshot.indicators.vwap * 100).toFixed(2) : 'N/A'}%
 
 RECENT PRICE ACTION:
-${snapshot.ohlc.slice(-3).map((c, i) => {
-  const direction = c.close > c.open ? '🟢' : '🔴';
-  const size = Math.abs(c.close - c.open);
-  return `  ${direction} ${c.close.toFixed(5)} (size: ${size.toFixed(5)})`;
-}).join('\n')}
+${snapshot.ohlc?.slice(-3).map((c, i) => {
+  const direction = c?.close > c?.open ? '🟢' : '🔴';
+  const size = Math.abs((c?.close || 0) - (c?.open || 0));
+  return `  ${direction} ${c?.close?.toFixed(5) || 'N/A'} (size: ${size.toFixed(5)})`;
+}).join('\n') || 'No recent candles'}
 
 Your task:
 1. Assess if the detected trend is accurate

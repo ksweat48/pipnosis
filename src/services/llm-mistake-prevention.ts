@@ -227,9 +227,9 @@ PREVIOUS LAYERS PASSED:
 CURRENT SETUP:
 Symbol: ${snapshot.symbol}
 Trigger: ${triggerType}
-Price: ${currentCandle.close.toFixed(5)}
-Trend: ${snapshot.priceAction.trend}
-Volatility: ${snapshot.priceAction.volatility}
+Price: ${currentCandle?.close?.toFixed(5) || 'N/A'}
+Trend: ${snapshot.priceAction?.trend || 'unknown'}
+Volatility: ${snapshot.priceAction?.volatility || 'unknown'}
 
 RECENT LOSS CONTEXT (Last 20 trades):
 ⚠️ Consecutive Losses: ${recentLosses.consecutive_losses}
