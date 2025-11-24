@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { openaiProxyClient } from './openai-proxy-client';
 
 interface TradeForAnalysis {
   symbol: string;
@@ -41,25 +42,15 @@ interface SessionAnalysisResult {
 }
 
 class LLMPostSessionAnalyzer {
-  private apiKey: string;
-  private model: string = 'gpt-4o';
-  private endpoint: string = 'https://api.openai.com/v1/chat/completions';
   private enabled: boolean = false;
   private callCount: number = 0;
   private lastCallTime: Date | null = null;
+  private model: string = 'gpt-4o';
+  private endpoint: string = 'https://api.openai.com/v1/chat/completions';
+  private apiKey: string = '';
 
   constructor() {
-    this.apiKey = typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env.VITE_OPENAI_API_KEY || ''
-      : process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
-
-    this.enabled = !!this.apiKey;
-
-    if (this.enabled) {
-      console.log('[LLM Post-Session Analyzer] Initialized with GPT-4o');
-    } else {
-      console.warn('[LLM Post-Session Analyzer] No API key found, analyzer disabled');
-    }
+    console.warn('[LLM Post-Session Analyzer] Disabled - needs migration to Netlify proxy');
   }
 
   isEnabled(): boolean {

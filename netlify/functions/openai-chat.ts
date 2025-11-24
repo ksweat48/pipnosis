@@ -220,7 +220,9 @@ async function handleRequest(event: any, startTime: number) {
           p_success: false,
           p_error_message: errorText.substring(0, 500),
           p_latency_ms: latency
-        }).catch(err => console.error('[OpenAI Proxy] Logging failed:', err));
+        }).then(result => {
+          if (result.error) console.error('[OpenAI Proxy] Logging failed:', result.error);
+        });
 
         return {
           statusCode: response.status,
@@ -240,7 +242,9 @@ async function handleRequest(event: any, startTime: number) {
 
       // Fire and forget - don't wait for these to complete
       supabase.rpc('increment_rate_limit', { p_user_id: userId })
-        .catch(err => console.error('[OpenAI Proxy] Rate limit increment failed:', err));
+        .then(result => {
+          if (result.error) console.error('[OpenAI Proxy] Rate limit increment failed:', result.error);
+        });
 
       supabase.rpc('log_openai_usage', {
         p_user_id: userId,
@@ -254,7 +258,9 @@ async function handleRequest(event: any, startTime: number) {
         p_success: true,
         p_error_message: null,
         p_latency_ms: latency
-      }).catch(err => console.error('[OpenAI Proxy] Usage logging failed:', err));
+      }).then(result => {
+        if (result.error) console.error('[OpenAI Proxy] Usage logging failed:', result.error);
+      });
 
       // Return immediately without waiting for logging
       return {
@@ -300,7 +306,9 @@ async function handleRequest(event: any, startTime: number) {
         p_success: false,
         p_error_message: error instanceof Error ? error.message.substring(0, 500) : 'Unknown error',
         p_latency_ms: latency
-      }).catch(logError => console.error('[OpenAI Proxy] Failed to log error:', logError));
+      }).then(result => {
+        if (result.error) console.error('[OpenAI Proxy] Failed to log error:', result.error);
+      });
     } catch {
       // Ignore logging failures
     }

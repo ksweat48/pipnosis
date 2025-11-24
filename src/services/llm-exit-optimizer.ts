@@ -3,6 +3,9 @@
  *
  * Gives LLM full autonomy to manage trade exits dynamically while enforcing
  * unbreakable safety rules. The LLM can optimize exits based on:
+ */
+import { openaiProxyClient } from './openai-proxy-client';
+/**
  * - Market condition changes
  * - Skill-level progression goals
  * - Risk factor shifts
@@ -94,25 +97,13 @@ export interface ExitSafetyCheck {
 }
 
 class LLMExitOptimizer {
-  private apiKey: string;
   private model: string = 'gpt-4o';
-  private endpoint: string = 'https://api.openai.com/v1/chat/completions';
-  private enabled: boolean = false;
+  private enabled: boolean = true;
   private callCount: number = 0;
   private readonly MAX_TOKENS_PER_EXIT = 300;
 
   constructor() {
-    this.apiKey = typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env.VITE_OPENAI_API_KEY || ''
-      : process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
-
-    this.enabled = !!this.apiKey;
-
-    if (this.enabled) {
-      console.log('[LLM Exit Optimizer] 🎯 Layer 6 initialized - Dynamic Exit Management ENABLED');
-    } else {
-      console.warn('[LLM Exit Optimizer] No API key, exit optimization disabled');
-    }
+    console.log('[LLM Exit Optimizer] 🎯 Layer 6 initialized (using Netlify proxy)');
   }
 
   isEnabled(): boolean {
@@ -501,35 +492,25 @@ IMPORTANT:
    * Call GPT-4o API
    */
   private async callGPT4o(prompt: string): Promise<string> {
-    const response = await fetch(this.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert exit management system for forex trading. Analyze trades and recommend optimal exit strategies.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: this.MAX_TOKENS_PER_EXIT,
-        temperature: 0.3
-      })
+    const response = await openaiProxyClient.chat({
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert exit management system for forex trading. Analyze trades and recommend optimal exit strategies.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      model: this.model,
+      temperature: 0.3,
+      max_tokens: this.MAX_TOKENS_PER_EXIT,
+      requestType: 'layer-6-exit-optimization',
+      endpoint: 'llm-exit-optimizer'
     });
 
-    if (!response.ok) {
-      throw new Error(`GPT-4o API error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.choices[0].message.content;
+    return response.choices[0].message.content;
   }
 
   /**

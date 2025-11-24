@@ -55,21 +55,10 @@ interface SelectedPairResult {
 }
 
 class LLMPairSelector {
-  private apiKey: string;
-  private enabled: boolean = false;
+  private enabled: boolean = true;
 
   constructor() {
-    this.apiKey = typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env.VITE_OPENAI_API_KEY || ''
-      : process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
-
-    this.enabled = !!this.apiKey;
-
-    if (this.enabled) {
-      console.log('[LLM Pair Selector] Initialized with GPT-4o');
-    } else {
-      console.warn('[LLM Pair Selector] No API key found, using fallback logic');
-    }
+    console.log('[LLM Pair Selector] Initialized with GPT-4o (using Netlify proxy)');
   }
 
   async selectPairForDay(userId: string): Promise<SelectedPairResult> {

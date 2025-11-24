@@ -116,11 +116,11 @@ Confidence: ${triggerConfidence}%
 
 MARKET SNAPSHOT:
 Symbol: ${snapshot.symbol}
-Price: ${currentCandle.close.toFixed(5)}
-VWAP: ${snapshot.indicators.vwap.toFixed(5)}
-EMA20: ${snapshot.indicators.ema20.toFixed(5)}
-EMA50: ${snapshot.indicators.ema50.toFixed(5)}
-ATR: ${snapshot.indicators.atr.toFixed(5)}
+Price: ${currentCandle?.close?.toFixed(5) || 'N/A'}
+VWAP: ${snapshot.indicators?.vwap?.toFixed(5) || 'N/A'}
+EMA20: ${snapshot.indicators?.ema20?.toFixed(5) || 'N/A'}
+EMA50: ${snapshot.indicators?.ema50?.toFixed(5) || 'N/A'}
+ATR: ${snapshot.indicators?.atr?.toFixed(5) || 'N/A'}
 
 PRICE ACTION (last 5 candles):
 ${recentCandles.map((c, i) => {
