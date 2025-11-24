@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Layers Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #0f0;
+        }
+        .log {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #0f0;
+            background: #2a2a2a;
+        }
+        .error {
+            border-left-color: #f00;
+            color: #f88;
+        }
+        .success {
+            border-left-color: #0f0;
+            color: #0f0;
+        }
+        .warning {
+            border-left-color: #ff0;
+            color: #ff0;
+        }
+        #logs {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background: #0f0;
+            border: none;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        .stats {
+            margin: 20px 0;
+            padding: 10px;
+            background: #2a2a2a;
+            border: 2px solid #0f0;
+        }
+    </style>
+</head>
+<body>
+    <h1>LLM 5-Layer System Test</h1>
+
+    <button id="testBtn" onclick="runTest()">Start Test</button>
+    <button onclick="clearLogs()">Clear Logs</button>
+
+    <div class="stats" id="stats">
+        <div>Status: <span id="status">Ready</span></div>
+        <div>Layer 1: <span id="layer1">⏳</span></div>
+        <div>Layer 2: <span id="layer2">⏳</span></div>
+        <div>Layer 3: <span id="layer3">⏳</span></div>
+        <div>Layer 4: <span id="layer4">⏳</span></div>
+        <div>Layer 5: <span id="layer5">⏳</span></div>
+    </div>
+
+    <div id="logs"></div>
+
+    <script type="module">
+        const SUPABASE_URL = 'https://nzisgxdlydihlwsvonfy.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56aXNneGRseWRpaGx3c3ZvbmZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1OTU1NDAsImV4cCI6MjA3NTE3MTU0MH0.ZK6iWNbmb0BR5ZhzWQrTaZR_09Z0ls5Og9dFpmcuh7M';
+
+        function log(message, type = 'log') {
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            document.getElementById('logs').prepend(div);
+            console.log(message);
+        }
+
+        function updateStatus(status) {
+            document.getElementById('status').textContent = status;
+        }
+
+        function updateLayer(layer, status) {
+            const element = document.getElementById(`layer${layer}`);
+            element.textContent = status;
+        }
+
+        window.clearLogs = function() {
+            document.getElementById('logs').innerHTML = '';
+        }
+
+        window.runTest = async function() {
+            const btn = document.getElementById('testBtn');
+            btn.disabled = true;
+            updateStatus('Testing...');
+
+            // Reset layer status
+            for (let i = 1; i <= 5; i++) {
+                updateLayer(i, '⏳');
+            }
+
+            try {
+                log('🚀 Starting LLM Layer Test', 'success');
+
+                // Test authentication first
+                log('Step 1: Testing authentication...');
+                const authResponse = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON_KEY
+                    },
+                    body: JSON.stringify({
+                        email: 'admin@pipnosis.com',
+                        password: 'Pipnosis2024!'
+                    })
+                });
+
+                if (!authResponse.ok) {
+                    throw new Error('Authentication failed - check credentials');
+                }
+
+                const authData = await authResponse.json();
+                const token = authData.access_token;
+                log('✅ Authentication successful', 'success');
+
+                // Test Layer 2 - Setup Quality (simplest test)
+                log('\nStep 2: Testing Layer 2 (Setup Quality)...');
+                updateLayer(2, '🔄');
+
+                const layer2Payload = {
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are a setup quality analyst. Be honest and critical.'
+                        },
+                        {
+                            role: 'user',
+                            content: 'Score this setup: EURUSD bullish, 50 EMA above 200 EMA, RSI 65, clean support at 1.0850. Rate 0-100 and respond with JSON: {"quality_score": 75, "reasoning": "test"}'
+                        }
+                    ],
+                    model: 'gpt-4o',
+                    temperature: 0.3,
+                    max_tokens: 500,
+                    requestType: 'test-layer-2',
+                    endpoint: 'test'
+                };
+
+                const layer2Response = await fetch('https://pipnosis.com/.netlify/functions/openai-chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(layer2Payload)
+                });
+
+                if (!layer2Response.ok) {
+                    const errorData = await layer2Response.json();
+                    log(`❌ Layer 2 FAILED: ${JSON.stringify(errorData)}`, 'error');
+                    updateLayer(2, '❌');
+                    throw new Error(`Layer 2 failed: ${errorData.error}`);
+                }
+
+                const layer2Data = await layer2Response.json();
+                log(`✅ Layer 2 SUCCESS: ${layer2Data.usage.total_tokens} tokens`, 'success');
+                log(`   Response: ${layer2Data.choices[0].message.content.substring(0, 100)}...`);
+                updateLayer(2, '✅');
+
+                // Test Layer 3 - Mistake Prevention
+                log('\nStep 3: Testing Layer 3 (Mistake Prevention)...');
+                updateLayer(3, '🔄');
+
+                const layer3Payload = {
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are a mistake prevention system. Be ruthless.'
+                        },
+                        {
+                            role: 'user',
+                            content: 'Check for mistakes: Recent losses on GBPUSD: 2 in last 5 trades. Current setup: GBPUSD long. Respond with JSON: {"risk_assessment": "medium", "recommendation": "allow"}'
+                        }
+                    ],
+                    model: 'gpt-4o',
+                    temperature: 0.3,
+                    max_tokens: 500,
+                    requestType: 'test-layer-3',
+                    endpoint: 'test'
+                };
+
+                const layer3Response = await fetch('https://pipnosis.com/.netlify/functions/openai-chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(layer3Payload)
+                });
+
+                if (!layer3Response.ok) {
+                    const errorData = await layer3Response.json();
+                    log(`❌ Layer 3 FAILED: ${JSON.stringify(errorData)}`, 'error');
+                    updateLayer(3, '❌');
+                    throw new Error(`Layer 3 failed: ${errorData.error}`);
+                }
+
+                const layer3Data = await layer3Response.json();
+                log(`✅ Layer 3 SUCCESS: ${layer3Data.usage.total_tokens} tokens`, 'success');
+                updateLayer(3, '✅');
+
+                // Test Layer 4 - Confidence Calibration
+                log('\nStep 4: Testing Layer 4 (Confidence Calibration)...');
+                updateLayer(4, '🔄');
+
+                const layer4Payload = {
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are a confidence calibrator. Be data-driven.'
+                        },
+                        {
+                            role: 'user',
+                            content: 'Calibrate confidence: Initial 75%, historical accuracy 60-80 bucket: 65%. Respond with JSON: {"calibrated_confidence": 70, "recommendation": "decrease"}'
+                        }
+                    ],
+                    model: 'gpt-4o',
+                    temperature: 0.3,
+                    max_tokens: 500,
+                    requestType: 'test-layer-4',
+                    endpoint: 'test'
+                };
+
+                const layer4Response = await fetch('https://pipnosis.com/.netlify/functions/openai-chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(layer4Payload)
+                });
+
+                if (!layer4Response.ok) {
+                    const errorData = await layer4Response.json();
+                    log(`❌ Layer 4 FAILED: ${JSON.stringify(errorData)}`, 'error');
+                    updateLayer(4, '❌');
+                    throw new Error(`Layer 4 failed: ${errorData.error}`);
+                }
+
+                const layer4Data = await layer4Response.json();
+                log(`✅ Layer 4 SUCCESS: ${layer4Data.usage.total_tokens} tokens`, 'success');
+                updateLayer(4, '✅');
+
+                // Summary
+                log('\n🎉 ALL LAYERS PASSED!', 'success');
+                log(`Total tokens used: ${(layer2Data.usage?.total_tokens || 0) + (layer3Data.usage?.total_tokens || 0) + (layer4Data.usage?.total_tokens || 0)}`);
+                updateStatus('✅ All Tests Passed');
+
+            } catch (error) {
+                log(`\n❌ TEST FAILED: ${error.message}`, 'error');
+                updateStatus('❌ Failed');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        log('Test page loaded. Click "Start Test" to verify LLM layers.', 'success');
+    </script>
+</body>
+</html>
