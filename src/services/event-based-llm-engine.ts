@@ -311,7 +311,11 @@ class EventBasedLLMEngine {
       const regimeResult = await llmRegimeValidator.validateRegime(
         snapshot,
         trigger.type,
-        trigger.confidence
+        trigger.confidence,
+        undefined,        // skillContext (can be added later)
+        this.userId || undefined,
+        this.sessionId || undefined,
+        false             // isBacktest = false for live goal sessions
       );
       const layer1Duration = Date.now() - layer1Start;
       totalTokens += 200;
@@ -366,7 +370,11 @@ class EventBasedLLMEngine {
         trigger.type,
         trigger.confidence,
         regimeResult,
-        65
+        65,
+        undefined,        // skillContext
+        this.userId || undefined,
+        this.sessionId || undefined,
+        false             // isBacktest
       );
       const layer2Duration = Date.now() - layer2Start;
       totalTokens += 300;
@@ -421,7 +429,10 @@ class EventBasedLLMEngine {
         snapshot,
         trigger.type,
         regimeResult,
-        qualityResult
+        qualityResult,
+        undefined,        // skillContext
+        this.sessionId || undefined,
+        false             // isBacktest
       );
       const layer3Duration = Date.now() - layer3Start;
       totalTokens += 300;
@@ -480,7 +491,10 @@ class EventBasedLLMEngine {
           regimeQuality: regimeResult.confidence_in_regime,
           setupQuality: qualityResult.quality_score,
           riskLevel: mistakeResult.risk_level
-        }
+        },
+        undefined,        // skillContext
+        this.sessionId || undefined,
+        false             // isBacktest
       );
       const layer4Duration = Date.now() - layer4Start;
       totalTokens += 200;

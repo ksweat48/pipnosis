@@ -286,7 +286,46 @@ class SmartGoalSessionManager {
       aiReasoning: countdown.originalDecision.reasoning
     });
 
-    console.log(`[Smart Goal] Trade executed: ${trade.symbol} ${trade.direction} @ ${trade.entryPrice.toFixed(5)}`);
+    // Persist trade to database
+    const session = this.activeSessions.get(sessionId);
+    if (session) {
+      const direction = countdown.action === 'enter_long' ? 'buy' : 'sell';
+
+      // Insert to goal_session_trades
+      await supabase.from('goal_session_trades').insert({
+        goal_session_id: sessionId,
+        trade_id: trade.id,
+        symbol: countdown.symbol,
+        direction,
+        entry_price: adjustment.adjustedEntry,
+        stop_loss: adjustment.adjustedStop,
+        take_profit: adjustment.adjustedTarget,
+        position_size: 0.01,
+        status: 'open',
+        opened_at: new Date().toISOString()
+      });
+
+      // Insert to trade_history (with goal_session_id link)
+      await supabase.from('trade_history').insert({
+        id: trade.id,
+        user_id: session.userId,
+        goal_session_id: sessionId,
+        symbol: countdown.symbol,
+        position_type: direction,
+        lot_size: 0.01,
+        entry_price: adjustment.adjustedEntry,
+        exit_price: direction === 'buy' ? adjustment.adjustedTarget : adjustment.adjustedStop,
+        stop_loss: adjustment.adjustedStop,
+        take_profit: adjustment.adjustedTarget,
+        profit_loss: 0,
+        opened_at: new Date().toISOString(),
+        closed_at: new Date().toISOString(),
+        strategy_name: 'Smart Goal - Event LLM',
+        notes: countdown.originalDecision.reasoning
+      }).select();
+    }
+
+    console.log(`[Smart Goal] Trade executed and persisted: ${trade.symbol} ${trade.direction} @ ${trade.entryPrice.toFixed(5)}`)
 
     setTimeout(async () => {
       await this.simulateTradeExit(sessionId, trade.id);
@@ -302,8 +341,36 @@ class SmartGoalSessionManager {
 
     const exitPrice = isWin ? trade.takeProfit : trade.stopLoss;
     const exitReason = isWin ? 'Take profit hit' : 'Stop loss hit';
+    const closeReasonDB = isWin ? 'take_profit' : 'stop_loss';
+
+    // Calculate P&L
+    const profitLoss = trade.direction === 'buy'
+      ? (exitPrice - trade.entryPrice) * trade.positionSize * 100000
+      : (trade.entryPrice - exitPrice) * trade.positionSize * 100000;
 
     localMemoryLayer.closeTrade(sessionId, tradeId, exitPrice, exitReason);
+
+    // Update goal_session_trades
+    await supabase
+      .from('goal_session_trades')
+      .update({
+        exit_price: exitPrice,
+        profit_loss: profitLoss,
+        status: 'closed',
+        closed_at: new Date().toISOString()
+      })
+      .eq('trade_id', tradeId);
+
+    // Update trade_history
+    await supabase
+      .from('trade_history')
+      .update({
+        exit_price: exitPrice,
+        profit_loss: profitLoss,
+        closed_at: new Date().toISOString(),
+        close_reason: closeReasonDB
+      })
+      .eq('id', tradeId);
 
     await supabaseSummaryWriter.writeTradeCompletionSummary(
       sessionId,
@@ -311,7 +378,7 @@ class SmartGoalSessionManager {
       trade
     );
 
-    console.log(`[Smart Goal] Trade closed: ${trade.symbol} ${trade.outcome} - ${exitReason}`);
+    console.log(`[Smart Goal] Trade closed and persisted: ${trade.symbol} ${trade.outcome} - ${exitReason} (P&L: $${profitLoss.toFixed(2)})`);
 
     const goalProgress = localMemoryLayer.getGoalProgress(sessionId);
     if (goalProgress && goalProgress.progressPercent >= 100) {
