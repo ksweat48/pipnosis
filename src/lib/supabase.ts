@@ -12,7 +12,8 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Missing Supabase environment variables');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+// Create Supabase client with request logging
+const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
@@ -24,6 +25,33 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   global: {
     headers: {
       'x-client-info': 'pipnosis-trading-v1'
+    },
+    fetch: (url, options = {}) => {
+      // Log all Supabase requests
+      console.log('[Supabase Request]', {
+        url: url.toString(),
+        method: options.method || 'GET',
+        headers: options.headers
+      });
+
+      // Make the actual request
+      return fetch(url, options).then(response => {
+        // Log response status
+        if (!response.ok) {
+          console.error('[Supabase Error]', {
+            url: url.toString(),
+            status: response.status,
+            statusText: response.statusText
+          });
+        }
+        return response;
+      }).catch(error => {
+        console.error('[Supabase Request Failed]', {
+          url: url.toString(),
+          error: error.message
+        });
+        throw error;
+      });
     }
   },
   realtime: {
@@ -32,6 +60,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     }
   }
 });
+
+export const supabase = supabaseClient;
 
 // Admin role check helper
 export async function isCurrentUserAdmin(): Promise<boolean> {

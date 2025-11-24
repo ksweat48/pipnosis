@@ -7,6 +7,20 @@ import { errorHandler } from '@/lib/error-handler';
 import App from './App.tsx';
 import './index.css';
 
+// CRITICAL DEBUG: Log application startup
+console.log('\n%c🚀 PIPNOSIS APPLICATION STARTING', 'background: #4CAF50; color: white; font-size: 16px; font-weight: bold; padding: 10px;');
+console.log('%c⏰ Timestamp:', 'font-weight: bold;', new Date().toISOString());
+console.log('%c🌍 Environment:', 'font-weight: bold;', {
+  mode: import.meta.env.MODE,
+  prod: import.meta.env.PROD,
+  dev: import.meta.env.DEV
+});
+console.log('%c📦 Supabase Config:', 'font-weight: bold;', {
+  url: import.meta.env.VITE_SUPABASE_URL ? '✓ Set' : '❌ Missing',
+  key: import.meta.env.VITE_SUPABASE_ANON_KEY ? '✓ Set' : '❌ Missing'
+});
+console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n', 'color: #4CAF50;');
+
 // Initialize logging and utilities only in development
 if (!import.meta.env.PROD) {
   // Load logger and utilities only in dev mode
@@ -82,6 +96,14 @@ if (typeof window !== 'undefined') {
 window.addEventListener('unhandledrejection', (event) => {
   const reason = event.reason?.message || event.reason?.toString() || '';
 
+  // Log ALL unhandled rejections for debugging
+  console.error('🔴 UNHANDLED PROMISE REJECTION:', {
+    reason: event.reason,
+    message: reason,
+    stack: event.reason?.stack,
+    timestamp: new Date().toISOString()
+  });
+
   if (
     reason.includes('ERR_NETWORK_CHANGED') ||
     reason.includes('ERR_CONNECTION_RESET') ||
@@ -115,6 +137,16 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 window.addEventListener('error', (event) => {
+  // Log ALL errors for debugging
+  console.error('🔴 GLOBAL ERROR:', {
+    message: event.message,
+    filename: event.filename,
+    lineno: event.lineno,
+    colno: event.colno,
+    error: event.error,
+    timestamp: new Date().toISOString()
+  });
+
   if (errorHandler.isWebContainerError(event.error)) {
     event.preventDefault();
     errorHandler.handleWebContainerTimeout(event.error);
