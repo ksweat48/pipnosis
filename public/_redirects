@@ -1,10 +1,4 @@
 # Netlify redirects file
 
-# Netlify Functions - must come first
-/.netlify/functions/*  /.netlify/functions/:splat  200
-
-# API routes should not be redirected
-/api/*  /api/:splat  200
-
 # SPA fallback - catch all remaining routes and serve index.html
 /*    /index.html   200
