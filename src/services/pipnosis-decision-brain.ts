@@ -582,24 +582,29 @@ class PipnosisDecisionBrain {
     regimeResult: any,
     qualityResult: any
   ): Promise<TradeDecision> {
+    // Ensure we have valid numeric values for all indicators
+    const currentPrice = context.currentPrice;
+    const indicators = context.snapshot.indicators || {};
+
     const llmSnapshot: LLMMarketSnapshot = {
       symbol: context.symbol,
       timeframes: {
-        [context.timeframe]: {
-          currentPrice: context.currentPrice,
-          ema9: context.snapshot.indicators.ema9 || context.currentPrice,
-          ema21: context.snapshot.indicators.ema21 || context.currentPrice,
-          ema50: context.snapshot.indicators.ema50 || context.currentPrice,
-          rsi: context.snapshot.indicators.rsi || 50,
-          atr: context.snapshot.indicators.atr || context.currentPrice * 0.001,
-          vwap: context.snapshot.indicators.vwap || context.currentPrice,
+        // Use standardized timeframe key (M15, M5, H1, etc.)
+        'M15': {
+          currentPrice: currentPrice,
+          ema9: typeof indicators.ema9 === 'number' && !isNaN(indicators.ema9) ? indicators.ema9 : currentPrice,
+          ema21: typeof indicators.ema21 === 'number' && !isNaN(indicators.ema21) ? indicators.ema21 : currentPrice,
+          ema50: typeof indicators.ema50 === 'number' && !isNaN(indicators.ema50) ? indicators.ema50 : currentPrice,
+          rsi: typeof indicators.rsi === 'number' && !isNaN(indicators.rsi) ? indicators.rsi : 50,
+          atr: typeof indicators.atr === 'number' && !isNaN(indicators.atr) && indicators.atr > 0 ? indicators.atr : currentPrice * 0.001,
+          vwap: typeof indicators.vwap === 'number' && !isNaN(indicators.vwap) && indicators.vwap > 0 ? indicators.vwap : currentPrice,
           trend: context.snapshot.trend || 'sideways',
           volatility: context.snapshot.volatility || 'medium'
         }
       },
-      recentPriceAction: `${context.snapshot.trend || 'neutral'} trend`,
-      openPositions: context.sessionContext.openPositions,
-      accountExposure: context.sessionContext.currentExposure
+      recentPriceAction: context.snapshot.trend ? `${context.snapshot.trend} trend` : 'Analyzing market conditions',
+      openPositions: typeof context.sessionContext.openPositions === 'number' ? context.sessionContext.openPositions : 0,
+      accountExposure: typeof context.sessionContext.currentExposure === 'number' ? context.sessionContext.currentExposure : 0
     };
 
     const goalContext = context.sessionContext.goalProgress ? {

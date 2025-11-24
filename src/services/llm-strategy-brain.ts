@@ -9,6 +9,8 @@
 import { PIPNOSIS_CORE_RULES, PipnosisCoreRules } from '../lib/pipnosis-core-rules';
 import { llmContextEnricher, type EnrichedContext } from './llm-context-enricher';
 import { openAIClient } from './openai-client';
+import { validateAndNormalizeSnapshot, getBestTimeframe } from '../utils/snapshotValidator';
+import type { MarketSnapshot as ValidatedMarketSnapshot } from '../utils/snapshotValidator';
 
 export interface MarketSnapshot {
   symbol: string;
@@ -112,19 +114,28 @@ class GPT4Provider extends LLMProvider {
     userId?: string,
     skillContext?: any
   ): Promise<LLMTradeDecision> {
+    // Validate and normalize snapshot before processing
+    let normalizedSnapshot: ValidatedMarketSnapshot;
+    try {
+      normalizedSnapshot = validateAndNormalizeSnapshot(snapshot);
+    } catch (error) {
+      console.error('[GPT-4 Provider] Snapshot validation failed:', error);
+      throw error;
+    }
+
     const systemPrompt = this.buildSystemPrompt();
 
     let enrichedContext: EnrichedContext | null = null;
     if (userId) {
       enrichedContext = await llmContextEnricher.enrichDecisionContext(
         userId,
-        snapshot.symbol,
+        normalizedSnapshot.symbol,
         75,
-        snapshot.timeframes
+        normalizedSnapshot.timeframes
       );
     }
 
-    const userPrompt = this.buildUserPrompt(snapshot, goalContext, history, enrichedContext, skillContext);
+    const userPrompt = this.buildUserPrompt(normalizedSnapshot, goalContext, history, enrichedContext, skillContext);
 
     try {
       const response = await openAIClient.chat(
@@ -160,14 +171,21 @@ class GPT4Provider extends LLMProvider {
   }
 
   private buildUserPrompt(
-    snapshot: MarketSnapshot,
+    snapshot: ValidatedMarketSnapshot,
     goalContext?: GoalContext,
     history?: RelevantHistory,
     enrichedContext?: EnrichedContext | null,
     skillContext?: any
   ): string {
-    const primaryTF = 'M15';
-    const tfData = snapshot.timeframes[primaryTF];
+    // Get the best available timeframe (snapshot is already validated)
+    const bestTF = getBestTimeframe(snapshot);
+
+    if (!bestTF) {
+      throw new Error('[LLM Strategy Brain] No valid timeframe data in validated snapshot');
+    }
+
+    const primaryTF = bestTF.key;
+    const tfData = bestTF.data;
 
     let prompt = `Analyze this short-term trading opportunity:
 
@@ -184,9 +202,11 @@ Primary Timeframe: ${primaryTF}
 
 MULTI-TIMEFRAME CONTEXT:`;
 
+    // Iterate other validated timeframes
     for (const [tf, data] of Object.entries(snapshot.timeframes)) {
       if (tf !== primaryTF) {
-        prompt += `\n${tf}: Trend=${data.trend}, RSI=${data.rsi.toFixed(1)}, Price vs VWAP=${((data.currentPrice - data.vwap) / data.vwap * 100).toFixed(2)}%`;
+        const priceVsVwap = ((data.currentPrice - data.vwap) / data.vwap * 100).toFixed(2);
+        prompt += `\n${tf}: Trend=${data.trend}, RSI=${data.rsi.toFixed(1)}, Price vs VWAP=${priceVsVwap}%`;
       }
     }
 
@@ -463,18 +483,48 @@ class LLMStrategyBrain {
     console.log('[LLM Strategy Brain] 🔧 FALLBACK MODE: Using simple rule-based logic');
     console.log('  Note: This is NOT the AI engine - just basic technical analysis');
 
-    const primaryTF = 'M15';
-    const tfData = snapshot.timeframes[primaryTF];
-
-    if (!tfData) {
-      console.log('[Fallback] ❌ Insufficient timeframe data - NO TRADE');
+    // Validate snapshot has timeframe data
+    if (!snapshot.timeframes || Object.keys(snapshot.timeframes).length === 0) {
+      console.log('[Fallback] ❌ No timeframe data available - NO TRADE');
       return {
         action: 'no_trade',
         confidence: 0,
-        reasoning: 'Insufficient market data for decision',
-        riskAssessment: 'Unable to assess risk without complete data',
+        reasoning: 'No timeframe data available in snapshot',
+        riskAssessment: 'Unable to assess risk without market data',
         setupType: 'No Setup',
-        keyFactors: ['Missing market data'],
+        keyFactors: ['Missing timeframe data'],
+        expectedDurationMinutes: 120
+      };
+    }
+
+    // Try preferred timeframes, fallback to first available
+    const preferredTimeframes = ['M15', '15m', 'M5', '5m', 'H1', '1h'];
+    let primaryTF: string | null = null;
+
+    for (const tf of preferredTimeframes) {
+      if (snapshot.timeframes[tf]) {
+        primaryTF = tf;
+        break;
+      }
+    }
+
+    if (!primaryTF) {
+      primaryTF = Object.keys(snapshot.timeframes)[0];
+    }
+
+    const tfData = snapshot.timeframes[primaryTF];
+
+    if (!tfData || typeof tfData.currentPrice !== 'number') {
+      console.log('[Fallback] ❌ Invalid timeframe data - NO TRADE');
+      console.log(`  Available: ${Object.keys(snapshot.timeframes).join(', ')}`);
+      console.log(`  Selected: ${primaryTF}, Data: ${JSON.stringify(tfData)}`);
+      return {
+        action: 'no_trade',
+        confidence: 0,
+        reasoning: 'Invalid or incomplete timeframe data',
+        riskAssessment: 'Unable to assess risk without valid price data',
+        setupType: 'No Setup',
+        keyFactors: ['Invalid market data'],
         expectedDurationMinutes: 120
       };
     }
