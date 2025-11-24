@@ -174,6 +174,36 @@ async function handleRequest(event: any, startTime: number) {
       };
     }
 
+    // VALIDATE MESSAGE CONTENT
+    for (let i = 0; i < body.messages.length; i++) {
+      const msg = body.messages[i];
+      if (msg.content === null || msg.content === undefined) {
+        console.error(`[OpenAI Proxy] ERROR - messages[${i}].content is ${msg.content}`);
+        console.error(`[OpenAI Proxy] Full message:`, JSON.stringify(msg));
+        console.error(`[OpenAI Proxy] RequestType: ${body.requestType}`);
+        return {
+          statusCode: 400,
+          body: JSON.stringify({
+            error: 'Invalid request: message content cannot be null or undefined',
+            messageIndex: i,
+            requestType: body.requestType
+          })
+        };
+      }
+      if (typeof msg.content !== 'string') {
+        console.error(`[OpenAI Proxy] ERROR - messages[${i}].content is type ${typeof msg.content}, not string`);
+        console.error(`[OpenAI Proxy] Content value:`, msg.content);
+        return {
+          statusCode: 400,
+          body: JSON.stringify({
+            error: 'Invalid request: message content must be a string',
+            messageIndex: i,
+            contentType: typeof msg.content
+          })
+        };
+      }
+    }
+
     const requestPayload = {
       model: body.model || 'gpt-4o-mini',
       messages: body.messages,

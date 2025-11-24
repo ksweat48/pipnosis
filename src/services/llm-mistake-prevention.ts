@@ -266,6 +266,8 @@ Respond in this EXACT JSON format (no markdown):
 }
 
 Be RUTHLESS. When in doubt, BLOCK. Protecting capital is priority #1.`;
+
+    return prompt;
   }
 
   private async callGPT4o(prompt: string): Promise<string> {

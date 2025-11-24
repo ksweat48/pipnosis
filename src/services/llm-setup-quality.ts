@@ -158,6 +158,8 @@ Respond in this EXACT JSON format (no markdown):
 }
 
 Be honest and critical. Score below ${threshold} = REJECT.`;
+
+    return prompt;
   }
 
   private async callGPT4o(prompt: string): Promise<string> {

@@ -348,6 +348,8 @@ Respond in this EXACT JSON format (no markdown):
 }
 
 Be data-driven. Trust historical accuracy over predictions.`;
+
+    return prompt;
   }
 
   private async callGPT4o(prompt: string): Promise<string> {
