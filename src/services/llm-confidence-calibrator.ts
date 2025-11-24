@@ -1,5 +1,9 @@
 import { supabase } from '../lib/supabase';
 import { openaiProxyClient } from './openai-proxy-client';
+import { llmCostOptimizer } from './llm-cost-optimizer';
+import { llmResponseCache } from './llm-response-cache';
+import { buildCompressedCalibrationPrompt } from './llm-prompt-compressor';
+import { calculateCost } from '../config/llm-optimization-config';
 
 export interface ConfidenceCalibrationResult {
   original_confidence: number;
@@ -23,12 +27,11 @@ export interface ConfidenceCalibrationResult {
 }
 
 class LLMConfidenceCalibrator {
-  private model: string = 'gpt-4o';
   private enabled: boolean = true;
   private callCount: number = 0;
 
   constructor() {
-    console.log('[LLM Confidence Calibrator] 🎯 Layer 4 initialized (using Netlify proxy)');
+    console.log('[LLM Confidence Calibrator] 🎯 Layer 4 initialized (optimized mode)');
   }
 
   isEnabled(): boolean {
@@ -45,7 +48,9 @@ class LLMConfidenceCalibrator {
       setupQuality: number;
       riskLevel: string;
     },
-    skillContext?: any
+    skillContext?: any,
+    sessionId?: string,
+    isBacktest?: boolean
   ): Promise<ConfidenceCalibrationResult> {
     if (!this.enabled) {
       return this.createFallbackCalibration(userId, symbol, originalConfidence);
@@ -62,16 +67,70 @@ class LLMConfidenceCalibrator {
       const historicalAccuracy = await this.getHistoricalAccuracyAtLevel(userId, symbol, originalConfidence);
       const recentPerformance = await this.getRecentPerformanceContext(userId);
 
-      const prompt = this.buildCalibrationPrompt(
+      // Check cache first (1 hour TTL)
+      const cacheContext = {
+        orig: Math.floor(originalConfidence / 5) * 5,
+        hist: Math.floor(historicalAccuracy / 10) * 10,
+        overconf: recentPerformance.overconfidenceTrend,
+      };
+
+      const cached = llmResponseCache.get<ConfidenceCalibrationResult>('layer4_calibrator', cacheContext);
+      if (cached) {
+        console.log('[LLM Layer 4] 💾 Cache hit - skipping API call');
+        cached.learningMode = isLearningMode;
+        cached.totalHistoricalTrades = totalHistoricalTrades;
+        return cached;
+      }
+
+      // Select optimal model
+      const model = llmCostOptimizer.selectModel('layer4_calibrator', { isBacktest });
+
+      // Check rate limits
+      const canProceed = await llmCostOptimizer.canMakeRequest(model);
+      if (!canProceed) {
+        console.warn('[LLM Layer 4] Rate limit reached, using fallback');
+        return this.createFallbackCalibration(userId, symbol, originalConfidence);
+      }
+
+      // Build compressed prompt
+      const prompt = buildCompressedCalibrationPrompt(
         originalConfidence,
-        setupContext,
         historicalAccuracy,
-        recentPerformance,
-        skillContext
+        recentPerformance.overconfidenceTrend,
+        skillContext ? {
+          lvl: skillContext.currentLevel,
+          tgt: skillContext.targetLevel,
+          wr_gap: skillContext.gaps?.winRateGap || 0,
+          pf_gap: skillContext.gaps?.profitFactorGap || 0,
+          cons_gap: skillContext.gaps?.consistencyGap || 0,
+          wr: skillContext.currentPerformance?.winRate || 0,
+        } : undefined
       );
 
-      const response = await this.callGPT4o(prompt);
-      const rawResult = this.parseCalibrationResult(response, originalConfidence);
+      // Call LLM
+      const response = await this.callLLM(prompt, model);
+      const rawResult = this.parseCalibrationResult(response.content, originalConfidence);
+
+      // Track usage
+      llmCostOptimizer.trackRequest(model);
+      this.callCount++;
+
+      // Calculate and log cost
+      const cost = calculateCost(model, response.usage.prompt_tokens, response.usage.completion_tokens);
+      console.log(`[LLM Layer 4] Model: ${model}, Tokens: ${response.usage.total_tokens}, Cost: $${cost.toFixed(4)}`);
+
+      if (sessionId) {
+        await llmCostOptimizer.logCost(
+          userId,
+          sessionId,
+          'layer4_calibrator',
+          model,
+          response.usage.prompt_tokens,
+          response.usage.completion_tokens,
+          cost,
+          { orig: originalConfidence, calibrated: rawResult.calibrated_confidence }
+        );
+      }
 
       // Apply Learning Mode vs Mature Mode rules
       const result = this.applyModeLimits(
@@ -81,7 +140,9 @@ class LLMConfidenceCalibrator {
         totalHistoricalTrades
       );
 
-      this.callCount++;
+      // Cache result
+      llmResponseCache.set('layer4_calibrator', cacheContext, result);
+
       const duration = Date.now() - startTime;
 
       const adjustment = result.calibrated_confidence - originalConfidence;
@@ -352,23 +413,26 @@ Be data-driven. Trust historical accuracy over predictions.`;
     return prompt;
   }
 
-  private async callGPT4o(prompt: string): Promise<string> {
+  private async callLLM(prompt: string, model: 'gpt-4o' | 'gpt-4o-mini'): Promise<{ content: string; usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } }> {
     const response = await openaiProxyClient.chat({
       messages: [
         {
           role: 'system',
-          content: 'You are a statistical calibration expert. Adjust predictions to match historical reality. Be data-driven and precise.'
+          content: 'Statistical calibration. Match historical reality. Data-driven.'
         },
         { role: 'user', content: prompt }
       ],
-      model: this.model,
+      model: model,
       temperature: 0.1,
-      max_tokens: 400,
+      max_tokens: 150,
       requestType: 'layer-4-confidence-calibration',
       endpoint: 'llm-confidence-calibrator'
     });
 
-    return response.choices[0]?.message?.content || '';
+    return {
+      content: response.choices[0]?.message?.content || '',
+      usage: response.usage
+    };
   }
 
   private parseCalibrationResult(content: string, originalConfidence: number): ConfidenceCalibrationResult {
