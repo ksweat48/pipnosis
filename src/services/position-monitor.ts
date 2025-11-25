@@ -26,7 +26,7 @@ class PositionMonitorService {
   start() {
     if (this.isRunning) return;
 
-    console.log('[PositionMonitor] Starting position monitor service with adaptive polling');
+    logger.debug(LogCategory.POSITION_MONITOR, ' Starting position monitor service with adaptive polling');
     this.isRunning = true;
 
     this.monitorPositions();
@@ -49,7 +49,7 @@ class PositionMonitorService {
     }
     this.isRunning = false;
     this.criticalSymbols.clear();
-    console.log('[PositionMonitor] Stopped position monitor service');
+    logger.debug(LogCategory.POSITION_MONITOR, ' Stopped position monitor service');
   }
 
   async monitorPositions() {
@@ -270,7 +270,7 @@ class PositionMonitorService {
 
   private async fillPendingOrder(order: MonitoredPosition, fillPrice: number) {
     try {
-      console.log(`[PositionMonitor] Filling pending order ${order.id} at ${fillPrice}`);
+      logger.debug(LogCategory.POSITION_MONITOR, ` Filling pending order ${order.id} at ${fillPrice}`);
 
       await supabase
         .from('simulated_positions')
@@ -295,7 +295,7 @@ class PositionMonitorService {
           description: `Limit order filled: ${order.position_type} ${order.symbol} ${order.lot_size} lots at ${fillPrice}`
         });
 
-      console.log(`[PositionMonitor] Order ${order.id} filled successfully`);
+      logger.debug(LogCategory.POSITION_MONITOR, ` Order ${order.id} filled successfully`);
     } catch (error) {
       console.error(`[PositionMonitor] Failed to fill order ${order.id}:`, error);
     }
@@ -307,7 +307,7 @@ class PositionMonitorService {
     reason: 'stop_loss' | 'take_profit'
   ) {
     try {
-      console.log(`[PositionMonitor] Auto-closing position ${position.id} due to ${reason}`);
+      logger.debug(LogCategory.POSITION_MONITOR, ` Auto-closing position ${position.id} due to ${reason}`);
 
       const pnl = simulatedTradingService.calculatePnL(
         position.position_type,
@@ -336,7 +336,7 @@ class PositionMonitorService {
         .maybeSingle();
 
       if (goalTrade) {
-        console.log(`[PositionMonitor] Syncing closure to goal_session_trade ${goalTrade.id}`);
+        logger.debug(LogCategory.POSITION_MONITOR, ` Syncing closure to goal_session_trade ${goalTrade.id}`);
         await supabase
           .from('goal_session_trades')
           .update({
@@ -412,7 +412,7 @@ class PositionMonitorService {
           ai_analyzed: false
         });
 
-      console.log(`[PositionMonitor] Position ${position.id} closed with P&L: $${pnl.toFixed(2)}`);
+      logger.debug(LogCategory.POSITION_MONITOR, ` Position ${position.id} closed with P&L: $${pnl.toFixed(2)}`);
     } catch (error) {
       console.error(`[PositionMonitor] Failed to auto-close position ${position.id}:`, error);
     }

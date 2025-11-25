@@ -2,7 +2,6 @@ import { supabase } from '@/lib/supabase';
 import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
 import { getTimeframeMinutes, CandleData } from '@/services/candle-data-service';
 import { emergencyPricePoller } from '@/services/emergency-price-poller';
-import { logger, LogCategory } from '@/lib/logger';
 
 interface CandleState {
   time: number;
@@ -118,7 +117,7 @@ class BackgroundCandleAggregator {
         return;
       }
 
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` ✓ Saved ${symbol} ${timeframe} candle at ${openTime.toISOString()} (${candle.tickCount} ticks)`);
+      console.log(`[BackgroundAggregator] ✓ Saved ${symbol} ${timeframe} candle at ${openTime.toISOString()} (${candle.tickCount} ticks)`);
     } catch (error) {
       console.error(`[BackgroundAggregator] Error saving ${symbol} ${timeframe}:`, error);
     }
@@ -220,7 +219,7 @@ class BackgroundCandleAggregator {
 
       if (!existingState || existingState.startTime !== candleTime) {
         if (existingState && existingState.startTime < candleTime) {
-          logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` ${symbol} ${timeframe} - Candle period completed, saving and starting new`);
+          console.log(`[BackgroundAggregator] ${symbol} ${timeframe} - Candle period completed, saving and starting new`);
           this.queueCandleForSave(symbol, timeframe, existingState);
         } else if (existingState && existingState.startTime > candleTime) {
           console.warn(`[BackgroundAggregator] ${symbol} ${timeframe} - Received old price, ignoring`);
@@ -261,25 +260,25 @@ class BackgroundCandleAggregator {
       return;
     }
 
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🚀 Starting in hybrid mode: Live ticks + Database validation');
+    console.log('[BackgroundAggregator] 🚀 Starting in hybrid mode: Live ticks + Database validation');
 
     // Check if server-side aggregation is active FIRST
     const serverSideActive = await this.checkServerSideAggregation();
 
     if (serverSideActive) {
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ✅ Server-side candle aggregation detected and active');
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 📊 Browser-based aggregation running in monitoring mode only');
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🎯 Candles will continue to be collected even when browser is closed');
+      console.log('[BackgroundAggregator] ✅ Server-side candle aggregation detected and active');
+      console.log('[BackgroundAggregator] 📊 Browser-based aggregation running in monitoring mode only');
+      console.log('[BackgroundAggregator] 🎯 Candles will continue to be collected even when browser is closed');
     } else {
       console.warn('[BackgroundAggregator] ⚠️ Server-side aggregation not detected');
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔄 Running in legacy browser-based mode');
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ⚠️ Candles will only be collected while browser is open');
+      console.log('[BackgroundAggregator] 🔄 Running in legacy browser-based mode');
+      console.log('[BackgroundAggregator] ⚠️ Candles will only be collected while browser is open');
     }
 
     // Check database status with improved logic
     const dataStatus = await this.checkDatabaseStatus();
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Database status: ${dataStatus.status}`);
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Records found: ${dataStatus.recordCount}, Age: ${dataStatus.ageSeconds}s`);
+    console.log(`[BackgroundAggregator] Database status: ${dataStatus.status}`);
+    console.log(`[BackgroundAggregator] Records found: ${dataStatus.recordCount}, Age: ${dataStatus.ageSeconds}s`);
 
     // Only activate emergency poller if truly needed
     if (dataStatus.needsEmergencyMode) {
@@ -291,9 +290,9 @@ class BackgroundCandleAggregator {
         this.processNewPrice(price.symbol, price.bid, price.ask, price.timestamp);
       });
     } else if (dataStatus.status === 'stale') {
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ⚠️ Data is stale, but within acceptable range - monitoring...');
+      console.log('[BackgroundAggregator] ⚠️ Data is stale, but within acceptable range - monitoring...');
     } else {
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ✅ Database has recent data - relying on server-side polling');
+      console.log('[BackgroundAggregator] ✅ Database has recent data - relying on server-side polling');
     }
 
     // Clear any stale in-memory state
@@ -301,18 +300,18 @@ class BackgroundCandleAggregator {
     this.saveQueue = [];
     this.lastMessageTime = null;
     this.reconnectAttempts = 0;
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🧹 Cleared all in-memory candle state');
+    console.log('[BackgroundAggregator] 🧹 Cleared all in-memory candle state');
 
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🚀 Starting background candle aggregation for all pairs and timeframes...');
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔄 Auto-reconnection enabled for persistent operation');
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ✨ Building fresh candles from live data only');
+    console.log('[BackgroundAggregator] 🚀 Starting background candle aggregation for all pairs and timeframes...');
+    console.log('[BackgroundAggregator] 🔄 Auto-reconnection enabled for persistent operation');
+    console.log('[BackgroundAggregator] ✨ Building fresh candles from live data only');
 
     await this.initializeCurrentCandles();
     await this.setupRealtimeSubscription();
     this.startHealthMonitoring();
     this.startCandleFinalizer();
 
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Monitoring ${FOREX_PAIRS.length} pairs across ${ALL_TIMEFRAMES.length} timeframes`);
+    console.log(`[BackgroundAggregator] Monitoring ${FOREX_PAIRS.length} pairs across ${ALL_TIMEFRAMES.length} timeframes`);
   }
 
   private startCandleFinalizer(): void {
@@ -320,7 +319,7 @@ class BackgroundCandleAggregator {
       clearInterval(this.candleFinalizerInterval);
     }
 
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🕐 Starting candle finalizer (checks every 60s for missing candles)');
+    console.log('[BackgroundAggregator] 🕐 Starting candle finalizer (checks every 60s for missing candles)');
 
     this.candleFinalizerInterval = setInterval(async () => {
       await this.checkAndFinalizeMissingCandles();
@@ -350,7 +349,7 @@ class BackgroundCandleAggregator {
 
           // Only fill if the missing candle time is within the last hour (to avoid excessive backfilling)
           if (now - missingCandleTime < 3600000) {
-            logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` 🔧 Detected missing candle for ${symbol} ${timeframe} at ${new Date(missingCandleTime).toISOString()}`);
+            console.log(`[BackgroundAggregator] 🔧 Detected missing candle for ${symbol} ${timeframe} at ${new Date(missingCandleTime).toISOString()}`);
 
             // Create a flat candle using the last known price
             const flatCandle: CandleState = {
@@ -367,13 +366,13 @@ class BackgroundCandleAggregator {
             // Save this flat candle
             this.queueCandleForSave(symbol, timeframe, flatCandle);
 
-            logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` ✓ Created flat candle for ${symbol} ${timeframe} using price ${lastPrice}`);
+            console.log(`[BackgroundAggregator] ✓ Created flat candle for ${symbol} ${timeframe} using price ${lastPrice}`);
           }
         }
 
         // Check if current forming candle should be finalized (1 minute grace period)
         if (existingState && existingState.startTime < currentCandleTime - 60000) {
-          logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` ⏰ Auto-finalizing ${symbol} ${timeframe} candle (grace period expired)`);
+          console.log(`[BackgroundAggregator] ⏰ Auto-finalizing ${symbol} ${timeframe} candle (grace period expired)`);
           this.queueCandleForSave(symbol, timeframe, existingState);
           this.candleStates.delete(key);
         }
@@ -446,7 +445,7 @@ class BackgroundCandleAggregator {
       }
 
       const ageSeconds = (Date.now() - new Date(data.created_at).getTime()) / 1000;
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Most recent: ${data.symbol} at ${new Date(data.created_at).toISOString()} (${Math.round(ageSeconds)}s ago)`);
+      console.log(`[BackgroundAggregator] Most recent: ${data.symbol} at ${new Date(data.created_at).toISOString()} (${Math.round(ageSeconds)}s ago)`);
 
       // Market is closed - don't trigger emergency mode
       if (!isMarketOpen) {
@@ -506,12 +505,12 @@ class BackgroundCandleAggregator {
         .maybeSingle();
 
       if (error) {
-        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Server-side aggregation check: table not found or error', error.message);
+        console.log('[BackgroundAggregator] Server-side aggregation check: table not found or error', error.message);
         return false;
       }
 
       if (!data) {
-        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Server-side aggregation check: no candle state data found');
+        console.log('[BackgroundAggregator] Server-side aggregation check: no candle state data found');
         return false;
       }
 
@@ -519,10 +518,10 @@ class BackgroundCandleAggregator {
       const ageSeconds = (Date.now() - lastUpdate) / 1000;
 
       if (ageSeconds < 60) {
-        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Server-side aggregation active (last update ${Math.round(ageSeconds)}s ago)`);
+        console.log(`[BackgroundAggregator] Server-side aggregation active (last update ${Math.round(ageSeconds)}s ago)`);
         return true;
       } else {
-        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Server-side aggregation stale (last update ${Math.round(ageSeconds)}s ago)`);
+        console.log(`[BackgroundAggregator] Server-side aggregation stale (last update ${Math.round(ageSeconds)}s ago)`);
         return false;
       }
     } catch (error) {
@@ -534,7 +533,7 @@ class BackgroundCandleAggregator {
   private async setupRealtimeSubscription(): Promise<void> {
     // Prevent multiple simultaneous connection attempts
     if (this.isConnecting) {
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Already connecting, skipping duplicate attempt');
+      console.log('[BackgroundAggregator] Already connecting, skipping duplicate attempt');
       return;
     }
 
@@ -547,7 +546,7 @@ class BackgroundCandleAggregator {
     // Rate limit reconnection attempts
     const timeSinceLastAttempt = Date.now() - this.lastReconnectAttemptTime;
     if (timeSinceLastAttempt < this.MIN_RECONNECT_INTERVAL_MS) {
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Rate limiting: ${timeSinceLastAttempt}ms since last attempt, waiting...`);
+      console.log(`[BackgroundAggregator] Rate limiting: ${timeSinceLastAttempt}ms since last attempt, waiting...`);
       return;
     }
 
@@ -556,11 +555,11 @@ class BackgroundCandleAggregator {
       this.connectionState = 'connecting';
       this.lastReconnectAttemptTime = Date.now();
 
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Setting up realtime subscription...');
+      console.log('[BackgroundAggregator] Setting up realtime subscription...');
 
       // Clean up existing subscription properly
       if (this.subscription) {
-        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Cleaning up existing subscription');
+        console.log('[BackgroundAggregator] Cleaning up existing subscription');
         try {
           await this.subscription.unsubscribe();
         } catch (cleanupError) {
@@ -594,7 +593,7 @@ class BackgroundCandleAggregator {
           }
         )
         .subscribe((status, err) => {
-          logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Subscription status:', status);
+          console.log('[BackgroundAggregator] Subscription status:', status);
 
           if (status === 'SUBSCRIBED') {
             this.isRunning = true;
@@ -602,7 +601,7 @@ class BackgroundCandleAggregator {
             this.connectionState = 'connected';
             this.reconnectAttempts = 0;
             this.lastMessageTime = new Date();
-            logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ✅ Successfully subscribed to realtime_prices');
+            console.log('[BackgroundAggregator] ✅ Successfully subscribed to realtime_prices');
           } else if (status === 'CHANNEL_ERROR') {
             console.error('[BackgroundAggregator] ❌ Channel error:', err);
             this.isConnecting = false;
@@ -633,7 +632,7 @@ class BackgroundCandleAggregator {
   private handleConnectionError(): void {
     // Prevent recursive calls
     if (this.isConnecting) {
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Already attempting to connect, ignoring error');
+      console.log('[BackgroundAggregator] Already attempting to connect, ignoring error');
       return;
     }
 
@@ -666,7 +665,7 @@ class BackgroundCandleAggregator {
     );
 
     this.reconnectTimeout = setTimeout(async () => {
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` 🔌 Reconnecting (attempt ${this.reconnectAttempts})...`);
+      console.log(`[BackgroundAggregator] 🔌 Reconnecting (attempt ${this.reconnectAttempts})...`);
       this.reconnectTimeout = null;
       await this.setupRealtimeSubscription();
     }, delay);
@@ -702,7 +701,7 @@ class BackgroundCandleAggregator {
         'connection may be stale'
       );
 
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔄 Forcing reconnection due to stale connection...');
+      console.log('[BackgroundAggregator] 🔄 Forcing reconnection due to stale connection...');
       this.handleConnectionError();
     } else {
       console.log(
@@ -715,9 +714,9 @@ class BackgroundCandleAggregator {
 
   private async initializeCurrentCandles(): Promise<void> {
     this.isInitializing = true;
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Initializing current candle states from recent prices...');
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' This ensures live candles start from the current period only');
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔇 Tick notifications paused during initialization');
+    console.log('[BackgroundAggregator] Initializing current candle states from recent prices...');
+    console.log('[BackgroundAggregator] This ensures live candles start from the current period only');
+    console.log('[BackgroundAggregator] 🔇 Tick notifications paused during initialization');
 
     for (const symbol of FOREX_PAIRS) {
       try {
@@ -760,20 +759,20 @@ class BackgroundCandleAggregator {
           );
         }
 
-        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` ✓ Initialized ${symbol} with ${recentPrices.length} recent prices (last ${lookbackMinutes} min)`);
+        console.log(`[BackgroundAggregator] ✓ Initialized ${symbol} with ${recentPrices.length} recent prices (last ${lookbackMinutes} min)`);
 
         const currentStates = this.getAllCurrentCandles(symbol);
         if (currentStates.size > 0) {
-          logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `   Active candles for ${symbol}: ${Array.from(currentStates.keys()).join(', ')}`);
+          console.log(`[BackgroundAggregator]   Active candles for ${symbol}: ${Array.from(currentStates.keys()).join(', ')}`);
         }
       } catch (error) {
         console.error(`[BackgroundAggregator] Error initializing ${symbol}:`, error);
       }
     }
 
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ✅ Current candle states initialized for all pairs');
+    console.log('[BackgroundAggregator] ✅ Current candle states initialized for all pairs');
     this.isInitializing = false;
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔊 Tick notifications resumed');
+    console.log('[BackgroundAggregator] 🔊 Tick notifications resumed');
   }
 
   async stop(): Promise<void> {
@@ -781,7 +780,7 @@ class BackgroundCandleAggregator {
       return;
     }
 
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Stopping background aggregation...');
+    console.log('[BackgroundAggregator] Stopping background aggregation...');
 
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
@@ -818,7 +817,7 @@ class BackgroundCandleAggregator {
     this.lastMessageTime = null;
     this.reconnectAttempts = 0;
 
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ✅ Stopped');
+    console.log('[BackgroundAggregator] ✅ Stopped');
   }
 
   getCurrentCandle(symbol: string, timeframe: Timeframe): CandleData | null {
@@ -861,10 +860,10 @@ class BackgroundCandleAggregator {
 
   onTickUpdate(callback: (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => void): () => void {
     this.tickListeners.add(callback);
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Tick listener registered (${this.tickListeners.size} total)`);
+    console.log(`[BackgroundAggregator] Tick listener registered (${this.tickListeners.size} total)`);
     return () => {
       this.tickListeners.delete(callback);
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Tick listener removed (${this.tickListeners.size} remaining)`);
+      console.log(`[BackgroundAggregator] Tick listener removed (${this.tickListeners.size} remaining)`);
     };
   }
 
@@ -911,14 +910,14 @@ class BackgroundCandleAggregator {
   }
 
   resetCircuitBreaker(): void {
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Resetting circuit breaker - manual restart enabled');
+    console.log('[BackgroundAggregator] Resetting circuit breaker - manual restart enabled');
     this.circuitBreakerTripped = false;
     this.reconnectAttempts = 0;
     this.connectionState = 'disconnected';
   }
 
   async manualReconnect(): Promise<void> {
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Manual reconnection requested');
+    console.log('[BackgroundAggregator] Manual reconnection requested');
     this.resetCircuitBreaker();
     this.isConnecting = false;
     await this.stop();

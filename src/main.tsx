@@ -7,19 +7,7 @@ import { errorHandler } from '@/lib/error-handler';
 import App from './App.tsx';
 import './index.css';
 
-// CRITICAL DEBUG: Log application startup
-console.log('\n%c🚀 PIPNOSIS APPLICATION STARTING', 'background: #4CAF50; color: white; font-size: 16px; font-weight: bold; padding: 10px;');
-console.log('%c⏰ Timestamp:', 'font-weight: bold;', new Date().toISOString());
-console.log('%c🌍 Environment:', 'font-weight: bold;', {
-  mode: import.meta.env.MODE,
-  prod: import.meta.env.PROD,
-  dev: import.meta.env.DEV
-});
-console.log('%c📦 Supabase Config:', 'font-weight: bold;', {
-  url: import.meta.env.VITE_SUPABASE_URL ? '✓ Set' : '❌ Missing',
-  key: import.meta.env.VITE_SUPABASE_ANON_KEY ? '✓ Set' : '❌ Missing'
-});
-console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n', 'color: #4CAF50;');
+// Application startup (debug info available via logger if needed)
 
 // Initialize logging and utilities only in development
 if (!import.meta.env.PROD) {

@@ -3,6 +3,7 @@ import { getForexMarketStatus } from '@/utils/marketHours';
 import { areFunctionsAvailable, logEnvironmentInfo } from '@/lib/environment';
 import { pollingConfigService, SymbolPriority } from './polling-config-service';
 import { pollingHealthMonitor } from './polling-health-monitor';
+import { logger, LogCategory } from '@/lib/logger';
 
 interface PollStatus {
   symbol: string;
@@ -65,8 +66,8 @@ class GlobalPollingCoordinator {
       return;
     }
 
-    console.log('🚀 Initializing read-only global polling coordinator...');
-    console.log('📊 Reading price data from database (server-side polling handles data collection)');
+    logger.debug(LogCategory.POLLING_COORDINATOR, '🚀 Initializing read-only global polling coordinator...');
+    logger.debug(LogCategory.POLLING_COORDINATOR, '📊 Reading price data from database (server-side polling handles data collection)');
     logEnvironmentInfo();
 
     this.setupVisibilityHandling();
@@ -109,7 +110,7 @@ class GlobalPollingCoordinator {
     }
 
     if (marketStatus.isOpen) {
-      console.log('✅ Market is open, starting read-only database monitoring...');
+      logger.debug(LogCategory.POLLING_COORDINATOR, '✅ Market is open, starting read-only database monitoring...');
       this.isPaused = false;
       this.pauseReason = null;
       this.startAllPolling();
@@ -123,7 +124,7 @@ class GlobalPollingCoordinator {
     this.startMarketStatusMonitoring();
 
     this.initialized = true;
-    console.log(`✅ Read-only polling coordinator initialized for ${this.FOREX_PAIRS.length} pairs`);
+    logger.debug(LogCategory.POLLING_COORDINATOR, `✅ Read-only polling coordinator initialized for ${this.FOREX_PAIRS.length} pairs`);
     console.log('📡 All price data is fetched by server-side cron job');
     console.log('🖥️ Browser only reads from database for UI updates');
     this.notifyListeners();
@@ -151,7 +152,7 @@ class GlobalPollingCoordinator {
       this.verifyPollingHealth();
     });
 
-    console.log('✅ Visibility change handlers installed');
+    logger.debug(LogCategory.POLLING_COORDINATOR, '✅ Visibility change handlers installed');
   }
 
   private startHeartbeatMonitoring(): void {
@@ -172,13 +173,13 @@ class GlobalPollingCoordinator {
 
         if (this.missedHeartbeats >= this.MAX_MISSED_HEARTBEATS) {
           console.error('❌ Multiple missed heartbeats detected - polling may be throttled!');
-          console.log('🔄 Attempting to recover polling...');
+          logger.debug(LogCategory.POLLING_COORDINATOR, '🔄 Attempting to recover polling...');
           this.recoverFromThrottling();
           this.missedHeartbeats = 0;
         }
       } else {
         if (this.missedHeartbeats > 0) {
-          console.log('✅ Heartbeat recovered');
+          logger.debug(LogCategory.POLLING_COORDINATOR, '✅ Heartbeat recovered');
         }
         this.missedHeartbeats = 0;
       }
@@ -209,7 +210,7 @@ class GlobalPollingCoordinator {
     await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second cooldown
     this.startPollingForSymbol(symbol);
 
-    console.log(`✅ [GlobalCoordinator] Recovery initiated for ${symbol}`);
+    logger.debug(LogCategory.POLLING_COORDINATOR, `✅ [GlobalCoordinator] Recovery initiated for ${symbol}`);
   }
 
   private recoverFromThrottling(): void {
@@ -381,7 +382,7 @@ class GlobalPollingCoordinator {
           const bid = parseFloat(data.bid);
           const ask = parseFloat(data.ask);
 
-          console.log(`✅ [${symbol}] Price read from DB: ${bid}/${ask} (${status.priority}, ${status.currentInterval}ms)`);
+          logger.debug(LogCategory.POLLING_COORDINATOR, `✅ [${symbol}] Price read from DB: ${bid}/${ask} (${status.priority}, ${status.currentInterval}ms)`);
           status.lastPrice = { bid, ask };
           status.lastPoll = new Date();
           status.lastSuccessfulPoll = new Date();
@@ -403,7 +404,7 @@ class GlobalPollingCoordinator {
     const interval = setInterval(pollFunction, status.currentInterval);
     this.pollIntervals.set(symbol, interval);
 
-    console.log(`✅ Started read-only polling for ${symbol} (${status.priority} priority, every ${status.currentInterval}ms)`);
+    logger.debug(LogCategory.POLLING_COORDINATOR, `✅ Started read-only polling for ${symbol} (${status.priority} priority, every ${status.currentInterval}ms)`);
   }
 
   private stopPollingForSymbol(symbol: string): void {
@@ -447,7 +448,7 @@ class GlobalPollingCoordinator {
       }
     }, this.MARKET_CHECK_INTERVAL);
 
-    console.log(`✅ Market status monitoring started (checking every ${this.MARKET_CHECK_INTERVAL / 1000}s)`);
+    logger.debug(LogCategory.POLLING_COORDINATOR, `✅ Market status monitoring started (checking every ${this.MARKET_CHECK_INTERVAL / 1000}s)`);
   }
 
   async shutdown(): Promise<void> {
@@ -472,7 +473,7 @@ class GlobalPollingCoordinator {
     this.symbolsWithPositions.clear();
     this.initialized = false;
 
-    console.log('✅ Global polling coordinator shutdown complete');
+    logger.debug(LogCategory.POLLING_COORDINATOR, '✅ Global polling coordinator shutdown complete');
   }
 
   getStatus(): Map<string, PollStatus> {
@@ -576,7 +577,7 @@ class GlobalPollingCoordinator {
   }
 
   restartPolling(): void {
-    console.log('🔄 Restarting all polling...');
+    logger.debug(LogCategory.POLLING_COORDINATOR, '🔄 Restarting all polling...');
     this.stopAllPolling();
 
     setTimeout(() => {

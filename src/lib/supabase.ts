@@ -27,16 +27,7 @@ const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
       'x-client-info': 'pipnosis-trading-v1'
     },
     fetch: (url, options = {}) => {
-      // Log all Supabase requests
-      console.log('[Supabase Request]', {
-        url: url.toString(),
-        method: options.method || 'GET',
-        headers: options.headers
-      });
-
-      // Make the actual request
       return fetch(url, options).then(response => {
-        // Log response status
         if (!response.ok) {
           console.error('[Supabase Error]', {
             url: url.toString(),

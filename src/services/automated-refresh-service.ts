@@ -1,3 +1,4 @@
+import { logger, LogCategory } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
 import { historicalDataService } from '@/services/historical-data-service';
 import { Timeframe } from '@/services/chart-preferences';
@@ -67,7 +68,7 @@ class AutomatedRefreshService {
 
     if (validSymbols.length !== this.config.symbols.length) {
       const removedSymbols = this.config.symbols.filter(s => !validSymbols.includes(s));
-      console.log('[AutoRefresh] Removed unavailable symbols:', removedSymbols.join(', '));
+      logger.debug(LogCategory.AUTO_REFRESH, ' Removed unavailable symbols:', removedSymbols.join(', '));
       this.config.symbols = validSymbols;
       this.saveConfig();
     }
@@ -97,7 +98,7 @@ class AutomatedRefreshService {
       this.stop();
     }
 
-    console.log('[AutoRefresh] Starting automated refresh service');
+    logger.debug(LogCategory.AUTO_REFRESH, ' Starting automated refresh service');
     this.config.enabled = true;
     this.saveConfig();
 
@@ -116,19 +117,19 @@ class AutomatedRefreshService {
 
     this.config.enabled = false;
     this.saveConfig();
-    console.log('[AutoRefresh] Stopped automated refresh service');
+    logger.debug(LogCategory.AUTO_REFRESH, ' Stopped automated refresh service');
   }
 
   private async scheduleNextRefresh() {
     if (this.isRunning) {
-      console.log('[AutoRefresh] Refresh already in progress, skipping');
+      logger.debug(LogCategory.AUTO_REFRESH, ' Refresh already in progress, skipping');
       return;
     }
 
     if (this.config.checkMarketHours) {
       const marketStatus = getForexMarketStatus();
       if (!marketStatus.isOpen) {
-        console.log('[AutoRefresh] Market is closed, skipping refresh');
+        logger.debug(LogCategory.AUTO_REFRESH, ' Market is closed, skipping refresh');
         return;
       }
     }
@@ -136,7 +137,7 @@ class AutomatedRefreshService {
     this.isRunning = true;
 
     try {
-      console.log('[AutoRefresh] Starting scheduled refresh cycle');
+      logger.debug(LogCategory.AUTO_REFRESH, ' Starting scheduled refresh cycle');
       await this.performRefresh();
     } catch (error) {
       console.error('[AutoRefresh] Refresh cycle failed:', error);
@@ -343,13 +344,13 @@ class AutomatedRefreshService {
     this.config.symbols = availableSymbols;
     this.unavailableSymbols.clear();
     this.saveConfig();
-    console.log('[AutoRefresh] Refreshed symbol list:', availableSymbols.join(', '));
+    logger.debug(LogCategory.AUTO_REFRESH, ' Refreshed symbol list:', availableSymbols.join(', '));
   }
 
   public async checkForStaleData() {
     try {
       await supabase.rpc('mark_stale_data');
-      console.log('[AutoRefresh] Checked for stale data');
+      logger.debug(LogCategory.AUTO_REFRESH, ' Checked for stale data');
     } catch (error) {
       console.error('[AutoRefresh] Error checking for stale data:', error);
     }
@@ -370,7 +371,7 @@ export function initializeAutomatedRefresh() {
 }
 
 export async function cleanupStaleSymbolConfigurations() {
-  console.log('[AutoRefresh] Cleaning up stale symbol configurations...');
+  logger.debug(LogCategory.AUTO_REFRESH, ' Cleaning up stale symbol configurations...');
   await automatedRefreshService.refreshSymbolList();
-  console.log('[AutoRefresh] Cleanup complete');
+  logger.debug(LogCategory.AUTO_REFRESH, ' Cleanup complete');
 }
