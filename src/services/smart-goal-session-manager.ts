@@ -24,7 +24,7 @@ export interface SmartGoalSession {
   sessionId: string;
   userId: string;
   config: SmartGoalConfig;
-  status: 'active' | 'paused' | 'completed' | 'failed';
+  status: 'initializing' | 'scanning' | 'trade_pending' | 'in_trade' | 'goal_achieved' | 'expired' | 'user_stopped';
   strategy: {
     targetTradeCount: number;
     avgProfitPerTrade: number;
@@ -58,7 +58,7 @@ class SmartGoalSessionManager {
       sessionId,
       userId,
       config,
-      status: 'active',
+      status: 'scanning',
       strategy: {
         targetTradeCount: breakDown.targetTradeCount,
         avgProfitPerTrade: breakDown.avgProfitPerTrade,
@@ -80,7 +80,7 @@ class SmartGoalSessionManager {
       timeframe: config.timeframe,
       timeframe_hours: this.convertTimeframeToHours(config.timeframe),
       risk_mode: config.riskMode,
-      status: 'active',
+      status: 'scanning',
       starting_balance: accountBalance,
       current_progress: 0,
       progress_percentage: 0,
@@ -176,14 +176,14 @@ class SmartGoalSessionManager {
     const session = this.activeSessions.get(sessionId);
     if (!session) return;
 
-    session.status = 'completed';
+    session.status = 'goal_achieved';
 
     await this.stopLiveEngine(sessionId);
 
     await supabase
       .from('goal_sessions')
       .update({
-        status: 'completed',
+        status: 'goal_achieved',
         end_time: new Date().toISOString()
       })
       .eq('id', sessionId);
@@ -208,9 +208,9 @@ class SmartGoalSessionManager {
 
   pauseSession(sessionId: string): boolean {
     const session = this.activeSessions.get(sessionId);
-    if (!session || session.status !== 'active') return false;
+    if (!session || !['scanning', 'trade_pending'].includes(session.status)) return false;
 
-    session.status = 'paused';
+    session.status = 'user_stopped';
 
     const timer = this.scanTimers.get(sessionId);
     if (timer) {
@@ -224,9 +224,9 @@ class SmartGoalSessionManager {
 
   resumeSession(sessionId: string): boolean {
     const session = this.activeSessions.get(sessionId);
-    if (!session || session.status !== 'paused') return false;
+    if (!session || session.status !== 'user_stopped') return false;
 
-    session.status = 'active';
+    session.status = 'scanning';
     this.scheduleNextScan(sessionId);
 
     console.log(`[Smart Goal] Session ${sessionId} resumed`);
