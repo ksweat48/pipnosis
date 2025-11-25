@@ -364,18 +364,53 @@ JSON: {"act":"no_trade","sl":0,"tp":0,"size":0,"conf":0,"why":"Prompt building e
  * Convert full snapshot to compact format
  */
 export function compressSnapshot(snapshot: any): CompactSnapshot {
-  const currentCandle = snapshot.ohlc?.[snapshot.ohlc.length - 1] || {};
+  // Get the best available timeframe (prefer M15, M5, or H1)
+  const timeframeKeys = Object.keys(snapshot.timeframes || {});
+  let bestTimeframe = null;
+
+  // Priority order for timeframes
+  const priorities = ['M15', '15m', 'M5', '5m', 'H1', '1h', 'M30', '30m'];
+  for (const pref of priorities) {
+    const found = timeframeKeys.find(k =>
+      k === pref || k.toLowerCase() === pref.toLowerCase()
+    );
+    if (found) {
+      bestTimeframe = snapshot.timeframes[found];
+      break;
+    }
+  }
+
+  // Fallback to first available timeframe
+  if (!bestTimeframe && timeframeKeys.length > 0) {
+    bestTimeframe = snapshot.timeframes[timeframeKeys[0]];
+  }
+
+  // Extract data from best timeframe or use fallbacks
+  const price = bestTimeframe?.currentPrice || 0;
+  const ema9 = bestTimeframe?.ema9 || 0;
+  const ema21 = bestTimeframe?.ema21 || 0;
+  const ema50 = bestTimeframe?.ema50 || 0;
+  const vwap = bestTimeframe?.vwap || 0;
+  const atr = bestTimeframe?.atr || 0;
+  const trend = bestTimeframe?.trend || 'unknown';
+  const volatility = bestTimeframe?.volatility || 'unknown';
+
+  // Calculate momentum from EMAs
+  let momentum = 0;
+  if (ema9 && ema21) {
+    momentum = ((ema9 - ema21) / ema21) * 100; // percentage difference
+  }
 
   return {
     sym: snapshot.symbol || '',
-    p: currentCandle.close || 0,
-    tr: snapshot.priceAction?.trend || 'unknown',
-    vol: snapshot.priceAction?.volatility || 'unknown',
-    mom: snapshot.priceAction?.momentum || 0,
-    vw: snapshot.indicators?.vwap || 0,
-    e20: snapshot.indicators?.ema20 || 0,
-    e50: snapshot.indicators?.ema50 || 0,
-    atr: snapshot.indicators?.atr || 0,
+    p: price,
+    tr: trend,
+    vol: volatility,
+    mom: momentum,
+    vw: vwap,
+    e20: ema21,
+    e50: ema50,
+    atr: atr,
     trig: '',
     trig_c: 0,
   };

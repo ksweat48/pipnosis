@@ -597,6 +597,10 @@ class PipnosisDecisionBrain {
     const currentPrice = context.currentPrice;
     const indicators = context.snapshot.indicators || {};
 
+    // Use regime data from Layer 1 if available, otherwise fallback to snapshot
+    const regimeTrend = regimeResult?.detected_regime?.trend || context.snapshot.trend || 'sideways';
+    const regimeVolatility = regimeResult?.detected_regime?.volatility || context.snapshot.volatility || 'medium';
+
     const llmSnapshot: LLMMarketSnapshot = {
       symbol: context.symbol,
       timeframes: {
@@ -609,11 +613,11 @@ class PipnosisDecisionBrain {
           rsi: typeof indicators.rsi === 'number' && !isNaN(indicators.rsi) ? indicators.rsi : 50,
           atr: typeof indicators.atr === 'number' && !isNaN(indicators.atr) && indicators.atr > 0 ? indicators.atr : currentPrice * 0.001,
           vwap: typeof indicators.vwap === 'number' && !isNaN(indicators.vwap) && indicators.vwap > 0 ? indicators.vwap : currentPrice,
-          trend: context.snapshot.trend || 'sideways',
-          volatility: context.snapshot.volatility || 'medium'
+          trend: regimeTrend,
+          volatility: regimeVolatility
         }
       },
-      recentPriceAction: context.snapshot.trend ? `${context.snapshot.trend} trend` : 'Analyzing market conditions',
+      recentPriceAction: `${regimeTrend} trend with ${regimeVolatility} volatility`,
       openPositions: typeof context.sessionContext.openPositions === 'number' ? context.sessionContext.openPositions : 0,
       accountExposure: typeof context.sessionContext.currentExposure === 'number' ? context.sessionContext.currentExposure : 0
     };
@@ -637,10 +641,14 @@ class PipnosisDecisionBrain {
       keyLessons: context.historicalContext.keyLessons || []
     } : undefined;
 
-    // Pass setupQuality to Layer 5 via skillContext
+    // Pass setupQuality, regime data, and risk level to Layer 5 via skillContext
     const enhancedSkillContext = {
       ...context.skillLevelContext,
-      setupQuality: qualityResult.quality_score
+      setupQuality: qualityResult.quality_score,
+      regimeConfidence: regimeResult?.confidence_in_regime || 70,
+      riskLevel: regimeResult?.detected_regime?.risk_level || 'medium',
+      regimeTrend: regimeTrend,
+      regimeVolatility: regimeVolatility
     };
 
     const llmDecision = await llmStrategyBrain.makeDecision(
