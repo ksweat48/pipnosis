@@ -136,6 +136,13 @@ export const MODEL_PRICING = {
 
 export function calculateCost(model: 'gpt-4o' | 'gpt-4o-mini', inputTokens: number, outputTokens: number): number {
   const pricing = MODEL_PRICING[model];
+  if (!pricing) {
+    console.warn(`[calculateCost] Unknown model: ${model}, defaulting to gpt-4o-mini pricing`);
+    const fallbackPricing = MODEL_PRICING['gpt-4o-mini'];
+    const inputCost = (inputTokens / 1_000_000) * fallbackPricing.input;
+    const outputCost = (outputTokens / 1_000_000) * fallbackPricing.output;
+    return inputCost + outputCost;
+  }
   const inputCost = (inputTokens / 1_000_000) * pricing.input;
   const outputCost = (outputTokens / 1_000_000) * pricing.output;
   return inputCost + outputCost;

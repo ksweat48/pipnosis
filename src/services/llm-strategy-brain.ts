@@ -15,6 +15,16 @@ import { llmCostOptimizer } from './llm-cost-optimizer';
 import { compressSnapshot, buildCompressedStrategyPrompt } from './llm-prompt-compressor';
 import { calculateCost } from '../config/llm-optimization-config';
 
+/**
+ * Safe helper to format numbers with toFixed, handling undefined/null gracefully
+ */
+function safeToFixed(value: number | undefined | null, decimals: number, fallback: number = 0): string {
+  if (value === null || value === undefined || isNaN(value)) {
+    return fallback.toFixed(decimals);
+  }
+  return value.toFixed(decimals);
+}
+
 export interface MarketSnapshot {
   symbol: string;
   timeframes: {
@@ -204,7 +214,7 @@ class GPT4Provider extends LLMProvider {
       // Calculate and log cost
       const usage = response.usage || { prompt_tokens: 350, completion_tokens: 150, total_tokens: 500 };
       const cost = calculateCost(model, usage.prompt_tokens, usage.completion_tokens);
-      console.log(`[Layer 5] Model: ${model}, Tokens: ${usage.total_tokens}, Cost: $${cost.toFixed(4)}`);
+      console.log(`[Layer 5] Model: ${model}, Tokens: ${usage.total_tokens}, Cost: $${safeToFixed(cost, 4)}`);
 
       if (userId && sessionId) {
         await llmCostOptimizer.logCost(
@@ -265,11 +275,11 @@ class GPT4Provider extends LLMProvider {
 
 MARKET SNAPSHOT (${snapshot.symbol}):
 Primary Timeframe: ${primaryTF}
-- Current Price: ${(tfData.currentPrice || 0).toFixed(5)}
-- EMA9: ${(tfData.ema9 || 0).toFixed(5)} | EMA21: ${(tfData.ema21 || 0).toFixed(5)} | EMA50: ${(tfData.ema50 || 0).toFixed(5)}
-- RSI: ${(tfData.rsi || 50).toFixed(2)}
-- ATR: ${(tfData.atr || 0).toFixed(5)}
-- VWAP: ${(tfData.vwap || tfData.currentPrice || 0).toFixed(5)}
+- Current Price: ${safeToFixed(tfData.currentPrice, 5)}
+- EMA9: ${safeToFixed(tfData.ema9, 5)} | EMA21: ${safeToFixed(tfData.ema21, 5)} | EMA50: ${safeToFixed(tfData.ema50, 5)}
+- RSI: ${safeToFixed(tfData.rsi, 2, 50)}
+- ATR: ${safeToFixed(tfData.atr, 5)}
+- VWAP: ${safeToFixed(tfData.vwap || tfData.currentPrice, 5)}
 - Trend: ${tfData.trend || 'unknown'}
 - Volatility: ${tfData.volatility || 'medium'}
 - Recent Price Action: ${snapshot.recentPriceAction || 'N/A'}
@@ -288,8 +298,8 @@ MULTI-TIMEFRAME CONTEXT:`;
         if (tf !== primaryTF) {
           console.log(`[DEBUG] Processing timeframe ${tf}:`, JSON.stringify(data));
           const vwap = data.vwap || data.currentPrice || 0;
-          const priceVsVwap = vwap > 0 ? (((data.currentPrice || 0) - vwap) / vwap * 100).toFixed(2) : '0.00';
-          prompt += `\n${tf}: Trend=${data.trend || 'unknown'}, RSI=${(data.rsi || 50).toFixed(1)}, Price vs VWAP=${priceVsVwap}%`;
+          const priceVsVwap = vwap > 0 ? safeToFixed(((data.currentPrice || 0) - vwap) / vwap * 100, 2) : '0.00';
+          prompt += `\n${tf}: Trend=${data.trend || 'unknown'}, RSI=${safeToFixed(data.rsi, 1, 50)}, Price vs VWAP=${priceVsVwap}%`;
         }
       }
       console.log('[DEBUG] ✅ Multi-timeframe section built successfully');
@@ -302,7 +312,7 @@ MULTI-TIMEFRAME CONTEXT:`;
       console.log('[DEBUG] Building exposure section');
       prompt += `\n\nCURRENT EXPOSURE:
 - Open Positions: ${snapshot.openPositions || 0}
-- Account Exposure: ${(snapshot.accountExposure || 0).toFixed(1)}%`;
+- Account Exposure: ${safeToFixed(snapshot.accountExposure, 1)}%`;
       console.log('[DEBUG] ✅ Exposure section built');
     } catch (error) {
       console.error('[DEBUG] ❌ Error building exposure section:', error);
@@ -313,11 +323,11 @@ MULTI-TIMEFRAME CONTEXT:`;
       try {
         console.log('[DEBUG] Building goal context:', JSON.stringify(goalContext));
         prompt += `\n\nGOAL CONTEXT:
-- Target: $${(goalContext.targetAmount || 0).toFixed(2)}
-- Current Profit: $${(goalContext.currentProfit || 0).toFixed(2)} (${(goalContext.progressPercent || 0).toFixed(1)}%)
-- Remaining: $${(goalContext.remainingAmount || 0).toFixed(2)}
+- Target: $${safeToFixed(goalContext.targetAmount, 2)}
+- Current Profit: $${safeToFixed(goalContext.currentProfit, 2)} (${safeToFixed(goalContext.progressPercent, 1)}%)
+- Remaining: $${safeToFixed(goalContext.remainingAmount, 2)}
 - Trades Completed: ${goalContext.tradesCompleted || 0}
-- Avg Profit/Trade: $${(goalContext.avgProfitPerTrade || 0).toFixed(2)}
+- Avg Profit/Trade: $${safeToFixed(goalContext.avgProfitPerTrade, 2)}
 - Session Duration: ${goalContext.sessionDuration || 'N/A'}`;
         console.log('[DEBUG] ✅ Goal context built');
       } catch (error) {
@@ -330,10 +340,10 @@ MULTI-TIMEFRAME CONTEXT:`;
       try {
         console.log('[DEBUG] Building history section:', JSON.stringify(history));
         prompt += `\n\nRECENT PERFORMANCE:
-- Win Rate: ${(history.recentWinRate || 0).toFixed(1)}%
-- Profit Factor: ${(history.recentProfitFactor || 1.0).toFixed(2)}
+- Win Rate: ${safeToFixed(history.recentWinRate, 1)}%
+- Profit Factor: ${safeToFixed(history.recentProfitFactor, 2, 1)}
 - Best Setup: ${history.bestSetupType || 'Unknown'}
-- Avg Duration: ${(history.avgTradeDuration || 0).toFixed(0)} minutes
+- Avg Duration: ${safeToFixed(history.avgTradeDuration, 0)} minutes
 - Key Lessons: ${(history.keyLessons || []).join(', ')}`;
         console.log('[DEBUG] ✅ History section built');
       } catch (error) {
@@ -349,8 +359,8 @@ MULTI-TIMEFRAME CONTEXT:`;
 
         prompt += `\n\nSELF-AWARE AI CONTEXT:
 Historical Performance (${enrichedContext.historicalPerformance?.symbol || 'N/A'}):
-- Recent Win Rate: ${(enrichedContext.historicalPerformance?.recentWinRate || 0).toFixed(1)}%
-- Recent Profit Factor: ${(enrichedContext.historicalPerformance?.recentProfitFactor || 1.0).toFixed(2)}
+- Recent Win Rate: ${safeToFixed(enrichedContext.historicalPerformance?.recentWinRate, 1)}%
+- Recent Profit Factor: ${safeToFixed(enrichedContext.historicalPerformance?.recentProfitFactor, 2, 1)}
 - Trades Analyzed: ${enrichedContext.historicalPerformance?.tradesAnalyzed || 0}
 - Best Setup Type: ${enrichedContext.historicalPerformance?.bestSetupType || 'Unknown'}
 
@@ -359,7 +369,7 @@ LLM-Discovered Insights:`;
         console.log('[DEBUG] Building insights, count:', enrichedContext.llmInsights?.length || 0);
         if (enrichedContext.llmInsights?.length > 0) {
           enrichedContext.llmInsights.slice(0, 3).forEach((insight, i) => {
-            prompt += `\n  ${i + 1}. ${insight.title} (${(insight.confidence || 0).toFixed(0)}% confidence)
+            prompt += `\n  ${i + 1}. ${insight.title} (${safeToFixed(insight.confidence, 0)}% confidence)
      - ${insight.description}
      - Apply when: ${insight.whenToApply}
      - Avoid when: ${insight.whenToAvoid}`;
@@ -372,7 +382,7 @@ LLM-Discovered Insights:`;
         prompt += `\n\nConfidence Calibration:
 - Recommended Threshold: ${enrichedContext.confidenceCalibration?.recommendedThreshold || 70}%
 - Reasoning: ${enrichedContext.confidenceCalibration?.reasoning || 'Default threshold'}
-- Recent Accuracy: ${(enrichedContext.confidenceCalibration?.recentAccuracy || 50).toFixed(1)}%
+- Recent Accuracy: ${safeToFixed(enrichedContext.confidenceCalibration?.recentAccuracy, 1, 50)}%
 
 Strategic Guidance:`;
         (enrichedContext.strategicGuidance || []).forEach(guidance => {
@@ -400,16 +410,16 @@ Current Level: ${skillContext.currentLevel || 'Novice'} (${skillContext.currentL
 Target Level: ${skillContext.targetLevel || 'Intermediate'}
 
 CURRENT PERFORMANCE:
-• Win Rate: ${(skillContext.currentPerformance?.winRate || 0).toFixed(1)}%
-• Profit Factor: ${(skillContext.currentPerformance?.profitFactor || 0).toFixed(2)}
+• Win Rate: ${safeToFixed(skillContext.currentPerformance?.winRate, 1)}%
+• Profit Factor: ${safeToFixed(skillContext.currentPerformance?.profitFactor, 2)}x
 • Total Trades Analyzed: ${skillContext.currentPerformance?.totalTrades || 0}
-• Consistency: ${(skillContext.currentPerformance?.consistency || 0).toFixed(1)}%
+• Consistency: ${safeToFixed(skillContext.currentPerformance?.consistency, 1)}%
 
 REQUIREMENTS TO LEVEL UP:
-• Win Rate Required: ${skillContext.targetRequirements?.minWinRate || 45}% (Gap: ${(skillContext.gaps?.winRateGap || 0) > 0 ? '+' : ''}${(skillContext.gaps?.winRateGap || 0).toFixed(1)}%)
-• Profit Factor Required: ${(skillContext.targetRequirements?.minProfitFactor || 1.2).toFixed(2)} (Gap: ${(skillContext.gaps?.profitFactorGap || 0) > 0 ? '+' : ''}${(skillContext.gaps?.profitFactorGap || 0).toFixed(2)})
+• Win Rate Required: ${skillContext.targetRequirements?.minWinRate || 45}% (Gap: ${(skillContext.gaps?.winRateGap || 0) > 0 ? '+' : ''}${safeToFixed(skillContext.gaps?.winRateGap, 1)}%)
+• Profit Factor Required: ${safeToFixed(skillContext.targetRequirements?.minProfitFactor, 2, 1.2)}x (Gap: ${(skillContext.gaps?.profitFactorGap || 0) > 0 ? '+' : ''}${safeToFixed(skillContext.gaps?.profitFactorGap, 2)})
 • Trades Required: ${skillContext.targetRequirements?.minTrades || 100} (Remaining: ${Math.abs(skillContext.gaps?.tradesGap || 100)})
-• Consistency Required: ${skillContext.targetRequirements?.minConsistency || 70}% (Gap: ${(skillContext.gaps?.consistencyGap || 0) > 0 ? '+' : ''}${(skillContext.gaps?.consistencyGap || 0).toFixed(1)}%)
+• Consistency Required: ${skillContext.targetRequirements?.minConsistency || 70}% (Gap: ${(skillContext.gaps?.consistencyGap || 0) > 0 ? '+' : ''}${safeToFixed(skillContext.gaps?.consistencyGap, 1)}%)
 
 YOUR MISSION:
 Your trading decisions in this session directly affect your ability to level up.
@@ -711,9 +721,9 @@ class LLMStrategyBrain {
     }
 
     console.log('[Fallback] ❌ NO TRADE - Conditions not met');
-    console.log(`  Price vs VWAP: ${(priceVsVwapPercent || 0).toFixed(2)}% (need <0.15%)`);
+    console.log(`  Price vs VWAP: ${safeToFixed(priceVsVwapPercent, 2)}% (need <0.15%)`);
     console.log(`  EMA Aligned: ${emaAligned}, EMA Bearish: ${emaBearish}`);
-    console.log(`  RSI: ${(tfData.rsi || 50).toFixed(1)} (need 45-65 for long, 35-55 for short)`);
+    console.log(`  RSI: ${safeToFixed(tfData.rsi, 1, 50)} (need 45-65 for long, 35-55 for short)`);
 
     return {
       action: 'no_trade',
