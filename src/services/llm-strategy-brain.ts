@@ -249,60 +249,61 @@ class GPT4Provider extends LLMProvider {
 
 MARKET SNAPSHOT (${snapshot.symbol}):
 Primary Timeframe: ${primaryTF}
-- Current Price: ${tfData.currentPrice.toFixed(5)}
-- EMA9: ${tfData.ema9.toFixed(5)} | EMA21: ${tfData.ema21.toFixed(5)} | EMA50: ${tfData.ema50.toFixed(5)}
-- RSI: ${tfData.rsi.toFixed(2)}
-- ATR: ${tfData.atr.toFixed(5)}
-- VWAP: ${tfData.vwap.toFixed(5)}
-- Trend: ${tfData.trend}
-- Volatility: ${tfData.volatility}
-- Recent Price Action: ${snapshot.recentPriceAction}
+- Current Price: ${(tfData.currentPrice || 0).toFixed(5)}
+- EMA9: ${(tfData.ema9 || 0).toFixed(5)} | EMA21: ${(tfData.ema21 || 0).toFixed(5)} | EMA50: ${(tfData.ema50 || 0).toFixed(5)}
+- RSI: ${(tfData.rsi || 50).toFixed(2)}
+- ATR: ${(tfData.atr || 0).toFixed(5)}
+- VWAP: ${(tfData.vwap || tfData.currentPrice || 0).toFixed(5)}
+- Trend: ${tfData.trend || 'unknown'}
+- Volatility: ${tfData.volatility || 'medium'}
+- Recent Price Action: ${snapshot.recentPriceAction || 'N/A'}
 
 MULTI-TIMEFRAME CONTEXT:`;
 
     // Iterate other validated timeframes
     for (const [tf, data] of Object.entries(snapshot.timeframes)) {
       if (tf !== primaryTF) {
-        const priceVsVwap = ((data.currentPrice - data.vwap) / data.vwap * 100).toFixed(2);
-        prompt += `\n${tf}: Trend=${data.trend}, RSI=${data.rsi.toFixed(1)}, Price vs VWAP=${priceVsVwap}%`;
+        const vwap = data.vwap || data.currentPrice || 0;
+        const priceVsVwap = vwap > 0 ? (((data.currentPrice || 0) - vwap) / vwap * 100).toFixed(2) : '0.00';
+        prompt += `\n${tf}: Trend=${data.trend || 'unknown'}, RSI=${(data.rsi || 50).toFixed(1)}, Price vs VWAP=${priceVsVwap}%`;
       }
     }
 
     prompt += `\n\nCURRENT EXPOSURE:
-- Open Positions: ${snapshot.openPositions}
-- Account Exposure: ${snapshot.accountExposure.toFixed(1)}%`;
+- Open Positions: ${snapshot.openPositions || 0}
+- Account Exposure: ${(snapshot.accountExposure || 0).toFixed(1)}%`;
 
     if (goalContext) {
       prompt += `\n\nGOAL CONTEXT:
-- Target: $${goalContext.targetAmount.toFixed(2)}
-- Current Profit: $${goalContext.currentProfit.toFixed(2)} (${goalContext.progressPercent.toFixed(1)}%)
-- Remaining: $${goalContext.remainingAmount.toFixed(2)}
-- Trades Completed: ${goalContext.tradesCompleted}
-- Avg Profit/Trade: $${goalContext.avgProfitPerTrade.toFixed(2)}
-- Session Duration: ${goalContext.sessionDuration}`;
+- Target: $${(goalContext.targetAmount || 0).toFixed(2)}
+- Current Profit: $${(goalContext.currentProfit || 0).toFixed(2)} (${(goalContext.progressPercent || 0).toFixed(1)}%)
+- Remaining: $${(goalContext.remainingAmount || 0).toFixed(2)}
+- Trades Completed: ${goalContext.tradesCompleted || 0}
+- Avg Profit/Trade: $${(goalContext.avgProfitPerTrade || 0).toFixed(2)}
+- Session Duration: ${goalContext.sessionDuration || 'N/A'}`;
     }
 
     if (history) {
       prompt += `\n\nRECENT PERFORMANCE:
-- Win Rate: ${history.recentWinRate.toFixed(1)}%
-- Profit Factor: ${history.recentProfitFactor.toFixed(2)}
-- Best Setup: ${history.bestSetupType}
-- Avg Duration: ${history.avgTradeDuration.toFixed(0)} minutes
-- Key Lessons: ${history.keyLessons.join(', ')}`;
+- Win Rate: ${(history.recentWinRate || 0).toFixed(1)}%
+- Profit Factor: ${(history.recentProfitFactor || 1.0).toFixed(2)}
+- Best Setup: ${history.bestSetupType || 'Unknown'}
+- Avg Duration: ${(history.avgTradeDuration || 0).toFixed(0)} minutes
+- Key Lessons: ${(history.keyLessons || []).join(', ')}`;
     }
 
     if (enrichedContext) {
       prompt += `\n\nSELF-AWARE AI CONTEXT:
-Historical Performance (${enrichedContext.historicalPerformance.symbol}):
-- Recent Win Rate: ${enrichedContext.historicalPerformance.recentWinRate.toFixed(1)}%
-- Recent Profit Factor: ${enrichedContext.historicalPerformance.recentProfitFactor.toFixed(2)}
-- Trades Analyzed: ${enrichedContext.historicalPerformance.tradesAnalyzed}
-- Best Setup Type: ${enrichedContext.historicalPerformance.bestSetupType}
+Historical Performance (${enrichedContext.historicalPerformance?.symbol || 'N/A'}):
+- Recent Win Rate: ${(enrichedContext.historicalPerformance?.recentWinRate || 0).toFixed(1)}%
+- Recent Profit Factor: ${(enrichedContext.historicalPerformance?.recentProfitFactor || 1.0).toFixed(2)}
+- Trades Analyzed: ${enrichedContext.historicalPerformance?.tradesAnalyzed || 0}
+- Best Setup Type: ${enrichedContext.historicalPerformance?.bestSetupType || 'Unknown'}
 
 LLM-Discovered Insights:`;
-      if (enrichedContext.llmInsights.length > 0) {
+      if (enrichedContext.llmInsights?.length > 0) {
         enrichedContext.llmInsights.slice(0, 3).forEach((insight, i) => {
-          prompt += `\n  ${i + 1}. ${insight.title} (${insight.confidence.toFixed(0)}% confidence)
+          prompt += `\n  ${i + 1}. ${insight.title} (${(insight.confidence || 0).toFixed(0)}% confidence)
      - ${insight.description}
      - Apply when: ${insight.whenToApply}
      - Avoid when: ${insight.whenToAvoid}`;
@@ -312,12 +313,12 @@ LLM-Discovered Insights:`;
       }
 
       prompt += `\n\nConfidence Calibration:
-- Recommended Threshold: ${enrichedContext.confidenceCalibration.recommendedThreshold}%
-- Reasoning: ${enrichedContext.confidenceCalibration.reasoning}
-- Recent Accuracy: ${enrichedContext.confidenceCalibration.recentAccuracy.toFixed(1)}%
+- Recommended Threshold: ${enrichedContext.confidenceCalibration?.recommendedThreshold || 70}%
+- Reasoning: ${enrichedContext.confidenceCalibration?.reasoning || 'Default threshold'}
+- Recent Accuracy: ${(enrichedContext.confidenceCalibration?.recentAccuracy || 50).toFixed(1)}%
 
 Strategic Guidance:`;
-      enrichedContext.strategicGuidance.forEach(guidance => {
+      (enrichedContext.strategicGuidance || []).forEach(guidance => {
         prompt += `\n- ${guidance}`;
       });
     }
@@ -327,20 +328,20 @@ Strategic Guidance:`;
 AI SKILL LEVEL PROGRESSION OBJECTIVE
 ═══════════════════════════════════════════════════════════════════
 
-Current Level: ${skillContext.currentLevel} (${skillContext.currentLevelNumeric}/6)
-Target Level: ${skillContext.targetLevel}
+Current Level: ${skillContext.currentLevel || 'Novice'} (${skillContext.currentLevelNumeric || 1}/6)
+Target Level: ${skillContext.targetLevel || 'Intermediate'}
 
 CURRENT PERFORMANCE:
-• Win Rate: ${skillContext.currentPerformance.winRate.toFixed(1)}%
-• Profit Factor: ${skillContext.currentPerformance.profitFactor.toFixed(2)}
-• Total Trades Analyzed: ${skillContext.currentPerformance.totalTrades}
-• Consistency: ${skillContext.currentPerformance.consistency.toFixed(1)}%
+• Win Rate: ${(skillContext.currentPerformance?.winRate || 0).toFixed(1)}%
+• Profit Factor: ${(skillContext.currentPerformance?.profitFactor || 0).toFixed(2)}
+• Total Trades Analyzed: ${skillContext.currentPerformance?.totalTrades || 0}
+• Consistency: ${(skillContext.currentPerformance?.consistency || 0).toFixed(1)}%
 
 REQUIREMENTS TO LEVEL UP:
-• Win Rate Required: ${skillContext.targetRequirements.minWinRate}% (Gap: ${skillContext.gaps.winRateGap > 0 ? '+' : ''}${skillContext.gaps.winRateGap.toFixed(1)}%)
-• Profit Factor Required: ${skillContext.targetRequirements.minProfitFactor.toFixed(2)} (Gap: ${skillContext.gaps.profitFactorGap > 0 ? '+' : ''}${skillContext.gaps.profitFactorGap.toFixed(2)})
-• Trades Required: ${skillContext.targetRequirements.minTrades} (Remaining: ${Math.abs(skillContext.gaps.tradesGap)})
-• Consistency Required: ${skillContext.targetRequirements.minConsistency}% (Gap: ${skillContext.gaps.consistencyGap > 0 ? '+' : ''}${skillContext.gaps.consistencyGap.toFixed(1)}%)
+• Win Rate Required: ${skillContext.targetRequirements?.minWinRate || 45}% (Gap: ${(skillContext.gaps?.winRateGap || 0) > 0 ? '+' : ''}${(skillContext.gaps?.winRateGap || 0).toFixed(1)}%)
+• Profit Factor Required: ${(skillContext.targetRequirements?.minProfitFactor || 1.2).toFixed(2)} (Gap: ${(skillContext.gaps?.profitFactorGap || 0) > 0 ? '+' : ''}${(skillContext.gaps?.profitFactorGap || 0).toFixed(2)})
+• Trades Required: ${skillContext.targetRequirements?.minTrades || 100} (Remaining: ${Math.abs(skillContext.gaps?.tradesGap || 100)})
+• Consistency Required: ${skillContext.targetRequirements?.minConsistency || 70}% (Gap: ${(skillContext.gaps?.consistencyGap || 0) > 0 ? '+' : ''}${(skillContext.gaps?.consistencyGap || 0).toFixed(1)}%)
 
 YOUR MISSION:
 Your trading decisions in this session directly affect your ability to level up.
@@ -637,9 +638,9 @@ class LLMStrategyBrain {
     }
 
     console.log('[Fallback] ❌ NO TRADE - Conditions not met');
-    console.log(`  Price vs VWAP: ${priceVsVwapPercent.toFixed(2)}% (need <0.15%)`);
+    console.log(`  Price vs VWAP: ${(priceVsVwapPercent || 0).toFixed(2)}% (need <0.15%)`);
     console.log(`  EMA Aligned: ${emaAligned}, EMA Bearish: ${emaBearish}`);
-    console.log(`  RSI: ${tfData.rsi.toFixed(1)} (need 45-65 for long, 35-55 for short)`);
+    console.log(`  RSI: ${(tfData.rsi || 50).toFixed(1)} (need 45-65 for long, 35-55 for short)`);
 
     return {
       action: 'no_trade',
