@@ -147,13 +147,15 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
   const watchlist = session.watchlist || ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD'];
   const results: ScanResult[] = [];
 
+  console.log(`[Goal Scanner] 🔍 Analyzing ${watchlist.length} symbols for session ${session.id}`);
+
   for (const symbol of watchlist) {
     const { data: candles } = await supabase
-      .from('market_data')
+      .from('forex_candles')
       .select('*')
       .eq('symbol', symbol)
       .eq('timeframe', '15m')
-      .order('timestamp', { ascending: false })
+      .order('open_time', { ascending: false })
       .limit(100);
 
     if (!candles || candles.length < 50) {
@@ -184,6 +186,8 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
     };
 
     if (setup.hasValidSetup) {
+      console.log(`[Goal Scanner] ✅ Valid setup found: ${setup.setupType} on ${symbol} (${setup.confidence}% confidence)`);
+
       const riskAmount = calculateRiskAmount(session);
       const stopDistance = Math.abs(setup.entry - setup.stopLoss);
       const positionSize = stopDistance > 0 ? riskAmount / stopDistance : 0.01;

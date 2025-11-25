@@ -33,7 +33,7 @@ class GoalScannerTrigger {
         throw new Error('Supabase configuration missing');
       }
 
-      console.log('[Scanner Trigger] Invoking goal-session-scanner Edge Function...');
+      // Silently invoke scanner (logging reduced for clean console)
       this.notifyListeners({ isScanning: true, message: 'Calling scanner function...' });
 
       const response = await fetch(
@@ -56,7 +56,10 @@ class GoalScannerTrigger {
       const result = await response.json();
       this.lastScanTime = new Date();
 
-      console.log('[Scanner Trigger] Scan completed:', result);
+      // Only log if there's meaningful activity
+      if (result.scanned > 0) {
+        console.log('[Scanner Trigger] Scan completed:', result);
+      }
       this.notifyListeners({
         isScanning: false,
         message: result.message || 'Scan completed',
@@ -107,19 +110,18 @@ class GoalScannerTrigger {
       const nextScan = session.next_scan_time ? new Date(session.next_scan_time) : null;
 
       if (!nextScan) {
-        console.log('[Scanner Trigger] Session has no next_scan_time, triggering scan...');
+        // Session missing scan time, trigger immediately
         await this.triggerScan(sessionId);
         return true;
       }
 
       if (nextScan <= now) {
-        console.log('[Scanner Trigger] Scan is due, triggering now...');
+        console.log('[Smart Goal] 🔍 Scanning markets for opportunities...');
         await this.triggerScan(sessionId);
         return true;
       }
 
-      const timeUntilScan = nextScan.getTime() - now.getTime();
-      console.log(`[Scanner Trigger] Next scan in ${Math.round(timeUntilScan / 1000)}s`);
+      // Silently wait for next scan (reduced console noise)
       return false;
     } catch (error) {
       console.error('[Scanner Trigger] Error checking scan schedule:', error);
@@ -132,7 +134,7 @@ class GoalScannerTrigger {
       this.stopPolling();
     }
 
-    console.log(`[Scanner Trigger] Starting polling for session ${sessionId} every ${intervalMs}ms`);
+    console.log(`[Smart Goal] ✓ Session monitoring started (scan interval: ${intervalMs/1000}s)`);
 
     this.checkAndTriggerIfNeeded(sessionId);
 
@@ -143,7 +145,7 @@ class GoalScannerTrigger {
 
   stopPolling(): void {
     if (this.pollingInterval) {
-      console.log('[Scanner Trigger] Stopping polling');
+      console.log('[Smart Goal] Session monitoring stopped');
       clearInterval(this.pollingInterval);
       this.pollingInterval = null;
     }

@@ -88,6 +88,7 @@ class SmartGoalSessionManager {
       auto_execute: config.autoExecute,
       watchlist: config.watchlist,
       start_time: session.startTime.toISOString(),
+      next_scan_time: session.nextScanTime.toISOString(),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     });
