@@ -439,16 +439,32 @@ Be data-driven. Trust historical accuracy over predictions.`;
     const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(cleanContent);
 
-    const calibrated = parsed.calibrated_confidence || originalConfidence;
+    // Handle BOTH compressed format and full format
+    // Compressed: {cal, adj, curve}
+    // Full: {calibrated_confidence, adjustment_applied, calibration_curve_type}
+
+    const isCompressed = 'cal' in parsed;
+
+    let calibrated: number;
+    let curveType: string;
+
+    if (isCompressed) {
+      calibrated = parsed.cal || originalConfidence;
+      curveType = parsed.curve || 'balanced';
+    } else {
+      calibrated = parsed.calibrated_confidence || originalConfidence;
+      curveType = parsed.calibration_curve_type || 'balanced';
+    }
+
     const clamped = Math.max(0, Math.min(100, calibrated));
 
     return {
       original_confidence: originalConfidence,
       calibrated_confidence: clamped,
       adjustment_applied: clamped - originalConfidence,
-      calibration_curve_type: parsed.calibration_curve_type || 'balanced',
+      calibration_curve_type: curveType,
       historical_accuracy_at_level: parsed.historical_accuracy_at_level || 50,
-      adjustment_reasoning: parsed.adjustment_reasoning || '',
+      adjustment_reasoning: parsed.adjustment_reasoning || parsed.reasoning || '',
       confidence_bands: parsed.confidence_bands || {
         lower_bound: clamped - 5,
         upper_bound: clamped + 5,

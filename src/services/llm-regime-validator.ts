@@ -242,6 +242,34 @@ Be critical. If regime doesn't match trigger, REJECT immediately.`;
     const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(cleanContent);
 
+    // Handle BOTH compressed format and full format
+    // Compressed: {ok, tr, vol, mom, conf, rec, why}
+    // Full: {regime_ok, detected_regime, confidence_in_regime, recommendation, reasoning}
+
+    const isCompressed = 'ok' in parsed || 'conf' in parsed;
+
+    if (isCompressed) {
+      // Parse compressed format
+      return {
+        regime_ok: parsed.ok ?? false,
+        detected_regime: {
+          trend: parsed.tr || 'sideways',
+          volatility: parsed.vol || 'medium',
+          momentum: parsed.mom || 'weak'
+        },
+        expected_regime: {
+          trend: parsed.exp_tr || 'unknown',
+          volatility: parsed.exp_vol || 'unknown'
+        },
+        validation_details: parsed.details || '',
+        confidence_in_regime: parsed.conf ?? 0,
+        warnings: parsed.warnings || [],
+        recommendation: parsed.rec || 'abort',
+        reasoning: parsed.why || ''
+      };
+    }
+
+    // Parse full format (legacy)
     return {
       regime_ok: parsed.regime_ok ?? false,
       detected_regime: parsed.detected_regime || { trend: 'sideways', volatility: 'medium', momentum: 'weak' },

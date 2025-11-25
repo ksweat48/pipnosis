@@ -236,21 +236,51 @@ Be honest and critical. Score below ${threshold} = REJECT.`;
     const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(cleanContent);
 
-    const qualityScore = parsed.quality_score || 0;
+    // Handle BOTH compressed format and full format
+    // Compressed: {score, entry, timing, ctx, rr, rec, why}
+    // Full: {quality_score, entry_quality, timing_quality, context_quality, risk_reward_potential, recommendation, reasoning}
+
+    const isCompressed = 'score' in parsed || 'ctx' in parsed;
+
+    let qualityScore: number;
+    let entryQuality: number;
+    let timingQuality: number;
+    let contextQuality: number;
+    let riskReward: number;
+    let recommendation: string;
+    let reasoning: string;
+
+    if (isCompressed) {
+      qualityScore = parsed.score || 0;
+      entryQuality = parsed.entry || 0;
+      timingQuality = parsed.timing || 0;
+      contextQuality = parsed.ctx || 0;
+      riskReward = parsed.rr || 1.0;
+      recommendation = parsed.rec || 'reject';
+      reasoning = parsed.why || '';
+    } else {
+      qualityScore = parsed.quality_score || 0;
+      entryQuality = parsed.entry_quality || 0;
+      timingQuality = parsed.timing_quality || 0;
+      contextQuality = parsed.context_quality || 0;
+      riskReward = parsed.risk_reward_potential || 1.0;
+      recommendation = parsed.recommendation || 'reject';
+      reasoning = parsed.reasoning || '';
+    }
 
     return {
       quality_score: qualityScore,
       meets_threshold: qualityScore >= threshold,
       threshold_used: threshold,
-      setup_strengths: parsed.setup_strengths || [],
-      setup_weaknesses: parsed.setup_weaknesses || [],
-      risk_reward_potential: parsed.risk_reward_potential || 1.0,
-      entry_quality: parsed.entry_quality || 0,
-      timing_quality: parsed.timing_quality || 0,
-      context_quality: parsed.context_quality || 0,
-      overall_assessment: parsed.overall_assessment || '',
-      recommendation: parsed.recommendation || 'reject',
-      reasoning: parsed.reasoning || ''
+      setup_strengths: parsed.setup_strengths || parsed.strengths || [],
+      setup_weaknesses: parsed.setup_weaknesses || parsed.weaknesses || [],
+      risk_reward_potential: riskReward,
+      entry_quality: entryQuality,
+      timing_quality: timingQuality,
+      context_quality: contextQuality,
+      overall_assessment: parsed.overall_assessment || parsed.assessment || '',
+      recommendation: recommendation,
+      reasoning: reasoning
     };
   }
 

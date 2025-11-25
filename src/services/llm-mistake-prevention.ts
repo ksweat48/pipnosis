@@ -349,10 +349,33 @@ Be RUTHLESS. When in doubt, BLOCK. Protecting capital is priority #1.`;
     const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(cleanContent);
 
+    // Handle BOTH compressed format and full format
+    // Compressed: {allow, risk, flags, rec}
+    // Full: {allow_trade, risk_level, mistake_flags, recommendation}
+
+    const isCompressed = 'allow' in parsed && !('allow_trade' in parsed);
+
+    let allowTrade: boolean;
+    let riskLevel: string;
+    let mistakeFlags: string[];
+    let recommendation: string;
+
+    if (isCompressed) {
+      allowTrade = parsed.allow ?? true;
+      riskLevel = parsed.risk || 'medium';
+      mistakeFlags = parsed.flags || [];
+      recommendation = parsed.rec || 'allow';
+    } else {
+      allowTrade = parsed.allow_trade ?? true;
+      riskLevel = parsed.risk_level || 'medium';
+      mistakeFlags = parsed.mistake_flags || [];
+      recommendation = parsed.recommendation || 'allow';
+    }
+
     return {
-      allow_trade: parsed.allow_trade ?? true,
-      risk_level: parsed.risk_level || 'medium',
-      mistake_flags: parsed.mistake_flags || [],
+      allow_trade: allowTrade,
+      risk_level: riskLevel,
+      mistake_flags: mistakeFlags,
       similar_losing_patterns_found: parsed.similar_losing_patterns_found || 0,
       correlated_loss_risk: parsed.correlated_loss_risk || false,
       recent_loss_context: {
@@ -361,8 +384,8 @@ Be RUTHLESS. When in doubt, BLOCK. Protecting capital is priority #1.`;
         needs_cooling_off: false
       },
       warnings: parsed.warnings || [],
-      preventive_reasoning: parsed.preventive_reasoning || '',
-      recommendation: parsed.recommendation || 'allow'
+      preventive_reasoning: parsed.preventive_reasoning || parsed.reasoning || '',
+      recommendation: recommendation
     };
   }
 
