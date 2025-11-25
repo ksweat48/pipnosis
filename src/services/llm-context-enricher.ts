@@ -263,33 +263,33 @@ class LLMContextEnricher {
   ): string[] {
     const guidance: string[] = [];
 
-    if (historical.recentWinRate >= 65) {
+    if (historical?.recentWinRate !== undefined && historical.recentWinRate >= 65) {
       guidance.push(`Strong recent performance on ${historical.symbol} (${historical.recentWinRate.toFixed(1)}% WR). Trust your analysis.`);
-    } else if (historical.recentWinRate < 50) {
+    } else if (historical?.recentWinRate !== undefined && historical.recentWinRate < 50) {
       guidance.push(`Recent struggles on ${historical.symbol} (${historical.recentWinRate.toFixed(1)}% WR). Exercise caution.`);
     }
 
-    if (historical.recentProfitFactor >= 1.5) {
+    if (historical?.recentProfitFactor !== undefined && historical.recentProfitFactor >= 1.5) {
       guidance.push(`Excellent profit factor (${historical.recentProfitFactor.toFixed(2)}). Your winners significantly outweigh losses.`);
-    } else if (historical.recentProfitFactor < 1.0) {
+    } else if (historical?.recentProfitFactor !== undefined && historical.recentProfitFactor < 1.0) {
       guidance.push(`Profit factor below 1.0 (${historical.recentProfitFactor.toFixed(2)}). Review risk management.`);
     }
 
-    if (insights.length > 0) {
+    if (insights?.length > 0) {
       guidance.push(`${insights.length} LLM-discovered patterns available. Review before trading.`);
     }
 
-    if (scenario.historicalSuccessRate >= 60) {
+    if (scenario?.historicalSuccessRate !== undefined && scenario.historicalSuccessRate >= 60) {
       guidance.push(`Current market scenario has ${scenario.historicalSuccessRate.toFixed(1)}% historical success. Favorable conditions.`);
     }
 
-    if (calibration.recentAccuracy >= 65) {
+    if (calibration?.recentAccuracy !== undefined && calibration.recentAccuracy >= 65) {
       guidance.push(`Recent confidence calibration is strong (${calibration.recentAccuracy.toFixed(1)}% accurate).`);
-    } else if (calibration.recentAccuracy < 50) {
+    } else if (calibration?.recentAccuracy !== undefined && calibration.recentAccuracy < 50) {
       guidance.push(`Recent confidence calibration needs improvement (${calibration.recentAccuracy.toFixed(1)}% accurate).`);
     }
 
-    if (historical.bestSetupType !== 'Unknown') {
+    if (historical?.bestSetupType && historical.bestSetupType !== 'Unknown') {
       guidance.push(`Best performing setup: ${historical.bestSetupType}. Prioritize similar patterns.`);
     }
 
