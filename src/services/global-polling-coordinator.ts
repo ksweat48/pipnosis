@@ -83,7 +83,7 @@ class GlobalPollingCoordinator {
     }
 
     const marketStatus = getForexMarketStatus();
-    console.log(`📊 Current Market Status: ${marketStatus.status}`);
+    logger.debug(LogCategory.POLLING_COORDINATOR, `📊 Current Market Status: ${marketStatus.status}`);
 
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
@@ -125,8 +125,8 @@ class GlobalPollingCoordinator {
 
     this.initialized = true;
     logger.debug(LogCategory.POLLING_COORDINATOR, `✅ Read-only polling coordinator initialized for ${this.FOREX_PAIRS.length} pairs`);
-    console.log('📡 All price data is fetched by server-side cron job');
-    console.log('🖥️ Browser only reads from database for UI updates');
+    logger.debug(LogCategory.POLLING_COORDINATOR, '📡 All price data is fetched by server-side cron job');
+    logger.debug(LogCategory.POLLING_COORDINATOR, '🖥️ Browser only reads from database for UI updates');
     this.notifyListeners();
   }
 
@@ -148,7 +148,7 @@ class GlobalPollingCoordinator {
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', () => {
-      console.log('🔍 Window focused - checking polling health...');
+      logger.debug(LogCategory.POLLING_COORDINATOR, '🔍 Window focused - checking polling health...');
       this.verifyPollingHealth();
     });
 
@@ -156,7 +156,7 @@ class GlobalPollingCoordinator {
   }
 
   private startHeartbeatMonitoring(): void {
-    console.log(`💓 Starting heartbeat monitoring (every ${this.HEARTBEAT_INTERVAL_MS}ms)...`);
+    logger.debug(LogCategory.POLLING_COORDINATOR, `💓 Starting heartbeat monitoring (every ${this.HEARTBEAT_INTERVAL_MS}ms)...`);
 
     const heartbeat = () => {
       const now = new Date();
@@ -192,7 +192,7 @@ class GlobalPollingCoordinator {
   }
 
   private async recoverSymbol(symbol: string): Promise<void> {
-    console.log(`🔄 [GlobalCoordinator] Attempting recovery for ${symbol}`);
+    logger.debug(LogCategory.POLLING_COORDINATOR, `🔄 [GlobalCoordinator] Attempting recovery for ${symbol}`);
 
     const status = this.pollStatus.get(symbol);
     if (!status) return;
@@ -232,7 +232,7 @@ class GlobalPollingCoordinator {
   }
 
   private verifyPollingHealth(): void {
-    console.log('🔍 Verifying polling health across all pairs...');
+    logger.debug(LogCategory.POLLING_COORDINATOR, '🔍 Verifying polling health across all pairs...');
 
     let staleCount = 0;
     let activeCount = 0;
@@ -258,7 +258,8 @@ class GlobalPollingCoordinator {
       }
     });
 
-    console.log(
+    logger.debug(
+      LogCategory.POLLING_COORDINATOR,
       `📊 Health check complete: ${activeCount} active, ${staleCount} stale/dead of ${this.FOREX_PAIRS.length} pairs`
     );
 
@@ -269,7 +270,7 @@ class GlobalPollingCoordinator {
   }
 
   private startAllPolling(): void {
-    console.log(`🔄 Starting read-only polling for all ${this.FOREX_PAIRS.length} forex pairs...`);
+    logger.debug(LogCategory.POLLING_COORDINATOR, `🔄 Starting read-only polling for all ${this.FOREX_PAIRS.length} forex pairs...`);
     for (const symbol of this.FOREX_PAIRS) {
       this.startPollingForSymbol(symbol);
     }

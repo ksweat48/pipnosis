@@ -3,6 +3,8 @@
  * Detects whether the app is running in production, development, or WebContainer (Bolt)
  */
 
+import { logger, LogCategory } from './logger';
+
 export type Environment = 'production' | 'development' | 'webcontainer';
 
 /**
@@ -75,9 +77,9 @@ export function getApiBaseUrl(): string {
  */
 export function logEnvironmentInfo(): void {
   const env = detectEnvironment();
-  console.log('🌍 Environment Detection:');
-  console.log(`  - Environment: ${env}`);
-  console.log(`  - Hostname: ${window.location.hostname}`);
-  console.log(`  - Functions Available: ${areFunctionsAvailable()}`);
-  console.log(`  - User Agent: ${navigator.userAgent.substring(0, 100)}...`);
+  logger.debug(LogCategory.SYSTEM, '🌍 Environment Detection:');
+  logger.debug(LogCategory.SYSTEM, `  - Environment: ${env}`);
+  logger.debug(LogCategory.SYSTEM, `  - Hostname: ${window.location.hostname}`);
+  logger.debug(LogCategory.SYSTEM, `  - Functions Available: ${areFunctionsAvailable()}`);
+  logger.debug(LogCategory.SYSTEM, `  - User Agent: ${navigator.userAgent.substring(0, 100)}...`);
 }

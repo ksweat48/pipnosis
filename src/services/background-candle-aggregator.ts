@@ -223,7 +223,7 @@ class BackgroundCandleAggregator {
           logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` ${symbol} ${timeframe} - Candle period completed, saving and starting new`);
           this.queueCandleForSave(symbol, timeframe, existingState);
         } else if (existingState && existingState.startTime > candleTime) {
-          console.warn(`[BackgroundAggregator] ${symbol} ${timeframe} - Received old price, ignoring`);
+          logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `${symbol} ${timeframe} - Received old price, ignoring`);
           continue;
         }
 
@@ -271,7 +271,7 @@ class BackgroundCandleAggregator {
       logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 📊 Browser-based aggregation running in monitoring mode only');
       logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🎯 Candles will continue to be collected even when browser is closed');
     } else {
-      console.warn('[BackgroundAggregator] ⚠️ Server-side aggregation not detected');
+      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ⚠️ Server-side aggregation not detected');
       logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔄 Running in legacy browser-based mode');
       logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ⚠️ Candles will only be collected while browser is open');
     }
@@ -614,7 +614,7 @@ class BackgroundCandleAggregator {
             this.connectionState = 'error';
             this.handleConnectionError();
           } else if (status === 'CLOSED') {
-            console.warn('[BackgroundAggregator] 🔌 Connection closed');
+            logger.debug(LogCategory.BACKGROUND_AGGREGATOR, '🔌 Connection closed');
             this.isConnecting = false;
             this.connectionState = 'disconnected';
             if (this.isRunning) {
@@ -660,9 +660,9 @@ class BackgroundCandleAggregator {
       30000
     );
 
-    console.log(
-      `[BackgroundAggregator] 🔄 Scheduling reconnection ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} ` +
-      `in ${Math.round(delay / 1000)}s...`
+    logger.debug(
+      LogCategory.BACKGROUND_AGGREGATOR,
+      `🔄 Scheduling reconnection ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} in ${Math.round(delay / 1000)}s...`
     );
 
     this.reconnectTimeout = setTimeout(async () => {
@@ -677,8 +677,9 @@ class BackgroundCandleAggregator {
       clearInterval(this.healthCheckInterval);
     }
 
-    console.log(
-      `[BackgroundAggregator] 💚 Starting health monitoring (every ${this.HEALTH_CHECK_INTERVAL_MS / 1000}s)...`
+    logger.debug(
+      LogCategory.BACKGROUND_AGGREGATOR,
+      `💚 Starting health monitoring (every ${this.HEALTH_CHECK_INTERVAL_MS / 1000}s)...`
     );
 
     this.healthCheckInterval = setInterval(() => {
@@ -697,18 +698,17 @@ class BackgroundCandleAggregator {
       : Infinity;
 
     if (timeSinceLastMessage > this.STALE_CONNECTION_THRESHOLD_MS) {
-      console.warn(
-        `[BackgroundAggregator] ⚠️ No messages received for ${Math.round(timeSinceLastMessage / 1000)}s - ` +
-        'connection may be stale'
+      logger.debug(
+        LogCategory.BACKGROUND_AGGREGATOR,
+        `⚠️ No messages received for ${Math.round(timeSinceLastMessage / 1000)}s - connection may be stale`
       );
 
       logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔄 Forcing reconnection due to stale connection...');
       this.handleConnectionError();
     } else {
-      console.log(
-        `[BackgroundAggregator] ✅ Health check passed ` +
-        `(last message ${Math.round(timeSinceLastMessage / 1000)}s ago, ` +
-        `${this.candleStates.size} active candles)`
+      logger.debug(
+        LogCategory.BACKGROUND_AGGREGATOR,
+        `✅ Health check passed (last message ${Math.round(timeSinceLastMessage / 1000)}s ago, ${this.candleStates.size} active candles)`
       );
     }
   }

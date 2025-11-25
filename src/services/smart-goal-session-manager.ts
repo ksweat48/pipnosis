@@ -9,6 +9,7 @@
 import { supabase } from '../lib/supabase';
 import { PIPNOSIS_CORE_RULES, PipnosisCoreRules } from '../lib/pipnosis-core-rules';
 import { goalSessionLiveEngine, GoalSessionLiveConfig } from './goal-session-live-engine';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface SmartGoalConfig {
   goalAmount: number;
@@ -45,7 +46,7 @@ class SmartGoalSessionManager {
     accountBalance: number
   ): Promise<SmartGoalSession> {
     const config = this.parseGoalPrompt(prompt, accountBalance);
-    const sessionId = `goal-${userId}-${Date.now()}`;
+    const sessionId = uuidv4();
 
     const breakDown = PipnosisCoreRules.breakGoalIntoSmallTrades(
       config.goalAmount,
