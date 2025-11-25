@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { safeToFixed } from '../utils/safe-formatters';
 
 interface EnrichedContext {
   historicalPerformance: {
@@ -230,10 +231,10 @@ class LLMContextEnricher {
 
       if (bucketPerformance && bucketPerformance.winRate >= 65) {
         recommendedThreshold = Math.max(70, currentConfidence - 5);
-        reasoning = `Your ${currentBucket} confidence trades have ${bucketPerformance.winRate.toFixed(1)}% win rate. You can be more aggressive.`;
+        reasoning = `Your ${currentBucket} confidence trades have ${safeToFixed(bucketPerformance.winRate, 1)}% win rate. You can be more aggressive.`;
       } else if (bucketPerformance && bucketPerformance.winRate < 50) {
         recommendedThreshold = Math.min(85, currentConfidence + 10);
-        reasoning = `Your ${currentBucket} confidence trades have ${bucketPerformance.winRate.toFixed(1)}% win rate. Increase threshold for better results.`;
+        reasoning = `Your ${currentBucket} confidence trades have ${safeToFixed(bucketPerformance.winRate, 1)}% win rate. Increase threshold for better results.`;
       } else {
         reasoning = `Your ${currentBucket} confidence trades have moderate performance. Current threshold is appropriate.`;
       }
@@ -264,15 +265,15 @@ class LLMContextEnricher {
     const guidance: string[] = [];
 
     if (historical?.recentWinRate !== undefined && historical.recentWinRate >= 65) {
-      guidance.push(`Strong recent performance on ${historical.symbol} (${historical.recentWinRate.toFixed(1)}% WR). Trust your analysis.`);
+      guidance.push(`Strong recent performance on ${historical.symbol} (${safeToFixed(historical.recentWinRate, 1)}% WR). Trust your analysis.`);
     } else if (historical?.recentWinRate !== undefined && historical.recentWinRate < 50) {
-      guidance.push(`Recent struggles on ${historical.symbol} (${historical.recentWinRate.toFixed(1)}% WR). Exercise caution.`);
+      guidance.push(`Recent struggles on ${historical.symbol} (${safeToFixed(historical.recentWinRate, 1)}% WR). Exercise caution.`);
     }
 
     if (historical?.recentProfitFactor !== undefined && historical.recentProfitFactor >= 1.5) {
-      guidance.push(`Excellent profit factor (${historical.recentProfitFactor.toFixed(2)}). Your winners significantly outweigh losses.`);
+      guidance.push(`Excellent profit factor (${safeToFixed(historical.recentProfitFactor, 2)}). Your winners significantly outweigh losses.`);
     } else if (historical?.recentProfitFactor !== undefined && historical.recentProfitFactor < 1.0) {
-      guidance.push(`Profit factor below 1.0 (${historical.recentProfitFactor.toFixed(2)}). Review risk management.`);
+      guidance.push(`Profit factor below 1.0 (${safeToFixed(historical.recentProfitFactor, 2)}). Review risk management.`);
     }
 
     if (insights?.length > 0) {
@@ -280,13 +281,13 @@ class LLMContextEnricher {
     }
 
     if (scenario?.historicalSuccessRate !== undefined && scenario.historicalSuccessRate >= 60) {
-      guidance.push(`Current market scenario has ${scenario.historicalSuccessRate.toFixed(1)}% historical success. Favorable conditions.`);
+      guidance.push(`Current market scenario has ${safeToFixed(scenario.historicalSuccessRate, 1)}% historical success. Favorable conditions.`);
     }
 
     if (calibration?.recentAccuracy !== undefined && calibration.recentAccuracy >= 65) {
-      guidance.push(`Recent confidence calibration is strong (${calibration.recentAccuracy.toFixed(1)}% accurate).`);
+      guidance.push(`Recent confidence calibration is strong (${safeToFixed(calibration.recentAccuracy, 1)}% accurate).`);
     } else if (calibration?.recentAccuracy !== undefined && calibration.recentAccuracy < 50) {
-      guidance.push(`Recent confidence calibration needs improvement (${calibration.recentAccuracy.toFixed(1)}% accurate).`);
+      guidance.push(`Recent confidence calibration needs improvement (${safeToFixed(calibration.recentAccuracy, 1)}% accurate).`);
     }
 
     if (historical?.bestSetupType && historical.bestSetupType !== 'Unknown') {

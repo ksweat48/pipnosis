@@ -5,6 +5,8 @@
  * Reduces token usage by 80% while maintaining intelligence.
  */
 
+import { safeToFixed, safePercent, safeCurrency, safeNumber, safeDelta } from '../utils/safe-formatters';
+
 export interface CompactSnapshot {
   sym: string; // symbol
   p: number; // price
@@ -68,7 +70,7 @@ vw=${snap.vw}, e20=${snap.e20}, e50=${snap.e50}, atr=${snap.atr}`;
 
   if (skill) {
     prompt += `
-skill: wr_gap=${skill.wr_gap.toFixed(1)}%`;
+skill: wr_gap=${safeToFixed(skill.wr_gap, 1)}%`;
     if (skill.wr_gap < -5) {
       prompt += ` (strict mode, be stricter)`;
     }
@@ -113,7 +115,7 @@ regime_conf=${regimeConf}, thresh=${threshold}`;
 
   if (skill && skill.wr_gap < -5) {
     prompt += `
-strict: wr_gap=${skill.wr_gap.toFixed(1)}% (be stricter)`;
+strict: wr_gap=${safeToFixed(skill.wr_gap, 1)}% (be stricter)`;
   }
 
   return prompt;
@@ -189,7 +191,7 @@ Data:
 orig=${origConf}, hist_acc=${histAcc}, overconf=${overconf}`;
 
   if (skill && skill.wr_gap < -5) {
-    prompt += `, wr_gap=${skill.wr_gap.toFixed(1)} (be stricter)`;
+    prompt += `, wr_gap=${safeToFixed(skill.wr_gap, 1)} (be stricter)`;
   }
 
   return prompt;
@@ -212,6 +214,18 @@ export function buildCompressedStrategyPrompt(
   },
   skill?: CompactSkillContext
 ): string {
+  try {
+    // Defensive validation with safe defaults
+    const safeGoal = {
+      target: goal?.target ?? 0,
+      progress: goal?.progress ?? 0,
+      remaining: goal?.remaining ?? 0
+    };
+    const safePerf = {
+      wr: perf?.wr ?? 0,
+      pf: perf?.pf ?? 0
+    };
+
   let prompt = `Layer 5: Strategy Brain (Full Authority)
 
 Market:
@@ -219,14 +233,20 @@ sym=${snap.sym}, p=${snap.p}, tr=${snap.tr}, vol=${snap.vol}
 e9=${snap.vw}, e21=${snap.e20}, e50=${snap.e50}, vw=${snap.vw}
 atr=${snap.atr}, mom=${snap.mom}
 
-Goal: $${goal.target} (${goal.progress.toFixed(1)}% done, $${goal.remaining} left)
-Perf: wr=${perf.wr.toFixed(1)}%, pf=${perf.pf.toFixed(2)}`;
+Goal: $${safeGoal.target} (${safeToFixed(safeGoal.progress, 1)}% done, $${safeGoal.remaining} left)
+Perf: wr=${safeToFixed(safePerf.wr, 1)}%, pf=${safeToFixed(safePerf.pf, 2)}`;
 
   if (skill) {
+    const safeSkill = {
+      lvl: skill.lvl ?? 'Unknown',
+      tgt: skill.tgt ?? 'Unknown',
+      wr_gap: skill.wr_gap ?? 0,
+      pf_gap: skill.pf_gap ?? 0
+    };
     prompt += `
-Skill: ${skill.lvl}→${skill.tgt}
-Gaps: wr=${skill.wr_gap > 0 ? '+' : ''}${skill.wr_gap.toFixed(1)}%, pf=${skill.pf_gap > 0 ? '+' : ''}${skill.pf_gap.toFixed(2)}
-Priority: ${skill.wr_gap < 0 ? 'IMPROVE WR' : 'MAINTAIN'}`;
+Skill: ${safeSkill.lvl}→${safeSkill.tgt}
+Gaps: wr=${safeDelta(safeSkill.wr_gap, 1)}%, pf=${safeDelta(safeSkill.pf_gap, 2)}
+Priority: ${safeSkill.wr_gap < 0 ? 'IMPROVE WR' : 'MAINTAIN'}`;
   }
 
   prompt += `
@@ -242,7 +262,21 @@ Max hold: 4h. Min R:R: 1.5:1.
 JSON:
 {"act":"buy/sell/no_trade","sl":price,"tp":price,"size":pct,"conf":0-100,"why":"..."}`;
 
-  return prompt;
+    return prompt;
+  } catch (error) {
+    console.error('[buildCompressedStrategyPrompt] Error building prompt:', error);
+    console.error('[buildCompressedStrategyPrompt] goal:', goal);
+    console.error('[buildCompressedStrategyPrompt] perf:', perf);
+    console.error('[buildCompressedStrategyPrompt] skill:', skill);
+
+    // Return a minimal safe fallback prompt
+    return `Layer 5: Strategy Brain (Full Authority)
+
+Market: ${snap.sym} at ${snap.p}
+
+Decision: no_trade (Error in prompt building)
+JSON: {"act":"no_trade","sl":0,"tp":0,"size":0,"conf":0,"why":"Prompt building error - safety fallback"}`;
+  }
 }
 
 /**

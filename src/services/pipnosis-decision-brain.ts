@@ -18,6 +18,7 @@ import { llmConfidenceCalibrator } from './llm-confidence-calibrator';
 import { llmStrategyBrain, type MarketSnapshot as LLMMarketSnapshot } from './llm-strategy-brain';
 import { developerModeLogger } from './developer-mode-logger';
 import { aiSkillTracker, type SkillLevel } from './ai-skill-tracker';
+import { safeToFixed, safeDelta } from '../utils/safe-formatters';
 
 export type TradingMode = 'backtest' | 'live_demo' | 'smart_goal';
 
@@ -189,8 +190,8 @@ class PipnosisDecisionBrain {
           context.skillLevelContext = await this.fetchSkillLevelContext(context.sessionContext.userId);
           if (context.skillLevelContext) {
             console.log(`[SKILL CONTEXT] 📊 Level: ${context.skillLevelContext.currentLevel} → ${context.skillLevelContext.targetLevel}`);
-            console.log(`[SKILL CONTEXT] WR: ${context.skillLevelContext.currentPerformance.winRate.toFixed(1)}% / ${context.skillLevelContext.targetRequirements.minWinRate}% (Gap: ${context.skillLevelContext.gaps.winRateGap > 0 ? '+' : ''}${context.skillLevelContext.gaps.winRateGap.toFixed(1)}%)`);
-            console.log(`[SKILL CONTEXT] PF: ${context.skillLevelContext.currentPerformance.profitFactor.toFixed(2)} / ${context.skillLevelContext.targetRequirements.minProfitFactor.toFixed(2)} (Gap: ${context.skillLevelContext.gaps.profitFactorGap > 0 ? '+' : ''}${context.skillLevelContext.gaps.profitFactorGap.toFixed(2)})`);
+            console.log(`[SKILL CONTEXT] WR: ${safeToFixed(context.skillLevelContext.currentPerformance.winRate, 1)}% / ${context.skillLevelContext.targetRequirements.minWinRate}% (Gap: ${safeDelta(context.skillLevelContext.gaps.winRateGap, 1)}%)`);
+            console.log(`[SKILL CONTEXT] PF: ${safeToFixed(context.skillLevelContext.currentPerformance.profitFactor, 2)} / ${safeToFixed(context.skillLevelContext.targetRequirements.minProfitFactor, 2)} (Gap: ${safeDelta(context.skillLevelContext.gaps.profitFactorGap, 2)})`);
           }
         }
       }
@@ -451,7 +452,7 @@ class PipnosisDecisionBrain {
 
       const calibratedConfidence = calibrationResult.calibrated_confidence;
       const adjustment = calibratedConfidence - (context.triggerContext?.confidence || 75);
-      console.log(`[LAYER 4] ✅ ${context.triggerContext?.confidence || 75}% → ${calibratedConfidence}% (${adjustment > 0 ? '+' : ''}${adjustment.toFixed(1)}%)`);
+      console.log(`[LAYER 4] ✅ ${context.triggerContext?.confidence || 75}% → ${calibratedConfidence}% (${safeDelta(adjustment, 1)}%)`);
 
       pipelineResult.layer4Passed = true;
       pipelineResult.layer4CalibratedConfidence = calibratedConfidence;
@@ -815,27 +816,27 @@ class PipnosisDecisionBrain {
     if (params.winRateGap < 0) {
       const gapAbs = Math.abs(params.winRateGap);
       if (gapAbs > 10) {
-        guidance.push(`CRITICAL: Increase win rate by ${gapAbs.toFixed(1)}% - Be highly selective, only take 75+ quality setups`);
+        guidance.push(`CRITICAL: Increase win rate by ${safeToFixed(gapAbs, 1)}% - Be highly selective, only take 75+ quality setups`);
       } else if (gapAbs > 5) {
-        guidance.push(`Win rate needs ${gapAbs.toFixed(1)}% improvement - Raise quality bar to 70+ minimum`);
+        guidance.push(`Win rate needs ${safeToFixed(gapAbs, 1)}% improvement - Raise quality bar to 70+ minimum`);
       } else {
-        guidance.push(`Win rate nearly on target (need +${gapAbs.toFixed(1)}%) - Maintain current selectiveness`);
+        guidance.push(`Win rate nearly on target (need +${safeToFixed(gapAbs, 1)}%) - Maintain current selectiveness`);
       }
     } else {
-      guidance.push(`Win rate ABOVE target (+${params.winRateGap.toFixed(1)}%) - Excellent selectiveness`);
+      guidance.push(`Win rate ABOVE target (${safeDelta(params.winRateGap, 1)}%) - Excellent selectiveness`);
     }
 
     if (params.profitFactorGap < 0) {
       const gapAbs = Math.abs(params.profitFactorGap);
       if (gapAbs > 0.5) {
-        guidance.push(`Profit factor low (need +${gapAbs.toFixed(2)}) - Focus on higher R:R setups (2.5:1+) and let winners run`);
+        guidance.push(`Profit factor low (need +${safeToFixed(gapAbs, 2)}) - Focus on higher R:R setups (2.5:1+) and let winners run`);
       } else if (gapAbs > 0.2) {
-        guidance.push(`Profit factor needs improvement (+${gapAbs.toFixed(2)}) - Extend take profits in strong trends`);
+        guidance.push(`Profit factor needs improvement (+${safeToFixed(gapAbs, 2)}) - Extend take profits in strong trends`);
       } else {
-        guidance.push(`Profit factor close to target (+${gapAbs.toFixed(2)}) - Continue current R:R strategy`);
+        guidance.push(`Profit factor close to target (+${safeToFixed(gapAbs, 2)}) - Continue current R:R strategy`);
       }
     } else {
-      guidance.push(`Profit factor ABOVE target (+${params.profitFactorGap.toFixed(2)}) - Excellent trade management`);
+      guidance.push(`Profit factor ABOVE target (${safeDelta(params.profitFactorGap, 2)}) - Excellent trade management`);
     }
 
     if (params.consistencyGap < 0) {
@@ -908,7 +909,7 @@ export class PipnosisHardRuleEngine {
     const riskRewardRatio = reward / risk;
 
     if (riskRewardRatio < 1.5) {
-      violations.push(`Risk:Reward ratio ${riskRewardRatio.toFixed(2)}:1 is below minimum 1.5:1`);
+      violations.push(`Risk:Reward ratio ${safeToFixed(riskRewardRatio, 2)}:1 is below minimum 1.5:1`);
     }
 
     if (decision.maxHoldMinutes && decision.maxHoldMinutes > PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_MINUTES) {
