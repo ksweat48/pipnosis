@@ -237,13 +237,38 @@ class SmartGoalSessionManager {
         console.log('[Smart Goal] ✅ 5-layer LLM pipeline will be used for all trades');
         console.log('[Smart Goal] ✅ All trades will have visible SL/TP on charts');
 
+        // Send comprehensive session startup message
+        const strategyMessage = `🎯 Goal Session Started!\\n` +
+          `💰 Target: $${config.goalAmount} in ${config.timeframe}\\n` +
+          `📊 Strategy: ${breakDown.targetTradeCount} trades averaging $${breakDown.avgProfitPerTrade.toFixed(2)} each\\n` +
+          `🛡️ Risk Mode: ${config.riskMode.toUpperCase()} (max $${breakDown.maxProfitPerTrade.toFixed(2)} per trade)\\n` +
+          `\\n🔍 Monitoring: ${config.watchlist.join(', ')}\\n` +
+          `⚡ Scanning every 15 seconds for high-probability setups\\n` +
+          `🧠 5-Layer LLM Protection: Hard Gate + 4 validation layers active\\n` +
+          `📈 All trades will have visible SL/TP on charts (Live Demo Mode)\\n` +
+          `\\n✨ Looking for: VWAP reversals, EMA crossovers, momentum shifts, support/resistance bounces`;
+
         await supabase.from('goal_ai_conversations').insert({
           goal_session_id: sessionId,
           user_id: userId,
           role: 'ai',
-          message: `Live trading engine activated! I'm now monitoring ${config.watchlist.join(', ')} for high-probability setups using the event-based LLM system. Scanning every 15 seconds for triggers.`,
-          context: { liveEngineStatus: 'started' },
-          sentiment: 'encouraging'
+          message: strategyMessage,
+          context: {
+            liveEngineStatus: 'started',
+            target: config.goalAmount,
+            trades_needed: breakDown.targetTradeCount,
+            avg_per_trade: breakDown.avgProfitPerTrade
+          },
+          sentiment: 'encouraging',
+          technical_data: {
+            watchlist: config.watchlist,
+            scan_interval: '15s',
+            risk_mode: config.riskMode
+          },
+          market_snapshot: {
+            protection: '5-layer-llm',
+            mode: 'live-demo'
+          }
         });
       } else {
         console.error('[Smart Goal] Failed to start live engine:', result.message);
