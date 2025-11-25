@@ -203,6 +203,11 @@ class GPT4Provider extends LLMProvider {
       }
     );
 
+    // Log the prompt being sent
+    console.log('[Layer 5 DEBUG] ==================== PROMPT START ====================');
+    console.log(userPrompt.substring(0, 500) + '...');
+    console.log('[Layer 5 DEBUG] ==================== PROMPT END ====================');
+
     try {
       const response = await openAIClient.chat(
         [
@@ -215,13 +220,18 @@ class GPT4Provider extends LLMProvider {
         {
           model: model,
           temperature: 0.3,
-          max_tokens: 400,
+          max_tokens: 800,  // Increased from 400 to allow full response
           requestType: 'trade_decision',
           endpoint: 'llm-strategy-brain'
         }
       );
 
       const content = response.choices[0]?.message?.content;
+
+      // Log the raw response
+      console.log('[Layer 5 DEBUG] ==================== RAW RESPONSE ====================');
+      console.log(content);
+      console.log('[Layer 5 DEBUG] ==================== END RESPONSE ====================');
 
       if (!content) {
         throw new Error('No content in GPT-4 response');
