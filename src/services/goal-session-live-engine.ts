@@ -13,6 +13,7 @@ import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { tradeExecutionEngine } from './trade-execution-engine';
 import { midTradeTriggerDetector, type MarketConditions } from './mid-trade-trigger-detector';
 import { llmMidTradeEvaluator } from './llm-mid-trade-evaluator';
+import { logger, LogCategory } from '../lib/logger';
 
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
@@ -78,7 +79,7 @@ class GoalSessionLiveEngine {
         };
       }
 
-      console.log(`[Goal Live Engine] Starting session: ${config.goalSessionId}`);
+      logger.info(LogCategory.AI_TRADING, `Starting goal session: ${config.goalSessionId}`);
 
       const { data: goalSession, error } = await supabase
         .from('goal_sessions')
@@ -108,8 +109,8 @@ class GoalSessionLiveEngine {
       // ✅ CRITICAL: Initialize 5-layer LLM pipeline
       await eventBasedLLMEngine.initialize(config.userId, config.goalSessionId);
       eventBasedLLMEngine.set5LayerPipeline(true);
-      console.log('[Goal Live Engine] ✅ 5-Layer LLM Pipeline ACTIVATED');
-      console.log('[Goal Live Engine] ✅ Hard Gate + 4 validation layers enabled');
+      logger.info(LogCategory.AI_TRADING, '✅ 5-Layer LLM Pipeline ACTIVATED');
+      logger.debug(LogCategory.AI_TRADING, '✅ Hard Gate + 4 validation layers enabled');
 
       localSessionMemory.createSession(
         `live-${config.goalSessionId}`,
@@ -134,10 +135,9 @@ class GoalSessionLiveEngine {
 
       this.startPolling();
 
-      console.log('[Goal Live Engine] ✅ Session started successfully');
-      console.log('[Goal Live Engine] ✅ LIVE DEMO MODE - All trades use real price monitoring');
-      console.log('[Goal Live Engine] ✅ SL/TP will be visible on charts');
-      console.log('[Goal Live Engine] ✅ Polling every 15 seconds for triggers');
+      logger.info(LogCategory.AI_TRADING, '✅ Session started - LIVE DEMO MODE with real price monitoring');
+      logger.debug(LogCategory.AI_TRADING, '✅ SL/TP will be visible on charts');
+      logger.debug(LogCategory.AI_TRADING, '✅ Polling every 15 seconds for triggers');
 
       return {
         success: true,
@@ -164,12 +164,12 @@ class GoalSessionLiveEngine {
         };
       }
 
-      console.log(`[Goal Live Engine] Stopping session: ${this.activeSession}`);
+      logger.info(LogCategory.AI_TRADING, `Stopping goal session: ${this.activeSession}`);
 
       this.stopPolling();
 
       if (this.openTrades.length > 0) {
-        console.log(`[Goal Live Engine] Closing ${this.openTrades.length} open trades...`);
+        logger.info(LogCategory.AI_TRADING, `Closing ${this.openTrades.length} open trades...`);
         await this.closeAllPositions('session_stopped');
       }
 
@@ -194,7 +194,7 @@ class GoalSessionLiveEngine {
       this.openTrades = [];
       this.sessionStartTime = null;
 
-      console.log('[Goal Live Engine] Session stopped successfully');
+      logger.info(LogCategory.AI_TRADING, 'Session stopped successfully');
 
       return {
         success: true,
@@ -319,7 +319,7 @@ class GoalSessionLiveEngine {
 
       if (result.trigger) {
         localSessionMemory.recordTrigger(`live-${this.activeSession}`, result.trigger);
-        console.log(`[Goal Live Engine] Trigger detected: ${result.trigger.type} (${result.trigger.confidence}%)`);
+        logger.debug(LogCategory.AI_TRADING, `Trigger detected: ${result.trigger.type} (${result.trigger.confidence}%)`);
 
         // Send trigger detection message
         await this.sendTriggerDetectedMessage(result.trigger, latestCandle);
@@ -354,8 +354,8 @@ class GoalSessionLiveEngine {
       return;
     }
 
-    console.log(`[Goal Live Engine] ✅ 5-Layer pipeline approved trade: ${trade.direction.toUpperCase()} @ ${trade.entryPrice}`);
-    console.log(`[Goal Live Engine] Confidence: ${trade.confidence}% | Trigger: ${trade.triggerType}`);
+    logger.info(LogCategory.AI_TRADING, `✅ Trade approved: ${trade.direction.toUpperCase()} @ ${trade.entryPrice} (${trade.confidence}% confidence)`);
+    logger.debug(LogCategory.AI_TRADING, `Trigger: ${trade.triggerType}`);
 
     localSessionMemory.recordTrade(`live-${this.activeSession}`, trade);
 
@@ -386,9 +386,8 @@ class GoalSessionLiveEngine {
     );
 
     if (executionResult.success) {
-      console.log(`[Goal Live Engine] ✅ Live demo trade created successfully`);
-      console.log(`[Goal Live Engine] ✅ Trade ID: ${executionResult.tradeId}`);
-      console.log(`[Goal Live Engine] ✅ simulated_positions created - SL/TP visible on chart`);
+      logger.info(LogCategory.AI_TRADING, `✅ Trade created: ID ${executionResult.tradeId} - SL/TP visible on chart`);
+      logger.debug(LogCategory.AI_TRADING, 'simulated_positions table updated');
 
       if (this.config.autoExecute) {
         this.openTrades.push(trade);
@@ -447,7 +446,7 @@ class GoalSessionLiveEngine {
       return;
     }
 
-    console.log(`[Goal Live Engine] Trade closed: ${trade.outcome.toUpperCase()} - PnL: $${trade.pnl.toFixed(2)}`);
+    logger.info(LogCategory.AI_TRADING, `Trade closed: ${trade.outcome.toUpperCase()} - PnL: $${trade.pnl.toFixed(2)}`);
 
     // Clear mid-trade triggers for this trade
     midTradeTriggerDetector.clearTriggers(trade.id);
@@ -614,7 +613,7 @@ class GoalSessionLiveEngine {
         sentiment: summary.statistics.totalPnL > 0 ? 'celebratory' : 'educational'
       });
 
-      console.log('[Goal Live Engine] Session summary saved');
+      logger.debug(LogCategory.AI_TRADING, 'Session summary saved');
     } catch (error) {
       console.error('[Goal Live Engine] Error saving summary:', error);
     }
@@ -742,7 +741,7 @@ class GoalSessionLiveEngine {
     const triggerResult = midTradeTriggerDetector.checkForTriggers(trade, marketConditions);
 
     if (triggerResult.triggered && triggerResult.shouldCallLLM) {
-      console.log(`[Mid-Trade] Trigger detected: ${triggerResult.triggerType} - ${triggerResult.triggerReason}`);
+      logger.debug(LogCategory.AI_TRADING, `Mid-trade trigger: ${triggerResult.triggerType} - ${triggerResult.triggerReason}`);
 
       // Send trigger notification to AI conversation
       await this.sendMidTradeTriggerMessage(triggerResult, trade, latestCandle);
@@ -766,9 +765,9 @@ class GoalSessionLiveEngine {
         this.config.userId
       );
 
-      console.log(`[Mid-Trade] LLM Recommendation: ${evaluation.recommendation} (${evaluation.confidence}% confidence)`);
-      console.log(`[Mid-Trade] Reasoning: ${evaluation.reasoning}`);
-      console.log(`[Mid-Trade] Cost: $${evaluation.costUsd.toFixed(4)} | Tokens: ${evaluation.tokensUsed}`);
+      logger.info(LogCategory.AI_TRADING, `Mid-trade LLM: ${evaluation.recommendation} (${evaluation.confidence}% confidence)`);
+      logger.debug(LogCategory.AI_TRADING, `Reasoning: ${evaluation.reasoning}`);
+      logger.debug(LogCategory.AI_TRADING, `Cost: $${evaluation.costUsd.toFixed(4)} | Tokens: ${evaluation.tokensUsed}`);
 
       // Send LLM evaluation to AI conversation
       await this.sendMidTradeEvaluationMessage(evaluation, trade, latestCandle);
@@ -791,7 +790,7 @@ class GoalSessionLiveEngine {
     const validation = llmMidTradeEvaluator.validateRecommendation(evaluation, trade);
 
     if (!validation.isValid) {
-      console.log(`[Mid-Trade] Recommendation rejected: ${validation.violations.join(', ')}`);
+      logger.warn(LogCategory.AI_TRADING, `Mid-trade recommendation rejected: ${validation.violations.join(', ')}`);
 
       // Send rejection message
       await supabase.from('goal_ai_conversations').insert({
@@ -873,7 +872,7 @@ class GoalSessionLiveEngine {
       }
     });
 
-    console.log(`[Mid-Trade] Action applied: ${evaluation.recommendation}`);
+    logger.info(LogCategory.AI_TRADING, `Mid-trade action: ${evaluation.recommendation}`);
   }
 
   /**

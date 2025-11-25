@@ -11,6 +11,7 @@ import { browserPricePoller } from './browser-price-poller';
 import { pollingHealthMonitor } from './polling-health-monitor';
 import { circuitBreakerService } from './circuit-breaker-service';
 import { supabase } from '@/lib/supabase';
+import { logger, LogCategory } from '@/lib/logger';
 
 type ActivePoller = 'global' | 'browser' | 'none';
 
@@ -40,11 +41,11 @@ class PollingOrchestrator {
 
   async initialize(): Promise<void> {
     if (this.isInitialized) {
-      console.log('[PollingOrchestrator] Already initialized');
+      logger.debug(LogCategory.POLLING_COORDINATOR, 'Already initialized');
       return;
     }
 
-    console.log('[PollingOrchestrator] Initializing master polling coordinator...');
+    logger.info(LogCategory.POLLING_COORDINATOR, 'Initializing master polling coordinator...');
 
     // Initialize health monitoring first
     await pollingHealthMonitor.initialize(FOREX_PAIRS);
@@ -58,7 +59,7 @@ class PollingOrchestrator {
 
       if (globalPollingCoordinator.isInitialized()) {
         this.activePoller = 'global';
-        console.log('[PollingOrchestrator] ✅ GlobalPollingCoordinator is primary');
+        logger.debug(LogCategory.POLLING_COORDINATOR, '✅ GlobalPollingCoordinator is primary');
       } else {
         console.warn('[PollingOrchestrator] GlobalPollingCoordinator not ready, trying BrowserPoller');
         await this.startBrowserPoller();
@@ -72,14 +73,14 @@ class PollingOrchestrator {
     this.startHealthMonitoring();
 
     this.isInitialized = true;
-    console.log(`[PollingOrchestrator] ✅ Initialized with ${this.activePoller} as active poller`);
+    logger.info(LogCategory.POLLING_COORDINATOR, `✅ Initialized with ${this.activePoller} as active poller`);
   }
 
   private async startBrowserPoller(): Promise<void> {
     try {
       await browserPricePoller.start();
       this.activePoller = 'browser';
-      console.log('[PollingOrchestrator] ✅ BrowserPoller started as fallback');
+      logger.debug(LogCategory.POLLING_COORDINATOR, '✅ BrowserPoller started as fallback');
     } catch (error) {
       console.error('[PollingOrchestrator] Failed to start BrowserPoller:', error);
       this.activePoller = 'none';
@@ -95,12 +96,12 @@ class PollingOrchestrator {
       this.checkSystemHealth();
     }, this.MONITOR_INTERVAL_MS);
 
-    console.log('[PollingOrchestrator] Health monitoring started');
+    logger.debug(LogCategory.POLLING_COORDINATOR, 'Health monitoring started');
   }
 
   private async checkSystemHealth(): Promise<void> {
     if (this.failoverInProgress) {
-      console.log('[PollingOrchestrator] Failover in progress, skipping health check');
+      logger.debug(LogCategory.POLLING_COORDINATOR, 'Failover in progress, skipping health check');
       return;
     }
 
@@ -172,7 +173,7 @@ class PollingOrchestrator {
     if (this.failoverInProgress) return;
 
     this.failoverInProgress = true;
-    console.log('[PollingOrchestrator] ⚠️ Failover: Global -> Browser');
+    logger.warn(LogCategory.POLLING_COORDINATOR, '⚠️ Failover: Global -> Browser');
 
     try {
       // Stop global coordinator
@@ -185,7 +186,7 @@ class PollingOrchestrator {
       await browserPricePoller.start();
       this.activePoller = 'browser';
 
-      console.log('[PollingOrchestrator] ✅ Failover complete: Browser is now active');
+      logger.info(LogCategory.POLLING_COORDINATOR, '✅ Failover complete: Browser is now active');
       await this.logFailover('global_to_browser', true);
     } catch (error) {
       console.error('[PollingOrchestrator] Failover failed:', error);
@@ -200,7 +201,7 @@ class PollingOrchestrator {
     if (this.failoverInProgress) return;
 
     this.failoverInProgress = true;
-    console.log('[PollingOrchestrator] ⚠️ Failover: Browser -> Global');
+    logger.warn(LogCategory.POLLING_COORDINATOR, '⚠️ Failover: Browser -> Global');
 
     try {
       // Stop browser poller
@@ -214,7 +215,7 @@ class PollingOrchestrator {
 
       if (globalPollingCoordinator.isInitialized()) {
         this.activePoller = 'global';
-        console.log('[PollingOrchestrator] ✅ Failover complete: Global is now active');
+        logger.info(LogCategory.POLLING_COORDINATOR, '✅ Failover complete: Global is now active');
         await this.logFailover('browser_to_global', true);
       } else {
         throw new Error('GlobalPollingCoordinator failed to initialize');
@@ -234,14 +235,14 @@ class PollingOrchestrator {
   }
 
   private async attemptRecovery(): Promise<void> {
-    console.log('[PollingOrchestrator] 🔄 Attempting full system recovery');
+    logger.info(LogCategory.POLLING_COORDINATOR, '🔄 Attempting full system recovery');
 
     // Try global first
     try {
       await globalPollingCoordinator.initialize();
       if (globalPollingCoordinator.isInitialized()) {
         this.activePoller = 'global';
-        console.log('[PollingOrchestrator] ✅ Recovery successful with Global');
+        logger.info(LogCategory.POLLING_COORDINATOR, '✅ Recovery successful with Global');
         return;
       }
     } catch (error) {
@@ -253,7 +254,7 @@ class PollingOrchestrator {
       await browserPricePoller.start();
       if (browserPricePoller.isRunning()) {
         this.activePoller = 'browser';
-        console.log('[PollingOrchestrator] ✅ Recovery successful with Browser');
+        logger.info(LogCategory.POLLING_COORDINATOR, '✅ Recovery successful with Browser');
         return;
       }
     } catch (error) {
@@ -348,7 +349,7 @@ class PollingOrchestrator {
   }
 
   async manualFailover(target: 'global' | 'browser'): Promise<void> {
-    console.log(`[PollingOrchestrator] Manual failover requested to ${target}`);
+    logger.info(LogCategory.POLLING_COORDINATOR, `Manual failover requested to ${target}`);
 
     if (target === 'browser') {
       await this.failoverToBrowserPoller();
@@ -358,7 +359,7 @@ class PollingOrchestrator {
   }
 
   async shutdown(): Promise<void> {
-    console.log('[PollingOrchestrator] Shutting down...');
+    logger.info(LogCategory.POLLING_COORDINATOR, 'Shutting down...');
 
     if (this.monitorInterval) {
       clearInterval(this.monitorInterval);
@@ -372,7 +373,7 @@ class PollingOrchestrator {
     this.activePoller = 'none';
     this.isInitialized = false;
 
-    console.log('[PollingOrchestrator] ✅ Shutdown complete');
+    logger.info(LogCategory.POLLING_COORDINATOR, '✅ Shutdown complete');
   }
 }
 

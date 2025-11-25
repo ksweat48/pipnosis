@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
 import { CandleData } from '@/services/candle-data-service';
+import { logger, LogCategory } from '@/lib/logger';
 
 interface PollResult {
   candles: CandleData[];
@@ -33,11 +34,11 @@ class ChartCandlePoller {
     const key = this.getCacheKey(symbol, timeframe);
 
     if (this.pollIntervals.has(key)) {
-      console.log(`[ChartPoller] Already polling ${symbol} ${timeframe}`);
+      logger.debug(LogCategory.CHART_POLLER, `Already polling ${symbol} ${timeframe}`);
       return;
     }
 
-    console.log(`[ChartPoller] Starting polling for ${symbol} ${timeframe} (every ${this.POLL_INTERVAL_MS}ms)`);
+    logger.debug(LogCategory.CHART_POLLER, `Starting polling for ${symbol} ${timeframe} (every ${this.POLL_INTERVAL_MS}ms)`);
 
     // Initialize cache
     this.cache.set(key, {
@@ -69,7 +70,7 @@ class ChartCandlePoller {
     if (interval) {
       clearInterval(interval);
       this.pollIntervals.delete(key);
-      console.log(`[ChartPoller] Stopped polling ${symbol} ${timeframe}`);
+      logger.debug(LogCategory.CHART_POLLER, `Stopped polling ${symbol} ${timeframe}`);
     }
 
     this.cache.delete(key);
@@ -103,7 +104,7 @@ class ChartCandlePoller {
       }
 
       if (!data || data.length === 0) {
-        console.log(`[ChartPoller] No candles found for ${symbol} ${timeframe}`);
+        logger.debug(LogCategory.CHART_POLLER, `No candles found for ${symbol} ${timeframe}`);
         return;
       }
 
@@ -130,7 +131,7 @@ class ChartCandlePoller {
         .sort((a, b) => a.time - b.time);
 
       if (data.length !== candles.length) {
-        console.log(`[ChartPoller] Deduplicated ${data.length - candles.length} overlapping candles for ${symbol} ${timeframe}`);
+        logger.debug(LogCategory.CHART_POLLER, `Deduplicated ${data.length - candles.length} overlapping candles for ${symbol} ${timeframe}`);
       }
 
       const latestCandle = candles[candles.length - 1];
@@ -157,7 +158,7 @@ class ChartCandlePoller {
           if (cache.fullHistoricalCandles.length > 500) {
             cache.fullHistoricalCandles = cache.fullHistoricalCandles.slice(-300);
           }
-          console.log(`[ChartPoller] Updated historical cache with new candle, now ${cache.fullHistoricalCandles.length} candles`);
+          logger.debug(LogCategory.CHART_POLLER, `Updated historical cache with new candle, now ${cache.fullHistoricalCandles.length} candles`);
         }
       }
 
@@ -253,7 +254,7 @@ class ChartCandlePoller {
 
     if (cache) {
       cache.fullHistoricalCandles = validatedCandles;
-      console.log(`[ChartPoller] Cached ${validatedCandles.length} historical candles for ${symbol} ${timeframe}`);
+      logger.debug(LogCategory.CHART_POLLER, `Cached ${validatedCandles.length} historical candles for ${symbol} ${timeframe}`);
     } else {
       // If cache doesn't exist yet, create it with the historical data
       this.cache.set(key, {
@@ -264,7 +265,7 @@ class ChartCandlePoller {
         candles: validatedCandles.slice(-3), // Keep last 3 for quick updates
         fullHistoricalCandles: validatedCandles
       });
-      console.log(`[ChartPoller] Created cache with ${validatedCandles.length} historical candles for ${symbol} ${timeframe}`);
+      logger.debug(LogCategory.CHART_POLLER, `Created cache with ${validatedCandles.length} historical candles for ${symbol} ${timeframe}`);
     }
   }
 
@@ -279,12 +280,12 @@ class ChartCandlePoller {
   }
 
   pause(): void {
-    console.log('[ChartPoller] Pausing all polling');
+    logger.debug(LogCategory.CHART_POLLER, 'Pausing all polling');
     this.isPollingActive = false;
   }
 
   resume(): void {
-    console.log('[ChartPoller] Resuming all polling');
+    logger.debug(LogCategory.CHART_POLLER, 'Resuming all polling');
     this.isPollingActive = true;
 
     // Immediately poll all active subscriptions
@@ -303,12 +304,12 @@ class ChartCandlePoller {
   }
 
   async forceRefresh(symbol: string, timeframe: Timeframe): Promise<void> {
-    console.log(`[ChartPoller] Force refreshing ${symbol} ${timeframe}`);
+    logger.debug(LogCategory.CHART_POLLER, `Force refreshing ${symbol} ${timeframe}`);
     await this.pollCandles(symbol, timeframe);
   }
 
   shutdown(): void {
-    console.log('[ChartPoller] Shutting down all polling');
+    logger.info(LogCategory.CHART_POLLER, 'Shutting down all polling');
 
     this.pollIntervals.forEach((interval, key) => {
       clearInterval(interval);

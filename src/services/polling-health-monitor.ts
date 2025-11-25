@@ -7,6 +7,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { circuitBreakerService } from './circuit-breaker-service';
+import { logger, LogCategory } from '@/lib/logger';
 
 export type PollingStatus = 'active' | 'degraded' | 'critical' | 'stopped';
 export type DataQuality = 'live' | 'cached' | 'stale' | 'unavailable';
@@ -55,14 +56,14 @@ class PollingHealthMonitor {
   private config: RecoveryConfig = DEFAULT_CONFIG;
 
   async initialize(symbols: string[]): Promise<void> {
-    console.log('[PollingHealthMonitor] Initializing for symbols:', symbols);
+    logger.debug(LogCategory.POLLING_COORDINATOR, 'Initializing health monitor for symbols:', symbols);
 
     for (const symbol of symbols) {
       await this.loadHealthFromDatabase(symbol);
     }
 
     this.startHealthMonitoring();
-    console.log('[PollingHealthMonitor] Initialized and monitoring started');
+    logger.debug(LogCategory.POLLING_COORDINATOR, 'Initialized and monitoring started');
   }
 
   private async loadHealthFromDatabase(symbol: string): Promise<void> {
@@ -95,7 +96,7 @@ class PollingHealthMonitor {
           consecutiveSuccesses: 0
         });
 
-        console.log(`[PollingHealthMonitor] Loaded health for ${symbol}: ${data.status}, errors: ${data.consecutive_errors}`);
+        logger.debug(LogCategory.POLLING_COORDINATOR, `Loaded health for ${symbol}: ${data.status}, errors: ${data.consecutive_errors}`);
       } else {
         this.healthMap.set(symbol, this.createDefaultHealth(symbol));
       }
@@ -132,7 +133,7 @@ class PollingHealthMonitor {
       this.processRecoveryQueue();
     }, this.config.recoveryCheckIntervalMs);
 
-    console.log(`[PollingHealthMonitor] Health monitoring started (checking every ${this.config.recoveryCheckIntervalMs / 1000}s)`);
+    logger.debug(LogCategory.POLLING_COORDINATOR, `Health monitoring started (checking every ${this.config.recoveryCheckIntervalMs / 1000}s)`);
   }
 
   private checkAllSymbolsHealth(): void {
@@ -153,7 +154,7 @@ class PollingHealthMonitor {
       }
 
       if (newStatus !== health.status) {
-        console.log(`[PollingHealthMonitor] ${symbol} status changed: ${health.status} -> ${newStatus}`);
+        logger.info(LogCategory.POLLING_COORDINATOR, `${symbol} status changed: ${health.status} -> ${newStatus}`);
         health.status = newStatus;
         this.persistHealth(symbol);
 
@@ -166,7 +167,7 @@ class PollingHealthMonitor {
 
   registerRecoveryCallback(symbol: string, callback: RecoveryCallback): void {
     this.recoveryCallbacks.set(symbol, callback);
-    console.log(`[PollingHealthMonitor] Recovery callback registered for ${symbol}`);
+    logger.debug(LogCategory.POLLING_COORDINATOR, `Recovery callback registered for ${symbol}`);
   }
 
   async recordSuccess(symbol: string, dataQuality: DataQuality = 'live'): Promise<void> {
@@ -236,7 +237,7 @@ class PollingHealthMonitor {
       return;
     }
 
-    console.log(`[PollingHealthMonitor] Queuing recovery for ${symbol} (reason: ${reason})`);
+    logger.info(LogCategory.POLLING_COORDINATOR, `Queuing recovery for ${symbol} (reason: ${reason})`);
     this.recoveryQueue.add(symbol);
   }
 
@@ -263,7 +264,7 @@ class PollingHealthMonitor {
 
         if (timeSinceLastRecovery < backoffTime) {
           const waitTime = Math.round((backoffTime - timeSinceLastRecovery) / 1000);
-          console.log(`[PollingHealthMonitor] ${symbol} recovery on cooldown (${waitTime}s remaining)`);
+          logger.debug(LogCategory.POLLING_COORDINATOR, `${symbol} recovery on cooldown (${waitTime}s remaining)`);
           continue;
         }
 
@@ -307,7 +308,7 @@ class PollingHealthMonitor {
 
     try {
       await callback(symbol);
-      console.log(`[PollingHealthMonitor] ✅ Recovery callback executed for ${symbol}`);
+      logger.info(LogCategory.POLLING_COORDINATOR, `✅ Recovery callback executed for ${symbol}`);
       await this.logRecovery(symbol, 'callback_executed', true);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -376,7 +377,7 @@ class PollingHealthMonitor {
   }
 
   async resetHealth(symbol: string): Promise<void> {
-    console.log(`[PollingHealthMonitor] Resetting health for ${symbol}`);
+    logger.debug(LogCategory.POLLING_COORDINATOR, `Resetting health for ${symbol}`);
     const health = this.createDefaultHealth(symbol);
     this.healthMap.set(symbol, health);
     this.recoveryQueue.delete(symbol);
@@ -384,12 +385,12 @@ class PollingHealthMonitor {
   }
 
   async resetAllHealth(): Promise<void> {
-    console.log('[PollingHealthMonitor] Resetting health for ALL symbols');
+    logger.debug(LogCategory.POLLING_COORDINATOR, 'Resetting health for ALL symbols');
     const symbols = Array.from(this.healthMap.keys());
     for (const symbol of symbols) {
       await this.resetHealth(symbol);
     }
-    console.log(`[PollingHealthMonitor] ✅ Reset complete for ${symbols.length} symbols`);
+    logger.debug(LogCategory.POLLING_COORDINATOR, `✅ Reset complete for ${symbols.length} symbols`);
   }
 
   shutdown(): void {
@@ -397,7 +398,7 @@ class PollingHealthMonitor {
       clearInterval(this.monitorInterval);
       this.monitorInterval = null;
     }
-    console.log('[PollingHealthMonitor] Shutdown complete');
+    logger.debug(LogCategory.POLLING_COORDINATOR, 'Shutdown complete');
   }
 }
 

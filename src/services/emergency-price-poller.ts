@@ -7,6 +7,7 @@
  */
 
 import { supabase } from '@/lib/supabase';
+import { logger, LogCategory } from '@/lib/logger';
 
 interface LivePrice {
   symbol: string;
@@ -40,8 +41,8 @@ class EmergencyPricePoller {
       return;
     }
 
-    console.log('[EmergencyPoller] 🚨 Emergency mode activation requested...');
-    console.log('[EmergencyPoller] Performing final validation before activation...');
+    logger.warn(LogCategory.SYSTEM, '🚨 Emergency mode activation requested...');
+    logger.debug(LogCategory.SYSTEM, 'Performing final validation before activation...');
 
     // Wait a moment to let other systems stabilize
     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -50,11 +51,11 @@ class EmergencyPricePoller {
     const stillNeeded = await this.verifyEmergencyModeNeeded();
 
     if (!stillNeeded) {
-      console.log('[EmergencyPoller] ✅ Normal systems recovered - emergency mode not needed');
+      logger.info(LogCategory.SYSTEM, '✅ Normal systems recovered - emergency mode not needed');
       return;
     }
 
-    console.log('[EmergencyPoller] 🚨 Confirmed: Starting emergency price polling system...');
+    logger.warn(LogCategory.SYSTEM, '🚨 Confirmed: Starting emergency price polling system...');
     this.isActive = true;
     this.errorCount = 0;
 
@@ -67,7 +68,7 @@ class EmergencyPricePoller {
     // Do first poll immediately
     await this.poll();
 
-    console.log(`[EmergencyPoller] ✅ Active in ${this.mode} mode`);
+    logger.info(LogCategory.SYSTEM, `✅ Active in ${this.mode} mode`);
   }
 
   private async verifyEmergencyModeNeeded(): Promise<boolean> {
@@ -93,11 +94,11 @@ class EmergencyPricePoller {
       const ageMs = Date.now() - new Date(data.created_at).getTime();
       const ageSeconds = Math.round(ageMs / 1000);
 
-      console.log(`[EmergencyPoller] Database check: Last ${data.symbol} price ${ageSeconds}s ago`);
+      logger.debug(LogCategory.SYSTEM, `Database check: Last ${data.symbol} price ${ageSeconds}s ago`);
 
       // If data is less than 2 minutes old, normal systems are working
       if (ageMs < 120000) {
-        console.log('[EmergencyPoller] ✅ Database has recent data - normal systems working');
+        logger.debug(LogCategory.SYSTEM, '✅ Database has recent data - normal systems working');
         return false;
       }
 
@@ -144,7 +145,7 @@ class EmergencyPricePoller {
         console.warn(`[EmergencyPoller] ⚠️ Database data is stale (${Math.round(ageMs / 1000)}s old) - using direct polling`);
         this.mode = 'direct';
       } else {
-        console.log('[EmergencyPoller] ✅ Database has fresh data - using normal mode');
+        logger.debug(LogCategory.SYSTEM, '✅ Database has fresh data - using normal mode');
         this.mode = 'database';
       }
     } catch (error) {
@@ -199,7 +200,7 @@ class EmergencyPricePoller {
 
       // Emergency/Direct mode - fetch from Netlify function (one symbol at a time)
       const FOREX_PAIRS = ['EURUSD', 'XAUUSD', 'US30', 'GBPUSD', 'USDJPY'];
-      console.log(`[EmergencyPoller] Fetching prices for ${FOREX_PAIRS.length} symbols...`);
+      logger.debug(LogCategory.SYSTEM, `Fetching prices for ${FOREX_PAIRS.length} symbols...`);
 
       let successCount = 0;
       const pricePromises = FOREX_PAIRS.map(symbol => this.fetchPriceForSymbol(symbol));
@@ -217,13 +218,13 @@ class EmergencyPricePoller {
           this.notifyListeners(livePrice);
 
           successCount++;
-          console.log(`[EmergencyPoller] ✅ ${livePrice.symbol}: ${livePrice.bid}/${livePrice.ask}`);
+          logger.debug(LogCategory.SYSTEM, `✅ ${livePrice.symbol}: ${livePrice.bid}/${livePrice.ask}`);
         }
       }
 
       if (successCount > 0) {
         this.errorCount = 0;
-        console.log(`[EmergencyPoller] 📊 Successfully polled ${successCount}/${FOREX_PAIRS.length} symbols`);
+        logger.debug(LogCategory.SYSTEM, `📊 Successfully polled ${successCount}/${FOREX_PAIRS.length} symbols`);
       } else {
         throw new Error('All symbol fetches failed');
       }
@@ -234,7 +235,7 @@ class EmergencyPricePoller {
 
       // If too many errors, try switching mode
       if (this.errorCount > 5) {
-        console.log('[EmergencyPoller] 🔄 Too many errors, rechecking mode...');
+        logger.warn(LogCategory.SYSTEM, '🔄 Too many errors, rechecking mode...');
         await this.determineMode();
         this.errorCount = 0;
       }
@@ -258,7 +259,7 @@ class EmergencyPricePoller {
       if (error) {
         console.error(`[EmergencyPoller] Failed to save ${price.symbol} to DB:`, error);
       } else {
-        console.log(`[EmergencyPoller] 💾 Saved ${price.symbol} to database`);
+        logger.debug(LogCategory.SYSTEM, `💾 Saved ${price.symbol} to database`);
       }
     } catch (error) {
       console.error('[EmergencyPoller] Exception saving price:', error);
@@ -287,7 +288,7 @@ class EmergencyPricePoller {
       return;
     }
 
-    console.log('[EmergencyPoller] 🛑 Stopping...');
+    logger.info(LogCategory.SYSTEM, '🛑 Stopping...');
 
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
@@ -297,7 +298,7 @@ class EmergencyPricePoller {
     this.listeners.clear();
     this.isActive = false;
 
-    console.log('[EmergencyPoller] ✅ Stopped');
+    logger.info(LogCategory.SYSTEM, '✅ Stopped');
   }
 
   getStatus(): EmergencyPollerStatus {
@@ -311,7 +312,7 @@ class EmergencyPricePoller {
   }
 
   async forceDirectMode(): Promise<void> {
-    console.log('[EmergencyPoller] 🔧 Forcing direct mode...');
+    logger.warn(LogCategory.SYSTEM, '🔧 Forcing direct mode...');
     this.mode = 'emergency';
     this.errorCount = 0;
     await this.poll();

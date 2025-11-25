@@ -36,8 +36,8 @@ class Logger {
 
   constructor() {
     this.isDev = import.meta.env.DEV;
-    // Default: ERROR in production, INFO in development
-    this.globalLevel = this.isDev ? LogLevel.INFO : LogLevel.ERROR;
+    // Default: WARN (only warnings and errors, no verbose polling/tick logs)
+    this.globalLevel = LogLevel.WARN;
     this.loadSettings();
   }
 
