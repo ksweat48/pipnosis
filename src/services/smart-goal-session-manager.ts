@@ -96,7 +96,7 @@ class SmartGoalSessionManager {
 
     await this.startLiveEngine(sessionId, userId, config, accountBalance);
 
-    console.log(`[Smart Goal] Created session ${sessionId}: Target $${config.goalAmount} via ${breakDown.targetTradeCount} trades`);
+    console.log(`[Smart Goal] Created session ${sessionId}: Target $${config.goalAmount} - Strategy: ${breakDown.targetTradeCount === 1 ? 'ONE premium trade' : `${breakDown.targetTradeCount} trades if needed`}`);
     console.log(`[Smart Goal] ✅ LIVE DEMO MODE - All trades use real price monitoring with visible SL/TP`);
 
     return session;

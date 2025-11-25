@@ -15,22 +15,22 @@ const GOAL_TEMPLATES: GoalTemplate[] = [
   {
     label: 'Quick $100 Today',
     prompt: 'Make me $100 today with medium risk',
-    description: 'Multiple short trades throughout the day'
+    description: '1 high-quality trade, backup trades if needed'
   },
   {
     label: 'Weekly $500 Target',
     prompt: 'Earn $500 this week with medium risk',
-    description: '3-5 high-quality trades per day'
+    description: '1 premium trade per day, more if needed'
   },
   {
     label: 'Conservative $50',
     prompt: 'Make me $50 today safely',
-    description: 'Low-risk scalping strategy'
+    description: '1 low-risk trade, patient execution'
   },
   {
     label: 'Fast $200 Today',
     prompt: 'Make me $200 today aggressively',
-    description: 'Higher frequency, more aggressive entries'
+    description: '1 aggressive trade, additional if needed'
   },
 ];
 
@@ -101,7 +101,7 @@ export const SmartGoalPanel: React.FC = () => {
           </div>
           <p className="text-xs text-gray-300">
             Pipnosis specializes in trades lasting <strong>minutes to hours</strong>, never overnight.
-            Your goal will be reached through multiple small, consistent wins.
+            <strong>Pipnosis will always try to complete your goal in ONE trade</strong>, but may use several trades if needed depending on markets and the goal itself.
           </p>
         </div>
 
@@ -136,11 +136,12 @@ export const SmartGoalPanel: React.FC = () => {
               <div className="flex-1">
                 <div className="text-sm font-medium text-green-400 mb-2">Ready to Start!</div>
                 <div className="text-xs text-gray-300">
-                  <p className="mb-2">Pipnosis will break your goal into multiple short-term trades:</p>
+                  <p className="mb-2">Pipnosis will try to achieve your goal in ONE high-quality trade:</p>
                   <ul className="space-y-1 ml-4 list-disc">
                     <li>Each trade lasts minutes to hours (max {PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_HOURS}h)</li>
-                    <li>Scans markets every {PIPNOSIS_CORE_RULES.SCAN_FREQUENCY_MINUTES} minutes</li>
+                    <li>Scans markets every {PIPNOSIS_CORE_RULES.SCAN_FREQUENCY_MINUTES} minutes for the BEST setup</li>
                     <li>1-3 minute countdown before auto-execution</li>
+                    <li>Will take backup trades only if first trade doesn't achieve goal</li>
                     <li>All positions close before end of day</li>
                   </ul>
                 </div>

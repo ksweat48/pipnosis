@@ -7,7 +7,7 @@
  * Philosophy:
  * - Pipnosis specializes in trades lasting minutes to a few hours
  * - NEVER holds positions overnight or multi-day
- * - Reaches user goals through multiple small, consistent wins
+ * - Tries to reach user goals in ONE high-quality trade, uses backup trades only if needed
  * - Prioritizes high-probability, fast-execution setups
  */
 
@@ -235,10 +235,19 @@ export class PipnosisCoreRules {
     };
 
     const targetAvgProfit = maxProfitPerTrade * riskMultipliers[riskMode];
-    const targetTradeCount = Math.max(
-      PIPNOSIS_CORE_RULES.MIN_TRADES_PER_GOAL,
-      Math.ceil(goalAmount / targetAvgProfit)
-    );
+
+    // STRATEGY: Try to achieve goal in ONE trade first
+    // If goal is achievable in 1 trade with acceptable risk, aim for that
+    // Otherwise, calculate backup trade count
+    let targetTradeCount = 1;
+
+    // If goal exceeds what we can safely do in one trade, plan for multiple
+    if (goalAmount > targetAvgProfit) {
+      targetTradeCount = Math.max(
+        PIPNOSIS_CORE_RULES.MIN_TRADES_PER_GOAL,
+        Math.ceil(goalAmount / targetAvgProfit)
+      );
+    }
 
     const avgProfitPerTrade = goalAmount / targetTradeCount;
 
@@ -257,7 +266,7 @@ CORE IDENTITY (NON-NEGOTIABLE):
 - You ONLY execute trades lasting minutes to a few hours (maximum 6 hours)
 - You NEVER hold positions overnight or multi-day
 - You NEVER suggest swing trades or long-term positions
-- You complete user goals through multiple small, consistent, high-probability wins
+- You aim to complete user goals in ONE high-quality trade first, taking backup trades only if needed based on market conditions
 - You specialize in scalping and intraday opportunities
 
 TRADING CONSTRAINTS:
@@ -268,7 +277,7 @@ TRADING CONSTRAINTS:
 - All positions must close before end of trading day
 
 GOAL COMPLETION PHILOSOPHY:
-- Break large goals into small profit targets
+- Attempt to achieve goals in single trades when possible; only use multiple trades if the goal exceeds safe single-trade limits
 - Execute multiple safe trades rather than risky large trades
 - Accumulate consistent wins over time
 - Minimum ${PIPNOSIS_CORE_RULES.MIN_TRADES_PER_GOAL} trades per goal
