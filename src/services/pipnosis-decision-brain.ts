@@ -688,17 +688,81 @@ class PipnosisDecisionBrain {
 
   private buildMarketSnapshotForLLM(context: DecisionContext): any {
     const latestCandle = context.snapshot.ohlc[context.snapshot.ohlc.length - 1];
+    const indicators = context.snapshot.indicators || {};
 
+    // Extract prices and indicators with proper fallbacks
+    const price = context.currentPrice || latestCandle?.close || 0;
+    const ema9 = indicators.ema9 || indicators.ema20 || price;
+    const ema21 = indicators.ema21 || indicators.ema20 || price;
+    const ema50 = indicators.ema50 || price;
+    const vwap = indicators.vwap || price;
+    const atr = indicators.atr || (price * 0.001); // 0.1% default
+    const rsi = indicators.rsi || 50;
+
+    // Calculate trend from EMA alignment (proper technical analysis)
+    let trend: 'bullish' | 'bearish' | 'sideways' = 'sideways';
+
+    // Bullish: price > EMA9 > EMA21
+    if (price > ema9 && ema9 > ema21) {
+      trend = 'bullish';
+    }
+    // Bearish: price < EMA9 < EMA21
+    else if (price < ema9 && ema9 < ema21) {
+      trend = 'bearish';
+    }
+    // Otherwise sideways/choppy
+    else {
+      trend = 'sideways';
+    }
+
+    // Calculate volatility from ATR relative to price
+    const atrPercent = (atr / price) * 100;
+    let volatility: 'low' | 'medium' | 'high' = 'medium';
+
+    if (atrPercent < 0.3) {
+      volatility = 'low';
+    } else if (atrPercent > 0.7) {
+      volatility = 'high';
+    }
+
+    // Calculate momentum from short-term EMA difference
+    const momentum = ((ema9 - ema21) / ema21) * 100;
+
+    // Build snapshot in format expected by validator (with timeframes structure)
     return {
       symbol: context.symbol,
       timestamp: latestCandle?.time || new Date(),
+      timeframes: {
+        // Use M15 as default primary timeframe
+        'M15': {
+          currentPrice: price,
+          ema9: ema9,
+          ema21: ema21,
+          ema50: ema50,
+          rsi: rsi,
+          atr: atr,
+          vwap: vwap,
+          trend: trend,
+          volatility: volatility
+        }
+      },
+      // Keep legacy structure for backward compatibility
       ohlc: context.snapshot.ohlc,
-      indicators: context.snapshot.indicators,
+      indicators: {
+        ...indicators,
+        ema9: ema9,
+        ema21: ema21,
+        ema50: ema50,
+        vwap: vwap,
+        atr: atr,
+        rsi: rsi
+      },
       priceAction: {
-        trend: context.snapshot.trend || 'sideways',
-        volatility: context.snapshot.volatility || 'medium',
-        momentum: 'neutral'
-      }
+        trend: trend,
+        volatility: volatility,
+        momentum: momentum
+      },
+      recentPriceAction: `${trend} trend with ${volatility} volatility`
     };
   }
 
