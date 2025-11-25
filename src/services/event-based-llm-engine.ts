@@ -595,6 +595,20 @@ class EventBasedLLMEngine {
       console.log(`Duration: ${totalDuration}ms | Tokens: ${totalTokens}`);
       console.log('========================================\n');
 
+      // Send pipeline results to AI conversation if session ID exists
+      if (this.sessionId) {
+        await this.sendPipelineResultsToConversation(
+          snapshot,
+          trigger,
+          regimeResult,
+          qualityResult,
+          mistakeResult,
+          calibrationResult,
+          executionResult,
+          totalDuration
+        );
+      }
+
       return executionResult;
 
     } catch (error) {
@@ -948,6 +962,62 @@ class EventBasedLLMEngine {
    */
   resetTokenUsage(): void {
     this.sessionTokenUsage = 0;
+  }
+
+  /**
+   * Send 5-layer pipeline results to AI conversation
+   */
+  private async sendPipelineResultsToConversation(
+    snapshot: MarketSnapshot,
+    trigger: TriggerEvent,
+    regimeResult: any,
+    qualityResult: any,
+    mistakeResult: any,
+    calibrationResult: any,
+    executionResult: LLMTradeDecision,
+    totalDuration: number
+  ): Promise<void> {
+    if (!this.userId || !this.sessionId) return;
+
+    const isApproved = executionResult.action !== 'NO_TRADE';
+    const emoji = isApproved ? '✅' : '🚫';
+
+    const message = `🧠 5-Layer Analysis Complete (${totalDuration}ms)\\n` +
+      `✓ Hard Gate: Pattern allowed\\n` +
+      `✓ Layer 1: ${regimeResult.regime} / ${regimeResult.volatility} volatility\\n` +
+      `✓ Layer 2: Quality ${qualityResult.quality_score}/100 - ${qualityResult.is_high_quality ? 'High quality' : 'Standard'}\\n` +
+      `✓ Layer 3: ${mistakeResult.risk_level} risk - ${mistakeResult.mistakes_found === 0 ? 'No issues' : mistakeResult.mistakes_found + ' issues'}\\n` +
+      `✓ Layer 4: Confidence ${trigger.confidence}% → ${calibrationResult.calibrated_confidence}% (${calibrationResult.confidence_delta >= 0 ? '+' : ''}${calibrationResult.confidence_delta}%)\\n` +
+      `${emoji} Layer 5: ${executionResult.action}`;
+
+    try {
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: this.sessionId,
+        user_id: this.userId,
+        role: 'ai',
+        message,
+        context: {
+          pipeline_duration: totalDuration,
+          trigger_type: trigger.type,
+          final_decision: executionResult.action
+        },
+        sentiment: isApproved ? 'analytical' : 'cautionary',
+        technical_data: {
+          regime: regimeResult.regime,
+          volatility: regimeResult.volatility,
+          quality_score: qualityResult.quality_score,
+          confidence_before: trigger.confidence,
+          confidence_after: calibrationResult.calibrated_confidence
+        },
+        market_snapshot: {
+          decision: executionResult.action,
+          confidence: calibrationResult.calibrated_confidence,
+          trend: regimeResult.regime
+        }
+      });
+    } catch (error) {
+      console.error('[Pipeline] Error sending to conversation:', error);
+    }
   }
 }
 
