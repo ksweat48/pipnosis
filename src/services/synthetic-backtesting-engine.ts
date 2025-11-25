@@ -689,9 +689,63 @@ class SyntheticBacktestingEngine {
    * Build market snapshot for Layer 6
    */
   private buildMarketSnapshot(candle: any, symbol: string): any {
+    // Extract prices and indicators
+    const price = candle.close;
+    const ema9 = candle.ema9 || candle.close;
+    const ema21 = candle.ema21 || candle.ema20 || candle.close;
+    const ema50 = candle.ema50 || candle.close;
+    const vwap = candle.vwap || candle.close;
+    const atr = candle.atr || (candle.close * 0.001); // 0.1% default
+    const rsi = candle.rsi || 50;
+
+    // Calculate trend from EMA alignment (proper technical analysis)
+    let trend: 'bullish' | 'bearish' | 'sideways' = 'sideways';
+
+    // Bullish: price > EMA9 > EMA21 > EMA50 (or at least price > EMA9 > EMA21)
+    if (price > ema9 && ema9 > ema21) {
+      trend = 'bullish';
+    }
+    // Bearish: price < EMA9 < EMA21 < EMA50 (or at least price < EMA9 < EMA21)
+    else if (price < ema9 && ema9 < ema21) {
+      trend = 'bearish';
+    }
+    // Otherwise sideways/choppy
+    else {
+      trend = 'sideways';
+    }
+
+    // Calculate volatility from ATR relative to price
+    const atrPercent = (atr / price) * 100;
+    let volatility: 'low' | 'medium' | 'high' = 'medium';
+
+    if (atrPercent < 0.3) {
+      volatility = 'low';
+    } else if (atrPercent > 0.7) {
+      volatility = 'high';
+    }
+
+    // Calculate momentum from short-term EMA difference
+    const momentum = ((ema9 - ema21) / ema21) * 100;
+
+    // Build snapshot in format expected by validator (with timeframes structure)
     return {
       symbol: symbol,
       timestamp: new Date(candle.open_time),
+      timeframes: {
+        // Use the actual timeframe from candle, default to M15
+        'M15': {
+          currentPrice: price,
+          ema9: ema9,
+          ema21: ema21,
+          ema50: ema50,
+          rsi: rsi,
+          atr: atr,
+          vwap: vwap,
+          trend: trend,
+          volatility: volatility
+        }
+      },
+      // Keep legacy structure for backward compatibility
       ohlc: [{
         open: candle.open,
         high: candle.high,
@@ -700,17 +754,21 @@ class SyntheticBacktestingEngine {
         volume: candle.volume || 1000
       }],
       indicators: {
-        vwap: candle.vwap || candle.close,
-        ema20: candle.ema20 || candle.close,
-        ema50: candle.ema50 || candle.close,
-        atr: candle.atr || 0.0010,
+        vwap: vwap,
+        ema9: ema9,
+        ema20: ema21,
+        ema21: ema21,
+        ema50: ema50,
+        atr: atr,
+        rsi: rsi,
         volumeBaseline: 1000
       },
       priceAction: {
-        trend: candle.close > candle.open ? 'bullish' : 'bearish',
-        volatility: 'medium',
-        momentum: (candle.close - candle.open) / candle.open * 100
-      }
+        trend: trend,
+        volatility: volatility,
+        momentum: momentum
+      },
+      recentPriceAction: `${trend} trend with ${volatility} volatility`
     };
   }
 
