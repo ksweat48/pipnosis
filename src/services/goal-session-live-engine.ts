@@ -11,6 +11,8 @@ import { eventBasedLLMEngine, EventBasedEngineConfig, SimulatedTrade } from './e
 import { localSessionMemory } from './local-session-memory';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { tradeExecutionEngine } from './trade-execution-engine';
+import { midTradeTriggerDetector, type MarketConditions } from './mid-trade-trigger-detector';
+import { llmMidTradeEvaluator } from './llm-mid-trade-evaluator';
 
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
@@ -265,6 +267,13 @@ class GoalSessionLiveEngine {
       // Update open trades and check for closures
       this.openTrades = eventBasedLLMEngine.updateOpenTrades(this.openTrades, latestCandle);
 
+      // Check for mid-trade triggers and evaluate with LLM if needed
+      for (const trade of this.openTrades) {
+        if (trade.outcome === 'open') {
+          await this.checkMidTradeTriggers(trade, sortedCandles, latestCandle);
+        }
+      }
+
       // Send monitoring updates for open positions (every minute)
       if (this.openTrades.length > 0 && Date.now() - this.lastAIUpdateTime > 60000) {
         await this.sendTradeMonitoringUpdate(latestCandle);
@@ -440,6 +449,9 @@ class GoalSessionLiveEngine {
 
     console.log(`[Goal Live Engine] Trade closed: ${trade.outcome.toUpperCase()} - PnL: $${trade.pnl.toFixed(2)}`);
 
+    // Clear mid-trade triggers for this trade
+    midTradeTriggerDetector.clearTriggers(trade.id);
+
     localSessionMemory.recordTradeClosure(`live-${this.activeSession}`, trade);
 
     const { error } = await supabase
@@ -517,10 +529,8 @@ class GoalSessionLiveEngine {
         })
         .eq('id', this.activeSession);
 
-      // Post-trade analysis message
-      const analysisMessage = isWin
-        ? `💡 Analysis: Setup executed well. ${trade.triggerType} pattern performed as expected. Confidence ${trade.confidence}% was justified.`
-        : `💡 Analysis: ${exitReason}. Initial setup quality was ${trade.confidence}%. Market conditions changed after entry. This pattern typically has ${Math.floor(trade.confidence * 0.7)}% win rate.`;
+      // Get intelligent post-trade analysis from LLM
+      const llmAnalysis = await this.generatePostTradeAnalysis(trade, stats);
 
       const progressMessage = `\\n🎯 Goal Progress: ${stats.totalPnL >= 0 ? '+' : ''}$${stats.totalPnL.toFixed(2)} / $${this.config!.initialBalance.toFixed(2)} target (${((stats.totalPnL / this.config!.initialBalance) * 100).toFixed(1)}%)\\n` +
         `📊 Session Stats: ${stats.totalTrades} trades | ${stats.winningTrades} wins | ${((stats.winningTrades / stats.totalTrades) * 100).toFixed(0)}% win rate\\n` +
@@ -530,10 +540,11 @@ class GoalSessionLiveEngine {
         goal_session_id: this.activeSession,
         user_id: this.config!.userId,
         role: 'ai',
-        message: analysisMessage + progressMessage,
+        message: llmAnalysis + progressMessage,
         context: {
           stats,
-          trade_id: trade.id
+          trade_id: trade.id,
+          llm_analysis: true
         },
         sentiment: 'analytical',
         technical_data: {
@@ -699,6 +710,327 @@ class GoalSessionLiveEngine {
         price: latestCandle.close
       }
     });
+  }
+
+  /**
+   * Check for mid-trade triggers and evaluate with LLM if needed
+   */
+  private async checkMidTradeTriggers(
+    trade: SimulatedTrade,
+    allCandles: any[],
+    latestCandle: any
+  ): Promise<void> {
+    if (!this.config || !this.activeSession) return;
+
+    // Build market conditions from candles
+    const marketConditions: MarketConditions = {
+      currentPrice: latestCandle.close,
+      ohlc: allCandles,
+      indicators: {
+        vwap: latestCandle.vwap,
+        ema20: latestCandle.ema20,
+        ema50: latestCandle.ema50
+      },
+      priceAction: {
+        trend: this.detectTrend(allCandles),
+        volatility: this.detectVolatility(allCandles),
+        momentum: this.detectMomentum(allCandles)
+      }
+    };
+
+    // Check for triggers
+    const triggerResult = midTradeTriggerDetector.checkForTriggers(trade, marketConditions);
+
+    if (triggerResult.triggered && triggerResult.shouldCallLLM) {
+      console.log(`[Mid-Trade] Trigger detected: ${triggerResult.triggerType} - ${triggerResult.triggerReason}`);
+
+      // Send trigger notification to AI conversation
+      await this.sendMidTradeTriggerMessage(triggerResult, trade, latestCandle);
+
+      // Get goal context
+      const goalContext = {
+        goalSessionId: this.activeSession,
+        targetValue: this.config.initialBalance,
+        currentProgress: this.calculateCurrentBalance() - this.config.initialBalance,
+        tradesRemaining: this.config.maxConcurrentTrades - this.openTrades.length
+      };
+
+      // Call LLM for evaluation
+      const evaluation = await llmMidTradeEvaluator.evaluateTrade(
+        {
+          trade,
+          marketConditions,
+          trigger: triggerResult,
+          goalContext
+        },
+        this.config.userId
+      );
+
+      console.log(`[Mid-Trade] LLM Recommendation: ${evaluation.recommendation} (${evaluation.confidence}% confidence)`);
+      console.log(`[Mid-Trade] Reasoning: ${evaluation.reasoning}`);
+      console.log(`[Mid-Trade] Cost: $${evaluation.costUsd.toFixed(4)} | Tokens: ${evaluation.tokensUsed}`);
+
+      // Send LLM evaluation to AI conversation
+      await this.sendMidTradeEvaluationMessage(evaluation, trade, latestCandle);
+
+      // Validate and apply recommendation
+      await this.applyMidTradeRecommendation(evaluation, trade);
+    }
+  }
+
+  /**
+   * Apply LLM mid-trade recommendation with hard rule validation
+   */
+  private async applyMidTradeRecommendation(
+    evaluation: any,
+    trade: SimulatedTrade
+  ): Promise<void> {
+    if (!this.config || !this.activeSession) return;
+
+    // Validate recommendation against hard rules
+    const validation = llmMidTradeEvaluator.validateRecommendation(evaluation, trade);
+
+    if (!validation.isValid) {
+      console.log(`[Mid-Trade] Recommendation rejected: ${validation.violations.join(', ')}`);
+
+      // Send rejection message
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: this.activeSession,
+        user_id: this.config.userId,
+        role: 'ai',
+        message: `⚠️ LLM recommendation rejected: ${validation.violations.join('. ')}. Keeping current parameters for safety.`,
+        context: { evaluation, validation },
+        sentiment: 'cautionary'
+      });
+
+      return;
+    }
+
+    // Apply recommendation
+    let actionMessage = '';
+
+    switch (evaluation.recommendation) {
+      case 'HOLD':
+        actionMessage = `✓ LLM Decision: Continue holding position. ${evaluation.reasoning}`;
+        break;
+
+      case 'MOVE_SL':
+        if (evaluation.suggestedActions?.newStopLoss) {
+          trade.stopLoss = evaluation.suggestedActions.newStopLoss;
+          actionMessage = `✓ Stop Loss adjusted to ${trade.stopLoss.toFixed(5)}. ${evaluation.reasoning}`;
+
+          // Update database
+          await supabase
+            .from('goal_session_trades')
+            .update({ stop_loss: trade.stopLoss })
+            .eq('id', trade.id);
+        }
+        break;
+
+      case 'MOVE_TP':
+        if (evaluation.suggestedActions?.newTakeProfit) {
+          trade.takeProfit = evaluation.suggestedActions.newTakeProfit;
+          actionMessage = `✓ Take Profit adjusted to ${trade.takeProfit.toFixed(5)}. ${evaluation.reasoning}`;
+
+          // Update database
+          await supabase
+            .from('goal_session_trades')
+            .update({ take_profit: trade.takeProfit })
+            .eq('id', trade.id);
+        }
+        break;
+
+      case 'TAKE_PROFIT_EARLY':
+      case 'EXIT_IMMEDIATELY':
+        // Force close the trade
+        trade.outcome = 'win'; // Will be recalculated
+        trade.exitTime = new Date();
+        trade.exitPrice = evaluation.suggestedActions?.exitPrice || trade.entryPrice;
+        trade.exitReason = evaluation.recommendation === 'EXIT_IMMEDIATELY'
+          ? 'LLM emergency exit'
+          : 'LLM early profit taking';
+
+        actionMessage = `${evaluation.recommendation === 'EXIT_IMMEDIATELY' ? '❌' : '🎯'} Position closed by LLM at ${trade.exitPrice.toFixed(5)}. ${evaluation.reasoning}`;
+        break;
+
+      default:
+        actionMessage = `✓ LLM Decision: ${evaluation.recommendation}`;
+    }
+
+    // Send action message to AI conversation
+    await supabase.from('goal_ai_conversations').insert({
+      goal_session_id: this.activeSession,
+      user_id: this.config.userId,
+      role: 'ai',
+      message: actionMessage,
+      context: { evaluation, trade_id: trade.id },
+      sentiment: evaluation.recommendation === 'EXIT_IMMEDIATELY' ? 'cautionary' : 'analytical',
+      technical_data: {
+        recommendation: evaluation.recommendation,
+        confidence: evaluation.confidence,
+        new_sl: trade.stopLoss,
+        new_tp: trade.takeProfit
+      }
+    });
+
+    console.log(`[Mid-Trade] Action applied: ${evaluation.recommendation}`);
+  }
+
+  /**
+   * Send mid-trade trigger notification
+   */
+  private async sendMidTradeTriggerMessage(trigger: any, trade: SimulatedTrade, candle: any): Promise<void> {
+    if (!this.config || !this.activeSession) return;
+
+    const message = `⚠️ Mid-Trade Event: ${trigger.triggerReason}. Requesting LLM evaluation...`;
+
+    await supabase.from('goal_ai_conversations').insert({
+      goal_session_id: this.activeSession,
+      user_id: this.config.userId,
+      role: 'ai',
+      message,
+      context: { trigger, trade_id: trade.id },
+      sentiment: 'analytical',
+      technical_data: {
+        trigger_type: trigger.triggerType,
+        confidence: trigger.confidence,
+        current_price: candle.close
+      }
+    });
+  }
+
+  /**
+   * Send LLM mid-trade evaluation results
+   */
+  private async sendMidTradeEvaluationMessage(evaluation: any, trade: SimulatedTrade, candle: any): Promise<void> {
+    if (!this.config || !this.activeSession) return;
+
+    const emoji = evaluation.recommendation === 'EXIT_IMMEDIATELY' ? '❌' :
+                   evaluation.recommendation === 'TAKE_PROFIT_EARLY' ? '🎯' :
+                   evaluation.recommendation === 'HOLD' ? '✓' : '📊';
+
+    const message = `${emoji} LLM Evaluation (${evaluation.processingTimeMs}ms): ${evaluation.reasoning}\\n` +
+      `Recommendation: ${evaluation.recommendation} | Confidence: ${evaluation.confidence}%`;
+
+    await supabase.from('goal_ai_conversations').insert({
+      goal_session_id: this.activeSession,
+      user_id: this.config.userId,
+      role: 'ai',
+      message,
+      context: { evaluation, trade_id: trade.id },
+      sentiment: 'analytical',
+      technical_data: {
+        recommendation: evaluation.recommendation,
+        confidence: evaluation.confidence,
+        cost_usd: evaluation.costUsd,
+        tokens_used: evaluation.tokensUsed
+      }
+    });
+  }
+
+  /**
+   * Detect trend from candles (simple EMA-based)
+   */
+  private detectTrend(candles: any[]): string {
+    if (candles.length < 20) return 'unknown';
+
+    const latest = candles[candles.length - 1];
+    if (!latest.ema20 || !latest.ema50) return 'unknown';
+
+    if (latest.close > latest.ema20 && latest.ema20 > latest.ema50) return 'bullish';
+    if (latest.close < latest.ema20 && latest.ema20 < latest.ema50) return 'bearish';
+    return 'neutral';
+  }
+
+  /**
+   * Detect volatility from candles (simple ATR-based)
+   */
+  private detectVolatility(candles: any[]): string {
+    if (candles.length < 10) return 'unknown';
+
+    const recent10 = candles.slice(-10);
+    const avgRange = recent10.reduce((sum, c) => sum + (c.high - c.low), 0) / 10;
+
+    // Simple thresholds for forex
+    if (avgRange > 0.001) return 'high';
+    if (avgRange > 0.0005) return 'medium';
+    return 'low';
+  }
+
+  /**
+   * Detect momentum from candles (simple price change)
+   */
+  private detectMomentum(candles: any[]): string {
+    if (candles.length < 5) return 'unknown';
+
+    const recent = candles.slice(-5);
+    const priceChange = ((recent[4].close - recent[0].close) / recent[0].close) * 100;
+
+    if (Math.abs(priceChange) > 0.5) return priceChange > 0 ? 'strong_up' : 'strong_down';
+    if (Math.abs(priceChange) > 0.2) return priceChange > 0 ? 'moderate_up' : 'moderate_down';
+    return 'weak';
+  }
+
+  /**
+   * Generate intelligent post-trade analysis using LLM
+   */
+  private async generatePostTradeAnalysis(trade: SimulatedTrade, stats: any): Promise<string> {
+    try {
+      const isWin = trade.outcome === 'win';
+      const tradeDuration = Math.floor((trade.exitTime!.getTime() - trade.entryTime.getTime()) / 60000);
+
+      const prompt = `Analyze this completed trade and provide educational insights:
+
+TRADE DETAILS:
+- Symbol: ${trade.symbol}
+- Direction: ${trade.direction.toUpperCase()}
+- Entry: ${trade.entryPrice.toFixed(5)}
+- Exit: ${trade.exitPrice?.toFixed(5)} (${trade.exitReason || 'Unknown'})
+- Result: ${isWin ? 'WIN' : 'LOSS'}
+- P&L: $${trade.pnl.toFixed(2)}
+- Duration: ${tradeDuration} minutes
+- Setup Type: ${trade.triggerType}
+- Initial Confidence: ${trade.confidence}%
+
+SESSION CONTEXT:
+- Total Trades: ${stats.totalTrades}
+- Win Rate: ${((stats.winningTrades / stats.totalTrades) * 100).toFixed(0)}%
+- Total P&L: $${stats.totalPnL.toFixed(2)}
+
+Provide:
+1. Why did this trade win/lose?
+2. What can we learn from this outcome?
+3. Should we adjust our approach for similar setups?
+4. Brief actionable insight (1-2 sentences)
+
+Keep response under 100 words, educational tone.`;
+
+      const response = await openAIClient.createChatCompletion([
+        {
+          role: 'system',
+          content: 'You are a professional trading mentor providing concise, educational post-trade analysis. Focus on learning and improvement.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ], {
+        model: 'gpt-4o-mini',
+        temperature: 0.4,
+        max_tokens: 200
+      });
+
+      return `💡 ${response.content}`;
+
+    } catch (error) {
+      console.error('[Post-Trade Analysis] LLM error:', error);
+
+      // Fallback to template if LLM fails
+      const isWin = trade.outcome === 'win';
+      return isWin
+        ? `💡 Analysis: Setup executed well. ${trade.triggerType} pattern performed as expected. Confidence ${trade.confidence}% was justified.`
+        : `💡 Analysis: ${trade.exitReason || 'Trade closed'}. Initial setup quality was ${trade.confidence}%. Market conditions changed after entry.`;
+    }
   }
 
   /**
