@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import { eventBasedLLMEngine, EventBasedEngineConfig, SimulatedTrade } from './event-based-llm-engine';
 import { localSessionMemory } from './local-session-memory';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
+import { tradeExecutionEngine } from './trade-execution-engine';
 
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
@@ -100,6 +101,12 @@ class GoalSessionLiveEngine {
       this.sessionStartTime = new Date();
       this.openTrades = [];
 
+      // ✅ CRITICAL: Initialize 5-layer LLM pipeline
+      await eventBasedLLMEngine.initialize(config.userId, config.goalSessionId);
+      eventBasedLLMEngine.set5LayerPipeline(true);
+      console.log('[Goal Live Engine] ✅ 5-Layer LLM Pipeline ACTIVATED');
+      console.log('[Goal Live Engine] ✅ Hard Gate + 4 validation layers enabled');
+
       localSessionMemory.createSession(
         `live-${config.goalSessionId}`,
         config.userId,
@@ -123,11 +130,14 @@ class GoalSessionLiveEngine {
 
       this.startPolling();
 
-      console.log('[Goal Live Engine] Session started successfully');
+      console.log('[Goal Live Engine] ✅ Session started successfully');
+      console.log('[Goal Live Engine] ✅ LIVE DEMO MODE - All trades use real price monitoring');
+      console.log('[Goal Live Engine] ✅ SL/TP will be visible on charts');
+      console.log('[Goal Live Engine] ✅ Polling every 15 seconds for triggers');
 
       return {
         success: true,
-        message: 'Live trading session started'
+        message: 'Live demo trading session started with 5-layer protection'
       };
     } catch (error) {
       console.error('[Goal Live Engine] Error starting session:', error);
@@ -310,41 +320,54 @@ class GoalSessionLiveEngine {
   }
 
   /**
-   * Handle new trade signal
+   * Handle new trade signal - Routes through trade-execution-engine for proper simulated_positions creation
    */
   private async handleNewTradeSignal(trade: SimulatedTrade): Promise<void> {
     if (!this.config || !this.activeSession) {
       return;
     }
 
-    console.log(`[Goal Live Engine] New trade signal: ${trade.direction.toUpperCase()} @ ${trade.entryPrice}`);
+    console.log(`[Goal Live Engine] ✅ 5-Layer pipeline approved trade: ${trade.direction.toUpperCase()} @ ${trade.entryPrice}`);
+    console.log(`[Goal Live Engine] Confidence: ${trade.confidence}% | Trigger: ${trade.triggerType}`);
 
     localSessionMemory.recordTrade(`live-${this.activeSession}`, trade);
 
-    const { error } = await supabase
-      .from('goal_session_trades')
-      .insert({
-        goal_session_id: this.activeSession,
+    // Calculate risk/reward for validation
+    const riskPips = Math.abs(trade.entryPrice - trade.stopLoss) / 0.0001;
+    const rewardPips = Math.abs(trade.takeProfit - trade.entryPrice) / 0.0001;
+    const riskReward = rewardPips / riskPips;
+    const expectedProfit = rewardPips * 10 * trade.positionSize;
+
+    // Route through trade-execution-engine to create simulated_positions
+    const executionResult = await tradeExecutionEngine.executeSignal(
+      {
+        sessionId: this.activeSession,
         symbol: trade.symbol,
         direction: trade.direction,
-        entry_price: trade.entryPrice,
-        stop_loss: trade.stopLoss,
-        take_profit: trade.takeProfit,
-        position_size: trade.positionSize,
-        status: this.config.autoExecute ? 'open' : 'pending',
-        opened_at: this.config.autoExecute ? new Date().toISOString() : null
-      });
+        entryPrice: trade.entryPrice,
+        stopLoss: trade.stopLoss,
+        takeProfit: trade.takeProfit,
+        positionSize: trade.positionSize,
+        confidence: trade.confidence,
+        setupType: trade.triggerType,
+        reasoning: trade.reasoning,
+        riskReward,
+        expectedProfit
+      },
+      this.config.userId,
+      this.config.autoExecute
+    );
 
-    if (error) {
-      console.error('[Goal Live Engine] Error saving trade signal:', error);
-      return;
-    }
+    if (executionResult.success) {
+      console.log(`[Goal Live Engine] ✅ Live demo trade created successfully`);
+      console.log(`[Goal Live Engine] ✅ Trade ID: ${executionResult.tradeId}`);
+      console.log(`[Goal Live Engine] ✅ simulated_positions created - SL/TP visible on chart`);
 
-    if (this.config.autoExecute) {
-      this.openTrades.push(trade);
-      console.log(`[Goal Live Engine] Trade executed automatically (auto-execute enabled)`);
+      if (this.config.autoExecute) {
+        this.openTrades.push(trade);
+      }
     } else {
-      console.log(`[Goal Live Engine] Trade signal saved (awaiting manual approval)`);
+      console.error(`[Goal Live Engine] ❌ Trade execution failed: ${executionResult.message}`);
     }
 
     await supabase
@@ -354,14 +377,15 @@ class GoalSessionLiveEngine {
         user_id: this.config.userId,
         notification_type: 'signal',
         priority: 'high',
-        title: 'New Trade Signal',
-        message: `${trade.direction.toUpperCase()} ${trade.symbol} @ ${trade.entryPrice} | Confidence: ${trade.confidence}%`,
+        title: executionResult.success ? 'Live Demo Trade Executed' : 'Trade Execution Failed',
+        message: executionResult.message,
         data: {
-          trade_id: trade.id,
+          trade_id: executionResult.tradeId || trade.id,
           symbol: trade.symbol,
           direction: trade.direction,
           entry_price: trade.entryPrice,
-          confidence: trade.confidence
+          confidence: trade.confidence,
+          success: executionResult.success
         }
       });
   }

@@ -3,6 +3,7 @@ import { Target, TrendingUp, Clock, AlertCircle, Loader2, Zap } from 'lucide-rea
 import { smartGoalSessionManager, SmartGoalConfig } from '../services/smart-goal-session-manager';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { useAuth } from '../hooks/useAuth';
+import { useToast } from '../hooks/useToast';
 
 interface GoalTemplate {
   label: string;
@@ -35,6 +36,7 @@ const GOAL_TEMPLATES: GoalTemplate[] = [
 
 export const SmartGoalPanel: React.FC = () => {
   const { user } = useAuth();
+  const toast = useToast();
   const [goalPrompt, setGoalPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -60,12 +62,19 @@ export const SmartGoalPanel: React.FC = () => {
       if (session) {
         window.dispatchEvent(new CustomEvent('goal-session-created', { detail: session }));
         setGoalPrompt('');
-        alert(`Smart Goal Session Started!\n\nTarget: $${session.config.goalAmount}\nStrategy: ${session.strategy.targetTradeCount} short trades\nAvg Profit/Trade: $${session.strategy.avgProfitPerTrade.toFixed(2)}\n\nPipnosis will scan every ${session.strategy.scanIntervalMinutes} minutes for high-probability short-term setups.`);
+
+        toast.success(
+          'Goal Session Started!',
+          `Target: $${session.config.goalAmount} • ${session.strategy.targetTradeCount} trades • Using 5-layer LLM protection with live demo monitoring`,
+          8000
+        );
       } else {
+        toast.error('Session Failed', 'Failed to create goal session');
         setError('Failed to create goal session.');
       }
     } catch (err) {
       console.error('Error creating session:', err);
+      toast.error('Error', 'An error occurred while creating your goal session');
       setError('An error occurred while creating your goal session.');
     } finally {
       setLoading(false);

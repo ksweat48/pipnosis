@@ -220,7 +220,8 @@ class TradeExecutionEngine {
       };
     }
 
-    console.log(`[Trade Execution] Creating simulated position for ${signal.symbol}...`);
+    console.log(`[Trade Execution] ✅ Creating simulated position for ${signal.symbol}...`);
+    console.log(`[Trade Execution] This will make SL/TP visible on chart`);
     const simulatedResult = await simulatedTradingService.executeTrade({
       symbol: signal.symbol,
       action: signal.direction,
@@ -228,11 +229,13 @@ class TradeExecutionEngine {
       entry: signal.entryPrice,
       stopLoss: signal.stopLoss,
       takeProfit: signal.takeProfit,
-      strategy: 'ai_goal'
+      strategy: 'ai_goal',
+      confidence: signal.confidence,
+      setupType: signal.setupType
     }, userId);
 
     if (!simulatedResult.success) {
-      console.error('[Trade Execution] Failed to create simulated position:', simulatedResult.error);
+      console.error('[Trade Execution] ❌ Failed to create simulated position:', simulatedResult.error);
       await supabase
         .from('goal_session_trades')
         .update({ status: 'rejected' })
@@ -244,6 +247,9 @@ class TradeExecutionEngine {
         message: 'Failed to create simulated position'
       };
     }
+
+    console.log(`[Trade Execution] ✅ simulated_positions entry created`);
+    console.log(`[Trade Execution] ✅ Position ID: ${simulatedResult.position?.id}`);
 
     await supabase
       .from('goal_session_trades')

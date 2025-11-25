@@ -1,10 +1,15 @@
 import React from 'react';
 import { SmartGoalPanel } from '../components/SmartGoalPanel';
 import { GoalSessionDashboard } from '../components/GoalSessionDashboard';
+import { ToastContainer } from '../components/ToastNotification';
+import { useToast } from '../hooks/useToast';
 
 export const SmartGoalModePage: React.FC = () => {
+  const toast = useToast();
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+      <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
       <div className="max-w-full mx-auto px-2 py-6">
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">Smart Goal Mode</h1>

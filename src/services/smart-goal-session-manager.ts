@@ -1,17 +1,13 @@
 /**
  * Smart Goal Session Manager (Refactored)
  *
- * Integrates LLM brain, local memory, and countdown notifications.
- * Breaks large goals into small trade accumulation strategy.
+ * Session management and coordination for goal-based trading.
+ * Delegates all trade execution to goal-session-live-engine (live demo system).
+ * NO SYNTHETIC TRADES - All trades use real price monitoring with SL/TP.
  */
 
 import { supabase } from '../lib/supabase';
 import { PIPNOSIS_CORE_RULES, PipnosisCoreRules } from '../lib/pipnosis-core-rules';
-import { localMemoryLayer, LocalTrade } from './local-memory-layer';
-import { llmStrategyBrain, MarketSnapshot, GoalContext, RelevantHistory } from './llm-strategy-brain';
-import { marketSnapshotBuilder } from './market-snapshot-builder';
-import { countdownNotificationSystem } from './countdown-notification-system';
-import { supabaseSummaryWriter } from './supabase-summary-writer';
 import { goalSessionLiveEngine, GoalSessionLiveConfig } from './goal-session-live-engine';
 
 export interface SmartGoalConfig {
@@ -73,8 +69,6 @@ class SmartGoalSessionManager {
       lastScanTime: undefined
     };
 
-    localMemoryLayer.createSession(sessionId, accountBalance, config.goalAmount);
-
     this.activeSessions.set(sessionId, session);
 
     const { error } = await supabase.from('goal_sessions').insert({
@@ -100,11 +94,10 @@ class SmartGoalSessionManager {
       console.error('[Smart Goal] Error creating session record:', error);
     }
 
-    this.scheduleNextScan(sessionId);
-
     await this.startLiveEngine(sessionId, userId, config, accountBalance);
 
     console.log(`[Smart Goal] Created session ${sessionId}: Target $${config.goalAmount} via ${breakDown.targetTradeCount} trades`);
+    console.log(`[Smart Goal] ✅ LIVE DEMO MODE - All trades use real price monitoring with visible SL/TP`);
 
     return session;
   }
@@ -149,266 +142,29 @@ class SmartGoalSessionManager {
     };
   }
 
-  private scheduleNextScan(sessionId: string): void {
-    const session = this.activeSessions.get(sessionId);
-    if (!session || session.status !== 'active') return;
+  // REMOVED: All synthetic trade execution logic
+  // Trade execution now handled by goal-session-live-engine.ts
+  // This ensures:
+  // - Real price monitoring (not random simulation)
+  // - Visible SL/TP on charts
+  // - Proper simulated_positions creation
+  // - 5-layer LLM pipeline validation
 
-    const existingTimer = this.scanTimers.get(sessionId);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-    }
-
-    const delayMs = session.strategy.scanIntervalMinutes * 60 * 1000;
-
-    const timer = setTimeout(async () => {
-      await this.executeScan(sessionId);
-    }, delayMs);
-
-    this.scanTimers.set(sessionId, timer);
-
-    session.nextScanTime = new Date(Date.now() + delayMs);
-    console.log(`[Smart Goal] Next scan scheduled for ${session.nextScanTime.toISOString()}`);
-  }
-
-  private async executeScan(sessionId: string): Promise<void> {
-    const session = this.activeSessions.get(sessionId);
-    if (!session || session.status !== 'active') return;
-
-    console.log(`[Smart Goal] Executing scan for session ${sessionId}`);
-    session.lastScanTime = new Date();
-
-    const goalProgress = localMemoryLayer.getGoalProgress(sessionId);
-    if (!goalProgress) {
-      console.warn('[Smart Goal] No goal progress found');
-      return;
-    }
-
-    if (goalProgress.progressPercent >= 100) {
-      console.log(`[Smart Goal] Goal achieved! ${goalProgress.currentProfit.toFixed(2)} / ${goalProgress.targetAmount.toFixed(2)}`);
-      await this.completeSession(sessionId);
-      return;
-    }
-
-    for (const symbol of session.config.watchlist) {
-      const snapshot = await marketSnapshotBuilder.buildSnapshot(symbol, 0, 0);
-      if (!snapshot) continue;
-
-      const goalContext: GoalContext = {
-        targetAmount: goalProgress.targetAmount,
-        currentProfit: goalProgress.currentProfit,
-        progressPercent: goalProgress.progressPercent,
-        remainingAmount: goalProgress.remainingAmount,
-        tradesCompleted: goalProgress.tradesCompleted,
-        avgProfitPerTrade: goalProgress.avgProfitPerTrade,
-        sessionDuration: this.calculateSessionDuration(session.startTime)
-      };
-
-      const decision = await llmStrategyBrain.makeDecision(snapshot, goalContext);
-
-      if (decision.action === 'enter_long' || decision.action === 'enter_short') {
-        console.log(`[Smart Goal] LLM recommends ${decision.action} on ${symbol} (${decision.confidence}% confidence)`);
-
-        const countdown = countdownNotificationSystem.createCountdown(
-          session.userId,
-          sessionId,
-          symbol,
-          decision,
-          'M15',
-          snapshot.timeframes.M15.volatility
-        );
-
-        countdownNotificationSystem.registerCallbacks(countdown.id, {
-          onTick: (remaining) => {
-            console.log(`[Smart Goal] Countdown: ${remaining}s remaining for ${symbol}`);
-          },
-          onComplete: async () => {
-            await this.executeTradeFromCountdown(sessionId, countdown.id, snapshot);
-          },
-          onCancel: () => {
-            console.log(`[Smart Goal] Countdown cancelled for ${symbol}`);
-          }
-        });
-
-        break;
-      }
-    }
-
-    this.scheduleNextScan(sessionId);
-  }
-
-  private async executeTradeFromCountdown(
-    sessionId: string,
-    countdownId: string,
-    originalSnapshot: MarketSnapshot
-  ): Promise<void> {
-    const countdown = countdownNotificationSystem.getCountdown(countdownId);
-    if (!countdown) return;
-
-    const currentSnapshot = await marketSnapshotBuilder.buildSnapshot(countdown.symbol, 0, 0);
-    if (!currentSnapshot) {
-      console.warn('[Smart Goal] Could not fetch current snapshot for execution');
-      return;
-    }
-
-    const currentPrice = currentSnapshot.timeframes.M15.currentPrice;
-    const shouldExecute = countdownNotificationSystem.shouldStillExecute(
-      countdown,
-      currentPrice,
-      currentSnapshot
-    );
-
-    if (!shouldExecute.shouldExecute) {
-      console.log(`[Smart Goal] Skipping execution: ${shouldExecute.reason}`);
-      return;
-    }
-
-    const atr = currentSnapshot.timeframes.M15.atr;
-    const adjustment = countdownNotificationSystem.calculateExecutionAdjustment(
-      countdown,
-      currentPrice,
-      atr
-    );
-
-    const trade = localMemoryLayer.addTrade(sessionId, {
-      symbol: countdown.symbol,
-      timeframe: 'M15',
-      direction: countdown.action === 'enter_long' ? 'buy' : 'sell',
-      entryTime: new Date(),
-      entryPrice: adjustment.adjustedEntry,
-      positionSize: 0.01,
-      stopLoss: adjustment.adjustedStop,
-      takeProfit: adjustment.adjustedTarget,
-      pnl: 0,
-      pnlPercent: 0,
-      outcome: 'open',
-      confidence: countdown.originalDecision.confidence,
-      setupType: countdown.originalDecision.setupType,
-      aiReasoning: countdown.originalDecision.reasoning
-    });
-
-    // Persist trade to database
-    const session = this.activeSessions.get(sessionId);
-    if (session) {
-      const direction = countdown.action === 'enter_long' ? 'buy' : 'sell';
-
-      // Insert to goal_session_trades
-      await supabase.from('goal_session_trades').insert({
-        goal_session_id: sessionId,
-        trade_id: trade.id,
-        symbol: countdown.symbol,
-        direction,
-        entry_price: adjustment.adjustedEntry,
-        stop_loss: adjustment.adjustedStop,
-        take_profit: adjustment.adjustedTarget,
-        position_size: 0.01,
-        status: 'open',
-        opened_at: new Date().toISOString()
-      });
-
-      // Insert to trade_history (with goal_session_id link)
-      await supabase.from('trade_history').insert({
-        id: trade.id,
-        user_id: session.userId,
-        goal_session_id: sessionId,
-        symbol: countdown.symbol,
-        position_type: direction,
-        lot_size: 0.01,
-        entry_price: adjustment.adjustedEntry,
-        exit_price: direction === 'buy' ? adjustment.adjustedTarget : adjustment.adjustedStop,
-        stop_loss: adjustment.adjustedStop,
-        take_profit: adjustment.adjustedTarget,
-        profit_loss: 0,
-        opened_at: new Date().toISOString(),
-        closed_at: new Date().toISOString(),
-        strategy_name: 'Smart Goal - Event LLM',
-        notes: countdown.originalDecision.reasoning
-      }).select();
-    }
-
-    console.log(`[Smart Goal] Trade executed and persisted: ${trade.symbol} ${trade.direction} @ ${trade.entryPrice.toFixed(5)}`)
-
-    setTimeout(async () => {
-      await this.simulateTradeExit(sessionId, trade.id);
-    }, (countdown.originalDecision.expectedDurationMinutes || 60) * 60 * 1000);
-  }
-
-  private async simulateTradeExit(sessionId: string, tradeId: string): Promise<void> {
-    const trade = localMemoryLayer.getAllTrades(sessionId).find(t => t.id === tradeId);
-    if (!trade || trade.outcome !== 'open') return;
-
-    const winChance = trade.confidence / 100;
-    const isWin = Math.random() < winChance;
-
-    const exitPrice = isWin ? trade.takeProfit : trade.stopLoss;
-    const exitReason = isWin ? 'Take profit hit' : 'Stop loss hit';
-    const closeReasonDB = isWin ? 'take_profit' : 'stop_loss';
-
-    // Calculate P&L
-    const profitLoss = trade.direction === 'buy'
-      ? (exitPrice - trade.entryPrice) * trade.positionSize * 100000
-      : (trade.entryPrice - exitPrice) * trade.positionSize * 100000;
-
-    localMemoryLayer.closeTrade(sessionId, tradeId, exitPrice, exitReason);
-
-    // Update goal_session_trades
-    await supabase
-      .from('goal_session_trades')
-      .update({
-        exit_price: exitPrice,
-        profit_loss: profitLoss,
-        status: 'closed',
-        closed_at: new Date().toISOString()
-      })
-      .eq('trade_id', tradeId);
-
-    // Update trade_history
-    await supabase
-      .from('trade_history')
-      .update({
-        exit_price: exitPrice,
-        profit_loss: profitLoss,
-        closed_at: new Date().toISOString(),
-        close_reason: closeReasonDB
-      })
-      .eq('id', tradeId);
-
-    await supabaseSummaryWriter.writeTradeCompletionSummary(
-      sessionId,
-      trade.symbol,
-      trade
-    );
-
-    console.log(`[Smart Goal] Trade closed and persisted: ${trade.symbol} ${trade.outcome} - ${exitReason} (P&L: $${profitLoss.toFixed(2)})`);
-
-    const goalProgress = localMemoryLayer.getGoalProgress(sessionId);
-    if (goalProgress && goalProgress.progressPercent >= 100) {
-      await this.completeSession(sessionId);
-    }
-  }
-
-  private async completeSession(sessionId: string): Promise<void> {
+  async completeSession(sessionId: string): Promise<void> {
     const session = this.activeSessions.get(sessionId);
     if (!session) return;
 
     session.status = 'completed';
 
-    const existingTimer = this.scanTimers.get(sessionId);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-      this.scanTimers.delete(sessionId);
-    }
+    await this.stopLiveEngine(sessionId);
 
-    const summary = localMemoryLayer.generateSessionSummary(
-      sessionId,
-      session.userId,
-      `Smart Goal: $${session.config.goalAmount}`
-    );
-
-    if (summary) {
-      await supabaseSummaryWriter.writeSessionSummary(summary, true);
-    }
-
-    localMemoryLayer.closeSession(sessionId);
+    await supabase
+      .from('goal_sessions')
+      .update({
+        status: 'completed',
+        end_time: new Date().toISOString()
+      })
+      .eq('id', sessionId);
 
     console.log(`[Smart Goal] Session ${sessionId} completed successfully!`);
   }
@@ -477,7 +233,9 @@ class SmartGoalSessionManager {
       const result = await goalSessionLiveEngine.startSession(liveConfig);
 
       if (result.success) {
-        console.log('[Smart Goal] Live engine started successfully');
+        console.log('[Smart Goal] ✅ Live demo engine started successfully');
+        console.log('[Smart Goal] ✅ 5-layer LLM pipeline will be used for all trades');
+        console.log('[Smart Goal] ✅ All trades will have visible SL/TP on charts');
 
         await supabase.from('goal_ai_conversations').insert({
           goal_session_id: sessionId,
