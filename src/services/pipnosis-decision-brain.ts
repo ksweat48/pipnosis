@@ -508,7 +508,56 @@ class PipnosisDecisionBrain {
 
       console.log(`[LAYER 5] ✅ ${llmDecision.action}`);
 
-      // Validate against Hard Rules
+      // HYBRID RISK SAFETY CLAMP
+      // Apply post-LLM safety checks using new hybrid risk system
+      if (llmDecision.action === 'enter_long' || llmDecision.action === 'enter_short') {
+        const { hybridRiskManager } = await import('./hybrid-risk-manager');
+
+        const requestedRiskPct = llmDecision.riskPercent || llmDecision.positionSizePercent || 2;
+        const riskRewardRatio = llmDecision.riskRewardRatio || 2.0;
+
+        const safetyClamp = await hybridRiskManager.applySafetyClamp(
+          context.sessionContext.userId,
+          context.sessionContext.sessionId,
+          requestedRiskPct,
+          calibratedConfidence,
+          riskRewardRatio
+        );
+
+        if (!safetyClamp.isAllowed) {
+          console.log(`[HYBRID RISK] ❌ BLOCKED: ${safetyClamp.violations.join(', ')}`);
+          pipelineResult.finalDecision = 'NO_TRADE';
+          pipelineResult.abortReason = `Hybrid risk violation: ${safetyClamp.violations[0]}`;
+          pipelineResult.totalProcessingTimeMs = Date.now() - pipelineStart;
+          pipelineResult.totalTokensUsed = totalTokens;
+
+          await this.logPipelineExecution(context, pipelineResult);
+
+          return {
+            action: 'no_trade',
+            confidence: calibratedConfidence,
+            reasoning: `Hybrid risk violation: ${safetyClamp.violations.join('; ')}`,
+            riskAssessment: 'Exceeds risk limits',
+            setupType: llmDecision.setupType,
+            pipelineResults: pipelineResult
+          };
+        }
+
+        // Apply risk clamp if adjusted
+        if (safetyClamp.clampedRiskPct !== requestedRiskPct) {
+          console.log(`[HYBRID RISK] ⚙️ Risk clamped: ${requestedRiskPct}% → ${safetyClamp.clampedRiskPct}%`);
+          llmDecision.positionSizePercent = safetyClamp.clampedRiskPct;
+          llmDecision.riskPercent = safetyClamp.clampedRiskPct;
+        }
+
+        if (safetyClamp.adjustments && safetyClamp.adjustments.length > 0) {
+          console.log(`[HYBRID RISK] ℹ️ Adjustments: ${safetyClamp.adjustments.join('; ')}`);
+        }
+
+        console.log('[HYBRID RISK] ✅ APPROVED');
+      }
+
+      // Validate against Hard Rules (SL/TP logic, R:R, etc.)
       const validationResult = PipnosisHardRuleEngine.validateTradeDecision(llmDecision, context);
 
       if (!validationResult.isValid) {
@@ -958,7 +1007,12 @@ export class PipnosisHardRuleEngine {
     const stopLoss = decision.stopLoss;
     const takeProfit = decision.takeProfit;
 
-    const isLong = decision.action === 'enter_long' || decision.direction === 'buy';
+    // Check if this is a LONG/BUY trade
+    // Support multiple action formats: 'buy', 'enter_long', or direction field
+    const isLong =
+      decision.action === 'enter_long' ||
+      decision.action === 'buy' ||
+      decision.direction === 'buy';
 
     if (isLong) {
       if (stopLoss >= entryPrice) {
@@ -988,12 +1042,18 @@ export class PipnosisHardRuleEngine {
       violations.push(`Max hold time ${decision.maxHoldMinutes} minutes exceeds limit of ${PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_MINUTES} minutes`);
     }
 
-    if (decision.positionSizePercent && decision.positionSizePercent > context.userRiskSettings.maxRiskPercent) {
-      violations.push(`Position size ${decision.positionSizePercent}% exceeds user max ${context.userRiskSettings.maxRiskPercent}%`);
+    // Use new hybrid risk limits (5% max per trade)
+    const maxRiskPerTrade = 5.0;
+    const requestedRisk = decision.positionSizePercent || decision.riskPercent || 2;
+
+    if (requestedRisk > maxRiskPerTrade) {
+      violations.push(`Position size ${requestedRisk}% exceeds max per trade (${maxRiskPerTrade}%)`);
     }
 
-    if (context.sessionContext.openPositions >= context.userRiskSettings.maxConcurrentTrades) {
-      violations.push(`Already at max concurrent trades (${context.userRiskSettings.maxConcurrentTrades})`);
+    // Use new hybrid risk limits (3 max concurrent trades)
+    const maxConcurrentTrades = 3;
+    if (context.sessionContext.openPositions >= maxConcurrentTrades) {
+      violations.push(`Already at max concurrent trades (${maxConcurrentTrades})`);
     }
 
     if (decision.confidence < 70) {

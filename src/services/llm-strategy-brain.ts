@@ -593,7 +593,7 @@ Remember: You're an elite AI trader making intelligent decisions based on market
   private normalizeDecision(parsed: any): LLMTradeDecision {
 
     // Handle both 'act' (compressed) and 'action' (full) field names
-    const action = parsed.act || parsed.action || 'no_trade';
+    let rawAction = parsed.act || parsed.action || 'no_trade';
     const confidence = parsed.conf !== undefined ? parsed.conf : (parsed.confidence || 0);
     const reasoning = parsed.why || parsed.reasoning || '';
     const stopLoss = parsed.sl !== undefined ? parsed.sl : parsed.stopLoss;
@@ -602,13 +602,25 @@ Remember: You're an elite AI trader making intelligent decisions based on market
     const riskPercent = parsed.risk_pct !== undefined ? parsed.risk_pct : undefined;
     const riskRewardRatio = parsed.rr !== undefined ? parsed.rr : undefined;
 
+    // Normalize action format: 'buy' → 'enter_long', 'sell' → 'enter_short'
+    let normalizedAction: 'enter_long' | 'enter_short' | 'no_trade' | 'hold' | 'close';
+    if (rawAction === 'buy' || rawAction === 'long') {
+      normalizedAction = 'enter_long';
+    } else if (rawAction === 'sell' || rawAction === 'short') {
+      normalizedAction = 'enter_short';
+    } else if (rawAction === 'enter_long' || rawAction === 'enter_short' || rawAction === 'no_trade' || rawAction === 'hold' || rawAction === 'close') {
+      normalizedAction = rawAction as any;
+    } else {
+      normalizedAction = 'no_trade';
+    }
+
     // Log if we got new fields
     if (riskPercent !== undefined || riskRewardRatio !== undefined) {
       console.log(`[normalizeDecision] Enhanced fields: risk_pct=${riskPercent}%, rr=${riskRewardRatio}`);
     }
 
     return {
-      action: action,
+      action: normalizedAction,
       confidence: confidence,
       entryZone: parsed.entryZone,
       stopLoss: stopLoss,
