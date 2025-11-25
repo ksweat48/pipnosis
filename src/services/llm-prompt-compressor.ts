@@ -42,18 +42,24 @@ Analyze market data and return ONLY this JSON:
 
 {
   "ok": true|false,
-  "tr": "bullish"|"bearish"|"sideways",
+  "tr": "bullish"|"bearish",
   "vol": "low"|"medium"|"high",
   "mom": "up"|"down"|"neutral",
-  "conf": <0-100>,            // REQUIRED, never omit
-  "rec": "proceed"|"abort",
+  "conf": <0-100>,
+  "rec": "long"|"short"|"hold"|"abort",
   "why": "<1 sentence>"
 }
 
 Rules:
-- "conf" MUST exist and be a NUMBER 0-100.
-- "rec"="abort" if conf<30 or signals conflict.
-- No extra words, no markdown, no text outside JSON.
+- Neutral momentum is OK; never reject for neutral.
+- Reject ONLY if mom OPPOSES tr:
+    bullish+down → reject
+    bearish+up → reject
+- bullish+neutral = OK
+- bearish+neutral = OK
+- "conf" MUST be a number 0-100.
+- "rec"="abort" if conf<30 or if momentum opposes trend.
+- No text outside JSON.
 
 Data:
 tr=${snap.tr}, vol=${snap.vol}, mom=${snap.mom}
