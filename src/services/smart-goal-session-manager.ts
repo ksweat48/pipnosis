@@ -78,6 +78,7 @@ class SmartGoalSessionManager {
       goal_type: 'profit_target',
       target_value: config.goalAmount,
       timeframe: config.timeframe,
+      timeframe_hours: this.convertTimeframeToHours(config.timeframe),
       risk_mode: config.riskMode,
       status: 'active',
       starting_balance: accountBalance,
@@ -141,6 +142,26 @@ class SmartGoalSessionManager {
       autoExecute: true,
       accountBalance
     };
+  }
+
+  private convertTimeframeToHours(timeframe: string): number {
+    const lower = timeframe.toLowerCase();
+
+    if (lower.includes('week')) {
+      const weeks = parseInt(timeframe) || 1;
+      return weeks * 24 * 7;
+    }
+
+    if (lower.includes('day')) {
+      const days = parseInt(timeframe) || 1;
+      return days * 24;
+    }
+
+    if (lower.includes('hour')) {
+      return parseInt(timeframe) || 24;
+    }
+
+    return 24;
   }
 
   // REMOVED: All synthetic trade execution logic
