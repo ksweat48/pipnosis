@@ -251,16 +251,21 @@ Priority: ${safeSkill.wr_gap < 0 ? 'IMPROVE WR' : 'MAINTAIN'}`;
 
   prompt += `
 
-Decision:
-1. buy/sell/no_trade
-2. SL/TP based on structure
-3. Size: use conf + recent perf
-4. Reject if low quality
+CRITICAL: Return ONLY valid JSON. No explanation, no markdown, no text outside JSON.
+
+Example format:
+{"act":"buy","sl":1.0850,"tp":1.0920,"size":3,"conf":78,"why":"Strong trend + support"}
+
+Decision rules:
+1. act: "buy", "sell", or "no_trade"
+2. sl/tp: exact prices based on structure
+3. size: 1-5% based on conf + recent perf
+4. conf: 0-100 based on setup quality
+5. why: brief reason (max 10 words)
 
 Max hold: 4h. Min R:R: 1.5:1.
 
-JSON:
-{"act":"buy/sell/no_trade","sl":price,"tp":price,"size":pct,"conf":0-100,"why":"..."}`;
+Return JSON now:`;
 
     return prompt;
   } catch (error) {

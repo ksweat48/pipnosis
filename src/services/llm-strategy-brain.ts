@@ -188,7 +188,10 @@ class GPT4Provider extends LLMProvider {
     try {
       const response = await openAIClient.chat(
         [
-          { role: 'system', content: 'Pipnosis AI. Execute proven strategies.' },
+          {
+            role: 'system',
+            content: 'You are Pipnosis AI. Return ONLY valid JSON. No explanations, no markdown, no extra text. Respond with raw JSON object only.'
+          },
           { role: 'user', content: userPrompt }
         ],
         {
@@ -517,18 +520,67 @@ Remember: You're an elite AI trader making intelligent decisions based on market
   }
 
   private parseResponse(content: string): LLMTradeDecision {
-    const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const parsed = JSON.parse(cleanContent);
+    try {
+      // Step 1: Try parsing raw content as JSON (fast path)
+      try {
+        const parsed = JSON.parse(content.trim());
+        return this.normalizeDecision(parsed);
+      } catch (e) {
+        // Not raw JSON, continue to extraction
+      }
+
+      // Step 2: Remove markdown code blocks
+      let cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+      // Step 3: Try parsing cleaned content
+      try {
+        const parsed = JSON.parse(cleanContent);
+        return this.normalizeDecision(parsed);
+      } catch (e) {
+        // Still not valid, try regex extraction
+      }
+
+      // Step 4: Extract JSON object using regex (find first { to last })
+      const jsonMatch = cleanContent.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/s);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return this.normalizeDecision(parsed);
+        } catch (e) {
+          // JSON extraction failed
+        }
+      }
+
+      // Step 5: Last resort - try to find act/action field and build minimal JSON
+      console.error('[parseResponse] Failed to extract valid JSON from response:', content.substring(0, 200));
+      throw new Error('Could not extract valid JSON from LLM response');
+
+    } catch (error) {
+      console.error('[parseResponse] Parsing error:', error);
+      console.error('[parseResponse] Raw content:', content.substring(0, 500));
+      throw error;
+    }
+  }
+
+  private normalizeDecision(parsed: any): LLMTradeDecision {
+
+    // Handle both 'act' (compressed) and 'action' (full) field names
+    const action = parsed.act || parsed.action || 'no_trade';
+    const confidence = parsed.conf !== undefined ? parsed.conf : (parsed.confidence || 0);
+    const reasoning = parsed.why || parsed.reasoning || '';
+    const stopLoss = parsed.sl !== undefined ? parsed.sl : parsed.stopLoss;
+    const takeProfit = parsed.tp !== undefined ? parsed.tp : parsed.takeProfit;
+    const positionSize = parsed.size !== undefined ? parsed.size : (parsed.positionSizePercent || 2);
 
     return {
-      action: parsed.action || 'no_trade',
-      confidence: parsed.confidence || 0,
+      action: action,
+      confidence: confidence,
       entryZone: parsed.entryZone,
-      stopLoss: parsed.stopLoss,
-      takeProfit: parsed.takeProfit,
-      positionSizePercent: parsed.positionSizePercent || 2,
+      stopLoss: stopLoss,
+      takeProfit: takeProfit,
+      positionSizePercent: positionSize,
       expectedDurationMinutes: parsed.expectedDurationMinutes || 120,
-      reasoning: parsed.reasoning || '',
+      reasoning: reasoning,
       riskAssessment: parsed.riskAssessment || '',
       setupType: parsed.setupType || 'Unknown',
       keyFactors: parsed.keyFactors || [],
