@@ -38,7 +38,24 @@ export function buildCompressedRegimePrompt(
 ): string {
   let prompt = `Layer 1: Regime Validator
 
-Input:
+Analyze market data and return ONLY this JSON:
+
+{
+  "ok": true|false,
+  "tr": "bullish"|"bearish"|"sideways",
+  "vol": "low"|"medium"|"high",
+  "mom": "up"|"down"|"neutral",
+  "conf": <0-100>,            // REQUIRED, never omit
+  "rec": "proceed"|"abort",
+  "why": "<1 sentence>"
+}
+
+Rules:
+- "conf" MUST exist and be a NUMBER 0-100.
+- "rec"="abort" if conf<30 or signals conflict.
+- No extra words, no markdown, no text outside JSON.
+
+Data:
 tr=${snap.tr}, vol=${snap.vol}, mom=${snap.mom}
 trig=${snap.trig}, trig_c=${snap.trig_c}
 vw=${snap.vw}, e20=${snap.e20}, e50=${snap.e50}, atr=${snap.atr}`;
@@ -47,16 +64,9 @@ vw=${snap.vw}, e20=${snap.e20}, e50=${snap.e50}, atr=${snap.atr}`;
     prompt += `
 skill: wr_gap=${skill.wr_gap.toFixed(1)}%`;
     if (skill.wr_gap < -5) {
-      prompt += ` (strict mode)`;
+      prompt += ` (strict mode, be stricter)`;
     }
   }
-
-  prompt += `
-
-Rule: Check trend/vol/mom match trigger. Reject if mismatch.
-
-JSON:
-{"ok":bool,"tr":"...","vol":"...","mom":"...","conf":0-100,"rec":"proceed/abort","why":"..."}`;
 
   return prompt;
 }
@@ -73,22 +83,32 @@ export function buildCompressedSetupPrompt(
 ): string {
   let prompt = `Layer 2: Setup Quality
 
-Input:
+Analyze setup and return ONLY this JSON:
+
+{
+  "score": <0-100>,           // REQUIRED overall quality score
+  "entry": <0-100>,           // REQUIRED entry point quality
+  "timing": <0-100>,          // REQUIRED timing quality
+  "ctx": <0-100>,             // REQUIRED context quality
+  "rr": <1.0-5.0>,            // REQUIRED risk:reward
+  "rec": "accept"|"reject",
+  "why": "<1 sentence>"
+}
+
+Rules:
+- ALL numeric fields MUST exist and be NUMBERS.
+- "rec"="reject" if score < ${threshold}.
+- No extra words, no markdown, no text outside JSON.
+
+Data:
 trig=${snap.trig}, tr=${snap.tr}, vol=${snap.vol}
 vw=${snap.vw}, e20=${snap.e20}, e50=${snap.e50}, atr=${snap.atr}
 regime_conf=${regimeConf}, thresh=${threshold}`;
 
   if (skill && skill.wr_gap < -5) {
     prompt += `
-strict: wr_gap=${skill.wr_gap.toFixed(1)}%`;
+strict: wr_gap=${skill.wr_gap.toFixed(1)}% (be stricter)`;
   }
-
-  prompt += `
-
-Task: Score entry, timing, context (0-100). Accept if >= ${threshold}.
-
-JSON:
-{"score":0-100,"entry":0-100,"timing":0-100,"ctx":0-100,"rr":1.0-5.0,"rec":"accept/reject","why":"..."}`;
 
   return prompt;
 }
@@ -110,15 +130,24 @@ export function buildCompressedMistakePrompt(
 ): string {
   const prompt = `Layer 3: Mistake Prevention
 
-Input:
+Check for red flags and return ONLY this JSON:
+
+{
+  "allow": true|false,        // REQUIRED
+  "risk": "low"|"medium"|"high",  // REQUIRED
+  "flags": ["..."],           // REQUIRED array (empty if none)
+  "rec": "allow"|"warn"|"block"
+}
+
+Rules:
+- ALL fields MUST exist.
+- Block if similar > 5 OR corr_risk=true OR consec > 3.
+- No extra words, no markdown, no text outside JSON.
+
+Data:
 qual=${qualityScore}, regime_conf=${regimeConf}
 consec_loss=${lossContext.consec}, loss_rate=${lossContext.loss_rate}%
-similar_patterns=${lossContext.similar}, corr_risk=${lossContext.corr_risk}
-
-Rule: Block if similar > 5 OR corr_risk true OR consec > 3.
-
-JSON:
-{"allow":bool,"risk":"low/med/high","flags":["..."],"rec":"allow/warn/block"}`;
+similar_patterns=${lossContext.similar}, corr_risk=${lossContext.corr_risk}`;
 
   return prompt;
 }
@@ -135,18 +164,27 @@ export function buildCompressedCalibrationPrompt(
 ): string {
   let prompt = `Layer 4: Calibrator
 
+Calibrate confidence and return ONLY this JSON:
+
+{
+  "cal": <0-100>,             // REQUIRED calibrated confidence
+  "adj": <±number>,           // REQUIRED adjustment amount
+  "curve": "conservative"|"balanced"|"aggressive"
+}
+
+Rules:
+- ALL fields MUST exist and be valid.
+- If hist_acc < orig → lower by 5-10.
+- If overconf=true → lower by 5 more.
+- Max adjustment: ±15.
+- No extra words, no markdown, no text outside JSON.
+
+Data:
 orig=${origConf}, hist_acc=${histAcc}, overconf=${overconf}`;
 
   if (skill && skill.wr_gap < -5) {
-    prompt += `, wr_gap=${skill.wr_gap.toFixed(1)}`;
+    prompt += `, wr_gap=${skill.wr_gap.toFixed(1)} (be stricter)`;
   }
-
-  prompt += `
-
-Rule: If hist<orig → lower 5-10. If overconf → lower 5 more. Max ±15.
-
-JSON:
-{"cal":0-100,"adj":±num,"curve":"conservative/balanced/aggressive"}`;
 
   return prompt;
 }
