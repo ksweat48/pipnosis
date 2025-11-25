@@ -245,7 +245,23 @@ class GPT4Provider extends LLMProvider {
     const primaryTF = bestTF.key;
     const tfData = bestTF.data;
 
-    let prompt = `Analyze this short-term trading opportunity:
+    console.log('[DEBUG] Building prompt - tfData keys:', Object.keys(tfData));
+    console.log('[DEBUG] tfData values:', JSON.stringify({
+      currentPrice: tfData.currentPrice,
+      ema9: tfData.ema9,
+      ema21: tfData.ema21,
+      ema50: tfData.ema50,
+      rsi: tfData.rsi,
+      atr: tfData.atr,
+      vwap: tfData.vwap,
+      trend: tfData.trend,
+      volatility: tfData.volatility
+    }));
+
+    let prompt = '';
+
+    try {
+      prompt = `Analyze this short-term trading opportunity:
 
 MARKET SNAPSHOT (${snapshot.symbol}):
 Primary Timeframe: ${primaryTF}
@@ -259,41 +275,79 @@ Primary Timeframe: ${primaryTF}
 - Recent Price Action: ${snapshot.recentPriceAction || 'N/A'}
 
 MULTI-TIMEFRAME CONTEXT:`;
-
-    // Iterate other validated timeframes
-    for (const [tf, data] of Object.entries(snapshot.timeframes)) {
-      if (tf !== primaryTF) {
-        const vwap = data.vwap || data.currentPrice || 0;
-        const priceVsVwap = vwap > 0 ? (((data.currentPrice || 0) - vwap) / vwap * 100).toFixed(2) : '0.00';
-        prompt += `\n${tf}: Trend=${data.trend || 'unknown'}, RSI=${(data.rsi || 50).toFixed(1)}, Price vs VWAP=${priceVsVwap}%`;
-      }
+      console.log('[DEBUG] ✅ Primary timeframe section built successfully');
+    } catch (error) {
+      console.error('[DEBUG] ❌ Error building primary timeframe section:', error);
+      throw error;
     }
 
-    prompt += `\n\nCURRENT EXPOSURE:
+    // Iterate other validated timeframes
+    try {
+      console.log('[DEBUG] Building multi-timeframe section, timeframes:', Object.keys(snapshot.timeframes));
+      for (const [tf, data] of Object.entries(snapshot.timeframes)) {
+        if (tf !== primaryTF) {
+          console.log(`[DEBUG] Processing timeframe ${tf}:`, JSON.stringify(data));
+          const vwap = data.vwap || data.currentPrice || 0;
+          const priceVsVwap = vwap > 0 ? (((data.currentPrice || 0) - vwap) / vwap * 100).toFixed(2) : '0.00';
+          prompt += `\n${tf}: Trend=${data.trend || 'unknown'}, RSI=${(data.rsi || 50).toFixed(1)}, Price vs VWAP=${priceVsVwap}%`;
+        }
+      }
+      console.log('[DEBUG] ✅ Multi-timeframe section built successfully');
+    } catch (error) {
+      console.error('[DEBUG] ❌ Error building multi-timeframe section:', error);
+      throw error;
+    }
+
+    try {
+      console.log('[DEBUG] Building exposure section');
+      prompt += `\n\nCURRENT EXPOSURE:
 - Open Positions: ${snapshot.openPositions || 0}
 - Account Exposure: ${(snapshot.accountExposure || 0).toFixed(1)}%`;
+      console.log('[DEBUG] ✅ Exposure section built');
+    } catch (error) {
+      console.error('[DEBUG] ❌ Error building exposure section:', error);
+      throw error;
+    }
 
     if (goalContext) {
-      prompt += `\n\nGOAL CONTEXT:
+      try {
+        console.log('[DEBUG] Building goal context:', JSON.stringify(goalContext));
+        prompt += `\n\nGOAL CONTEXT:
 - Target: $${(goalContext.targetAmount || 0).toFixed(2)}
 - Current Profit: $${(goalContext.currentProfit || 0).toFixed(2)} (${(goalContext.progressPercent || 0).toFixed(1)}%)
 - Remaining: $${(goalContext.remainingAmount || 0).toFixed(2)}
 - Trades Completed: ${goalContext.tradesCompleted || 0}
 - Avg Profit/Trade: $${(goalContext.avgProfitPerTrade || 0).toFixed(2)}
 - Session Duration: ${goalContext.sessionDuration || 'N/A'}`;
+        console.log('[DEBUG] ✅ Goal context built');
+      } catch (error) {
+        console.error('[DEBUG] ❌ Error building goal context:', error);
+        throw error;
+      }
     }
 
     if (history) {
-      prompt += `\n\nRECENT PERFORMANCE:
+      try {
+        console.log('[DEBUG] Building history section:', JSON.stringify(history));
+        prompt += `\n\nRECENT PERFORMANCE:
 - Win Rate: ${(history.recentWinRate || 0).toFixed(1)}%
 - Profit Factor: ${(history.recentProfitFactor || 1.0).toFixed(2)}
 - Best Setup: ${history.bestSetupType || 'Unknown'}
 - Avg Duration: ${(history.avgTradeDuration || 0).toFixed(0)} minutes
 - Key Lessons: ${(history.keyLessons || []).join(', ')}`;
+        console.log('[DEBUG] ✅ History section built');
+      } catch (error) {
+        console.error('[DEBUG] ❌ Error building history section:', error);
+        throw error;
+      }
     }
 
     if (enrichedContext) {
-      prompt += `\n\nSELF-AWARE AI CONTEXT:
+      try {
+        console.log('[DEBUG] Building enriched context, keys:', Object.keys(enrichedContext));
+        console.log('[DEBUG] enrichedContext.historicalPerformance:', JSON.stringify(enrichedContext.historicalPerformance));
+
+        prompt += `\n\nSELF-AWARE AI CONTEXT:
 Historical Performance (${enrichedContext.historicalPerformance?.symbol || 'N/A'}):
 - Recent Win Rate: ${(enrichedContext.historicalPerformance?.recentWinRate || 0).toFixed(1)}%
 - Recent Profit Factor: ${(enrichedContext.historicalPerformance?.recentProfitFactor || 1.0).toFixed(2)}
@@ -301,30 +355,44 @@ Historical Performance (${enrichedContext.historicalPerformance?.symbol || 'N/A'
 - Best Setup Type: ${enrichedContext.historicalPerformance?.bestSetupType || 'Unknown'}
 
 LLM-Discovered Insights:`;
-      if (enrichedContext.llmInsights?.length > 0) {
-        enrichedContext.llmInsights.slice(0, 3).forEach((insight, i) => {
-          prompt += `\n  ${i + 1}. ${insight.title} (${(insight.confidence || 0).toFixed(0)}% confidence)
+
+        console.log('[DEBUG] Building insights, count:', enrichedContext.llmInsights?.length || 0);
+        if (enrichedContext.llmInsights?.length > 0) {
+          enrichedContext.llmInsights.slice(0, 3).forEach((insight, i) => {
+            prompt += `\n  ${i + 1}. ${insight.title} (${(insight.confidence || 0).toFixed(0)}% confidence)
      - ${insight.description}
      - Apply when: ${insight.whenToApply}
      - Avoid when: ${insight.whenToAvoid}`;
-        });
-      } else {
-        prompt += `\n  No LLM insights available yet - learning in progress`;
-      }
+          });
+        } else {
+          prompt += `\n  No LLM insights available yet - learning in progress`;
+        }
 
-      prompt += `\n\nConfidence Calibration:
+        console.log('[DEBUG] Building confidence calibration:', JSON.stringify(enrichedContext.confidenceCalibration));
+        prompt += `\n\nConfidence Calibration:
 - Recommended Threshold: ${enrichedContext.confidenceCalibration?.recommendedThreshold || 70}%
 - Reasoning: ${enrichedContext.confidenceCalibration?.reasoning || 'Default threshold'}
 - Recent Accuracy: ${(enrichedContext.confidenceCalibration?.recentAccuracy || 50).toFixed(1)}%
 
 Strategic Guidance:`;
-      (enrichedContext.strategicGuidance || []).forEach(guidance => {
-        prompt += `\n- ${guidance}`;
-      });
+        (enrichedContext.strategicGuidance || []).forEach(guidance => {
+          prompt += `\n- ${guidance}`;
+        });
+        console.log('[DEBUG] ✅ Enriched context built');
+      } catch (error) {
+        console.error('[DEBUG] ❌ Error building enriched context:', error);
+        throw error;
+      }
     }
 
     if (skillContext) {
-      prompt += `\n\n═══════════════════════════════════════════════════════════════════
+      try {
+        console.log('[DEBUG] Building skill context, keys:', Object.keys(skillContext));
+        console.log('[DEBUG] skillContext.currentPerformance:', JSON.stringify(skillContext.currentPerformance));
+        console.log('[DEBUG] skillContext.targetRequirements:', JSON.stringify(skillContext.targetRequirements));
+        console.log('[DEBUG] skillContext.gaps:', JSON.stringify(skillContext.gaps));
+
+        prompt += `\n\n═══════════════════════════════════════════════════════════════════
 AI SKILL LEVEL PROGRESSION OBJECTIVE
 ═══════════════════════════════════════════════════════════════════
 
@@ -350,8 +418,13 @@ Be more selective when gaps are negative.
 Favor higher-quality setups and healthier risk-reward structures over sheer trade count.
 
 STRATEGIC GUIDANCE (PRIORITY: WIN RATE → PROFIT FACTOR → CONSISTENCY):
-${skillContext.strategicGuidance.map((g: string) => `• ${g}`).join('\n')}
+${(skillContext.strategicGuidance || []).map((g: string) => `• ${g}`).join('\n')}
 `;
+        console.log('[DEBUG] ✅ Skill context built');
+      } catch (error) {
+        console.error('[DEBUG] ❌ Error building skill context:', error);
+        throw error;
+      }
     }
 
     prompt += `\n\n═══════════════════════════════════════════════════════════════════
