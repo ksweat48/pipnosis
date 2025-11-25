@@ -82,9 +82,9 @@ export const LLM_OPTIMIZATION_CONFIG: LLMOptimizationConfig = {
   caching: {
     enabled: true,
     ttl: {
-      layer1_regime_seconds: 10, // Regime stable for ~10 seconds
+      layer1_regime_seconds: 60, // Increased for backtest: regime stable longer
       layer2_setup_seconds: 0, // NO CACHE - must be candle-accurate
-      layer3_mistake_seconds: 20, // Pattern recognition stable
+      layer3_mistake_seconds: 120, // Increased for backtest: mistake patterns stable
       layer4_calibrator_seconds: 3600, // 1 hour - historical stats stable
       layer5_strategy_seconds: 0, // NO CACHE - execution must be fresh
     },
