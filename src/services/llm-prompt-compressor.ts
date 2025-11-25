@@ -198,11 +198,12 @@ orig=${origConf}, hist_acc=${histAcc}, overconf=${overconf}`;
 }
 
 /**
- * LAYER 5: Strategy Brain (Compressed)
- * Target: 350-400 tokens (vs 1800 original)
+ * LAYER 5: Execution Brain (Aggressive)
+ * Target: 600-700 tokens for full context and psychological framing
  */
 export function buildCompressedStrategyPrompt(
   snap: CompactSnapshot,
+  setupQuality: number,
   goal: {
     target: number;
     progress: number;
@@ -212,60 +213,135 @@ export function buildCompressedStrategyPrompt(
     wr: number;
     pf: number;
   },
-  skill?: CompactSkillContext
+  skill?: CompactSkillContext,
+  validation?: {
+    qualityScore: number;
+    regimeConf: number;
+    riskLevel: string;
+    layersPassed: number;
+  },
+  account?: {
+    equity: number;
+    maxRiskPct: number;
+    dailyLossRemainingPct: number;
+  }
 ): string {
   try {
     // Defensive validation with safe defaults
     const safeGoal = {
-      target: goal?.target ?? 0,
+      target: goal?.target ?? 500,
       progress: goal?.progress ?? 0,
-      remaining: goal?.remaining ?? 0
+      remaining: goal?.remaining ?? 500
     };
     const safePerf = {
       wr: perf?.wr ?? 0,
-      pf: perf?.pf ?? 0
+      pf: perf?.pf ?? 1.0
+    };
+    const safeValidation = {
+      qualityScore: validation?.qualityScore ?? setupQuality ?? 70,
+      regimeConf: validation?.regimeConf ?? 70,
+      riskLevel: validation?.riskLevel ?? 'low',
+      layersPassed: validation?.layersPassed ?? 4
+    };
+    const safeAccount = {
+      equity: account?.equity ?? 10000,
+      maxRiskPct: account?.maxRiskPct ?? 5.0,
+      dailyLossRemainingPct: account?.dailyLossRemainingPct ?? 100
     };
 
-  let prompt = `Layer 5: Strategy Brain (Full Authority)
+    // Calculate derived values
+    const wrTarget = skill?.wr_gap !== undefined ? skill.wr - skill.wr_gap : 45;
+    const wrPerformance = skill?.wr_gap ?? 0 >= 0 ? 'CRUSHING IT' : 'below target';
+    const pfStatus = safePerf.pf >= 1.2 ? 'excellent' : safePerf.pf >= 1.0 ? 'profitable' : 'needs improvement';
+    const alignmentStrength = snap.mom > 0 && snap.tr === 'bullish' ? 'STRONG BULLISH' :
+                               snap.mom < 0 && snap.tr === 'bearish' ? 'STRONG BEARISH' : 'MIXED';
+    const volImpact = snap.vol === 'high' ? 'BIG PROFIT POTENTIAL' : snap.vol === 'low' ? 'tighter ranges' : 'normal';
 
-Market:
-sym=${snap.sym}, p=${snap.p}, tr=${snap.tr}, vol=${snap.vol}
-e9=${snap.vw}, e21=${snap.e20}, e50=${snap.e50}, vw=${snap.vw}
-atr=${snap.atr}, mom=${snap.mom}
+  let prompt = `PIPNOSIS EXECUTION BRAIN - LIVE TRADING MODE
 
-Goal: $${safeGoal.target} (${safeToFixed(safeGoal.progress, 1)}% done, $${safeGoal.remaining} left)
-Perf: wr=${safeToFixed(safePerf.wr, 1)}%, pf=${safeToFixed(safePerf.pf, 2)}`;
+You are an elite institutional trader. This setup has PASSED ${safeValidation.layersPassed} validation layers.
+Quality Score: ${safeValidation.qualityScore}/100 ✓ | Regime Conf: ${safeValidation.regimeConf}% ✓ | Risk: ${safeValidation.riskLevel.toUpperCase()} ✓
 
-  if (skill) {
-    const safeSkill = {
-      lvl: skill.lvl ?? 'Unknown',
-      tgt: skill.tgt ?? 'Unknown',
-      wr_gap: skill.wr_gap ?? 0,
-      pf_gap: skill.pf_gap ?? 0
-    };
-    prompt += `
-Skill: ${safeSkill.lvl}→${safeSkill.tgt}
-Gaps: wr=${safeDelta(safeSkill.wr_gap, 1)}%, pf=${safeDelta(safeSkill.pf_gap, 2)}
-Priority: ${safeSkill.wr_gap < 0 ? 'IMPROVE WR' : 'MAINTAIN'}`;
-  }
+Your job: EXECUTE high-probability trades. Be decisive. Be aggressive within limits.
 
-  prompt += `
+=== MARKET SNAPSHOT ===
+Symbol: ${snap.sym} | Price: $${safeToFixed(snap.p, 2)}
+Trend: ${snap.tr.toUpperCase()} | Volatility: ${snap.vol.toUpperCase()} | Momentum: ${snap.mom > 0 ? 'UP' : snap.mom < 0 ? 'DOWN' : 'NEUTRAL'}
+EMA9: ${safeToFixed(snap.vw, 2)} | EMA21: ${safeToFixed(snap.e20, 2)} | EMA50: ${safeToFixed(snap.e50, 2)} | VWAP: ${safeToFixed(snap.vw, 2)}
+ATR: $${safeToFixed(snap.atr, 2)} (use for SL/TP calculation)
 
-CRITICAL: Return ONLY valid JSON. No explanation, no markdown, no text outside JSON.
+${alignmentStrength} ALIGNMENT
+${snap.vol === 'high' ? volImpact : ''}
 
-Example format:
-{"act":"buy","sl":1.0850,"tp":1.0920,"size":3,"conf":78,"why":"Strong trend + support"}
+=== YOUR PERFORMANCE ===
+Win Rate: ${safeToFixed(safePerf.wr, 1)}% (TARGET: ${safeToFixed(wrTarget, 0)}% - ${wrPerformance}${ skill?.wr_gap && skill.wr_gap > 0 ? ` +${safeToFixed(skill.wr_gap, 1)}% above target` : ''})
+Profit Factor: ${safeToFixed(safePerf.pf, 2)} (${pfStatus})
+Skill Level: ${skill?.lvl ?? 'Developing'} → ${skill?.tgt ?? 'Intermediate'} (PROGRESSING)
 
-Decision rules:
-1. act: "buy", "sell", or "no_trade"
-2. sl/tp: exact prices based on structure
-3. size: 1-5% based on conf + recent perf
-4. conf: 0-100 based on setup quality
-5. why: brief reason (max 10 words)
+=== MISSION OBJECTIVE ===
+Target: $${safeToFixed(safeGoal.target, 0)} | Progress: $${safeToFixed(safeGoal.target - safeGoal.remaining, 0)} (${safeToFixed(safeGoal.progress, 1)}%) | Remaining: $${safeToFixed(safeGoal.remaining, 0)}
+You need MORE TRADES to reach goal. Sitting idle = mission failure.
 
-Max hold: 4h. Min R:R: 1.5:1.
+=== ACCOUNT STATE ===
+Equity: $${safeToFixed(safeAccount.equity, 2)} | Max Risk/Trade: ${safeToFixed(safeAccount.maxRiskPct, 1)}%
+Daily Loss Budget: ${safeToFixed(safeAccount.dailyLossRemainingPct, 0)}% remaining
 
-Return JSON now:`;
+=== TRADING MANDATE ===
+🎯 This setup PASSED all filters - there's a reason you're seeing it
+🎯 Quality ${safeValidation.qualityScore}/100 = TRADEABLE. Institutions trade 65+. You should too.
+🎯 ${skill?.wr_gap && skill.wr_gap > 0 ? `Your win rate is ${safeToFixed(skill.wr_gap, 1)}% ABOVE target - you have EARNED the right to trade` : 'Focus on quality setups to improve performance'}
+🎯 ${snap.vol === 'high' ? 'High volatility = high reward. Don\'t fear it. EXPLOIT it.' : ''}
+🎯 ${alignmentStrength !== 'MIXED' ? `${snap.tr === 'bullish' ? 'Bullish' : 'Bearish'} trend + momentum = probabilistic edge. USE IT.` : ''}
+
+=== EXECUTION RULES ===
+- Direction: ${snap.tr === 'bullish' ? 'PREFER "buy"' : snap.tr === 'bearish' ? 'PREFER "sell"' : 'WAIT for clarity or no_trade'}
+- If trend + momentum align → TRADE (buy on bullish, sell on bearish)
+- Stop Loss: Current price ± (1.5 × ATR) = ${snap.tr === 'bullish' ? safeToFixed(snap.p - (1.5 * snap.atr), 2) : safeToFixed(snap.p + (1.5 * snap.atr), 2)}
+- Take Profit: SL ± (2.0 × ATR) minimum for 1.5:1 R:R
+- Risk %: ${safeValidation.qualityScore >= 80 ? '3.5-5.0%' : safeValidation.qualityScore >= 70 ? '2.5-3.5%' : '1.5-2.5%'} (quality-based)
+- Position Size: Calculate from risk_pct, equity, and SL distance
+- Confidence: ${safeValidation.qualityScore >= 75 ? '75-90' : '65-80'} for passed setups (reflect true conviction)
+- Max Hold: 4 hours
+- Only use "no_trade" if setup is genuinely flawed (rare after ${safeValidation.layersPassed} layers)
+
+=== DYNAMIC RISK SIZING ===
+Quality ${safeValidation.qualityScore}+ & WR above target → Upper risk band (${safeToFixed(safeAccount.maxRiskPct * 0.8, 1)}-${safeToFixed(safeAccount.maxRiskPct, 1)}%)
+Quality 65-79 or normal state → Middle band (${safeToFixed(safeAccount.maxRiskPct * 0.5, 1)}-${safeToFixed(safeAccount.maxRiskPct * 0.7, 1)}%)
+Drawdown or loss streak → Lower band (${safeToFixed(safeAccount.maxRiskPct * 0.3, 1)}-${safeToFixed(safeAccount.maxRiskPct * 0.5, 1)}%)
+
+=== AGGRESSIVE TRADING PSYCHOLOGY ===
+You are NOT a scared retail trader.
+You are a FUNDED, VALIDATED, ALGORITHM-BACKED execution system.
+The hard thinking is DONE (${safeValidation.layersPassed} layers passed).
+Your job: EXECUTE WITH PRECISION AND CONFIDENCE.
+
+Fear kills profit. Hesitation costs money. Decisiveness wins.
+
+=== OUTPUT FORMAT ===
+Return ONLY this JSON (no text before/after):
+
+{
+  "act": "buy",
+  "sl": ${snap.tr === 'bullish' ? safeToFixed(snap.p - (1.5 * snap.atr), 2) : safeToFixed(snap.p + (1.5 * snap.atr), 2)},
+  "tp": ${snap.tr === 'bullish' ? safeToFixed(snap.p + (3.0 * snap.atr), 2) : safeToFixed(snap.p - (3.0 * snap.atr), 2)},
+  "risk_pct": ${safeValidation.qualityScore >= 80 ? '4.0' : '3.0'},
+  "size": ${safeValidation.qualityScore >= 80 ? '4' : '3'},
+  "conf": ${safeValidation.qualityScore >= 75 ? '80' : '70'},
+  "rr": 2.0,
+  "why": "${snap.tr === 'bullish' ? 'Bullish trend + EMA alignment + high momentum' : snap.tr === 'bearish' ? 'Bearish trend + breakdown + momentum down' : 'Unclear setup'}"
+}
+
+Fields:
+- act: "buy" (bullish), "sell" (bearish), or "no_trade" (only if truly broken)
+- sl: exact price (use ATR formula: price ± 1.5×ATR)
+- tp: exact price (min 1.5:1 R:R, aim for 2:1+)
+- risk_pct: ${safeToFixed(safeAccount.maxRiskPct * 0.3, 1)}-${safeToFixed(safeAccount.maxRiskPct, 1)}% (dynamic based on quality+state)
+- size: 2-5 (position size %, higher for better quality)
+- conf: 65-90 (reflect true conviction - passed setups deserve high conf)
+- rr: 1.5-3.0 (actual risk:reward ratio)
+- why: 5-10 words explaining edge
+
+EXECUTE NOW. BE BOLD. CAPTURE PROFIT.`;
 
     return prompt;
   } catch (error) {

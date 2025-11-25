@@ -75,6 +75,8 @@ export interface LLMTradeDecision {
   stopLoss?: number;
   takeProfit?: number;
   positionSizePercent?: number;
+  riskPercent?: number;  // NEW: Dynamic risk % (from LLM)
+  riskRewardRatio?: number;  // NEW: Actual R:R ratio
   expectedDurationMinutes?: number;
   reasoning: string;
   riskAssessment: string;
@@ -172,17 +174,33 @@ class GPT4Provider extends LLMProvider {
       compactSnap,
       setupQuality,
       goalContext ? {
-        tgt: goalContext.targetAmount,
-        curr: goalContext.currentProfit,
-        prog: goalContext.progressPercent,
-        trades: goalContext.tradesCompleted
-      } : undefined,
+        target: goalContext.targetAmount,
+        progress: goalContext.progressPercent,
+        remaining: goalContext.remainingAmount
+      } : { target: 500, progress: 0, remaining: 500 },
       history ? {
         wr: history.recentWinRate,
-        pf: history.recentProfitFactor,
-        best: history.bestSetupType,
-        worst: history.worstSetupType
-      } : undefined
+        pf: history.recentProfitFactor
+      } : { wr: 0, pf: 1.0 },
+      skillContext ? {
+        lvl: skillContext.currentLevel || 'Novice',
+        tgt: skillContext.targetLevel || 'Intermediate',
+        wr_gap: skillContext.gaps?.winRateGap || 0,
+        pf_gap: skillContext.gaps?.profitFactorGap || 0,
+        cons_gap: skillContext.gaps?.consistencyGap || 0,
+        wr: skillContext.currentPerformance?.winRate || 0
+      } : undefined,
+      {
+        qualityScore: setupQuality,
+        regimeConf: skillContext?.regimeConfidence || 70,
+        riskLevel: skillContext?.riskLevel || 'low',
+        layersPassed: 4
+      },
+      {
+        equity: 10000, // TODO: Get from account service
+        maxRiskPct: 5.0, // TODO: Get from risk management settings
+        dailyLossRemainingPct: 100 // TODO: Calculate from daily P&L
+      }
     );
 
     try {
@@ -571,6 +589,13 @@ Remember: You're an elite AI trader making intelligent decisions based on market
     const stopLoss = parsed.sl !== undefined ? parsed.sl : parsed.stopLoss;
     const takeProfit = parsed.tp !== undefined ? parsed.tp : parsed.takeProfit;
     const positionSize = parsed.size !== undefined ? parsed.size : (parsed.positionSizePercent || 2);
+    const riskPercent = parsed.risk_pct !== undefined ? parsed.risk_pct : undefined;
+    const riskRewardRatio = parsed.rr !== undefined ? parsed.rr : undefined;
+
+    // Log if we got new fields
+    if (riskPercent !== undefined || riskRewardRatio !== undefined) {
+      console.log(`[normalizeDecision] Enhanced fields: risk_pct=${riskPercent}%, rr=${riskRewardRatio}`);
+    }
 
     return {
       action: action,
@@ -579,6 +604,8 @@ Remember: You're an elite AI trader making intelligent decisions based on market
       stopLoss: stopLoss,
       takeProfit: takeProfit,
       positionSizePercent: positionSize,
+      riskPercent: riskPercent,
+      riskRewardRatio: riskRewardRatio,
       expectedDurationMinutes: parsed.expectedDurationMinutes || 120,
       reasoning: reasoning,
       riskAssessment: parsed.riskAssessment || '',
