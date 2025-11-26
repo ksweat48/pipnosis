@@ -120,7 +120,12 @@ class HybridRiskManager {
   /**
    * Get current session exposure state
    */
-  async getSessionExposure(userId: string, sessionId: string): Promise<SessionExposureState> {
+  async getSessionExposure(userId: string, sessionId: string, isBacktest: boolean = false): Promise<SessionExposureState> {
+    // In backtest mode, skip database queries (use backtest engine's state instead)
+    if (isBacktest) {
+      return this.getEmptyExposureState(userId);
+    }
+
     try {
       // Query all open trades for this user in current session
       const { data: openTrades, error } = await supabase
@@ -131,7 +136,7 @@ class HybridRiskManager {
         .order('opened_at', { ascending: false });
 
       if (error) {
-        console.error('[Hybrid Risk] Error fetching open trades:', error);
+        // Gracefully fallback - don't spam errors in backtest
         return this.getEmptyExposureState(userId);
       }
 
@@ -181,13 +186,14 @@ class HybridRiskManager {
     sessionId: string,
     requestedRiskPct: number,
     confidence: number,
-    riskRewardRatio: number
+    riskRewardRatio: number,
+    isBacktest: boolean = false
   ): Promise<RiskValidationResult> {
     const violations: string[] = [];
     const warnings: string[] = [];
 
     // Get current exposure
-    const exposure = await this.getSessionExposure(userId, sessionId);
+    const exposure = await this.getSessionExposure(userId, sessionId, isBacktest);
 
     // HARD LIMIT 1: Max concurrent trades
     if (exposure.openTradesCount >= HARD_RISK_LIMITS.MAX_OPEN_TRADES) {
@@ -219,7 +225,7 @@ class HybridRiskManager {
     }
 
     // Get dynamic adjustments
-    const riskContext = await this.getRiskContextForLLM(userId, sessionId, exposure);
+    const riskContext = await this.getRiskContextForLLM(userId, sessionId, exposure, isBacktest);
 
     // SOFT ADJUSTMENT: Risk reduction due to drawdown
     let adjustedRiskPct = requestedRiskPct;
@@ -258,16 +264,17 @@ class HybridRiskManager {
   async getRiskContextForLLM(
     userId: string,
     sessionId: string,
-    exposureState?: SessionExposureState
+    exposureState?: SessionExposureState,
+    isBacktest: boolean = false
   ): Promise<RiskContextForLLM> {
     // Get exposure if not provided
-    const exposure = exposureState || await this.getSessionExposure(userId, sessionId);
+    const exposure = exposureState || await this.getSessionExposure(userId, sessionId, isBacktest);
 
     // Get account state
-    const accountState = await this.getAccountState(userId);
+    const accountState = await this.getAccountState(userId, isBacktest);
 
     // Get recent performance
-    const recentPerformance = await this.getRecentPerformance(userId);
+    const recentPerformance = await this.getRecentPerformance(userId, isBacktest);
 
     // Calculate dynamic adjustments
     const drawdownRiskReductionActive = accountState.drawdownPct >= SOFT_ADJUSTMENT_TRIGGERS.DRAWDOWN_RISK_REDUCTION_THRESHOLD;
@@ -308,7 +315,8 @@ class HybridRiskManager {
     sessionId: string,
     llmRiskPct: number,
     llmConfidence: number,
-    llmRiskReward: number
+    llmRiskReward: number,
+    isBacktest: boolean = false
   ): Promise<{
     clampedRiskPct: number;
     isAllowed: boolean;
@@ -319,7 +327,7 @@ class HybridRiskManager {
     const violations: string[] = [];
 
     // Get risk context
-    const riskContext = await this.getRiskContextForLLM(userId, sessionId);
+    const riskContext = await this.getRiskContextForLLM(userId, sessionId, undefined, isBacktest);
 
     // Clamp risk to hard maximum
     let clampedRiskPct = Math.min(llmRiskPct, riskContext.effectiveMaxRiskPct);
@@ -333,7 +341,8 @@ class HybridRiskManager {
       sessionId,
       clampedRiskPct,
       llmConfidence,
-      llmRiskReward
+      llmRiskReward,
+      isBacktest
     );
 
     return {
@@ -350,11 +359,20 @@ class HybridRiskManager {
   /**
    * Get account state (drawdown, daily limits)
    */
-  private async getAccountState(userId: string): Promise<{
+  private async getAccountState(userId: string, isBacktest: boolean = false): Promise<{
     drawdownPct: number;
     dailyLossRemainingPct: number;
     dailyGoalProgressPct: number;
   }> {
+    // In backtest mode, return neutral defaults (backtest engine manages this)
+    if (isBacktest) {
+      return {
+        drawdownPct: 0,
+        dailyLossRemainingPct: 100,
+        dailyGoalProgressPct: 0
+      };
+    }
+
     try {
       // Get user profile for balance info
       const { data: profile } = await supabase
@@ -409,13 +427,24 @@ class HybridRiskManager {
   /**
    * Get recent performance metrics
    */
-  private async getRecentPerformance(userId: string): Promise<{
+  private async getRecentPerformance(userId: string, isBacktest: boolean = false): Promise<{
     winRate: number;
     profitFactor: number;
     winStreak: number;
     lossStreak: number;
     last10TradesWinRate: number;
   }> {
+    // In backtest mode, return neutral defaults
+    if (isBacktest) {
+      return {
+        winRate: 50,
+        profitFactor: 1.0,
+        winStreak: 0,
+        lossStreak: 0,
+        last10TradesWinRate: 50
+      };
+    }
+
     try {
       // Get last 50 trades
       const { data: trades } = await supabase

@@ -515,13 +515,15 @@ class PipnosisDecisionBrain {
 
         const requestedRiskPct = llmDecision.riskPercent || llmDecision.positionSizePercent || 2;
         const riskRewardRatio = llmDecision.riskRewardRatio || 2.0;
+        const isBacktest = context.mode === 'backtest';
 
         const safetyClamp = await hybridRiskManager.applySafetyClamp(
           context.sessionContext.userId,
           context.sessionContext.sessionId,
           requestedRiskPct,
           calibratedConfidence,
-          riskRewardRatio
+          riskRewardRatio,
+          isBacktest
         );
 
         if (!safetyClamp.isAllowed) {
