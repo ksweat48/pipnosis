@@ -489,14 +489,37 @@ TAKE PROFIT PLACEMENT (YOU DECIDE - NO RATIOS):
 ✗ NEVER use fixed ratios like "2.5 × risk"
 ✗ NEVER use arbitrary R:R without market context
 
-POSITION SIZING (YOU DECIDE DYNAMICALLY):
-✓ Base on: setup quality, confidence level, recent performance
-✓ High confidence (85%+) + excellent setup quality → larger size (3-5%)
-✓ Medium confidence (70-85%) → moderate size (2-3%)
-✓ After losing streak → reduce to 1-2%
-✓ When close to goal → smaller sizes to protect gains
-✓ Factor in volatility: reduce size in high volatility
-✗ NEVER use fixed 2% for everything
+POSITION SIZING - FULL AUTONOMY WITHIN HARD LIMITS:
+
+HARD CONSTRAINTS (NON-NEGOTIABLE):
+✗ Minimum risk per trade: 1% of account balance
+✗ Maximum risk per trade: 5% of account balance
+✗ Maximum total exposure (all open trades): 8% of account balance
+✗ These protect against system bugs and calculation errors
+
+YOU HAVE COMPLETE FREEDOM WITHIN 1-5% RANGE:
+You are GPT-4 - you understand risk management better than arbitrary formulas.
+
+DECISION FRAMEWORK (Your Judgment):
+• Consider ALL factors: confidence, quality, volatility, drawdown, context
+• High confidence (85%+) + excellent setup + strong performance → 3-5% acceptable
+• Medium confidence (70-85%) + good setup → 2-3% reasonable
+• Lower confidence or uncertainty → 1-2% prudent
+• After losses or in drawdown → naturally reduce risk (your judgment)
+• High volatility → consider reducing size or widening stop loss
+• Close to goal → your choice (protect vs. push forward)
+
+CONTEXT YOU HAVE:
+• Account Balance: $${accountBalance}
+• Current Drawdown: ${drawdown}% from peak
+• Recent Performance: ${recentWinRate}% win rate, ${recentPF}x profit factor
+• Open Positions: ${openPositions} (${currentExposure}% exposure)
+• Setup Quality: ${setupQuality}/100
+• Confidence: ${confidence}%
+
+MAKE THE OPTIMAL DECISION:
+Return "positionSizePercent" between 1.0 and 5.0 based on your analysis.
+Explain your risk logic in "reasoning".
 
 TRADE DURATION (YOU DECIDE - MAX ${PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_MINUTES} MINUTES):
 ✓ Scalps: 5-30 minutes for quick moves
@@ -680,12 +703,24 @@ Remember: You're an elite AI trader making intelligent decisions based on market
       decision.expectedDurationMinutes = PIPNOSIS_CORE_RULES.TRADE_DURATION_PREFERRED_MAX_HOURS * 60;
     }
 
-    if (decision.positionSizePercent && decision.positionSizePercent > 5) {
-      PipnosisCoreRules.enforcementLog(
-        `Position size ${decision.positionSizePercent}% exceeds safe limit`,
-        'Reduced to 5%'
-      );
-      decision.positionSizePercent = 5;
+    // HARD LIMIT VALIDATION: 1-5% risk range
+    if (decision.positionSizePercent) {
+      if (decision.positionSizePercent > 5.0) {
+        PipnosisCoreRules.enforcementLog(
+          `\ud83d\udea8 SAFETY: Position size ${decision.positionSizePercent.toFixed(2)}% exceeds 5% hard limit`,
+          'Clamped to 5% maximum (protects against bugs/hallucinations)'
+        );
+        decision.positionSizePercent = 5.0;
+      } else if (decision.positionSizePercent < 1.0) {
+        PipnosisCoreRules.enforcementLog(
+          `\u26a0\ufe0f  MINIMUM: Position size ${decision.positionSizePercent.toFixed(2)}% below 1% minimum`,
+          'Clamped to 1% minimum (prevents excessive timidity)'
+        );
+        decision.positionSizePercent = 1.0;
+      }
+    } else {
+      // Default to 2% if not specified
+      decision.positionSizePercent = 2.0;
     }
 
     return decision;

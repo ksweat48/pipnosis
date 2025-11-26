@@ -7,6 +7,7 @@ import { aiIndicatorTracker } from './ai-indicator-tracker';
 import { continuousLearningLoop } from './continuous-learning-loop';
 import { pipnosisDecisionBrain, type DecisionContext, type TradeDecision } from './pipnosis-decision-brain';
 import { llmExitOptimizer, type OpenTradeContext, type ExitOptimizationResult } from './llm-exit-optimizer';
+import { positionSafetyValidator } from './position-safety-validator';
 
 export interface SyntheticBacktestConfig {
   sessionName: string;
@@ -476,7 +477,7 @@ class SyntheticBacktestingEngine {
   private executeTrade(signal: any, entryTime: Date): SyntheticBacktestTrade {
     this.tradeCounter++;
 
-    const positionSize = this.calculatePositionSize(
+    let positionSize = this.calculatePositionSize(
       signal.symbol,
       signal.entryPrice,
       signal.stopLoss,
@@ -484,21 +485,47 @@ class SyntheticBacktestingEngine {
       signal.positionSizePercent
     );
 
-    if (positionSize <= 0 || positionSize > 2.0) {
-      console.error(`[Synthetic Backtest] REJECTED - Invalid position size: ${positionSize} lots`);
-      console.error(`[Synthetic Backtest] Signal details: ${signal.symbol}, Entry: ${signal.entryPrice}, SL: ${signal.stopLoss}`);
-      throw new Error(`Invalid position size calculated: ${positionSize}`);
+    // ============================================================
+    // POSITION SAFETY VALIDATION (Protects against bugs/hallucinations)
+    // ============================================================
+
+    // Calculate current exposure from open trades
+    const currentOpenTradesRisk = this.openTrades.map(t => {
+      const risk = Math.abs(t.entryPrice - t.stopLoss) / this.getPipValue(t.symbol) *
+                   this.getValuePerLotPerPoint(t.symbol) * t.positionSize;
+      return (risk / this.currentBalance) * 100;
+    });
+
+    const pipValue = this.getPipValue(signal.symbol);
+    const valuePerLotPerPoint = this.getValuePerLotPerPoint(signal.symbol);
+
+    const safetyResult = positionSafetyValidator.validatePosition(
+      positionSize,
+      signal.entryPrice,
+      signal.stopLoss,
+      this.currentBalance,
+      currentOpenTradesRisk,
+      signal.symbol,
+      pipValue,
+      valuePerLotPerPoint
+    );
+
+    if (!safetyResult.isValid) {
+      console.error(`[Synthetic Backtest] 🚫 TRADE REJECTED BY SAFETY VALIDATOR`);
+      safetyResult.violations.forEach(v => console.error(`  ${v}`));
+      throw new Error(`Safety validation failed: ${safetyResult.violations.join(', ')}`);
     }
 
-    const potentialLoss = Math.abs(signal.entryPrice - signal.stopLoss) / this.getPipValue(signal.symbol) * this.getValuePerLotPerPoint(signal.symbol) * positionSize;
-    const riskPercent = (potentialLoss / this.currentBalance) * 100;
-
-    if (riskPercent > 5) {
-      console.error(`[Synthetic Backtest] REJECTED - Trade risks ${riskPercent.toFixed(1)}% of capital (max 5%)`);
-      throw new Error(`Trade risk too high: ${riskPercent.toFixed(1)}%`);
+    // Use adjusted position size if safety validator made changes
+    if (safetyResult.adjustedPositionSize !== undefined) {
+      console.log(`[Safety] Position adjusted: ${positionSize.toFixed(3)} → ${safetyResult.adjustedPositionSize.toFixed(3)} lots`);
+      safetyResult.safetyAdjustments.forEach(adj => console.log(`  ${adj}`));
+      positionSize = safetyResult.adjustedPositionSize;
     }
 
-    console.log(`[Position Sizing] ✅ Risk validation passed: $${potentialLoss.toFixed(2)} (${riskPercent.toFixed(2)}% of capital)`);
+    // Log final validation
+    console.log(`[Safety] ✅ All validations passed`);
+    console.log(`[Safety] Final position: ${positionSize.toFixed(3)} lots (${safetyResult.finalRiskPercent.toFixed(2)}% risk)`);
 
     if (signal.stopLoss === signal.entryPrice || signal.takeProfit === signal.entryPrice) {
       console.error('[Synthetic Backtest] Invalid SL/TP - same as entry');
@@ -1465,8 +1492,9 @@ class SyntheticBacktestingEngine {
     const maxLots = maxPositionValue / (entryPrice * contractSize);
 
     positionSize = Math.min(positionSize, maxLots);
-    positionSize = Math.max(0.01, positionSize);
-    positionSize = Math.min(2.0, positionSize);
+    // REMOVED: Artificial 2.0 lot cap (was arbitrary)
+    // Position size is now determined purely by risk % and validation
+    positionSize = Math.max(0.01, positionSize); // Keep minimum for technical reasons
 
     console.log(`[Position Sizing] ${symbol}: Risk $${riskAmount.toFixed(2)} (${riskPercent}%) over ${pointsRisked.toFixed(1)} pips = ${positionSize.toFixed(3)} lots`);
     console.log(`[Position Sizing] Entry: ${entryPrice}, SL: ${stopLoss}, Balance: $${accountBalance.toFixed(2)}`);

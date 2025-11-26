@@ -58,8 +58,10 @@ export interface PositionSizeRecommendation {
 }
 
 class IntelligentPositionSizer {
-  private readonly MAX_RISK_PER_TRADE = 2.0; // 2% max per trade
-  private readonly MAX_TOTAL_RISK = 6.0; // 6% max total exposure
+  // HARD-CODED ACCOUNT PROTECTION LIMITS
+  private readonly MAX_RISK_PER_TRADE = 5.0; // 5% max per trade (hard limit)
+  private readonly MIN_RISK_PER_TRADE = 1.0; // 1% min per trade (prevent timidity)
+  private readonly MAX_TOTAL_RISK = 8.0; // 8% max total exposure (hard limit)
   private readonly DEFAULT_KELLY_FRACTION = 0.25; // Quarter Kelly (conservative)
 
   /**
@@ -339,17 +341,61 @@ class IntelligentPositionSizer {
   }
 
   /**
-   * Calculate maximum position size
+   * Calculate maximum position size based on hard limits
    */
   private calculateMaxPositionSize(accountBalance: number, currentPrice: number): number {
-    // Never risk more than 2% per trade
+    // HARD LIMIT: Never risk more than 5% per trade
     const maxRisk = accountBalance * (this.MAX_RISK_PER_TRADE / 100);
 
-    // Assuming 1% stop loss
+    // Assuming 1% stop loss for size calculation
     const assumedStopPct = 0.01;
     const maxSize = maxRisk / (currentPrice * assumedStopPct);
 
     return maxSize;
+  }
+
+  /**
+   * Validate final position size against hard limits
+   */
+  private validatePositionSize(
+    positionSize: number,
+    currentPrice: number,
+    stopLoss: number,
+    accountBalance: number
+  ): { isValid: boolean; violations: string[]; adjustedSize?: number } {
+    const violations: string[] = [];
+    let adjustedSize = positionSize;
+
+    // Calculate actual risk
+    const stopDistance = Math.abs(currentPrice - stopLoss);
+    const riskAmount = positionSize * stopDistance;
+    const riskPercent = (riskAmount / accountBalance) * 100;
+
+    // HARD LIMIT 1: Max 5% risk per trade
+    if (riskPercent > this.MAX_RISK_PER_TRADE) {
+      violations.push(`Risk ${riskPercent.toFixed(2)}% exceeds ${this.MAX_RISK_PER_TRADE}% maximum`);
+      // Adjust to exactly 5%
+      adjustedSize = (accountBalance * (this.MAX_RISK_PER_TRADE / 100)) / stopDistance;
+    }
+
+    // HARD LIMIT 2: Min 1% risk per trade
+    if (riskPercent < this.MIN_RISK_PER_TRADE) {
+      violations.push(`Risk ${riskPercent.toFixed(2)}% below ${this.MIN_RISK_PER_TRADE}% minimum`);
+      // Adjust to exactly 1%
+      adjustedSize = (accountBalance * (this.MIN_RISK_PER_TRADE / 100)) / stopDistance;
+    }
+
+    // Technical validation
+    if (positionSize <= 0 || !isFinite(positionSize) || isNaN(positionSize)) {
+      violations.push(`Invalid position size: ${positionSize}`);
+      adjustedSize = 0.01; // Minimum valid size
+    }
+
+    return {
+      isValid: violations.length === 0,
+      violations,
+      adjustedSize: violations.length > 0 ? adjustedSize : undefined
+    };
   }
 
   /**
