@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { goalSessionManager } from './goal-session-manager';
 import { simulatedTradingService } from './simulated-trading';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 export interface TradeSignal {
   sessionId: string;
@@ -25,6 +26,25 @@ export interface TradeExecutionResult {
 }
 
 class TradeExecutionEngine {
+  /**
+   * Apply realistic slippage to entry price
+   * Simulates 0.5-1.0 pip slippage in the unfavorable direction
+   */
+  private applySlippage(symbol: string, entryPrice: number, direction: 'buy' | 'sell'): number {
+    const pipInfo = getCurrencyPipInfo(symbol);
+
+    // Random slippage between 0.5 and 1.0 pips
+    const slippagePips = 0.5 + Math.random() * 0.5;
+    const slippagePrice = slippagePips * pipInfo.pipValue;
+
+    // Apply in unfavorable direction
+    if (direction === 'buy') {
+      return entryPrice + slippagePrice; // Pay more for buy
+    } else {
+      return entryPrice - slippagePrice; // Get less for sell
+    }
+  }
+
   async executeSignal(
     signal: TradeSignal,
     userId: string,
@@ -220,13 +240,19 @@ class TradeExecutionEngine {
       };
     }
 
+    // Apply realistic slippage to entry price
+    const actualEntryPrice = this.applySlippage(signal.symbol, signal.entryPrice, signal.direction);
+    const slippagePips = Math.abs(actualEntryPrice - signal.entryPrice) / getCurrencyPipInfo(signal.symbol).pipValue;
+
     console.log(`[Trade Execution] ✅ Creating simulated position for ${signal.symbol}...`);
+    console.log(`[Trade Execution] Slippage applied: ${slippagePips.toFixed(1)} pips (${signal.entryPrice} → ${actualEntryPrice})`);
     console.log(`[Trade Execution] This will make SL/TP visible on chart`);
+
     const simulatedResult = await simulatedTradingService.executeTrade({
       symbol: signal.symbol,
       action: signal.direction,
       lotSize: signal.positionSize,
-      entry: signal.entryPrice,
+      entry: actualEntryPrice,
       stopLoss: signal.stopLoss,
       takeProfit: signal.takeProfit,
       strategy: 'ai_goal',

@@ -644,16 +644,78 @@ class GoalSessionLiveEngine {
    */
   private async saveLiveSessionSummary(summary: any): Promise<void> {
     try {
+      // Generate learning insights from session
+      const stats = summary.statistics;
+      const learningInsights: string[] = [];
+
+      // Performance insights
+      if (stats.winRate >= 70) {
+        learningInsights.push('✅ Excellent win rate - your pattern recognition is improving');
+      } else if (stats.winRate >= 50) {
+        learningInsights.push('📊 Solid win rate - building consistency');
+      } else if (stats.winRate > 0) {
+        learningInsights.push('📉 Win rate needs improvement - will adjust strategy next session');
+      }
+
+      // Trigger efficiency
+      if (stats.triggersDetected > 0) {
+        const triggerToTradeRatio = (stats.tradesExecuted / stats.triggersDetected) * 100;
+        if (triggerToTradeRatio >= 50) {
+          learningInsights.push('🎯 High trigger quality - filtering working well');
+        } else if (triggerToTradeRatio < 20) {
+          learningInsights.push('⚡ Many triggers filtered out - being selective');
+        }
+      }
+
+      // P&L insights
+      if (stats.totalPnL > 0) {
+        learningInsights.push(`💰 Profitable session: +$${stats.totalPnL.toFixed(2)}`);
+      } else if (stats.totalPnL < 0) {
+        learningInsights.push(`📚 Learning from losses: -$${Math.abs(stats.totalPnL).toFixed(2)}`);
+        learningInsights.push('🔄 Will avoid similar setups next time');
+      }
+
+      // Trade count insights
+      if (stats.tradesExecuted === 0) {
+        learningInsights.push('⏳ No trades today - waiting for premium setups');
+      } else if (stats.tradesExecuted >= 5) {
+        learningInsights.push('📈 Active session - multiple opportunities found');
+      }
+
+      const learningSummary = `
+🎓 SESSION COMPLETE - What I Learned:
+
+📊 Performance:
+• Win Rate: ${stats.winRate.toFixed(1)}%
+• Trades: ${stats.tradesExecuted} executed from ${stats.triggersDetected} triggers
+• P&L: ${stats.totalPnL >= 0 ? '+' : ''}$${stats.totalPnL.toFixed(2)}
+
+💡 Key Insights:
+${learningInsights.map(insight => `• ${insight}`).join('\n')}
+
+🔮 Next Session:
+• I'll remember today's patterns (${stats.winRate >= 50 ? 'repeat winners' : 'avoid losers'})
+• Focus on high-confidence setups (${stats.llmCallsMade} LLM evaluations today)
+• Continue building long-term edge
+
+This learning will carry forward to improve future sessions!
+      `.trim();
+
       await supabase.from('goal_ai_conversations').insert({
         goal_session_id: this.activeSession,
         user_id: this.config!.userId,
         role: 'ai',
-        message: `Session complete! Processed ${summary.statistics.candlesProcessed} candles, detected ${summary.statistics.triggersDetected} triggers, executed ${summary.statistics.tradesExecuted} trades. Win rate: ${summary.statistics.winRate.toFixed(1)}%, Total P&L: $${summary.statistics.totalPnL.toFixed(2)}`,
-        context: summary.statistics,
-        sentiment: summary.statistics.totalPnL > 0 ? 'celebratory' : 'educational'
+        message: learningSummary,
+        context: {
+          ...summary.statistics,
+          learningInsights,
+          sessionType: 'live_goal_mode'
+        },
+        sentiment: stats.totalPnL > 0 ? 'celebratory' : 'educational'
       });
 
-      logger.debug(LogCategory.AI_TRADING, 'Session summary saved');
+      logger.info(LogCategory.AI_TRADING, 'Learning summary sent to user');
+      logger.debug(LogCategory.AI_TRADING, `Insights: ${learningInsights.length} generated`);
     } catch (error) {
       console.error('[Goal Live Engine] Error saving summary:', error);
     }

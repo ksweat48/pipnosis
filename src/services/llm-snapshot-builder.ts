@@ -7,6 +7,7 @@
 
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { TriggerEvent } from './trigger-detection-rules';
+import { validateSLTPDistances, calculatePipDistance } from '../utils/currencyHelpers';
 
 export interface LLMSnapshot {
   pipnosisIdentity: string;
@@ -407,6 +408,25 @@ Should you:
       violations.push('Missing required fields: entry, stopLoss, or takeProfit');
     }
 
+    // Validate SL/TP direction relative to entry price
+    if (decision.entry && decision.stopLoss && decision.takeProfit) {
+      if (decision.direction === 'buy') {
+        if (decision.stopLoss >= decision.entry) {
+          violations.push(`BUY trade: Stop loss (${decision.stopLoss}) must be below entry (${decision.entry})`);
+        }
+        if (decision.takeProfit <= decision.entry) {
+          violations.push(`BUY trade: Take profit (${decision.takeProfit}) must be above entry (${decision.entry})`);
+        }
+      } else if (decision.direction === 'sell') {
+        if (decision.stopLoss <= decision.entry) {
+          violations.push(`SELL trade: Stop loss (${decision.stopLoss}) must be above entry (${decision.entry})`);
+        }
+        if (decision.takeProfit >= decision.entry) {
+          violations.push(`SELL trade: Take profit (${decision.takeProfit}) must be below entry (${decision.entry})`);
+        }
+      }
+    }
+
     if (decision.maxHoldMinutes && decision.maxHoldMinutes > PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_MINUTES) {
       violations.push(
         `maxHoldMinutes ${decision.maxHoldMinutes} exceeds maximum ${PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_MINUTES}`
@@ -419,6 +439,27 @@ Should you:
 
     if (decision.confidence < 60) {
       violations.push(`Confidence ${decision.confidence}% is too low for execution`);
+    }
+
+    // Validate SL/TP distances are appropriate for currency type
+    if (decision.entry && decision.stopLoss && decision.takeProfit && decision.symbol) {
+      const distanceValidation = validateSLTPDistances(
+        decision.symbol,
+        decision.entry,
+        decision.stopLoss,
+        decision.takeProfit
+      );
+
+      if (!distanceValidation.isValid) {
+        distanceValidation.warnings.forEach(warning => {
+          violations.push(`Currency-specific validation: ${warning}`);
+        });
+      }
+
+      // Log pip distances for transparency
+      const slPips = calculatePipDistance(decision.symbol, decision.entry, decision.stopLoss);
+      const tpPips = calculatePipDistance(decision.symbol, decision.entry, decision.takeProfit);
+      console.log(`[SL/TP Validation] ${decision.symbol}: SL=${slPips.toFixed(1)} pips, TP=${tpPips.toFixed(1)} pips`);
     }
 
     return {

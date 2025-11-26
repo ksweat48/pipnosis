@@ -79,9 +79,11 @@ class EventBasedLLMEngine {
   private readonly GPT_MODEL = 'gpt-4o';
   private sessionTokenUsage: number = 0;
   private readonly MAX_TOKENS_PER_SESSION = 50000;
+  private readonly TOKEN_RESET_WINDOW_HOURS = 4; // Reset every 4 hours for long sessions
   private userId: string | null = null;
   private sessionId: string | null = null;
   private use5LayerPipeline: boolean = true;
+  private tokenWindowStart: number = Date.now();
 
   constructor() {
   }
@@ -92,8 +94,25 @@ class EventBasedLLMEngine {
   async initialize(userId: string, sessionId: string | null = null): Promise<void> {
     this.userId = userId;
     this.sessionId = sessionId;
+    this.sessionTokenUsage = 0;
+    this.tokenWindowStart = Date.now();
     await developerModeLogger.initialize(userId);
     console.log('[Event Engine] 5-Layer Pipeline initialized for user:', userId);
+  }
+
+  /**
+   * Check if token budget needs to be reset (sliding window)
+   */
+  private checkTokenBudgetReset(): void {
+    const now = Date.now();
+    const windowElapsed = (now - this.tokenWindowStart) / (1000 * 60 * 60); // hours
+
+    if (windowElapsed >= this.TOKEN_RESET_WINDOW_HOURS) {
+      const previousUsage = this.sessionTokenUsage;
+      this.sessionTokenUsage = 0;
+      this.tokenWindowStart = now;
+      console.log(`[Event Engine] 🔄 Token budget reset after ${windowElapsed.toFixed(1)}h (Used: ${previousUsage} tokens)`);
+    }
   }
 
   /**
@@ -162,8 +181,13 @@ class EventBasedLLMEngine {
       return { trade: ruleBasedTrade, trigger: topTrigger, llmCalled: false };
     }
 
+    // Check if token budget needs reset (sliding window)
+    this.checkTokenBudgetReset();
+
     if (this.sessionTokenUsage >= this.MAX_TOKENS_PER_SESSION) {
+      const windowElapsed = (Date.now() - this.tokenWindowStart) / (1000 * 60 * 60);
       console.warn(`[Event Engine] ⚠️ Token budget exhausted: ${this.sessionTokenUsage}/${this.MAX_TOKENS_PER_SESSION}`);
+      console.warn(`[Event Engine] Window: ${windowElapsed.toFixed(1)}h / ${this.TOKEN_RESET_WINDOW_HOURS}h`);
       console.warn('[Event Engine] Falling back to rule-based decisions');
       const ruleBasedTrade = this.executeRuleBasedDecision(topTrigger, snapshot, config, openTrades);
       return { trade: ruleBasedTrade, trigger: topTrigger, llmCalled: false };
