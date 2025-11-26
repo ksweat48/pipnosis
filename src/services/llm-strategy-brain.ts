@@ -614,6 +614,33 @@ Remember: You're an elite AI trader making intelligent decisions based on market
       normalizedAction = 'no_trade';
     }
 
+    // SMART SETUP TYPE INFERENCE (Belt & Suspenders approach)
+    // First try explicit field, then infer from reasoning
+    let setupType = parsed.setup || parsed.setupType;
+
+    if (!setupType || setupType === 'Unknown') {
+      // Infer from reasoning keywords
+      const reasoningLower = reasoning.toLowerCase();
+
+      if (reasoningLower.includes('ema') || reasoningLower.includes('moving average') || reasoningLower.includes('ma align')) {
+        setupType = 'ema_trend';
+      } else if (reasoningLower.includes('breakout') || reasoningLower.includes('break out') || reasoningLower.includes('breaking')) {
+        setupType = 'breakout';
+      } else if (reasoningLower.includes('support') || reasoningLower.includes('resistance') || reasoningLower.includes('bounce')) {
+        setupType = 'sr_bounce';
+      } else if (reasoningLower.includes('momentum') || reasoningLower.includes('strong move') || reasoningLower.includes('impulse')) {
+        setupType = 'momentum';
+      } else if (reasoningLower.includes('reversal') || reasoningLower.includes('reverse') || reasoningLower.includes('turning')) {
+        setupType = 'reversal';
+      } else if (reasoningLower.includes('pullback') || reasoningLower.includes('retrace') || reasoningLower.includes('dip')) {
+        setupType = 'pullback';
+      } else {
+        setupType = 'trend_follow'; // Generic fallback
+      }
+
+      console.log(`[normalizeDecision] Inferred setup type: ${setupType} from reasoning`);
+    }
+
     // Log if we got new fields
     if (riskPercent !== undefined || riskRewardRatio !== undefined) {
       console.log(`[normalizeDecision] Enhanced fields: risk_pct=${riskPercent}%, rr=${riskRewardRatio}`);
@@ -631,7 +658,7 @@ Remember: You're an elite AI trader making intelligent decisions based on market
       expectedDurationMinutes: parsed.expectedDurationMinutes || 120,
       reasoning: reasoning,
       riskAssessment: parsed.riskAssessment || '',
-      setupType: parsed.setupType || 'Unknown',
+      setupType: setupType,
       keyFactors: parsed.keyFactors || [],
       alternativeScenarios: parsed.alternativeScenarios || []
     };

@@ -328,6 +328,7 @@ Return ONLY this JSON (no text before/after):
   "size": ${safeValidation.qualityScore >= 80 ? '4' : '3'},
   "conf": ${safeValidation.qualityScore >= 75 ? '80' : '70'},
   "rr": 2.0,
+  "setup": "ema_trend",
   "why": "${snap.tr === 'bullish' ? 'Bullish trend + EMA alignment + high momentum' : snap.tr === 'bearish' ? 'Bearish trend + breakdown + momentum down' : 'Unclear setup'}"
 }
 
@@ -339,6 +340,7 @@ Fields:
 - size: 2-5 (position size %, higher for better quality)
 - conf: 65-90 (reflect true conviction - passed setups deserve high conf)
 - rr: 1.5-3.0 (actual risk:reward ratio)
+- setup: "ema_trend"|"breakout"|"sr_bounce"|"momentum"|"reversal"|"pullback" (categorize setup type)
 - why: 5-10 words explaining edge
 
 EXECUTE NOW. BE BOLD. CAPTURE PROFIT.`;
