@@ -696,7 +696,7 @@ class AISkillTracker {
     try {
       const { data: sessions, error } = await supabase
         .from('synthetic_backtest_sessions')
-        .select('win_rate, profit_factor, total_trades, wins_count')
+        .select('win_rate, profit_factor, total_trades, winning_trades')
         .eq('user_id', userId)
         .eq('status', 'completed')
         .not('win_rate', 'is', null)
