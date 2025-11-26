@@ -1105,12 +1105,14 @@ class SimpleAutoBacktestService {
 
       console.log('[Auto-Backtest] Starting synthetic backtest engine...');
       // Execute daily backtest (includes AI learning automatically)
+      // Pass abort signal so backtest can be stopped mid-execution
       const result = await syntheticBacktestingEngine.runSyntheticBacktest(
         this.userId,
         config,
         (progress) => {
           console.log(`[Auto-Backtest] Day ${dayNumber} Progress: ${progress.message} (${progress.percentComplete.toFixed(1)}%)`);
-        }
+        },
+        this.abortController?.signal
       );
 
       // Warn if 0 trades but don't stop - synthetic data may still be generating

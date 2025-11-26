@@ -107,16 +107,19 @@ class SyntheticBacktestingEngine {
   private tradeCounter: number = 0;
   private gpt4CallsUsed: number = 0;
   private syntheticGenerationId: string = '';
+  private abortSignal: AbortSignal | null = null;
 
   async runSyntheticBacktest(
     userId: string,
     config: SyntheticBacktestConfig,
-    onProgress?: (progress: any) => void
+    onProgress?: (progress: any) => void,
+    abortSignal?: AbortSignal
   ): Promise<SyntheticBacktestResult> {
     this.reset();
     this.userId = userId;
     this.config = config;
     this.currentBalance = config.initialBalance;
+    this.abortSignal = abortSignal || null;
 
     console.log('\n=== SYNTHETIC BACKTEST STARTING ===');
     console.log(`[Synthetic Backtest] Session: ${config.sessionName}`);
@@ -238,6 +241,12 @@ class SyntheticBacktestingEngine {
     let signalsSkipped = 0;
 
     for (let i = 0; i < candles.length; i++) {
+      // Check if backtest has been aborted
+      if (this.abortSignal?.aborted) {
+        console.log('[Synthetic Backtest] ⏸️ Backtest aborted by user');
+        break;
+      }
+
       const currentTime = new Date(candles[i].open_time);
 
       if (i % 10 === 0) {
@@ -291,6 +300,11 @@ class SyntheticBacktestingEngine {
 
   private async generateSignalAtTime(symbol: string, time: Date): Promise<any | null> {
     try {
+      // Check abort signal before expensive operations
+      if (this.abortSignal?.aborted) {
+        return null;
+      }
+
       const h1Candles = await this.getSyntheticCandles(symbol, 'H1', new Date(time.getTime() - 50 * 60 * 60 * 1000), time);
       const m5Candles = await this.getSyntheticCandles(symbol, 'M5', new Date(time.getTime() - 100 * 5 * 60 * 1000), time);
       const m1Candles = await this.getSyntheticCandles(symbol, 'M1', new Date(time.getTime() - 100 * 60 * 1000), time);
