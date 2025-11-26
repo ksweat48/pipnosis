@@ -31,6 +31,10 @@ class LLMResponseCache {
       context.volatility || '',
       context.trigger || '',
       Math.floor(context.confidence || 0),
+      context.quality || '', // Setup quality score
+      context.consecutive || '', // Consecutive losses
+      context.similar || '', // Similar patterns
+      context.priceRange || '' // Price range for Layer 3 specificity
     ];
 
     return keyParts.join('|');
@@ -128,6 +132,17 @@ class LLMResponseCache {
 
     if (removed > 0) {
       console.log(`[LLM Cache] 🧹 Cleaned ${removed} expired entries`);
+    }
+  }
+
+  /**
+   * Invalidate a specific cache entry
+   */
+  invalidate(layer: LLMLayer, context: any): void {
+    const key = this.generateKey(layer, context);
+    const existed = this.cache.delete(key);
+    if (existed) {
+      console.log(`[LLM Cache] 🗑️ Invalidated cache for ${layer}`);
     }
   }
 

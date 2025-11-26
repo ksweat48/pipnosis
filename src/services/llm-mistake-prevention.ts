@@ -60,18 +60,28 @@ class LLMMistakePrevention {
         this.checkCorrelatedLossRisk(userId, snapshot.symbol)
       ]);
 
-      // Check cache first
+      // Check cache first with improved specificity
+      const currentPrice = snapshot.ohlc[snapshot.ohlc.length - 1]?.close || 0;
+      const priceRange = Math.floor(currentPrice * 100) / 100; // Round to 2 decimals for grouping
+
       const cacheContext = {
         symbol: snapshot.symbol,
         quality: Math.floor(setupQuality.quality_score / 10) * 10,
         consecutive: recentLosses.consecutive_losses,
         similar: losingPatterns.length,
+        priceRange: priceRange // Add price range for better specificity
       };
 
       const cached = llmResponseCache.get<MistakePreventionResult>('layer3_mistake', cacheContext);
       if (cached) {
-        console.log('[LLM Layer 3] 💾 Cache hit - skipping API call');
-        return cached;
+        // Validate cached result - reject if block decision has empty reasoning
+        if (!cached.allow_trade && (!cached.preventive_reasoning || cached.preventive_reasoning.trim() === '')) {
+          console.warn('[LLM Layer 3] ⚠️ Cache hit but block decision has empty reasoning - invalidating cache');
+          llmResponseCache.invalidate('layer3_mistake', cacheContext);
+        } else {
+          console.log('[LLM Layer 3] 💾 Cache hit - skipping API call');
+          return cached;
+        }
       }
 
       // Select optimal model
@@ -123,8 +133,9 @@ class LLMMistakePrevention {
         );
       }
 
-      // Cache result
-      llmResponseCache.set('layer3_mistake', cacheContext, result);
+      // Cache result with shorter TTL for block decisions (30s vs 60s)
+      const cacheTTL = result.allow_trade ? 60 : 30;
+      llmResponseCache.set('layer3_mistake', cacheContext, result, cacheTTL);
 
       const duration = Date.now() - startTime;
       console.log(`[LLM Layer 3] ${result.allow_trade ? '✅ ALLOW' : '🚫 BLOCK'} (${duration}ms)`);
@@ -372,6 +383,13 @@ Be RUTHLESS. When in doubt, BLOCK. Protecting capital is priority #1.`;
       recommendation = parsed.recommendation || 'allow';
     }
 
+    // Generate fallback reasoning if empty and trade is blocked
+    let reasoning = parsed.preventive_reasoning || parsed.reasoning || '';
+    if (!allowTrade && (!reasoning || reasoning.trim() === '')) {
+      reasoning = `Trade blocked by Layer 3. Risk level: ${riskLevel}. Flags: ${mistakeFlags.join(', ') || 'general risk assessment'}.`;
+      console.warn('[LLM Layer 3] ⚠️ Block decision with empty reasoning - using fallback');
+    }
+
     return {
       allow_trade: allowTrade,
       risk_level: riskLevel,
@@ -384,7 +402,7 @@ Be RUTHLESS. When in doubt, BLOCK. Protecting capital is priority #1.`;
         needs_cooling_off: false
       },
       warnings: parsed.warnings || [],
-      preventive_reasoning: parsed.preventive_reasoning || parsed.reasoning || '',
+      preventive_reasoning: reasoning,
       recommendation: recommendation
     };
   }
