@@ -55,7 +55,8 @@ class SyntheticTradeCopier {
         market_conditions: trade.market_regime || {},
         ai_decision_id: null,
         ai_analyzed: false,
-        ai_validated: false
+        ai_validated: false,
+        trade_source: 'synthetic_backtest'  // Mark as synthetic backtest trade
       }));
 
       const { data: insertedTrades, error: insertError } = await supabase

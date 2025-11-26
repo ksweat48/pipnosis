@@ -190,7 +190,8 @@ class SimulatedTradingService {
           setup_type: position.setup_type || 'Manual Trade',
           market_conditions: position.market_conditions || {},
           ai_decision_id: position.ai_decision_id || null,
-          ai_analyzed: false
+          ai_analyzed: false,
+          trade_source: 'live_demo'  // Mark as live demo trade
         });
 
       return {
