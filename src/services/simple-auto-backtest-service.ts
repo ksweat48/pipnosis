@@ -77,6 +77,8 @@ class SimpleAutoBacktestService {
   private consecutiveBacktests = 0;
   private lastDbLatency = 0;
   private adaptiveDelayMultiplier = 1.0;
+  private carryBalanceEnabled = false; // NEW: Whether to carry balance between days
+  private lastSessionBalance = 10000; // NEW: Track ending balance from previous day
 
   // Configuration
   private readonly MIN_DELAY_SECONDS = 30;
@@ -156,7 +158,10 @@ class SimpleAutoBacktestService {
    * Start auto-backtest loop
    * Automatically stops any existing sessions before starting
    */
-  async start(userId: string): Promise<{ success: boolean; message: string }> {
+  async start(
+    userId: string,
+    options?: { carryBalanceEnabled?: boolean }
+  ): Promise<{ success: boolean; message: string }> {
     console.log('\n[Auto-Backtest] ========================================');
     console.log('[Auto-Backtest] 🚀 START REQUEST RECEIVED');
     console.log('[Auto-Backtest] User ID:', userId);
@@ -188,6 +193,13 @@ class SimpleAutoBacktestService {
       console.log('[Auto-Backtest] ⏱️ Waiting 500ms for cleanup...');
       await new Promise(resolve => setTimeout(resolve, 500));
       console.log('[Auto-Backtest] ✓ Cleanup complete');
+
+      // Store balance carryover option
+      if (options?.carryBalanceEnabled !== undefined) {
+        this.carryBalanceEnabled = options.carryBalanceEnabled;
+        console.log(`[Auto-Backtest] Balance Carryover: ${this.carryBalanceEnabled ? 'ENABLED' : 'DISABLED'}`);
+        console.log(`[Auto-Backtest] ${this.carryBalanceEnabled ? 'Each day starts with previous day\'s ending balance' : 'Each day starts fresh with $10,000'}`);
+      }
 
       // Initialize fresh state
       console.log('[Auto-Backtest] Step 3: Initializing fresh state...');
@@ -660,6 +672,11 @@ class SimpleAutoBacktestService {
         this.currentDayInMonth = 0;
         this.monthlyParentSessionId = this.generateMonthlySessionId();
 
+        // Reset balance to $10k at the start of each month
+        // (Each month is a new learning cycle, even with balance carryover enabled)
+        this.lastSessionBalance = 10000;
+        console.log('[Auto-Backtest] 💰 Balance reset to $10,000 for new month');
+
         console.log('\n[Auto-Backtest] ========== STARTING NEW 30-DAY MONTHLY SESSION ==========');
         console.log(`[Auto-Backtest] Month #${this.currentMonthNumber}`);
         console.log(`[Auto-Backtest] Parent Session ID: ${this.monthlyParentSessionId}`);
@@ -1079,10 +1096,14 @@ class SimpleAutoBacktestService {
       const endDate = new Date();
       const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000); // 7 days for sufficient data
 
+      // Determine initial balance based on carryover setting
+      const initialBalance = this.carryBalanceEnabled ? this.lastSessionBalance : 10000;
+
       console.log(`[Auto-Backtest] Session: ${sessionName}`);
       console.log(`[Auto-Backtest] Data Window: 7 days (ensures sufficient candles)`);
       console.log(`[Auto-Backtest] Pair: ${selectedPair.symbol} (LLM Confidence: ${selectedPair.confidence}%)`);
       console.log(`[Auto-Backtest] Risk Level: ${riskLevel}`);
+      console.log(`[Auto-Backtest] Starting Balance: $${initialBalance.toFixed(2)} ${this.carryBalanceEnabled ? '(carried from previous day)' : '(fresh start)'}`);
 
       const config: SyntheticBacktestConfig = {
         sessionName,
@@ -1096,7 +1117,7 @@ class SimpleAutoBacktestService {
         confidenceThreshold: this.getRiskThreshold(riskLevel),
         riskMode: riskLevel,
         maxConcurrentTrades: 2,
-        initialBalance: 10000,
+        initialBalance,
         positionSizePercent: 2,
         commissionPerTrade: 0,
         slippagePips: 1,
@@ -1140,6 +1161,16 @@ class SimpleAutoBacktestService {
       };
 
       console.log(`[Auto-Backtest] Day ${dayNumber} ✅ Win rate: ${result.winRate.toFixed(1)}%, P&L: $${result.totalPnL.toFixed(2)}, Trades: ${result.totalTrades}`);
+
+      // Update balance for next day if carryover is enabled
+      if (this.carryBalanceEnabled && result.finalBalance) {
+        this.lastSessionBalance = result.finalBalance;
+        console.log(`[Auto-Backtest] 💰 Balance updated for next day: $${this.lastSessionBalance.toFixed(2)}`);
+      } else if (this.carryBalanceEnabled) {
+        // Calculate ending balance if not provided
+        this.lastSessionBalance = initialBalance + result.totalPnL;
+        console.log(`[Auto-Backtest] 💰 Balance calculated for next day: $${this.lastSessionBalance.toFixed(2)}`);
+      }
 
       // Save daily result to database for calendar persistence
       await this.saveDailyResult(dayNumber, sessionName, result, selectedPair);

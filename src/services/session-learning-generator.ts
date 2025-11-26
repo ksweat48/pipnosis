@@ -214,13 +214,18 @@ class SessionLearningGenerator {
 
       // Generate AI thought stream daily reflection with validation
       const sessionNumber = await this.getSessionNumber(userId);
+
+      // Calculate wins for AI reflection
+      const wins = trades.filter(t => t.outcome === 'win');
+      const winRate = trades.length > 0 ? (wins.length / trades.length) * 100 : 0;
+
       await aiThoughtGenerator.generateDailyReflection(
         userId,
         sessionId,
         {
           sessionDate: new Date(),
           sessionNumber,
-          winRate: trades.length > 0 ? (wins.length / trades.length) * 100 : 0,
+          winRate,
           profitFactor: sessionCSS / 50, // Simplified conversion
           tradesCount: trades.length,
           bestPattern: bestSetup?.name,
@@ -229,7 +234,7 @@ class SessionLearningGenerator {
           challenges: patternsDegraded,
           adjustments: recommendations.slice(0, 2),
           currentGoal: 'Reach 65% win rate',
-          goalProgress: Math.min(100, ((wins.length / trades.length) * 100 / 65) * 100)
+          goalProgress: Math.min(100, (winRate / 65) * 100)
         },
         mergedValidation
       );

@@ -320,7 +320,19 @@ As an expert trader, interpret this pattern and provide:
    */
   private parseGPT4oResponse(content: string): PatternInterpretation {
     try {
-      return JSON.parse(content);
+      // Strip markdown code blocks if present (e.g., ```json ... ```)
+      let cleanedContent = content.trim();
+
+      // Remove markdown code block markers
+      if (cleanedContent.startsWith('```')) {
+        // Remove opening ```json or ```
+        cleanedContent = cleanedContent.replace(/^```(?:json)?\s*\n?/i, '');
+        // Remove closing ```
+        cleanedContent = cleanedContent.replace(/\n?```\s*$/i, '');
+        cleanedContent = cleanedContent.trim();
+      }
+
+      return JSON.parse(cleanedContent);
     } catch (error) {
       console.error('[Pattern Interpreter] Failed to parse response:', error);
       // Return empty structure

@@ -49,6 +49,9 @@ export default function AITrainingPage() {
   // Tab system - default to 'progress' tab
   const [activeTab, setActiveTab] = useState<'progress' | 'backtest'>('progress');
 
+  // Balance carryover toggle
+  const [carryBalanceEnabled, setCarryBalanceEnabled] = useState(false);
+
   // Event-based backtest mode
   const [useEventBasedBacktest, setUseEventBasedBacktest] = useState(false);
   const [eventBacktestProgress, setEventBacktestProgress] = useState<BacktestProgress | null>(null);
@@ -1161,6 +1164,36 @@ export default function AITrainingPage() {
               </div>
             ) : (
               <div className="space-y-4">
+                {/* Balance Carryover Toggle */}
+                <div className="p-4 bg-gray-700/50 rounded-lg border border-gray-600">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={carryBalanceEnabled}
+                          onChange={(e) => setCarryBalanceEnabled(e.target.checked)}
+                          className="w-5 h-5 rounded border-gray-600 text-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+                        />
+                        <div>
+                          <p className="text-sm font-semibold text-white">Carry Balance Between Days</p>
+                          <p className="text-xs text-gray-400 mt-1">
+                            {carryBalanceEnabled ? (
+                              <span className="text-blue-400">
+                                <strong>Enabled:</strong> Day 2 starts with Day 1's ending balance (realistic compounding)
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">
+                                <strong>Disabled:</strong> Each day starts fresh with $10,000 (isolated strategy testing)
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="p-4 bg-gray-700/50 rounded-lg text-center">
                   <p className="text-gray-400 mb-4">Auto-backtest is not running</p>
                   <button
@@ -1170,7 +1203,7 @@ export default function AITrainingPage() {
                       setAutoBacktestTransitioning(true);
 
                       try {
-                        const result = await simpleAutoBacktestService.start(user.id);
+                        const result = await simpleAutoBacktestService.start(user.id, { carryBalanceEnabled });
 
                         if (result.success) {
                           const confirmedState = await simpleAutoBacktestService.getState();
