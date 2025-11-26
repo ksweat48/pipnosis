@@ -54,11 +54,24 @@ class LLMMistakePrevention {
     const startTime = Date.now();
 
     try {
-      const [losingPatterns, recentLosses, correlatedLosses] = await Promise.all([
-        this.getLosingPatterns(userId, snapshot.symbol),
-        this.getRecentLossContext(userId),
-        this.checkCorrelatedLossRisk(userId, snapshot.symbol)
-      ]);
+      // In backtest mode, skip correlated loss check (it's for live trading protection)
+      // Use default/minimal loss context to avoid querying stale simulated data
+      const [losingPatterns, recentLosses, correlatedLosses] = isBacktest
+        ? await Promise.all([
+            this.getLosingPatterns(userId, snapshot.symbol),
+            Promise.resolve({
+              consecutive_losses: 0,
+              recent_loss_rate: 0,
+              total_recent_trades: 0,
+              needs_cooling_off: false
+            }),
+            Promise.resolve(false) // No correlated risk in backtest
+          ])
+        : await Promise.all([
+            this.getLosingPatterns(userId, snapshot.symbol),
+            this.getRecentLossContext(userId),
+            this.checkCorrelatedLossRisk(userId, snapshot.symbol)
+          ]);
 
       // Check cache first with improved specificity
       const currentPrice = snapshot.ohlc[snapshot.ohlc.length - 1]?.close || 0;
