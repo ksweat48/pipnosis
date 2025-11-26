@@ -62,7 +62,7 @@ class AISkillTracker {
   private readonly SKILL_THRESHOLDS: SkillLevelThresholds[] = [
     {
       level: 'Novice',
-      minTrades: 500,
+      minTrades: 100,
       minWinRate: 35,
       minProfitFactor: 1.0,
       minConsistency: 0,
@@ -73,7 +73,7 @@ class AISkillTracker {
     },
     {
       level: 'Intermediate',
-      minTrades: 1000,
+      minTrades: 250,
       minWinRate: 45,
       minProfitFactor: 1.2,
       minConsistency: 35,
@@ -84,7 +84,7 @@ class AISkillTracker {
     },
     {
       level: 'Pro',
-      minTrades: 5000,
+      minTrades: 500,
       minWinRate: 55,
       minProfitFactor: 1.5,
       minConsistency: 45,
@@ -95,7 +95,7 @@ class AISkillTracker {
     },
     {
       level: 'Expert',
-      minTrades: 10000,
+      minTrades: 1000,
       minWinRate: 65,
       minProfitFactor: 1.8,
       minConsistency: 55,
@@ -106,7 +106,7 @@ class AISkillTracker {
     },
     {
       level: 'Master',
-      minTrades: 50000,
+      minTrades: 2500,
       minWinRate: 75,
       minProfitFactor: 2.0,
       minConsistency: 65,
@@ -117,7 +117,7 @@ class AISkillTracker {
     },
     {
       level: 'Exceptional',
-      minTrades: 100000,
+      minTrades: 5000,
       minWinRate: 85,
       minProfitFactor: 2.5,
       minConsistency: 75,
