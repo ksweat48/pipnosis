@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import {
   Brain, Layers, Shield, Activity, TrendingUp, Target, Award,
-  RefreshCw, Download, Filter
+  RefreshCw, Download, Filter, BookOpen, BarChart3
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { kpiAggregator } from '../services/kpi-aggregator';
@@ -10,15 +10,19 @@ import { KPIMetricCard } from '../components/KPIMetricCard';
 import { LLMLayerFunnel } from '../components/LLMLayerFunnel';
 import { NavigationMenu } from '../components/NavigationMenu';
 import { AIThoughtStreamOverview } from '../components/AIThoughtStreamOverview';
+import { SessionHistoryList } from '../components/SessionHistoryList';
+import { SessionDeepDivePanel } from '../components/SessionDeepDivePanel';
+import { LearningImpactTracker } from '../components/LearningImpactTracker';
 
-type TabId = 'overview' | 'daily-insights' | 'llm-layers' | 'avoid-patterns' | 'learning-loop' | 'strategy-evolution' | 'smart-goal' | 'mastery';
+type TabId = 'overview' | 'session-intelligence' | 'improvement-tracking' | 'daily-insights' | 'llm-layers' | 'avoid-patterns' | 'learning-loop' | 'strategy-evolution' | 'smart-goal' | 'mastery';
 
 function AILearningCenterPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [activeTab, setActiveTab] = useState<TabId>('session-intelligence');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [dateRange, setDateRange] = useState<'today' | 'week' | 'month'>('today');
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
   const [llmLayerKPIs, setLLMLayerKPIs] = useState<any[]>([]);
   const [avoidPatternKPIs, setAvoidPatternKPIs] = useState<any[]>([]);
@@ -160,6 +164,8 @@ function AILearningCenterPage() {
   }
 
   const tabs = [
+    { id: 'session-intelligence', label: 'Session Intelligence', icon: BookOpen },
+    { id: 'improvement-tracking', label: 'Improvement Tracking', icon: BarChart3 },
     { id: 'overview', label: 'Overview', icon: Brain },
     { id: 'daily-insights', label: 'Daily Meta-Analysis', icon: TrendingUp },
     { id: 'llm-layers', label: 'LLM Decision Stack', icon: Layers },
@@ -245,6 +251,34 @@ function AILearningCenterPage() {
             </div>
           ) : (
             <>
+              {activeTab === 'session-intelligence' && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-1">
+                    <SessionHistoryList
+                      onSessionSelect={setSelectedSessionId}
+                      selectedSessionId={selectedSessionId || undefined}
+                    />
+                  </div>
+                  <div className="lg:col-span-2">
+                    {selectedSessionId && user ? (
+                      <SessionDeepDivePanel
+                        sessionId={selectedSessionId}
+                        userId={user.id}
+                      />
+                    ) : (
+                      <div className="bg-gray-800 rounded-lg p-8 text-center">
+                        <BookOpen className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                        <p className="text-gray-400">Select a session from the list to view detailed analysis</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'improvement-tracking' && (
+                <LearningImpactTracker />
+              )}
+
               {activeTab === 'overview' && (
                 <AIThoughtStreamOverview onRefresh={loadAllKPIs} />
               )}
