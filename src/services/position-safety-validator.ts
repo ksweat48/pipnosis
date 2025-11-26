@@ -51,7 +51,7 @@ class PositionSafetyValidator {
     currentOpenTradesRisk: number[], // Array of risk % for each open trade
     symbol: string,
     pipValue: number,
-    valuePerLotPerPoint: number
+    dollarPerPip: number  // Renamed from valuePerLotPerPoint for clarity
   ): PositionSafetyResult {
     const violations: string[] = [];
     const safetyAdjustments: string[] = [];
@@ -59,8 +59,8 @@ class PositionSafetyValidator {
 
     // Calculate original risk
     const stopDistance = Math.abs(entryPrice - stopLoss);
-    const pointsRisked = stopDistance / pipValue;
-    const originalRiskAmount = pointsRisked * valuePerLotPerPoint * positionSize;
+    const pipDistance = stopDistance / pipValue;
+    const originalRiskAmount = pipDistance * dollarPerPip * positionSize;
     const originalRiskPercent = (originalRiskAmount / accountBalance) * 100;
 
     console.log('\n═══════════════════════════════════════════════════════');
@@ -70,7 +70,7 @@ class PositionSafetyValidator {
     console.log(`Account Balance: $${accountBalance.toFixed(2)}`);
     console.log(`Position Size: ${positionSize.toFixed(3)} lots`);
     console.log(`Entry: ${entryPrice.toFixed(5)} | SL: ${stopLoss.toFixed(5)}`);
-    console.log(`Stop Distance: ${pointsRisked.toFixed(1)} pips`);
+    console.log(`Stop Distance: ${pipDistance.toFixed(1)} pips`);
     console.log(`Original Risk: $${originalRiskAmount.toFixed(2)} (${originalRiskPercent.toFixed(2)}%)`);
 
     // VALIDATION 1: Technical validity (must be finite, positive number)
@@ -97,7 +97,7 @@ class PositionSafetyValidator {
 
       // Calculate adjusted size for exactly max risk
       const maxRiskAmount = accountBalance * (this.config.MAX_RISK_PER_TRADE / 100);
-      adjustedSize = maxRiskAmount / (pointsRisked * valuePerLotPerPoint);
+      adjustedSize = maxRiskAmount / (pipDistance * dollarPerPip);
 
       safetyAdjustments.push(
         `Position clamped: ${positionSize.toFixed(3)} lots → ${adjustedSize.toFixed(3)} lots (${this.config.MAX_RISK_PER_TRADE}% risk)`
@@ -110,7 +110,7 @@ class PositionSafetyValidator {
     }
 
     // VALIDATION 3: Min risk per trade (1% default)
-    const currentRiskPercent = (pointsRisked * valuePerLotPerPoint * adjustedSize / accountBalance) * 100;
+    const currentRiskPercent = (pipDistance * dollarPerPip * adjustedSize / accountBalance) * 100;
 
     if (currentRiskPercent < this.config.MIN_RISK_PER_TRADE) {
       violations.push(
@@ -119,7 +119,7 @@ class PositionSafetyValidator {
 
       // Calculate adjusted size for exactly min risk
       const minRiskAmount = accountBalance * (this.config.MIN_RISK_PER_TRADE / 100);
-      adjustedSize = minRiskAmount / (pointsRisked * valuePerLotPerPoint);
+      adjustedSize = minRiskAmount / (pipDistance * dollarPerPip);
 
       safetyAdjustments.push(
         `Position increased: ${positionSize.toFixed(3)} lots → ${adjustedSize.toFixed(3)} lots (${this.config.MIN_RISK_PER_TRADE}% risk)`
@@ -133,7 +133,7 @@ class PositionSafetyValidator {
 
     // VALIDATION 4: Total exposure check (8% default)
     const currentTotalExposure = currentOpenTradesRisk.reduce((sum, r) => sum + r, 0);
-    const finalRiskPercent = (pointsRisked * valuePerLotPerPoint * adjustedSize / accountBalance) * 100;
+    const finalRiskPercent = (pipDistance * dollarPerPip * adjustedSize / accountBalance) * 100;
     const newTotalExposure = currentTotalExposure + finalRiskPercent;
 
     console.log(`Current Total Exposure: ${currentTotalExposure.toFixed(2)}% (${currentOpenTradesRisk.length} open trades)`);

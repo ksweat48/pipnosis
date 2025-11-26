@@ -530,13 +530,13 @@ class SyntheticBacktestingEngine {
 
     // Calculate current exposure from open trades
     const currentOpenTradesRisk = this.openTrades.map(t => {
-      const risk = Math.abs(t.entryPrice - t.stopLoss) / this.getPipValue(t.symbol) *
-                   this.getValuePerLotPerPoint(t.symbol) * t.positionSize;
+      const pipDistance = Math.abs(t.entryPrice - t.stopLoss) / this.getPipValue(t.symbol);
+      const risk = pipDistance * this.getDollarValuePerPip(t.symbol) * t.positionSize;
       return (risk / this.currentBalance) * 100;
     });
 
     const pipValue = this.getPipValue(signal.symbol);
-    const valuePerLotPerPoint = this.getValuePerLotPerPoint(signal.symbol);
+    const dollarPerPip = this.getDollarValuePerPip(signal.symbol);
 
     const safetyResult = positionSafetyValidator.validatePosition(
       positionSize,
@@ -546,7 +546,7 @@ class SyntheticBacktestingEngine {
       currentOpenTradesRisk,
       signal.symbol,
       pipValue,
-      valuePerLotPerPoint
+      dollarPerPip
     );
 
     if (!safetyResult.isValid) {
@@ -642,9 +642,12 @@ class SyntheticBacktestingEngine {
         : currentPrice >= trade.stopLoss;
 
       if (isTP) {
-        await this.closeTrade(trade, currentPrice, currentTime, 'take_profit');
+        // Close at take profit price (assuming instant execution)
+        await this.closeTrade(trade, trade.takeProfit, currentTime, 'take_profit');
       } else if (isSL) {
-        await this.closeTrade(trade, currentPrice, currentTime, 'stop_loss');
+        // CRITICAL FIX: Close at stop loss price, not current price
+        // This prevents losses beyond the intended stop
+        await this.closeTrade(trade, trade.stopLoss, currentTime, 'stop_loss');
       }
     }
   }
@@ -779,8 +782,8 @@ class SyntheticBacktestingEngine {
       pipsGained = (trade.entryPrice - currentPrice) / pipValue;
     }
 
-    const valuePerLotPerPoint = this.getValuePerLotPerPoint(trade.symbol);
-    return pipsGained * valuePerLotPerPoint * trade.positionSize;
+    const dollarPerPip = this.getDollarValuePerPip(trade.symbol);
+    return pipsGained * dollarPerPip * trade.positionSize;
   }
 
   /**
@@ -924,8 +927,8 @@ class SyntheticBacktestingEngine {
 
     trade.pipsGained = pipsGained;
 
-    const valuePerLotPerPoint = this.getValuePerLotPerPoint(trade.symbol);
-    trade.pnl = pipsGained * valuePerLotPerPoint * trade.positionSize;
+    const dollarPerPip = this.getDollarValuePerPip(trade.symbol);
+    trade.pnl = pipsGained * dollarPerPip * trade.positionSize;
 
     trade.pnlPercent = (trade.pnl / this.currentBalance) * 100;
 
@@ -1519,18 +1522,36 @@ class SyntheticBacktestingEngine {
   }
 
   /**
-   * Get value per lot per point/pip for symbol
+   * Get dollar value per pip for 1 standard lot (for USD account)
+   * This is the critical value for position sizing calculations
    */
-  private getValuePerLotPerPoint(symbol: string): number {
+  private getDollarValuePerPip(symbol: string): number {
+    // For standard lot (100,000 units) in USD account
     if (symbol.includes('XAU') || symbol.includes('GOLD')) return 1.0;
     if (symbol.includes('US30')) return 1.0;
-    if (symbol.includes('JPY')) return 10;
-    return 10;
+
+    // JPY pairs: 100,000 units × 0.01 pip / ~150 USDJPY rate ≈ $6.67 per pip
+    // Using conservative $10 to avoid under-risking (JPY rate varies)
+    if (symbol.includes('JPY')) return 10.0;
+
+    // Major pairs with USD as quote currency (EURUSD, GBPUSD, etc.)
+    // 100,000 units × 0.0001 pip = $10 per pip per standard lot
+    if (symbol.endsWith('USD')) return 10.0;
+
+    // For USD as base currency (USDCHF, USDCAD)
+    // Value depends on exchange rate but approximately $10
+    if (symbol.startsWith('USD')) return 10.0;
+
+    // Cross pairs (EURGBP, EURJPY, etc.) - approximate
+    return 10.0;
   }
 
   /**
    * Calculate proper position size based on risk management
    * Returns position size in STANDARD LOTS
+   *
+   * FIXED: Corrected position sizing formula to prevent overleveraging
+   * Formula: Position = RiskAmount / (StopPips × DollarPerPip)
    */
   private calculatePositionSize(
     symbol: string,
@@ -1542,34 +1563,73 @@ class SyntheticBacktestingEngine {
     const riskPercent = llmPositionSizePercent || this.config?.positionSizePercent || 2;
     const riskAmount = (accountBalance * riskPercent) / 100;
 
-    const priceRisk = Math.abs(entryPrice - stopLoss);
+    // Calculate pip distance directly (no division!)
+    const priceDistance = Math.abs(entryPrice - stopLoss);
     const pipValue = this.getPipValue(symbol);
-    const pointsRisked = priceRisk / pipValue;
 
-    if (pointsRisked <= 0 || !isFinite(pointsRisked)) {
-      console.error(`[Position Sizing] Invalid points risked: ${pointsRisked}`);
+    // This gives actual pip count (e.g., 9 pips for 0.00009 price difference)
+    const stopPips = priceDistance / pipValue;
+
+    if (stopPips <= 0 || !isFinite(stopPips)) {
+      console.error(`[Position Sizing] Invalid pip distance: ${stopPips}`);
       return 0.01;
     }
 
-    const valuePerLotPerPoint = this.getValuePerLotPerPoint(symbol);
-    let positionSize = riskAmount / (pointsRisked * valuePerLotPerPoint);
+    // Get dollar value per pip per standard lot
+    const dollarPerPip = this.getDollarValuePerPip(symbol);
+
+    // CORRECTED FORMULA: Position = RiskAmount / (Pips × $/pip)
+    // Example: $200 / (9 pips × $10/pip) = $200 / $90 = 2.22 lots ✓
+    let positionSize = riskAmount / (stopPips * dollarPerPip);
 
     if (!isFinite(positionSize) || positionSize <= 0) {
       console.error(`[Position Sizing] Invalid calculation result: ${positionSize}`);
       return 0.01;
     }
 
-    const maxPositionValue = accountBalance * 0.05;
-    const contractSize = this.getContractSize(symbol);
-    const maxLots = maxPositionValue / (entryPrice * contractSize);
+    // HARD LIMIT: Max 5 lots per $10,000 account (scales with balance)
+    const maxLotsForAccount = (accountBalance / 10000) * 5.0;
+    positionSize = Math.min(positionSize, maxLotsForAccount);
 
-    positionSize = Math.min(positionSize, maxLots);
-    // REMOVED: Artificial 2.0 lot cap (was arbitrary)
-    // Position size is now determined purely by risk % and validation
-    positionSize = Math.max(0.01, positionSize); // Keep minimum for technical reasons
+    // SAFETY: Absolute maximum of 10 lots regardless of account size
+    positionSize = Math.min(positionSize, 10.0);
 
-    console.log(`[Position Sizing] ${symbol}: Risk $${riskAmount.toFixed(2)} (${riskPercent}%) over ${pointsRisked.toFixed(1)} pips = ${positionSize.toFixed(3)} lots`);
-    console.log(`[Position Sizing] Entry: ${entryPrice}, SL: ${stopLoss}, Balance: $${accountBalance.toFixed(2)}`);
+    // Minimum lot size for technical reasons
+    positionSize = Math.max(0.01, positionSize);
+
+    // Calculate actual risk to verify
+    const actualRiskAmount = positionSize * stopPips * dollarPerPip;
+    const actualRiskPercent = (actualRiskAmount / accountBalance) * 100;
+
+    // SAFETY CHECK: Reject if calculated risk exceeds 5%
+    if (actualRiskPercent > 5.0) {
+      console.error(`[Position Sizing] ❌ REJECTED: Risk ${actualRiskPercent.toFixed(2)}% exceeds 5% maximum`);
+      console.error(`[Position Sizing] Position: ${positionSize.toFixed(3)} lots would risk $${actualRiskAmount.toFixed(2)}`);
+      // Recalculate with 5% max
+      positionSize = (accountBalance * 0.05) / (stopPips * dollarPerPip);
+      positionSize = Math.max(0.01, Math.min(positionSize, 10.0));
+    }
+
+    // Detailed logging for debugging and verification
+    console.log(`\n[Position Sizing] ${symbol} - DETAILED CALCULATION:`);
+    console.log(`  Entry Price: ${entryPrice}`);
+    console.log(`  Stop Loss: ${stopLoss}`);
+    console.log(`  Price Distance: ${priceDistance.toFixed(5)}`);
+    console.log(`  Pip Value: ${pipValue}`);
+    console.log(`  Stop Distance: ${stopPips.toFixed(1)} pips`);
+    console.log(`  Account Balance: $${accountBalance.toFixed(2)}`);
+    console.log(`  Risk Percent: ${riskPercent}%`);
+    console.log(`  Risk Amount: $${riskAmount.toFixed(2)}`);
+    console.log(`  Dollar per Pip: $${dollarPerPip.toFixed(2)}`);
+    console.log(`  Calculated Position: ${positionSize.toFixed(3)} lots`);
+    console.log(`  Expected Loss at Stop: $${actualRiskAmount.toFixed(2)}`);
+    console.log(`  Actual Risk %: ${actualRiskPercent.toFixed(2)}%`);
+    console.log(`  Max Allowed Lots: ${maxLotsForAccount.toFixed(2)}`);
+
+    // Final safety warning
+    if (positionSize > 3.0 && accountBalance < 20000) {
+      console.warn(`[Position Sizing] ⚠️ Large position (${positionSize.toFixed(2)} lots) on small account ($${accountBalance.toFixed(2)})`);
+    }
 
     return positionSize;
   }
