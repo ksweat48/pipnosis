@@ -43,12 +43,16 @@ export const GoalSessionDashboard: React.FC = () => {
   }, [user]);
 
   useEffect(() => {
-    if (activeSession && activeSession.status === 'scanning') {
+    if (!activeSession) {
+      return;
+    }
+
+    if (['scanning', 'initializing', 'trade_pending', 'in_trade'].includes(activeSession.status)) {
       goalScannerTrigger.startPolling(activeSession.id, 60000);
     } else {
       goalScannerTrigger.stopPolling();
     }
-  }, [activeSession]);
+  }, [activeSession?.id, activeSession?.status]);
 
   const loadSessionData = async () => {
     if (!user) return;
