@@ -4,6 +4,7 @@ import { goalSessionManager } from './goal-session-manager';
 import { tradeExecutionEngine } from './trade-execution-engine';
 import { eventBasedLLMEngine } from './event-based-llm-engine';
 import { llmContextEnricher } from './llm-context-enricher';
+import { normalizeTimeframeToDb } from './chart-preferences';
 
 export interface ScanResult {
   symbol: string;
@@ -103,7 +104,7 @@ class GoalScanner {
         .from('forex_candles')
         .select('*')
         .eq('symbol', symbol)
-        .eq('timeframe', '15m')
+        .eq('timeframe', normalizeTimeframeToDb('15m'))
         .order('open_time', { ascending: false })
         .limit(100);
 

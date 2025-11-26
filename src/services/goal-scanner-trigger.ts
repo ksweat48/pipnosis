@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { normalizeTimeframeToDb } from './chart-preferences';
 
 export interface ScanTriggerResult {
   success: boolean;
@@ -179,7 +180,7 @@ class GoalScannerTrigger {
           .from('forex_candles')
           .select('open_time')
           .eq('symbol', symbol)
-          .eq('timeframe', '15m')
+          .eq('timeframe', normalizeTimeframeToDb('15m'))
           .order('open_time', { ascending: false })
           .limit(100);
 

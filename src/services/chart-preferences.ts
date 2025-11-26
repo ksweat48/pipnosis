@@ -39,6 +39,39 @@ export function dbTimeframeToApp(dbTimeframe: string): Timeframe {
   return legacyMapping[normalized] || 'M1';
 }
 
+export function normalizeTimeframeToDb(timeframe: string): string {
+  const upper = timeframe.toUpperCase();
+
+  // Already in correct format (M1, M5, M15, etc.)
+  const validTimeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
+  if (validTimeframes.includes(upper)) {
+    return upper;
+  }
+
+  // Convert from shorthand format (1m, 5m, 15m, 1h, etc.) to MetaTrader format (M1, M5, M15, H1, etc.)
+  const conversionMap: Record<string, string> = {
+    '1M': 'M1',
+    '5M': 'M5',
+    '15M': 'M15',
+    '30M': 'M30',
+    '1H': 'H1',
+    '4H': 'H4',
+    '1D': 'D1',
+    '1W': 'W1',
+    // Support lowercase variants
+    '1m': 'M1',
+    '5m': 'M5',
+    '15m': 'M15',
+    '30m': 'M30',
+    '1h': 'H1',
+    '4h': 'H4',
+    '1d': 'D1',
+    '1w': 'W1'
+  };
+
+  return conversionMap[timeframe] || conversionMap[upper] || 'M15';
+}
+
 interface IndicatorVisibility {
   vwap: boolean;
   ema20: boolean;

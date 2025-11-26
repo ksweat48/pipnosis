@@ -15,6 +15,7 @@ import { midTradeTriggerDetector, type MarketConditions } from './mid-trade-trig
 import { llmMidTradeEvaluator } from './llm-mid-trade-evaluator';
 import { logger, LogCategory } from '../lib/logger';
 import { openAIClient } from './openai-client';
+import { normalizeTimeframeToDb } from './chart-preferences';
 
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
@@ -248,11 +249,14 @@ class GoalSessionLiveEngine {
     this.processingLock = true;
 
     try {
+      const dbTimeframe = normalizeTimeframeToDb(this.config.timeframe);
+      logger.debug(LogCategory.AI_TRADING, `Querying candles: ${this.config.symbol} ${this.config.timeframe} -> ${dbTimeframe}`);
+
       const { data: candles, error } = await supabase
         .from('forex_candles')
         .select('*')
         .eq('symbol', this.config.symbol)
-        .eq('timeframe', this.config.timeframe.toLowerCase())
+        .eq('timeframe', dbTimeframe)
         .order('open_time', { ascending: false })
         .limit(100);
 
