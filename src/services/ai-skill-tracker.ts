@@ -12,7 +12,9 @@ interface SkillLevelThresholds {
   minConsistency: number;
   minAvgRR: number;
   minCSS: number;
-  minPnLPer5Sessions: number; // NEW: Minimum P&L required over last 5 sessions to level up
+  minPnLPer5Sessions: number; // Minimum P&L required over last 5 sessions to level up
+  minTotalPnL: number; // NEW: Minimum cumulative profit required
+  minAvgPnLPerWin: number; // NEW: Minimum average profit per winning trade
   description: string;
 }
 
@@ -41,11 +43,19 @@ interface SkillProgressionData {
   totalBacktestsCompleted?: number;
   totalSyntheticBacktests?: number;
   totalRealBacktests?: number;
-  totalTradesForPFCalc?: number; // Total trades (wins+losses) used for profit factor weighting
+  totalTradesForPFCalc?: number;
   last10SessionWRAvg?: number;
   last10SessionPFAvg?: number;
   last10SessionConsistencyPct?: number;
   totalLosingTrades?: number;
+  // NEW: PnL tracking fields
+  startingBalance?: number;
+  currentBalance?: number;
+  totalPnL?: number;
+  totalPnLWinningTrades?: number;
+  averagePnLPerWinningTrade?: number;
+  last5SessionsPnL?: number;
+  balanceGrowthPercent?: number;
 }
 
 interface MilestoneData {
@@ -69,6 +79,8 @@ class AISkillTracker {
       minAvgRR: 0,
       minCSS: 0,
       minPnLPer5Sessions: 100,
+      minTotalPnL: 100,
+      minAvgPnLPerWin: 10,
       description: 'Starting to learn basic patterns.'
     },
     {
@@ -80,6 +92,8 @@ class AISkillTracker {
       minAvgRR: 0,
       minCSS: 0,
       minPnLPer5Sessions: 250,
+      minTotalPnL: 250,
+      minAvgPnLPerWin: 15,
       description: 'Understanding market patterns.'
     },
     {
@@ -91,6 +105,8 @@ class AISkillTracker {
       minAvgRR: 0,
       minCSS: 0,
       minPnLPer5Sessions: 500,
+      minTotalPnL: 500,
+      minAvgPnLPerWin: 20,
       description: 'Consistently profitable trader.'
     },
     {
@@ -102,6 +118,8 @@ class AISkillTracker {
       minAvgRR: 0,
       minCSS: 0,
       minPnLPer5Sessions: 750,
+      minTotalPnL: 1000,
+      minAvgPnLPerWin: 30,
       description: 'Mastering market dynamics.'
     },
     {
@@ -113,6 +131,8 @@ class AISkillTracker {
       minAvgRR: 0,
       minCSS: 0,
       minPnLPer5Sessions: 1000,
+      minTotalPnL: 2500,
+      minAvgPnLPerWin: 50,
       description: 'Elite level performance.'
     },
     {
@@ -124,6 +144,8 @@ class AISkillTracker {
       minAvgRR: 0,
       minCSS: 0,
       minPnLPer5Sessions: 1500,
+      minTotalPnL: 5000,
+      minAvgPnLPerWin: 75,
       description: 'Exceptional trading consistency.'
     }
   ];
@@ -178,7 +200,15 @@ class AISkillTracker {
         last10SessionWRAvg: data.last_10_session_wr_avg ? parseFloat(data.last_10_session_wr_avg.toString()) : undefined,
         last10SessionPFAvg: data.last_10_session_pf_avg ? parseFloat(data.last_10_session_pf_avg.toString()) : undefined,
         last10SessionConsistencyPct: data.last_10_session_consistency_pct ? parseFloat(data.last_10_session_consistency_pct.toString()) : undefined,
-        totalLosingTrades: data.total_losing_trades || 0
+        totalLosingTrades: data.total_losing_trades || 0,
+        // PnL tracking fields
+        startingBalance: data.starting_balance ? parseFloat(data.starting_balance.toString()) : 10000,
+        currentBalance: data.current_balance ? parseFloat(data.current_balance.toString()) : 10000,
+        totalPnL: data.total_pnl ? parseFloat(data.total_pnl.toString()) : 0,
+        totalPnLWinningTrades: data.total_pnl_winning_trades ? parseFloat(data.total_pnl_winning_trades.toString()) : 0,
+        averagePnLPerWinningTrade: data.average_pnl_per_winning_trade ? parseFloat(data.average_pnl_per_winning_trade.toString()) : 0,
+        last5SessionsPnL: data.last_5_sessions_pnl ? parseFloat(data.last_5_sessions_pnl.toString()) : 0,
+        balanceGrowthPercent: data.balance_growth_percent ? parseFloat(data.balance_growth_percent.toString()) : 0
       };
     } catch (error) {
       console.error('[AI Skill Tracker] Exception in getSkillProgression:', error);
@@ -285,7 +315,10 @@ class AISkillTracker {
     sourceType: 'backtest' | 'synthetic' | 'live' | 'event_based_backtest' = 'backtest',
     exploratoryTradesCount: number = 0,
     totalTradesInSession: number = 0,
-    tradesWithConfidence: Array<{ confidence: number; outcome: 'win' | 'loss' | 'breakeven' }> = []
+    tradesWithConfidence: Array<{ confidence: number; outcome: 'win' | 'loss' | 'breakeven' }> = [],
+    sessionPnL: number = 0,
+    sessionBalance: number = 10000,
+    winningTradesPnL: number = 0
   ): Promise<{ leveledUp: boolean; newLevel?: SkillLevel; oldLevel?: SkillLevel; validationWarnings?: string[] }> {
     const validationWarnings: string[] = [];
 
@@ -376,7 +409,29 @@ class AISkillTracker {
         validationWarnings.push(`Low performance weight (${(performanceWeight * 100).toFixed(0)}%) - improve win rate or profit factor for faster progression`);
       }
 
-      // === STEP 3: CALCULATE NEW METRICS ===
+      // === STEP 3: CALCULATE PnL METRICS ===
+      const currentBalance = current.currentBalance || 10000;
+      const startingBalance = current.startingBalance || 10000;
+      const currentTotalPnL = (current.totalPnL || 0) + sessionPnL;
+      const currentTotalPnLWinningTrades = (current.totalPnLWinningTrades || 0) + winningTradesPnL;
+      const newCurrentBalance = sessionBalance;
+      const balanceGrowth = ((newCurrentBalance - startingBalance) / startingBalance) * 100;
+
+      // Calculate average PnL per winning trade
+      const totalWinningTrades = current.totalTradesAnalyzed + winningTradesCount;
+      const averagePnLPerWin = totalWinningTrades > 0 ? currentTotalPnLWinningTrades / totalWinningTrades : 0;
+
+      // Get last 5 sessions PnL (will implement rolling calculation later)
+      const last5SessionsPnL = sessionPnL; // Simplified for now, should track rolling sum
+
+      console.log(`[AI Skill Tracker] PnL Tracking:`);
+      console.log(`[AI Skill Tracker]   Session PnL: $${sessionPnL.toFixed(2)}`);
+      console.log(`[AI Skill Tracker]   Total PnL: $${currentTotalPnL.toFixed(2)}`);
+      console.log(`[AI Skill Tracker]   Winning Trades PnL: $${currentTotalPnLWinningTrades.toFixed(2)}`);
+      console.log(`[AI Skill Tracker]   Balance: $${currentBalance.toFixed(2)} → $${newCurrentBalance.toFixed(2)} (${balanceGrowth > 0 ? '+' : ''}${balanceGrowth.toFixed(2)}%)`);
+      console.log(`[AI Skill Tracker]   Avg PnL per Win: $${averagePnLPerWin.toFixed(2)}`);
+
+      // === STEP 4: CALCULATE NEW METRICS ===
       const newSuccessfulTrades = current.totalTradesAnalyzed + adjustedWinningTrades;
       const newWinRate = this.calculateWeightedAverage(
         current.currentWinRate,
@@ -555,12 +610,12 @@ class AISkillTracker {
         .update({
           current_skill_level: newLevel,
           skill_level_numeric: this.getSkillLevelNumeric(newLevel),
-          progress_to_next_level_percent: gatedProgress, // Use gated progress
+          progress_to_next_level_percent: gatedProgress,
           total_trades_analyzed: newSuccessfulTrades,
           current_win_rate: newWinRate,
           gap_to_target: 80 - newWinRate,
           current_profit_factor: newProfitFactor,
-          total_trades_for_pf_calc: newTotalTradesForPF, // Track total trades for proper PF weighting
+          total_trades_for_pf_calc: newTotalTradesForPF,
           trades_needed_for_next_level: gatedTradesNeeded,
           estimated_trades_to_master: Math.max(0, 50000 - newSuccessfulTrades),
           estimated_trades_to_exceptional: Math.max(0, 100000 - newSuccessfulTrades),
@@ -574,16 +629,20 @@ class AISkillTracker {
           last_10_session_pf_average: consistencyValidation?.pfAverage || 0,
           consistency_validation_passed: !consistencyBlocked,
           consistency_failure_reason: consistencyBlocked ? consistencyValidation?.failureReason : null,
-          // NEW: 10-session averages for skill level validation
           last_10_session_wr_avg: tenSessionAverages.avgWinRate,
           last_10_session_pf_avg: tenSessionAverages.avgProfitFactor,
           last_10_session_consistency_pct: tenSessionAverages.consistencyPct,
-          // NEW: Session counters
           total_backtests_completed: sessionCounters.total,
           total_synthetic_backtests: sessionCounters.synthetic,
           total_real_backtests: sessionCounters.real,
-          // NEW: Confidence accuracy
           current_confidence_accuracy: confidenceAccuracy,
+          // PnL tracking fields
+          current_balance: newCurrentBalance,
+          total_pnl: currentTotalPnL,
+          total_pnl_winning_trades: currentTotalPnLWinningTrades,
+          average_pnl_per_winning_trade: averagePnLPerWin,
+          last_5_sessions_pnl: last5SessionsPnL,
+          balance_growth_percent: balanceGrowth,
           updated_at: new Date().toISOString()
         })
         .eq('user_id', userId);

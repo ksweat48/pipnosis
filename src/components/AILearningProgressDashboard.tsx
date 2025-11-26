@@ -238,20 +238,57 @@ function AILearningProgressDashboard() {
               {aiSkillTracker.getSkillLevelDescription(skillData.currentSkillLevel as SkillLevel)}
             </p>
           </div>
-          <div className="text-right">
-            <div className="text-4xl font-bold text-white mb-2">
-              {skillData.totalTradesAnalyzed.toLocaleString()}
+          <div className="text-right space-y-3">
+            {/* Winning Trades */}
+            <div>
+              <div className="text-4xl font-bold text-white mb-1">
+                {skillData.totalTradesAnalyzed.toLocaleString()}
+              </div>
+              <p className="text-white/80 text-sm">Winning Trades</p>
+              <p className="text-white/50 text-xs mt-1">Win Rate: {skillData.currentWinRate.toFixed(1)}%</p>
             </div>
-            <p className="text-white/80 text-sm">Winning Trades</p>
-            {skillData.totalLosingTrades !== undefined && skillData.totalLosingTrades > 0 && (
-              <div className="mt-2">
-                <div className="text-2xl font-bold text-white/60">
-                  {skillData.totalLosingTrades.toLocaleString()}
+
+            {/* Balance & PnL */}
+            <div className="pt-3 border-t border-white/10">
+              <div className="text-2xl font-bold text-emerald-400 mb-1">
+                ${skillData.currentBalance?.toLocaleString() || '10,000'}
+              </div>
+              <p className="text-white/80 text-sm">Current Balance</p>
+              {skillData.balanceGrowthPercent !== undefined && (
+                <p className={`text-xs mt-1 font-semibold ${
+                  skillData.balanceGrowthPercent >= 0 ? 'text-emerald-400' : 'text-red-400'
+                }`}>
+                  {skillData.balanceGrowthPercent >= 0 ? '+' : ''}{skillData.balanceGrowthPercent.toFixed(2)}% Growth
+                </p>
+              )}
+            </div>
+
+            {/* Total PnL */}
+            {skillData.totalPnL !== undefined && (
+              <div className="pt-3 border-t border-white/10">
+                <div className={`text-xl font-bold mb-1 ${
+                  skillData.totalPnL >= 0 ? 'text-emerald-400' : 'text-red-400'
+                }`}>
+                  {skillData.totalPnL >= 0 ? '+' : ''}${skillData.totalPnL.toFixed(2)}
                 </div>
-                <p className="text-white/60 text-xs">Losing Trades</p>
+                <p className="text-white/70 text-xs">Total P&L</p>
+                {skillData.totalPnLWinningTrades !== undefined && skillData.totalPnLWinningTrades > 0 && (
+                  <p className="text-emerald-400/70 text-xs mt-1">
+                    ${skillData.totalPnLWinningTrades.toFixed(2)} from wins
+                  </p>
+                )}
               </div>
             )}
-            <p className="text-white/50 text-xs mt-2">Win Rate: {skillData.currentWinRate.toFixed(1)}%</p>
+
+            {/* Average Profit Per Win */}
+            {skillData.averagePnLPerWinningTrade !== undefined && skillData.averagePnLPerWinningTrade > 0 && (
+              <div className="pt-3 border-t border-white/10">
+                <div className="text-lg font-bold text-blue-400 mb-1">
+                  ${skillData.averagePnLPerWinningTrade.toFixed(2)}
+                </div>
+                <p className="text-white/70 text-xs">Avg Profit Per Win</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -275,7 +312,7 @@ function AILearningProgressDashboard() {
           {/* Performance Requirements Card */}
           <div className="mt-4 p-4 bg-blue-500/10 rounded border border-blue-500/30">
             <h4 className="text-sm font-semibold text-blue-300 mb-3">Requirements for Next Level (updates daily)</h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
               <div>
                 <div className="text-white/60 mb-1">Winning Trades</div>
                 <div className="font-bold text-white">
@@ -369,9 +406,21 @@ function AILearningProgressDashboard() {
                   })()}
                 </div>
               </div>
+              <div>
+                <div className="text-white/60 mb-1 flex items-center gap-1">
+                  Total P&L
+                  <span className="text-white/40 text-[10px]" title="Cumulative profit from all winning trades">ⓘ</span>
+                </div>
+                <div className="font-bold text-white">
+                  ${skillData.totalPnL?.toFixed(0) || '0'} / ${skillThresholds[skillData.skillLevelNumeric]?.minTotalPnL || '?'}
+                </div>
+                <div className={`text-xs mt-1 ${(skillData.totalPnL || 0) >= (skillThresholds[skillData.skillLevelNumeric]?.minTotalPnL || 0) ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {(skillData.totalPnL || 0) >= (skillThresholds[skillData.skillLevelNumeric]?.minTotalPnL || 0) ? '✓ Met' : `Need $${((skillThresholds[skillData.skillLevelNumeric]?.minTotalPnL || 0) - (skillData.totalPnL || 0)).toFixed(0)} more`}
+                </div>
+              </div>
             </div>
             <p className="text-xs text-blue-300 mt-3">
-              <strong>Note:</strong> All FOUR criteria must be met to advance. All metrics update after each daily session. Consistency = % of sessions meeting minimum standards.
+              <strong>Note:</strong> All FIVE criteria must be met to advance. All metrics update after each daily session. Total P&L tracks cumulative profit to ensure quality trading.
             </p>
           </div>
 

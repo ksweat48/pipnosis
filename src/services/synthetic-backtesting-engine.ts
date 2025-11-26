@@ -1248,15 +1248,26 @@ class SyntheticBacktestingEngine {
       console.log(`[Synthetic Backtest] 🎯 Winning trades: ${winningTradesCount} out of ${result.totalTrades} total trades`);
       console.log(`[Synthetic Backtest] 🔍 Exploratory winning trades: ${exploratoryWinningTrades}`);
 
+      // Calculate PnL from winning trades only
+      const winningTradesPnL = this.closedTrades
+        .filter(t => t.outcome === 'win')
+        .reduce((sum, t) => sum + t.profitAmount, 0);
+
+      console.log(`[Synthetic Backtest] 💰 PnL Tracking: Total=${result.netProfit.toFixed(2)}, Winning Trades Only=${winningTradesPnL.toFixed(2)}, Balance=${this.currentBalance.toFixed(2)}`);
+
       const skillUpdate = await aiSkillTracker.updateAfterBacktest(
         userId,
-        winningTradesCount, // CHANGED: Pass only winning trades count, not total trades
+        winningTradesCount, // Pass only winning trades count
         result.winRate,
         result.profitFactor,
         patternsLearned,
         'synthetic', // Mark as synthetic source for 0.5x weighting
-        exploratoryWinningTrades, // NEW: Pass exploratory trades for 0.25x weighting
-        result.totalTrades // CRITICAL FIX: Pass total trades for proper profit factor weighting
+        exploratoryWinningTrades, // Pass exploratory trades for 0.25x weighting
+        result.totalTrades, // Pass total trades for proper profit factor weighting
+        [], // tradesWithConfidence (empty for now)
+        result.netProfit, // sessionPnL
+        this.currentBalance, // sessionBalance
+        winningTradesPnL // winningTradesPnL
       );
 
       if (skillUpdate.leveledUp) {
