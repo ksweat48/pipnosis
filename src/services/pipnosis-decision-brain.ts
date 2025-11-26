@@ -410,7 +410,22 @@ class PipnosisDecisionBrain {
         };
       }
 
-      console.log(`[LAYER 3] ✅ PASSED - Risk: ${mistakeResult.risk_level}`);
+      // Apply adaptive adjustments if Layer 3 modified parameters
+      let adjustedConfidence = context.triggerContext?.confidence || 75;
+      if (mistakeResult.trade_action === 'adjust' && mistakeResult.adjusted_parameters) {
+        console.log(`[LAYER 3] ✨ ADAPTIVE ADJUSTMENTS APPLIED`);
+        if (mistakeResult.adjusted_parameters.confidence_adjustment) {
+          adjustedConfidence = Math.max(55, Math.min(95,
+            adjustedConfidence + mistakeResult.adjusted_parameters.confidence_adjustment
+          ));
+          console.log(`  Confidence: ${context.triggerContext?.confidence || 75} → ${adjustedConfidence}`);
+        }
+        // Store for later use
+        pipelineResult.layer3AdaptiveAdjustments = mistakeResult.adjusted_parameters;
+        pipelineResult.layer3AdaptationNotes = mistakeResult.adaptation_notes;
+      }
+
+      console.log(`[LAYER 3] ✅ ${mistakeResult.trade_action === 'adjust' ? 'ADJUSTED' : 'PASSED'} - Risk: ${mistakeResult.risk_level}`);
       pipelineResult.layer3Passed = true;
 
       // ============================================================
@@ -422,7 +437,7 @@ class PipnosisDecisionBrain {
       const calibrationResult = await llmConfidenceCalibrator.calibrateConfidence(
         context.sessionContext.userId,
         context.symbol,
-        context.triggerContext?.confidence || 75,
+        adjustedConfidence,
         {
           triggerType: context.triggerContext?.type || 'manual_entry',
           regimeQuality: regimeResult.confidence_in_regime,

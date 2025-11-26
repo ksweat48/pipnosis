@@ -475,7 +475,22 @@ class EventBasedLLMEngine {
         };
       }
 
-      console.log(`[LAYER 3] ✅ PASSED - Risk: ${mistakeResult.risk_level}`);
+      // Apply adaptive adjustments if Layer 3 modified parameters
+      let adjustedTrigger = { ...trigger };
+      if (mistakeResult.trade_action === 'adjust' && mistakeResult.adjusted_parameters) {
+        console.log(`[LAYER 3] ✨ ADAPTIVE ADJUSTMENTS APPLIED`);
+        if (mistakeResult.adjusted_parameters.confidence_adjustment) {
+          adjustedTrigger.confidence = Math.max(55, Math.min(95,
+            trigger.confidence + mistakeResult.adjusted_parameters.confidence_adjustment
+          ));
+          console.log(`  Confidence: ${trigger.confidence} → ${adjustedTrigger.confidence}`);
+        }
+        // Store adjusted parameters for Layer 5 to use
+        (adjustedTrigger as any).adaptedParams = mistakeResult.adjusted_parameters;
+        (adjustedTrigger as any).adaptationNotes = mistakeResult.adaptation_notes;
+      }
+
+      console.log(`[LAYER 3] ✅ ${mistakeResult.trade_action === 'adjust' ? 'ADJUSTED' : 'PASSED'} - Risk: ${mistakeResult.risk_level}`);
 
       // ============================================================
       // LAYER 4: Confidence Calibrator
@@ -485,9 +500,9 @@ class EventBasedLLMEngine {
       const calibrationResult = await llmConfidenceCalibrator.calibrateConfidence(
         this.userId!,
         snapshot.symbol,
-        trigger.confidence,
+        adjustedTrigger.confidence,
         {
-          triggerType: trigger.type,
+          triggerType: adjustedTrigger.type,
           regimeQuality: regimeResult.confidence_in_regime,
           setupQuality: qualityResult.quality_score,
           riskLevel: mistakeResult.risk_level

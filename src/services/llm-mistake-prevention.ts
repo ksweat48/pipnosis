@@ -10,6 +10,7 @@ import { calculateCost } from '../config/llm-optimization-config';
 
 export interface MistakePreventionResult {
   allow_trade: boolean;
+  trade_action: 'allow' | 'adjust' | 'block';
   risk_level: 'low' | 'medium' | 'high' | 'critical';
   mistake_flags: string[];
   similar_losing_patterns_found: number;
@@ -22,6 +23,21 @@ export interface MistakePreventionResult {
   warnings: string[];
   preventive_reasoning: string;
   recommendation: 'allow' | 'warn' | 'block';
+  adjusted_parameters?: {
+    risk_pct?: number;
+    stop_loss_pips?: number;
+    take_profit_pips?: number;
+    confidence_adjustment?: number;
+    min_trend_strength?: number;
+  };
+  adaptation_notes?: {
+    reason: string;
+    similarity_score: number;
+    weighted_similarity: number;
+    age_factor: number;
+    patterns_matched: number;
+    adjustments_summary: string;
+  };
 }
 
 class LLMMistakePrevention {
@@ -58,7 +74,7 @@ class LLMMistakePrevention {
       // Use default/minimal loss context to avoid querying stale simulated data
       const [losingPatterns, recentLosses, correlatedLosses] = isBacktest
         ? await Promise.all([
-            this.getLosingPatterns(userId, snapshot.symbol),
+            this.getLosingPatternsWithAge(userId, snapshot.symbol),
             Promise.resolve({
               consecutive_losses: 0,
               recent_loss_rate: 0,
@@ -68,10 +84,33 @@ class LLMMistakePrevention {
             Promise.resolve(false) // No correlated risk in backtest
           ])
         : await Promise.all([
-            this.getLosingPatterns(userId, snapshot.symbol),
+            this.getLosingPatternsWithAge(userId, snapshot.symbol),
             this.getRecentLossContext(userId),
             this.checkCorrelatedLossRisk(userId, snapshot.symbol)
           ]);
+
+      // 🚨 CRITICAL SAFETY CHECKS - These bypass adaptive learning
+      const criticalBlock = this.checkCriticalSafety(losingPatterns, recentLosses, correlatedLosses, isBacktest);
+      if (criticalBlock) {
+        console.log('[LLM Layer 3] 🚨 CRITICAL SAFETY BLOCK:', criticalBlock.reason);
+        return criticalBlock;
+      }
+
+      // 🧠 ADAPTIVE LEARNING - Calculate adjustments instead of blocking
+      const adaptiveResult = this.calculateAdaptiveAdjustments(
+        losingPatterns,
+        recentLosses,
+        snapshot,
+        setupQuality,
+        isBacktest
+      );
+
+      if (adaptiveResult.trade_action === 'adjust') {
+        console.log('[LLM Layer 3] ✨ ADAPTIVE LEARNING APPLIED');
+        console.log(`  Similarity: ${adaptiveResult.adaptation_notes?.weighted_similarity.toFixed(2)} (age factor: ${adaptiveResult.adaptation_notes?.age_factor.toFixed(2)})`);
+        console.log(`  ${adaptiveResult.adaptation_notes?.adjustments_summary}`);
+        return adaptiveResult;
+      }
 
       // Check cache first with improved specificity
       const currentPrice = snapshot.ohlc[snapshot.ohlc.length - 1]?.close || 0;
@@ -151,8 +190,14 @@ class LLMMistakePrevention {
       llmResponseCache.set('layer3_mistake', cacheContext, result, cacheTTL);
 
       const duration = Date.now() - startTime;
-      console.log(`[LLM Layer 3] ${result.allow_trade ? '✅ ALLOW' : '🚫 BLOCK'} (${duration}ms)`);
+      const actionEmoji = result.allow_trade ? '✅ ALLOW' : '🚫 BLOCK';
+      console.log(`[LLM Layer 3] ${actionEmoji} (${duration}ms)`);
       console.log(`  Risk Level: ${result.risk_level}`);
+
+      // Track adaptation effectiveness if this was an adapted trade
+      if (result.trade_action === 'adjust' && sessionId) {
+        await this.trackAdaptation(userId, sessionId, result, snapshot.symbol);
+      }
 
       return result;
     } catch (error) {
@@ -161,7 +206,7 @@ class LLMMistakePrevention {
     }
   }
 
-  private async getLosingPatterns(userId: string, symbol: string): Promise<any[]> {
+  private async getLosingPatternsWithAge(userId: string, symbol: string): Promise<any[]> {
     try {
       const { data: patterns } = await supabase
         .from('ai_learning_insights')
@@ -173,11 +218,23 @@ class LLMMistakePrevention {
         .order('confidence_score', { ascending: false })
         .limit(10);
 
-      return patterns || [];
+      if (!patterns) return [];
+
+      // Add age calculation to each pattern
+      const now = Date.now();
+      return patterns.map(p => ({
+        ...p,
+        age_days: (now - new Date(p.created_at).getTime()) / (24 * 60 * 60 * 1000)
+      }));
     } catch (error) {
       console.error('[Mistake Prevention] Error fetching losing patterns:', error);
       return [];
     }
+  }
+
+  private async getLosingPatterns(userId: string, symbol: string): Promise<any[]> {
+    // Backward compatibility wrapper
+    return this.getLosingPatternsWithAge(userId, symbol);
   }
 
   private async getRecentLossContext(userId: string): Promise<any> {
@@ -429,9 +486,10 @@ Be RUTHLESS. When in doubt, BLOCK. Protecting capital is priority #1.`;
 
     return {
       allow_trade: allowTrade,
+      trade_action: allowTrade ? 'allow' : 'block',
       risk_level: riskLevel,
       mistake_flags: mistakeFlags,
-      similar_losing_patterns_found: parsed.similar_losing_patterns_found || 0,
+      similar_losing_patterns_found: parsed.similar_losing_patterns_found || patternCount,
       correlated_loss_risk: parsed.correlated_loss_risk || false,
       recent_loss_context: {
         consecutive_losses: 0,
@@ -451,6 +509,7 @@ Be RUTHLESS. When in doubt, BLOCK. Protecting capital is priority #1.`;
 
     return {
       allow_trade: !shouldBlock,
+      trade_action: shouldBlock ? 'block' : 'allow',
       risk_level: shouldBlock ? 'high' : 'medium',
       mistake_flags: shouldBlock ? ['Consecutive losses detected'] : [],
       similar_losing_patterns_found: 0,
@@ -460,6 +519,231 @@ Be RUTHLESS. When in doubt, BLOCK. Protecting capital is priority #1.`;
       preventive_reasoning: 'Fallback check: basic loss prevention based on recent trades',
       recommendation: shouldBlock ? 'block' : 'allow'
     };
+  }
+
+  private checkCriticalSafety(
+    patterns: any[],
+    recentLosses: any,
+    correlatedLosses: boolean,
+    isBacktest?: boolean
+  ): MistakePreventionResult | null {
+    // 1. Check for extremely dangerous patterns (90%+ loss rate)
+    const dangerousPattern = patterns.find(p => {
+      const lossRate = p.metadata?.loss_rate || 0;
+      const sampleSize = p.metadata?.sample_size || 0;
+      return lossRate >= 0.9 && sampleSize >= 5;
+    });
+
+    if (dangerousPattern) {
+      return {
+        allow_trade: false,
+        trade_action: 'block',
+        risk_level: 'critical',
+        mistake_flags: ['Extremely dangerous pattern detected'],
+        similar_losing_patterns_found: patterns.length,
+        correlated_loss_risk: correlatedLosses,
+        recent_loss_context: recentLosses,
+        warnings: ['This pattern has 90%+ loss rate - not adaptable'],
+        preventive_reasoning: `Critical safety block: Pattern "${dangerousPattern.insight_title}" has proven extremely dangerous (${(dangerousPattern.metadata.loss_rate * 100).toFixed(0)}% loss rate over ${dangerousPattern.metadata.sample_size} trades). This is not adaptable with parameter adjustments.`,
+        recommendation: 'block'
+      };
+    }
+
+    // 2. Only in LIVE trading: enforce cooling off period
+    if (!isBacktest && recentLosses.consecutive_losses >= 5) {
+      return {
+        allow_trade: false,
+        trade_action: 'block',
+        risk_level: 'critical',
+        mistake_flags: ['Mandatory cooling-off period'],
+        similar_losing_patterns_found: patterns.length,
+        correlated_loss_risk: correlatedLosses,
+        recent_loss_context: recentLosses,
+        warnings: ['5+ consecutive losses - mandatory break required'],
+        preventive_reasoning: 'Critical safety: 5+ consecutive losses detected. Mandatory cooling-off period to prevent emotional/revenge trading.',
+        recommendation: 'block'
+      };
+    }
+
+    // 3. Extreme loss rate in live trading
+    if (!isBacktest && recentLosses.recent_loss_rate > 80 && recentLosses.total_recent_trades >= 10) {
+      return {
+        allow_trade: false,
+        trade_action: 'block',
+        risk_level: 'critical',
+        mistake_flags: ['Extreme loss rate detected'],
+        similar_losing_patterns_found: patterns.length,
+        correlated_loss_risk: correlatedLosses,
+        recent_loss_context: recentLosses,
+        warnings: ['80%+ loss rate - system needs review'],
+        preventive_reasoning: `Critical safety: Loss rate of ${recentLosses.recent_loss_rate.toFixed(1)}% is extremely high. Trading paused for system review.`,
+        recommendation: 'block'
+      };
+    }
+
+    return null; // No critical safety issues
+  }
+
+  private calculateAdaptiveAdjustments(
+    patterns: any[],
+    recentLosses: any,
+    snapshot: MarketSnapshot,
+    setupQuality: SetupQualityResult,
+    isBacktest?: boolean
+  ): MistakePreventionResult {
+    if (patterns.length === 0) {
+      // No patterns - allow trade without adjustment
+      return {
+        allow_trade: true,
+        trade_action: 'allow',
+        risk_level: 'low',
+        mistake_flags: [],
+        similar_losing_patterns_found: 0,
+        correlated_loss_risk: false,
+        recent_loss_context: recentLosses,
+        warnings: [],
+        preventive_reasoning: 'No losing patterns detected for this symbol.',
+        recommendation: 'allow'
+      };
+    }
+
+    // Calculate similarity score (normalized 0-1)
+    const similarityScore = Math.min(patterns.length / 10, 1);
+
+    // Calculate pattern age factor (30-day decay)
+    const avgAge = patterns.reduce((sum, p) => sum + (p.age_days || 0), 0) / patterns.length;
+    const ageFactor = Math.max(0.3, 1 - (avgAge / 30));
+
+    // Weighted similarity (age-adjusted)
+    const weightedSimilarity = similarityScore * ageFactor;
+
+    // Determine adjustment intensity based on weighted similarity
+    let adjustmentLevel: 'small' | 'medium' | 'strong';
+    if (weightedSimilarity < 0.3) {
+      adjustmentLevel = 'small';
+    } else if (weightedSimilarity < 0.6) {
+      adjustmentLevel = 'medium';
+    } else {
+      adjustmentLevel = 'strong';
+    }
+
+    // Calculate risk adjustment
+    const baseRiskPct = 2.0; // Default 2%
+    const riskReduction = weightedSimilarity * 0.4; // Up to 40% reduction
+    const adjustedRiskPct = Math.max(0.5, Math.min(5.0, baseRiskPct * (1 - riskReduction)));
+
+    // Analyze patterns for SL/TP adjustments
+    const slAnalysis = this.analyzeStopLossPatterns(patterns);
+    const tpAnalysis = this.analyzeTakeProfitPatterns(patterns);
+
+    // Calculate SL adjustment (if needed)
+    let adjustedSL: number | undefined;
+    if (slAnalysis.shouldWiden) {
+      const widenFactor = 0.1 + (weightedSimilarity * 0.1); // 10-20% wider
+      adjustedSL = 1 + widenFactor; // Multiplier: 1.1 to 1.2
+    }
+
+    // Calculate TP adjustment (if needed)
+    let adjustedTP: number | undefined;
+    if (tpAnalysis.shouldTighten) {
+      const tightenFactor = 0.1 + (weightedSimilarity * 0.05); // 10-15% tighter
+      adjustedTP = 1 - tightenFactor; // Multiplier: 0.85 to 0.9
+    }
+
+    // Confidence adjustment
+    const confidenceAdjustment = -(weightedSimilarity * 5); // Up to -5 points
+
+    // Build adjustment summary
+    const adjustments: string[] = [];
+    adjustments.push(`Risk: ${baseRiskPct.toFixed(1)}% → ${adjustedRiskPct.toFixed(1)}%`);
+    if (adjustedSL) adjustments.push(`SL: widened by ${((adjustedSL - 1) * 100).toFixed(0)}%`);
+    if (adjustedTP) adjustments.push(`TP: tightened by ${((1 - adjustedTP) * 100).toFixed(0)}%`);
+    if (confidenceAdjustment < 0) adjustments.push(`Confidence: ${confidenceAdjustment.toFixed(1)} pts`);
+
+    return {
+      allow_trade: true,
+      trade_action: 'adjust',
+      risk_level: adjustmentLevel === 'strong' ? 'high' : adjustmentLevel === 'medium' ? 'medium' : 'low',
+      mistake_flags: [],
+      similar_losing_patterns_found: patterns.length,
+      correlated_loss_risk: false,
+      recent_loss_context: recentLosses,
+      warnings: [
+        `${patterns.length} similar losing patterns detected`,
+        `Adaptive learning applied (${adjustmentLevel} adjustments)`
+      ],
+      preventive_reasoning: `Adaptive learning: ${patterns.length} similar patterns found (age: ${avgAge.toFixed(1)}d). Adjusting parameters instead of blocking to enable continuous learning.`,
+      recommendation: 'allow',
+      adjusted_parameters: {
+        risk_pct: adjustedRiskPct,
+        stop_loss_pips: adjustedSL,
+        take_profit_pips: adjustedTP,
+        confidence_adjustment: confidenceAdjustment
+      },
+      adaptation_notes: {
+        reason: 'Similar losing patterns detected',
+        similarity_score: similarityScore,
+        weighted_similarity: weightedSimilarity,
+        age_factor: ageFactor,
+        patterns_matched: patterns.length,
+        adjustments_summary: adjustments.join('; ')
+      }
+    };
+  }
+
+  private analyzeStopLossPatterns(patterns: any[]): { shouldWiden: boolean; reason: string } {
+    // Check if patterns indicate SL was too tight
+    const tightSLPatterns = patterns.filter(p => {
+      const desc = (p.insight_description || '').toLowerCase();
+      return desc.includes('stop loss') && (desc.includes('tight') || desc.includes('hit early'));
+    });
+
+    return {
+      shouldWiden: tightSLPatterns.length >= 2,
+      reason: tightSLPatterns.length >= 2 ? 'Multiple patterns indicate SL too tight' : ''
+    };
+  }
+
+  private analyzeTakeProfitPatterns(patterns: any[]): { shouldTighten: boolean; reason: string } {
+    // Check if patterns indicate TP was too ambitious
+    const ambitiousTPPatterns = patterns.filter(p => {
+      const desc = (p.insight_description || '').toLowerCase();
+      return desc.includes('take profit') && (desc.includes('missed') || desc.includes('reversed'));
+    });
+
+    return {
+      shouldTighten: ambitiousTPPatterns.length >= 2,
+      reason: ambitiousTPPatterns.length >= 2 ? 'Multiple patterns indicate TP too ambitious' : ''
+    };
+  }
+
+  private async trackAdaptation(
+    userId: string,
+    sessionId: string,
+    result: MistakePreventionResult,
+    symbol: string
+  ): Promise<void> {
+    if (!result.adaptation_notes || !result.adjusted_parameters) return;
+
+    try {
+      await supabase.from('adaptation_effectiveness').insert({
+        user_id: userId,
+        pattern_id: `${symbol}_${Date.now()}`,
+        adaptation_type: result.adaptation_notes.adjustments_summary,
+        session_id: sessionId,
+        original_params: {
+          risk_pct: 2.0,
+          symbol: symbol
+        },
+        adjusted_params: result.adjusted_parameters,
+        similarity_score: result.adaptation_notes.similarity_score,
+        weighted_similarity: result.adaptation_notes.weighted_similarity,
+        age_factor: result.adaptation_notes.age_factor,
+        outcome: 'pending'
+      });
+    } catch (error) {
+      console.error('[Layer 3] Failed to track adaptation:', error);
+    }
   }
 
   getUsageStats(): { calls: number } {

@@ -136,28 +136,31 @@ export function buildCompressedMistakePrompt(
     corr_risk: boolean;
   }
 ): string {
-  const prompt = `Layer 3: Mistake Prevention
+  const prompt = `Layer 3: Adaptive Mistake Prevention
 
-Check for red flags and return ONLY this JSON:
+Analyze risk and return ONLY this JSON:
 
 {
   "allow": true|false,        // REQUIRED
   "risk": "low"|"medium"|"high",  // REQUIRED
   "flags": ["..."],           // REQUIRED array (empty if none)
-  "why": "<reason>",          // REQUIRED - explain why blocking or allowing (1 sentence)
+  "why": "<reason>",          // REQUIRED - explain the assessment (1 sentence)
   "rec": "allow"|"warn"|"block"
 }
 
-Rules:
-- ALL fields MUST exist, including "why".
-- Block if similar > 5 OR corr_risk=true OR consec > 3.
-- "why" must explain the decision (if blocking, state which flag triggered it).
-- No extra words, no markdown, no text outside JSON.
+NEW ADAPTIVE RULES:
+- Similar patterns are for LEARNING, not blocking
+- Pattern count (similar) indicates need for careful analysis
+- ONLY block for: corr_risk=true AND consec>4, OR loss_rate>80%
+- Otherwise: allow with caution flags for similar>3
+- "why" must explain assessment and any warnings
 
 Data:
 qual=${qualityScore}, regime_conf=${regimeConf}
 consec_loss=${lossContext.consec}, loss_rate=${lossContext.loss_rate}%
-similar_patterns=${lossContext.similar}, corr_risk=${lossContext.corr_risk}`;
+similar_patterns=${lossContext.similar}, corr_risk=${lossContext.corr_risk}
+
+Note: Adaptive learning will adjust parameters based on similarity. Your job is to identify genuine danger, not block for learning opportunities.`;
 
   return prompt;
 }
