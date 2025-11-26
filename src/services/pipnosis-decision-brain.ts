@@ -20,6 +20,7 @@ import { llmStrategyBrain, type MarketSnapshot as LLMMarketSnapshot } from './ll
 import { developerModeLogger } from './developer-mode-logger';
 import { aiSkillTracker, type SkillLevel } from './ai-skill-tracker';
 import { safeToFixed, safeDelta } from '../utils/safe-formatters';
+import { sessionMemoryLoader, type SessionMemorySummary } from './session-memory-loader';
 
 export type TradingMode = 'backtest' | 'live_demo' | 'smart_goal';
 
@@ -131,6 +132,7 @@ export interface DecisionContext {
     worstSetupType?: string;
     avgTradeDuration?: number;
     keyLessons?: string[];
+    sessionMemory?: SessionMemorySummary;
   };
 }
 
@@ -195,6 +197,31 @@ class PipnosisDecisionBrain {
             console.log(`[SKILL CONTEXT] WR: ${safeToFixed(context.skillLevelContext.currentPerformance.winRate, 1)}% / ${context.skillLevelContext.targetRequirements.minWinRate}% (Gap: ${safeDelta(context.skillLevelContext.gaps.winRateGap, 1)}%)`);
             console.log(`[SKILL CONTEXT] PF: ${safeToFixed(context.skillLevelContext.currentPerformance.profitFactor, 2)} / ${safeToFixed(context.skillLevelContext.targetRequirements.minProfitFactor, 2)} (Gap: ${safeDelta(context.skillLevelContext.gaps.profitFactorGap, 2)})`);
           }
+        }
+      }
+
+      // ============================================================
+      // SESSION MEMORY: Load previous learnings
+      // ============================================================
+      if (!context.historicalContext?.sessionMemory) {
+        console.log('[SESSION MEMORY] 📚 Loading historical learnings...');
+        const sessionMemory = await sessionMemoryLoader.loadRecentSessionLearnings(
+          context.sessionContext.userId,
+          5 // Last 5 sessions
+        );
+
+        if (sessionMemory) {
+          console.log(`[SESSION MEMORY] ✅ Loaded ${sessionMemory.recentSessions.length} sessions`);
+          console.log(`[SESSION MEMORY] Trend: ${sessionMemory.overallTrends.improvementDirection}`);
+          console.log(`[SESSION MEMORY] WR Progression: ${sessionMemory.overallTrends.winRateProgression > 0 ? '+' : ''}${sessionMemory.overallTrends.winRateProgression.toFixed(1)}%`);
+
+          // Add to context
+          if (!context.historicalContext) {
+            context.historicalContext = {};
+          }
+          context.historicalContext.sessionMemory = sessionMemory;
+        } else {
+          console.log('[SESSION MEMORY] No historical sessions found - starting fresh');
         }
       }
 
@@ -503,7 +530,8 @@ class PipnosisDecisionBrain {
         context,
         calibratedConfidence,
         regimeResult,
-        qualityResult
+        qualityResult,
+        mistakeResult
       );
 
       const layer5Duration = Date.now() - layer5Start;
@@ -666,7 +694,8 @@ class PipnosisDecisionBrain {
     context: DecisionContext,
     calibratedConfidence: number,
     regimeResult: any,
-    qualityResult: any
+    qualityResult: any,
+    mistakeResult?: any
   ): Promise<TradeDecision> {
     // Ensure we have valid numeric values for all indicators
     const currentPrice = context.currentPrice;
@@ -713,17 +742,24 @@ class PipnosisDecisionBrain {
       bestSetupType: context.historicalContext.bestSetupType || 'unknown',
       worstSetupType: context.historicalContext.worstSetupType || 'unknown',
       avgTradeDuration: context.historicalContext.avgTradeDuration || 60,
-      keyLessons: context.historicalContext.keyLessons || []
+      keyLessons: context.historicalContext.keyLessons || [],
+      sessionMemory: context.historicalContext.sessionMemory || undefined
     } : undefined;
 
-    // Pass setupQuality, regime data, and risk level to Layer 5 via skillContext
+    // Pass setupQuality, regime data, risk level, and Layer 3 adjustments to Layer 5 via skillContext
     const enhancedSkillContext = {
       ...context.skillLevelContext,
       setupQuality: qualityResult.quality_score,
       regimeConfidence: regimeResult?.confidence_in_regime || 70,
       riskLevel: regimeResult?.detected_regime?.risk_level || 'medium',
       regimeTrend: regimeTrend,
-      regimeVolatility: regimeVolatility
+      regimeVolatility: regimeVolatility,
+      // Layer 3 Adaptive Adjustments
+      layer3Adjustments: mistakeResult?.adjusted_parameters || null,
+      layer3AdaptationNotes: mistakeResult?.adaptation_notes || null,
+      layer3RiskLevel: mistakeResult?.risk_level || 'medium',
+      layer3SimilarLosingPatterns: mistakeResult?.similar_losing_patterns_found || 0,
+      layer3PreventiveReasoning: mistakeResult?.preventive_reasoning || null
     };
 
     const llmDecision = await llmStrategyBrain.makeDecision(

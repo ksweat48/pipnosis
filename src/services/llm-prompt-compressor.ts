@@ -229,7 +229,14 @@ export function buildCompressedStrategyPrompt(
     equity: number;
     maxRiskPct: number;
     dailyLossRemainingPct: number;
-  }
+  },
+  layer3Context?: {
+    adjustments?: any;
+    adaptationNotes?: any;
+    similarLosingPatterns?: number;
+    preventiveReasoning?: string;
+  },
+  sessionMemory?: string
 ): string {
   try {
     // Defensive validation with safe defaults
@@ -282,7 +289,20 @@ ${snap.vol === 'high' ? volImpact : ''}
 Win Rate: ${safeToFixed(safePerf.wr, 1)}% (TARGET: ${safeToFixed(wrTarget, 0)}% - ${wrPerformance}${ skill?.wr_gap && skill.wr_gap > 0 ? ` +${safeToFixed(skill.wr_gap, 1)}% above target` : ''})
 Profit Factor: ${safeToFixed(safePerf.pf, 2)} (${pfStatus})
 Skill Level: ${skill?.lvl ?? 'Developing'} → ${skill?.tgt ?? 'Intermediate'} (PROGRESSING)
-
+${layer3Context?.adjustments || layer3Context?.similarLosingPatterns ? `
+=== ⚠️ LAYER 3: ADAPTIVE ADJUSTMENTS ===` : ''}${layer3Context?.adjustments ? `
+🔧 ADJUSTMENTS APPLIED BY MISTAKE PREVENTION LAYER:
+${layer3Context.adjustments.confidence_adjustment ? `   • Confidence ${layer3Context.adjustments.confidence_adjustment > 0 ? 'INCREASED' : 'DECREASED'} by ${Math.abs(layer3Context.adjustments.confidence_adjustment)}% due to pattern analysis` : ''}
+${layer3Context.adjustments.risk_pct ? `   • Risk adjusted to ${layer3Context.adjustments.risk_pct}%` : ''}
+${layer3Context.adjustments.stop_loss_pips ? `   • Stop loss distance modified: ${layer3Context.adjustments.stop_loss_pips} pips` : ''}
+${layer3Context.adjustments.take_profit_pips ? `   • Take profit target modified: ${layer3Context.adjustments.take_profit_pips} pips` : ''}` : ''}${layer3Context?.adaptationNotes ? `
+📊 PATTERN SIMILARITY: ${safeToFixed((layer3Context.adaptationNotes.weighted_similarity || 0) * 100, 1)}% match to historical patterns (age factor: ${safeToFixed(layer3Context.adaptationNotes.age_factor || 1, 2)})
+💡 REASONING: ${layer3Context.adaptationNotes.reason || 'Adaptive learning applied'}` : ''}${layer3Context?.similarLosingPatterns && layer3Context.similarLosingPatterns > 0 ? `
+🚨 WARNING: ${layer3Context.similarLosingPatterns} similar losing pattern${layer3Context.similarLosingPatterns > 1 ? 's' : ''} detected in history
+⚡ PROCEED WITH CAUTION: ${layer3Context.preventiveReasoning || 'Pattern may repeat'}` : ''}${layer3Context?.adjustments || layer3Context?.similarLosingPatterns ? `
+✅ These adjustments are ALREADY APPLIED to confidence/risk. Factor this into your decision.
+` : ''}${sessionMemory ? `
+${sessionMemory}` : ''}
 === MISSION OBJECTIVE ===
 Target: $${safeToFixed(safeGoal.target, 0)} | Progress: $${safeToFixed(safeGoal.target - safeGoal.remaining, 0)} (${safeToFixed(safeGoal.progress, 1)}%) | Remaining: $${safeToFixed(safeGoal.remaining, 0)}
 You need MORE TRADES to reach goal. Sitting idle = mission failure.

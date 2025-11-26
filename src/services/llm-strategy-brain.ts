@@ -62,6 +62,7 @@ export interface RelevantHistory {
   worstSetupType: string;
   avgTradeDuration: number;
   keyLessons: string[];
+  sessionMemory?: any; // Session memory from session-memory-loader
 }
 
 export interface LLMTradeDecision {
@@ -120,6 +121,14 @@ abstract class LLMProvider {
       calls: this.callCount,
       lastCall: this.lastCallTime
     };
+  }
+
+  protected formatSessionMemory(memory: any): string {
+    if (!memory) return '';
+
+    // Import the formatter from session-memory-loader
+    const { sessionMemoryLoader } = require('./session-memory-loader');
+    return sessionMemoryLoader.formatForLLM(memory);
   }
 }
 
@@ -200,7 +209,16 @@ class GPT4Provider extends LLMProvider {
         equity: 10000, // TODO: Get from account service
         maxRiskPct: 5.0, // TODO: Get from risk management settings
         dailyLossRemainingPct: 100 // TODO: Calculate from daily P&L
-      }
+      },
+      // Layer 3 Adaptive Context
+      skillContext?.layer3Adjustments || skillContext?.layer3SimilarLosingPatterns ? {
+        adjustments: skillContext.layer3Adjustments,
+        adaptationNotes: skillContext.layer3AdaptationNotes,
+        similarLosingPatterns: skillContext.layer3SimilarLosingPatterns,
+        preventiveReasoning: skillContext.layer3PreventiveReasoning
+      } : undefined,
+      // Session Memory
+      history?.sessionMemory ? this.formatSessionMemory(history.sessionMemory) : undefined
     );
 
     // Log the prompt being sent
