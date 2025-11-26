@@ -484,10 +484,21 @@ class SyntheticBacktestingEngine {
       signal.positionSizePercent
     );
 
-    if (positionSize <= 0 || positionSize > 10) {
-      console.error(`[Synthetic Backtest] Invalid position size: ${positionSize}`);
-      throw new Error('Invalid position size calculated');
+    if (positionSize <= 0 || positionSize > 2.0) {
+      console.error(`[Synthetic Backtest] REJECTED - Invalid position size: ${positionSize} lots`);
+      console.error(`[Synthetic Backtest] Signal details: ${signal.symbol}, Entry: ${signal.entryPrice}, SL: ${signal.stopLoss}`);
+      throw new Error(`Invalid position size calculated: ${positionSize}`);
     }
+
+    const potentialLoss = Math.abs(signal.entryPrice - signal.stopLoss) / this.getPipValue(signal.symbol) * this.getValuePerLotPerPoint(signal.symbol) * positionSize;
+    const riskPercent = (potentialLoss / this.currentBalance) * 100;
+
+    if (riskPercent > 5) {
+      console.error(`[Synthetic Backtest] REJECTED - Trade risks ${riskPercent.toFixed(1)}% of capital (max 5%)`);
+      throw new Error(`Trade risk too high: ${riskPercent.toFixed(1)}%`);
+    }
+
+    console.log(`[Position Sizing] ✅ Risk validation passed: $${potentialLoss.toFixed(2)} (${riskPercent.toFixed(2)}% of capital)`);
 
     if (signal.stopLoss === signal.entryPrice || signal.takeProfit === signal.entryPrice) {
       console.error('[Synthetic Backtest] Invalid SL/TP - same as entry');
@@ -1414,7 +1425,7 @@ class SyntheticBacktestingEngine {
   private getValuePerLotPerPoint(symbol: string): number {
     if (symbol.includes('XAU') || symbol.includes('GOLD')) return 1.0;
     if (symbol.includes('US30')) return 1.0;
-    if (symbol.includes('JPY')) return 1000;
+    if (symbol.includes('JPY')) return 10;
     return 10;
   }
 
@@ -1436,8 +1447,18 @@ class SyntheticBacktestingEngine {
     const pipValue = this.getPipValue(symbol);
     const pointsRisked = priceRisk / pipValue;
 
+    if (pointsRisked <= 0 || !isFinite(pointsRisked)) {
+      console.error(`[Position Sizing] Invalid points risked: ${pointsRisked}`);
+      return 0.01;
+    }
+
     const valuePerLotPerPoint = this.getValuePerLotPerPoint(symbol);
     let positionSize = riskAmount / (pointsRisked * valuePerLotPerPoint);
+
+    if (!isFinite(positionSize) || positionSize <= 0) {
+      console.error(`[Position Sizing] Invalid calculation result: ${positionSize}`);
+      return 0.01;
+    }
 
     const maxPositionValue = accountBalance * 0.05;
     const contractSize = this.getContractSize(symbol);
@@ -1445,7 +1466,10 @@ class SyntheticBacktestingEngine {
 
     positionSize = Math.min(positionSize, maxLots);
     positionSize = Math.max(0.01, positionSize);
-    positionSize = Math.min(5.0, positionSize);
+    positionSize = Math.min(2.0, positionSize);
+
+    console.log(`[Position Sizing] ${symbol}: Risk $${riskAmount.toFixed(2)} (${riskPercent}%) over ${pointsRisked.toFixed(1)} pips = ${positionSize.toFixed(3)} lots`);
+    console.log(`[Position Sizing] Entry: ${entryPrice}, SL: ${stopLoss}, Balance: $${accountBalance.toFixed(2)}`);
 
     return positionSize;
   }

@@ -1488,13 +1488,40 @@ class SimpleAutoBacktestService {
    */
   private async fetchSessionTrades(sessionName: string): Promise<any[]> {
     try {
-      const { data: trades } = await supabase
+      console.log(`[Auto-Backtest] Looking for trades with session_name matching: "${sessionName}"`);
+
+      // Try trade_history first (where synthetic backtest trades are saved)
+      const { data: trades, error } = await supabase
+        .from('trade_history')
+        .select('*')
+        .eq('is_synthetic', true)
+        .eq('session_name', sessionName)
+        .order('opened_at', { ascending: true });
+
+      if (error) {
+        console.error('[Auto-Backtest] Error fetching from trade_history:', error);
+      }
+
+      if (trades && trades.length > 0) {
+        console.log(`[Auto-Backtest] ✓ Found ${trades.length} trades in trade_history`);
+        return trades;
+      }
+
+      // Fallback: Try synthetic_backtest_trades if trade_history is empty
+      console.log('[Auto-Backtest] No trades in trade_history, checking synthetic_backtest_trades...');
+      const { data: syntheticTrades } = await supabase
         .from('synthetic_backtest_trades')
         .select('*')
         .ilike('session_name', `%${sessionName}%`)
         .order('entry_time', { ascending: true });
 
-      return trades || [];
+      if (syntheticTrades && syntheticTrades.length > 0) {
+        console.log(`[Auto-Backtest] ✓ Found ${syntheticTrades.length} trades in synthetic_backtest_trades`);
+        return syntheticTrades;
+      }
+
+      console.warn('[Auto-Backtest] ⚠️ No trades found in either table');
+      return [];
     } catch (error) {
       console.error('[Auto-Backtest] Error fetching session trades:', error);
       return [];

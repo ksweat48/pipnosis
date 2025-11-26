@@ -334,7 +334,7 @@ class LLMPairSelector {
         .eq('symbol', symbol)
         .order('updated_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (!calibration) {
         results.push({
