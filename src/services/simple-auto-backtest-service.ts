@@ -774,14 +774,8 @@ class SimpleAutoBacktestService {
             await this.updateMemorySystems(day);
             console.log(`[Auto-Backtest] ✓ Memory systems updated`);
 
-            // PHASE 6: Update KPIs Daily
-            console.log(`[Auto-Backtest] 📊 PHASE 6: Updating daily KPIs...`);
-            const { kpiAggregator } = await import('./kpi-aggregator');
-            await kpiAggregator.updateAllKPIs(this.userId!);
-            console.log(`[Auto-Backtest] ✓ KPIs updated`);
-
-            // PHASE 7: Update Performance Metrics (DAILY)
-            console.log(`[Auto-Backtest] 📈 PHASE 7: Updating performance metrics...`);
+            // PHASE 6: Update Performance Metrics (DAILY)
+            console.log(`[Auto-Backtest] 📈 PHASE 6: Updating performance metrics...`);
             const { aiSkillTracker } = await import('./ai-skill-tracker');
             const { plateauDetector } = await import('./plateau-detector');
 
@@ -968,8 +962,6 @@ class SimpleAutoBacktestService {
       // Import learning services
       const { progressiveDailyLearning } = await import('./progressive-daily-learning');
       const { llmPostSessionAnalyzer } = await import('./llm-post-session-analyzer');
-      const { aiThoughtGenerator } = await import('./ai-thought-generator');
-      const { aiDataAccessValidator } = await import('./ai-data-access-validator');
 
       // Run progressive daily learning (already exists!)
       console.log('[Auto-Backtest] 📚 Processing daily progressive learning...');
@@ -1016,32 +1008,9 @@ class SimpleAutoBacktestService {
       await this.calculatePairSelectionAccuracy(selectedPair, todaySession);
       console.log('[Auto-Backtest] ✓ Pair selection accuracy calculated');
 
-      // CRITICAL: Generate daily reflection for AI Learning Journey
-      console.log('[Auto-Backtest] 📝 Generating daily reflection for Learning Journey...');
-
-      // Validate AI data access
-      const validation = await aiDataAccessValidator.quickHealthCheck(this.userId, false);
-
-      await aiThoughtGenerator.generateDailyReflection(
-        this.userId,
-        todaySession.session_name, // session ID
-        {
-          sessionDate: new Date(todaySession.session_date),
-          sessionNumber: dayNumber,
-          winRate: todaySession.win_rate || 0,
-          profitFactor: todaySession.profit_factor || 0,
-          tradesCount: todaySession.total_trades || 0,
-          bestPattern: selectedPair.symbol, // Use selected pair as context
-          worstPattern: undefined,
-          discoveries,
-          challenges,
-          adjustments,
-          currentGoal: `Complete 30-day learning cycle (Day ${dayNumber}/30)`,
-          goalProgress: (dayNumber / 30) * 100
-        },
-        validation
-      );
-      console.log('[Auto-Backtest] ✅ Daily reflection saved to Learning Journey!');
+      // NOTE: Legacy daily reflection system removed
+      // Session intelligence now handled through daily_session_results.llm_deep_analysis
+      console.log('[Auto-Backtest] ✓ Session intelligence stored in daily_session_results');
 
       console.log(`[Auto-Backtest] ========================================`);
       console.log(`[Auto-Backtest] ✅ Daily learning complete for Day ${dayNumber}`);

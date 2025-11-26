@@ -181,12 +181,13 @@ class ProgressiveDailyLearning {
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
 
-    const { data: analyses, error } = await supabase
-      .from('llm_session_analysis')
-      .select('*')
+    const { data: sessions, error } = await supabase
+      .from('daily_session_results')
+      .select('session_id, llm_deep_analysis, created_at')
       .eq('user_id', userId)
       .gte('created_at', startOfDay.toISOString())
       .lte('created_at', endOfDay.toISOString())
+      .not('llm_deep_analysis', 'is', null)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -194,7 +195,12 @@ class ProgressiveDailyLearning {
       return [];
     }
 
-    return analyses || [];
+    // Transform to legacy format for compatibility
+    return (sessions || []).map(s => ({
+      ...s.llm_deep_analysis,
+      session_id: s.session_id,
+      created_at: s.created_at
+    }));
   }
 
   private buildDailyAggregation(

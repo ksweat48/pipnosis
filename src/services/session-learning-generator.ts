@@ -1,8 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { evCalculator } from './ev-calculator';
 import { cssCalculator } from './css-calculator';
-import { aiThoughtGenerator } from './ai-thought-generator';
-import { aiDataAccessValidator } from './ai-data-access-validator';
 
 /**
  * Session Learning Generator
@@ -199,49 +197,8 @@ class SessionLearningGenerator {
       // Save to database
       await this.saveLearningToDatabase(userId, learningData);
 
-      // Validate AI data access before generating reflection
-      console.log('[Session Learning] 🔍 Validating AI data access...');
-      const validation = await aiDataAccessValidator.validateDataAccess(userId);
-      const qualityValidation = await aiDataAccessValidator.validateDataQuality(userId);
-
-      // Merge validation results
-      const mergedValidation = {
-        ...validation,
-        issues: [...validation.issues, ...qualityValidation.issues],
-        canLearn: validation.canLearn && qualityValidation.canLearn,
-        isHealthy: validation.isHealthy && qualityValidation.isHealthy
-      };
-
-      // Generate AI thought stream daily reflection with validation
-      const sessionNumber = await this.getSessionNumber(userId);
-
-      // Calculate wins for AI reflection
-      const wins = trades.filter(t => t.outcome === 'win');
-      const winRate = trades.length > 0 ? (wins.length / trades.length) * 100 : 0;
-
-      await aiThoughtGenerator.generateDailyReflection(
-        userId,
-        sessionId,
-        {
-          sessionDate: new Date(),
-          sessionNumber,
-          winRate,
-          profitFactor: sessionCSS / 50, // Simplified conversion
-          tradesCount: trades.length,
-          bestPattern: bestSetup?.name,
-          worstPattern: worstSetup?.name,
-          discoveries: patternsDiscovered,
-          challenges: patternsDegraded,
-          adjustments: recommendations.slice(0, 2),
-          currentGoal: 'Reach 65% win rate',
-          goalProgress: Math.min(100, (winRate / 65) * 100)
-        },
-        mergedValidation
-      );
-
-      if (!mergedValidation.canLearn) {
-        console.log('[Session Learning] ⚠️ AI flagged critical data access issues');
-      }
+      // NOTE: Legacy daily reflection and validation system removed
+      // Session intelligence now handled through daily_session_results.llm_deep_analysis
 
       console.log('[Session Learning] ✅ Backtest learning summary generated');
     } catch (error) {

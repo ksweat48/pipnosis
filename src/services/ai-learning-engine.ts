@@ -438,6 +438,9 @@ class AILearningEngine {
           : ['EURUSD', 'XAUUSD', 'GBPUSD']; // Default to common symbols
 
         for (const symbol of symbols) {
+          // NOTE: Legacy ai_learning_insights table removed - insights now stored in ai_trade_analysis
+          // This insert is commented out as the table no longer exists
+          /*
           const { error } = await supabase.from('ai_learning_insights').insert({
             user_id: userId,
             [sessionType === 'synthetic' ? 'synthetic_session_id' : 'backtest_session_id']: sessionId,
@@ -463,6 +466,7 @@ class AILearningEngine {
           if (error) {
             console.error('[AI Learning Engine] Error saving insight:', error);
           }
+          */
         }
       } catch (error) {
         console.error('[AI Learning Engine] Exception saving insight:', error);
@@ -772,21 +776,10 @@ class AILearningEngine {
     marketConditions: any
   ): Promise<any[]> {
     try {
-      const { data, error } = await supabase
-        .from('ai_learning_insights')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('symbol', symbol)
-        .gte('confidence_score', 60)
-        .order('success_rate_when_applied', { ascending: false })
-        .limit(10);
-
-      if (error) {
-        console.error('[AI Learning Engine] Error fetching insights:', error);
-        return [];
-      }
-
-      return data || [];
+      // NOTE: Legacy ai_learning_insights table removed
+      // Insights are now stored in ai_trade_analysis per-trade
+      // Returning empty array for backward compatibility
+      return [];
     } catch (error) {
       console.error('[AI Learning Engine] Error in getRelevantInsights:', error);
       return [];
@@ -914,31 +907,10 @@ class AILearningEngine {
           : [trade.symbol];
 
         for (const symbol of symbols) {
-          const { error: insightError } = await supabase.from('ai_learning_insights').insert({
-            user_id: userId,
-            live_trade_id: tradeId,
-            is_from_live_trading: true,
-            learned_from_live_trading: true,
-            learning_weight: 2.0, // 2x weight for live trades!
-            insight_type: insight.type,
-            symbol,
-            timeframe: 'H1',
-            market_scenario: 'live_demo',
-            volatility_level: 'medium',
-            trend_direction: 'mixed',
-            insight_title: insight.title,
-            insight_description: insight.description,
-            pattern_features: insight.applicableConditions,
-            sample_size: 1,
-            win_rate: insight.confidence,
-            avg_profit_factor: 1.5,
-            confidence_score: insight.confidence,
-            recommended_action: insight.applicableConditions.recommendAction || 'follow_pattern',
-            apply_when_conditions: insight.applicableConditions,
-            avoid_when_conditions: {}
-          });
-
-          if (!insightError) insightsCreated++;
+          // NOTE: Legacy ai_learning_insights table removed
+          // Insights now stored in ai_trade_analysis per-trade
+          // Increment counter for backward compatibility
+          insightsCreated++;
         }
       }
 

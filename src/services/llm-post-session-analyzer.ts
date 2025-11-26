@@ -246,59 +246,42 @@ Be creative and insightful. Look for patterns that are NOT obvious from basic st
     trades: TradeForAnalysis[]
   ): Promise<void> {
     try {
-      for (const pattern of analysis.hiddenPatterns) {
-        const { error } = await supabase.from('ai_learning_insights').insert({
-          user_id: userId,
-          [sessionType === 'synthetic' ? 'synthetic_session_id' : 'backtest_session_id']: sessionId,
-          is_from_live_trading: false,
-          llm_generated: true,
-          llm_model_used: this.model,
-          insight_type: 'winning_pattern',
-          symbol: pattern.applicableConditions?.symbol || 'EURUSD',
-          timeframe: 'H1',
-          market_scenario: 'llm_discovered',
-          volatility_level: 'medium',
-          trend_direction: 'mixed',
-          insight_title: pattern.patternName,
-          insight_description: pattern.description,
-          pattern_features: pattern.applicableConditions,
-          sample_size: trades.length,
-          win_rate: pattern.winRate,
-          avg_profit_factor: pattern.profitFactor,
-          confidence_score: pattern.confidence,
-          recommended_action: 'follow_pattern',
-          apply_when_conditions: { when: pattern.whenToApply },
-          avoid_when_conditions: { when: pattern.whenToAvoid },
-          llm_reasoning: pattern.whyItWorks,
-          llm_improvement_suggestions: pattern.improvementSuggestions
-        });
+      // Save analysis to daily_session_results.llm_deep_analysis field
+      const { error } = await supabase
+        .from('daily_session_results')
+        .update({
+          llm_deep_analysis: {
+            model_used: this.model,
+            overall_assessment: analysis.overallAssessment,
+            strengths_identified: analysis.strengthsIdentified,
+            weaknesses_identified: analysis.weaknessesIdentified,
+            hidden_patterns: analysis.hiddenPatterns.map(p => ({
+              pattern_name: p.patternName,
+              description: p.description,
+              confidence: p.confidence,
+              win_rate: p.winRate,
+              profit_factor: p.profitFactor,
+              applicable_conditions: p.applicableConditions,
+              why_it_works: p.whyItWorks,
+              when_to_apply: p.whenToApply,
+              when_to_avoid: p.whenToAvoid,
+              improvement_suggestions: p.improvementSuggestions
+            })),
+            strategic_recommendations: analysis.strategicRecommendations,
+            confidence_calibration_advice: analysis.confidenceCalibrationAdvice,
+            next_session_focus: analysis.nextSessionFocus,
+            estimated_improvement_potential: analysis.estimatedImprovementPotential,
+            analysis_timestamp: new Date().toISOString()
+          }
+        })
+        .eq('session_id', sessionId)
+        .eq('user_id', userId);
 
-        if (error) {
-          console.error('[LLM Post-Session Analyzer] Error saving pattern:', error);
-        }
+      if (error) {
+        console.error('[LLM Post-Session Analyzer] Error saving analysis:', error);
+      } else {
+        console.log('[LLM Post-Session Analyzer] ✓ Saved deep analysis to daily_session_results');
       }
-
-      const { error: summaryError } = await supabase.from('llm_session_analysis').insert({
-        user_id: userId,
-        [sessionType === 'synthetic' ? 'synthetic_session_id' : 'backtest_session_id']: sessionId,
-        llm_model_used: this.model,
-        overall_assessment: analysis.overallAssessment,
-        strengths_identified: analysis.strengthsIdentified,
-        weaknesses_identified: analysis.weaknessesIdentified,
-        patterns_discovered_count: analysis.hiddenPatterns.length,
-        strategic_recommendations: analysis.strategicRecommendations,
-        confidence_calibration_advice: analysis.confidenceCalibrationAdvice,
-        next_session_focus: analysis.nextSessionFocus,
-        estimated_improvement_potential: analysis.estimatedImprovementPotential,
-        analysis_quality_score: 85,
-        processing_time_ms: 0
-      });
-
-      if (summaryError) {
-        console.error('[LLM Post-Session Analyzer] Error saving summary:', summaryError);
-      }
-
-      console.log('[LLM Post-Session Analyzer] ✓ Saved analysis to database');
     } catch (error) {
       console.error('[LLM Post-Session Analyzer] Error saving to database:', error);
     }
