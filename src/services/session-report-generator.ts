@@ -444,7 +444,7 @@ class SessionReportGenerator {
         .from('ai_skill_progression')
         .select('cumulative_spc')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (!progression) return 0;
 

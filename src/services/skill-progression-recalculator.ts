@@ -132,7 +132,7 @@ class SkillProgressionRecalculator {
         .from('ai_skill_progression')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (error || !progression) {
         return { success: false, leveledUp: false };

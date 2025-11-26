@@ -278,7 +278,7 @@ class SPCCalculator {
         .from('ai_skill_progression')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (!progression) {
         return {
@@ -351,7 +351,7 @@ class SPCCalculator {
         .from('ai_skill_progression')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (!progression) return null;
 
@@ -405,7 +405,7 @@ class SPCCalculator {
         .from('ai_skill_progression')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (!progression) {
         return { shouldActivate: false };

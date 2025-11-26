@@ -70,7 +70,7 @@ class AILearningDiagnostics {
       .from('ai_skill_progression')
       .select('*')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
     const currentLevel = skillData?.current_level || 'Novice';
     const totalWinningTrades = skillData?.total_winning_trades || 0;

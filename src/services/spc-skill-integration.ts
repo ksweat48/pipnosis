@@ -35,7 +35,7 @@ class SPCSkillIntegration {
         .from('ai_skill_progression')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (error || !progression) {
         console.error('[SPC Integration] No progression data found');
@@ -144,7 +144,7 @@ class SPCSkillIntegration {
         .from('ai_skill_progression')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (!progression) {
         return { success: true };
@@ -199,7 +199,7 @@ class SPCSkillIntegration {
         .from('ai_skill_progression')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (!progression) return;
 
@@ -323,7 +323,7 @@ class SPCSkillIntegration {
         .from('ai_skill_progression')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (!progression) return null;
 
