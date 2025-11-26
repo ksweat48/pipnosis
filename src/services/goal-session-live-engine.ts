@@ -14,6 +14,7 @@ import { tradeExecutionEngine } from './trade-execution-engine';
 import { midTradeTriggerDetector, type MarketConditions } from './mid-trade-trigger-detector';
 import { llmMidTradeEvaluator } from './llm-mid-trade-evaluator';
 import { logger, LogCategory } from '../lib/logger';
+import { openAIClient } from './openai-client';
 
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
@@ -63,9 +64,10 @@ class GoalSessionLiveEngine {
   private lastProcessedCandleTime: Date | null = null;
   private scanCount = 0;
   private lastAIUpdateTime = 0;
+  private processingLock = false;
 
   private readonly POLLING_INTERVAL_MS = 15000;
-  private readonly MAX_DAILY_LOSS = -500;
+  private readonly MAX_DAILY_LOSS_PERCENT = 10;
 
   /**
    * Start live trading engine for a goal session
@@ -231,12 +233,19 @@ class GoalSessionLiveEngine {
   }
 
   /**
-   * Process candle update
+   * Process candle update with mutex to prevent race conditions
    */
   private async processCandleUpdate(): Promise<void> {
     if (!this.config || !this.activeSession) {
       return;
     }
+
+    if (this.processingLock) {
+      logger.debug(LogCategory.AI_TRADING, 'Polling already in progress, skipping...');
+      return;
+    }
+
+    this.processingLock = true;
 
     try {
       const { data: candles, error } = await supabase
@@ -287,8 +296,9 @@ class GoalSessionLiveEngine {
       this.openTrades = this.openTrades.filter(t => t.outcome === 'open');
 
       const currentBalance = this.calculateCurrentBalance();
-      if (currentBalance <= this.config.initialBalance + this.MAX_DAILY_LOSS) {
-        console.error('[Goal Live Engine] Daily loss limit reached, stopping session');
+      const maxLossAmount = -(this.config.initialBalance * (this.MAX_DAILY_LOSS_PERCENT / 100));
+      if (currentBalance <= this.config.initialBalance + maxLossAmount) {
+        console.error(`[Goal Live Engine] Daily loss limit reached (${this.MAX_DAILY_LOSS_PERCENT}%), stopping session`);
         await this.stopSession();
         return;
       }
@@ -297,13 +307,31 @@ class GoalSessionLiveEngine {
         return;
       }
 
+      // Get goal session details for context
+      const { data: goalSession } = await supabase
+        .from('goal_sessions')
+        .select('*')
+        .eq('id', this.activeSession)
+        .single();
+
+      const goalContext = goalSession ? {
+        goalSessionId: this.activeSession,
+        targetValue: goalSession.target_value,
+        currentProgress: goalSession.current_progress || 0,
+        progressPercentage: goalSession.progress_percentage || 0,
+        timeframe: goalSession.timeframe,
+        riskMode: goalSession.risk_mode,
+        tradesRemaining: this.config.maxConcurrentTrades - this.openTrades.length
+      } : undefined;
+
       const engineConfig: EventBasedEngineConfig = {
         symbol: this.config.symbol,
         timeframe: this.config.timeframe,
         useLLM: this.config.useLLM,
         riskMode: this.config.riskMode,
         maxConcurrentTrades: this.config.maxConcurrentTrades,
-        initialBalance: this.config.initialBalance
+        initialBalance: this.config.initialBalance,
+        goalContext
       };
 
       const result = await eventBasedLLMEngine.processCandle(
@@ -343,6 +371,8 @@ class GoalSessionLiveEngine {
 
     } catch (error) {
       console.error('[Goal Live Engine] Error processing candle update:', error);
+    } finally {
+      this.processingLock = false;
     }
   }
 
@@ -520,18 +550,28 @@ class GoalSessionLiveEngine {
     // Get session stats and send post-trade analysis
     const stats = localSessionMemory.getSessionStatistics(`live-${this.activeSession}`);
     if (stats) {
+      // Get fresh goal session data for progress calculation
+      const { data: goalSessionData } = await supabase
+        .from('goal_sessions')
+        .select('target_value')
+        .eq('id', this.activeSession)
+        .single();
+
+      const targetValue = goalSessionData?.target_value || this.config!.initialBalance;
+
+      // Update progress in database
       await supabase
         .from('goal_sessions')
         .update({
           current_progress: stats.totalPnL,
-          progress_percentage: (stats.totalPnL / this.config!.initialBalance) * 100
+          progress_percentage: (stats.totalPnL / targetValue) * 100
         })
         .eq('id', this.activeSession);
 
       // Get intelligent post-trade analysis from LLM
       const llmAnalysis = await this.generatePostTradeAnalysis(trade, stats);
 
-      const progressMessage = `\\n🎯 Goal Progress: ${stats.totalPnL >= 0 ? '+' : ''}$${stats.totalPnL.toFixed(2)} / $${this.config!.initialBalance.toFixed(2)} target (${((stats.totalPnL / this.config!.initialBalance) * 100).toFixed(1)}%)\\n` +
+      const progressMessage = `\\n🎯 Goal Progress: ${stats.totalPnL >= 0 ? '+' : ''}$${stats.totalPnL.toFixed(2)} / $${targetValue.toFixed(2)} target (${((stats.totalPnL / targetValue) * 100).toFixed(1)}%)\\n` +
         `📊 Session Stats: ${stats.totalTrades} trades | ${stats.winningTrades} wins | ${((stats.winningTrades / stats.totalTrades) * 100).toFixed(0)}% win rate\\n` +
         `💪 Continuing to scan for next high-quality setup...`;
 

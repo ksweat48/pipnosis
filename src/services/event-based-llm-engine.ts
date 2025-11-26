@@ -25,6 +25,14 @@ export interface EventBasedEngineConfig {
   riskMode: 'low' | 'medium' | 'high';
   maxConcurrentTrades: number;
   initialBalance?: number;
+  goalContext?: {
+    goalSessionId?: string;
+    targetAmount: number;
+    currentProgress: number;
+    remainingAmount: number;
+    tradesCompleted: number;
+    tradesPlanned: number;
+  };
 }
 
 export interface SimulatedTrade {
@@ -102,7 +110,15 @@ class EventBasedLLMEngine {
   async processCandle(
     candles: any[],
     config: EventBasedEngineConfig,
-    openTrades: SimulatedTrade[] = []
+    openTrades: SimulatedTrade[] = [],
+    goalContext?: {
+      goalSessionId?: string;
+      targetAmount: number;
+      currentProgress: number;
+      remainingAmount: number;
+      tradesCompleted: number;
+      tradesPlanned: number;
+    }
   ): Promise<{ trade: SimulatedTrade | null; trigger: TriggerEvent | null; llmCalled: boolean }> {
     if (candles.length < 50) {
       console.log(`[Event Engine] ⚠️ Insufficient candles: ${candles.length}/50 required`);
@@ -154,8 +170,12 @@ class EventBasedLLMEngine {
     }
 
     console.log(`[Event Engine] 🚀 Calling 5-Layer LLM Pipeline... (Tokens: ${this.sessionTokenUsage}/${this.MAX_TOKENS_PER_SESSION})`);
+    if (goalContext) {
+      console.log(`[Event Engine] 🎯 Goal Context: $${goalContext.currentProgress.toFixed(2)} / $${goalContext.targetAmount} (${((goalContext.currentProgress / goalContext.targetAmount) * 100).toFixed(1)}%)`);
+      console.log(`[Event Engine] 📊 Remaining: $${goalContext.remainingAmount.toFixed(2)} | Trades: ${goalContext.tradesCompleted}/${goalContext.tradesPlanned}`);
+    }
 
-    const llmDecision = await this.callLLM(topTrigger, snapshot, openTrades);
+    const llmDecision = await this.callLLM(topTrigger, snapshot, openTrades, goalContext || config.goalContext);
 
     console.log(`[Event Engine] 📋 LLM Decision: ${llmDecision.action}`);
 
@@ -231,12 +251,20 @@ class EventBasedLLMEngine {
   private async callLLM(
     trigger: TriggerEvent,
     snapshot: MarketSnapshot,
-    openPositions: SimulatedTrade[]
+    openPositions: SimulatedTrade[],
+    goalContext?: {
+      goalSessionId?: string;
+      targetAmount: number;
+      currentProgress: number;
+      remainingAmount: number;
+      tradesCompleted: number;
+      tradesPlanned: number;
+    }
   ): Promise<LLMTradeDecision> {
     if (this.use5LayerPipeline && this.userId) {
-      return this.execute5LayerPipeline(trigger, snapshot, openPositions);
+      return this.execute5LayerPipeline(trigger, snapshot, openPositions, goalContext);
     } else {
-      return this.executeSingleLLMCall(trigger, snapshot, openPositions);
+      return this.executeSingleLLMCall(trigger, snapshot, openPositions, goalContext);
     }
   }
 
@@ -246,7 +274,15 @@ class EventBasedLLMEngine {
   private async execute5LayerPipeline(
     trigger: TriggerEvent,
     snapshot: MarketSnapshot,
-    openPositions: SimulatedTrade[]
+    openPositions: SimulatedTrade[],
+    goalContext?: {
+      goalSessionId?: string;
+      targetAmount: number;
+      currentProgress: number;
+      remainingAmount: number;
+      tradesCompleted: number;
+      tradesPlanned: number;
+    }
   ): Promise<LLMTradeDecision> {
     const pipelineStart = Date.now();
     let totalTokens = 0;

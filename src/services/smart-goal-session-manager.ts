@@ -260,6 +260,13 @@ class SmartGoalSessionManager {
         console.log('[Smart Goal] ✅ 5-layer LLM pipeline will be used for all trades');
         console.log('[Smart Goal] ✅ All trades will have visible SL/TP on charts');
 
+        // Calculate breakdown for message
+        const breakDown = PipnosisCoreRules.breakGoalIntoSmallTrades(
+          config.goalAmount,
+          accountBalance,
+          config.riskMode
+        );
+
         // Send comprehensive session startup message
         const strategyMessage = `🎯 Goal Session Started!\\n` +
           `💰 Target: $${config.goalAmount} in ${config.timeframe}\\n` +
