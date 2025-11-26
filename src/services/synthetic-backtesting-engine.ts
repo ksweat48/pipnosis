@@ -364,6 +364,13 @@ class SyntheticBacktestingEngine {
 
       const shouldExecute = decision.confidence >= this.config!.confidenceThreshold;
 
+      // Log execution decision for debugging
+      if (!shouldExecute) {
+        console.log(`[Synthetic Backtest] ⚠️ Signal skipped: confidence ${decision.confidence}% < threshold ${this.config!.confidenceThreshold}%`);
+      } else {
+        console.log(`[Synthetic Backtest] ✅ Signal approved: confidence ${decision.confidence}% >= threshold ${this.config!.confidenceThreshold}%`);
+      }
+
       return {
         symbol,
         direction: decision.direction,

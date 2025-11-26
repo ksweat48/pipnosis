@@ -1171,6 +1171,13 @@ class SimpleAutoBacktestService {
     try {
       console.log(`[Auto-Backtest] 💾 Saving day ${dayNumber} result to database...`);
 
+      // Validate month_number before saving (must be >= 1)
+      if (this.currentMonthNumber < 1) {
+        throw new Error(`Invalid month_number: ${this.currentMonthNumber}. Must be >= 1. This indicates runLoop() hasn't started yet.`);
+      }
+
+      console.log(`[Auto-Backtest] Saving with month_number=${this.currentMonthNumber}, day_number=${dayNumber}`);
+
       const { error } = await supabase
         .from('daily_session_results')
         .upsert({
@@ -1180,8 +1187,6 @@ class SimpleAutoBacktestService {
           session_date: new Date().toISOString(),
           session_name: sessionName,
           monthly_parent_session_id: this.monthlyParentSessionId,
-          selected_pair: selectedPair.symbol, // NEW
-          pair_confidence: selectedPair.confidence, // NEW
           win_rate: result.winRate || 0,
           total_trades: result.totalTrades || 0,
           pnl: result.totalPnL || 0,
@@ -1325,7 +1330,10 @@ class SimpleAutoBacktestService {
    * Get confidence threshold for risk level
    */
   private getRiskThreshold(riskLevel: 'low' | 'medium' | 'high'): number {
-    const thresholds = { low: 85, medium: 75, high: 70 };
+    // Lowered thresholds to match Layer 4 calibrated confidence output (typically 70%)
+    // This allows trades to execute after passing all 5 LLM validation layers
+    const thresholds = { low: 70, medium: 65, high: 60 };
+    console.log(`[Auto-Backtest] Risk threshold for ${riskLevel}: ${thresholds[riskLevel]}%`);
     return thresholds[riskLevel];
   }
 
