@@ -383,11 +383,35 @@ Be RUTHLESS. When in doubt, BLOCK. Protecting capital is priority #1.`;
       recommendation = parsed.recommendation || 'allow';
     }
 
-    // Generate fallback reasoning if empty and trade is blocked
-    let reasoning = parsed.preventive_reasoning || parsed.reasoning || '';
-    if (!allowTrade && (!reasoning || reasoning.trim() === '')) {
-      reasoning = `Trade blocked by Layer 3. Risk level: ${riskLevel}. Flags: ${mistakeFlags.join(', ') || 'general risk assessment'}.`;
-      console.warn('[LLM Layer 3] ⚠️ Block decision with empty reasoning - using fallback');
+    // Extract reasoning - check all possible field names
+    // Priority: why (compressed) → preventive_reasoning (full) → reasoning (legacy)
+    let reasoning = parsed.why || parsed.preventive_reasoning || parsed.reasoning || '';
+
+    // Generate intelligent fallback reasoning if empty
+    if (!reasoning || reasoning.trim() === '') {
+      if (!allowTrade) {
+        // Block decision - construct detailed reasoning from available data
+        const reasons: string[] = [];
+
+        if (mistakeFlags.length > 0) {
+          reasons.push(`Flags: ${mistakeFlags.join(', ')}`);
+        }
+        if (parsed.correlated_loss_risk) {
+          reasons.push('correlated loss risk detected');
+        }
+        if (parsed.similar_losing_patterns_found > 0) {
+          reasons.push(`${parsed.similar_losing_patterns_found} similar losing patterns found`);
+        }
+
+        reasoning = reasons.length > 0
+          ? `Trade blocked. ${reasons.join('; ')}.`
+          : `Trade blocked by Layer 3. Risk level: ${riskLevel}.`;
+
+        console.warn('[LLM Layer 3] ⚠️ Block decision with empty reasoning - using fallback');
+      } else {
+        // Allow decision - simple fallback
+        reasoning = 'No significant red flags detected.';
+      }
     }
 
     return {

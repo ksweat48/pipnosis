@@ -144,12 +144,14 @@ Check for red flags and return ONLY this JSON:
   "allow": true|false,        // REQUIRED
   "risk": "low"|"medium"|"high",  // REQUIRED
   "flags": ["..."],           // REQUIRED array (empty if none)
+  "why": "<reason>",          // REQUIRED - explain why blocking or allowing (1 sentence)
   "rec": "allow"|"warn"|"block"
 }
 
 Rules:
-- ALL fields MUST exist.
+- ALL fields MUST exist, including "why".
 - Block if similar > 5 OR corr_risk=true OR consec > 3.
+- "why" must explain the decision (if blocking, state which flag triggered it).
 - No extra words, no markdown, no text outside JSON.
 
 Data:
