@@ -42,15 +42,13 @@ interface SessionAnalysisResult {
 }
 
 class LLMPostSessionAnalyzer {
-  private enabled: boolean = false;
+  private enabled: boolean = true; // RE-ENABLED
   private callCount: number = 0;
   private lastCallTime: Date | null = null;
   private model: string = 'gpt-4o';
-  private endpoint: string = 'https://api.openai.com/v1/chat/completions';
-  private apiKey: string = '';
 
   constructor() {
-    console.warn('[LLM Post-Session Analyzer] Disabled - needs migration to Netlify proxy');
+    console.log('[LLM Post-Session Analyzer] ✅ Enabled - Using OpenAI proxy');
   }
 
   isEnabled(): boolean {
@@ -79,9 +77,10 @@ class LLMPostSessionAnalyzer {
     try {
       const prompt = this.buildAnalysisPrompt(trades);
       const result = await this.callGPT4o(prompt);
-      const analysis = this.parseAnalysisResult(result);
+      const analysis = this.parseAnalysisResult(result.content);
 
       await this.saveAnalysisToDatabase(userId, sessionId, analysis, sessionType, trades);
+      await this.saveToSessionResults(userId, sessionId, analysis, trades);
 
       this.callCount++;
       this.lastCallTime = new Date();
@@ -195,40 +194,28 @@ Be creative and insightful. Look for patterns that are NOT obvious from basic st
     return prompt;
   }
 
-  private async callGPT4o(prompt: string): Promise<string> {
+  private async callGPT4o(prompt: string): Promise<any> {
     try {
-      const response = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
+      const response = await openaiProxyClient.chat([
+        {
+          role: 'system',
+          content: 'You are an elite trading analyst specializing in pattern discovery and performance optimization. Provide deep, actionable insights that go beyond surface-level analysis.'
         },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are an elite trading analyst specializing in pattern discovery and performance optimization. Provide deep, actionable insights that go beyond surface-level analysis.'
-            },
-            { role: 'user', content: prompt }
-          ],
-          temperature: 0.7,
-          max_tokens: 2000
-        })
+        { role: 'user', content: prompt }
+      ], {
+        model: this.model,
+        temperature: 0.7,
+        max_tokens: 2000
       });
 
-      if (!response.ok) {
-        throw new Error(`GPT-4o API error: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const content = data.choices[0]?.message?.content;
-
-      if (!content) {
+      if (!response.success || !response.content) {
         throw new Error('No content in GPT-4o response');
       }
 
-      return content;
+      return {
+        content: response.content,
+        usage: response.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+      };
     } catch (error) {
       console.error('[LLM Post-Session Analyzer] API call failed:', error);
       throw error;
@@ -336,6 +323,45 @@ Be creative and insightful. Look for patterns that are NOT obvious from basic st
       groups[setup].push(trade);
       return groups;
     }, {} as Record<string, TradeForAnalysis[]>);
+  }
+
+  /**
+   * Save analysis to daily_session_results for UI display
+   */
+  private async saveToSessionResults(
+    userId: string,
+    sessionId: string,
+    analysis: SessionAnalysisResult,
+    trades: TradeForAnalysis[]
+  ): Promise<void> {
+    try {
+      // Update daily_session_results with LLM deep analysis
+      const { error } = await supabase
+        .from('daily_session_results')
+        .update({
+          llm_deep_analysis: {
+            overallAssessment: analysis.overallAssessment,
+            strengthsIdentified: analysis.strengthsIdentified,
+            weaknessesIdentified: analysis.weaknessesIdentified,
+            hiddenPatternsCount: analysis.hiddenPatterns.length,
+            strategicRecommendations: analysis.strategicRecommendations,
+            confidenceCalibrationAdvice: analysis.confidenceCalibrationAdvice,
+            nextSessionFocus: analysis.nextSessionFocus,
+            estimatedImprovementPotential: analysis.estimatedImprovementPotential,
+            analyzedAt: new Date().toISOString(),
+          },
+        })
+        .eq('session_name', sessionId)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('[LLM Post-Session Analyzer] Error updating session results:', error);
+      } else {
+        console.log('[LLM Post-Session Analyzer] \u2705 Session results updated with deep analysis');
+      }
+    } catch (error) {
+      console.error('[LLM Post-Session Analyzer] Error saving to session results:', error);
+    }
   }
 
   getUsageStats(): { calls: number; lastCall: Date | null } {
