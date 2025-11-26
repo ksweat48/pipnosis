@@ -220,18 +220,45 @@ class SyntheticBacktestingEngine {
   }
 
   private async backtestSymbol(symbol: string, config: SyntheticBacktestConfig): Promise<void> {
-    const candles = await this.getSyntheticCandles(
+    console.log(`[Synthetic Backtest] 🔍 DIAGNOSTIC: Attempting to fetch candles for ${symbol}`);
+    console.log(`[Synthetic Backtest] 🔍 Date range: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
+    console.log(`[Synthetic Backtest] 🔍 Generation ID: ${this.syntheticGenerationId}`);
+
+    let candles = await this.getSyntheticCandles(
       symbol,
       'H1',
       config.startDate,
       config.endDate
     );
 
+    console.log(`[Synthetic Backtest] 🔍 Candles returned: ${candles?.length || 0}`);
+
     if (!candles || candles.length === 0) {
-      console.warn(`[Synthetic Backtest] ⚠️ No candles found for ${symbol}`);
-      console.warn(`[Synthetic Backtest] Date range: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
-      console.warn(`[Synthetic Backtest] Skipping this symbol...`);
-      return; // Skip gracefully instead of throwing error
+      console.warn(`[Synthetic Backtest] ⚠️ ZERO SYNTHETIC CANDLES FOUND for ${symbol}!`);
+      console.warn(`[Synthetic Backtest] ⚠️ Attempting to fall back to real forex_candles data...`);
+
+      // FALLBACK: Try to use real forex_candles data
+      const { data: realCandles } = await supabase
+        .from('forex_candles')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('timeframe', 'H1')
+        .gte('open_time', config.startDate.toISOString())
+        .lte('open_time', config.endDate.toISOString())
+        .order('open_time', { ascending: true });
+
+      if (realCandles && realCandles.length > 0) {
+        console.log(`[Synthetic Backtest] ✅ FALLBACK SUCCESS: Using ${realCandles.length} real candles from forex_candles`);
+        candles = realCandles;
+      } else {
+        console.error(`[Synthetic Backtest] ❌ FATAL: No candles available (neither synthetic nor real)`);
+        console.error(`[Synthetic Backtest] Symbol: ${symbol}`);
+        console.error(`[Synthetic Backtest] Date range: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
+        console.error(`[Synthetic Backtest] Generation ID: ${this.syntheticGenerationId}`);
+        console.error(`[Synthetic Backtest] ⚠️ This explains why 0 trades were generated`);
+        console.error(`[Synthetic Backtest] RECOMMENDATION: Run candle backfill or check data availability`);
+        return; // Skip gracefully instead of throwing error
+      }
     }
 
     console.log(`[Synthetic Backtest] ✅ Processing ${candles.length} H1 candles for ${symbol}`);
@@ -295,7 +322,19 @@ class SyntheticBacktestingEngine {
     // Warn if no signals were generated at all
     if (signalsGenerated === 0) {
       console.warn(`[Synthetic Backtest] ⚠️ WARNING: ZERO signals generated for ${symbol}!`);
-      console.warn(`[Synthetic Backtest] This suggests signal generation logic needs adjustment`);
+      console.warn(`[Synthetic Backtest] ⚠️ Processed ${candles.length} candles but no signals generated`);
+      console.warn(`[Synthetic Backtest] ⚠️ Possible reasons:`);
+      console.warn(`[Synthetic Backtest]   1. Signal generation logic not finding valid setups`);
+      console.warn(`[Synthetic Backtest]   2. LLM validation layers rejecting all signals`);
+      console.warn(`[Synthetic Backtest]   3. Market conditions not suitable for strategy`);
+      console.warn(`[Synthetic Backtest]   4. Confidence scores all below threshold (${this.config?.confidenceThreshold}%)`);
+    }
+
+    // Also warn if signals were generated but none executed
+    if (signalsGenerated > 0 && signalsExecuted === 0) {
+      console.warn(`[Synthetic Backtest] ⚠️ WARNING: ${signalsGenerated} signals generated but NONE executed!`);
+      console.warn(`[Synthetic Backtest] ⚠️ All signals failed confidence threshold (${this.config?.confidenceThreshold}%)`);
+      console.warn(`[Synthetic Backtest] ⚠️ Consider lowering threshold or reviewing signal quality`);
     }
   }
 
@@ -1020,13 +1059,35 @@ class SyntheticBacktestingEngine {
   }
 
   private async getSyntheticCandles(symbol: string, timeframe: string, startDate: Date, endDate: Date): Promise<any[]> {
-    return await syntheticDataGenerator.getSyntheticCandles(
+    // Try synthetic candles first
+    const syntheticCandles = await syntheticDataGenerator.getSyntheticCandles(
       this.syntheticGenerationId,
       symbol,
       timeframe,
       startDate,
       endDate
     );
+
+    // If synthetic candles exist, use them
+    if (syntheticCandles && syntheticCandles.length > 0) {
+      return syntheticCandles;
+    }
+
+    // FALLBACK: Try real forex_candles if synthetic data not available
+    const { data: realCandles } = await supabase
+      .from('forex_candles')
+      .select('*')
+      .eq('symbol', symbol)
+      .eq('timeframe', timeframe)
+      .gte('open_time', startDate.toISOString())
+      .lte('open_time', endDate.toISOString())
+      .order('open_time', { ascending: true });
+
+    if (realCandles && realCandles.length > 0) {
+      return realCandles;
+    }
+
+    return [];
   }
 
   private async createSyntheticSession(userId: string, config: SyntheticBacktestConfig): Promise<any> {

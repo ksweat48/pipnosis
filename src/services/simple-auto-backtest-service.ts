@@ -1115,9 +1115,15 @@ class SimpleAutoBacktestService {
         this.abortController?.signal
       );
 
-      // Warn if 0 trades but don't stop - synthetic data may still be generating
+      // Warn if 0 trades but don't stop - continue with learning anyway
       if (result.totalTrades === 0) {
-        console.warn(`[Auto-Backtest] ⚠️ Day ${dayNumber} generated 0 trades (data may still be generating)`);
+        console.warn(`[Auto-Backtest] ⚠️ Day ${dayNumber} generated 0 trades`);
+        console.warn(`[Auto-Backtest] ⚠️ Possible reasons:`);
+        console.warn(`[Auto-Backtest]   1. No candle data available for ${selectedPair.symbol}`);
+        console.warn(`[Auto-Backtest]   2. Signal generation found no valid setups`);
+        console.warn(`[Auto-Backtest]   3. All signals below confidence threshold (${this.getRiskThreshold(this.randomRiskLevel())}%)`);
+        console.warn(`[Auto-Backtest]   4. Market conditions not suitable for strategy`);
+        console.warn(`[Auto-Backtest] ✅ Continuing to next day - AI will reflect on this in learning phase`);
       }
 
       // Update day result with selected pair info
