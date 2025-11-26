@@ -193,28 +193,10 @@ export default function SyntheticCandlestickChart({
           }
         });
 
+        // Note: setMarkers API was removed in lightweight-charts v4+
+        // Trade markers are now displayed using the trade list overlay below the chart
         if (allMarkers.length > 0) {
-          try {
-            if (!candleSeriesRef.current) {
-              console.warn('[SyntheticCandlestickChart] Series reference lost before setting markers');
-              return;
-            }
-
-            if (typeof candleSeriesRef.current.setMarkers !== 'function') {
-              console.warn('[SyntheticCandlestickChart] setMarkers method not available on series');
-              console.log('[SyntheticCandlestickChart] Series type:', typeof candleSeriesRef.current);
-              console.log('[SyntheticCandlestickChart] Series keys:', Object.keys(candleSeriesRef.current));
-              return;
-            }
-
-            console.log(`[SyntheticCandlestickChart] Attempting to set ${allMarkers.length} markers`);
-            candleSeriesRef.current.setMarkers(allMarkers as any);
-            console.log(`[SyntheticCandlestickChart] ✅ Successfully set ${allMarkers.length} markers`);
-          } catch (error) {
-            console.error('[SyntheticCandlestickChart] ❌ Error setting markers:', error);
-            console.error('[SyntheticCandlestickChart] Markers that failed to set:', allMarkers.length);
-            console.error('[SyntheticCandlestickChart] First marker sample:', allMarkers[0]);
-          }
+          console.log(`[SyntheticCandlestickChart] Generated ${allMarkers.length} trade markers for overlay display`);
         }
       }
 

@@ -13,6 +13,8 @@ export interface DailySessionResult {
   sessionName: string;
   winRate: number;
   totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
   pnl: number;
   sessionCss: number;
   sessionEv: number;
@@ -99,6 +101,8 @@ class MonthlySessionService {
           sessionName: dayData.session_name,
           winRate: parseFloat(dayData.win_rate || '0'),
           totalTrades: dayData.total_trades || 0,
+          winningTrades: dayData.winning_trades || 0,
+          losingTrades: dayData.losing_trades || 0,
           pnl: parseFloat(dayData.pnl || '0'),
           sessionCss: parseFloat(dayData.session_css || '0'),
           sessionEv: parseFloat(dayData.session_ev || '0'),

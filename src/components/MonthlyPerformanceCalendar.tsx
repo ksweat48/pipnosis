@@ -180,6 +180,16 @@ export default function MonthlyPerformanceCalendar({ userId }: MonthlyPerformanc
                 <span className="text-gray-400">Trades:</span>
                 <span className="text-white font-semibold">{dayData.totalTrades}</span>
               </div>
+              {(dayData.winningTrades > 0 || dayData.losingTrades > 0) && (
+                <div className="flex justify-between">
+                  <span className="text-gray-400">W/L:</span>
+                  <span className="text-white font-semibold">
+                    <span className="text-green-400">{dayData.winningTrades}</span>
+                    {' / '}
+                    <span className="text-red-400">{dayData.losingTrades}</span>
+                  </span>
+                </div>
+              )}
               {dayData.sessionCss > 0 && (
                 <div className="flex justify-between">
                   <span className="text-gray-400">CSS:</span>
