@@ -509,8 +509,17 @@ class SimpleAutoBacktestService {
       // Start background monitoring
       this.startHeartbeat();
 
-      // Continue from saved day (runDailyBacktest will pick up from currentDayInMonth)
-      this.runDailyBacktest();
+      // Continue from saved day (runLoop will pick up from currentDayInMonth)
+      this.runLoop().catch(async (error) => {
+        console.error('[Auto-Backtest] Error in resumed loop:', error);
+        await this.syncStateToDatabase({
+          is_running: false,
+          stopped_at: new Date().toISOString(),
+          last_error_message: `Resume error: ${error instanceof Error ? error.message : String(error)}`,
+          last_error_at: new Date().toISOString()
+        });
+        this.isRunning = false;
+      });
 
       return {
         success: true,
