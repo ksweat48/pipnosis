@@ -761,16 +761,17 @@ class SimpleAutoBacktestService {
 
             // Update skill progression after each day
             try {
-              // Fetch today's session results to pass to skill tracker
+              // Fetch today's session results to pass to skill tracker (INCLUDING P&L DATA!)
               const { data: todayResults } = await supabase
                 .from('daily_session_results')
-                .select('total_trades, win_rate, profit_factor, key_learnings')
+                .select('total_trades, win_rate, profit_factor, key_learnings, pnl, winning_trades, losing_trades')
                 .eq('user_id', this.userId!)
                 .eq('month_number', this.currentMonthNumber)
                 .eq('day_number', day)
                 .single();
 
               if (todayResults) {
+                console.log(`[Auto-Backtest]   📊 Session P&L: $${todayResults.pnl || 0}`);
                 const skillResult = await aiSkillTracker.recalculateSkillProgression(
                   this.userId!,
                   todayResults

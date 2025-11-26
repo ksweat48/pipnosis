@@ -1261,6 +1261,9 @@ class AISkillTracker {
       win_rate: number;
       profit_factor: number;
       key_learnings?: string[];
+      pnl?: number;
+      winning_trades?: number;
+      losing_trades?: number;
     }
   ): Promise<{ success: boolean; leveledUp: boolean; newLevel?: SkillLevel }> {
     try {
@@ -1270,7 +1273,7 @@ class AISkillTracker {
       if (!sessionResults) {
         const { data } = await supabase
           .from('daily_session_results')
-          .select('total_trades, win_rate, profit_factor, key_learnings')
+          .select('total_trades, win_rate, profit_factor, key_learnings, pnl, winning_trades, losing_trades')
           .eq('user_id', userId)
           .order('session_date', { ascending: false })
           .limit(1)
@@ -1290,14 +1293,32 @@ class AISkillTracker {
         return { success: true, leveledUp: false };
       }
 
-      // Calculate winning trades from win rate
-      const winningTradesCount = Math.round(
+      // Calculate winning trades from win rate (use actual winning_trades if available)
+      const winningTradesCount = sessionResults.winning_trades || Math.round(
         sessionResults.total_trades * (sessionResults.win_rate / 100)
       );
 
-      console.log(`[AI Skill Tracker] Session data: ${sessionResults.total_trades} trades, ${sessionResults.win_rate.toFixed(1)}% WR, ${winningTradesCount} wins`);
+      // Extract P&L data
+      const sessionPnL = sessionResults.pnl || 0;
 
-      // Update skill progression using the main method
+      // Calculate winning trades P&L (estimate based on win rate if not available)
+      // Winning trades typically generate the profit, losses generate the loss
+      // Total PnL = winning PnL + losing PnL (where losing is negative)
+      // For simplicity, assume winning trades generated all positive P&L plus offset for losses
+      const winRate = sessionResults.win_rate / 100;
+      const winningTradesPnL = sessionPnL > 0
+        ? sessionPnL / winRate // Estimate winning trades PnL
+        : sessionPnL * winRate; // If losing session, proportional to win rate
+
+      // Get current balance from skill progression to calculate new balance
+      const current = await this.getSkillProgression(userId);
+      const currentBalance = current?.currentBalance || 10000;
+      const sessionBalance = currentBalance + sessionPnL;
+
+      console.log(`[AI Skill Tracker] Session data: ${sessionResults.total_trades} trades, ${sessionResults.win_rate.toFixed(1)}% WR, ${winningTradesCount} wins`);
+      console.log(`[AI Skill Tracker] P&L data: Session PnL: $${sessionPnL.toFixed(2)}, Winning Trades PnL: $${winningTradesPnL.toFixed(2)}, New Balance: $${sessionBalance.toFixed(2)}`);
+
+      // Update skill progression using the main method WITH P&L DATA
       const result = await this.updateAfterBacktest(
         userId,
         winningTradesCount,
@@ -1306,7 +1327,11 @@ class AISkillTracker {
         sessionResults.key_learnings?.length || 0,
         'synthetic', // Default to synthetic for auto-backtest
         0, // No exploratory trades
-        sessionResults.total_trades
+        sessionResults.total_trades,
+        [], // No confidence data for now
+        sessionPnL, // Pass session P&L
+        sessionBalance, // Pass new balance
+        winningTradesPnL // Pass winning trades P&L
       );
 
       console.log(`[AI Skill Tracker] ✅ Progression updated - Level up: ${result.leveledUp ? 'YES' : 'NO'}`);
