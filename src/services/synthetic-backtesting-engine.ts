@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { syntheticDataGenerator } from './synthetic-data-generator';
+import { backtestLogger } from './backtest-logger';
 import { syntheticBacktestAnalytics, ComprehensiveAnalytics } from './synthetic-backtest-analytics';
 import { aiLearningEngine, TradeForAnalysis } from './ai-learning-engine';
 import { aiSkillTracker } from './ai-skill-tracker';
@@ -122,16 +123,17 @@ class SyntheticBacktestingEngine {
     this.currentBalance = config.initialBalance;
     this.abortSignal = abortSignal || null;
 
-    console.log('\n=== SYNTHETIC BACKTEST STARTING ===');
-    console.log(`[Synthetic Backtest] Session: ${config.sessionName}`);
-    console.log(`[Synthetic Backtest] Period: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
-    console.log(`[Synthetic Backtest] Symbols: ${config.symbols.join(', ')}`);
-    console.log(`[Synthetic Backtest] Market Scenario: ${config.marketScenario}`);
-    console.log(`[Synthetic Backtest] Mode: SYNTHETIC DATA (Training Mode)`);
-    console.log('======================\n');
+    backtestLogger.setBacktestRunning(true);
+    backtestLogger.logBacktestStart({
+      sessionName: config.sessionName,
+      startDate: config.startDate,
+      endDate: config.endDate,
+      symbols: config.symbols,
+      mode: 'SYNTHETIC DATA'
+    });
 
     if (!config.syntheticGenerationId) {
-      console.log('[Synthetic Backtest] Generating synthetic data...');
+      backtestLogger.log('summary', '[Synthetic Backtest] Generating synthetic data...');
       onProgress?.({ phase: 'data_generation', message: 'Generating synthetic market data...', percentComplete: 0 });
       this.syntheticGenerationId = await syntheticDataGenerator.getOrCreateSyntheticData(
         userId,
@@ -145,7 +147,7 @@ class SyntheticBacktestingEngine {
       this.syntheticGenerationId = config.syntheticGenerationId;
     }
 
-    console.log(`[Synthetic Backtest] Using synthetic generation: ${this.syntheticGenerationId}`);
+    backtestLogger.log('candles', `[Synthetic Backtest] Using synthetic generation: ${this.syntheticGenerationId}`);
 
     const session = await this.createSyntheticSession(userId, config);
     this.sessionId = session.id;
@@ -159,7 +161,7 @@ class SyntheticBacktestingEngine {
     try {
       onProgress?.({ phase: 'backtesting', message: 'Running backtest analysis...', percentComplete: 80 });
       for (const symbol of config.symbols) {
-        console.log(`[Synthetic Backtest] Analyzing ${symbol}...`);
+        backtestLogger.log('summary', `[Synthetic Backtest] Analyzing ${symbol}...`);
         await this.backtestSymbol(symbol, config);
       }
 
@@ -193,18 +195,22 @@ class SyntheticBacktestingEngine {
         duration_seconds: duration
       });
 
-      console.log('\n=== SYNTHETIC BACKTEST COMPLETED ===');
-      console.log(`[Synthetic Backtest] ✅ Win rate: ${result.winRate.toFixed(2)}%`);
-      console.log(`[Synthetic Backtest] 💰 Total P&L: $${result.totalPnL.toFixed(2)}`);
-      console.log(`[Synthetic Backtest] 📊 Total trades: ${result.totalTrades}`);
-      console.log(`[Synthetic Backtest] ✅ Winning: ${result.winningTrades}`);
-      console.log(`[Synthetic Backtest] ❌ Losing: ${result.losingTrades}`);
-      console.log(`[Synthetic Backtest] 📈 Profit Factor: ${result.profitFactor.toFixed(2)}`);
-      console.log('==========================\n');
+      backtestLogger.logBacktestSummary({
+        sessionName: config.sessionName,
+        totalTrades: result.totalTrades,
+        winningTrades: result.winningTrades,
+        losingTrades: result.losingTrades,
+        breakevenTrades: result.breakevenTrades,
+        winRate: result.winRate,
+        totalPnL: result.totalPnL,
+        profitFactor: result.profitFactor,
+        finalBalance: result.finalBalance
+      });
+      backtestLogger.setBacktestRunning(false);
 
       // Auto-start continuous learning loop to validate insights
       if (!continuousLearningLoop.isActive()) {
-        console.log('[Synthetic Backtest] 🔄 Starting continuous learning loop for insight validation...');
+        backtestLogger.log('summary', '[Synthetic Backtest] 🔄 Starting continuous learning loop for insight validation...');
         await continuousLearningLoop.start(userId);
       }
 
@@ -220,9 +226,9 @@ class SyntheticBacktestingEngine {
   }
 
   private async backtestSymbol(symbol: string, config: SyntheticBacktestConfig): Promise<void> {
-    console.log(`[Synthetic Backtest] 🔍 DIAGNOSTIC: Attempting to fetch candles for ${symbol}`);
-    console.log(`[Synthetic Backtest] 🔍 Date range: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
-    console.log(`[Synthetic Backtest] 🔍 Generation ID: ${this.syntheticGenerationId}`);
+    backtestLogger.log('candles', `[Synthetic Backtest] 🔍 DIAGNOSTIC: Attempting to fetch candles for ${symbol}`);
+    backtestLogger.log('candles', `[Synthetic Backtest] 🔍 Date range: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
+    backtestLogger.log('candles', `[Synthetic Backtest] 🔍 Generation ID: ${this.syntheticGenerationId}`);
 
     let candles = await this.getSyntheticCandles(
       symbol,
@@ -231,11 +237,11 @@ class SyntheticBacktestingEngine {
       config.endDate
     );
 
-    console.log(`[Synthetic Backtest] 🔍 Candles returned: ${candles?.length || 0}`);
+    backtestLogger.log('candles', `[Synthetic Backtest] 🔍 Candles returned: ${candles?.length || 0}`);
 
     if (!candles || candles.length === 0) {
-      console.warn(`[Synthetic Backtest] ⚠️ ZERO SYNTHETIC CANDLES FOUND for ${symbol}!`);
-      console.warn(`[Synthetic Backtest] ⚠️ Attempting to fall back to real forex_candles data...`);
+      backtestLogger.log('errors', `[Synthetic Backtest] ⚠️ ZERO SYNTHETIC CANDLES FOUND for ${symbol}!`);
+      backtestLogger.log('errors', `[Synthetic Backtest] ⚠️ Attempting to fall back to real forex_candles data...`);
 
       // FALLBACK: Try to use real forex_candles data
       const { data: realCandles } = await supabase
@@ -248,7 +254,7 @@ class SyntheticBacktestingEngine {
         .order('open_time', { ascending: true });
 
       if (realCandles && realCandles.length > 0) {
-        console.log(`[Synthetic Backtest] ✅ FALLBACK SUCCESS: Using ${realCandles.length} real candles from forex_candles`);
+        backtestLogger.log('summary', `[Synthetic Backtest] ✅ FALLBACK SUCCESS: Using ${realCandles.length} real candles from forex_candles`);
         candles = realCandles;
       } else {
         console.error(`[Synthetic Backtest] ❌ FATAL: No candles available (neither synthetic nor real)`);
@@ -261,8 +267,7 @@ class SyntheticBacktestingEngine {
       }
     }
 
-    console.log(`[Synthetic Backtest] ✅ Processing ${candles.length} H1 candles for ${symbol}`);
-    console.log(`[Synthetic Backtest] Date range: ${config.startDate.toISOString()} to ${config.endDate.toISOString()}`);
+    backtestLogger.log('summary', `[Synthetic Backtest] ✅ Processing ${candles.length} H1 candles for ${symbol}`);
 
     let signalsGenerated = 0;
     let signalsExecuted = 0;
@@ -271,14 +276,14 @@ class SyntheticBacktestingEngine {
     for (let i = 0; i < candles.length; i++) {
       // Check if backtest has been aborted
       if (this.abortSignal?.aborted) {
-        console.log('[Synthetic Backtest] ⏸️ Backtest aborted by user');
+        backtestLogger.log('errors', '[Synthetic Backtest] ⏸️ Backtest aborted by user');
         break;
       }
 
       const currentTime = new Date(candles[i].open_time);
 
       if (i % 10 === 0) {
-        console.log(`[Synthetic Backtest] 🕒 Processing candle ${i + 1}/${candles.length} at ${currentTime.toISOString()}`);
+        backtestLogger.log('progress', `[Synthetic Backtest] 🕒 Processing candle ${i + 1}/${candles.length} at ${currentTime.toISOString()}`);
         // Update progress every 10 candles
         await this.updateProgress(i + 1, candles.length);
         // Check account health every 10 candles
@@ -298,13 +303,13 @@ class SyntheticBacktestingEngine {
 
       if (signal) {
         signalsGenerated++;
-        console.log(`[Synthetic Backtest] Signal #${signalsGenerated} generated - ${signal.direction.toUpperCase()} (${signal.confidence}%)`);
+        backtestLogger.log('decisions', `[Synthetic Backtest] Signal #${signalsGenerated} generated - ${signal.direction.toUpperCase()} (${signal.confidence}%)`);
 
         if (signal.shouldExecute) {
           signalsExecuted++;
           const trade = this.executeTrade(signal, currentTime);
           this.openTrades.push(trade);
-          console.log(`[Synthetic Backtest] ✓ Trade executed`);
+          backtestLogger.log('trades', `[Synthetic Backtest] ✓ Trade executed`);
           // Update progress with each trade executed
           await this.updateProgressWithNewTrade();
         } else {
@@ -370,6 +375,7 @@ class SyntheticBacktestingEngine {
         symbol,
         timeframe: 'M1',
         currentPrice,
+        tradeNumber: this.tradeCounter + 1,
         snapshot: {
           ohlc: m1Candles.map(c => ({
             time: c.time,

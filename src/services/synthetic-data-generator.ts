@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { backtestLogger } from './backtest-logger';
 
 export interface SyntheticCandle {
   open_time: string;
@@ -53,7 +54,7 @@ class SyntheticDataGeneratorService {
     customParams?: Partial<GenerationParams>,
     onProgress?: (progress: GenerationProgress) => void
   ): Promise<SyntheticDataResult> {
-    console.log(`[Synthetic] Generating data for ${symbol} from ${startDate.toISOString()} to ${endDate.toISOString()}`);
+    backtestLogger.log('candles', `[Synthetic] Generating data for ${symbol} from ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
     const params = this.getScenarioParams(scenario, customParams);
     const startTime = Date.now();
@@ -97,7 +98,7 @@ class SyntheticDataGeneratorService {
       })
       .eq('id', generationId);
 
-    console.log(`[Synthetic] ✅ Generated ${totalCandles} candles in ${duration}ms`);
+    backtestLogger.log('summary', `[Synthetic] ✅ Generated ${totalCandles} candles in ${duration}ms`);
 
     return {
       generationId,
@@ -199,14 +200,14 @@ class SyntheticDataGeneratorService {
     let progressCounter = 0;
     const progressInterval = 1000;
 
-    console.log(`[Synthetic] Estimating ${totalEstimated} M1 candles for ${symbol}`);
+    backtestLogger.log('candles', `[Synthetic] Estimating ${totalEstimated} M1 candles for ${symbol}`);
 
     while (currentTime < endTime) {
       progressCounter++;
 
       if (progressCounter % progressInterval === 0) {
         const percentComplete = Math.min(70, (candles.length / totalEstimated) * 70);
-        console.log(`[Synthetic] Generated ${candles.length}/${totalEstimated} M1 candles (${percentComplete.toFixed(1)}%)`);
+        backtestLogger.log('progress', `[Synthetic] Generated ${candles.length}/${totalEstimated} M1 candles (${percentComplete.toFixed(1)}%)`);
         onProgress?.({
           phase: 'generation',
           candlesGenerated: candles.length,
@@ -291,7 +292,7 @@ class SyntheticDataGeneratorService {
       currentTime = closeTime;
     }
 
-    console.log(`[Synthetic] Generated ${candles.length} M1 candles, now saving to database...`);
+    backtestLogger.log('candles', `[Synthetic] Generated ${candles.length} M1 candles, now saving to database...`);
     onProgress?.({
       phase: 'saving',
       candlesGenerated: candles.length,
@@ -303,7 +304,7 @@ class SyntheticDataGeneratorService {
 
     await this.saveCandlesToDatabase(candles, symbol, 'M1', generationId, onProgress, totalEstimated);
 
-    console.log(`[Synthetic] Generated ${candles.length} M1 candles`);
+    backtestLogger.log('candles', `[Synthetic] Generated ${candles.length} M1 candles`);
     return candles;
   }
 
@@ -358,7 +359,7 @@ class SyntheticDataGeneratorService {
     }
 
     await this.saveCandlesToDatabase(aggregated, symbol, timeframe, generationId);
-    console.log(`[Synthetic] Aggregated ${aggregated.length} ${timeframe} candles`);
+    backtestLogger.log('candles', `[Synthetic] Aggregated ${aggregated.length} ${timeframe} candles`);
   }
 
   private async saveCandlesToDatabase(
@@ -374,7 +375,7 @@ class SyntheticDataGeneratorService {
     for (let i = 0; i < candles.length; i += BATCH_SIZE) {
       const batchNum = Math.floor(i / BATCH_SIZE) + 1;
       const totalBatches = Math.ceil(candles.length / BATCH_SIZE);
-      console.log(`[Synthetic] Saving batch ${batchNum}/${totalBatches} for ${timeframe}...`);
+      backtestLogger.log('progress', `[Synthetic] Saving batch ${batchNum}/${totalBatches} for ${timeframe}...`);
       const batch = candles.slice(i, i + BATCH_SIZE);
       const records = batch.map(candle => ({
         synthetic_session_id: generationId,
@@ -498,7 +499,7 @@ class SyntheticDataGeneratorService {
     startDate: Date,
     endDate: Date
   ): Promise<any[]> {
-    console.log(`[Synthetic] Fetching candles:`, {
+    backtestLogger.log('candles', `[Synthetic] Fetching candles:`, {
       generationId,
       symbol,
       timeframe,
@@ -522,7 +523,7 @@ class SyntheticDataGeneratorService {
     }
 
     if (!data || data.length === 0) {
-      console.log(`[Synthetic] No ${timeframe} candles found for ${symbol}`);
+      backtestLogger.log('candles', `[Synthetic] No ${timeframe} candles found for ${symbol}`);
       return [];
     }
 
@@ -543,7 +544,7 @@ class SyntheticDataGeneratorService {
       return true;
     });
 
-    console.log(`[Synthetic] Found ${validCandles.length} valid ${timeframe} candles for ${symbol} (filtered from ${data.length})`);
+    backtestLogger.log('candles', `[Synthetic] Found ${validCandles.length} valid ${timeframe} candles for ${symbol} (filtered from ${data.length})`);
     return validCandles;
   }
 
@@ -555,7 +556,7 @@ class SyntheticDataGeneratorService {
     scenario: string = 'mixed',
     onProgress?: (progress: GenerationProgress) => void
   ): Promise<string> {
-    console.log(`[Synthetic] Looking for existing generation:`, {
+    backtestLogger.log('candles', `[Synthetic] Looking for existing generation:`, {
       userId,
       symbol,
       scenario,
@@ -576,7 +577,7 @@ class SyntheticDataGeneratorService {
       .maybeSingle();
 
     if (existing) {
-      console.log('[Synthetic] Found existing generation:', {
+      backtestLogger.log('candles', '[Synthetic] Found existing generation:', {
         id: existing.id,
         start_date: existing.start_date,
         end_date: existing.end_date,
@@ -586,13 +587,13 @@ class SyntheticDataGeneratorService {
       const candleCount = await this.verifyCandlesExist(existing.id, symbol);
 
       if (candleCount > 0) {
-        console.log(`[Synthetic] ✅ Verified ${candleCount} candles exist, using existing generation: ${existing.id}`);
+        backtestLogger.log('candles', `[Synthetic] ✅ Verified ${candleCount} candles exist, using existing generation: ${existing.id}`);
         return existing.id;
       } else {
-        console.log('[Synthetic] ⚠️ Existing generation has no candles, generating new data...');
+        backtestLogger.log('candles', '[Synthetic] ⚠️ Existing generation has no candles, generating new data...');
       }
     } else {
-      console.log('[Synthetic] No existing generation found, creating new...');
+      backtestLogger.log('candles', '[Synthetic] No existing generation found, creating new...');
     }
 
     const result = await this.generateSyntheticData(userId, symbol, startDate, endDate, scenario, undefined, onProgress);
@@ -627,7 +628,7 @@ class SyntheticDataGeneratorService {
       throw error;
     }
 
-    console.log(`[Synthetic] Deleted generation ${generationId}`);
+    backtestLogger.log('candles', `[Synthetic] Deleted generation ${generationId}`);
   }
 }
 

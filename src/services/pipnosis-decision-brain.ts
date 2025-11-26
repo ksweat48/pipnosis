@@ -9,6 +9,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { backtestLogger } from './backtest-logger';
 import { PIPNOSIS_CORE_RULES, PipnosisCoreRules } from '../lib/pipnosis-core-rules';
 import { avoidPatternEnforcer } from './avoid-pattern-enforcer';
 import { llmRegimeValidator } from './llm-regime-validator';
@@ -82,6 +83,7 @@ export interface DecisionContext {
   symbol: string;
   timeframe: string;
   currentPrice: number;
+  tradeNumber?: number;
   snapshot: {
     ohlc: Array<{ time: Date; open: number; high: number; low: number; close: number; volume?: number }>;
     indicators: {
@@ -175,10 +177,10 @@ class PipnosisDecisionBrain {
     const pipelineStart = Date.now();
     let totalTokens = 0;
 
-    console.log(`\n${'='.repeat(80)}`);
-    console.log(`[PIPNOSIS BRAIN] DECISION REQUEST - Mode: ${context.mode.toUpperCase()}`);
-    console.log(`Symbol: ${context.symbol} | Price: ${context.currentPrice}`);
-    console.log(`${'='.repeat(80)}\n`);
+    backtestLogger.log('decisions', `\n${'='.repeat(80)}`);
+    backtestLogger.log('decisions', `[PIPNOSIS BRAIN] DECISION REQUEST - Mode: ${context.mode.toUpperCase()}`);
+    backtestLogger.log('decisions', `Symbol: ${context.symbol} | Price: ${context.currentPrice}`);
+    backtestLogger.log('decisions', `${'='.repeat(80)}\n`);
 
     try {
       // ============================================================
@@ -212,7 +214,7 @@ class PipnosisDecisionBrain {
       // ============================================================
       // HARD GATE: Avoid Pattern Enforcer
       // ============================================================
-      console.log('[HARD GATE] 🚫 Checking Avoid Pattern Enforcer...');
+      backtestLogger.log('decisions', '[HARD GATE] 🚫 Checking Avoid Pattern Enforcer...');
       const marketSnapshot = this.buildMarketSnapshotForLLM(context);
       const hardGateResult = await avoidPatternEnforcer.enforceAvoidPatterns(
         context.sessionContext.userId,
@@ -224,7 +226,7 @@ class PipnosisDecisionBrain {
       totalTokens += 0;
 
       if (hardGateResult.is_blocked) {
-        console.log(`[HARD GATE] ❌ BLOCKED: ${hardGateResult.block_reason}`);
+        backtestLogger.log('decisions', `[HARD GATE] ❌ BLOCKED: ${hardGateResult.block_reason}`);
         pipelineResult.hardGateResult = 'blocked';
         pipelineResult.hardGateReason = hardGateResult.block_reason || 'Matches losing pattern';
         pipelineResult.totalProcessingTimeMs = Date.now() - pipelineStart;
@@ -242,7 +244,7 @@ class PipnosisDecisionBrain {
         };
       }
 
-      console.log('[HARD GATE] ✅ ALLOWED - Proceeding to LLM pipeline');
+      backtestLogger.log('decisions', '[HARD GATE] ✅ ALLOWED - Proceeding to LLM pipeline');
 
       // ============================================================
       // LAYER 1: Regime Validator
@@ -596,7 +598,7 @@ class PipnosisDecisionBrain {
         };
       }
 
-      console.log('[HARD RULES] ✅ ALL CONSTRAINTS SATISFIED');
+      backtestLogger.log('decisions', '[HARD RULES] ✅ ALL CONSTRAINTS SATISFIED');
 
       pipelineResult.finalDecision = 'TRADE';
       pipelineResult.totalProcessingTimeMs = Date.now() - pipelineStart;
@@ -604,11 +606,18 @@ class PipnosisDecisionBrain {
 
       await this.logPipelineExecution(context, pipelineResult);
 
-      console.log(`\n${'='.repeat(80)}`);
-      console.log(`[PIPNOSIS BRAIN] ✅ DECISION: ${llmDecision.action}`);
-      console.log(`Confidence: ${calibratedConfidence}% | Setup: ${llmDecision.setupType}`);
-      console.log(`Pipeline: ${totalTokens} tokens, ${(Date.now() - pipelineStart)}ms`);
-      console.log(`${'='.repeat(80)}\n`);
+      const isExecute = llmDecision.action === 'execute' || llmDecision.action === 'EXECUTE';
+      backtestLogger.logTradeDecision({
+        tradeNumber: context.tradeNumber || 0,
+        action: isExecute ? 'EXECUTE' : 'REJECT',
+        symbol: context.symbol,
+        direction: llmDecision.direction,
+        confidence: calibratedConfidence,
+        setup: llmDecision.setupType,
+        rejectReason: !isExecute ? llmDecision.reasoning : undefined,
+        time: new Date()
+      });
+      backtestLogger.log('decisions', `Pipeline: ${totalTokens} tokens, ${(Date.now() - pipelineStart)}ms`);
 
       return {
         ...llmDecision,
@@ -617,7 +626,7 @@ class PipnosisDecisionBrain {
       };
 
     } catch (error) {
-      console.error('[PIPNOSIS BRAIN] ❌ ERROR:', error);
+      backtestLogger.error('errors', '[PIPNOSIS BRAIN] ❌ ERROR:', error);
 
       return {
         action: 'no_trade',
