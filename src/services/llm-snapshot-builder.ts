@@ -467,6 +467,249 @@ Should you:
       violations
     };
   }
+
+  /**
+   * Calculate EMA200 for longer-term trend analysis
+   */
+  calculateEMA200(closes: number[]): number {
+    if (closes.length < 200) {
+      return closes[closes.length - 1];
+    }
+    return this.calculateEMA(closes, 200);
+  }
+
+  /**
+   * Calculate EMA helper
+   */
+  private calculateEMA(values: number[], period: number): number {
+    if (values.length < period) return values[values.length - 1];
+
+    const multiplier = 2 / (period + 1);
+    let ema = values.slice(0, period).reduce((sum, val) => sum + val, 0) / period;
+
+    for (let i = period; i < values.length; i++) {
+      ema = (values[i] - ema) * multiplier + ema;
+    }
+
+    return ema;
+  }
+
+  /**
+   * Calculate RSI helper
+   */
+  private calculateRSI(closes: number[], period: number = 14): number {
+    if (closes.length < period + 1) return 50;
+
+    let gains = 0;
+    let losses = 0;
+
+    for (let i = closes.length - period; i < closes.length; i++) {
+      const change = closes[i] - closes[i - 1];
+      if (change > 0) {
+        gains += change;
+      } else {
+        losses -= change;
+      }
+    }
+
+    const avgGain = gains / period;
+    const avgLoss = losses / period;
+
+    if (avgLoss === 0) return 100;
+
+    const rs = avgGain / avgLoss;
+    const rsi = 100 - (100 / (1 + rs));
+
+    return rsi;
+  }
+
+  /**
+   * Calculate Stochastic RSI
+   */
+  calculateStochRSI(closes: number[], period: number = 14): number {
+    if (closes.length < period * 2) return 50;
+
+    const rsiValues: number[] = [];
+    for (let i = period; i < closes.length; i++) {
+      const slice = closes.slice(i - period, i + 1);
+      rsiValues.push(this.calculateRSI(slice, period));
+    }
+
+    const currentRSI = rsiValues[rsiValues.length - 1];
+    const recentRSI = rsiValues.slice(-period);
+
+    const minRSI = Math.min(...recentRSI);
+    const maxRSI = Math.max(...recentRSI);
+
+    if (maxRSI === minRSI) return 50;
+
+    const stochRSI = ((currentRSI - minRSI) / (maxRSI - minRSI)) * 100;
+    return stochRSI;
+  }
+
+  /**
+   * Detect swing high and low levels
+   */
+  detectSwingLevels(candles: any[], lookback: number = 20): { high: number; low: number } {
+    const recentCandles = candles.slice(-lookback);
+
+    const highs = recentCandles.map(c => c.high);
+    const lows = recentCandles.map(c => c.low);
+
+    return {
+      high: Math.max(...highs),
+      low: Math.min(...lows)
+    };
+  }
+
+  /**
+   * Detect support and resistance levels
+   */
+  detectSupportResistance(candles: any[], currentPrice: number): {
+    support: number[];
+    resistance: number[];
+  } {
+    const recentCandles = candles.slice(-50);
+    const support: number[] = [];
+    const resistance: number[] = [];
+
+    // Find pivot points
+    for (let i = 2; i < recentCandles.length - 2; i++) {
+      const candle = recentCandles[i];
+      const prevCandle = recentCandles[i - 1];
+      const prevPrevCandle = recentCandles[i - 2];
+      const nextCandle = recentCandles[i + 1];
+      const nextNextCandle = recentCandles[i + 2];
+
+      // Pivot high (resistance)
+      if (
+        candle.high > prevCandle.high &&
+        candle.high > prevPrevCandle.high &&
+        candle.high > nextCandle.high &&
+        candle.high > nextNextCandle.high
+      ) {
+        if (candle.high > currentPrice) {
+          resistance.push(candle.high);
+        }
+      }
+
+      // Pivot low (support)
+      if (
+        candle.low < prevCandle.low &&
+        candle.low < prevPrevCandle.low &&
+        candle.low < nextCandle.low &&
+        candle.low < nextNextCandle.low
+      ) {
+        if (candle.low < currentPrice) {
+          support.push(candle.low);
+        }
+      }
+    }
+
+    // Sort and keep top 3 of each
+    support.sort((a, b) => b - a);
+    resistance.sort((a, b) => a - b);
+
+    return {
+      support: support.slice(0, 3),
+      resistance: resistance.slice(0, 3)
+    };
+  }
+
+  /**
+   * Build compressed market state for condition monitoring
+   */
+  buildMarketState(candles: any[]): {
+    price: number;
+    ema20: number;
+    ema50: number;
+    ema200: number;
+    rsi: number;
+    stochRsi: number;
+    atr: number;
+    vwap: number;
+    trend: string;
+    momentum: number;
+    volatility: string;
+    swingHigh: number;
+    swingLow: number;
+  } {
+    const closes = candles.map(c => c.close);
+    const highs = candles.map(c => c.high);
+    const lows = candles.map(c => c.low);
+    const currentCandle = candles[candles.length - 1];
+
+    const ema20 = this.calculateEMA(closes, 20);
+    const ema50 = this.calculateEMA(closes, 50);
+    const ema200 = this.calculateEMA200(closes);
+    const rsi = this.calculateRSI(closes, 14);
+    const stochRsi = this.calculateStochRSI(closes, 14);
+
+    // Calculate ATR
+    const atrPeriod = 14;
+    const trValues: number[] = [];
+    for (let i = Math.max(1, candles.length - atrPeriod); i < candles.length; i++) {
+      const high = candles[i].high;
+      const low = candles[i].low;
+      const prevClose = candles[i - 1].close;
+      const tr = Math.max(
+        high - low,
+        Math.abs(high - prevClose),
+        Math.abs(low - prevClose)
+      );
+      trValues.push(tr);
+    }
+    const atr = trValues.reduce((sum, tr) => sum + tr, 0) / trValues.length;
+
+    // Calculate VWAP
+    const vwapCandles = candles.slice(-20);
+    let sumPV = 0;
+    let sumV = 0;
+    for (const candle of vwapCandles) {
+      const typical = (candle.high + candle.low + candle.close) / 3;
+      const volume = candle.volume || 1000;
+      sumPV += typical * volume;
+      sumV += volume;
+    }
+    const vwap = sumPV / sumV;
+
+    // Determine trend
+    let trend = 'sideways';
+    if (ema20 > ema50 && currentCandle.close > ema50) {
+      trend = 'bullish';
+    } else if (ema20 < ema50 && currentCandle.close < ema50) {
+      trend = 'bearish';
+    }
+
+    // Calculate momentum
+    const momentum = closes.length >= 10
+      ? ((closes[closes.length - 1] - closes[closes.length - 10]) / closes[closes.length - 10]) * 100
+      : 0;
+
+    // Determine volatility
+    const atrPercent = (atr / currentCandle.close) * 100;
+    let volatility = 'medium';
+    if (atrPercent < 0.3) volatility = 'low';
+    else if (atrPercent > 0.8) volatility = 'high';
+
+    const swingLevels = this.detectSwingLevels(candles);
+
+    return {
+      price: currentCandle.close,
+      ema20,
+      ema50,
+      ema200,
+      rsi,
+      stochRsi,
+      atr,
+      vwap,
+      trend,
+      momentum,
+      volatility,
+      swingHigh: swingLevels.high,
+      swingLow: swingLevels.low
+    };
+  }
 }
 
 export const llmSnapshotBuilder = new LLMSnapshotBuilder();
