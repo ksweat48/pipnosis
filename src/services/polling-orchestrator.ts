@@ -105,33 +105,16 @@ class PollingOrchestrator {
       return;
     }
 
-    const health: any = {}; // Simplified health tracking
+    // Health tracking simplified - no health monitor
     const browserStatus = browserPricePoller.getStatus();
     const globalStatus = globalPollingCoordinator.getCoordinatorStatus();
     const circuitStatus = circuitBreakerService.getStatus();
 
-    // Count symbol statuses
+    // Count symbol statuses (health monitor removed)
     let activeCount = 0;
     let degradedCount = 0;
     let criticalCount = 0;
     let stoppedCount = 0;
-
-    health.forEach(h => {
-      switch (h.status) {
-        case 'active':
-          activeCount++;
-          break;
-        case 'degraded':
-          degradedCount++;
-          break;
-        case 'critical':
-          criticalCount++;
-          break;
-        case 'stopped':
-          stoppedCount++;
-          break;
-      }
-    });
 
     console.log(
       `[PollingOrchestrator] Health Summary: ` +
@@ -285,20 +268,11 @@ class PollingOrchestrator {
 
   private async persistState(): Promise<void> {
     try {
-      const health: any = {}; // Simplified health tracking
+      // Health tracking simplified - no health monitor
       let activeCount = 0;
       let degradedCount = 0;
       let criticalCount = 0;
       let stoppedCount = 0;
-
-      health.forEach(h => {
-        switch (h.status) {
-          case 'active': activeCount++; break;
-          case 'degraded': degradedCount++; break;
-          case 'critical': criticalCount++; break;
-          case 'stopped': stoppedCount++; break;
-        }
-      });
 
       await supabase
         .from('polling_health')
@@ -318,20 +292,11 @@ class PollingOrchestrator {
   }
 
   getStatus(): OrchestratorStatus {
-    const health: any = {}; // Simplified health tracking
+    // Health tracking simplified - no health monitor
     let activeCount = 0;
     let degradedCount = 0;
     let criticalCount = 0;
     let stoppedCount = 0;
-
-    health.forEach(h => {
-      switch (h.status) {
-        case 'active': activeCount++; break;
-        case 'degraded': degradedCount++; break;
-        case 'critical': criticalCount++; break;
-        case 'stopped': stoppedCount++; break;
-      }
-    });
 
     return {
       activePoller: this.activePoller,
