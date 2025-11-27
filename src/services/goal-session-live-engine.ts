@@ -403,9 +403,9 @@ class GoalSessionLiveEngine {
         await this.handleNewTradeSignal(result.trade);
       }
 
-      // Send scanning status update (every 4th scan = every minute)
-      if (this.scanCount % 4 === 0 && this.openTrades.length === 0) {
-        await this.sendScanningUpdate(latestCandle, result.trigger);
+      // Send AI thinking update every scan when no open trades
+      if (this.openTrades.length === 0) {
+        await this.sendAIThinkingUpdate(latestCandle, sortedCandles, result);
       }
 
       await supabase
@@ -817,6 +817,85 @@ This learning will carry forward to improve future sessions!
    */
   getActiveSessionId(): string | null {
     return this.activeSession;
+  }
+
+  /**
+   * Send AI thinking update - shows real-time analysis
+   */
+  private async sendAIThinkingUpdate(latestCandle: any, candles: any[], result: any): Promise<void> {
+    if (!this.config || !this.activeSession) return;
+
+    const price = latestCandle.close;
+    const time = new Date().toLocaleTimeString();
+
+    const ema20 = latestCandle.ema20 || 0;
+    const ema50 = latestCandle.ema50 || 0;
+    const rsi = latestCandle.rsi || 50;
+
+    const priceDiff = candles.length >= 2 ? price - candles[candles.length - 2].close : 0;
+    const priceDirection = priceDiff > 0 ? '↑' : priceDiff < 0 ? '↓' : '→';
+    const priceChangePercent = candles.length >= 2
+      ? ((priceDiff / candles[candles.length - 2].close) * 100).toFixed(3)
+      : '0.000';
+
+    const trend = price > ema50 ? 'Bullish' : price < ema50 ? 'Bearish' : 'Neutral';
+
+    let message = `🧠 Analyzing ${this.config.symbol} (${time})\n`;
+    message += `📊 Price: $${price.toFixed(2)} (${priceDirection}${Math.abs(parseFloat(priceChangePercent))}%)\n`;
+    message += `📈 Trend: ${trend} | RSI: ${rsi.toFixed(0)}\n`;
+
+    if (result.trade) {
+      message += `\n✅ Trade approved by GPT-4o!\n`;
+      message += `🎯 ${result.trade.direction.toUpperCase()} @ $${result.trade.entryPrice}\n`;
+      message += `📝 ${result.trade.reasoning}`;
+    } else if (result.trigger) {
+      message += `\n🔍 Setup forming: ${result.trigger.type}\n`;
+      message += `🤖 Validating with GPT-4o...`;
+    } else {
+      const strategy = await this.getCurrentStrategy();
+      if (strategy) {
+        message += `\n🎯 Strategy: ${strategy.mode}\n`;
+        message += `🔍 Looking for: ${strategy.conditions.slice(0, 2).join(', ')}\n`;
+        message += `⏳ Monitoring conditions...`;
+      } else {
+        message += `\n⏳ Monitoring market conditions\n`;
+        message += `🔍 Waiting for high-probability setup...`;
+      }
+    }
+
+    try {
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: this.activeSession,
+        user_id: this.config.userId,
+        role: 'ai',
+        message,
+        context: {
+          scanCount: this.scanCount,
+          price,
+          symbol: this.config.symbol,
+          time,
+          trend,
+          rsi,
+          hasSetup: !!result.trigger,
+          hasTrade: !!result.trade
+        },
+        sentiment: result.trade ? 'encouraging' : 'neutral'
+      });
+    } catch (error) {
+      console.error('[Goal Live Engine] Failed to log AI thinking update:', error);
+    }
+  }
+
+  /**
+   * Get current strategy from event engine
+   */
+  private async getCurrentStrategy(): Promise<any | null> {
+    try {
+      const strategy = (eventBasedLLMEngine as any).currentStrategy;
+      return strategy || null;
+    } catch {
+      return null;
+    }
   }
 
   /**

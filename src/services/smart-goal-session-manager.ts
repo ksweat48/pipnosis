@@ -333,8 +333,8 @@ class SmartGoalSessionManager {
           `📊 Strategy: ${breakDown.targetTradeCount} trades averaging $${breakDown.avgProfitPerTrade.toFixed(2)} each\\n` +
           `🛡️ Risk Mode: ${config.riskMode.toUpperCase()} (max $${breakDown.maxProfitPerTrade.toFixed(2)} per trade)\\n` +
           `\\n🔍 Monitoring: ${config.watchlist.join(', ')}\\n` +
-          `⚡ Scanning every 15 seconds for high-probability setups\\n` +
-          `🧠 5-Layer LLM Protection: Hard Gate + 4 validation layers active\\n` +
+          `⚡ Analyzing markets every minute for optimal entries\\n` +
+          `🧠 Autonomous Pipnosis Alpha: GPT-4o analyzing market conditions\\n` +
           `📈 All trades will have visible SL/TP on charts (Live Demo Mode)\\n` +
           `\\n✨ Looking for: VWAP reversals, EMA crossovers, momentum shifts, support/resistance bounces`;
 

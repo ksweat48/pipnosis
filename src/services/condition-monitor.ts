@@ -75,7 +75,27 @@ class ConditionMonitor {
   private evaluateCondition(condition: string, state: MarketState): boolean {
     const c = condition.toLowerCase().trim();
 
-    // Price vs EMAs
+    // Natural language: "price above ema20/50/200"
+    if (c.includes('price above ema20') || c.includes('price over ema20')) {
+      return state.price > state.ema20;
+    }
+    if (c.includes('price above ema50') || c.includes('price over ema50')) {
+      return state.price > state.ema50;
+    }
+    if (c.includes('price above ema200') || c.includes('price over ema200')) {
+      return state.price > state.ema200;
+    }
+    if (c.includes('price below ema20') || c.includes('price under ema20')) {
+      return state.price < state.ema20;
+    }
+    if (c.includes('price below ema50') || c.includes('price under ema50')) {
+      return state.price < state.ema50;
+    }
+    if (c.includes('price below ema200') || c.includes('price under ema200')) {
+      return state.price < state.ema200;
+    }
+
+    // Shorthand: Price vs EMAs
     if (c.includes('p>e50') || c.includes('price>ema50')) {
       return state.price > state.ema50;
     }
@@ -101,6 +121,14 @@ class ConditionMonitor {
     }
     if (c.includes('e20<e50') || c.includes('ema20<ema50')) {
       return state.ema20 < state.ema50;
+    }
+
+    // Natural language: "rsi between X-Y"
+    const rsiBetweenMatch = c.match(/rsi\s+(?:between|range|from)\s+(\d+)[-\s](?:to\s+)?(\d+)/);
+    if (rsiBetweenMatch) {
+      const min = parseInt(rsiBetweenMatch[1]);
+      const max = parseInt(rsiBetweenMatch[2]);
+      return state.rsi >= min && state.rsi <= max;
     }
 
     // RSI conditions
@@ -164,6 +192,38 @@ class ConditionMonitor {
     if (c.includes('near_swing_high')) {
       const distance = Math.abs(state.price - state.swingHigh) / state.price;
       return distance < 0.005;
+    }
+
+    // Natural language: "price approaching/near resistance/support"
+    if (c.includes('approaching resistance') || c.includes('near resistance')) {
+      const distance = Math.abs(state.price - state.swingHigh) / state.price;
+      return distance < 0.003; // Within 0.3%
+    }
+    if (c.includes('approaching support') || c.includes('near support')) {
+      const distance = Math.abs(state.price - state.swingLow) / state.price;
+      return distance < 0.003; // Within 0.3%
+    }
+
+    // Natural language: momentum descriptors
+    if (c.includes('momentum strong') || c.includes('strong momentum')) {
+      return Math.abs(state.momentum) > 0.5;
+    }
+    if (c.includes('momentum weak') || c.includes('weak momentum')) {
+      return Math.abs(state.momentum) < 0.2;
+    }
+    if (c.includes('momentum positive') || c.includes('positive momentum')) {
+      return state.momentum > 0;
+    }
+    if (c.includes('momentum negative') || c.includes('negative momentum')) {
+      return state.momentum < 0;
+    }
+
+    // Natural language: trend descriptors
+    if (c.includes('bullish trend') || c.includes('uptrend') || c.includes('trending up')) {
+      return state.trend === 'bullish' || state.trend === 'bull';
+    }
+    if (c.includes('bearish trend') || c.includes('downtrend') || c.includes('trending down')) {
+      return state.trend === 'bearish' || state.trend === 'bear';
     }
 
     // Default: unknown condition = false

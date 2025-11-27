@@ -222,7 +222,7 @@ class EventBasedLLMEngine {
       this.strategyPlanCount = 0;
       console.log(`[Autonomous Brain] ✅ Strategy planned: ${this.currentStrategy.mode}`);
       console.log(`[Autonomous Brain] Watching for: ${this.currentStrategy.conditions.join(', ')}`);
-      console.log(`[Autonomous Brain] Risk Level: ${this.currentStrategy.riskLevel}`);
+      console.log(`[Autonomous Brain] Risk Level: ${this.currentStrategy.riskLevel}%`);
     }
     this.strategyPlanCount++;
 
@@ -234,7 +234,9 @@ class EventBasedLLMEngine {
     );
 
     if (!conditionCheck.ready) {
-      console.log(`[Autonomous Brain] Conditions not met: ${conditionCheck.reason || 'Waiting for setup'}`);
+      const statusMsg = this.getDetailedConditionStatus(conditionCheck, marketState);
+      console.log(`[Autonomous Brain] ${statusMsg}`);
+      console.log(`[Autonomous Brain] Monitoring conditions... waiting for setup`);
       return { trade: null, trigger: null, llmCalled: false };
     }
 
@@ -1344,6 +1346,34 @@ class EventBasedLLMEngine {
     } catch (error) {
       console.error('[Autonomous] Error updating trader score:', error);
     }
+  }
+
+  /**
+   * Get detailed condition status with actual values
+   */
+  private getDetailedConditionStatus(
+    conditionCheck: any,
+    marketState: any
+  ): string {
+    const met = conditionCheck.conditionsMet || [];
+    const failed = conditionCheck.conditionsFailed || [];
+    const total = met.length + failed.length;
+
+    if (total === 0) {
+      return '⏳ No conditions to evaluate';
+    }
+
+    let status = `📊 Conditions: ${met.length}/${total} met`;
+
+    if (met.length > 0) {
+      status += `\n  ✅ ${met.join(', ')}`;
+    }
+
+    if (failed.length > 0 && failed.length <= 3) {
+      status += `\n  ❌ Waiting: ${failed.join(', ')}`;
+    }
+
+    return status;
   }
 }
 
