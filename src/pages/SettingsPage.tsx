@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { supabase } from '@/lib/supabase';
-import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity } from 'lucide-react';
+import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity, DollarSign } from 'lucide-react';
 import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
 import { chartPreferencesService, type IndicatorVisibility } from '@/services/chart-preferences';
 
@@ -40,15 +40,15 @@ export function SettingsPage() {
   const [savingIndicators, setSavingIndicators] = useState(false);
   const [indicatorMessage, setIndicatorMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const [developerMode, setDeveloperMode] = useState(false);
-  const [savingDeveloperMode, setSavingDeveloperMode] = useState(false);
-  const [developerMessage, setDeveloperMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [accountBalance, setAccountBalance] = useState<string>('10000.00');
+  const [savingBalance, setSavingBalance] = useState(false);
+  const [balanceMessage, setBalanceMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showBalanceConfirmModal, setShowBalanceConfirmModal] = useState(false);
 
   useEffect(() => {
     if (user) {
       loadUserData();
       loadIndicatorPreferences();
-      loadDeveloperModeSettings();
     }
   }, [user]);
 
@@ -75,6 +75,10 @@ export function SettingsPage() {
             weeklyReports: profileData.preferences.weeklyReports ?? false,
           });
         }
+
+        if (profileData.account_balance) {
+          setAccountBalance(profileData.account_balance.toString());
+        }
       }
     } catch (error) {
       console.error('Error loading user data:', error);
@@ -92,21 +96,6 @@ export function SettingsPage() {
     }
   };
 
-  const loadDeveloperModeSettings = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('developer_mode_settings')
-        .select('developer_mode_enabled')
-        .eq('user_id', user?.id)
-        .maybeSingle();
-
-      if (data) {
-        setDeveloperMode(data.developer_mode_enabled);
-      }
-    } catch (error) {
-      console.error('Error loading developer mode settings:', error);
-    }
-  };
 
   const handleSavePreferences = async () => {
     try {
@@ -167,40 +156,75 @@ export function SettingsPage() {
     }));
   };
 
-  const handleSaveDeveloperMode = async () => {
+  const handleSaveAccountBalance = async () => {
     try {
-      setSavingDeveloperMode(true);
-      setDeveloperMessage(null);
+      const balanceNum = parseFloat(accountBalance);
+
+      if (isNaN(balanceNum) || balanceNum < 100 || balanceNum > 1000000) {
+        setBalanceMessage({
+          type: 'error',
+          text: 'Balance must be between $100 and $1,000,000'
+        });
+        return;
+      }
+
+      setShowBalanceConfirmModal(true);
+    } catch (error) {
+      console.error('Error validating balance:', error);
+      setBalanceMessage({
+        type: 'error',
+        text: 'Invalid balance amount'
+      });
+    }
+  };
+
+  const confirmBalanceUpdate = async () => {
+    try {
+      setSavingBalance(true);
+      setBalanceMessage(null);
+      setShowBalanceConfirmModal(false);
+
+      const balanceNum = parseFloat(accountBalance);
 
       const { error } = await supabase
-        .from('developer_mode_settings')
-        .upsert({
-          user_id: user?.id,
-          developer_mode_enabled: developerMode,
+        .from('user_profiles')
+        .update({
+          account_balance: balanceNum,
           updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'user_id'
-        });
+        })
+        .eq('id', user?.id);
 
       if (error) throw error;
 
-      setDeveloperMessage({
+      setBalanceMessage({
         type: 'success',
-        text: `Developer Mode ${developerMode ? 'enabled' : 'disabled'}! ${developerMode ? 'You will now see detailed AI decision logs.' : 'AI decision logs hidden.'}`
+        text: `Account balance updated to $${balanceNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}!`
       });
 
       setTimeout(() => {
-        setDeveloperMessage(null);
-      }, 4000);
+        setBalanceMessage(null);
+      }, 3000);
     } catch (error) {
-      console.error('Error saving developer mode:', error);
-      setDeveloperMessage({
+      console.error('Error saving account balance:', error);
+      setBalanceMessage({
         type: 'error',
-        text: 'Failed to save developer mode settings. Please try again.'
+        text: 'Failed to save account balance. Please try again.'
       });
     } finally {
-      setSavingDeveloperMode(false);
+      setSavingBalance(false);
     }
+  };
+
+  const formatBalanceInput = (value: string) => {
+    const numValue = value.replace(/[^0-9.]/g, '');
+    const parts = numValue.split('.');
+    if (parts.length > 2) {
+      return parts[0] + '.' + parts.slice(1).join('');
+    }
+    if (parts[1] && parts[1].length > 2) {
+      return parts[0] + '.' + parts[1].substring(0, 2);
+    }
+    return numValue;
   };
 
   const formatDate = (dateString: string) => {
@@ -567,74 +591,74 @@ export function SettingsPage() {
 
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
               <div className="flex items-center gap-3 mb-6">
-                <Activity size={20} className="text-purple-400" />
-                <h2 className="text-xl font-semibold text-white">Developer Mode</h2>
+                <DollarSign size={20} className="text-emerald-400" />
+                <h2 className="text-xl font-semibold text-white">Account Management</h2>
               </div>
 
               <p className="text-sm text-gray-400 mb-6">
-                Enable detailed logging of AI decision-making process. When active, you'll see step-by-step reasoning from all 5 LLM layers, pattern enforcement decisions, and confidence calibrations.
+                Configure your trading account parameters. This affects position sizing and risk calculations for all trades.
               </p>
 
-              {developerMessage && (
+              {balanceMessage && (
                 <div
                   className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
-                    developerMessage.type === 'success'
+                    balanceMessage.type === 'success'
                       ? 'bg-green-900/20 border border-green-700/30 text-green-400'
                       : 'bg-red-900/20 border border-red-700/30 text-red-400'
                   }`}
                 >
-                  {developerMessage.type === 'success' ? (
+                  {balanceMessage.type === 'success' ? (
                     <CheckCircle size={20} />
                   ) : (
                     <AlertCircle size={20} />
                   )}
-                  <span>{developerMessage.text}</span>
+                  <span>{balanceMessage.text}</span>
                 </div>
               )}
 
-              <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700 mb-6">
-                <div className="flex items-center gap-3">
-                  <Activity size={18} className="text-purple-400" />
-                  <div>
-                    <div className="text-white font-medium">AI Decision Logging</div>
-                    <div className="text-xs text-gray-400">Show detailed Layer 1-5 reasoning and HARD GATE checks</div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Starting Account Balance
+                  </label>
+                  <div className="relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-medium">
+                      $
+                    </div>
+                    <input
+                      type="text"
+                      value={accountBalance}
+                      onChange={(e) => setAccountBalance(formatBalanceInput(e.target.value))}
+                      disabled={savingBalance}
+                      className="w-full pl-8 pr-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-white text-lg font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                      placeholder="10000.00"
+                    />
                   </div>
+                  <p className="mt-2 text-xs text-gray-400">
+                    Enter an amount between $100 and $1,000,000. This will be used for position sizing calculations.
+                  </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={developerMode}
-                    onChange={(e) => setDeveloperMode(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
-                </label>
               </div>
 
-              <div className="p-4 bg-purple-900/20 border border-purple-700/30 rounded-lg mb-6">
+              <div className="mt-6 p-4 bg-blue-900/20 border border-blue-700/30 rounded-lg">
                 <div className="flex items-start gap-3">
-                  <AlertCircle size={18} className="text-purple-400 mt-0.5 flex-shrink-0" />
-                  <div className="text-sm text-purple-300">
-                    <p className="font-medium mb-2">What You'll See When Enabled:</p>
-                    <ul className="space-y-1 text-purple-300/80">
-                      <li>• Layer 1: Market regime validation decisions</li>
-                      <li>• Layer 2: Setup quality scoring (0-100)</li>
-                      <li>• Layer 3: Mistake prevention checks</li>
-                      <li>• Layer 4: Confidence calibration adjustments</li>
-                      <li>• Layer 5: Final execution decisions</li>
-                      <li>• HARD GATE: Pattern avoidance enforcement</li>
-                    </ul>
+                  <AlertCircle size={18} className="text-blue-400 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-blue-300">
+                    <p className="font-medium mb-1">Important Note</p>
+                    <p className="text-blue-300/80">
+                      This setting only affects future trade calculations. Historical trade data and KPIs will not be modified.
+                    </p>
                   </div>
                 </div>
               </div>
 
-              <div className="flex justify-end">
+              <div className="mt-6 flex justify-end">
                 <button
-                  onClick={handleSaveDeveloperMode}
-                  disabled={savingDeveloperMode}
-                  className="flex items-center gap-2 px-6 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
+                  onClick={handleSaveAccountBalance}
+                  disabled={savingBalance}
+                  className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
                 >
-                  {savingDeveloperMode ? (
+                  {savingBalance ? (
                     <>
                       <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
                       <span>Saving...</span>
@@ -642,12 +666,56 @@ export function SettingsPage() {
                   ) : (
                     <>
                       <Save size={18} />
-                      <span>Save Developer Mode</span>
+                      <span>Save Account Settings</span>
                     </>
                   )}
                 </button>
               </div>
             </div>
+
+            {showBalanceConfirmModal && (
+              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-md w-full">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-amber-900/30 flex items-center justify-center">
+                      <AlertCircle size={20} className="text-amber-400" />
+                    </div>
+                    <h3 className="text-xl font-semibold text-white">Update Account Balance?</h3>
+                  </div>
+
+                  <p className="text-gray-400 mb-4">
+                    Are you sure you want to update your account balance to:
+                  </p>
+
+                  <div className="p-4 bg-gray-800/50 border border-gray-700 rounded-lg mb-6">
+                    <div className="text-center">
+                      <div className="text-3xl font-bold text-emerald-400">
+                        ${parseFloat(accountBalance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-sm text-gray-400 mb-6">
+                    This will update your account balance for future trade calculations and position sizing.
+                  </p>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowBalanceConfirmModal(false)}
+                      className="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={confirmBalanceUpdate}
+                      className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
+                    >
+                      Confirm Update
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
               <div className="flex items-center gap-3 mb-6">
