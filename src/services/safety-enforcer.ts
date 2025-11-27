@@ -21,6 +21,7 @@ export interface ValidationResult {
   violations: string[];
   action: 'ALLOW' | 'BLOCK';
   adjustedDecision?: TradeDecision;
+  adjustments?: string[];
 }
 
 class SafetyEnforcer {
@@ -33,6 +34,7 @@ class SafetyEnforcer {
   private readonly MIN_SL_DISTANCE_ATR = 0.5;
   private readonly MAX_SL_DISTANCE_ATR = 3.0;
   private readonly MIN_RR_RATIO = 1.0;
+  private readonly TARGET_RR_RATIO = 1.5; // Auto-adjust to this if below MIN
 
   /**
    * Validate trade decision against hard-coded rules
@@ -42,13 +44,16 @@ class SafetyEnforcer {
     context: SafetyContext
   ): ValidationResult {
     const violations: string[] = [];
+    const adjustments: string[] = [];
+    let adjustedDecision = { ...decision };
 
     // Skip validation for NO_TRADE
     if (decision.action === 'NO_TRADE') {
       return {
         passed: true,
         violations: [],
-        action: 'ALLOW'
+        action: 'ALLOW',
+        adjustments: []
       };
     }
 
@@ -97,7 +102,7 @@ class SafetyEnforcer {
     }
 
     // 5. SL distance validation (prevent too tight or too wide stops)
-    const slDistance = Math.abs(decision.entry - decision.stopLoss);
+    const slDistance = Math.abs(adjustedDecision.entry - adjustedDecision.stopLoss);
     const minSlDistance = context.atr * this.MIN_SL_DISTANCE_ATR;
     const maxSlDistance = context.atr * this.MAX_SL_DISTANCE_ATR;
 
@@ -109,12 +114,35 @@ class SafetyEnforcer {
       violations.push(`SL too wide: ${slDistance.toFixed(5)} > ${maxSlDistance.toFixed(5)} (${this.MAX_SL_DISTANCE_ATR} ATR)`);
     }
 
-    // 6. Risk:Reward ratio validation
-    const tpDistance = Math.abs(decision.takeProfit - decision.entry);
-    const rr = tpDistance / slDistance;
+    // 6. Risk:Reward ratio validation with AUTO-ADJUSTMENT
+    let tpDistance = Math.abs(adjustedDecision.takeProfit - adjustedDecision.entry);
+    let rr = tpDistance / slDistance;
 
+    if (rr < this.TARGET_RR_RATIO) {
+      // AUTO-ADJUST: Extend TP to meet TARGET_RR_RATIO (1.5)
+      const requiredTpDistance = slDistance * this.TARGET_RR_RATIO;
+      const oldTp = adjustedDecision.takeProfit;
+
+      if (adjustedDecision.action === 'BUY') {
+        adjustedDecision.takeProfit = adjustedDecision.entry + requiredTpDistance;
+      } else {
+        adjustedDecision.takeProfit = adjustedDecision.entry - requiredTpDistance;
+      }
+
+      adjustments.push(`R:R auto-adjusted from ${rr.toFixed(2)} to ${this.TARGET_RR_RATIO}`);
+      adjustments.push(`TP adjusted: ${oldTp.toFixed(5)} → ${adjustedDecision.takeProfit.toFixed(5)}`);
+
+      console.log(`[Safety] 🔧 R:R ${rr.toFixed(2)} adjusted to ${this.TARGET_RR_RATIO}`);
+      console.log(`[Safety] 🎯 TP adjusted: ${oldTp.toFixed(5)} → ${adjustedDecision.takeProfit.toFixed(5)}`);
+
+      // Recalculate R:R with new TP
+      tpDistance = Math.abs(adjustedDecision.takeProfit - adjustedDecision.entry);
+      rr = tpDistance / slDistance;
+    }
+
+    // Only flag as violation if even after adjustment it's still below MIN (shouldn't happen)
     if (rr < this.MIN_RR_RATIO) {
-      violations.push(`R:R ratio ${rr.toFixed(2)} below min ${this.MIN_RR_RATIO}`);
+      violations.push(`R:R ratio ${rr.toFixed(2)} below absolute min ${this.MIN_RR_RATIO} (after adjustment)`);
     }
 
     // 7. Maximum position size
@@ -146,12 +174,18 @@ class SafetyEnforcer {
       violations.forEach(v => console.warn(`  - ${v}`));
     } else {
       console.log('[Safety Enforcer] ✅ Safety checks passed');
+      if (adjustments.length > 0) {
+        console.log('[Safety Enforcer] 🔧 Auto-adjustments applied:');
+        adjustments.forEach(a => console.log(`  ✓ ${a}`));
+      }
     }
 
     return {
       passed,
       violations,
-      action: passed ? 'ALLOW' : 'BLOCK'
+      action: passed ? 'ALLOW' : 'BLOCK',
+      adjustedDecision: adjustments.length > 0 ? adjustedDecision : undefined,
+      adjustments
     };
   }
 

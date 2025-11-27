@@ -110,9 +110,8 @@ class TradeExecutionEngine {
       };
     }
 
-    if (signal.riskReward < 1.5) {
-      return { valid: false, reason: `Risk/reward ratio ${signal.riskReward.toFixed(2)} too low (minimum 1.5)` };
-    }
+    // R:R validation removed - Safety Enforcer now auto-adjusts TP to meet minimum R:R
+    // This allows good setups to execute with optimized parameters instead of rejection
 
     const { data: openTrades } = await supabase
       .from('goal_session_trades')

@@ -307,20 +307,23 @@ class EventBasedLLMEngine {
       return { trade: null, trigger: null, llmCalled: true };
     }
 
+    // Use adjusted decision if safety enforcer made improvements
+    const finalDecision = safetyCheck.adjustedDecision || decision;
+
     // STEP 5: Create trade
     const currentCandle = candles[candles.length - 1];
     const trade: SimulatedTrade = {
       id: Math.random().toString(36).substring(7),
       symbol: config.symbol,
       timeframe: config.timeframe,
-      direction: decision.action.toLowerCase() as 'buy' | 'sell',
+      direction: finalDecision.action.toLowerCase() as 'buy' | 'sell',
       entryTime: new Date(currentCandle.open_time),
-      entryPrice: decision.entry,
-      stopLoss: decision.stopLoss,
-      takeProfit: decision.takeProfit,
+      entryPrice: finalDecision.entry,
+      stopLoss: finalDecision.stopLoss,
+      takeProfit: finalDecision.takeProfit,
       positionSize: 0.1,
-      confidence: decision.confidence,
-      reasoning: decision.reasoning,
+      confidence: finalDecision.confidence,
+      reasoning: finalDecision.reasoning,
       triggerType: this.currentStrategy.mode,
       maxHoldMinutes: 240,
       pnl: 0,
