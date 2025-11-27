@@ -14,6 +14,7 @@ const NavigationMenuComponent = () => {
     { path: '/trade', label: 'Charts', icon: TrendingUp },
     { path: '/ai-trade', label: 'AI Trade', icon: Bot },
     { path: '/analysis', label: 'Analysis', icon: BarChart3 },
+    { path: '/journal', label: 'Journal', icon: BookOpen },
   ];
 
   const isActive = (path: string) => location.pathname === path;
