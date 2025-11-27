@@ -124,88 +124,37 @@ class LLMSetupQuality {
     skillContext?: any
   ): string {
     const currentCandle = snapshot.ohlc[snapshot.ohlc.length - 1];
-    const recentCandles = snapshot.ohlc.slice(-5);
+    const recentCandles = snapshot.ohlc.slice(-3);
 
-    let prompt = `You are the Setup Quality Scorer (Layer 2 of 5) in Pipnosis AI Trading System.
+    const skillNote = skillContext?.gaps.winRateGap < -10
+      ? ' CRITICAL: Score 75+ only for exceptional setups.'
+      : skillContext?.gaps.winRateGap < -5
+      ? ' Strict mode - minimum 70+ quality.'
+      : '';
 
-Your responsibility: Evaluate the quality of this trading setup on a 0-100 scale.`;
+    const candleStr = recentCandles.map(c =>
+      `${c.close > c.open ? 'Bull' : 'Bear'} ${c.close.toFixed(5)}`
+    ).join(', ');
 
-    if (skillContext) {
-      prompt += `
+    const prompt = `Setup quality scorer. Rate 0-100. Threshold: ${threshold}.${skillNote}
 
-SKILL LEVEL CONTEXT & QUALITY THRESHOLD:
-Current Level: ${skillContext.currentLevel} → Target: ${skillContext.targetLevel}
-Win Rate Gap: ${skillContext.gaps.winRateGap > 0 ? '+' : ''}${skillContext.gaps.winRateGap.toFixed(1)}%
-Dynamic Quality Threshold: ${threshold}/100 (${skillContext.gaps.winRateGap < 0 ? 'RAISED due to low win rate' : 'Standard'})
+Regime OK: ${regimeValidation.detected_regime.trend}/${regimeValidation.detected_regime.volatility} (${regimeValidation.confidence_in_regime}% conf)
+Trigger: ${triggerType} (${triggerConfidence}%)
+Market: ${snapshot.symbol} @ ${currentCandle?.close?.toFixed(5)}
+VWAP: ${snapshot.indicators?.vwap?.toFixed(5)}, EMA20: ${snapshot.indicators?.ema20?.toFixed(5)}
+Last 3: ${candleStr}
+S/R: ${snapshot.support?.toFixed(5)}/${snapshot.resistance?.toFixed(5)}
 
-QUALITY SCORING GUIDANCE:
-${skillContext.gaps.winRateGap < -10
-  ? `CRITICAL: Win rate severely below target. Only score 75+ for truly exceptional setups. Be extremely critical.`
-  : skillContext.gaps.winRateGap < -5
-  ? `Win rate below target. Raise quality standards - minimum 70+ for acceptable setups.`
-  : skillContext.gaps.winRateGap < 0
-  ? `Win rate slightly below target. Maintain stricter quality assessment.`
-  : `Win rate on target or above. Standard quality criteria apply.`}
-${skillContext.gaps.profitFactorGap < 0
-  ? `Profit factor needs improvement - favor setups with strong R:R potential (2.5:1+).`
-  : ''}`;
-    }
-
-    prompt += `
-
-REGIME VALIDATION (Layer 1 passed):
-✅ Regime: ${regimeValidation.detected_regime.trend} / ${regimeValidation.detected_regime.volatility}
-✅ Confidence: ${regimeValidation.confidence_in_regime}%
-Details: ${regimeValidation.validation_details}
-
-TRIGGER DETECTED:
-Type: ${triggerType}
-Confidence: ${triggerConfidence}%
-
-MARKET SNAPSHOT:
-Symbol: ${snapshot.symbol}
-Price: ${currentCandle?.close?.toFixed(5) || 'N/A'}
-VWAP: ${snapshot.indicators?.vwap?.toFixed(5) || 'N/A'}
-EMA20: ${snapshot.indicators?.ema20?.toFixed(5) || 'N/A'}
-EMA50: ${snapshot.indicators?.ema50?.toFixed(5) || 'N/A'}
-ATR: ${snapshot.indicators?.atr?.toFixed(5) || 'N/A'}
-
-PRICE ACTION (last 5 candles):
-${recentCandles.map((c, i) => {
-  const body = Math.abs(c.close - c.open);
-  const range = c.high - c.low;
-  const bodyPercent = range > 0 ? (body / range * 100).toFixed(0) : '0';
-  return `  ${i + 1}. ${c.close > c.open ? '🟢' : '🔴'} O:${c.open.toFixed(5)} H:${c.high.toFixed(5)} L:${c.low.toFixed(5)} C:${c.close.toFixed(5)} (body: ${bodyPercent}%)`;
-}).join('\n')}
-
-SUPPORT/RESISTANCE:
-Support: ${snapshot.support ? snapshot.support.toFixed(5) : 'N/A'}
-Resistance: ${snapshot.resistance ? snapshot.resistance.toFixed(5) : 'N/A'}
-
-Your task:
-1. Evaluate entry quality (0-100): How clean is this entry point?
-2. Evaluate timing quality (0-100): Is this the right time to enter?
-3. Evaluate context quality (0-100): Do surrounding conditions support this trade?
-4. Estimate risk:reward potential (1.0 to 5.0)
-5. List specific strengths and weaknesses
-6. Calculate overall quality score (0-100)
-7. Make ACCEPT/REJECT recommendation (threshold: ${threshold})
-
-Respond in this EXACT JSON format (no markdown):
+Return JSON:
 {
-  "quality_score": <0-100>,
-  "entry_quality": <0-100>,
-  "timing_quality": <0-100>,
-  "context_quality": <0-100>,
-  "risk_reward_potential": <1.0-5.0>,
-  "setup_strengths": ["<strength 1>", "<strength 2>", "<strength 3>"],
-  "setup_weaknesses": ["<weakness 1>", "<weakness 2>"],
-  "overall_assessment": "<2-3 sentence summary of setup quality>",
-  "recommendation": "<excellent/good/acceptable/poor/reject>",
-  "reasoning": "<why this score, what makes it strong or weak>"
-}
-
-Be honest and critical. Score below ${threshold} = REJECT.`;
+  "score": <0-100>,
+  "entry": <0-100>,
+  "timing": <0-100>,
+  "ctx": <0-100>,
+  "rr": <1.0-5.0>,
+  "rec": "<excellent/good/acceptable/poor/reject>",
+  "why": "<brief reason>"
+}`;
 
     return prompt;
   }
@@ -221,7 +170,7 @@ Be honest and critical. Score below ${threshold} = REJECT.`;
       ],
       model: model,
       temperature: 0.3,
-      max_tokens: 250,
+      max_tokens: 150,
       requestType: 'layer-2-setup-quality',
       endpoint: 'llm-setup-quality'
     });

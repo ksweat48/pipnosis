@@ -45,7 +45,7 @@ class LLMPostSessionAnalyzer {
   private enabled: boolean = true; // RE-ENABLED
   private callCount: number = 0;
   private lastCallTime: Date | null = null;
-  private model: string = 'gpt-4o';
+  private model: string = 'gpt-4o-mini';
 
   constructor() {
     console.log('[LLM Post-Session Analyzer] ✅ Enabled - Using OpenAI proxy');
@@ -205,7 +205,7 @@ Be creative and insightful. Look for patterns that are NOT obvious from basic st
       ], {
         model: this.model,
         temperature: 0.7,
-        max_tokens: 2000
+        max_tokens: 800
       });
 
       if (!response.success || !response.content) {

@@ -424,7 +424,7 @@ Be data-driven. Trust historical accuracy over predictions.`;
       ],
       model: model,
       temperature: 0.1,
-      max_tokens: 150,
+      max_tokens: 100,
       requestType: 'layer-4-confidence-calibration',
       endpoint: 'llm-confidence-calibrator'
     });

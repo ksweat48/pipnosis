@@ -415,7 +415,7 @@ Be RUTHLESS. When in doubt, BLOCK. Protecting capital is priority #1.`;
       ],
       model: model,
       temperature: 0.1,
-      max_tokens: 200,
+      max_tokens: 100,
       requestType: 'layer-3-mistake-prevention',
       endpoint: 'llm-mistake-prevention'
     });

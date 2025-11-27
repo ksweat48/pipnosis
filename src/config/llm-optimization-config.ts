@@ -75,17 +75,17 @@ export const LLM_OPTIMIZATION_CONFIG: LLMOptimizationConfig = {
     layer2_setup: 'gpt-4o-mini',
     layer3_mistake: 'gpt-4o-mini',
     layer4_calibrator: 'gpt-4o-mini',
-    layer5_strategy: 'gpt-4o', // Keep full model for final decisions
+    layer5_strategy: 'gpt-4o-mini', // Switched to mini - Flow V2 pre-validates
     layer5_high_quality_threshold: 85, // Use mini if quality >= 85
   },
 
   caching: {
     enabled: true,
     ttl: {
-      layer1_regime_seconds: 60, // Increased for backtest: regime stable longer
+      layer1_regime_seconds: 300, // 5 minutes - regime doesn't change quickly
       layer2_setup_seconds: 0, // NO CACHE - must be candle-accurate
-      layer3_mistake_seconds: 120, // Increased for backtest: mistake patterns stable
-      layer4_calibrator_seconds: 3600, // 1 hour - historical stats stable
+      layer3_mistake_seconds: 7200, // 2 hours - mistake patterns are static
+      layer4_calibrator_seconds: 86400, // 24 hours - historical stats stable
       layer5_strategy_seconds: 0, // NO CACHE - execution must be fresh
     },
   },

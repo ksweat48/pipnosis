@@ -132,86 +132,35 @@ class LLMRegimeValidator {
     skillContext?: any
   ): string {
     const currentCandle = snapshot.ohlc[snapshot.ohlc.length - 1];
-    const prevCandle = snapshot.ohlc[snapshot.ohlc.length - 2];
+    const recentCandles = snapshot.ohlc.slice(-3);
 
-    let prompt = `You are the Regime Validation Layer (Layer 1 of 5) in Pipnosis AI Trading System.
+    const skillNote = skillContext?.gaps.winRateGap < -10
+      ? ' CRITICAL: Low win rate - only accept strong trending regimes.'
+      : skillContext?.gaps.winRateGap < 0
+      ? ' Conservative mode - favor clear regimes.'
+      : '';
 
-Your SOLE responsibility: Validate that the current market regime matches the conditions required for the detected trigger.`;
+    const candleStr = recentCandles.map(c =>
+      `${c.close > c.open ? 'Bull' : 'Bear'} ${c.close.toFixed(5)}`
+    ).join(', ');
 
-    if (skillContext) {
-      prompt += `
+    const prompt = `Regime validator. Validate ${triggerType} trigger (${triggerConfidence}% conf) matches market regime.${skillNote}
 
-SKILL LEVEL CONTEXT:
-Current Level: ${skillContext.currentLevel} → Target: ${skillContext.targetLevel}
-Win Rate Gap: ${skillContext.gaps.winRateGap > 0 ? '+' : ''}${skillContext.gaps.winRateGap.toFixed(1)}%
-Profit Factor Gap: ${skillContext.gaps.profitFactorGap > 0 ? '+' : ''}${skillContext.gaps.profitFactorGap.toFixed(2)}
+Market: ${snapshot.symbol} @ ${currentCandle?.close?.toFixed(5)}
+Trend: ${snapshot.priceAction?.trend}, Vol: ${snapshot.priceAction?.volatility}, Mom: ${snapshot.priceAction?.momentum}
+VWAP: ${snapshot.indicators?.vwap?.toFixed(5)}, EMA20: ${snapshot.indicators?.ema20?.toFixed(5)}
+Last 3: ${candleStr}
 
-REGIME VALIDATION GUIDANCE:
-${skillContext.gaps.winRateGap < 0
-  ? `Win rate below target - Be MORE conservative accepting regimes. Only accept clear, high-quality regimes.`
-  : `Win rate above target - Standard regime acceptance criteria apply.`}
-${skillContext.gaps.winRateGap < -10
-  ? `CRITICAL: Win rate severely low. Reject choppy, sideways, or unclear regimes. Only accept strong trending regimes.`
-  : ''}
-${skillContext.gaps.consistencyGap < 0
-  ? `Consistency needs improvement - Avoid erratic or unstable regimes.`
-  : ''}`;
-    }
-
-    prompt += `
-
-CURRENT MARKET STATE:
-Symbol: ${snapshot.symbol}
-Current Price: ${currentCandle?.close?.toFixed(5) || 'N/A'}
-Trend: ${snapshot.priceAction?.trend || 'unknown'}
-Volatility: ${snapshot.priceAction?.volatility || 'unknown'}
-Momentum: ${typeof snapshot.priceAction?.momentum === 'number' ? snapshot.priceAction.momentum.toFixed(2) : snapshot.priceAction?.momentum || 'N/A'}
-
-TRIGGER DETECTED:
-Type: ${triggerType}
-Confidence: ${triggerConfidence}%
-
-TECHNICAL INDICATORS:
-VWAP: ${snapshot.indicators?.vwap?.toFixed(5) || 'N/A'}
-EMA20: ${snapshot.indicators?.ema20?.toFixed(5) || 'N/A'}
-EMA50: ${snapshot.indicators?.ema50?.toFixed(5) || 'N/A'}
-ATR: ${snapshot.indicators?.atr?.toFixed(5) || 'N/A'}
-Price vs VWAP: ${(snapshot.indicators?.vwap && currentCandle?.close) ? ((currentCandle.close - snapshot.indicators.vwap) / snapshot.indicators.vwap * 100).toFixed(2) : 'N/A'}%
-
-RECENT PRICE ACTION:
-${snapshot.ohlc?.slice(-3).map((c, i) => {
-  const direction = c?.close > c?.open ? '🟢' : '🔴';
-  const size = Math.abs((c?.close || 0) - (c?.open || 0));
-  return `  ${direction} ${c?.close?.toFixed(5) || 'N/A'} (size: ${size.toFixed(5)})`;
-}).join('\n') || 'No recent candles'}
-
-Your task:
-1. Assess if the detected trend is accurate
-2. Validate if volatility level is appropriate for this trigger
-3. Check if momentum supports the trigger
-4. Identify any regime conflicts or inconsistencies
-5. Make ACCEPT/REJECT decision
-
-Respond in this EXACT JSON format (no markdown):
+Return JSON:
 {
-  "regime_ok": <true if regime matches trigger requirements>,
-  "detected_regime": {
-    "trend": "<bullish/bearish/sideways>",
-    "volatility": "<low/medium/high>",
-    "momentum": "<strong/moderate/weak>"
-  },
-  "expected_regime": {
-    "trend": "<what trend this trigger expects>",
-    "volatility": "<what volatility this trigger expects>"
-  },
-  "validation_details": "<2-3 sentence explanation of regime state>",
-  "confidence_in_regime": <0-100, how confident you are in the regime assessment>,
-  "warnings": ["<any regime warnings or concerns>"],
-  "recommendation": "<proceed/abort/reconsider>",
-  "reasoning": "<why you made this decision>"
-}
-
-Be critical. If regime doesn't match trigger, REJECT immediately.`;
+  "ok": <bool>,
+  "trend": "<bullish/bearish/sideways>",
+  "vol": "<low/med/high>",
+  "mom": "<strong/mod/weak>",
+  "conf": <0-100>,
+  "rec": "<proceed/abort>",
+  "why": "<brief reason>"
+}`;
 
     return prompt;
   }
@@ -227,7 +176,7 @@ Be critical. If regime doesn't match trigger, REJECT immediately.`;
       ],
       model: model,
       temperature: 0.2,
-      max_tokens: 200,
+      max_tokens: 100,
       requestType: 'layer-1-regime-validation',
       endpoint: 'llm-regime-validator'
     });
@@ -243,27 +192,27 @@ Be critical. If regime doesn't match trigger, REJECT immediately.`;
     const parsed = JSON.parse(cleanContent);
 
     // Handle BOTH compressed format and full format
-    // Compressed: {ok, tr, vol, mom, conf, rec, why}
+    // Compressed: {ok, trend, vol, mom, conf, rec, why}
     // Full: {regime_ok, detected_regime, confidence_in_regime, recommendation, reasoning}
 
-    const isCompressed = 'ok' in parsed || 'conf' in parsed;
+    const isCompressed = 'ok' in parsed && !('regime_ok' in parsed);
 
     if (isCompressed) {
       // Parse compressed format
       return {
         regime_ok: parsed.ok ?? false,
         detected_regime: {
-          trend: parsed.tr || 'sideways',
+          trend: parsed.trend || 'sideways',
           volatility: parsed.vol || 'medium',
           momentum: parsed.mom || 'weak'
         },
         expected_regime: {
-          trend: parsed.exp_tr || 'unknown',
-          volatility: parsed.exp_vol || 'unknown'
+          trend: 'any',
+          volatility: 'any'
         },
-        validation_details: parsed.details || '',
+        validation_details: parsed.why || '',
         confidence_in_regime: parsed.conf ?? 0,
-        warnings: parsed.warnings || [],
+        warnings: [],
         recommendation: parsed.rec || 'abort',
         reasoning: parsed.why || ''
       };

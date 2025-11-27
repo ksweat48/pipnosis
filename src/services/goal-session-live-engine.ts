@@ -67,7 +67,7 @@ class GoalSessionLiveEngine {
   private lastAIUpdateTime = 0;
   private processingLock = false;
 
-  private readonly POLLING_INTERVAL_MS = 15000;
+  private readonly POLLING_INTERVAL_MS = 60000; // 60s = 75% fewer LLM calls
   private readonly MAX_DAILY_LOSS_PERCENT = 10;
 
   /**
