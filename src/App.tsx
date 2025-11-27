@@ -12,14 +12,11 @@ const AuthPage = lazy(() => import('./pages/AuthPage').then(m => ({ default: m.A
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
 const TradePage = lazy(() => import('./pages/TradePage').then(m => ({ default: m.TradePage })));
 const AITradePage = lazy(() => import('./pages/AITradePage').then(m => ({ default: m.AITradePage })));
-const HistoryPage = lazy(() => import('./pages/HistoryPage').then(m => ({ default: m.HistoryPage })));
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
-// Admin pages - only loaded when needed (AITrainingPage, SystemDiagnosticsPage use default export)
+// Admin pages - only loaded when needed
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
-const KPIsPage = lazy(() => import('./pages/KPIsPage').then(m => ({ default: m.KPIsPage })));
-const AITrainingPage = lazy(() => import('./pages/AITrainingPage'));
 const SystemDiagnosticsPage = lazy(() => import('./pages/SystemDiagnosticsPage'));
 const AILearningCenterPage = lazy(() => import('./pages/AILearningCenterPage'));
 
@@ -73,14 +70,6 @@ const AppRoutes: React.FC = () => {
         }
       />
       <Route
-        path="/history"
-        element={
-          <ProtectedRoute>
-            <HistoryPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
         path="/analysis"
         element={
           <ProtectedRoute>
@@ -126,22 +115,6 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute adminOnly={true}>
             <AdminDashboard />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/kpis"
-        element={
-          <ProtectedRoute adminOnly={true}>
-            <KPIsPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/ai-training"
-        element={
-          <ProtectedRoute adminOnly={true}>
-            <AITrainingPage />
           </ProtectedRoute>
         }
       />

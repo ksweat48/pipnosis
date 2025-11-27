@@ -24,7 +24,7 @@ import { syntheticBacktestingEngine, SyntheticBacktestConfig } from './synthetic
 import { plateauDetector } from './plateau-detector';
 import { breakthroughEngine } from './breakthrough-engine';
 import { supabase } from '../lib/supabase';
-import { backtestLogger } from './backtest-logger';
+// backtest-logger removed
 
 export interface SimpleAutoBacktestState {
   isRunning: boolean;
@@ -208,7 +208,7 @@ class SimpleAutoBacktestService {
       console.log('[Auto-Backtest] ✓ Initialization complete');
 
       // Enable quiet logging mode for backtests
-      backtestLogger.setLogLevel('quiet');
+      // Logger removed
 
       // Determine if this is a fresh start (new month) or recovery
       // Get current state to see what month we're on

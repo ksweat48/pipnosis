@@ -3,13 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { DataManagementPanel } from '@/components/DataManagementPanel';
 import { CandleAggregatorStatus } from '@/components/CandleAggregatorStatus';
-import { PollingHealthDashboard } from '@/components/PollingHealthDashboard';
-import { ServerSideCandleMonitor } from '@/components/ServerSideCandleMonitor';
-import { HistoricalBackfillPanel } from '@/components/HistoricalBackfillPanel';
 import APIUsageMonitor from '@/components/APIUsageMonitor';
 import { GlobalPollingStatus } from '@/components/GlobalPollingStatus';
 import { PollingPreferences } from '@/components/PollingPreferences';
-import { CPUCreditDashboard } from '@/components/CPUCreditDashboard';
 import { PipnosisMasteryCurve } from '@/components/PipnosisMasteryCurve';
 import { OpenAIUsageDashboard } from '@/components/OpenAIUsageDashboard';
 import { useAuth } from '@/hooks/useAuth';
@@ -20,8 +16,6 @@ import {
   BarChart3,
   Settings,
   Activity,
-  Heart,
-  Download,
   Brain,
   Zap,
   Target,
@@ -34,7 +28,7 @@ import {
   Clock
 } from 'lucide-react';
 
-type AdminTab = 'overview' | 'data' | 'api-usage' | 'polling-health' | 'backfill' | 'settings';
+type AdminTab = 'overview' | 'data' | 'api-usage' | 'settings';
 
 interface AIMetrics {
   skillLevel: number;
@@ -211,17 +205,6 @@ export function AdminDashboard() {
             AI Overview
           </button>
           <button
-            onClick={() => setActiveTab('polling-health')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
-              activeTab === 'polling-health'
-                ? 'bg-emerald-600 text-white'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            <Heart size={18} />
-            Polling Health
-          </button>
-          <button
             onClick={() => setActiveTab('data')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
               activeTab === 'data'
@@ -231,17 +214,6 @@ export function AdminDashboard() {
           >
             <Database size={18} />
             Data Management
-          </button>
-          <button
-            onClick={() => setActiveTab('backfill')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
-              activeTab === 'backfill'
-                ? 'bg-emerald-600 text-white'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            <Download size={18} />
-            Historical Backfill
           </button>
           <button
             onClick={() => setActiveTab('api-usage')}
@@ -390,10 +362,6 @@ export function AdminDashboard() {
           </div>
         )}
 
-        {activeTab === 'polling-health' && (
-          <PollingHealthDashboard />
-        )}
-
         {activeTab === 'data' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 gap-6">
@@ -404,14 +372,9 @@ export function AdminDashboard() {
                 <Activity size={20} className="text-emerald-400" />
                 <h2 className="text-xl font-semibold text-white">System Monitoring</h2>
               </div>
-              <ServerSideCandleMonitor />
             </div>
             <DataManagementPanel />
           </div>
-        )}
-
-        {activeTab === 'backfill' && (
-          <HistoricalBackfillPanel />
         )}
 
         {activeTab === 'api-usage' && (

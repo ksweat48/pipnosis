@@ -13,7 +13,7 @@
 
 import { tickBufferService } from './tick-buffer-service';
 import { logger, LogCategory } from '@/lib/logger';
-import { pollingHealthMonitor } from './polling-health-monitor';
+// polling-health-monitor removed
 import { circuitBreakerService } from './circuit-breaker-service';
 import { pageContext } from './page-context';
 
@@ -62,10 +62,7 @@ class BrowserPricePoller {
         lastSuccess: null
       });
 
-      // Register recovery callback with health monitor
-      pollingHealthMonitor.registerRecoveryCallback(symbol, async (sym) => {
-        await this.recoverSymbol(sym);
-      });
+      // Health recovery callback removed
     }
 
     await this.poll();
@@ -227,7 +224,7 @@ class BrowserPricePoller {
       this.symbolErrors.set(symbol, tracking);
     }
 
-    await pollingHealthMonitor.recordSuccess(symbol, dataQuality as any);
+    // Success recording removed
   }
 
   private async recordSymbolError(symbol: string, errorMessage: string): Promise<void> {
@@ -241,7 +238,7 @@ class BrowserPricePoller {
     tracking.lastError = new Date();
     this.symbolErrors.set(symbol, tracking);
 
-    await pollingHealthMonitor.recordError(symbol, errorMessage);
+    // Error recording removed
   }
 
   private evaluateMode(): void {

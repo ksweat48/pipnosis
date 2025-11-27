@@ -2,9 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { RefreshCw, Play, Pause } from 'lucide-react';
 import { systemMonitoringService } from '@/services/system-monitoring-service';
 import type { SystemDashboard, CronJobExecution, SystemAlert } from '@/services/system-monitoring-service';
-import { CronJobStatusCard } from './CronJobStatusCard';
-import { PricePollingHealthCard } from './PricePollingHealthCard';
-import { CandleGenerationStatsCard } from './CandleGenerationStatsCard';
+// Monitoring components removed
 import { SystemHealthDashboard } from './SystemHealthDashboard';
 
 export function SystemMonitoringPanel() {
@@ -105,7 +103,8 @@ export function SystemMonitoringPanel() {
       <SystemHealthDashboard dashboard={dashboard} alerts={alerts} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <CronJobStatusCard
+        <div className="bg-gray-900/50 border border-gray-800 rounded-lg p-6 text-gray-400">Cron job monitoring removed</div>
+        <div
           cronJobs={dashboard?.active_cron_jobs || []}
           recentExecutions={executions}
         />

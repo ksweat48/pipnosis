@@ -5,7 +5,7 @@ import { goalNotificationSystem } from '../services/goal-notifications';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
 import { useAuth } from '../hooks/useAuth';
 import { MarketAnalysisStream } from './MarketAnalysisStream';
-import { GoalScanReadinessIndicator } from './GoalScanReadinessIndicator';
+// GoalScanReadinessIndicator removed - using simple indicator
 
 export const GoalSessionDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -243,11 +243,9 @@ export const GoalSessionDashboard: React.FC = () => {
       </div>
 
       {activeSession && activeSession.status === 'scanning' && (
-        <GoalScanReadinessIndicator
-          sessionId={activeSession.id}
-          watchlist={activeSession.watchlist}
-          nextScanTime={activeSession.next_scan_time}
-        />
+        <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-blue-200">
+          <div className="animate-pulse">Scanning {activeSession.watchlist.length} pairs for opportunities...</div>
+        </div>
       )}
 
       {activeSession && (

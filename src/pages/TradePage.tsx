@@ -4,7 +4,7 @@ import { useUserBalance } from '@/hooks/useUserBalance';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { MarketChart } from '@/components/MarketChart';
 import { NotificationCenter } from '@/components/NotificationCenter';
-import { SearchStatusPanel } from '@/components/SearchStatusPanel';
+// SearchStatusPanel removed - using simple status
 import { StrategyOptions } from '@/components/StrategyOptions';
 import { ActivePositions } from '@/components/ActivePositions';
 import { TradeConfirmationModal } from '@/components/TradeConfirmationModal';
@@ -378,12 +378,9 @@ export function TradePage() {
           <ActivePositions refreshTrigger={positionRefreshTrigger} />
 
           {activeSearchSessionId && isSearching && (
-            <SearchStatusPanel
-              sessionId={activeSearchSessionId}
-              onSearchComplete={handleSearchComplete}
-              onSearchTimeout={handleSearchTimeout}
-              onCancel={handleSearchCancel}
-            />
+            <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-blue-200">
+              <div className="animate-pulse">Searching for trading opportunities...</div>
+            </div>
           )}
 
           {isAnalyzing && (

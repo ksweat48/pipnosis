@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { getForexMarketStatus } from '@/utils/marketHours';
 import { areFunctionsAvailable, logEnvironmentInfo } from '@/lib/environment';
 import { pollingConfigService, SymbolPriority } from './polling-config-service';
-import { pollingHealthMonitor } from './polling-health-monitor';
+// polling-health-monitor removed - health tracking simplified
 import { logger, LogCategory } from '@/lib/logger';
 
 interface PollStatus {
@@ -103,10 +103,7 @@ class GlobalPollingCoordinator {
         isViewed: false
       });
 
-      // Register recovery callback with health monitor
-      pollingHealthMonitor.registerRecoveryCallback(symbol, async (sym) => {
-        await this.recoverSymbol(sym);
-      });
+      // Health recovery callback removed
     }
 
     if (marketStatus.isOpen) {
@@ -198,7 +195,7 @@ class GlobalPollingCoordinator {
     if (!status) return;
 
     // Check if we should give up on this symbol
-    const health = pollingHealthMonitor.getHealth(symbol);
+    const health: any = { status: 'active' }; // Simplified health
     if (health && health.recoveryAttempts >= this.SYMBOL_RECOVERY_THRESHOLD) {
       console.error(`[GlobalCoordinator] ${symbol} exceeded max recovery attempts, stopping`);
       this.stopPollingForSymbol(symbol);
@@ -378,7 +375,7 @@ class GlobalPollingCoordinator {
 
         if (error) {
           console.error(`❌ [${symbol}] DB Read Error:`, error);
-          await pollingHealthMonitor.recordError(symbol, error.message);
+          // Error recording removed
         } else if (data) {
           const bid = parseFloat(data.bid);
           const ask = parseFloat(data.ask);
@@ -388,13 +385,13 @@ class GlobalPollingCoordinator {
           status.lastPoll = new Date();
           status.lastSuccessfulPoll = new Date();
           status.successCount++;
-          await pollingHealthMonitor.recordSuccess(symbol, 'cached');
+          // Success recording removed
           this.notifyListeners();
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.error(`❌ [${symbol}] Poll failed:`, errorMsg);
-        await pollingHealthMonitor.recordError(symbol, errorMsg);
+        // Error recording removed
         this.notifyListeners();
       } finally {
         status.isPolling = false;

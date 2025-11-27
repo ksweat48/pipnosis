@@ -13,7 +13,6 @@ const NavigationMenuComponent = () => {
   const navItems = [
     { path: '/trade', label: 'Charts', icon: TrendingUp },
     { path: '/ai-trade', label: 'AI Trade', icon: Bot },
-    { path: '/history', label: 'History', icon: History },
     { path: '/analysis', label: 'Analysis', icon: BarChart3 },
   ];
 
@@ -102,15 +101,6 @@ const NavigationMenuComponent = () => {
 
                         {isAdmin && (
                           <>
-                            <Link
-                              to="/admin/ai-training"
-                              onClick={() => setShowProfileMenu(false)}
-                              className="w-full flex items-center gap-3 px-3 py-2 text-purple-400 hover:text-purple-300 hover:bg-purple-900/20 rounded transition-colors"
-                            >
-                              <Zap size={18} />
-                              <span>Backtest Lab</span>
-                            </Link>
-
                             <Link
                               to="/ai-learning-center"
                               onClick={() => setShowProfileMenu(false)}

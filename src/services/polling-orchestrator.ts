@@ -8,7 +8,7 @@
 
 import { globalPollingCoordinator } from './global-polling-coordinator';
 import { browserPricePoller } from './browser-price-poller';
-import { pollingHealthMonitor } from './polling-health-monitor';
+// polling-health-monitor removed - using minimal fallback
 import { circuitBreakerService } from './circuit-breaker-service';
 import { supabase } from '@/lib/supabase';
 import { logger, LogCategory } from '@/lib/logger';
@@ -48,7 +48,7 @@ class PollingOrchestrator {
     logger.info(LogCategory.POLLING_COORDINATOR, 'Initializing master polling coordinator...');
 
     // Initialize health monitoring first
-    await pollingHealthMonitor.initialize(FOREX_PAIRS);
+    // Health monitor removed for simplicity
 
     // Initialize circuit breaker
     await circuitBreakerService.initialize();
@@ -105,7 +105,7 @@ class PollingOrchestrator {
       return;
     }
 
-    const health = pollingHealthMonitor.getAllHealth();
+    const health: any = {}; // Simplified health tracking
     const browserStatus = browserPricePoller.getStatus();
     const globalStatus = globalPollingCoordinator.getCoordinatorStatus();
     const circuitStatus = circuitBreakerService.getStatus();
@@ -285,7 +285,7 @@ class PollingOrchestrator {
 
   private async persistState(): Promise<void> {
     try {
-      const health = pollingHealthMonitor.getAllHealth();
+      const health: any = {}; // Simplified health tracking
       let activeCount = 0;
       let degradedCount = 0;
       let criticalCount = 0;
@@ -318,7 +318,7 @@ class PollingOrchestrator {
   }
 
   getStatus(): OrchestratorStatus {
-    const health = pollingHealthMonitor.getAllHealth();
+    const health: any = {}; // Simplified health tracking
     let activeCount = 0;
     let degradedCount = 0;
     let criticalCount = 0;
@@ -368,7 +368,7 @@ class PollingOrchestrator {
 
     browserPricePoller.stop();
     await globalPollingCoordinator.shutdown();
-    pollingHealthMonitor.shutdown();
+    // Health monitor cleanup removed
 
     this.activePoller = 'none';
     this.isInitialized = false;
