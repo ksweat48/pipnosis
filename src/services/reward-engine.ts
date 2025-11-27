@@ -29,6 +29,16 @@ export interface RewardResult {
   personalityChange: boolean;
 }
 
+export interface GoalAchievementContext {
+  goalAmount: number;
+  accountBalance: number;
+  timeToAchieveHours: number;
+  timeLimitHours: number;
+  userChoice?: 'close_now' | 'continue_breakeven' | 'continue_safety';
+  finalOutcome?: 'hit_tp' | 'hit_sl_breakeven' | 'hit_sl_safety' | 'closed_at_goal' | 'manual_close';
+  finalPnL?: number;
+}
+
 class RewardEngine {
   /**
    * Load trader score for user
@@ -317,6 +327,328 @@ class RewardEngine {
         oldScore: traderScore.current_score,
         personalityChange: false
       };
+    }
+  }
+
+  /**
+   * Calculate goal achievement reward
+   */
+  calculateGoalAchievementReward(
+    context: GoalAchievementContext,
+    traderScore: TraderScore
+  ): RewardResult {
+    let scoreIncrease = 0;
+    const factors: string[] = [];
+
+    // 1. Base bonus from goal difficulty
+    const accountPercent = (context.goalAmount / context.accountBalance) * 100;
+    let baseBonus = 0;
+    let goalTier = '';
+
+    if (context.goalAmount >= 500 || accountPercent >= 50) {
+      baseBonus = 75;
+      goalTier = 'massive';
+      factors.push('+75 legendary goal');
+    } else if (context.goalAmount >= 200 || accountPercent >= 20) {
+      baseBonus = 50;
+      goalTier = 'large';
+      factors.push('+50 major achievement');
+    } else if (context.goalAmount >= 50 || accountPercent >= 5) {
+      baseBonus = 35;
+      goalTier = 'medium';
+      factors.push('+35 significant milestone');
+    } else {
+      baseBonus = 25;
+      goalTier = 'small';
+      factors.push('+25 goal achieved');
+    }
+
+    scoreIncrease += baseBonus;
+
+    // 2. Speed bonus
+    const timePercent = (context.timeToAchieveHours / context.timeLimitHours) * 100;
+    if (timePercent <= 25) {
+      scoreIncrease += 15;
+      factors.push('+15 lightning speed');
+    } else if (timePercent <= 50) {
+      scoreIncrease += 10;
+      factors.push('+10 efficient execution');
+    }
+
+    // 3. User choice bonus (if applicable)
+    if (context.userChoice === 'close_now') {
+      scoreIncrease += 5;
+      factors.push('+5 disciplined exit');
+    } else if (context.userChoice === 'continue_breakeven') {
+      scoreIncrease += 10;
+      factors.push('+10 strategic risk-free play');
+    } else if (context.userChoice === 'continue_safety') {
+      scoreIncrease += 8;
+      factors.push('+8 balanced risk management');
+    }
+
+    // 4. Final outcome bonus (if trade completed)
+    if (context.finalOutcome) {
+      if (context.finalOutcome === 'hit_tp') {
+        if (context.userChoice === 'continue_breakeven') {
+          scoreIncrease += 15;
+          factors.push('+15 maximized opportunity');
+        } else if (context.userChoice === 'continue_safety') {
+          scoreIncrease += 12;
+          factors.push('+12 smart partial protection');
+        }
+      } else if (context.finalOutcome === 'hit_sl_breakeven') {
+        scoreIncrease += 5;
+        factors.push('+5 protected profits');
+      } else if (context.finalOutcome === 'hit_sl_safety') {
+        scoreIncrease += 7;
+        factors.push('+7 minimized losses');
+      }
+    }
+
+    // 5. Apply streak multiplier
+    let streakMultiplier = 1.0;
+    const goalStreak = (traderScore as any).goal_streak || 0;
+
+    if (goalStreak >= 5) {
+      streakMultiplier = 2.0;
+      factors.push('x2.0 goal master streak');
+    } else if (goalStreak >= 3) {
+      streakMultiplier = 1.5;
+      factors.push('x1.5 hot goal streak');
+    } else if (goalStreak >= 2) {
+      streakMultiplier = 1.2;
+      factors.push('x1.2 goal momentum');
+    }
+
+    // Apply multiplier to total
+    scoreIncrease = Math.round(scoreIncrease * streakMultiplier);
+
+    const oldScore = traderScore.current_score;
+    const newScore = Math.min(100, oldScore + scoreIncrease);
+    const oldPersonality = getPersonalityState(oldScore);
+    const newPersonality = getPersonalityState(newScore);
+
+    return {
+      scoreChange: scoreIncrease,
+      factors,
+      newScore,
+      oldScore,
+      personalityChange: oldPersonality.confidence_level !== newPersonality.confidence_level
+    };
+  }
+
+  /**
+   * Apply goal achievement reward to database
+   */
+  async applyGoalReward(
+    userId: string,
+    goalAchievementId: string,
+    context: GoalAchievementContext,
+    traderScore: TraderScore
+  ): Promise<RewardResult> {
+    const reward = this.calculateGoalAchievementReward(context, traderScore);
+    const oldPersonality = getPersonalityState(reward.oldScore);
+    const newPersonality = getPersonalityState(reward.newScore);
+
+    // Calculate goal tier for history
+    const accountPercent = (context.goalAmount / context.accountBalance) * 100;
+    let goalTier = 'small';
+    if (context.goalAmount >= 500 || accountPercent >= 50) {
+      goalTier = 'massive';
+    } else if (context.goalAmount >= 200 || accountPercent >= 20) {
+      goalTier = 'large';
+    } else if (context.goalAmount >= 50 || accountPercent >= 5) {
+      goalTier = 'medium';
+    }
+
+    // Update trader score with goal statistics
+    const currentGoalStreak = (traderScore as any).goal_streak || 0;
+    const newGoalStreak = currentGoalStreak + 1;
+    const bestGoalStreak = Math.max(
+      newGoalStreak,
+      (traderScore as any).best_goal_streak || 0
+    );
+    const largestGoal = Math.max(
+      context.goalAmount,
+      (traderScore as any).largest_goal_achieved || 0
+    );
+
+    const { error: updateError } = await supabase
+      .from('ai_trader_score')
+      .update({
+        current_score: reward.newScore,
+        total_goals_achieved: ((traderScore as any).total_goals_achieved || 0) + 1,
+        goal_streak: newGoalStreak,
+        best_goal_streak: bestGoalStreak,
+        goals_this_month: ((traderScore as any).goals_this_month || 0) + 1,
+        largest_goal_achieved: largestGoal,
+        last_goal_date: new Date().toISOString(),
+        confidence_level: newPersonality.confidence_level,
+        trading_style: newPersonality.trading_style
+      })
+      .eq('user_id', userId);
+
+    if (updateError) {
+      console.error('[Reward Engine] Failed to update trader score:', updateError);
+      throw updateError;
+    }
+
+    // Calculate streak multiplier for history
+    let streakMultiplier = 1.0;
+    if (currentGoalStreak >= 5) streakMultiplier = 2.0;
+    else if (currentGoalStreak >= 3) streakMultiplier = 1.5;
+    else if (currentGoalStreak >= 2) streakMultiplier = 1.2;
+
+    // Log reward in history
+    const { error: historyError } = await supabase
+      .from('goal_reward_history')
+      .insert({
+        user_id: userId,
+        goal_achievement_id: goalAchievementId,
+        reward_type: 'goal_achieved',
+        score_change: reward.scoreChange,
+        old_score: reward.oldScore,
+        new_score: reward.newScore,
+        goal_size_tier: goalTier,
+        goal_amount: context.goalAmount,
+        time_to_achieve_hours: context.timeToAchieveHours,
+        streak_multiplier: streakMultiplier,
+        reward_factors: reward.factors,
+        old_personality: oldPersonality.confidence_level,
+        new_personality: newPersonality.confidence_level,
+        personality_changed: reward.personalityChange
+      });
+
+    if (historyError) {
+      console.error('[Reward Engine] Failed to log goal reward history:', historyError);
+    }
+
+    console.log(`[Reward Engine] 🎯 Goal achievement reward: +${reward.scoreChange} points`);
+    console.log(`[Reward Engine] Score: ${reward.oldScore} → ${reward.newScore}`);
+    console.log(`[Reward Engine] Factors: ${reward.factors.join(', ')}`);
+
+    if (reward.personalityChange) {
+      console.log(`[Reward Engine] 🎭 Personality upgraded: ${oldPersonality.confidence_level} → ${newPersonality.confidence_level}`);
+    }
+
+    return reward;
+  }
+
+  /**
+   * Apply bonus for user choice after goal achievement
+   */
+  async applyGoalChoiceBonus(
+    userId: string,
+    goalAchievementId: string,
+    userChoice: 'close_now' | 'continue_breakeven' | 'continue_safety'
+  ): Promise<void> {
+    // This is already included in the main goal reward calculation
+    // But we log it separately for analytics
+    console.log(`[Reward Engine] User choice logged: ${userChoice}`);
+  }
+
+  /**
+   * Apply bonus for final outcome after goal achievement
+   */
+  async applyGoalFinalOutcome(
+    userId: string,
+    goalAchievementId: string,
+    finalOutcome: string,
+    finalPnL: number
+  ): Promise<void> {
+    try {
+      const traderScore = await this.loadTraderScore(userId);
+
+      // Get the original goal achievement context
+      const { data: achievement } = await supabase
+        .from('goal_achievements')
+        .select('*, goal_sessions!inner(*)')
+        .eq('id', goalAchievementId)
+        .single();
+
+      if (!achievement) {
+        console.warn('[Reward Engine] Goal achievement not found');
+        return;
+      }
+
+      // Calculate additional bonus based on outcome
+      let bonusPoints = 0;
+      const factors: string[] = [];
+
+      if (finalOutcome === 'hit_tp') {
+        if (achievement.user_choice === 'continue_breakeven') {
+          bonusPoints = 15;
+          factors.push('+15 maximized opportunity');
+        } else if (achievement.user_choice === 'continue_safety') {
+          bonusPoints = 12;
+          factors.push('+12 smart partial protection');
+        }
+      } else if (finalOutcome === 'hit_sl_breakeven') {
+        bonusPoints = 5;
+        factors.push('+5 protected profits');
+      } else if (finalOutcome === 'hit_sl_safety') {
+        bonusPoints = 7;
+        factors.push('+7 minimized losses');
+      }
+
+      if (bonusPoints > 0) {
+        const oldScore = traderScore.current_score;
+        const newScore = Math.min(100, oldScore + bonusPoints);
+        const oldPersonality = getPersonalityState(oldScore);
+        const newPersonality = getPersonalityState(newScore);
+
+        // Update score
+        await supabase
+          .from('ai_trader_score')
+          .update({
+            current_score: newScore,
+            confidence_level: newPersonality.confidence_level,
+            trading_style: newPersonality.trading_style
+          })
+          .eq('user_id', userId);
+
+        // Log in history
+        await supabase
+          .from('goal_reward_history')
+          .insert({
+            user_id: userId,
+            goal_achievement_id: goalAchievementId,
+            reward_type: 'final_outcome',
+            score_change: bonusPoints,
+            old_score: oldScore,
+            new_score: newScore,
+            outcome_bonus: bonusPoints,
+            final_outcome: finalOutcome,
+            reward_factors: factors,
+            old_personality: oldPersonality.confidence_level,
+            new_personality: newPersonality.confidence_level,
+            personality_changed: oldPersonality.confidence_level !== newPersonality.confidence_level
+          });
+
+        console.log(`[Reward Engine] 🎁 Final outcome bonus: +${bonusPoints} points`);
+        console.log(`[Reward Engine] Outcome: ${finalOutcome}, Final P&L: $${finalPnL.toFixed(2)}`);
+      }
+    } catch (error) {
+      console.error('[Reward Engine] Error applying final outcome bonus:', error);
+    }
+  }
+
+  /**
+   * Reset goal streak (called when user fails to achieve a goal)
+   */
+  async resetGoalStreak(userId: string): Promise<void> {
+    try {
+      await supabase
+        .from('ai_trader_score')
+        .update({
+          goal_streak: 0
+        })
+        .eq('user_id', userId);
+
+      console.log('[Reward Engine] ⚠️  Goal streak reset');
+    } catch (error) {
+      console.error('[Reward Engine] Error resetting goal streak:', error);
     }
   }
 }

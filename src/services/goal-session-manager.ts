@@ -507,7 +507,7 @@ class GoalSessionManager {
         .eq('id', goalSessionId);
 
       // Update achievement record
-      await supabase
+      const { data: achievement } = await supabase
         .from('goal_achievements')
         .update({
           final_pnl: finalPnL,
@@ -515,7 +515,24 @@ class GoalSessionManager {
           completed_at: new Date().toISOString(),
           choice_made_at: new Date().toISOString()
         })
-        .eq('goal_session_id', goalSessionId);
+        .eq('goal_session_id', goalSessionId)
+        .select('id')
+        .single();
+
+      // Apply final outcome reward bonus
+      if (achievement?.id) {
+        try {
+          const { rewardEngine } = await import('./reward-engine');
+          await rewardEngine.applyGoalFinalOutcome(
+            userId,
+            achievement.id,
+            'closed_at_goal',
+            finalPnL
+          );
+        } catch (error) {
+          console.error('[Goal Session] Error applying final outcome reward:', error);
+        }
+      }
 
       console.log(`[Goal Session] ✅ Trade closed successfully. Final P&L: $${finalPnL.toFixed(2)}`);
 

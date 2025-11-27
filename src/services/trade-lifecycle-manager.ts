@@ -128,6 +128,38 @@ class TradeLifecycleManager {
 
             console.log(`[Trade Lifecycle] ✅ Goal logged as PERMANENT WIN in database`);
 
+            // Apply goal achievement reward
+            if (achievement?.id) {
+              try {
+                const { rewardEngine } = await import('./reward-engine');
+                const traderScore = await rewardEngine.loadTraderScore(goalSession.user_id);
+
+                // Calculate time taken to achieve goal
+                const startTime = new Date(trade.goal_sessions?.start_time || trade.opened_at);
+                const achievedTime = new Date();
+                const hoursElapsed = (achievedTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+
+                const rewardResult = await rewardEngine.applyGoalReward(
+                  goalSession.user_id,
+                  achievement.id,
+                  {
+                    goalAmount: goalSession.target_amount,
+                    accountBalance: goalSession.starting_balance,
+                    timeToAchieveHours: hoursElapsed,
+                    timeLimitHours: trade.goal_sessions?.timeframe_hours || 24
+                  },
+                  traderScore
+                );
+
+                console.log(`[Trade Lifecycle] 🏆 REWARD: +${rewardResult.scoreChange} points!`);
+                if (rewardResult.personalityChange) {
+                  console.log(`[Trade Lifecycle] 🎭 Personality Level Up!`);
+                }
+              } catch (error) {
+                console.error('[Trade Lifecycle] Error applying goal reward:', error);
+              }
+            }
+
             // Check if auto-close is enabled
             if (goalSession.auto_close_on_goal === true) {
               console.log(`[Trade Lifecycle] Auto-close enabled - closing position now`);

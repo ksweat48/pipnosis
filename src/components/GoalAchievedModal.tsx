@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, TrendingUp, Shield, Zap, DollarSign, Target } from 'lucide-react';
 import { goalSessionManager } from '../services/goal-session-manager';
+import { GoalRewardDisplay } from './GoalRewardDisplay';
+import { supabase } from '../lib/supabase';
 
 interface GoalAchievedModalProps {
   notification: any;
@@ -12,9 +14,36 @@ export function GoalAchievedModal({ notification, onClose, onActionTaken }: Goal
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedAction, setSelectedAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rewardData, setRewardData] = useState<any | null>(null);
 
   const data = notification.data || {};
   const actions = notification.actions || [];
+
+  // Fetch reward data
+  useEffect(() => {
+    const fetchRewardData = async () => {
+      if (!data.achievement_id) return;
+
+      try {
+        const { data: rewardHistory } = await supabase
+          .from('goal_reward_history')
+          .select('*')
+          .eq('goal_achievement_id', data.achievement_id)
+          .eq('reward_type', 'goal_achieved')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (rewardHistory) {
+          setRewardData(rewardHistory);
+        }
+      } catch (error) {
+        console.error('Error fetching reward data:', error);
+      }
+    };
+
+    fetchRewardData();
+  }, [data.achievement_id]);
 
   const handleAction = async (actionId: string) => {
     setIsProcessing(true);
@@ -129,6 +158,21 @@ export function GoalAchievedModal({ notification, onClose, onActionTaken }: Goal
               </div>
             </div>
           </div>
+
+          {/* Reward Display */}
+          {rewardData && (
+            <div className="mt-4">
+              <GoalRewardDisplay
+                scoreChange={rewardData.score_change}
+                newScore={rewardData.new_score}
+                oldScore={rewardData.old_score}
+                factors={rewardData.reward_factors || []}
+                personalityChanged={rewardData.personality_changed || false}
+                oldPersonality={rewardData.old_personality}
+                newPersonality={rewardData.new_personality}
+              />
+            </div>
+          )}
 
           {/* Trade Details */}
           <div className="mt-4 bg-gray-800/50 rounded-lg p-4 text-sm">
