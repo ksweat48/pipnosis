@@ -112,12 +112,13 @@ class CandleCacheManager {
 
     const candlesWithIds = candles.map(candle => {
       const { id, ...candleWithoutId } = candle;
+      const timestamp = candle.open_time || candle.timestamp || candle.time;
       return {
         ...candleWithoutId,
-        cacheId: `${candle.symbol || symbol}_${candle.timeframe || timeframe}_${candle.open_time || candle.timestamp}`,
+        cacheId: `${candle.symbol || symbol}_${candle.timeframe || timeframe}_${timestamp}`,
         symbol: candle.symbol || symbol,
         timeframe: candle.timeframe || timeframe,
-        timestamp: candle.open_time || candle.timestamp
+        timestamp: timestamp
       };
     });
 

@@ -575,6 +575,16 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         close: Number(latestCandle.close)
       };
 
+      // CRITICAL FIX: Get the last candle time from the chart to prevent "Cannot update oldest data" error
+      const chartData = candlestickSeriesRef.current.data();
+      const lastChartCandleTime = chartData.length > 0 ? chartData[chartData.length - 1].time : 0;
+
+      // Only update if this candle is newer than or equal to the last chart candle
+      if (safeCandle.time < lastChartCandleTime) {
+        console.warn(`[Chart] ⏭️ Skipping update - candle at ${new Date(safeCandle.time * 1000).toLocaleTimeString()} is older than last chart candle at ${new Date(Number(lastChartCandleTime) * 1000).toLocaleTimeString()}`);
+        return;
+      }
+
       console.log(`[Chart] 📊 Updating chart with DB candle at ${new Date(safeCandle.time * 1000).toLocaleTimeString()}`);
       candlestickSeriesRef.current.update(safeCandle);
 
