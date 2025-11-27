@@ -203,8 +203,64 @@ class SmartGoalSessionManager {
     return `${minutes}m`;
   }
 
-  getActiveSession(sessionId: string): SmartGoalSession | null {
+  getActiveSessionById(sessionId: string): SmartGoalSession | null {
     return this.activeSessions.get(sessionId) || null;
+  }
+
+  async getActiveSession(userId: string): Promise<SmartGoalSession | null> {
+    try {
+      const { data, error } = await supabase
+        .from('goal_sessions')
+        .select('*')
+        .eq('user_id', userId)
+        .in('status', ['initializing', 'scanning', 'trade_pending', 'in_trade'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[Smart Goal] Error fetching active session:', error);
+        return null;
+      }
+
+      if (!data) {
+        return null;
+      }
+
+      const memorySession = this.activeSessions.get(data.id);
+      if (memorySession) {
+        return memorySession;
+      }
+
+      const reconstructed: SmartGoalSession = {
+        sessionId: data.id,
+        userId: data.user_id,
+        config: {
+          goalAmount: data.target_value,
+          timeframe: data.timeframe,
+          riskMode: data.risk_mode,
+          watchlist: data.watchlist || ['XAUUSD'],
+          autoExecute: data.auto_execute,
+          accountBalance: data.starting_balance
+        },
+        status: data.status,
+        strategy: {
+          targetTradeCount: 1,
+          avgProfitPerTrade: data.target_value,
+          maxProfitPerTrade: data.target_value,
+          scanIntervalMinutes: data.scan_interval_minutes || 1
+        },
+        startTime: new Date(data.start_time),
+        nextScanTime: new Date(data.next_scan_time),
+        lastScanTime: data.last_scan_time ? new Date(data.last_scan_time) : undefined
+      };
+
+      this.activeSessions.set(data.id, reconstructed);
+      return reconstructed;
+    } catch (error) {
+      console.error('[Smart Goal] Error in getActiveSession:', error);
+      return null;
+    }
   }
 
   pauseSession(sessionId: string): boolean {
@@ -337,6 +393,111 @@ class SmartGoalSessionManager {
       return goalSessionLiveEngine.getStatus();
     }
     return null;
+  }
+
+  async getSessionProgress(sessionId: string): Promise<any> {
+    try {
+      const [sessionData, tradesData, snapshotsData] = await Promise.all([
+        supabase.from('goal_sessions').select('*').eq('id', sessionId).maybeSingle(),
+        supabase.from('goal_session_trades').select('*').eq('goal_session_id', sessionId),
+        supabase.from('goal_progress_snapshots').select('*').eq('goal_session_id', sessionId).order('created_at', { ascending: false }).limit(10)
+      ]);
+
+      if (sessionData.error || !sessionData.data) {
+        console.error('[Smart Goal] Error fetching session progress:', sessionData.error);
+        return null;
+      }
+
+      const trades = tradesData.data || [];
+      const snapshots = snapshotsData.data || [];
+
+      const closedTrades = trades.filter(t => t.status === 'closed');
+      const openTrades = trades.filter(t => t.status === 'open');
+      const winningTrades = closedTrades.filter(t => t.profit_loss > 0);
+
+      return {
+        session: sessionData.data,
+        trades,
+        closedTrades,
+        openTrades,
+        winningTrades,
+        snapshots,
+        stats: {
+          totalTrades: trades.length,
+          closedTradesCount: closedTrades.length,
+          openTradesCount: openTrades.length,
+          winRate: closedTrades.length > 0 ? (winningTrades.length / closedTrades.length) * 100 : 0,
+          totalProfit: closedTrades.reduce((sum, t) => sum + (t.profit_loss || 0), 0)
+        }
+      };
+    } catch (error) {
+      console.error('[Smart Goal] Error in getSessionProgress:', error);
+      return null;
+    }
+  }
+
+  async getSessionConversations(sessionId: string, limit: number = 50): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('goal_ai_conversations')
+        .select('*')
+        .eq('goal_session_id', sessionId)
+        .order('created_at', { ascending: true })
+        .limit(limit);
+
+      if (error) {
+        console.error('[Smart Goal] Error fetching conversations:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('[Smart Goal] Error in getSessionConversations:', error);
+      return [];
+    }
+  }
+
+  async stopSession(sessionId: string, userId: string): Promise<boolean> {
+    try {
+      const session = this.activeSessions.get(sessionId);
+
+      const { error } = await supabase
+        .from('goal_sessions')
+        .update({
+          status: 'user_stopped',
+          end_time: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', sessionId)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('[Smart Goal] Error stopping session:', error);
+        return false;
+      }
+
+      if (session) {
+        session.status = 'user_stopped';
+      }
+
+      this.activeSessions.delete(sessionId);
+
+      const timer = this.scanTimers.get(sessionId);
+      if (timer) {
+        clearTimeout(timer);
+        this.scanTimers.delete(sessionId);
+      }
+
+      if (goalSessionLiveEngine.getActiveSessionId() === sessionId) {
+        await goalSessionLiveEngine.stopSession();
+      }
+
+      console.log(`[Smart Goal] Session ${sessionId} stopped by user`);
+      return true;
+    } catch (error) {
+      console.error('[Smart Goal] Error in stopSession:', error);
+      return false;
+    }
   }
 }
 

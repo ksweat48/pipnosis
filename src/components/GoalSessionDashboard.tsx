@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2 } from 'lucide-react';
-import { goalSessionManager, GoalSession } from '../services/goal-session-manager';
+import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalNotificationSystem } from '../services/goal-notifications';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
 import { useAuth } from '../hooks/useAuth';
@@ -9,7 +9,7 @@ import { MarketAnalysisStream } from './MarketAnalysisStream';
 
 export const GoalSessionDashboard: React.FC = () => {
   const { user } = useAuth();
-  const [activeSession, setActiveSession] = useState<GoalSession | null>(null);
+  const [activeSession, setActiveSession] = useState<SmartGoalSession | null>(null);
   const [progress, setProgress] = useState<any>(null);
   const [conversations, setConversations] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -48,23 +48,23 @@ export const GoalSessionDashboard: React.FC = () => {
     }
 
     if (['scanning', 'initializing', 'trade_pending', 'in_trade'].includes(activeSession.status)) {
-      goalScannerTrigger.startPolling(activeSession.id, 60000);
+      goalScannerTrigger.startPolling(activeSession.sessionId, 60000);
     } else {
       goalScannerTrigger.stopPolling();
     }
-  }, [activeSession?.id, activeSession?.status]);
+  }, [activeSession?.sessionId, activeSession?.status]);
 
   const loadSessionData = async () => {
     if (!user) return;
 
     try {
-      const session = await goalSessionManager.getActiveSession(user.id);
+      const session = await smartGoalSessionManager.getActiveSession(user.id);
       setActiveSession(session);
 
       if (session) {
         const [progressData, convos, notifs] = await Promise.all([
-          goalSessionManager.getSessionProgress(session.id),
-          goalSessionManager.getSessionConversations(session.id, 20),
+          smartGoalSessionManager.getSessionProgress(session.sessionId),
+          smartGoalSessionManager.getSessionConversations(session.sessionId, 20),
           goalNotificationSystem.getUnacknowledgedNotifications(user.id),
         ]);
 
@@ -86,7 +86,7 @@ export const GoalSessionDashboard: React.FC = () => {
     const confirmed = window.confirm('Are you sure you want to stop this goal session?');
     if (!confirmed) return;
 
-    const success = await goalSessionManager.stopSession(activeSession.id, user.id);
+    const success = await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
     if (success) {
       loadSessionData();
     }
@@ -244,14 +244,14 @@ export const GoalSessionDashboard: React.FC = () => {
 
       {activeSession && activeSession.status === 'scanning' && (
         <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-blue-200">
-          <div className="animate-pulse">Scanning {activeSession.watchlist.length} pairs for opportunities...</div>
+          <div className="animate-pulse">Scanning {activeSession.config.watchlist.length} pairs for opportunities...</div>
         </div>
       )}
 
       {activeSession && (
         <MarketAnalysisStream
-          sessionId={activeSession.id}
-          watchlist={activeSession.watchlist}
+          sessionId={activeSession.sessionId}
+          watchlist={activeSession.config.watchlist}
         />
       )}
 
