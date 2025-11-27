@@ -65,7 +65,7 @@ export const SmartGoalPanel: React.FC = () => {
 
         toast.success(
           'Goal Session Started!',
-          `Target: $${session.config.goalAmount} • ${session.strategy.targetTradeCount} trades • Using 5-layer LLM protection with live demo monitoring`,
+          `Target: $${session.config.goalAmount} • ${session.strategy.targetTradeCount} trades • Autonomous AI brain with live demo monitoring`,
           8000
         );
       } else {

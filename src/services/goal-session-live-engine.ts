@@ -359,30 +359,13 @@ class GoalSessionLiveEngine {
       } : undefined;
 
       // ====================================================================
-      // CRITICAL: Call Flow V2 FIRST to find high-probability setups
-      // ONLY if Flow V2 approves a setup → THEN call LLM Brain for validation
+      // AUTONOMOUS PIPNOSIS ALPHA BRAIN
+      // Let AI analyze market independently and make intelligent decisions
       // ====================================================================
 
-      console.log(`[Goal Live Engine] 🔍 Flow V2 scanning ${this.config.symbol}...`);
-      const { flowTraderV2 } = await import('../strategies/flow-trader-v2');
-      const flowSignal = await flowTraderV2.analyzeSetup(this.config.symbol, this.activeSession);
+      console.log(`[Autonomous Brain] 🧠 Analyzing ${this.config.symbol}...`);
+      console.log(`[Autonomous Brain] Open trades: ${this.openTrades.length}/${this.config.maxConcurrentTrades}`);
 
-      if (!flowSignal) {
-        console.log(`[Goal Live Engine] ⚠️ Flow V2 found no valid setup. Waiting for next scan...`);
-
-        // Send scanning update showing Flow V2 is working
-        if (this.scanCount % 4 === 0 && this.openTrades.length === 0) {
-          await this.sendScanningUpdate(latestCandle, null);
-        }
-
-        return; // Don't call LLM if Flow V2 doesn't find a setup
-      }
-
-      console.log(`[Goal Live Engine] ✅ Flow V2 APPROVED: ${flowSignal.direction.toUpperCase()} setup found!`);
-      console.log(`[Goal Live Engine] 📊 Setup: ${flowSignal.setupType} | Confidence: ${flowSignal.confidence}% | R:R 1:${flowSignal.riskReward.toFixed(2)}`);
-      console.log(`[Goal Live Engine] 🚀 Now calling 5-Layer LLM Brain for final validation...`);
-
-      // Now that Flow V2 approved, call LLM Brain with the Flow V2 signal
       const engineConfig: EventBasedEngineConfig = {
         symbol: this.config.symbol,
         timeframe: this.config.timeframe,
@@ -390,8 +373,7 @@ class GoalSessionLiveEngine {
         riskMode: this.config.riskMode,
         maxConcurrentTrades: this.config.maxConcurrentTrades,
         initialBalance: this.config.initialBalance,
-        goalContext,
-        flowV2Signal: flowSignal // Pass Flow V2 signal to LLM
+        goalContext
       };
 
       const result = await eventBasedLLMEngine.processCandle(
@@ -400,25 +382,30 @@ class GoalSessionLiveEngine {
         this.openTrades
       );
 
-      // Send scanning status update (every 4th scan = every minute)
-      if (this.scanCount % 4 === 0 && this.openTrades.length === 0) {
-        await this.sendScanningUpdate(latestCandle, result.trigger);
-      }
-
-      if (result.trigger) {
-        localSessionMemory.recordTrigger(`live-${this.activeSession}`, result.trigger);
-        logger.debug(LogCategory.AI_TRADING, `Trigger detected: ${result.trigger.type} (${result.trigger.confidence}%)`);
-
-        // Send trigger detection message
-        await this.sendTriggerDetectedMessage(result.trigger, latestCandle);
-      }
-
+      // Show AI thought process
       if (result.llmCalled) {
+        console.log('[Autonomous Brain] ✅ LLM called - strategy planned or trade analyzed');
         localSessionMemory.recordLLMCall(`live-${this.activeSession}`, 0, {});
       }
 
+      if (result.trigger) {
+        console.log(`[Autonomous Brain] ✅ Conditions met: ${result.trigger.type} (${result.trigger.confidence}% confidence)`);
+        localSessionMemory.recordTrigger(`live-${this.activeSession}`, result.trigger);
+        logger.debug(LogCategory.AI_TRADING, `Trigger detected: ${result.trigger.type} (${result.trigger.confidence}%)`);
+        await this.sendTriggerDetectedMessage(result.trigger, latestCandle);
+      } else {
+        console.log('[Autonomous Brain] Monitoring conditions... waiting for setup');
+      }
+
       if (result.trade) {
+        console.log(`[Autonomous Brain] 🎯 Trade decision: ${result.trade.direction} @ ${result.trade.entryPrice}`);
+        console.log(`[Autonomous Brain] SL: ${result.trade.stopLoss} | TP: ${result.trade.takeProfit} | R:R 1:${((result.trade.takeProfit - result.trade.entryPrice) / (result.trade.entryPrice - result.trade.stopLoss)).toFixed(2)}`);
         await this.handleNewTradeSignal(result.trade);
+      }
+
+      // Send scanning status update (every 4th scan = every minute)
+      if (this.scanCount % 4 === 0 && this.openTrades.length === 0) {
+        await this.sendScanningUpdate(latestCandle, result.trigger);
       }
 
       await supabase

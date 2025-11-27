@@ -317,7 +317,7 @@ class SmartGoalSessionManager {
 
       if (result.success) {
         console.log('[Smart Goal] ✅ Live demo engine started successfully');
-        console.log('[Smart Goal] ✅ 5-layer LLM pipeline will be used for all trades');
+        console.log('[Smart Goal] ✅ Autonomous Pipnosis Alpha brain active');
         console.log('[Smart Goal] ✅ All trades will have visible SL/TP on charts');
 
         // Calculate breakdown for message

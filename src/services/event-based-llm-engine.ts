@@ -220,7 +220,9 @@ class EventBasedLLMEngine {
         this.traderScore!
       );
       this.strategyPlanCount = 0;
-      console.log(`[Autonomous] ✅ Strategy planned: ${this.currentStrategy.mode}`);
+      console.log(`[Autonomous Brain] ✅ Strategy planned: ${this.currentStrategy.mode}`);
+      console.log(`[Autonomous Brain] Watching for: ${this.currentStrategy.conditions.join(', ')}`);
+      console.log(`[Autonomous Brain] Risk Level: ${this.currentStrategy.riskLevel}`);
     }
     this.strategyPlanCount++;
 
@@ -232,10 +234,11 @@ class EventBasedLLMEngine {
     );
 
     if (!conditionCheck.ready) {
+      console.log(`[Autonomous Brain] Conditions not met: ${conditionCheck.reason || 'Waiting for setup'}`);
       return { trade: null, trigger: null, llmCalled: false };
     }
 
-    console.log(`[Autonomous] ✅ Conditions met: ${conditionCheck.trigger}`);
+    console.log(`[Autonomous Brain] ✅ Conditions met: ${conditionCheck.trigger}`);
 
     // STEP 3: Execute decision (LLM call)
     const direction = conditionCheck.trigger.toLowerCase().includes('buy') ? 'buy' : 'sell';
@@ -256,6 +259,7 @@ class EventBasedLLMEngine {
       direction
     );
 
+    console.log(`[Autonomous Brain] 🤖 Calling GPT-4o for trade validation...`);
     const decision = await llmExecutionBrain.decideTrade(
       conditionCheck.trigger,
       microSnapshot,
@@ -265,9 +269,11 @@ class EventBasedLLMEngine {
     );
 
     if (decision.action === 'NO_TRADE') {
-      console.log(`[Autonomous] ✗ LLM declined: ${decision.reasoning}`);
+      console.log(`[Autonomous Brain] ✗ GPT-4o declined trade: ${decision.reasoning}`);
       return { trade: null, trigger: null, llmCalled: true };
     }
+
+    console.log(`[Autonomous Brain] ✅ GPT-4o approved: ${decision.action} ${config.symbol}`);
 
     // STEP 4: Safety validation
     const balance = config.initialBalance || 10000;
