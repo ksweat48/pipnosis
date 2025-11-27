@@ -393,16 +393,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   const updateCurrentCandleFromTick = (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => {
-    console.log(`[Chart] 📊 Received tick: ${tick.symbol} @ ${tick.midPrice.toFixed(5)} (target: ${symbol})`);
-
     if (tick.symbol !== symbol || !candlestickSeriesRef.current) {
-      console.log(`[Chart] ⏭️ Skipping tick - symbol mismatch or no series`);
       return;
     }
 
     // Check if market is open before processing tick
     if (!forexMarketStatus.isOpen) {
-      console.log(`[Chart] ⏸️ Skipping tick - market closed`);
       return;
     }
 
@@ -464,20 +460,25 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       }
 
       try {
-        // Ensure time is a number, not an object
-        const timeValue = currentCandleRef.current.time;
+        // CRITICAL: Ensure all values are primitive numbers
+        const timeValue = Number(currentCandleRef.current.time);
         if (typeof timeValue !== 'number' || isNaN(timeValue)) {
-          console.error('[Chart] Invalid time value detected:', { time: timeValue, type: typeof timeValue });
+          console.error('[Chart] ❌ Invalid time value detected:', {
+            time: currentCandleRef.current.time,
+            type: typeof currentCandleRef.current.time
+          });
           return;
         }
 
-        candlestickSeriesRef.current?.update({
+        const safeCandle: CandleData = {
           time: timeValue,
-          open: currentCandleRef.current.open,
-          high: currentCandleRef.current.high,
-          low: currentCandleRef.current.low,
-          close: currentCandleRef.current.close
-        });
+          open: Number(currentCandleRef.current.open),
+          high: Number(currentCandleRef.current.high),
+          low: Number(currentCandleRef.current.low),
+          close: Number(currentCandleRef.current.close)
+        };
+
+        candlestickSeriesRef.current?.update(safeCandle);
 
         setCurrentPrice(price);
         setLastUpdate(new Date());
@@ -555,16 +556,27 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     }
 
     try {
-      // Validate candle data before updating
+      // CRITICAL: Deep validation of candle time format
       if (typeof latestCandle.time !== 'number' || isNaN(latestCandle.time)) {
-        console.error('[Chart] Invalid candle time from poller:', {
+        console.error('[Chart] ❌ Invalid candle time from poller:', {
           candle: latestCandle,
-          timeType: typeof latestCandle.time
+          timeType: typeof latestCandle.time,
+          timeValue: latestCandle.time
         });
         return;
       }
 
-      candlestickSeriesRef.current.update(latestCandle);
+      // CRITICAL: Ensure time is a primitive number, not an object
+      const safeCandle: CandleData = {
+        time: Number(latestCandle.time),
+        open: Number(latestCandle.open),
+        high: Number(latestCandle.high),
+        low: Number(latestCandle.low),
+        close: Number(latestCandle.close)
+      };
+
+      console.log(`[Chart] 📊 Updating chart with DB candle at ${new Date(safeCandle.time * 1000).toLocaleTimeString()}`);
+      candlestickSeriesRef.current.update(safeCandle);
 
       if (chartRef.current && !userInteractedRef.current) {
         chartRef.current.timeScale().scrollToRealTime();
@@ -742,11 +754,20 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             console.warn(`[Chart Init] ⚠ GAP: ${timeDiff / 60} minutes between last historical and current (expected ${expectedInterval / 60})`);
           }
 
-          currentCandleRef.current = {
-            ...chartData.current,
-            startTime: chartData.current.time * 1000
+          // CRITICAL: Ensure current candle time is a primitive number
+          const safeCurrentCandle: CandleData = {
+            time: Number(chartData.current.time),
+            open: Number(chartData.current.open),
+            high: Number(chartData.current.high),
+            low: Number(chartData.current.low),
+            close: Number(chartData.current.close)
           };
-          candlestickSeriesRef.current?.update(chartData.current);
+
+          currentCandleRef.current = {
+            ...safeCurrentCandle,
+            startTime: safeCurrentCandle.time * 1000
+          };
+          candlestickSeriesRef.current?.update(safeCurrentCandle);
         } else if (chartData.current.time === lastHistoricalTime) {
           console.error(`[Chart Init] ❌ OVERLAP PREVENTED: Current candle matches last historical timestamp - rejecting current candle`);
           // Do not set current candle - it overlaps with historical data

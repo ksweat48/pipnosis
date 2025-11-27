@@ -189,8 +189,6 @@ class BackgroundCandleAggregator {
       return;
     }
 
-    console.log(`[BackgroundAggregator] 📊 Tick: ${symbol} @ ${midPrice.toFixed(5)} (${this.tickListeners.size} listeners)`);
-
     this.tickListeners.forEach(listener => {
       try {
         listener(tick);
@@ -591,8 +589,6 @@ class BackgroundCandleAggregator {
             this.lastMessageTime = new Date();
             const { symbol, bid, ask, broker_time, created_at } = payload.new as any;
             const timestamp = broker_time || created_at;
-
-            console.log(`[BackgroundAggregator] 📡 Realtime INSERT: ${symbol} @ ${parseFloat(bid).toFixed(5)}`);
 
             this.processNewPrice(
               symbol,
