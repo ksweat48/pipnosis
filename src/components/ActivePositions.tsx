@@ -106,13 +106,35 @@ export function ActivePositions({ refreshTrigger }: ActivePositionsProps) {
   };
 
   const handleClosePosition = async (position: Position) => {
-    if (!livePrices[position.symbol]) {
-      alert('Unable to close position: price data not available');
-      return;
+    let currentPrice: number;
+    let pnl = position.current_pnl;
+
+    if (livePrices[position.symbol]) {
+      currentPrice = position.position_type === 'buy'
+        ? livePrices[position.symbol].bid
+        : livePrices[position.symbol].ask;
+
+      pnl = simulatedTradingService.calculatePnL(
+        position.position_type,
+        position.entry_price || 0,
+        currentPrice,
+        position.lot_size,
+        position.symbol
+      );
+    } else {
+      const { data } = await supabase
+        .from('forex_candles')
+        .select('close')
+        .eq('symbol', position.symbol)
+        .order('open_time', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      currentPrice = data ? parseFloat(data.close) : (position.current_price || position.entry_price || 0);
     }
 
     const confirmed = window.confirm(
-      `Close ${position.position_type.toUpperCase()} ${position.symbol} ${position.lot_size} lots?\nCurrent P&L: $${position.current_pnl.toFixed(2)}`
+      `Close ${position.position_type.toUpperCase()} ${position.symbol} ${position.lot_size} lots?\nCurrent P&L: $${pnl.toFixed(2)}`
     );
 
     if (!confirmed) return;
@@ -122,10 +144,6 @@ export function ActivePositions({ refreshTrigger }: ActivePositionsProps) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
-
-      const currentPrice = position.position_type === 'buy'
-        ? livePrices[position.symbol].bid
-        : livePrices[position.symbol].ask;
 
       const result = await simulatedTradingService.closePosition(
         position.id,
