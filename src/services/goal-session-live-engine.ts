@@ -104,6 +104,35 @@ class GoalSessionLiveEngine {
         };
       }
 
+      // ✅ CRITICAL: Test LLM availability BEFORE starting session
+      logger.info(LogCategory.AI_TRADING, '🔍 Testing LLM availability...');
+      try {
+        const testResult = await openAIClient.chat([
+          { role: 'system', content: 'You are a test.' },
+          { role: 'user', content: 'Respond with OK if you can read this.' }
+        ], {
+          model: 'gpt-4o-mini',
+          max_tokens: 10,
+          requestType: 'llm_health_check'
+        });
+
+        if (!testResult || !testResult.choices || testResult.choices.length === 0) {
+          logger.error(LogCategory.AI_TRADING, '❌ LLM health check failed - no response');
+          return {
+            success: false,
+            message: '5-Layer LLM Pipeline unavailable - OpenAI API not responding. Check Netlify environment variables.'
+          };
+        }
+
+        logger.info(LogCategory.AI_TRADING, '✅ LLM health check passed');
+      } catch (llmError) {
+        logger.error(LogCategory.AI_TRADING, '❌ LLM health check failed:', llmError);
+        return {
+          success: false,
+          message: `5-Layer LLM Pipeline unavailable - ${(llmError as Error).message}. Cannot start session without LLM.`
+        };
+      }
+
       this.config = config;
       this.activeSession = config.goalSessionId;
       this.sessionStartTime = new Date();
@@ -434,41 +463,45 @@ class GoalSessionLiveEngine {
         `🎲 Confidence: ${trade.confidence}% | Setup: ${trade.triggerType}\n` +
         `🔄 Monitoring every 15 seconds for TP/SL hit...`;
 
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config.userId,
-        role: 'ai',
-        message,
-        context: {
-          trade_id: executionResult.tradeId,
-          execution_result: executionResult
-        },
-        sentiment: 'encouraging',
-        technical_data: {
-          entry_price: trade.entryPrice,
-          stop_loss: trade.stopLoss,
-          take_profit: trade.takeProfit,
-          risk_pips: riskPips,
-          reward_pips: rewardPips,
-          risk_reward: riskReward
-        },
-        market_snapshot: {
-          confidence: trade.confidence,
-          setup_type: trade.triggerType
-        }
-      });
+      try {
+        await supabase.from('goal_ai_conversations').insert({
+          goal_session_id: this.activeSession,
+          user_id: this.config.userId,
+          role: 'ai',
+          message,
+          context: {
+            trade_id: executionResult.tradeId,
+            execution_result: executionResult,
+            entry_price: trade.entryPrice,
+            stop_loss: trade.stopLoss,
+            take_profit: trade.takeProfit,
+            risk_pips: riskPips,
+            reward_pips: rewardPips,
+            risk_reward: riskReward,
+            confidence: trade.confidence,
+            setup_type: trade.triggerType
+          },
+          sentiment: 'encouraging'
+        });
+      } catch (error) {
+        console.error('[Goal Live Engine] Failed to log trade execution conversation:', error);
+      }
     } else {
       console.error(`[Goal Live Engine] ❌ Trade execution failed: ${executionResult.message}`);
 
       // Send failure message
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config.userId,
-        role: 'ai',
-        message: `❌ Trade execution failed: ${executionResult.message}. Continuing to scan for next opportunity...`,
-        context: { error: executionResult.message },
-        sentiment: 'cautionary'
-      });
+      try {
+        await supabase.from('goal_ai_conversations').insert({
+          goal_session_id: this.activeSession,
+          user_id: this.config.userId,
+          role: 'ai',
+          message: `❌ Trade execution failed: ${executionResult.message}. Continuing to scan for next opportunity...`,
+          context: { error: executionResult.message },
+          sentiment: 'cautionary'
+        });
+      } catch (error) {
+        console.error('[Goal Live Engine] Failed to log trade failure conversation:', error);
+      }
     }
   }
 
@@ -528,28 +561,28 @@ class GoalSessionLiveEngine {
       `⏱️ Duration: ${durationText}\\n` +
       `💰 P&L: ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)} (${pips >= 0 ? '+' : ''}${pips.toFixed(1)} pips)`;
 
-    await supabase.from('goal_ai_conversations').insert({
-      goal_session_id: this.activeSession,
-      user_id: this.config!.userId,
-      role: 'ai',
-      message: closureMessage,
-      context: {
-        trade_id: trade.id,
-        outcome: trade.outcome,
-        duration_minutes: tradeDuration
-      },
-      sentiment: isWin ? 'encouraging' : 'educational',
-      technical_data: {
-        entry_price: trade.entryPrice,
-        exit_price: trade.exitPrice,
-        pnl: trade.pnl,
-        pips,
-        duration: durationText
-      },
-      market_snapshot: {
-        exit_reason: exitReason
-      }
-    });
+    try {
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: this.activeSession,
+        user_id: this.config!.userId,
+        role: 'ai',
+        message: closureMessage,
+        context: {
+          trade_id: trade.id,
+          outcome: trade.outcome,
+          duration_minutes: tradeDuration,
+          entry_price: trade.entryPrice,
+          exit_price: trade.exitPrice,
+          pnl: trade.pnl,
+          pips,
+          duration: durationText,
+          exit_reason: exitReason
+        },
+        sentiment: isWin ? 'encouraging' : 'educational'
+      });
+    } catch (error) {
+      console.error('[Goal Live Engine] Failed to log trade closure conversation:', error);
+    }
 
     // Get session stats and send post-trade analysis
     const stats = localSessionMemory.getSessionStatistics(`live-${this.activeSession}`);
@@ -579,23 +612,25 @@ class GoalSessionLiveEngine {
         `📊 Session Stats: ${stats.totalTrades} trades | ${stats.winningTrades} wins | ${((stats.winningTrades / stats.totalTrades) * 100).toFixed(0)}% win rate\\n` +
         `💪 Continuing to scan for next high-quality setup...`;
 
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config!.userId,
-        role: 'ai',
-        message: llmAnalysis + progressMessage,
-        context: {
-          stats,
-          trade_id: trade.id,
-          llm_analysis: true
-        },
-        sentiment: 'analytical',
-        technical_data: {
-          total_pnl: stats.totalPnL,
-          win_rate: (stats.winningTrades / stats.totalTrades) * 100,
-          total_trades: stats.totalTrades
-        }
-      });
+      try {
+        await supabase.from('goal_ai_conversations').insert({
+          goal_session_id: this.activeSession,
+          user_id: this.config!.userId,
+          role: 'ai',
+          message: llmAnalysis + progressMessage,
+          context: {
+            stats,
+            trade_id: trade.id,
+            llm_analysis: true,
+            total_pnl: stats.totalPnL,
+            win_rate: (stats.winningTrades / stats.totalTrades) * 100,
+            total_trades: stats.totalTrades
+          },
+          sentiment: 'neutral'
+        });
+      } catch (error) {
+        console.error('[Goal Live Engine] Failed to log post-trade analysis conversation:', error);
+      }
     }
   }
 
@@ -705,18 +740,22 @@ ${learningInsights.map(insight => `• ${insight}`).join('\n')}
 This learning will carry forward to improve future sessions!
       `.trim();
 
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config!.userId,
-        role: 'ai',
-        message: learningSummary,
-        context: {
-          ...summary.statistics,
-          learningInsights,
-          sessionType: 'live_goal_mode'
-        },
-        sentiment: stats.totalPnL > 0 ? 'celebratory' : 'educational'
-      });
+      try {
+        await supabase.from('goal_ai_conversations').insert({
+          goal_session_id: this.activeSession,
+          user_id: this.config!.userId,
+          role: 'ai',
+          message: learningSummary,
+          context: {
+            ...summary.statistics,
+            learningInsights,
+            sessionType: 'live_goal_mode'
+          },
+          sentiment: stats.totalPnL > 0 ? 'celebratory' : 'educational'
+        });
+      } catch (error) {
+        console.error('[Goal Live Engine] Failed to log learning summary conversation:', error);
+      }
 
       logger.info(LogCategory.AI_TRADING, 'Learning summary sent to user');
       logger.debug(LogCategory.AI_TRADING, `Insights: ${learningInsights.length} generated`);
@@ -782,16 +821,25 @@ This learning will carry forward to improve future sessions!
       message = `🔍 Scanning ${this.config.symbol} @ ${price.toFixed(5)} - No triggers yet. Session running ${sessionDuration}m - Waiting for high-quality setups...`;
     }
 
-    await supabase.from('goal_ai_conversations').insert({
-      goal_session_id: this.activeSession,
-      user_id: this.config.userId,
-      role: 'ai',
-      message,
-      context: { scanCount: this.scanCount, hasOpenTrades: this.openTrades.length > 0 },
-      sentiment: trigger ? 'excited' : 'neutral',
-      technical_data: { price, symbol: this.config.symbol, time },
-      market_snapshot: { trigger: trigger?.type || null }
-    });
+    try {
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: this.activeSession,
+        user_id: this.config.userId,
+        role: 'ai',
+        message,
+        context: {
+          scanCount: this.scanCount,
+          hasOpenTrades: this.openTrades.length > 0,
+          price,
+          symbol: this.config.symbol,
+          time,
+          trigger: trigger?.type || null
+        },
+        sentiment: trigger ? 'encouraging' : 'neutral'
+      });
+    } catch (error) {
+      console.error('[Goal Live Engine] Failed to log scanning update conversation:', error);
+    }
   }
 
   /**
@@ -802,19 +850,23 @@ This learning will carry forward to improve future sessions!
 
     const message = `🎯 Potential setup detected on ${this.config.symbol}! Type: ${trigger.type} | Confidence: ${trigger.confidence}% | Initiating 5-layer validation...`;
 
-    await supabase.from('goal_ai_conversations').insert({
-      goal_session_id: this.activeSession,
-      user_id: this.config.userId,
-      role: 'ai',
-      message,
-      context: { trigger, price: latestCandle.close },
-      sentiment: 'analytical',
-      technical_data: {
-        trigger_type: trigger.type,
-        confidence: trigger.confidence,
-        price: latestCandle.close
-      }
-    });
+    try {
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: this.activeSession,
+        user_id: this.config.userId,
+        role: 'ai',
+        message,
+        context: {
+          trigger,
+          price: latestCandle.close,
+          trigger_type: trigger.type,
+          confidence: trigger.confidence
+        },
+        sentiment: 'neutral'
+      });
+    } catch (error) {
+      console.error('[Goal Live Engine] Failed to log trigger detected conversation:', error);
+    }
   }
 
   /**
@@ -899,14 +951,18 @@ This learning will carry forward to improve future sessions!
       logger.warn(LogCategory.AI_TRADING, `Mid-trade recommendation rejected: ${validation.violations.join(', ')}`);
 
       // Send rejection message
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config.userId,
-        role: 'ai',
-        message: `⚠️ LLM recommendation rejected: ${validation.violations.join('. ')}. Keeping current parameters for safety.`,
-        context: { evaluation, validation },
-        sentiment: 'cautionary'
-      });
+      try {
+        await supabase.from('goal_ai_conversations').insert({
+          goal_session_id: this.activeSession,
+          user_id: this.config.userId,
+          role: 'ai',
+          message: `⚠️ LLM recommendation rejected: ${validation.violations.join('. ')}. Keeping current parameters for safety.`,
+          context: { evaluation, validation },
+          sentiment: 'cautionary'
+        });
+      } catch (error) {
+        console.error('[Goal Live Engine] Failed to log recommendation rejection conversation:', error);
+      }
 
       return;
     }
@@ -963,20 +1019,25 @@ This learning will carry forward to improve future sessions!
     }
 
     // Send action message to AI conversation
-    await supabase.from('goal_ai_conversations').insert({
-      goal_session_id: this.activeSession,
-      user_id: this.config.userId,
-      role: 'ai',
-      message: actionMessage,
-      context: { evaluation, trade_id: trade.id },
-      sentiment: evaluation.recommendation === 'EXIT_IMMEDIATELY' ? 'cautionary' : 'analytical',
-      technical_data: {
-        recommendation: evaluation.recommendation,
-        confidence: evaluation.confidence,
-        new_sl: trade.stopLoss,
-        new_tp: trade.takeProfit
-      }
-    });
+    try {
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: this.activeSession,
+        user_id: this.config.userId,
+        role: 'ai',
+        message: actionMessage,
+        context: {
+          evaluation,
+          trade_id: trade.id,
+          recommendation: evaluation.recommendation,
+          confidence: evaluation.confidence,
+          new_sl: trade.stopLoss,
+          new_tp: trade.takeProfit
+        },
+        sentiment: evaluation.recommendation === 'EXIT_IMMEDIATELY' ? 'cautionary' : 'neutral'
+      });
+    } catch (error) {
+      console.error('[Goal Live Engine] Failed to log mid-trade action conversation:', error);
+    }
 
     logger.info(LogCategory.AI_TRADING, `Mid-trade action: ${evaluation.recommendation}`);
   }
@@ -989,19 +1050,24 @@ This learning will carry forward to improve future sessions!
 
     const message = `⚠️ Mid-Trade Event: ${trigger.triggerReason}. Requesting LLM evaluation...`;
 
-    await supabase.from('goal_ai_conversations').insert({
-      goal_session_id: this.activeSession,
-      user_id: this.config.userId,
-      role: 'ai',
-      message,
-      context: { trigger, trade_id: trade.id },
-      sentiment: 'analytical',
-      technical_data: {
-        trigger_type: trigger.triggerType,
-        confidence: trigger.confidence,
-        current_price: candle.close
-      }
-    });
+    try {
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: this.activeSession,
+        user_id: this.config.userId,
+        role: 'ai',
+        message,
+        context: {
+          trigger,
+          trade_id: trade.id,
+          trigger_type: trigger.triggerType,
+          confidence: trigger.confidence,
+          current_price: candle.close
+        },
+        sentiment: 'neutral'
+      });
+    } catch (error) {
+      console.error('[Goal Live Engine] Failed to log mid-trade trigger conversation:', error);
+    }
   }
 
   /**
@@ -1017,20 +1083,25 @@ This learning will carry forward to improve future sessions!
     const message = `${emoji} LLM Evaluation (${evaluation.processingTimeMs}ms): ${evaluation.reasoning}\\n` +
       `Recommendation: ${evaluation.recommendation} | Confidence: ${evaluation.confidence}%`;
 
-    await supabase.from('goal_ai_conversations').insert({
-      goal_session_id: this.activeSession,
-      user_id: this.config.userId,
-      role: 'ai',
-      message,
-      context: { evaluation, trade_id: trade.id },
-      sentiment: 'analytical',
-      technical_data: {
-        recommendation: evaluation.recommendation,
-        confidence: evaluation.confidence,
-        cost_usd: evaluation.costUsd,
-        tokens_used: evaluation.tokensUsed
-      }
-    });
+    try {
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: this.activeSession,
+        user_id: this.config.userId,
+        role: 'ai',
+        message,
+        context: {
+          evaluation,
+          trade_id: trade.id,
+          recommendation: evaluation.recommendation,
+          confidence: evaluation.confidence,
+          cost_usd: evaluation.costUsd,
+          tokens_used: evaluation.tokensUsed
+        },
+        sentiment: 'neutral'
+      });
+    } catch (error) {
+      console.error('[Goal Live Engine] Failed to log mid-trade evaluation conversation:', error);
+    }
   }
 
   /**
@@ -1192,30 +1263,30 @@ Keep response under 100 words, educational tone.`;
 
     const message = `${emoji} ${statusText}: ${trade.symbol} ${trade.direction.toUpperCase()} (${timeOpen}m) | Price: ${currentPrice.toFixed(5)} | P&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pips >= 0 ? '+' : ''}${pips.toFixed(1)} pips)`;
 
-    await supabase.from('goal_ai_conversations').insert({
-      goal_session_id: this.activeSession,
-      user_id: this.config.userId,
-      role: 'ai',
-      message,
-      context: {
-        trade_id: trade.id,
-        time_open: timeOpen,
-        current_pnl: pnl
-      },
-      sentiment,
-      technical_data: {
-        current_price: currentPrice,
-        entry_price: trade.entryPrice,
-        stop_loss: trade.stopLoss,
-        take_profit: trade.takeProfit,
-        pnl,
-        pips
-      },
-      market_snapshot: {
-        distance_to_tp: distanceToTP,
-        distance_to_sl: distanceToSL
-      }
-    });
+    try {
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: this.activeSession,
+        user_id: this.config.userId,
+        role: 'ai',
+        message,
+        context: {
+          trade_id: trade.id,
+          time_open: timeOpen,
+          current_pnl: pnl,
+          current_price: currentPrice,
+          entry_price: trade.entryPrice,
+          stop_loss: trade.stopLoss,
+          take_profit: trade.takeProfit,
+          pnl,
+          pips,
+          distance_to_tp: distanceToTP,
+          distance_to_sl: distanceToSL
+        },
+        sentiment
+      });
+    } catch (error) {
+      console.error('[Goal Live Engine] Failed to log trade monitoring conversation:', error);
+    }
   }
 }
 

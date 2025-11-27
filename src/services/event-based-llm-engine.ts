@@ -169,16 +169,11 @@ class EventBasedLLMEngine {
 
     console.log(`[Event Engine] ✅ Trigger validated: ${topTrigger.type} (${topTrigger.confidence}%)`);
 
-    if (!config.useLLM || !this.apiKey) {
-      console.log(`[Event Engine] 🔧 LLM disabled or no API key - using rule-based fallback`);
-      console.log(`  useLLM: ${config.useLLM}, hasApiKey: ${!!this.apiKey}`);
-      const ruleBasedTrade = this.executeRuleBasedDecision(topTrigger, snapshot, config, openTrades);
-      if (ruleBasedTrade) {
-        console.log(`[Event Engine] ✓ Rule-based trade generated: ${ruleBasedTrade.direction.toUpperCase()}`);
-      } else {
-        console.log(`[Event Engine] ✗ Rule-based decision: NO_TRADE`);
-      }
-      return { trade: ruleBasedTrade, trigger: topTrigger, llmCalled: false };
+    // CRITICAL: LLM is MANDATORY - no fallback allowed
+    if (!config.useLLM) {
+      console.error(`[Event Engine] ❌ CRITICAL: LLM is disabled but required for Pipnosis identity`);
+      console.error(`[Event Engine] ❌ NO TRADES will be executed without 5-layer LLM validation`);
+      throw new Error('5-Layer LLM Pipeline is mandatory - cannot trade without LLM');
     }
 
     // Check if token budget needs reset (sliding window)
@@ -188,9 +183,8 @@ class EventBasedLLMEngine {
       const windowElapsed = (Date.now() - this.tokenWindowStart) / (1000 * 60 * 60);
       console.warn(`[Event Engine] ⚠️ Token budget exhausted: ${this.sessionTokenUsage}/${this.MAX_TOKENS_PER_SESSION}`);
       console.warn(`[Event Engine] Window: ${windowElapsed.toFixed(1)}h / ${this.TOKEN_RESET_WINDOW_HOURS}h`);
-      console.warn('[Event Engine] Falling back to rule-based decisions');
-      const ruleBasedTrade = this.executeRuleBasedDecision(topTrigger, snapshot, config, openTrades);
-      return { trade: ruleBasedTrade, trigger: topTrigger, llmCalled: false };
+      console.warn('[Event Engine] Session should pause - token limit reached');
+      return { trade: null, trigger: topTrigger, llmCalled: false };
     }
 
     console.log(`[Event Engine] 🚀 Calling 5-Layer LLM Pipeline... (Tokens: ${this.sessionTokenUsage}/${this.MAX_TOKENS_PER_SESSION})`);

@@ -98,7 +98,7 @@ class TradeExecutionEngine {
 
     const riskThresholds = {
       low: 80,
-      medium: 75,
+      medium: 70,
       high: 70
     };
 
