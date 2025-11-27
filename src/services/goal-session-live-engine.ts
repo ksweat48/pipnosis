@@ -542,6 +542,9 @@ class GoalSessionLiveEngine {
 
     logger.info(LogCategory.AI_TRADING, `Trade closed: ${trade.outcome.toUpperCase()} - PnL: $${trade.pnl.toFixed(2)}`);
 
+    // CRITICAL: Update trader score via autonomous brain
+    await eventBasedLLMEngine.onTradeClose(trade);
+
     // Clear mid-trade triggers for this trade
     midTradeTriggerDetector.clearTriggers(trade.id);
 

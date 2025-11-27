@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { Brain, BookOpen, BarChart3 } from 'lucide-react';
+import { Brain, BookOpen, BarChart3, Trophy } from 'lucide-react';
 import { NavigationMenu } from '../components/NavigationMenu';
 import { SessionHistoryList } from '../components/SessionHistoryList';
 import { SessionDeepDivePanel } from '../components/SessionDeepDivePanel';
 import { LearningImpactTracker } from '../components/LearningImpactTracker';
+import { TraderScoreDashboard } from '../components/TraderScoreDashboard';
 
-type TabId = 'session-intelligence' | 'improvement-tracking';
+type TabId = 'trader-score' | 'session-intelligence' | 'improvement-tracking';
 
 function AILearningCenterPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabId>('session-intelligence');
+  const [activeTab, setActiveTab] = useState<TabId>('trader-score');
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
   if (!user) {
@@ -25,6 +26,7 @@ function AILearningCenterPage() {
   }
 
   const tabs = [
+    { id: 'trader-score', label: 'Trader Score', icon: Trophy },
     { id: 'session-intelligence', label: 'Session Intelligence', icon: BookOpen },
     { id: 'improvement-tracking', label: 'Improvement Tracking', icon: BarChart3 }
   ];
@@ -69,6 +71,10 @@ function AILearningCenterPage() {
           </div>
 
           <div className="space-y-6">
+            {activeTab === 'trader-score' && (
+              <TraderScoreDashboard userId={user.id} />
+            )}
+
             {activeTab === 'session-intelligence' && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-1">
