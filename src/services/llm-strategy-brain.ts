@@ -35,6 +35,7 @@ export interface StrategyPlan {
   sl_calculation: string; // "atr*1.5"
   tp_calculation: string; // "atr*2.5"
   risk_pct: number; // 1-5%
+  riskLevel: number; // 1-5%
   confidence: number; // 60-95
   rationale: string;
   watch_indicators: string[];
@@ -58,10 +59,19 @@ ${JSON.stringify(snapshot)}
 
 Analyze market. Define strategy for next 50-100 candles.
 
+CRITICAL: conditions MUST use EXACT parseable codes:
+- Price vs EMA: "p>e50", "p<e20", "p>e200", "p<e200"
+- RSI: "rsi>70", "rsi<30", "rsi>50", "rsi<50", "rsi>40", "rsi<60"
+- Trend: "trend=bull", "trend=bear"
+- VWAP: "p>vw", "p<vw"
+- EMA cross: "e20>e50", "e20<e50"
+- Stoch RSI: "st>70", "st<30"
+NO natural language. Use codes ONLY.
+
 Return JSON:
 {
   "mode": "trend|breakout|pullback|reversal|range",
-  "conditions": ["condition1", "condition2", "condition3"],
+  "conditions": ["p>e50", "rsi>50", "trend=bull"],
   "entry_logic": "when X of Y conditions true",
   "sl_calculation": "atr*X",
   "tp_calculation": "atr*Y",
@@ -125,6 +135,7 @@ Max 200 tokens.`;
         sl_calculation: parsed.sl_calculation || 'atr*1.5',
         tp_calculation: parsed.tp_calculation || 'atr*2.5',
         risk_pct: parsed.risk_pct || 3,
+        riskLevel: parsed.risk_pct || 3,
         confidence: parsed.confidence || 70,
         rationale: parsed.rationale || 'Default strategy',
         watch_indicators: parsed.watch_indicators || ['ema20', 'ema50', 'rsi']
@@ -140,6 +151,7 @@ Max 200 tokens.`;
         sl_calculation: 'atr*1.5',
         tp_calculation: 'atr*2.5',
         risk_pct: 3,
+        riskLevel: 3,
         confidence: 70,
         rationale: 'Fallback trend-following strategy',
         watch_indicators: ['ema20', 'ema50', 'rsi', 'vwap']

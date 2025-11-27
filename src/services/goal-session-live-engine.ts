@@ -66,6 +66,8 @@ class GoalSessionLiveEngine {
   private scanCount = 0;
   private lastAIUpdateTime = 0;
   private processingLock = false;
+  private lastAIMessageContent = '';
+  private lastMarketState = { price: 0, trend: '', rsi: 0 };
 
   private readonly POLLING_INTERVAL_MS = 60000; // 60s = 75% fewer LLM calls
   private readonly MAX_DAILY_LOSS_PERCENT = 10;
@@ -820,7 +822,7 @@ This learning will carry forward to improve future sessions!
   }
 
   /**
-   * Send AI thinking update - shows real-time analysis
+   * Send AI thinking update - shows real-time analysis with change detection
    */
   private async sendAIThinkingUpdate(latestCandle: any, candles: any[], result: any): Promise<void> {
     if (!this.config || !this.activeSession) return;
@@ -840,6 +842,12 @@ This learning will carry forward to improve future sessions!
 
     const trend = price > ema50 ? 'Bullish' : price < ema50 ? 'Bearish' : 'Neutral';
 
+    // Detect significant changes
+    const priceChanged = Math.abs(price - this.lastMarketState.price) / this.lastMarketState.price > 0.001; // 0.1% change
+    const trendChanged = trend !== this.lastMarketState.trend;
+    const rsiChanged = Math.abs(rsi - this.lastMarketState.rsi) > 5; // 5 point change
+    const hasSignificantChange = priceChanged || trendChanged || rsiChanged || result.trigger || result.trade;
+
     let message = `🧠 Analyzing ${this.config.symbol} (${time})\n`;
     message += `📊 Price: $${price.toFixed(2)} (${priceDirection}${Math.abs(parseFloat(priceChangePercent))}%)\n`;
     message += `📈 Trend: ${trend} | RSI: ${rsi.toFixed(0)}\n`;
@@ -856,11 +864,26 @@ This learning will carry forward to improve future sessions!
       if (strategy) {
         message += `\n🎯 Strategy: ${strategy.mode}\n`;
         message += `🔍 Looking for: ${strategy.conditions.slice(0, 2).join(', ')}\n`;
-        message += `⏳ Monitoring conditions...`;
+
+        // Check if nothing changed
+        if (!hasSignificantChange) {
+          message += `⏳ No changes - still monitoring conditions (${time})`;
+        } else {
+          message += `⏳ Monitoring conditions...`;
+        }
       } else {
         message += `\n⏳ Monitoring market conditions\n`;
         message += `🔍 Waiting for high-probability setup...`;
       }
+    }
+
+    // Only send update if something changed OR it's been >2 minutes since last update
+    const timeSinceLastUpdate = Date.now() - this.lastAIUpdateTime;
+    const shouldSendUpdate = hasSignificantChange || timeSinceLastUpdate > 120000 || result.trade || result.trigger;
+
+    if (!shouldSendUpdate) {
+      console.log('[Goal Live Engine] Skipping duplicate AI update (no significant changes)');
+      return;
     }
 
     try {
@@ -881,6 +904,13 @@ This learning will carry forward to improve future sessions!
         },
         sentiment: result.trade ? 'encouraging' : 'neutral'
       });
+
+      // Update last state
+      this.lastMarketState = { price, trend, rsi };
+      this.lastAIMessageContent = message;
+      this.lastAIUpdateTime = Date.now();
+
+      console.log('[Goal Live Engine] AI update sent with changes');
     } catch (error) {
       console.error('[Goal Live Engine] Failed to log AI thinking update:', error);
     }

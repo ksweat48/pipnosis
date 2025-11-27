@@ -226,21 +226,29 @@ class EventBasedLLMEngine {
     }
     this.strategyPlanCount++;
 
-    // STEP 2: Check conditions (NO LLM)
-    const marketState = llmSnapshotBuilder.buildMarketState(candles);
-    const conditionCheck = conditionMonitor.checkConditions(
-      this.currentStrategy,
-      marketState
-    );
+    // STEP 2: Check conditions (NO LLM) with error recovery
+    let conditionCheck;
+    let marketState;
+    try {
+      marketState = llmSnapshotBuilder.buildMarketState(candles);
+      conditionCheck = conditionMonitor.checkConditions(
+        this.currentStrategy,
+        marketState
+      );
 
-    if (!conditionCheck.ready) {
-      const statusMsg = this.getDetailedConditionStatus(conditionCheck, marketState);
-      console.log(`[Autonomous Brain] ${statusMsg}`);
-      console.log(`[Autonomous Brain] Monitoring conditions... waiting for setup`);
+      if (!conditionCheck.ready) {
+        const statusMsg = this.getDetailedConditionStatus(conditionCheck, marketState);
+        console.log(`[Autonomous Brain] ${statusMsg}`);
+        console.log(`[Autonomous Brain] Monitoring conditions... waiting for setup`);
+        return { trade: null, trigger: null, llmCalled: false };
+      }
+
+      console.log(`[Autonomous Brain] ✅ Conditions met: ${conditionCheck.trigger}`);
+    } catch (error) {
+      console.error('[Autonomous Brain] ❌ Condition check failed:', error);
+      console.log('[Autonomous Brain] Continuing to next scan (error recovery)');
       return { trade: null, trigger: null, llmCalled: false };
     }
-
-    console.log(`[Autonomous Brain] ✅ Conditions met: ${conditionCheck.trigger}`);
 
     // STEP 3: Execute decision (LLM call)
     const direction = conditionCheck.trigger.toLowerCase().includes('buy') ? 'buy' : 'sell';

@@ -26,6 +26,7 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
   const [marketData, setMarketData] = useState<MarketSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [nextScanTime, setNextScanTime] = useState<Date | null>(null);
+  const [countdown, setCountdown] = useState<string>('Calculating...');
 
   useEffect(() => {
     loadMarketData();
@@ -38,6 +39,27 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
 
     return () => clearInterval(interval);
   }, [sessionId, watchlist]);
+
+  // Update countdown every second
+  useEffect(() => {
+    const countdownInterval = setInterval(() => {
+      if (nextScanTime) {
+        const now = Date.now();
+        const remaining = nextScanTime.getTime() - now;
+
+        if (remaining <= 0) {
+          setCountdown('Scanning now...');
+        } else {
+          const totalSeconds = Math.floor(remaining / 1000);
+          const minutes = Math.floor(totalSeconds / 60);
+          const seconds = totalSeconds % 60;
+          setCountdown(`${minutes}m ${seconds}s`);
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(countdownInterval);
+  }, [nextScanTime]);
 
   const loadSessionInfo = async () => {
     const { data } = await supabase
@@ -217,15 +239,6 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
     return 'from-gray-500 to-gray-600';
   };
 
-  const formatTimeUntilScan = () => {
-    if (!nextScanTime) return 'Calculating...';
-    const now = Date.now();
-    const remaining = nextScanTime.getTime() - now;
-    if (remaining <= 0) return 'Scanning now...';
-    const minutes = Math.floor(remaining / 60000);
-    const seconds = Math.floor((remaining % 60000) / 1000);
-    return `${minutes}m ${seconds}s`;
-  };
 
   if (loading) {
     return (
@@ -246,7 +259,7 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
           <div className="flex items-center gap-2 text-sm">
             <Clock className="w-4 h-4 text-gray-400" />
             <span className="text-gray-400">Next scan in:</span>
-            <span className="text-blue-400 font-mono font-semibold">{formatTimeUntilScan()}</span>
+            <span className="text-blue-400 font-mono font-semibold">{countdown}</span>
           </div>
         </div>
 
