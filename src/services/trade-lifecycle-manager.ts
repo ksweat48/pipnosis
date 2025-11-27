@@ -89,14 +89,14 @@ class TradeLifecycleManager {
       if (trade.goal_session_id) {
         const { data: goalSession } = await supabase
           .from('goal_sessions')
-          .select('target_amount, starting_balance, auto_close_on_goal, goal_achieved_at, user_id')
+          .select('target_value, starting_balance, goal_achieved_at, user_id, auto_execute')
           .eq('id', trade.goal_session_id)
           .maybeSingle();
 
-        if (goalSession && unrealizedPnL >= goalSession.target_amount) {
+        if (goalSession && unrealizedPnL >= goalSession.target_value) {
           // Check if we've already notified about this goal achievement
           if (!goalSession.goal_achieved_at) {
-            console.log(`[Trade Lifecycle] 🎯 GOAL ACHIEVED! Target: $${goalSession.target_amount}, Current: $${unrealizedPnL.toFixed(2)}`);
+            console.log(`[Trade Lifecycle] 🎯 GOAL ACHIEVED! Target: $${goalSession.target_value}, Current: $${unrealizedPnL.toFixed(2)}`);
 
             // Mark goal as achieved (PERMANENT WIN)
             await supabase
@@ -115,7 +115,7 @@ class TradeLifecycleManager {
                 user_id: goalSession.user_id,
                 goal_session_id: trade.goal_session_id,
                 achieved_pnl: unrealizedPnL,
-                target_amount: goalSession.target_amount,
+                target_amount: goalSession.target_value,
                 trade_id: trade.id,
                 symbol: trade.symbol,
                 entry_price: trade.entry_price,
@@ -143,7 +143,7 @@ class TradeLifecycleManager {
                   goalSession.user_id,
                   achievement.id,
                   {
-                    goalAmount: goalSession.target_amount,
+                    goalAmount: goalSession.target_value,
                     accountBalance: goalSession.starting_balance,
                     timeToAchieveHours: hoursElapsed,
                     timeLimitHours: trade.goal_sessions?.timeframe_hours || 24
