@@ -103,23 +103,11 @@ export function SystemMonitoringPanel() {
       <SystemHealthDashboard dashboard={dashboard} alerts={alerts} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-gray-900/50 border border-gray-800 rounded-lg p-6 text-gray-400">Cron job monitoring removed</div>
-        <div
-          cronJobs={dashboard?.active_cron_jobs || []}
-          recentExecutions={executions}
-        />
-
-        {dashboard?.price_polling_stats && dashboard?.price_data_freshness && (
-          <PricePollingHealthCard
-            stats={dashboard.price_polling_stats}
-            freshness={dashboard.price_data_freshness}
-          />
-        )}
+        <div className="bg-gray-900/50 border border-gray-800 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">System Monitoring</h3>
+          <p className="text-gray-400">Additional monitoring components available in admin dashboard</p>
+        </div>
       </div>
-
-      {dashboard?.candle_generation_stats && (
-        <CandleGenerationStatsCard metrics={dashboard.candle_generation_stats} />
-      )}
     </div>
   );
 }

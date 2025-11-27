@@ -5,7 +5,7 @@ export interface PriceUpdate {
   symbol: string;
   bid: number;
   ask: number;
-  timestamp: Date;
+  created_at: Date;
 }
 
 class TradeLifecycleManager {
@@ -224,9 +224,9 @@ class TradeLifecycleManager {
     try {
       const { data, error } = await supabase
         .from('realtime_prices')
-        .select('symbol, bid, ask, timestamp')
+        .select('symbol, bid, ask, created_at')
         .eq('symbol', symbol)
-        .order('timestamp', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -244,7 +244,7 @@ class TradeLifecycleManager {
             symbol: candleData.symbol,
             bid: parseFloat(candleData.close),
             ask: parseFloat(candleData.close),
-            timestamp: new Date(candleData.timestamp)
+            created_at: new Date(candleData.open_time)
           };
         }
 
@@ -255,7 +255,7 @@ class TradeLifecycleManager {
         symbol: data.symbol,
         bid: parseFloat(data.bid),
         ask: parseFloat(data.ask),
-        timestamp: new Date(data.timestamp)
+        created_at: new Date(data.created_at)
       };
     } catch (error) {
       console.error(`[Trade Lifecycle] Error getting price for ${symbol}:`, error);
