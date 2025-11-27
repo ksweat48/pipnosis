@@ -76,8 +76,10 @@ export function SettingsPage() {
           });
         }
 
-        if (profileData.account_balance) {
+        if (profileData.account_balance !== null && profileData.account_balance !== undefined) {
           setAccountBalance(profileData.account_balance.toString());
+        } else if (profileData.demo_balance !== null && profileData.demo_balance !== undefined) {
+          setAccountBalance(profileData.demo_balance.toString());
         }
       }
     } catch (error) {
@@ -190,6 +192,7 @@ export function SettingsPage() {
         .from('user_profiles')
         .update({
           account_balance: balanceNum,
+          demo_balance: balanceNum,
           updated_at: new Date().toISOString()
         })
         .eq('id', user?.id);
