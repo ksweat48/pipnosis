@@ -226,13 +226,17 @@ class PositionMonitorService {
       position.symbol
     );
 
-    await supabase
-      .from('simulated_positions')
-      .update({
-        current_price: actualCurrentPrice,
-        current_pnl: pnl
-      })
-      .eq('id', position.id);
+    const { error: updateError } = await supabase
+      .rpc('update_simulated_position_secure', {
+        p_position_id: position.id,
+        p_current_price: actualCurrentPrice,
+        p_current_pnl: pnl
+      });
+
+    if (updateError) {
+      console.error(`[PositionMonitor] Failed to update position ${position.id}:`, updateError);
+      return;
+    }
 
     const shouldCloseAtStopLoss = position.position_type === 'buy'
       ? actualCurrentPrice <= position.stop_loss

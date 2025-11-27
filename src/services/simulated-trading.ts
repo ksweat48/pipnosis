@@ -109,94 +109,25 @@ class SimulatedTradingService {
 
   async closePosition(positionId: string, currentPrice: number, userId: string): Promise<{ success: boolean; message: string }> {
     try {
-      const { data: position, error: fetchError } = await supabase
-        .from('simulated_positions')
-        .select('*')
-        .eq('id', positionId)
-        .eq('user_id', userId)
-        .single();
+      // Use secure RPC function to close position with proper RLS handling
+      const { data, error } = await supabase
+        .rpc('close_simulated_position_secure', {
+          p_position_id: positionId,
+          p_close_price: currentPrice,
+          p_close_reason: 'manual'
+        });
 
-      if (fetchError || !position) {
-        return { success: false, message: 'Position not found' };
+      if (error) {
+        console.error('Failed to close position:', error);
+        return {
+          success: false,
+          message: error.message || 'Failed to close position'
+        };
       }
-
-      const pnl = this.calculatePnL(
-        position.position_type,
-        position.entry_price,
-        currentPrice,
-        position.lot_size,
-        position.symbol
-      );
-
-      const closedAt = new Date().toISOString();
-
-      const { error: updateError } = await supabase
-        .from('simulated_positions')
-        .update({
-          status: 'closed',
-          current_price: currentPrice,
-          current_pnl: pnl,
-          closed_at: closedAt,
-          close_reason: 'manual'
-        })
-        .eq('id', positionId);
-
-      if (updateError) throw updateError;
-
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('demo_balance')
-        .eq('id', userId)
-        .single();
-
-      const currentBalance = parseFloat(profile?.demo_balance || '10000');
-      const newBalance = currentBalance + pnl;
-
-      await supabase
-        .from('user_profiles')
-        .update({ demo_balance: newBalance })
-        .eq('id', userId);
-
-      await supabase
-        .from('balance_transactions')
-        .insert({
-          user_id: userId,
-          transaction_type: 'trade_pnl',
-          amount: pnl,
-          balance_before: currentBalance,
-          balance_after: newBalance,
-          position_id: positionId,
-          description: `Position closed: ${position.symbol} ${position.position_type} ${position.lot_size} lots`
-        });
-
-      await supabase
-        .from('trade_history')
-        .insert({
-          user_id: userId,
-          position_id: positionId,
-          symbol: position.symbol,
-          position_type: position.position_type,
-          lot_size: position.lot_size,
-          entry_price: position.entry_price,
-          exit_price: currentPrice,
-          stop_loss: position.stop_loss,
-          take_profit: position.take_profit,
-          profit_loss: pnl,
-          opened_at: position.opened_at,
-          closed_at: closedAt,
-          close_reason: 'manual',
-          strategy_name: null,
-          confidence_score: position.confidence_score || 75,
-          setup_type: position.setup_type || 'Manual Trade',
-          market_conditions: position.market_conditions || {},
-          ai_decision_id: position.ai_decision_id || null,
-          ai_analyzed: false,
-          trade_source: 'live_demo'  // Mark as live demo trade
-        });
 
       return {
         success: true,
-        message: `Position closed with P&L: $${pnl.toFixed(2)}`
+        message: `Position closed with P&L: $${data.pnl.toFixed(2)}`
       };
     } catch (error) {
       console.error('Failed to close position:', error);
@@ -270,13 +201,17 @@ class SimulatedTradingService {
         position.symbol
       );
 
-      await supabase
-        .from('simulated_positions')
-        .update({
-          current_price: currentPrice,
-          current_pnl: pnl
-        })
-        .eq('id', positionId);
+      // Use secure RPC function to update position
+      const { error } = await supabase
+        .rpc('update_simulated_position_secure', {
+          p_position_id: positionId,
+          p_current_price: currentPrice,
+          p_current_pnl: pnl
+        });
+
+      if (error) {
+        console.error('Failed to update position price:', error);
+      }
     } catch (error) {
       console.error('Failed to update position price:', error);
     }
