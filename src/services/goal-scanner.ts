@@ -5,6 +5,8 @@ import { tradeExecutionEngine } from './trade-execution-engine';
 import { eventBasedLLMEngine } from './event-based-llm-engine';
 import { llmContextEnricher } from './llm-context-enricher';
 import { normalizeTimeframeToDb } from './chart-preferences';
+import { calculatePositionSize, getCurrencyPipInfo, calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
+import { positionSafetyValidator } from './position-safety-validator';
 
 export interface ScanResult {
   symbol: string;
@@ -340,12 +342,86 @@ class GoalScanner {
 
     const direction: 'buy' | 'sell' = scanResult.reasoning?.toLowerCase().includes('bearish') ? 'sell' : 'buy';
 
-    const riskAmount = this.calculateRiskAmount(sessionConfig);
-    const stopDistance = Math.abs(scanResult.entry! - scanResult.stopLoss!);
-    const positionSize = stopDistance > 0 ? riskAmount / stopDistance : 0.01;
+    // CRITICAL FIX: Use proper position sizing formula
+    const balance = sessionConfig.starting_balance || 10000;
+    const riskPercentages = {
+      low: 3,
+      medium: 5,
+      high: 10,
+    };
+    const riskPercent = riskPercentages[sessionConfig.risk_mode as keyof typeof riskPercentages] || 5;
 
+    // Calculate position size using CORRECT formula
+    let positionSize = calculatePositionSize(
+      scanResult.symbol,
+      balance,
+      riskPercent,
+      scanResult.entry!,
+      scanResult.stopLoss!
+    );
+
+    // Get pip info for validation
+    const pipInfo = getCurrencyPipInfo(scanResult.symbol);
+    const stopDistancePips = calculatePipDistance(
+      scanResult.symbol,
+      scanResult.entry!,
+      scanResult.stopLoss!
+    );
+
+    // SAFETY VALIDATION: Run through position safety validator
+    const safetyResult = positionSafetyValidator.validatePosition(
+      positionSize,
+      scanResult.entry!,
+      scanResult.stopLoss!,
+      balance,
+      [], // No other open trades in scanner context
+      scanResult.symbol,
+      pipInfo.pipValue,
+      pipInfo.dollarPerPipPerLot
+    );
+
+    if (!safetyResult.isValid) {
+      console.error('[Goal Scanner] 🚨 SAFETY VIOLATION - Trade blocked:');
+      safetyResult.violations.forEach(v => console.error(`  ${v}`));
+      return null;
+    }
+
+    // Use adjusted position size if safety validator changed it
+    if (safetyResult.adjustedPositionSize) {
+      positionSize = safetyResult.adjustedPositionSize;
+      console.warn('[Goal Scanner] ⚠️  Position size adjusted by safety validator');
+      safetyResult.safetyAdjustments.forEach(adj => console.warn(`  ${adj}`));
+    }
+
+    // Calculate actual dollar risk
+    const dollarPerPip = calculateDollarPerPip(scanResult.symbol, positionSize);
+    const actualRiskDollars = stopDistancePips * dollarPerPip;
+    const actualRiskPercent = (actualRiskDollars / balance) * 100;
+
+    // SANITY CHECK: Block if risk exceeds hard limit
+    if (actualRiskPercent > 5.5) {
+      console.error('[Goal Scanner] 🚨 HARD BLOCK: Risk exceeds 5.5% maximum');
+      console.error(`  Calculated Risk: ${actualRiskPercent.toFixed(2)}% ($${actualRiskDollars.toFixed(2)})`);
+      console.error(`  Position Size: ${positionSize.toFixed(3)} lots`);
+      console.error(`  Stop Distance: ${stopDistancePips.toFixed(1)} pips`);
+      console.error(`  Dollar Per Pip: $${dollarPerPip.toFixed(2)}`);
+      return null;
+    }
+
+    // Log position details
+    console.log('[Goal Scanner] 💰 Position Sizing Details:');
+    console.log(`  Symbol: ${scanResult.symbol} (${pipInfo.symbolType})`);
+    console.log(`  Account Balance: $${balance.toFixed(2)}`);
+    console.log(`  Risk Mode: ${sessionConfig.risk_mode} (${riskPercent}%)`);
+    console.log(`  Target Risk: $${(balance * riskPercent / 100).toFixed(2)}`);
+    console.log(`  Stop Distance: ${stopDistancePips.toFixed(1)} pips`);
+    console.log(`  Position Size: ${positionSize.toFixed(3)} lots`);
+    console.log(`  Dollar Per Pip: $${dollarPerPip.toFixed(2)}`);
+    console.log(`  Actual Risk: $${actualRiskDollars.toFixed(2)} (${actualRiskPercent.toFixed(2)}%)`);
+
+    const stopDistance = Math.abs(scanResult.entry! - scanResult.stopLoss!);
     const riskReward = Math.abs(scanResult.takeProfit! - scanResult.entry!) / stopDistance;
-    const expectedProfit = (scanResult.takeProfit! - scanResult.entry!) * positionSize * (direction === 'buy' ? 1 : -1);
+    const expectedProfit = Math.abs(scanResult.takeProfit! - scanResult.entry!) * dollarPerPip;
 
     // NEW: LLM-enhanced decision validation for Smart Goal Mode
     const userId = sessionConfig.user_id;

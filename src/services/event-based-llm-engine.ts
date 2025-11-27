@@ -18,6 +18,7 @@ import { safetyEnforcer } from './safety-enforcer';
 import { performanceAnalyzer } from './performance-analyzer';
 import { developerModeLogger } from './developer-mode-logger';
 import { openAIClient } from './openai-client';
+import { calculatePositionSize, getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 export interface EventBasedEngineConfig {
   symbol: string;
@@ -310,7 +311,18 @@ class EventBasedLLMEngine {
     // Use adjusted decision if safety enforcer made improvements
     const finalDecision = safetyCheck.adjustedDecision || decision;
 
-    // STEP 5: Create trade
+    // STEP 5: Calculate proper position size and create trade
+    const riskModeMap = { low: 3, medium: 5, high: 10 };
+    const riskPercent = riskModeMap[config.riskMode] || 5;
+
+    const positionSize = calculatePositionSize(
+      config.symbol,
+      balance,
+      riskPercent,
+      finalDecision.entry,
+      finalDecision.stopLoss
+    );
+
     const currentCandle = candles[candles.length - 1];
     const trade: SimulatedTrade = {
       id: Math.random().toString(36).substring(7),
@@ -321,7 +333,7 @@ class EventBasedLLMEngine {
       entryPrice: finalDecision.entry,
       stopLoss: finalDecision.stopLoss,
       takeProfit: finalDecision.takeProfit,
-      positionSize: 0.1,
+      positionSize: positionSize,
       confidence: finalDecision.confidence,
       reasoning: finalDecision.reasoning,
       triggerType: this.currentStrategy.mode,

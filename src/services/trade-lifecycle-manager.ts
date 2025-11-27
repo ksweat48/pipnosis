@@ -77,25 +77,70 @@ class TradeLifecycleManager {
       let closeReason = '';
       let profitLoss = 0;
 
-      if (trade.direction === 'buy') {
-        if (price <= trade.stop_loss) {
-          shouldClose = true;
-          closeReason = 'Stop loss hit';
-          profitLoss = (trade.stop_loss - trade.entry_price) * trade.position_size;
-        } else if (price >= trade.take_profit) {
-          shouldClose = true;
-          closeReason = 'Take profit hit';
-          profitLoss = (trade.take_profit - trade.entry_price) * trade.position_size;
+      // Calculate current P&L using proper dollar per pip calculation
+      const { calculateDollarPerPip, calculatePipDistance } = await import('../utils/currencyHelpers');
+      const pipDistance = calculatePipDistance(trade.symbol, trade.entry_price, price);
+      const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.position_size);
+      const unrealizedPnL = trade.direction === 'buy'
+        ? pipDistance * dollarPerPip
+        : -pipDistance * dollarPerPip;
+
+      // CRITICAL: Check goal completion FIRST
+      if (trade.goal_session_id) {
+        const { data: goalSession } = await supabase
+          .from('goal_sessions')
+          .select('target_amount, starting_balance, auto_close_on_goal')
+          .eq('id', trade.goal_session_id)
+          .maybeSingle();
+
+        if (goalSession && unrealizedPnL >= goalSession.target_amount) {
+          const autoClose = goalSession.auto_close_on_goal !== false; // Default to true
+
+          if (autoClose) {
+            console.log(`[Trade Lifecycle] 🎯 GOAL REACHED! Target: $${goalSession.target_amount}, Current P&L: $${unrealizedPnL.toFixed(2)}`);
+            console.log(`[Trade Lifecycle] Auto-closing position to lock in profits...`);
+
+            shouldClose = true;
+            closeReason = 'Goal target reached';
+            profitLoss = unrealizedPnL;
+
+            // Mark goal session as completed
+            await supabase
+              .from('goal_sessions')
+              .update({
+                status: 'completed',
+                actual_profit: profitLoss,
+                completed_at: new Date().toISOString()
+              })
+              .eq('id', trade.goal_session_id);
+          } else {
+            console.log(`[Trade Lifecycle] 🎯 Goal reached but auto-close disabled. Continuing to monitor...`);
+          }
         }
-      } else {
-        if (price >= trade.stop_loss) {
-          shouldClose = true;
-          closeReason = 'Stop loss hit';
-          profitLoss = (trade.entry_price - trade.stop_loss) * trade.position_size;
-        } else if (price <= trade.take_profit) {
-          shouldClose = true;
-          closeReason = 'Take profit hit';
-          profitLoss = (trade.entry_price - trade.take_profit) * trade.position_size;
+      }
+
+      // Check SL/TP only if goal completion didn't trigger close
+      if (!shouldClose) {
+        if (trade.direction === 'buy') {
+          if (price <= trade.stop_loss) {
+            shouldClose = true;
+            closeReason = 'Stop loss hit';
+            profitLoss = (trade.stop_loss - trade.entry_price) * dollarPerPip / calculatePipDistance(trade.symbol, trade.entry_price, trade.stop_loss);
+          } else if (price >= trade.take_profit) {
+            shouldClose = true;
+            closeReason = 'Take profit hit';
+            profitLoss = (trade.take_profit - trade.entry_price) * dollarPerPip / calculatePipDistance(trade.symbol, trade.entry_price, trade.take_profit);
+          }
+        } else {
+          if (price >= trade.stop_loss) {
+            shouldClose = true;
+            closeReason = 'Stop loss hit';
+            profitLoss = (trade.entry_price - trade.stop_loss) * dollarPerPip / calculatePipDistance(trade.symbol, trade.entry_price, trade.stop_loss);
+          } else if (price <= trade.take_profit) {
+            shouldClose = true;
+            closeReason = 'Take profit hit';
+            profitLoss = (trade.entry_price - trade.take_profit) * dollarPerPip / calculatePipDistance(trade.symbol, trade.entry_price, trade.take_profit);
+          }
         }
       }
 
