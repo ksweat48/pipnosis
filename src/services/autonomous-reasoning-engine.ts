@@ -152,10 +152,13 @@ ${signal.reasoning}
 
 **Session Context:**
 Goal: ${sessionConfig.goal_type} - $${sessionConfig.target_value}
-Risk Mode: ${sessionConfig.risk_mode}
+Capital Exposure Level: ${sessionConfig.exposure_level || sessionConfig.risk_mode} (affects position sizing only)
 Timeframe: ${sessionConfig.timeframe}
 ${openPositionsContext}
 Profit Preservation Index: ${ppi.toFixed(2)}
+
+NOTE: Capital Exposure Level controls position sizing, NOT your confidence requirements or trading psychology.
+YOU control confidence thresholds based on your internal state (rank, streak, pattern history).
 
 **Market Regime:**
 Volatility: ${regime.volatility}
@@ -183,14 +186,10 @@ Structure: ${regime.structure}
   fallbackReasoning(signal: FlowV2Signal, sessionConfig: any, openTrades: any[]): ReasoningDecision {
     console.log('[Reasoning Engine] Using rule-based fallback logic');
 
-    const riskThresholds = {
-      low: 85,
-      medium: 75,
-      high: 70
-    };
-
-    const threshold = riskThresholds[sessionConfig.risk_mode as keyof typeof riskThresholds] || 75;
-    const meetsThreshold = signal.confidence >= threshold;
+    // LLM autonomous confidence threshold (not user-controlled)
+    // Threshold varies based on LLM's internal state, defaults to 70% for fallback
+    const autonomousThreshold = 70;
+    const meetsThreshold = signal.confidence >= autonomousThreshold;
 
     const maxConcurrent = sessionConfig.max_concurrent_trades || 2;
     const canAddTrade = openTrades.length < maxConcurrent;
@@ -199,7 +198,7 @@ Structure: ${regime.structure}
 
     let rationale = '';
     if (!meetsThreshold) {
-      rationale = `Signal confidence ${signal.confidence}% below ${sessionConfig.risk_mode} mode threshold (${threshold}%). Waiting for higher quality setup.`;
+      rationale = `Signal confidence ${signal.confidence}% below autonomous threshold (${autonomousThreshold}%). Waiting for higher quality setup.`;
     } else if (!canAddTrade) {
       rationale = `Maximum concurrent trades (${maxConcurrent}) reached. Waiting for existing positions to close.`;
     } else if (signal.riskReward < 1.5) {

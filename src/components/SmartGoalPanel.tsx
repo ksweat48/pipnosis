@@ -14,23 +14,23 @@ interface GoalTemplate {
 const GOAL_TEMPLATES: GoalTemplate[] = [
   {
     label: 'Quick $100 Today',
-    prompt: 'Make me $100 today with medium risk',
+    prompt: 'Make me $100 today with moderate exposure',
     description: '1 high-quality trade, backup trades if needed'
   },
   {
     label: 'Weekly $500 Target',
-    prompt: 'Earn $500 this week with medium risk',
+    prompt: 'Earn $500 this week with moderate exposure',
     description: '1 premium trade per day, more if needed'
   },
   {
     label: 'Conservative $50',
-    prompt: 'Make me $50 today safely',
-    description: '1 low-risk trade, patient execution'
+    prompt: 'Make me $50 today with conservative exposure',
+    description: 'Conservative capital exposure, patient AI'
   },
   {
     label: 'Fast $200 Today',
-    prompt: 'Make me $200 today aggressively',
-    description: '1 aggressive trade, additional if needed'
+    prompt: 'Make me $200 today with aggressive exposure',
+    description: 'Aggressive capital exposure, autonomous AI'
   },
 ];
 

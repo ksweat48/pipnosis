@@ -145,14 +145,18 @@ Respond with ONLY valid JSON in this format:
       }
     }
 
-    const riskKeywords = {
-      low: /safe|careful|conservative|low\s+risk/i,
-      high: /aggressive|fast|risky|high\s+risk/i
+    const exposureKeywords = {
+      conservative: /safe|careful|conservative|low\s+risk|conservative\s+exposure/i,
+      aggressive: /aggressive|fast|risky|high\s+risk|aggressive\s+exposure/i
     };
 
     let riskMode: 'low' | 'medium' | 'high' = 'medium';
-    if (riskKeywords.low.test(lowerPrompt)) riskMode = 'low';
-    if (riskKeywords.high.test(lowerPrompt)) riskMode = 'high';
+    if (exposureKeywords.conservative.test(lowerPrompt)) riskMode = 'low';
+    if (exposureKeywords.aggressive.test(lowerPrompt)) riskMode = 'high';
+
+    // Note: 'riskMode' field name kept for backward compatibility
+    // But semantics changed: now means "exposure_level" (max capital at risk)
+    // NOT behavioral constraints on LLM confidence/psychology
 
     const riskMultipliers = { low: 0.5, medium: 1, high: 2 };
     const baseTradesPerDay = 3;
@@ -169,7 +173,7 @@ Respond with ONLY valid JSON in this format:
         riskMode,
         watchlist
       },
-      interpretation: `I'll help you ${goalType === 'profit_target' ? `earn $${targetValue}` : `grow your account by ${targetValue}%`} over ${timeframe} using ${riskMode} risk strategy.`,
+      interpretation: `I'll help you ${goalType === 'profit_target' ? `earn $${targetValue}` : `grow your account by ${targetValue}%`} over ${timeframe} with ${riskMode === 'low' ? 'conservative' : riskMode === 'high' ? 'aggressive' : 'moderate'} capital exposure (max ${riskMode === 'low' ? '1%' : riskMode === 'high' ? '5%' : '2%'} per trade). AI trades autonomously based on market conditions.`,
       suggestedWatchlist: watchlist,
       estimatedTrades,
       timeline: timeframe

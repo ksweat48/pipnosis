@@ -207,11 +207,8 @@ class GoalScanner {
       reasoning = `${direction > 0 ? 'Bullish' : 'Bearish'} trend setup on ${symbol}. EMA crossover confirmed with momentum. Entry: ${entry.toFixed(5)}, SL: ${stopLoss.toFixed(5)}, TP: ${takeProfit.toFixed(5)}`;
     }
 
-    const riskThreshold = this.getRiskThreshold(sessionConfig.risk_mode);
-    if (hasValidSetup && confidence < riskThreshold) {
-      hasValidSetup = false;
-      reasoning = `Setup confidence (${confidence}%) below risk threshold (${riskThreshold}%) for ${sessionConfig.risk_mode} mode.`;
-    }
+    // LLM controls confidence thresholds autonomously based on internal state
+    // User's exposure_level only affects position sizing, not setup filtering
 
     return {
       symbol,
@@ -226,14 +223,13 @@ class GoalScanner {
     };
   }
 
-  getRiskThreshold(riskMode: string): number {
-    const thresholds = {
-      low: 80,
-      medium: 75,
-      high: 70,
-    };
-    return thresholds[riskMode as keyof typeof thresholds] || 75;
-  }
+  // REMOVED: getRiskThreshold - User exposure level no longer overrides LLM confidence
+  // LLM autonomously determines minimum confidence based on:
+  // - Current rank (Bronze, Silver, Gold, Alpha, Omega)
+  // - Win/loss streak
+  // - Pattern history
+  // - Market conditions
+  // - Reward engine state
 
   calculateEMA(prices: number[], period: number): number {
     if (prices.length < period) return prices[prices.length - 1] || 0;

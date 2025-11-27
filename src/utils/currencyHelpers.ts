@@ -312,3 +312,71 @@ export function getStandardLotSize(symbol: string): number {
   // Some exotic pairs may differ, but not relevant for major pairs
   return 100000;
 }
+
+/**
+ * Calculate position size with LLM autonomy + user exposure cap
+ *
+ * The LLM determines desired risk based on:
+ * - Rank (Bronze, Silver, Gold, Alpha, Omega)
+ * - Win/loss streak
+ * - Conviction level
+ * - Pattern confidence
+ *
+ * User's exposure_level only sets a MAXIMUM cap, not the actual risk taken.
+ *
+ * @param symbol Currency pair
+ * @param accountBalance Account balance
+ * @param userExposureLevel User's max exposure ('conservative' | 'moderate' | 'aggressive')
+ * @param llmConviction LLM's conviction (0-100)
+ * @param llmRank LLM's current rank ('bronze' | 'silver' | 'gold' | 'alpha' | 'omega')
+ * @param entryPrice Entry price
+ * @param stopLoss Stop loss price
+ * @returns Position size in lots
+ */
+export function calculateAutonomousPositionSize(
+  symbol: string,
+  accountBalance: number,
+  userExposureLevel: 'conservative' | 'moderate' | 'aggressive',
+  llmConviction: number,
+  llmRank: 'bronze' | 'silver' | 'gold' | 'alpha' | 'omega',
+  entryPrice: number,
+  stopLoss: number
+): number {
+  // User's maximum risk cap (financial protection only)
+  const exposureCaps = {
+    conservative: 0.01,  // Max 1% per trade
+    moderate: 0.02,      // Max 2% per trade
+    aggressive: 0.05     // Max 5% per trade
+  };
+  const maxRiskPercent = exposureCaps[userExposureLevel] * 100;
+
+  // LLM's desired risk based on internal state
+  const rankMultipliers = {
+    bronze: 0.4,   // Cautious 40% of range
+    silver: 0.6,   // Building 60% of range
+    gold: 0.8,     // Confident 80% of range
+    alpha: 0.95,   // Very confident 95% of range
+    omega: 1.0     // Maximum confidence 100% of range
+  };
+
+  const rankMultiplier = rankMultipliers[llmRank.toLowerCase() as keyof typeof rankMultipliers] || 0.6;
+
+  // Conviction scaling (70-100% conviction = 0.7-1.0 scaling)
+  const convictionMultiplier = Math.max(0.5, Math.min(1.0, llmConviction / 100));
+
+  // LLM's desired risk percentage
+  const llmDesiredRiskPercent = maxRiskPercent * rankMultiplier * convictionMultiplier;
+
+  // Actual risk is MINIMUM of LLM desire and user cap
+  const actualRiskPercent = Math.min(llmDesiredRiskPercent, maxRiskPercent);
+
+  console.log(`[Autonomous Position Sizing] ${symbol}:`);
+  console.log(`  User Exposure Cap: ${maxRiskPercent}%`);
+  console.log(`  LLM Rank: ${llmRank} (${rankMultiplier * 100}% of range)`);
+  console.log(`  LLM Conviction: ${llmConviction}%`);
+  console.log(`  LLM Desired Risk: ${llmDesiredRiskPercent.toFixed(2)}%`);
+  console.log(`  Actual Risk: ${actualRiskPercent.toFixed(2)}%`);
+
+  // Use standard position sizing with calculated risk
+  return calculatePositionSize(symbol, accountBalance, actualRiskPercent, entryPrice, stopLoss);
+}

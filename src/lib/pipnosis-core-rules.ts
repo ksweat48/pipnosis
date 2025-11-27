@@ -228,13 +228,16 @@ export class PipnosisCoreRules {
     const maxProfitPercent = PIPNOSIS_CORE_RULES.MAX_SINGLE_TRADE_PROFIT_PERCENT;
     const maxProfitPerTrade = accountBalance * (maxProfitPercent / 100);
 
-    const riskMultipliers = {
-      low: 0.5,
-      medium: 0.75,
-      high: 1.0
+    // NOTE: riskMode now means "exposure_level" (capital exposure cap)
+    // NOT behavioral constraints on AI psychology
+    // These multipliers affect position sizing only
+    const exposureMultipliers = {
+      low: 0.5,      // Conservative: 50% of max per trade
+      medium: 0.75,  // Moderate: 75% of max per trade
+      high: 1.0      // Aggressive: 100% of max per trade
     };
 
-    const targetAvgProfit = maxProfitPerTrade * riskMultipliers[riskMode];
+    const targetAvgProfit = maxProfitPerTrade * exposureMultipliers[riskMode];
 
     // STRATEGY: Try to achieve goal in ONE trade first
     // If goal is achievable in 1 trade with acceptable risk, aim for that
