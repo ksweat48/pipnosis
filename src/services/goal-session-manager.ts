@@ -397,6 +397,234 @@ class GoalSessionManager {
       return null;
     }
   }
+
+  async handleGoalAchievementAction(
+    userId: string,
+    goalSessionId: string,
+    action: 'close_now' | 'continue_breakeven' | 'continue_safety',
+    notificationId: string
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      console.log(`[Goal Session] User ${userId} chose action: ${action}`);
+
+      // Get the goal session and trade
+      const { data: goalSession } = await supabase
+        .from('goal_sessions')
+        .select('*, goal_session_trades!inner(*)')
+        .eq('id', goalSessionId)
+        .eq('user_id', userId)
+        .single();
+
+      if (!goalSession) {
+        return { success: false, message: 'Goal session not found' };
+      }
+
+      const trade = goalSession.goal_session_trades[0];
+      if (!trade || trade.status !== 'open') {
+        return { success: false, message: 'No open trade found for this goal session' };
+      }
+
+      // Mark notification as acted upon
+      await supabase
+        .from('goal_notifications')
+        .update({
+          acknowledged_at: new Date().toISOString(),
+          action_taken: action,
+          action_taken_at: new Date().toISOString()
+        })
+        .eq('id', notificationId);
+
+      // Update goal session with user choice
+      await supabase
+        .from('goal_sessions')
+        .update({
+          user_choice: action
+        })
+        .eq('id', goalSessionId);
+
+      // Execute the chosen action
+      switch (action) {
+        case 'close_now':
+          return await this.closeTradeNow(userId, goalSessionId, trade);
+
+        case 'continue_breakeven':
+          return await this.moveStopLossToBreakeven(userId, goalSessionId, trade);
+
+        case 'continue_safety':
+          return await this.moveStopLossToSafety(userId, goalSessionId, trade);
+
+        default:
+          return { success: false, message: 'Invalid action' };
+      }
+    } catch (error) {
+      console.error('[Goal Session] Error handling goal achievement action:', error);
+      return { success: false, message: 'Failed to process action' };
+    }
+  }
+
+  private async closeTradeNow(
+    userId: string,
+    goalSessionId: string,
+    trade: any
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      // Get current price
+      const { data: priceData } = await supabase
+        .from('forex_candles')
+        .select('close')
+        .eq('symbol', trade.symbol)
+        .order('open_time', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const exitPrice = priceData ? parseFloat(priceData.close) : trade.entry_price;
+
+      // Calculate final P&L
+      const { calculateDollarPerPip, calculatePipDistance } = await import('../utils/currencyHelpers');
+      const pipDistance = calculatePipDistance(trade.symbol, trade.entry_price, exitPrice);
+      const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.position_size);
+      const finalPnL = trade.direction === 'buy' ? pipDistance * dollarPerPip : -pipDistance * dollarPerPip;
+
+      // Close the trade
+      await supabase
+        .from('goal_session_trades')
+        .update({
+          status: 'closed',
+          exit_price: exitPrice,
+          profit_loss: finalPnL,
+          closed_at: new Date().toISOString()
+        })
+        .eq('id', trade.id);
+
+      // Update goal session
+      await supabase
+        .from('goal_sessions')
+        .update({
+          status: 'completed',
+          final_pnl: finalPnL,
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', goalSessionId);
+
+      // Update achievement record
+      await supabase
+        .from('goal_achievements')
+        .update({
+          final_pnl: finalPnL,
+          final_outcome: 'closed_at_goal',
+          completed_at: new Date().toISOString(),
+          choice_made_at: new Date().toISOString()
+        })
+        .eq('goal_session_id', goalSessionId);
+
+      console.log(`[Goal Session] ✅ Trade closed successfully. Final P&L: $${finalPnL.toFixed(2)}`);
+
+      return {
+        success: true,
+        message: `Trade closed successfully! Final profit: $${finalPnL.toFixed(2)}`
+      };
+    } catch (error) {
+      console.error('[Goal Session] Error closing trade:', error);
+      return { success: false, message: 'Failed to close trade' };
+    }
+  }
+
+  private async moveStopLossToBreakeven(
+    userId: string,
+    goalSessionId: string,
+    trade: any
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      const breakevenPrice = trade.entry_price;
+
+      console.log(`[Goal Session] Moving SL to breakeven: ${trade.stop_loss} → ${breakevenPrice}`);
+
+      await supabase
+        .from('goal_session_trades')
+        .update({
+          stop_loss: breakevenPrice
+        })
+        .eq('id', trade.id);
+
+      // Update achievement record
+      await supabase
+        .from('goal_achievements')
+        .update({
+          stop_loss_after: breakevenPrice,
+          choice_made_at: new Date().toISOString()
+        })
+        .eq('goal_session_id', goalSessionId);
+
+      console.log(`[Goal Session] ✅ Stop loss moved to breakeven (${breakevenPrice})`);
+
+      return {
+        success: true,
+        message: `Stop loss moved to breakeven at ${breakevenPrice.toFixed(5)}. Your profits are now protected!`
+      };
+    } catch (error) {
+      console.error('[Goal Session] Error moving stop loss to breakeven:', error);
+      return { success: false, message: 'Failed to move stop loss' };
+    }
+  }
+
+  private async moveStopLossToSafety(
+    userId: string,
+    goalSessionId: string,
+    trade: any
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      // Get current price
+      const { data: priceData } = await supabase
+        .from('forex_candles')
+        .select('close')
+        .eq('symbol', trade.symbol)
+        .order('open_time', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const currentPrice = priceData ? parseFloat(priceData.close) : trade.entry_price;
+
+      // Calculate safety price (50% of current profit)
+      const { calculatePipDistance } = await import('../utils/currencyHelpers');
+      const pipDistance = calculatePipDistance(trade.symbol, trade.entry_price, currentPrice);
+      const safetyPips = pipDistance * 0.5;
+
+      const { getCurrencyPipInfo } = await import('../utils/currencyHelpers');
+      const pipInfo = getCurrencyPipInfo(trade.symbol);
+
+      const safetyPrice = trade.direction === 'buy'
+        ? trade.entry_price + (safetyPips * pipInfo.pipValue)
+        : trade.entry_price - (safetyPips * pipInfo.pipValue);
+
+      console.log(`[Goal Session] Moving SL to safety: ${trade.stop_loss} → ${safetyPrice}`);
+
+      await supabase
+        .from('goal_session_trades')
+        .update({
+          stop_loss: safetyPrice
+        })
+        .eq('id', trade.id);
+
+      // Update achievement record
+      await supabase
+        .from('goal_achievements')
+        .update({
+          stop_loss_after: safetyPrice,
+          choice_made_at: new Date().toISOString()
+        })
+        .eq('goal_session_id', goalSessionId);
+
+      console.log(`[Goal Session] ✅ Stop loss moved to safety level (${safetyPrice})`);
+
+      return {
+        success: true,
+        message: `Stop loss moved to safety level at ${safetyPrice.toFixed(5)}. You're guaranteed to keep at least 50% of your profits!`
+      };
+    } catch (error) {
+      console.error('[Goal Session] Error moving stop loss to safety:', error);
+      return { success: false, message: 'Failed to move stop loss' };
+    }
+  }
 }
 
 export const goalSessionManager = new GoalSessionManager();
