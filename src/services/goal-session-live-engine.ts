@@ -357,6 +357,31 @@ class GoalSessionLiveEngine {
         tradesRemaining: this.config.maxConcurrentTrades - this.openTrades.length
       } : undefined;
 
+      // ====================================================================
+      // CRITICAL: Call Flow V2 FIRST to find high-probability setups
+      // ONLY if Flow V2 approves a setup → THEN call LLM Brain for validation
+      // ====================================================================
+
+      console.log(`[Goal Live Engine] 🔍 Flow V2 scanning ${this.config.symbol}...`);
+      const { flowTraderV2 } = await import('../strategies/flow-trader-v2');
+      const flowSignal = await flowTraderV2.analyzeSetup(this.config.symbol, this.activeSession);
+
+      if (!flowSignal) {
+        console.log(`[Goal Live Engine] ⚠️ Flow V2 found no valid setup. Waiting for next scan...`);
+
+        // Send scanning update showing Flow V2 is working
+        if (this.scanCount % 4 === 0 && this.openTrades.length === 0) {
+          await this.sendScanningUpdate(latestCandle, null);
+        }
+
+        return; // Don't call LLM if Flow V2 doesn't find a setup
+      }
+
+      console.log(`[Goal Live Engine] ✅ Flow V2 APPROVED: ${flowSignal.direction.toUpperCase()} setup found!`);
+      console.log(`[Goal Live Engine] 📊 Setup: ${flowSignal.setupType} | Confidence: ${flowSignal.confidence}% | R:R 1:${flowSignal.riskReward.toFixed(2)}`);
+      console.log(`[Goal Live Engine] 🚀 Now calling 5-Layer LLM Brain for final validation...`);
+
+      // Now that Flow V2 approved, call LLM Brain with the Flow V2 signal
       const engineConfig: EventBasedEngineConfig = {
         symbol: this.config.symbol,
         timeframe: this.config.timeframe,
@@ -364,7 +389,8 @@ class GoalSessionLiveEngine {
         riskMode: this.config.riskMode,
         maxConcurrentTrades: this.config.maxConcurrentTrades,
         initialBalance: this.config.initialBalance,
-        goalContext
+        goalContext,
+        flowV2Signal: flowSignal // Pass Flow V2 signal to LLM
       };
 
       const result = await eventBasedLLMEngine.processCandle(

@@ -33,6 +33,7 @@ export interface EventBasedEngineConfig {
     tradesCompleted: number;
     tradesPlanned: number;
   };
+  flowV2Signal?: any; // Flow V2 pre-validated setup signal
 }
 
 export interface SimulatedTrade {

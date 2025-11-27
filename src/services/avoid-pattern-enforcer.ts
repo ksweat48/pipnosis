@@ -139,7 +139,7 @@ class AvoidPatternEnforcer {
   private async getHighConfidenceLosingPatterns(userId: string, symbol: string): Promise<any[]> {
     try {
       const { data: patterns, error } = await supabase
-        .from('ai_learning_insights')
+        .from('daily_learning_insights')
         .select('*')
         .eq('user_id', userId)
         .eq('symbol', symbol)
