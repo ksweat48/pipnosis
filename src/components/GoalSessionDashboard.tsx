@@ -188,25 +188,25 @@ export const GoalSessionDashboard: React.FC = () => {
           <div className="bg-gray-700/50 rounded-lg p-4">
             <div className="text-sm text-gray-400 mb-1">Target</div>
             <div className="text-2xl font-bold text-white">
-              ${activeSession.target_value.toFixed(0)}
+              ${activeSession.config.goalAmount.toFixed(0)}
             </div>
           </div>
           <div className="bg-gray-700/50 rounded-lg p-4">
             <div className="text-sm text-gray-400 mb-1">Progress</div>
             <div className="text-2xl font-bold text-blue-400">
-              ${activeSession.current_progress.toFixed(2)}
+              ${(progress?.stats?.totalProfit || 0).toFixed(2)}
             </div>
           </div>
           <div className="bg-gray-700/50 rounded-lg p-4">
             <div className="text-sm text-gray-400 mb-1">Completion</div>
             <div className="text-2xl font-bold text-green-400">
-              {activeSession.progress_percentage.toFixed(1)}%
+              {progress?.session?.progress_percentage ? progress.session.progress_percentage.toFixed(1) : '0.0'}%
             </div>
           </div>
           <div className="bg-gray-700/50 rounded-lg p-4">
-            <div className="text-sm text-gray-400 mb-1">Time Left</div>
+            <div className="text-sm text-gray-400 mb-1">Trades</div>
             <div className="text-lg font-bold text-orange-400">
-              {formatTimeRemaining(activeSession.end_time || '')}
+              {progress?.stats?.closedTradesCount || 0} / {activeSession.strategy.targetTradeCount}
             </div>
           </div>
         </div>
@@ -214,12 +214,12 @@ export const GoalSessionDashboard: React.FC = () => {
         <div className="mb-6">
           <div className="flex justify-between text-sm mb-2">
             <span className="text-gray-400">Goal Progress</span>
-            <span className="text-white font-medium">{activeSession.progress_percentage.toFixed(1)}%</span>
+            <span className="text-white font-medium">{progress?.session?.progress_percentage ? progress.session.progress_percentage.toFixed(1) : '0.0'}%</span>
           </div>
           <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
             <div
               className="bg-gradient-to-r from-blue-500 to-green-500 h-full transition-all duration-500"
-              style={{ width: `${Math.min(activeSession.progress_percentage, 100)}%` }}
+              style={{ width: `${Math.min(progress?.session?.progress_percentage || 0, 100)}%` }}
             />
           </div>
         </div>
@@ -227,16 +227,16 @@ export const GoalSessionDashboard: React.FC = () => {
         {progress && progress.stats && (
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center">
-              <div className="text-2xl font-bold text-white">{progress.stats.totalTrades}</div>
+              <div className="text-2xl font-bold text-white">{progress.stats.totalTrades || 0}</div>
               <div className="text-xs text-gray-400">Total Trades</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-green-400">{progress.stats.winRate.toFixed(0)}%</div>
+              <div className="text-2xl font-bold text-green-400">{(progress.stats.winRate || 0).toFixed(0)}%</div>
               <div className="text-xs text-gray-400">Win Rate</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-blue-400">${progress.stats.bestTrade.toFixed(2)}</div>
-              <div className="text-xs text-gray-400">Best Trade</div>
+              <div className="text-2xl font-bold text-blue-400">${(progress.stats.totalProfit || 0).toFixed(2)}</div>
+              <div className="text-xs text-gray-400">Total Profit</div>
             </div>
           </div>
         )}
@@ -285,28 +285,28 @@ export const GoalSessionDashboard: React.FC = () => {
                       <span>Technical Data:</span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
-                      {convo.technical_data.ema20 && (
+                      {convo.technical_data?.ema20 && (
                         <div>
                           <span className="text-gray-500">EMA20:</span>
-                          <span className="text-gray-300 ml-1 font-mono">{convo.technical_data.ema20.toFixed(5)}</span>
+                          <span className="text-gray-300 ml-1 font-mono">{Number(convo.technical_data.ema20).toFixed(5)}</span>
                         </div>
                       )}
-                      {convo.technical_data.ema50 && (
+                      {convo.technical_data?.ema50 && (
                         <div>
                           <span className="text-gray-500">EMA50:</span>
-                          <span className="text-gray-300 ml-1 font-mono">{convo.technical_data.ema50.toFixed(5)}</span>
+                          <span className="text-gray-300 ml-1 font-mono">{Number(convo.technical_data.ema50).toFixed(5)}</span>
                         </div>
                       )}
-                      {convo.technical_data.vwap && (
+                      {convo.technical_data?.vwap && (
                         <div>
                           <span className="text-gray-500">VWAP:</span>
-                          <span className="text-gray-300 ml-1 font-mono">{convo.technical_data.vwap.toFixed(5)}</span>
+                          <span className="text-gray-300 ml-1 font-mono">{Number(convo.technical_data.vwap).toFixed(5)}</span>
                         </div>
                       )}
-                      {convo.technical_data.atr && (
+                      {convo.technical_data?.atr && (
                         <div>
                           <span className="text-gray-500">ATR:</span>
-                          <span className="text-gray-300 ml-1 font-mono">{convo.technical_data.atr.toFixed(5)}</span>
+                          <span className="text-gray-300 ml-1 font-mono">{Number(convo.technical_data.atr).toFixed(5)}</span>
                         </div>
                       )}
                     </div>
