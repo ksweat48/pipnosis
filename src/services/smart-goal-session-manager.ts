@@ -72,13 +72,16 @@ class SmartGoalSessionManager {
 
     this.activeSessions.set(sessionId, session);
 
+    const timeframeHours = this.convertTimeframeToHours(config.timeframe);
+    const endTime = new Date(session.startTime.getTime() + timeframeHours * 3600000);
+
     const { error } = await supabase.from('goal_sessions').insert({
       id: sessionId,
       user_id: userId,
       goal_type: 'profit_target',
       target_value: config.goalAmount,
       timeframe: config.timeframe,
-      timeframe_hours: this.convertTimeframeToHours(config.timeframe),
+      timeframe_hours: timeframeHours,
       risk_mode: config.riskMode,
       status: 'scanning',
       starting_balance: accountBalance,
@@ -88,6 +91,7 @@ class SmartGoalSessionManager {
       auto_execute: config.autoExecute,
       watchlist: config.watchlist,
       start_time: session.startTime.toISOString(),
+      end_time: endTime.toISOString(),
       next_scan_time: session.nextScanTime.toISOString(),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
