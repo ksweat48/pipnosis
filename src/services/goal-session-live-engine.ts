@@ -138,11 +138,12 @@ class GoalSessionLiveEngine {
       this.sessionStartTime = new Date();
       this.openTrades = [];
 
-      // ✅ CRITICAL: Initialize 5-layer LLM pipeline
+      // ✅ CRITICAL: Initialize autonomous Pipnosis Alpha brain
       await eventBasedLLMEngine.initialize(config.userId, config.goalSessionId);
-      eventBasedLLMEngine.set5LayerPipeline(true);
-      logger.info(LogCategory.AI_TRADING, '✅ 5-Layer LLM Pipeline ACTIVATED');
-      logger.debug(LogCategory.AI_TRADING, '✅ Hard Gate + 4 validation layers enabled');
+      eventBasedLLMEngine.setAutonomousBrain(true);
+      logger.info(LogCategory.AI_TRADING, '✅ Autonomous Pipnosis Alpha Brain ACTIVATED');
+      logger.info(LogCategory.AI_TRADING, '✅ Strategy planning + condition monitoring enabled');
+      logger.info(LogCategory.AI_TRADING, '✅ Reward-driven learning system active');
 
       localSessionMemory.createSession(
         `live-${config.goalSessionId}`,
@@ -173,7 +174,7 @@ class GoalSessionLiveEngine {
 
       return {
         success: true,
-        message: 'Live demo trading session started with 5-layer protection'
+        message: 'Autonomous trading session started - Personality-driven AI active'
       };
     } catch (error) {
       console.error('[Goal Live Engine] Error starting session:', error);

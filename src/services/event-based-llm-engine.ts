@@ -10,11 +10,12 @@ import { supabase } from '../lib/supabase';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { triggerDetectionRules, TriggerEvent, MarketSnapshot } from './trigger-detection-rules';
 import { llmSnapshotBuilder, LLMSnapshot, LLMTradeDecision } from './llm-snapshot-builder';
-import { avoidPatternEnforcer } from './avoid-pattern-enforcer';
-import { llmRegimeValidator } from './llm-regime-validator';
-import { llmSetupQuality } from './llm-setup-quality';
-import { llmMistakePrevention } from './llm-mistake-prevention';
-import { llmConfidenceCalibrator } from './llm-confidence-calibrator';
+import { rewardEngine, TraderScore } from './reward-engine';
+import { llmStrategyBrain, StrategyPlan } from './llm-strategy-brain';
+import { conditionMonitor } from './condition-monitor';
+import { llmExecutionBrain } from './llm-execution-brain';
+import { safetyEnforcer } from './safety-enforcer';
+import { performanceAnalyzer } from './performance-analyzer';
 import { developerModeLogger } from './developer-mode-logger';
 import { openAIClient } from './openai-client';
 
@@ -80,11 +81,16 @@ class EventBasedLLMEngine {
   private readonly GPT_MODEL = 'gpt-4o';
   private sessionTokenUsage: number = 0;
   private readonly MAX_TOKENS_PER_SESSION = 50000;
-  private readonly TOKEN_RESET_WINDOW_HOURS = 4; // Reset every 4 hours for long sessions
+  private readonly TOKEN_RESET_WINDOW_HOURS = 4;
   private userId: string | null = null;
   private sessionId: string | null = null;
-  private use5LayerPipeline: boolean = true;
   private tokenWindowStart: number = Date.now();
+
+  // Autonomous brain state
+  private traderScore: TraderScore | null = null;
+  private currentStrategy: StrategyPlan | null = null;
+  private strategyPlanCount: number = 0;
+  private useAutonomousBrain: boolean = true;
 
   constructor() {
   }
@@ -98,7 +104,12 @@ class EventBasedLLMEngine {
     this.sessionTokenUsage = 0;
     this.tokenWindowStart = Date.now();
     await developerModeLogger.initialize(userId);
-    console.log('[Event Engine] 5-Layer Pipeline initialized for user:', userId);
+
+    // Load trader score
+    this.traderScore = await rewardEngine.loadTraderScore(userId);
+    console.log(`[Event Engine] 🧠 Autonomous Pipnosis Alpha initialized`);
+    console.log(`[Event Engine] 📊 Trader Score: ${this.traderScore.current_score}/100`);
+    console.log(`[Event Engine] 🎭 Personality: ${this.traderScore.confidence_level}`);
   }
 
   /**
@@ -117,17 +128,197 @@ class EventBasedLLMEngine {
   }
 
   /**
-   * Enable or disable 5-layer pipeline (default: enabled)
+   * Enable or disable autonomous brain (default: enabled)
    */
-  set5LayerPipeline(enabled: boolean): void {
-    this.use5LayerPipeline = enabled;
-    console.log(`[Event Engine] 5-Layer Pipeline: ${enabled ? 'ENABLED' : 'DISABLED'}`);
+  setAutonomousBrain(enabled: boolean): void {
+    this.useAutonomousBrain = enabled;
+    console.log(`[Event Engine] Autonomous Brain: ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
 
   /**
    * Process a single candle and check for trade opportunities
    */
   async processCandle(
+    candles: any[],
+    config: EventBasedEngineConfig,
+    openTrades: SimulatedTrade[] = [],
+    goalContext?: {
+      goalSessionId?: string;
+      targetAmount: number;
+      currentProgress: number;
+      remainingAmount: number;
+      tradesCompleted: number;
+      tradesPlanned: number;
+    }
+  ): Promise<{ trade: SimulatedTrade | null; trigger: TriggerEvent | null; llmCalled: boolean }> {
+    // Route to autonomous brain if enabled
+    if (this.useAutonomousBrain && this.traderScore) {
+      return this.processCandleAutonomous(candles, config, openTrades, goalContext);
+    }
+
+    // Fallback to legacy 5-layer system
+    return this.processCandleLegacy(candles, config, openTrades, goalContext);
+  }
+
+  /**
+   * Process candle using autonomous Pipnosis Alpha brain
+   */
+  private async processCandleAutonomous(
+    candles: any[],
+    config: EventBasedEngineConfig,
+    openTrades: SimulatedTrade[] = [],
+    goalContext?: {
+      goalSessionId?: string;
+      targetAmount: number;
+      currentProgress: number;
+      remainingAmount: number;
+      tradesCompleted: number;
+      tradesPlanned: number;
+    }
+  ): Promise<{ trade: SimulatedTrade | null; trigger: TriggerEvent | null; llmCalled: boolean }> {
+    if (candles.length < 50) {
+      return { trade: null, trigger: null, llmCalled: false };
+    }
+
+    if (openTrades.length >= config.maxConcurrentTrades) {
+      return { trade: null, trigger: null, llmCalled: false };
+    }
+
+    // STEP 1: Plan strategy (once per 100 candles)
+    if (!this.currentStrategy || this.strategyPlanCount >= 100) {
+      const marketState = llmSnapshotBuilder.buildMarketState(candles);
+      const levels = llmSnapshotBuilder.detectSupportResistance(candles, marketState.price);
+
+      const strategySnapshot = llmStrategyBrain.buildStrategySnapshot(
+        candles,
+        config.symbol,
+        config.timeframe,
+        {
+          ema20: marketState.ema20,
+          ema50: marketState.ema50,
+          ema200: marketState.ema200,
+          rsi: marketState.rsi,
+          stochRsi: marketState.stochRsi,
+          atr: marketState.atr,
+          vwap: marketState.vwap
+        },
+        {
+          trend: marketState.trend,
+          momentum: marketState.momentum,
+          volatility: marketState.volatility
+        },
+        {
+          support: levels.support,
+          resistance: levels.resistance,
+          swingHigh: marketState.swingHigh,
+          swingLow: marketState.swingLow
+        }
+      );
+
+      this.currentStrategy = await llmStrategyBrain.planStrategy(
+        strategySnapshot,
+        this.traderScore!
+      );
+      this.strategyPlanCount = 0;
+      console.log(`[Autonomous] ✅ Strategy planned: ${this.currentStrategy.mode}`);
+    }
+    this.strategyPlanCount++;
+
+    // STEP 2: Check conditions (NO LLM)
+    const marketState = llmSnapshotBuilder.buildMarketState(candles);
+    const conditionCheck = conditionMonitor.checkConditions(
+      this.currentStrategy,
+      marketState
+    );
+
+    if (!conditionCheck.ready) {
+      return { trade: null, trigger: null, llmCalled: false };
+    }
+
+    console.log(`[Autonomous] ✅ Conditions met: ${conditionCheck.trigger}`);
+
+    // STEP 3: Execute decision (LLM call)
+    const direction = conditionCheck.trigger.toLowerCase().includes('buy') ? 'buy' : 'sell';
+    const microSnapshot = llmExecutionBrain.buildMicroSnapshot(
+      marketState.price,
+      {
+        ema50: marketState.ema50,
+        ema200: marketState.ema200,
+        rsi: marketState.rsi,
+        stochRsi: marketState.stochRsi,
+        atr: marketState.atr,
+        vwap: marketState.vwap
+      },
+      {
+        trend: marketState.trend,
+        volatility: marketState.volatility
+      },
+      direction
+    );
+
+    const decision = await llmExecutionBrain.decideTrade(
+      conditionCheck.trigger,
+      microSnapshot,
+      this.traderScore!,
+      this.currentStrategy.mode,
+      conditionCheck.conditionsMet
+    );
+
+    if (decision.action === 'NO_TRADE') {
+      console.log(`[Autonomous] ✗ LLM declined: ${decision.reasoning}`);
+      return { trade: null, trigger: null, llmCalled: true };
+    }
+
+    // STEP 4: Safety validation
+    const balance = config.initialBalance || 10000;
+    const currentExposure = openTrades.reduce((sum, t) => {
+      const risk = Math.abs(t.entryPrice - t.stopLoss) * t.positionSize;
+      return sum + (risk / balance);
+    }, 0);
+
+    const safetyCheck = safetyEnforcer.validateTrade(decision, {
+      balance,
+      currentExposure,
+      openTrades: openTrades.length,
+      dailyDrawdown: 0,
+      atr: marketState.atr,
+      currentPrice: marketState.price
+    });
+
+    if (!safetyCheck.passed) {
+      console.warn(`[Autonomous] 🚫 Safety blocked:`);
+      safetyCheck.violations.forEach(v => console.warn(`  - ${v}`));
+      return { trade: null, trigger: null, llmCalled: true };
+    }
+
+    // STEP 5: Create trade
+    const currentCandle = candles[candles.length - 1];
+    const trade: SimulatedTrade = {
+      id: Math.random().toString(36).substring(7),
+      symbol: config.symbol,
+      timeframe: config.timeframe,
+      direction: decision.action.toLowerCase() as 'buy' | 'sell',
+      entryTime: new Date(currentCandle.open_time),
+      entryPrice: decision.entry,
+      stopLoss: decision.stopLoss,
+      takeProfit: decision.takeProfit,
+      positionSize: 0.1,
+      confidence: decision.confidence,
+      reasoning: decision.reasoning,
+      triggerType: this.currentStrategy.mode,
+      maxHoldMinutes: 240,
+      pnl: 0,
+      outcome: 'open'
+    };
+
+    console.log(`[Autonomous] ✓ Trade: ${trade.direction} @ ${trade.entryPrice}`);
+    return { trade, trigger: null, llmCalled: true };
+  }
+
+  /**
+   * Legacy 5-layer pipeline processor (fallback)
+   */
+  private async processCandleLegacy(
     candles: any[],
     config: EventBasedEngineConfig,
     openTrades: SimulatedTrade[] = [],
@@ -173,8 +364,8 @@ class EventBasedLLMEngine {
     // CRITICAL: LLM is MANDATORY - no fallback allowed
     if (!config.useLLM) {
       console.error(`[Event Engine] ❌ CRITICAL: LLM is disabled but required for Pipnosis identity`);
-      console.error(`[Event Engine] ❌ NO TRADES will be executed without 5-layer LLM validation`);
-      throw new Error('5-Layer LLM Pipeline is mandatory - cannot trade without LLM');
+      console.error(`[Event Engine] ❌ NO TRADES will be executed without LLM validation`);
+      throw new Error('LLM Pipeline is mandatory - cannot trade without LLM');
     }
 
     // Check if token budget needs reset (sliding window)
@@ -188,7 +379,7 @@ class EventBasedLLMEngine {
       return { trade: null, trigger: topTrigger, llmCalled: false };
     }
 
-    console.log(`[Event Engine] 🚀 Calling 5-Layer LLM Pipeline... (Tokens: ${this.sessionTokenUsage}/${this.MAX_TOKENS_PER_SESSION})`);
+    console.log(`[Event Engine] 🚀 Calling LLM... (Tokens: ${this.sessionTokenUsage}/${this.MAX_TOKENS_PER_SESSION})`);
     if (goalContext) {
       console.log(`[Event Engine] 🎯 Goal Context: $${goalContext.currentProgress.toFixed(2)} / $${goalContext.targetAmount} (${((goalContext.currentProgress / goalContext.targetAmount) * 100).toFixed(1)}%)`);
       console.log(`[Event Engine] 📊 Remaining: $${goalContext.remainingAmount.toFixed(2)} | Trades: ${goalContext.tradesCompleted}/${goalContext.tradesPlanned}`);
@@ -1087,6 +1278,65 @@ class EventBasedLLMEngine {
       });
     } catch (error) {
       console.error('[Pipeline] Error sending to conversation:', error);
+    }
+  }
+
+  /**
+   * Handle trade close and update trader score
+   */
+  async onTradeClose(trade: SimulatedTrade): Promise<void> {
+    if (!this.userId || !this.traderScore || !this.useAutonomousBrain) {
+      return;
+    }
+
+    const outcome = trade.pnl > 0 ? 'win' : trade.pnl < 0 ? 'loss' : 'breakeven';
+
+    const tradeContext = {
+      symbol: trade.symbol,
+      direction: trade.direction,
+      entry_price: trade.entryPrice,
+      exit_price: trade.exitPrice!,
+      pnl: trade.pnl,
+      risk_amount: 300,
+      duration_minutes: trade.holdingMinutes || 0,
+      max_drawdown: 0,
+      atr: 0,
+      outcome
+    };
+
+    try {
+      // Apply reward/penalty
+      if (outcome === 'win') {
+        const reward = await rewardEngine.applyWinReward(
+          this.userId,
+          tradeContext,
+          this.traderScore
+        );
+        console.log(`[Autonomous] 📈 Score: ${reward.oldScore} → ${reward.newScore}`);
+      } else if (outcome === 'loss') {
+        const penalty = await rewardEngine.applyLossPenalty(
+          this.userId,
+          tradeContext,
+          this.traderScore
+        );
+        console.log(`[Autonomous] 📉 Score: ${penalty.oldScore} → ${penalty.newScore}`);
+      }
+
+      // Reload score
+      this.traderScore = await rewardEngine.loadTraderScore(this.userId);
+
+      // Analyze performance
+      const scoreImpact = await rewardEngine.analyzeScoreImpact(this.userId, tradeContext);
+      await performanceAnalyzer.analyzeTradePerformance(
+        this.userId,
+        tradeContext,
+        scoreImpact,
+        trade.id
+      );
+
+      console.log(`[Autonomous] 🎯 New personality: ${this.traderScore.confidence_level}`);
+    } catch (error) {
+      console.error('[Autonomous] Error updating trader score:', error);
     }
   }
 }
