@@ -147,16 +147,17 @@ class ConcurrentBulkLoader {
             progress.completed++;
           } else {
             progress.failed++;
-            console.error(`Failed to load ${batch[idx].symbol} ${batch[idx].timeframe}`);
+            progress.completed++; // CRITICAL: Count failures as completed so progress bar doesn't get stuck
+            console.warn(`[BulkLoader] Failed to load ${batch[idx].symbol} ${batch[idx].timeframe}, continuing...`);
           }
         });
 
         progress.currentBatch = [];
         onProgress?.(progress);
 
-        if (progress.failed >= 3) {
-          console.error('Too many failures, pausing background loading');
-          break;
+        // Don't break on failures - just log and continue
+        if (progress.failed >= 5) {
+          console.warn(`[BulkLoader] ${progress.failed} failures detected, but continuing background loading`);
         }
 
         if (i < PRIORITY_BATCHES.length - 1) {

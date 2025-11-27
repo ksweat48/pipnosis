@@ -63,6 +63,10 @@ class BackgroundCandleAggregator {
   private lastPriceCache: Map<string, number> = new Map();
   private candleFinalizerInterval: NodeJS.Timeout | null = null;
   private readonly CANDLE_FINALIZER_CHECK_INTERVAL_MS = 60000; // Check every minute
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private fallbackPollingInterval: NodeJS.Timeout | null = null;
+  private lastTickReceived: Date | null = null;
+  private readonly TICK_TIMEOUT_MS = 30000; // 30 seconds without ticks = start fallback
 
   private initializeCandleState(symbol: string, timeframe: Timeframe, price: number, timestamp: number): CandleState {
     const candleTime = this.getCandleTime(timestamp, timeframe);
@@ -590,6 +594,7 @@ class BackgroundCandleAggregator {
             const { symbol, bid, ask, broker_time, created_at } = payload.new as any;
             const timestamp = broker_time || created_at;
 
+            this.lastTickReceived = new Date();
             this.processNewPrice(
               symbol,
               parseFloat(bid),
@@ -608,7 +613,10 @@ class BackgroundCandleAggregator {
             this.connectionState = 'connected';
             this.reconnectAttempts = 0;
             this.lastMessageTime = new Date();
+            this.lastTickReceived = new Date();
             logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ✅ Successfully subscribed to realtime_prices');
+            this.startHeartbeatMonitor();
+            this.stopFallbackPolling(); // Stop fallback if it was running
           } else if (status === 'CHANNEL_ERROR') {
             console.error('[BackgroundAggregator] ❌ Channel error:', err);
             this.isConnecting = false;
@@ -930,6 +938,72 @@ class BackgroundCandleAggregator {
     await this.stop();
     await new Promise(resolve => setTimeout(resolve, 1000));
     await this.start();
+  }
+
+  private startHeartbeatMonitor(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+    }
+
+    this.heartbeatInterval = setInterval(() => {
+      const now = Date.now();
+      const timeSinceLastTick = this.lastTickReceived
+        ? now - this.lastTickReceived.getTime()
+        : Infinity;
+
+      if (timeSinceLastTick > this.TICK_TIMEOUT_MS) {
+        console.warn(`[BackgroundAggregator] ⚠️ No ticks received for ${Math.round(timeSinceLastTick / 1000)}s - starting fallback polling`);
+        this.startFallbackPolling();
+      }
+    }, 10000); // Check every 10 seconds
+  }
+
+  private startFallbackPolling(): void {
+    if (this.fallbackPollingInterval) {
+      return; // Already running
+    }
+
+    console.log('[BackgroundAggregator] 🔄 Starting fallback database polling (Realtime not sending events)');
+
+    this.fallbackPollingInterval = setInterval(async () => {
+      try {
+        // Poll recent prices from database
+        const { data, error } = await supabase
+          .from('realtime_prices')
+          .select('symbol, bid, ask, broker_time, created_at')
+          .gt('broker_time', new Date(Date.now() - 5000).toISOString())
+          .order('broker_time', { ascending: false })
+          .limit(50);
+
+        if (error) {
+          console.error('[BackgroundAggregator] Fallback polling error:', error);
+          return;
+        }
+
+        if (data && data.length > 0) {
+          console.log(`[BackgroundAggregator] 📊 Fallback poll found ${data.length} recent prices`);
+          data.forEach((price: any) => {
+            this.lastTickReceived = new Date();
+            this.processNewPrice(
+              price.symbol,
+              parseFloat(price.bid),
+              parseFloat(price.ask),
+              price.broker_time || price.created_at
+            );
+          });
+        }
+      } catch (error) {
+        console.error('[BackgroundAggregator] Fallback polling error:', error);
+      }
+    }, 3000); // Poll every 3 seconds
+  }
+
+  private stopFallbackPolling(): void {
+    if (this.fallbackPollingInterval) {
+      clearInterval(this.fallbackPollingInterval);
+      this.fallbackPollingInterval = null;
+      console.log('[BackgroundAggregator] ✅ Stopped fallback polling - Realtime working again');
+    }
   }
 }
 
