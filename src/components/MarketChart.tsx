@@ -393,12 +393,16 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   const updateCurrentCandleFromTick = (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => {
+    console.log(`[Chart] 📊 Received tick: ${tick.symbol} @ ${tick.midPrice.toFixed(5)} (target: ${symbol})`);
+
     if (tick.symbol !== symbol || !candlestickSeriesRef.current) {
+      console.log(`[Chart] ⏭️ Skipping tick - symbol mismatch or no series`);
       return;
     }
 
     // Check if market is open before processing tick
     if (!forexMarketStatus.isOpen) {
+      console.log(`[Chart] ⏸️ Skipping tick - market closed`);
       return;
     }
 

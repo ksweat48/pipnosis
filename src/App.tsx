@@ -165,9 +165,10 @@ export default function App() {
 
         // Start aggregator even later
         setTimeout(() => {
-          backgroundCandleAggregator.start().catch(err =>
-            console.log('[App] Aggregator init deferred:', err)
-          );
+          console.log('[App] 🚀 Starting background candle aggregator...');
+          backgroundCandleAggregator.start()
+            .then(() => console.log('[App] ✅ Background candle aggregator started successfully'))
+            .catch(err => console.error('[App] ❌ Aggregator init failed:', err));
         }, 10000);
       } catch (error) {
         console.log('[App] Service initialization deferred:', error);

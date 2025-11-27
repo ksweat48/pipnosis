@@ -184,6 +184,13 @@ class BackgroundCandleAggregator {
     const midPrice = (bid + ask) / 2;
     const tick = { symbol, bid, ask, timestamp, midPrice };
 
+    if (this.tickListeners.size === 0) {
+      // Chart not subscribed yet - this is normal during startup
+      return;
+    }
+
+    console.log(`[BackgroundAggregator] 📊 Tick: ${symbol} @ ${midPrice.toFixed(5)} (${this.tickListeners.size} listeners)`);
+
     this.tickListeners.forEach(listener => {
       try {
         listener(tick);
@@ -585,6 +592,8 @@ class BackgroundCandleAggregator {
             const { symbol, bid, ask, broker_time, created_at } = payload.new as any;
             const timestamp = broker_time || created_at;
 
+            console.log(`[BackgroundAggregator] 📡 Realtime INSERT: ${symbol} @ ${parseFloat(bid).toFixed(5)}`);
+
             this.processNewPrice(
               symbol,
               parseFloat(bid),
@@ -594,6 +603,7 @@ class BackgroundCandleAggregator {
           }
         )
         .subscribe((status, err) => {
+          console.log(`[BackgroundAggregator] 🔌 Subscription status: ${status}`, err || '');
           logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Subscription status:', status);
 
           if (status === 'SUBSCRIBED') {
