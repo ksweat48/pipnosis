@@ -18,7 +18,7 @@ import { safetyEnforcer } from './safety-enforcer';
 import { performanceAnalyzer } from './performance-analyzer';
 import { developerModeLogger } from './developer-mode-logger';
 import { openAIClient } from './openai-client';
-import { calculatePositionSize, getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { calculatePositionSize, getCurrencyPipInfo, calculateDollarPerPip } from '../utils/currencyHelpers';
 
 export interface EventBasedEngineConfig {
   symbol: string;
@@ -433,7 +433,7 @@ class EventBasedLLMEngine {
       return { trade: null, trigger: topTrigger, llmCalled: true };
     }
 
-    const trade = this.createTradeFromLLMDecision(llmDecision, topTrigger, snapshot);
+    const trade = this.createTradeFromLLMDecision(llmDecision, topTrigger, snapshot, config);
     console.log(`[Event Engine] ✓ Trade approved: ${trade.direction.toUpperCase()} @ ${trade.entryPrice}`);
 
     return { trade, trigger: topTrigger, llmCalled: true };
@@ -1038,6 +1038,18 @@ class EventBasedLLMEngine {
       180
     );
 
+    // Calculate proper position size based on risk and stop distance
+    const balance = config.initialBalance || 10000;
+    const riskModeMap = { low: 3, medium: 5, high: 10 };
+    const riskPercent = riskModeMap[config.riskMode] || 5;
+    const positionSize = calculatePositionSize(
+      snapshot.symbol,
+      balance,
+      riskPercent,
+      currentPrice,
+      stopLoss
+    );
+
     return {
       id: `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       symbol: snapshot.symbol,
@@ -1047,7 +1059,7 @@ class EventBasedLLMEngine {
       entryPrice: currentPrice,
       stopLoss,
       takeProfit,
-      positionSize: 0.01,
+      positionSize,
       confidence: trigger.confidence,
       reasoning: `Rule-based: ${trigger.context}`,
       triggerType: trigger.type,
@@ -1063,13 +1075,26 @@ class EventBasedLLMEngine {
   private createTradeFromLLMDecision(
     decision: LLMTradeDecision,
     trigger: TriggerEvent,
-    snapshot: MarketSnapshot
+    snapshot: MarketSnapshot,
+    config: EventBasedEngineConfig
   ): SimulatedTrade {
     const direction = decision.action === 'BUY' ? 'buy' : 'sell';
     const entryPrice = decision.entry || snapshot.ohlc[snapshot.ohlc.length - 1].close;
     const maxHoldMinutes = Math.min(
       decision.maxHoldMinutes || PIPNOSIS_CORE_RULES.TRADE_DURATION_PREFERRED_MAX_HOURS * 60,
       PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_MINUTES
+    );
+
+    // Calculate proper position size based on risk and stop distance
+    const balance = config.initialBalance || 10000;
+    const riskModeMap = { low: 3, medium: 5, high: 10 };
+    const riskPercent = riskModeMap[config.riskMode] || 5;
+    const positionSize = calculatePositionSize(
+      snapshot.symbol,
+      balance,
+      riskPercent,
+      entryPrice,
+      decision.stopLoss!
     );
 
     return {
@@ -1081,7 +1106,7 @@ class EventBasedLLMEngine {
       entryPrice,
       stopLoss: decision.stopLoss!,
       takeProfit: decision.takeProfit!,
-      positionSize: 0.01,
+      positionSize,
       confidence: decision.confidence,
       reasoning: decision.reasoning,
       triggerType: trigger.type,
@@ -1126,25 +1151,31 @@ class EventBasedLLMEngine {
   }
 
   /**
-   * Close a trade
+   * Close a trade and calculate PnL
+   * Uses currency-specific pip values and dollar-per-pip calculations
    */
   private closeTrade(trade: SimulatedTrade, exitPrice: number, exitTime: Date, exitReason: string): void {
     trade.exitPrice = exitPrice;
     trade.exitTime = exitTime;
     trade.exitReason = exitReason;
 
-    const pipValue = 0.0001;
-    let pipsGained = 0;
+    // Get currency-specific pip information
+    const pipInfo = getCurrencyPipInfo(trade.symbol);
+    const pipValue = pipInfo.pipValue;
 
+    // Calculate pips gained/lost
+    let pipsGained = 0;
     if (trade.direction === 'buy') {
       pipsGained = (exitPrice - trade.entryPrice) / pipValue;
     } else {
       pipsGained = (trade.entryPrice - exitPrice) / pipValue;
     }
 
-    const pipValueInMoney = 10;
-    const lotSize = trade.positionSize;
-    trade.pnl = pipsGained * pipValueInMoney * lotSize;
+    // Calculate dollar value per pip for this position size
+    const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.positionSize);
+
+    // Calculate final PnL
+    trade.pnl = pipsGained * dollarPerPip;
 
     if (trade.pnl > 0.5) {
       trade.outcome = 'win';
@@ -1157,7 +1188,8 @@ class EventBasedLLMEngine {
     trade.holdingMinutes = Math.floor((exitTime.getTime() - trade.entryTime.getTime()) / 60000);
 
     console.log(
-      `[Event Engine] Trade closed: ${trade.outcome.toUpperCase()} - ${trade.direction.toUpperCase()} @ ${trade.entryPrice} -> ${exitPrice}, PnL: $${trade.pnl.toFixed(2)}, held ${trade.holdingMinutes}min`
+      `[Event Engine] Trade closed: ${trade.outcome.toUpperCase()} - ${trade.direction.toUpperCase()} ${trade.symbol} @ ${trade.entryPrice} -> ${exitPrice}, ` +
+      `${pipsGained.toFixed(1)} pips, $${dollarPerPip.toFixed(2)}/pip, PnL: $${trade.pnl.toFixed(2)}, held ${trade.holdingMinutes}min`
     );
   }
 
