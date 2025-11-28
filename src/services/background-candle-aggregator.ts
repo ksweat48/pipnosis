@@ -34,7 +34,8 @@ class BackgroundCandleAggregator {
   private saveQueue: Array<{ symbol: string; timeframe: Timeframe; candle: CandleData }> = [];
   private saveInProgress = false;
   private listeners: Set<(symbol: string, timeframe: Timeframe, candle: CandleData) => void> = new Set();
-  private tickListeners: Set<(tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => void> = new Set();
+  // CRITICAL FIX: Store tick listeners per-symbol to prevent cross-contamination
+  private tickListeners: Map<string, Set<(tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => void>> = new Map();
   private lastMessageTime: Date | null = null;
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private readonly HEALTH_CHECK_INTERVAL_MS = 15000;
@@ -176,16 +177,20 @@ class BackgroundCandleAggregator {
     const midPrice = (bid + ask) / 2;
     const tick = { symbol, bid, ask, timestamp, midPrice };
 
-    if (this.tickListeners.size === 0) {
-      // Chart not subscribed yet - this is normal during startup
+    // CRITICAL FIX: Only notify listeners registered for THIS specific symbol
+    const symbolListeners = this.tickListeners.get(symbol);
+    if (!symbolListeners || symbolListeners.size === 0) {
+      // Chart not subscribed to this symbol yet - this is normal
       return;
     }
 
-    this.tickListeners.forEach(listener => {
+    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `[${symbol}] Notifying ${symbolListeners.size} tick listeners`);
+
+    symbolListeners.forEach(listener => {
       try {
         listener(tick);
       } catch (error) {
-        console.error('[BackgroundAggregator] Error in tick listener:', error);
+        console.error(`[BackgroundAggregator][${symbol}] Error in tick listener:`, error);
       }
     });
   }
@@ -758,12 +763,23 @@ class BackgroundCandleAggregator {
     };
   }
 
-  onTickUpdate(callback: (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => void): () => void {
-    this.tickListeners.add(callback);
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Tick listener registered (${this.tickListeners.size} total)`);
+  // CRITICAL FIX: Accept symbol parameter to register listener for specific symbol only
+  onTickUpdate(symbol: string, callback: (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => void): () => void {
+    if (!this.tickListeners.has(symbol)) {
+      this.tickListeners.set(symbol, new Set());
+    }
+    const listeners = this.tickListeners.get(symbol)!;
+    listeners.add(callback);
+
+    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `[${symbol}] Registered tick listener (${listeners.size} total for this symbol)`);
+
     return () => {
-      this.tickListeners.delete(callback);
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Tick listener removed (${this.tickListeners.size} remaining)`);
+      listeners.delete(callback);
+      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `[${symbol}] Removed tick listener (${listeners.size} remaining for this symbol)`);
+      // Clean up empty sets
+      if (listeners.size === 0) {
+        this.tickListeners.delete(symbol);
+      }
     };
   }
 
@@ -790,13 +806,23 @@ class BackgroundCandleAggregator {
       ? Date.now() - this.lastMessageTime.getTime()
       : null;
 
+    // Calculate total tick listeners across all symbols
+    let totalTickListeners = 0;
+    this.tickListeners.forEach(listeners => {
+      totalTickListeners += listeners.size;
+    });
+
     return {
       isRunning: this.isRunning,
       connectionState: this.connectionState,
       activeCandleStates: this.candleStates.size,
       saveQueueLength: this.saveQueue.length,
       listenerCount: this.listeners.size,
-      tickListenerCount: this.tickListeners.size,
+      tickListenerCount: totalTickListeners,
+      tickListenersBySymbol: Array.from(this.tickListeners.entries()).map(([symbol, listeners]) => ({
+        symbol,
+        count: listeners.size
+      })),
       symbols: FOREX_PAIRS.length,
       timeframes: ALL_TIMEFRAMES.length,
       totalCombinations: FOREX_PAIRS.length * ALL_TIMEFRAMES.length,

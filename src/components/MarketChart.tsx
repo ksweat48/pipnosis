@@ -1088,8 +1088,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     chartDirectPricePoller.start();
 
     // FALLBACK: Background aggregator for when direct polling fails
-    console.log(`[Chart] 📡 Subscribing to background aggregator as fallback...`);
-    const unsubscribeTicks = backgroundCandleAggregator.onTickUpdate((tick) => {
+    console.log(`[Chart] 📡 Subscribing to background aggregator as fallback for ${symbol}...`);
+    // CRITICAL FIX: Pass symbol to ensure we only receive ticks for THIS symbol
+    const unsubscribeTicks = backgroundCandleAggregator.onTickUpdate(symbol, (tick) => {
       // Only use if direct poller is not providing updates
       if (!directPollerActive) {
         updateCurrentCandleFromTick(tick);
