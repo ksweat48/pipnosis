@@ -569,7 +569,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         return;
       }
 
-      // CRITICAL: Ensure time is a primitive number, not an object
+      // CRITICAL: Ensure ALL fields are primitive numbers, not objects or strings
       const safeCandle: CandleData = {
         time: Number(latestCandle.time),
         open: Number(latestCandle.open),
@@ -578,9 +578,28 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         close: Number(latestCandle.close)
       };
 
+      // Validate all fields are valid numbers after conversion
+      if (isNaN(safeCandle.time) || isNaN(safeCandle.open) || isNaN(safeCandle.high) ||
+          isNaN(safeCandle.low) || isNaN(safeCandle.close)) {
+        console.error('[Chart] ❌ Invalid candle data after conversion:', {
+          original: latestCandle,
+          converted: safeCandle
+        });
+        return;
+      }
+
       // CRITICAL FIX: Get the last candle time from the chart to prevent "Cannot update oldest data" error
       const chartData = candlestickSeriesRef.current.data();
       const lastChartCandleTime = chartData.length > 0 ? chartData[chartData.length - 1].time : 0;
+
+      // Validate lastChartCandleTime is also a number
+      if (typeof lastChartCandleTime !== 'number' || isNaN(lastChartCandleTime)) {
+        console.error('[Chart] ❌ Invalid lastChartCandleTime:', {
+          value: lastChartCandleTime,
+          type: typeof lastChartCandleTime
+        });
+        return;
+      }
 
       // Check if this is an update to an existing candle or a new candle
       if (safeCandle.time < lastChartCandleTime) {
@@ -607,7 +626,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         console.log(`[Chart] ✨ New candle at ${new Date(safeCandle.time * 1000).toLocaleTimeString()}`);
       }
 
-      candlestickSeriesRef.current.update(safeCandle);
+      // Wrap chart update in try-catch to capture any Lightweight Charts errors
+      try {
+        candlestickSeriesRef.current.update(safeCandle);
+      } catch (updateError) {
+        console.error('[Chart] Update error:', updateError);
+        console.error('[Chart] Candle data causing error:', {
+          safeCandle,
+          timeType: typeof safeCandle.time,
+          lastChartTime: lastChartCandleTime,
+          lastChartTimeType: typeof lastChartCandleTime
+        });
+        return;
+      }
 
       if (chartRef.current && !userInteractedRef.current) {
         chartRef.current.timeScale().scrollToRealTime();

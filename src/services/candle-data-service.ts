@@ -170,13 +170,14 @@ export async function fetchPreAggregatedCandles(
 
       // Only keep the first occurrence of each timestamp (most recent in query order)
       if (!candleMap.has(timestamp)) {
+        // CRITICAL FIX: Explicitly parse all numeric fields to ensure they're numbers, not strings/objects
         candleMap.set(timestamp, {
           time: timestamp,
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close,
-          volume: candle.volume,
+          open: Number(candle.open),
+          high: Number(candle.high),
+          low: Number(candle.low),
+          close: Number(candle.close),
+          volume: Number(candle.volume || 0),
         });
       }
     });

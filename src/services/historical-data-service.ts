@@ -133,19 +133,23 @@ async function saveCandlesToDatabase(
 
   console.log(`[HistoricalData] Filtered ${candles.length} -> ${filteredCandles.length} candles (excluded incomplete candles)`);
 
-  const forexCandles = filteredCandles.map((candle) => ({
-    symbol,
-    timeframe,
-    open_time: candle.time,
-    close_time: new Date(
-      new Date(candle.time).getTime() + getTimeframeMinutes(timeframe) * 60000
-    ).toISOString(),
-    open: candle.open,
-    high: candle.high,
-    low: candle.low,
-    close: candle.close,
-    volume: candle.tickVolume || 0,
-  }));
+  const forexCandles = filteredCandles.map((candle) => {
+    // CRITICAL FIX: Ensure candle.time is always converted to ISO string for database storage
+    const openTime = new Date(candle.time);
+    const closeTime = new Date(openTime.getTime() + getTimeframeMinutes(timeframe) * 60000);
+
+    return {
+      symbol,
+      timeframe,
+      open_time: openTime.toISOString(),
+      close_time: closeTime.toISOString(),
+      open: Number(candle.open),
+      high: Number(candle.high),
+      low: Number(candle.low),
+      close: Number(candle.close),
+      volume: Number(candle.tickVolume || 0),
+    };
+  });
 
   const { error: forexError, count: forexCount } = await supabase
     .from('forex_candles')

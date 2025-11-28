@@ -140,17 +140,23 @@ export async function fetchCandlesFromMetaApi(
 
   console.log(`Received ${candles.length} candles from MetaAPI`);
 
-  return candles.map(candle => ({
-    symbol,
-    timeframe: normalizedTimeframe,
-    open_time: candle.time,
-    close_time: new Date(new Date(candle.time).getTime() + timeframeMinutes * 60000).toISOString(),
-    open: parseFloat(String(candle.open)),
-    high: parseFloat(String(candle.high)),
-    low: parseFloat(String(candle.low)),
-    close: parseFloat(String(candle.close)),
-    volume: parseFloat(String(candle.tickVolume || 0))
-  }));
+  return candles.map(candle => {
+    // CRITICAL FIX: Ensure candle.time is always stored as ISO string, never as object
+    const openTime = new Date(candle.time);
+    const closeTime = new Date(openTime.getTime() + timeframeMinutes * 60000);
+
+    return {
+      symbol,
+      timeframe: normalizedTimeframe,
+      open_time: openTime.toISOString(),
+      close_time: closeTime.toISOString(),
+      open: parseFloat(String(candle.open)),
+      high: parseFloat(String(candle.high)),
+      low: parseFloat(String(candle.low)),
+      close: parseFloat(String(candle.close)),
+      volume: parseFloat(String(candle.tickVolume || 0))
+    };
+  });
 }
 
 export async function fetchHistoricalCandles(
