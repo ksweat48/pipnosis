@@ -111,27 +111,49 @@ class CandleCacheManager {
     if (!this.db || candles.length === 0) return;
 
     const candlesWithIds = candles
-      .filter(candle => {
-        // Ensure candle has required fields
-        const timestamp = candle.open_time || candle.timestamp || candle.time;
-        return timestamp && (candle.open != null) && (candle.high != null) && (candle.low != null) && (candle.close != null);
-      })
       .map(candle => {
-        const { id, ...candleWithoutId } = candle;
+        // Extract timestamp first for validation
         const timestamp = candle.open_time || candle.timestamp || candle.time;
+        const candleSymbol = candle.symbol || symbol;
+        const candleTimeframe = candle.timeframe || timeframe;
+
+        // Validate ALL required fields before creating cache entry
+        if (!timestamp) {
+          console.warn(`[CandleCache] Skipping candle - missing timestamp:`, candle);
+          return null;
+        }
+
+        if (!candleSymbol || !candleTimeframe) {
+          console.warn(`[CandleCache] Skipping candle - missing symbol or timeframe:`, candle);
+          return null;
+        }
+
+        if (candle.open == null || candle.high == null || candle.low == null || candle.close == null) {
+          console.warn(`[CandleCache] Skipping candle - missing OHLC data:`, candle);
+          return null;
+        }
+
+        // Remove database-specific fields that shouldn't be in cache
+        const { id, created_at, updated_at, user_id, ...cleanCandle } = candle;
+
+        // Create cache entry with guaranteed valid cacheId
+        const cacheId = `${candleSymbol}_${candleTimeframe}_${timestamp}`;
+
         return {
-          ...candleWithoutId,
-          cacheId: `${candle.symbol || symbol}_${candle.timeframe || timeframe}_${timestamp}`,
-          symbol: candle.symbol || symbol,
-          timeframe: candle.timeframe || timeframe,
+          cacheId,
+          symbol: candleSymbol,
+          timeframe: candleTimeframe,
           timestamp: timestamp,
           open: Number(candle.open),
           high: Number(candle.high),
           low: Number(candle.low),
           close: Number(candle.close),
-          volume: Number(candle.volume || 0)
+          volume: Number(candle.volume || 0),
+          tick_volume: candle.tick_volume ? Number(candle.tick_volume) : undefined,
+          spread: candle.spread ? Number(candle.spread) : undefined
         };
-      });
+      })
+      .filter((candle): candle is NonNullable<typeof candle> => candle !== null);
 
     // If no valid candles after filtering, don't save
     if (candlesWithIds.length === 0) {

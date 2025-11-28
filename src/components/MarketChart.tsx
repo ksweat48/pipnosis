@@ -582,13 +582,31 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       const chartData = candlestickSeriesRef.current.data();
       const lastChartCandleTime = chartData.length > 0 ? chartData[chartData.length - 1].time : 0;
 
-      // Only update if this candle is newer than or equal to the last chart candle
+      // Check if this is an update to an existing candle or a new candle
       if (safeCandle.time < lastChartCandleTime) {
-        console.warn(`[Chart] ⏭️ Skipping update - candle at ${new Date(safeCandle.time * 1000).toLocaleTimeString()} is older than last chart candle at ${new Date(Number(lastChartCandleTime) * 1000).toLocaleTimeString()}`);
+        // This candle is older than the latest chart candle
+        // Check if it exists in the chart (could be an update to an older candle)
+        const existingCandleIndex = chartData.findIndex(c => c.time === safeCandle.time);
+
+        if (existingCandleIndex !== -1) {
+          // This is an update to an existing historical candle - allow it
+          console.log(`[Chart] 🔄 Updating existing candle at ${new Date(safeCandle.time * 1000).toLocaleTimeString()}`);
+          candlestickSeriesRef.current.update(safeCandle);
+          return;
+        }
+
+        // Truly old candle that doesn't exist - skip it
+        console.warn(`[Chart] ⏭️ Skipping old candle at ${new Date(safeCandle.time * 1000).toLocaleTimeString()} (last chart candle: ${new Date(Number(lastChartCandleTime) * 1000).toLocaleTimeString()})`);
         return;
       }
 
-      console.log(`[Chart] 📊 Updating chart with DB candle at ${new Date(safeCandle.time * 1000).toLocaleTimeString()}`);
+      // This is either a new candle or an update to the latest candle - proceed
+      if (safeCandle.time === lastChartCandleTime) {
+        console.log(`[Chart] 🔄 Updating current candle at ${new Date(safeCandle.time * 1000).toLocaleTimeString()}`);
+      } else {
+        console.log(`[Chart] ✨ New candle at ${new Date(safeCandle.time * 1000).toLocaleTimeString()}`);
+      }
+
       candlestickSeriesRef.current.update(safeCandle);
 
       if (chartRef.current && !userInteractedRef.current) {
