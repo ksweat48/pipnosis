@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { Timeframe } from '@/services/chart-preferences';
-import { CandleData, getTimeframeMinutes } from '@/services/candle-data-service';
+import { CandleData, getTimeframeMinutes, sanitizeCandleData } from '@/services/candle-data-service';
 
 interface GapInfo {
   startTime: number;
@@ -233,11 +233,15 @@ export async function detectAndBackfillGaps(
   const allCandles = [...existingCandles, ...backfilledCandles];
 
   // Sort by time and deduplicate
+  // CRITICAL: Sanitize all candles during merge to prevent Date objects
   const candleMap = new Map<number, CandleData>();
   allCandles.forEach(candle => {
+    // Sanitize to ensure primitive numbers
+    const sanitized = sanitizeCandleData(candle);
+
     // Keep existing candles over backfilled ones (they're more reliable)
-    if (!candleMap.has(candle.time)) {
-      candleMap.set(candle.time, candle);
+    if (!candleMap.has(sanitized.time)) {
+      candleMap.set(sanitized.time, sanitized);
     }
   });
 

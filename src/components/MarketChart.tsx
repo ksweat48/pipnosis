@@ -11,6 +11,8 @@ import {
   aggregatePricesToCurrentCandle,
   getTimeframeMinutes,
   validateCandleAgainstHistorical,
+  sanitizeCandleData,
+  sanitizeCandleArray,
   CandleData,
   RealtimePrice as RealtimePriceType
 } from '@/services/candle-data-service';
@@ -569,32 +571,51 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         return;
       }
 
-      // CRITICAL: Ensure ALL fields are primitive numbers, not objects or strings
-      const safeCandle: CandleData = {
-        time: Number(latestCandle.time),
-        open: Number(latestCandle.open),
-        high: Number(latestCandle.high),
-        low: Number(latestCandle.low),
-        close: Number(latestCandle.close)
-      };
+      // CRITICAL: Use sanitizeCandleData to handle all edge cases (Date objects, strings, etc)
+      const safeCandle = sanitizeCandleData(latestCandle);
 
-      // Validate all fields are valid numbers after conversion
+      // Validate all fields are valid numbers after sanitization
       if (isNaN(safeCandle.time) || isNaN(safeCandle.open) || isNaN(safeCandle.high) ||
           isNaN(safeCandle.low) || isNaN(safeCandle.close)) {
-        console.error('[Chart] ❌ Invalid candle data after conversion:', {
+        console.error('[Chart] ❌ Invalid candle data after sanitization:', {
           original: latestCandle,
-          converted: safeCandle
+          sanitized: safeCandle
         });
         return;
       }
 
-      // CRITICAL FIX: Get the last candle time from the chart to prevent "Cannot update oldest data" error
+      // CRITICAL FIX: Get the last candle time from the chart AND sanitize it
       const chartData = candlestickSeriesRef.current.data();
+
+      if (chartData.length > 0) {
+        const lastChartCandle = chartData[chartData.length - 1];
+
+        // Log what we're getting from the chart
+        console.log('[Chart] Last chart candle inspection:', {
+          time: lastChartCandle.time,
+          timeType: typeof lastChartCandle.time,
+          isObject: typeof lastChartCandle.time === 'object',
+          constructor: lastChartCandle.time?.constructor?.name
+        });
+
+        // If the chart has object timestamps, we need to sanitize the entire chart
+        if (typeof lastChartCandle.time === 'object') {
+          console.error('[Chart] ❌ CRITICAL: Chart contains object timestamps! Re-sanitizing entire chart...');
+
+          // Sanitize all existing chart data
+          const sanitizedChartData = sanitizeCandleArray(chartData);
+          candlestickSeriesRef.current.setData(sanitizedChartData);
+
+          console.log('[Chart] ✅ Chart data re-sanitized successfully');
+          return; // Exit and let the next update work with clean data
+        }
+      }
+
       const lastChartCandleTime = chartData.length > 0 ? chartData[chartData.length - 1].time : 0;
 
-      // Validate lastChartCandleTime is also a number
+      // Validate lastChartCandleTime is a number
       if (typeof lastChartCandleTime !== 'number' || isNaN(lastChartCandleTime)) {
-        console.error('[Chart] ❌ Invalid lastChartCandleTime:', {
+        console.error('[Chart] ❌ Invalid lastChartCandleTime after check:', {
           value: lastChartCandleTime,
           type: typeof lastChartCandleTime
         });
@@ -787,8 +808,17 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       }
 
       if (candlestickSeriesRef.current && validatedCandles.length > 0) {
-        console.log('[Chart Init] Setting chart data with', validatedCandles.length, 'candles');
-        candlestickSeriesRef.current.setData(validatedCandles);
+        // CRITICAL: Sanitize ALL candles to ensure primitive numbers before giving to chart
+        const sanitizedCandles = sanitizeCandleArray(validatedCandles);
+
+        console.log('[Chart Init] Setting chart data with', sanitizedCandles.length, 'candles');
+        console.log('[Chart Init] First candle type check:', {
+          time: typeof sanitizedCandles[0].time,
+          open: typeof sanitizedCandles[0].open,
+          timeValue: sanitizedCandles[0].time
+        });
+
+        candlestickSeriesRef.current.setData(sanitizedCandles);
         console.log('[Chart Init] Chart data set successfully');
       } else {
         console.error('[Chart Init] Cannot set chart data:', {
@@ -949,9 +979,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     if (hasCachedData) {
       console.log(`[Chart] ✅ Found ${cachedCandles.length} cached candles for ${symbol} ${timeframe} - restoring immediately`);
 
+      // CRITICAL: Sanitize cached data to ensure primitive numbers
+      const sanitizedCachedCandles = sanitizeCandleArray(cachedCandles);
+
       // Restore cached data to chart immediately for instant display
-      historicalCandlesRef.current = cachedCandles;
-      candlestickSeriesRef.current.setData(cachedCandles);
+      historicalCandlesRef.current = sanitizedCachedCandles;
+      candlestickSeriesRef.current.setData(sanitizedCachedCandles);
 
       // Update price and indicators with cached data
       const lastCandle = cachedCandles[cachedCandles.length - 1];

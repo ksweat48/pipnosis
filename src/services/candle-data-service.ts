@@ -37,6 +37,61 @@ const TIMEFRAME_MINUTES_MAP: Record<Timeframe, number> = {
 
 const MAX_PRICE_DEVIATION_PERCENT = 10;
 
+/**
+ * CRITICAL: Sanitize candle data to ensure ALL values are primitive numbers, not objects
+ * This prevents the Lightweight Charts error: "Cannot update oldest data, last time=[object Object]"
+ */
+export function sanitizeCandleData(candle: any): CandleData {
+  // Handle time field - could be number, Date object, or string
+  let timeValue: number;
+
+  if (typeof candle.time === 'number') {
+    timeValue = candle.time;
+  } else if (candle.time instanceof Date) {
+    // Convert Date object to Unix timestamp
+    timeValue = Math.floor(candle.time.getTime() / 1000);
+    console.warn('[CandleData] ⚠️ Converted Date object to timestamp:', candle.time, '->', timeValue);
+  } else if (typeof candle.time === 'string') {
+    // Convert ISO string to Unix timestamp
+    timeValue = Math.floor(new Date(candle.time).getTime() / 1000);
+    console.warn('[CandleData] ⚠️ Converted string to timestamp:', candle.time, '->', timeValue);
+  } else if (typeof candle.time === 'object' && candle.time !== null) {
+    // Handle any other object by trying to extract timestamp
+    console.error('[CandleData] ❌ Unexpected object for time:', candle.time);
+    timeValue = Math.floor(new Date(candle.time.toString()).getTime() / 1000);
+  } else {
+    console.error('[CandleData] ❌ Invalid time value:', candle.time);
+    timeValue = 0; // Fallback
+  }
+
+  // Ensure all OHLC values are primitive numbers
+  return {
+    time: Number(timeValue),
+    open: Number(candle.open),
+    high: Number(candle.high),
+    low: Number(candle.low),
+    close: Number(candle.close),
+    volume: candle.volume !== undefined ? Number(candle.volume) : undefined
+  };
+}
+
+/**
+ * Sanitize an array of candles, removing any with invalid data
+ */
+export function sanitizeCandleArray(candles: any[]): CandleData[] {
+  return candles
+    .map(sanitizeCandleData)
+    .filter(candle => {
+      // Validate all values are valid numbers
+      if (isNaN(candle.time) || isNaN(candle.open) || isNaN(candle.high) ||
+          isNaN(candle.low) || isNaN(candle.close)) {
+        console.error('[CandleData] ❌ Filtered out candle with NaN values:', candle);
+        return false;
+      }
+      return true;
+    });
+}
+
 function deduplicateCandles(candles: CandleData[]): CandleData[] {
   if (candles.length === 0) return [];
 
