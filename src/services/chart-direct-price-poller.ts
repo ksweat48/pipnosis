@@ -227,10 +227,13 @@ class ChartDirectPricePoller {
 
     for (const symbol of this.trackedSymbols) {
       try {
-        const response = await fetch('/.netlify/functions/get-live-price', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbol })
+        // CRITICAL FIX: Add symbol as URL param to prevent cache collisions between parallel requests
+        const url = `/.netlify/functions/get-live-price?symbol=${encodeURIComponent(symbol)}&t=${Date.now()}`;
+        logger.debug(LogCategory.CHART, `[${symbol}] 🔄 Fetching price from: ${url}`);
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
         });
 
         if (!response.ok) {
@@ -238,6 +241,12 @@ class ChartDirectPricePoller {
         }
 
         const data = await response.json();
+
+        // CRITICAL: Verify the response is actually for the symbol we requested
+        if (data.symbol && data.symbol !== symbol) {
+          logger.error(LogCategory.CHART, `[${symbol}] 🚨 RESPONSE MISMATCH! Requested ${symbol} but got ${data.symbol}`);
+          continue;
+        }
 
         if (data.bid && data.ask) {
           // CRITICAL: Validate prices before accepting them
