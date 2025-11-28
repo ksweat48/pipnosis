@@ -351,10 +351,12 @@ class GlobalPollingCoordinator {
       status.currentInterval = newInterval;
       status.isViewed = this.viewedSymbols.has(symbol);
 
+      // CRITICAL FIX: Stop and restart polling with new interval
       if (this.pollIntervals.has(symbol)) {
         this.stopPollingForSymbol(symbol);
-        this.startPollingForSymbol(symbol);
       }
+      // Always start regardless - stopPollingForSymbol ensures clean state
+      this.startPollingForSymbol(symbol);
     }
   }
 
