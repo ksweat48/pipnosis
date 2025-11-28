@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
 import { CandleData, sanitizeCandleData, sanitizeCandleArray, ensureUnixTimestamp } from '@/services/candle-data-service';
 import { logger, LogCategory } from '@/lib/logger';
+import { priceValidationService } from './price-validation-service';
 
 interface PollResult {
   candles: CandleData[];
@@ -129,6 +130,19 @@ class ChartCandlePoller {
 
         // Sanitize to ensure all values are primitive numbers
         const sanitizedCandle = sanitizeCandleData(rawCandle);
+
+        // CRITICAL: Validate candle prices before accepting
+        const validation = priceValidationService.validateCandle(symbol, {
+          open: sanitizedCandle.open,
+          high: sanitizedCandle.high,
+          low: sanitizedCandle.low,
+          close: sanitizedCandle.close
+        });
+
+        if (!validation.isValid) {
+          logger.error(LogCategory.CHART_POLLER, `[ChartPoller] ❌ REJECTED invalid candle for ${symbol}: ${validation.reason}`);
+          return; // Skip this candle
+        }
 
         // Keep only the most recent entry for each timestamp (first in descending order)
         if (!candleMap.has(sanitizedCandle.time)) {

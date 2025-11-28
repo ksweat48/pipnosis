@@ -24,6 +24,7 @@
  */
 
 import { logger, LogCategory } from '@/lib/logger';
+import { priceValidationService } from './price-validation-service';
 
 interface LivePrice {
   symbol: string;
@@ -239,6 +240,21 @@ class ChartDirectPricePoller {
         const data = await response.json();
 
         if (data.bid && data.ask) {
+          // CRITICAL: Validate prices before accepting them
+          const bidValidation = priceValidationService.validatePrice(symbol, data.bid);
+          const askValidation = priceValidationService.validatePrice(symbol, data.ask);
+
+          if (!bidValidation.isValid || !askValidation.isValid) {
+            logger.error(LogCategory.CHART, `[DirectPoller] ❌ REJECTED invalid price for ${symbol}: bid=${data.bid} ask=${data.ask}`);
+
+            // Check if this might be a cross-symbol contamination
+            const suspectedSymbol = priceValidationService.detectPossibleSymbolMismatch(symbol, data.bid);
+            if (suspectedSymbol) {
+              logger.error(LogCategory.CHART, `[DirectPoller] 🚨 CROSS-CONTAMINATION: ${symbol} received ${suspectedSymbol} price!`);
+            }
+            continue; // Skip this price
+          }
+
           const midPrice = (data.bid + data.ask) / 2;
           results.push({
             symbol,
@@ -277,14 +293,30 @@ class ChartDirectPricePoller {
       return [];
     }
 
-    return data.map(price => ({
-      symbol: price.symbol,
-      bid: parseFloat(price.bid),
-      ask: parseFloat(price.ask),
-      timestamp: price.broker_time || price.created_at,
-      midPrice: (parseFloat(price.bid) + parseFloat(price.ask)) / 2,
-      source: 'database' as const
-    }));
+    return data
+      .map(price => {
+        const bid = parseFloat(price.bid);
+        const ask = parseFloat(price.ask);
+
+        // CRITICAL: Validate prices from database too
+        const bidValidation = priceValidationService.validatePrice(price.symbol, bid);
+        const askValidation = priceValidationService.validatePrice(price.symbol, ask);
+
+        if (!bidValidation.isValid || !askValidation.isValid) {
+          logger.error(LogCategory.CHART, `[DirectPoller] ❌ REJECTED invalid DB price for ${price.symbol}: bid=${bid} ask=${ask}`);
+          return null; // Filter out this price
+        }
+
+        return {
+          symbol: price.symbol,
+          bid,
+          ask,
+          timestamp: price.broker_time || price.created_at,
+          midPrice: (bid + ask) / 2,
+          source: 'database' as const
+        };
+      })
+      .filter((price): price is LivePrice => price !== null);
   }
 
   private processPrices(prices: LivePrice[]): void {

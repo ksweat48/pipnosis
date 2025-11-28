@@ -38,6 +38,7 @@ import { ManualTradePanel } from '@/components/ManualTradePanel';
 import { getForexMarketStatus, getTimeUntilMarketChange, type MarketStatus } from '@/utils/marketHours';
 import { concurrentBulkLoader } from '@/services/concurrent-bulk-loader';
 import { ChartLoadingOverlay, BackgroundLoadingIndicator } from '@/components/ChartLoadingOverlay';
+import { priceValidationService } from '@/services/price-validation-service';
 
 interface MarketChartProps {
   symbol: string;
@@ -405,6 +406,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     // CRITICAL: Double-check symbol validation using both prop and ref
     if (tick.symbol !== symbol || tick.symbol !== currentSymbolRef.current) {
       console.warn(`[Chart][${symbol}] ❌ REJECTED tick for wrong symbol: got ${tick.symbol}, expected ${symbol} (ref: ${currentSymbolRef.current})`);
+      return;
+    }
+
+    // CRITICAL: Validate price is within expected range for this symbol
+    const priceValidation = priceValidationService.validatePrice(tick.symbol, tick.midPrice);
+    if (!priceValidation.isValid) {
+      console.error(`[Chart][${symbol}] ❌ REJECTED tick with invalid price: ${tick.midPrice} - ${priceValidation.reason}`);
+
+      // Check if this might be a different symbol's price
+      const suspectedSymbol = priceValidationService.detectPossibleSymbolMismatch(tick.symbol, tick.midPrice);
+      if (suspectedSymbol) {
+        console.error(`[Chart][${symbol}] 🚨 CROSS-CONTAMINATION DETECTED: Received ${suspectedSymbol} price ${tick.midPrice} instead of ${symbol} price!`);
+      }
       return;
     }
 
