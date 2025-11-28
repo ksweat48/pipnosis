@@ -59,6 +59,9 @@ interface CurrentCandle {
 }
 
 export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecuted }: MarketChartProps) {
+  // CRITICAL: Track current symbol to reject cross-contaminated updates
+  const currentSymbolRef = useRef<string>(symbol);
+
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -398,7 +401,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   const updateCurrentCandleFromTick = (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => {
-    if (tick.symbol !== symbol || !candlestickSeriesRef.current) {
+    // CRITICAL: Double-check symbol validation using both prop and ref
+    if (tick.symbol !== symbol || tick.symbol !== currentSymbolRef.current) {
+      console.warn(`[Chart][${symbol}] ❌ REJECTED tick for wrong symbol: got ${tick.symbol}, expected ${symbol} (ref: ${currentSymbolRef.current})`);
+      return;
+    }
+
+    if (!candlestickSeriesRef.current) {
       return;
     }
 
@@ -509,6 +518,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   const updateCurrentCandleFromPoller = (latestCandle: CandleData) => {
+    // CRITICAL: Double-check symbol validation using both prop and ref
+    if (latestCandle.symbol && (latestCandle.symbol !== symbol || latestCandle.symbol !== currentSymbolRef.current)) {
+      console.warn(`[Chart][${symbol}] ❌ REJECTED polled candle for wrong symbol: got ${latestCandle.symbol}, expected ${symbol} (ref: ${currentSymbolRef.current})`);
+      return;
+    }
+
     if (!candlestickSeriesRef.current) {
       return;
     }
@@ -963,14 +978,37 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   }, []);
 
   useEffect(() => {
-    console.log('[Chart] Main useEffect triggered for:', symbol, timeframe);
+    console.log(`[Chart][${symbol}] Main useEffect triggered for: ${symbol} ${timeframe}`);
+
+    // Update the current symbol ref
+    currentSymbolRef.current = symbol;
 
     if (!candlestickSeriesRef.current) {
-      console.log('[Chart] candlestickSeriesRef is null, waiting for chart creation');
+      console.log(`[Chart][${symbol}] candlestickSeriesRef is null, waiting for chart creation`);
       return;
     }
 
-    console.log('[Chart] Chart series exists, checking for cached data...');
+    console.log(`[Chart][${symbol}] Chart series exists, CLEARING old data before loading new symbol...`);
+
+    // CRITICAL FIX: Force clear ALL chart data when symbol changes to prevent contamination
+    try {
+      candlestickSeriesRef.current.setData([]);
+      vwapSeriesRef.current?.setData([]);
+      ema20SeriesRef.current?.setData([]);
+      ema50SeriesRef.current?.setData([]);
+      ema200SeriesRef.current?.setData([]);
+      console.log(`[Chart][${symbol}] ✅ Cleared all chart series data`);
+    } catch (clearError) {
+      console.error(`[Chart][${symbol}] Error clearing chart data:`, clearError);
+    }
+
+    // Reset all refs to prevent stale data
+    historicalCandlesRef.current = [];
+    currentCandleRef.current = null;
+    lastFetchTimeRef.current = null;
+    liveTickStreamActive.current = false;
+
+    console.log(`[Chart][${symbol}] Chart series cleared, checking for cached data...`);
 
     // CRITICAL FIX: Check if we have cached data from the poller before clearing everything
     const cachedCandles = chartCandlePoller.getCachedCandles(symbol, timeframe);
@@ -1004,12 +1042,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       setIsLoading(false);
       setError(null);
     } else {
-      console.log('[Chart] No cached data found, will load from database...');
-      // Clear state only if no cached data
-      currentCandleRef.current = null;
-      lastFetchTimeRef.current = null;
-      historicalCandlesRef.current = [];
-      liveTickStreamActive.current = false;
+      console.log(`[Chart][${symbol}] No cached data found, will load from database...`);
     }
 
     concurrentBulkLoader.interruptForSymbol(symbol, timeframe);

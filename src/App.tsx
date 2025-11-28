@@ -142,6 +142,19 @@ const AppRoutes: React.FC = () => {
 
 export default function App() {
   useEffect(() => {
+    // CRITICAL: Clear potentially contaminated cache on startup
+    const clearCache = async () => {
+      try {
+        const { candleCacheManager } = await import('./services/candle-cache-manager');
+        await candleCacheManager.clearAllCache();
+        console.log('[App] ✅ Cleared all candle cache on startup to prevent cross-contamination');
+      } catch (error) {
+        console.warn('[App] Could not clear cache:', error);
+      }
+    };
+
+    clearCache();
+
     // Only run background services in production and only when user is authenticated
     if (!import.meta.env.PROD) return;
 

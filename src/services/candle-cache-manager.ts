@@ -114,8 +114,10 @@ class CandleCacheManager {
       .map(candle => {
         // Extract timestamp first for validation
         const timestamp = candle.open_time || candle.timestamp || candle.time;
-        const candleSymbol = candle.symbol || symbol;
-        const candleTimeframe = candle.timeframe || timeframe;
+        // CRITICAL FIX: Always use function parameters to prevent cross-contamination
+        // Never trust candle.symbol as it may contain stale data from previous operations
+        const candleSymbol = symbol;
+        const candleTimeframe = timeframe;
 
         // Validate ALL required fields before creating cache entry
         if (!timestamp) {
