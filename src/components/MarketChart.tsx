@@ -18,6 +18,7 @@ import { detectAndBackfillGaps } from '@/services/candle-backfill-service';
 import { candlePersistenceService } from '@/services/candle-persistence-service';
 import { chartCandlePoller } from '@/services/chart-candle-poller';
 import { backgroundCandleAggregator } from '@/services/background-candle-aggregator';
+import { chartDirectPricePoller } from '@/services/chart-direct-price-poller';
 import {
   calculateVWAP,
   calculateEMA,
@@ -84,6 +85,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [isLive, setIsLive] = useState(false);
   const [systemStatus, setSystemStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
   const [marketStatus, setMarketStatus] = useState<'live' | 'delayed' | 'offline'>('live');
+  const [priceSource, setPriceSource] = useState<'metaapi' | 'database' | 'offline'>('offline');
+  const [directPollerActive, setDirectPollerActive] = useState(false);
   const [forexMarketStatus, setForexMarketStatus] = useState<MarketStatus>(() => getForexMarketStatus());
 
   const [rsiData, setRsiData] = useState<IndicatorResult[]>([]);
@@ -938,13 +941,42 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       initializeChart(false); // Don't show loading state when we have cached data
     }
 
-    console.log(`[Chart] 🚀 Starting hybrid mode: Live ticks + DB polling for ${symbol} ${timeframe}`);
+    console.log(`[Chart] 🚀 Starting SMOOTH HYBRID mode: Direct MetaAPI + Fallback DB polling for ${symbol} ${timeframe}`);
     setSystemStatus('connecting');
 
-    // Start live tick stream from BackgroundAggregator
-    console.log(`[Chart] 📡 Subscribing to live tick stream...`);
+    // PRIORITY 1: Start direct MetaAPI polling for smooth updates (every 3s)
+    console.log(`[Chart] 🎯 Starting direct MetaAPI price poller (3s interval)...`);
+    chartDirectPricePoller.addSymbol(symbol);
+
+    const unsubscribeDirectPrice = chartDirectPricePoller.onPriceUpdate((price) => {
+      if (price.symbol === symbol) {
+        console.log(`[Chart] 📈 Direct price update from ${price.source}: ${price.midPrice.toFixed(5)}`);
+        updateCurrentCandleFromTick({
+          symbol: price.symbol,
+          bid: price.bid,
+          ask: price.ask,
+          timestamp: price.timestamp,
+          midPrice: price.midPrice
+        });
+        setMarketStatus('live');
+      }
+    });
+
+    const unsubscribeDirectStatus = chartDirectPricePoller.onStatusUpdate((status) => {
+      setPriceSource(status.source);
+      setDirectPollerActive(status.isActive);
+      console.log(`[Chart] 📊 Direct poller status: ${status.source}, active: ${status.isActive}`);
+    });
+
+    chartDirectPricePoller.start();
+
+    // FALLBACK: Background aggregator for when direct polling fails
+    console.log(`[Chart] 📡 Subscribing to background aggregator as fallback...`);
     const unsubscribeTicks = backgroundCandleAggregator.onTickUpdate((tick) => {
-      updateCurrentCandleFromTick(tick);
+      // Only use if direct poller is not providing updates
+      if (!directPollerActive) {
+        updateCurrentCandleFromTick(tick);
+      }
     });
 
     // Start database polling for validation and completed candles
@@ -992,7 +1024,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     }, 15000);
 
     return () => {
-      console.log(`[Chart] 🛑 Stopping hybrid mode for ${symbol} ${timeframe}`);
+      console.log(`[Chart] 🛑 Stopping smooth hybrid mode for ${symbol} ${timeframe}`);
+      chartDirectPricePoller.removeSymbol(symbol);
+      unsubscribeDirectPrice();
+      unsubscribeDirectStatus();
       unsubscribeTicks();
       unsubscribePoller();
       chartCandlePoller.stopPolling(symbol, timeframe);
@@ -1156,14 +1191,31 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
               }`}></div>
               <span className="hidden sm:inline text-xs font-medium text-gray-300">Market</span>
             </div>
+
+            <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 bg-gray-800/50 rounded-lg border border-gray-700">
+              <div className={`w-2 h-2 rounded-full ${
+                priceSource === 'metaapi' ? 'bg-blue-500 animate-pulse' :
+                priceSource === 'database' ? 'bg-yellow-500' :
+                'bg-gray-500'
+              }`}></div>
+              <span className="hidden sm:inline text-xs font-medium ${
+                priceSource === 'metaapi' ? 'text-blue-400' :
+                priceSource === 'database' ? 'text-yellow-400' :
+                'text-gray-400'
+              }">
+                {priceSource === 'metaapi' ? 'Live' : priceSource === 'database' ? 'Delayed' : 'Offline'}
+              </span>
+            </div>
           </div>
 
           {/* Desktop: Price on the right side */}
           {currentPrice && (
             <div className="hidden sm:flex items-center gap-4">
               <div className="flex items-center gap-3">
-                <div className={`text-2xl font-bold text-white transition-all duration-300 ${
-                  priceUpdateFlash ? 'scale-110 text-emerald-400' : ''
+                <div className={`text-2xl font-bold transition-all duration-500 ease-out ${
+                  priceUpdateFlash
+                    ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
+                    : 'text-white scale-100'
                 }`}>
                   {currentPrice.toFixed(5)}
                 </div>
@@ -1188,8 +1240,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         {/* Mobile: Price below controls */}
         {currentPrice && (
           <div className="sm:hidden flex items-center justify-center gap-3 px-3 py-2 bg-gray-800/50 rounded-lg border border-gray-700">
-            <div className={`text-lg font-bold text-white transition-all duration-300 ${
-              priceUpdateFlash ? 'scale-110 text-emerald-400' : ''
+            <div className={`text-lg font-bold transition-all duration-500 ease-out ${
+              priceUpdateFlash
+                ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
+                : 'text-white scale-100'
             }`}>
               {currentPrice.toFixed(5)}
             </div>
