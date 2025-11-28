@@ -46,19 +46,32 @@ export function RealtimeDiagnosticsPage() {
         },
         (payload) => {
           const now = Date.now();
-          const latency = testInsertTime ? now - testInsertTime : undefined;
+          const rowData = payload.new as any;
+
+          // Calculate true latency: time from when row was created to when we received the event
+          const createdAtMs = new Date(rowData.created_at).getTime();
+          const actualLatency = now - createdAtMs;
+
+          // Check if this is our test insert
+          const isTestInsert = rowData.source === 'diagnostic_test' && testInsertTime;
+          const testLatency = isTestInsert ? now - testInsertTime : undefined;
 
           const event: RealtimeEvent = {
             timestamp: new Date().toISOString(),
             eventType: 'INSERT',
-            payload: payload.new,
-            latencyMs: latency
+            payload: rowData,
+            latencyMs: isTestInsert ? testLatency : actualLatency
           };
 
           console.log('[Realtime Diagnostics] ✅ EVENT RECEIVED!', event);
+          console.log(`  Actual latency from DB insert: ${actualLatency}ms`);
+          if (isTestInsert) {
+            console.log(`  Test button latency: ${testLatency}ms`);
+          }
+
           setEvents(prev => [event, ...prev].slice(0, 50));
 
-          if (testInsertTime) {
+          if (isTestInsert) {
             setTestInsertTime(null);
           }
         }
@@ -79,10 +92,17 @@ export function RealtimeDiagnosticsPage() {
     setTestInsertTime(Date.now());
 
     try {
+      const bid = 1.05000 + Math.random() * 0.0001;
+      const ask = 1.05020 + Math.random() * 0.0001;
+      const mid = (bid + ask) / 2;
+
       const testData = {
         symbol: 'EURUSD',
-        bid: 1.05000 + Math.random() * 0.0001,
-        ask: 1.05020 + Math.random() * 0.0001,
+        bid,
+        ask,
+        mid,
+        spread: ask - bid,
+        source: 'diagnostic_test',
         broker_time: new Date().toISOString()
       };
 
@@ -206,6 +226,20 @@ export function RealtimeDiagnosticsPage() {
             </div>
           )}
         </div>
+
+        {/* High Latency Warning */}
+        {events.length > 0 && events[0].latencyMs && events[0].latencyMs > 1000 && (
+          <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-6 mb-6">
+            <h3 className="text-lg font-semibold text-orange-400 mb-3">⚠️ High Latency Detected</h3>
+            <p className="text-orange-300 text-sm mb-2">
+              Realtime events are being received with <strong>{Math.round(events[0].latencyMs! / 1000)}+ seconds</strong> of delay.
+            </p>
+            <p className="text-orange-200 text-xs">
+              This indicates Supabase Realtime server is overloaded or experiencing replication lag.
+              Events ARE working, but delayed significantly.
+            </p>
+          </div>
+        )}
 
         {/* Events Log */}
         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
