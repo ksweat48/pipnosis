@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { candleCacheManager } from './candle-cache-manager';
-import { ensureUnixTimestamp } from './candle-data-service';
+import { ensureUnixTimestamp, unixTimestampToPostgresTimestamp } from './candle-data-service';
 
 const NETLIFY_FUNCTION_URL = import.meta.env.VITE_NETLIFY_FUNCTIONS_URL || '/.netlify/functions';
 const CONCURRENT_BATCH_SIZE = 3;
@@ -249,14 +249,14 @@ class ConcurrentBulkLoader {
       // Reverse to get chronological order (oldest first)
       const chronologicalCandles = candles.reverse();
 
-      // CRITICAL FIX: Convert timestamps to Unix seconds immediately
-      // Supabase returns timestamptz as Date objects or ISO strings - we need numbers for database
+      // IMPORTANT: Keep timestamps in original database format (ISO strings)
+      // Only convert to Unix seconds when displaying on chart, not for storage
       return chronologicalCandles.map((c: any) => ({
         symbol,
         timeframe: dbTimeframe,
-        // Convert timestamps to Unix seconds using robust converter
-        open_time: ensureUnixTimestamp(c.open_time, 'BulkLoader-open_time'),
-        close_time: ensureUnixTimestamp(c.close_time || c.open_time, 'BulkLoader-close_time'),
+        // Keep original timestamp format from database
+        open_time: c.open_time,
+        close_time: c.close_time || c.open_time,
         open: c.open,
         high: c.high,
         low: c.low,
@@ -297,6 +297,22 @@ class ConcurrentBulkLoader {
       // Ensure close_time exists
       if (!validFields.close_time && validFields.open_time) {
         validFields.close_time = validFields.open_time;
+      }
+
+      // CRITICAL FIX: If timestamps are Unix seconds (numbers), convert to PostgreSQL timestamptz format
+      // This handles candles from aggregator or other sources that use Unix timestamps
+      if (validFields.open_time !== undefined && typeof validFields.open_time === 'number') {
+        validFields.open_time = unixTimestampToPostgresTimestamp(
+          validFields.open_time,
+          `BulkLoader-upsert-${validFields.symbol || 'unknown'}`
+        );
+      }
+
+      if (validFields.close_time !== undefined && typeof validFields.close_time === 'number') {
+        validFields.close_time = unixTimestampToPostgresTimestamp(
+          validFields.close_time,
+          `BulkLoader-upsert-${validFields.symbol || 'unknown'}`
+        );
       }
 
       return validFields;

@@ -78,6 +78,49 @@ export function ensureUnixTimestamp(value: any, context: string = 'unknown'): nu
 }
 
 /**
+ * CRITICAL: Convert Unix timestamp (seconds) back to PostgreSQL timestamptz format
+ * This is the REVERSE of ensureUnixTimestamp() - for database inserts
+ *
+ * @param unixSeconds - Unix timestamp in seconds
+ * @param context - Context string for logging
+ * @returns ISO 8601 timestamp string that PostgreSQL can accept
+ */
+export function unixTimestampToPostgresTimestamp(unixSeconds: any, context: string = 'unknown'): string {
+  // If already a string (ISO format), validate and return
+  if (typeof unixSeconds === 'string') {
+    const date = new Date(unixSeconds);
+    if (!isNaN(date.getTime())) {
+      return unixSeconds; // Already valid ISO string
+    }
+  }
+
+  // If it's a Date object, convert to ISO
+  if (unixSeconds instanceof Date) {
+    return unixSeconds.toISOString();
+  }
+
+  // Must be a number (Unix timestamp in seconds)
+  if (typeof unixSeconds !== 'number') {
+    console.error(`[${context}] ⚠️ Invalid timestamp for database: ${typeof unixSeconds}`, unixSeconds);
+    // Return current time as fallback
+    return new Date().toISOString();
+  }
+
+  // Validate timestamp is reasonable (between year 2000 and 2100)
+  // Unix timestamp for 2000-01-01: 946684800
+  // Unix timestamp for 2100-01-01: 4102444800
+  if (unixSeconds < 946684800 || unixSeconds > 4102444800) {
+    console.error(`[${context}] ⚠️ Timestamp out of reasonable range: ${unixSeconds} (${new Date(unixSeconds * 1000).toISOString()})`);
+    return new Date().toISOString();
+  }
+
+  // Convert Unix seconds to ISO string for PostgreSQL
+  const isoString = new Date(unixSeconds * 1000).toISOString();
+  console.log(`[${context}] Converted Unix seconds to ISO: ${unixSeconds} -> ${isoString}`);
+  return isoString;
+}
+
+/**
  * CRITICAL: Sanitize candle data to ensure ALL values are primitive numbers, not objects
  * This prevents the Lightweight Charts error: "Cannot update oldest data, last time=[object Object]"
  */
