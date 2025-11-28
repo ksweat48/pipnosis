@@ -31,7 +31,7 @@
 
 [functions."continuous-price-collector"]
   timeout = 26
-  schedule = "*/30 * * * * *"
+  schedule = "* * * * *"
 
 [functions."continuous-candle-aggregator"]
   timeout = 26
