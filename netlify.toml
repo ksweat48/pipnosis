@@ -44,9 +44,6 @@
 [functions."polling-health"]
   timeout = 10
 
-[functions."connection-health"]
-  timeout = 26
-
 [functions."openai-chat"]
   timeout = 26
 
