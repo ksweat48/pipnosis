@@ -20,6 +20,7 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ defa
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 const SystemDiagnosticsPage = lazy(() => import('./pages/SystemDiagnosticsPage'));
 const AILearningCenterPage = lazy(() => import('./pages/AILearningCenterPage'));
+const RealtimeDiagnosticsPage = lazy(() => import('./pages/RealtimeDiagnosticsPage').then(m => ({ default: m.RealtimeDiagnosticsPage })));
 
 // Loading component
 const LoadingFallback = () => (
@@ -132,6 +133,14 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute adminOnly={true}>
             <SystemDiagnosticsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/diagnostics/realtime"
+        element={
+          <ProtectedRoute>
+            <RealtimeDiagnosticsPage />
           </ProtectedRoute>
         }
       />
