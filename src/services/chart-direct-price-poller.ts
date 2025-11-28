@@ -52,7 +52,8 @@ interface PollerStatus {
 
 class ChartDirectPricePoller {
   private pollInterval: NodeJS.Timeout | null = null;
-  private priceListeners: Set<PriceUpdateCallback> = new Set();
+  // CRITICAL FIX: Store listeners per-symbol to prevent cross-contamination
+  private priceListeners: Map<string, Set<PriceUpdateCallback>> = new Map();
   private statusListeners: Set<StatusUpdateCallback> = new Set();
 
   private status: PollerStatus = {
@@ -94,18 +95,35 @@ class ChartDirectPricePoller {
 
   addSymbol(symbol: string): void {
     this.trackedSymbols.add(symbol);
+    // Initialize listener set for this symbol if it doesn't exist
+    if (!this.priceListeners.has(symbol)) {
+      this.priceListeners.set(symbol, new Set());
+    }
     logger.debug(LogCategory.CHART, `📊 Tracking ${symbol} (${this.trackedSymbols.size} total)`);
   }
 
   removeSymbol(symbol: string): void {
     this.trackedSymbols.delete(symbol);
     this.lastPriceCache.delete(symbol);
+    // Clean up listeners for this symbol
+    this.priceListeners.delete(symbol);
     logger.debug(LogCategory.CHART, `📊 Stopped tracking ${symbol} (${this.trackedSymbols.size} remaining)`);
   }
 
-  onPriceUpdate(callback: PriceUpdateCallback): () => void {
-    this.priceListeners.add(callback);
-    return () => this.priceListeners.delete(callback);
+  // CRITICAL FIX: Accept symbol parameter to register listener for specific symbol only
+  onPriceUpdate(symbol: string, callback: PriceUpdateCallback): () => void {
+    if (!this.priceListeners.has(symbol)) {
+      this.priceListeners.set(symbol, new Set());
+    }
+    const listeners = this.priceListeners.get(symbol)!;
+    listeners.add(callback);
+
+    logger.debug(LogCategory.CHART, `[${symbol}] Registered price listener (${listeners.size} total for this symbol)`);
+
+    return () => {
+      listeners.delete(callback);
+      logger.debug(LogCategory.CHART, `[${symbol}] Unregistered price listener (${listeners.size} remaining)`);
+    };
   }
 
   onStatusUpdate(callback: StatusUpdateCallback): () => void {
@@ -285,14 +303,19 @@ class ChartDirectPricePoller {
       // Update cache
       this.lastPriceCache.set(price.symbol, price);
 
-      // Notify listeners
-      this.priceListeners.forEach(listener => {
-        try {
-          listener(price);
-        } catch (error) {
-          logger.error(LogCategory.CHART, 'Error in price listener:', error);
-        }
-      });
+      // CRITICAL FIX: Only notify listeners registered for THIS symbol
+      const symbolListeners = this.priceListeners.get(price.symbol);
+      if (symbolListeners && symbolListeners.size > 0) {
+        logger.debug(LogCategory.CHART, `[${price.symbol}] Notifying ${symbolListeners.size} listeners for price update`);
+
+        symbolListeners.forEach(listener => {
+          try {
+            listener(price);
+          } catch (error) {
+            logger.error(LogCategory.CHART, `[${price.symbol}] Error in price listener:`, error);
+          }
+        });
+      }
 
       this.status.updateCount++;
       this.status.lastUpdate = new Date();

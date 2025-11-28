@@ -1060,12 +1060,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     setSystemStatus('connecting');
 
     // PRIORITY 1: Start direct MetaAPI polling for smooth updates (every 3s)
-    console.log(`[Chart] 🎯 Starting direct MetaAPI price poller (3s interval)...`);
+    console.log(`[Chart][${symbol}] 🎯 Starting direct MetaAPI price poller (3s interval)...`);
     chartDirectPricePoller.addSymbol(symbol);
 
-    const unsubscribeDirectPrice = chartDirectPricePoller.onPriceUpdate((price) => {
+    // CRITICAL FIX: Pass symbol to register listener for THIS symbol only
+    const unsubscribeDirectPrice = chartDirectPricePoller.onPriceUpdate(symbol, (price) => {
+      // Symbol check now redundant (poller filters) but kept as safety guard
       if (price.symbol === symbol) {
-        console.log(`[Chart] 📈 Direct price update from ${price.source}: ${price.midPrice.toFixed(5)}`);
+        console.log(`[Chart][${symbol}] 📈 Direct price update from ${price.source}: ${price.midPrice.toFixed(5)}`);
         updateCurrentCandleFromTick({
           symbol: price.symbol,
           bid: price.bid,
