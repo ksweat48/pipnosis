@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { simulatedTradingService } from './simulated-trading';
 import { globalPollingCoordinator } from './global-polling-coordinator';
+import { logger, LogCategory } from '@/lib/logger';
 
 interface MonitoredPosition {
   id: string;
@@ -22,6 +23,8 @@ class PositionMonitorService {
   private criticalPositionIntervalId: NodeJS.Timeout | null = null;
   private normalPositionIntervalId: NodeJS.Timeout | null = null;
   private criticalSymbols: Set<string> = new Set();
+  private updateRetryCount: Map<string, number> = new Map();
+  private maxRetries = 3;
 
   start() {
     if (this.isRunning) return;
@@ -30,8 +33,9 @@ class PositionMonitorService {
     this.isRunning = true;
 
     this.monitorPositions();
-    this.criticalPositionIntervalId = setInterval(() => this.monitorCriticalPositions(), 500);
-    this.normalPositionIntervalId = setInterval(() => this.monitorNormalPositions(), 2000);
+    // Reduced from 500ms to 2000ms to avoid rate limiting and reduce load
+    this.criticalPositionIntervalId = setInterval(() => this.monitorCriticalPositions(), 2000);
+    this.normalPositionIntervalId = setInterval(() => this.monitorNormalPositions(), 3000);
   }
 
   stop() {
@@ -49,6 +53,7 @@ class PositionMonitorService {
     }
     this.isRunning = false;
     this.criticalSymbols.clear();
+    this.updateRetryCount.clear();
     logger.debug(LogCategory.POSITION_MONITOR, ' Stopped position monitor service');
   }
 
@@ -100,6 +105,76 @@ class PositionMonitorService {
     }
 
     this.criticalSymbols = newCriticalSymbols;
+  }
+
+  /**
+   * Attempt to update position with retry logic and fallback
+   */
+  private async updatePositionWithRetry(
+    positionId: string,
+    currentPrice: number,
+    pnl: number,
+    userId: string
+  ): Promise<boolean> {
+    const currentRetries = this.updateRetryCount.get(positionId) || 0;
+
+    // Try RPC function with detailed error logging
+    const { error: rpcError } = await supabase.rpc('update_simulated_position_secure', {
+      p_position_id: positionId,
+      p_current_price: currentPrice,
+      p_current_pnl: pnl
+    });
+
+    if (!rpcError) {
+      // Success - reset retry count
+      this.updateRetryCount.delete(positionId);
+      return true;
+    }
+
+    // Log detailed error information
+    console.error(`[PositionMonitor] RPC update failed (attempt ${currentRetries + 1}/${this.maxRetries}):`, {
+      positionId,
+      error: rpcError,
+      code: rpcError.code,
+      message: rpcError.message,
+      details: rpcError.details,
+      hint: rpcError.hint
+    });
+
+    // Try fallback: direct table update
+    const { error: fallbackError } = await supabase
+      .from('simulated_positions')
+      .update({
+        current_price: currentPrice,
+        current_pnl: pnl,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', positionId)
+      .eq('user_id', userId);
+
+    if (!fallbackError) {
+      console.log(`[PositionMonitor] ✓ Fallback update succeeded for position ${positionId}`);
+      this.updateRetryCount.delete(positionId);
+      return true;
+    }
+
+    console.error(`[PositionMonitor] Fallback update also failed:`, fallbackError);
+
+    // Increment retry count
+    this.updateRetryCount.set(positionId, currentRetries + 1);
+
+    // If max retries exceeded, reset count and give up
+    if (currentRetries >= this.maxRetries) {
+      console.error(`[PositionMonitor] Max retries exceeded for position ${positionId}. Resetting retry count.`);
+      this.updateRetryCount.delete(positionId);
+      return false;
+    }
+
+    // Wait with exponential backoff before next attempt
+    const backoffMs = 1000 * (currentRetries + 1);
+    await new Promise(resolve => setTimeout(resolve, backoffMs));
+
+    return false;
   }
 
   private async monitorCriticalPositions(): Promise<void> {
@@ -226,15 +301,23 @@ class PositionMonitorService {
       position.symbol
     );
 
-    const { error: updateError } = await supabase
-      .rpc('update_simulated_position_secure', {
-        p_position_id: position.id,
-        p_current_price: actualCurrentPrice,
-        p_current_pnl: pnl
-      });
+    // Verify auth state before attempting update
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      console.error('[PositionMonitor] No authenticated user - cannot update position');
+      return;
+    }
 
-    if (updateError) {
-      console.error(`[PositionMonitor] Failed to update position ${position.id}:`, updateError);
+    // Try updating with retry logic
+    const updateSuccess = await this.updatePositionWithRetry(
+      position.id,
+      actualCurrentPrice,
+      pnl,
+      user.id
+    );
+
+    if (!updateSuccess) {
+      console.error(`[PositionMonitor] All update attempts failed for position ${position.id}`);
       return;
     }
 

@@ -110,17 +110,34 @@ class CandleCacheManager {
     await this.initDB();
     if (!this.db || candles.length === 0) return;
 
-    const candlesWithIds = candles.map(candle => {
-      const { id, ...candleWithoutId } = candle;
-      const timestamp = candle.open_time || candle.timestamp || candle.time;
-      return {
-        ...candleWithoutId,
-        cacheId: `${candle.symbol || symbol}_${candle.timeframe || timeframe}_${timestamp}`,
-        symbol: candle.symbol || symbol,
-        timeframe: candle.timeframe || timeframe,
-        timestamp: timestamp
-      };
-    });
+    const candlesWithIds = candles
+      .filter(candle => {
+        // Ensure candle has required fields
+        const timestamp = candle.open_time || candle.timestamp || candle.time;
+        return timestamp && (candle.open != null) && (candle.high != null) && (candle.low != null) && (candle.close != null);
+      })
+      .map(candle => {
+        const { id, ...candleWithoutId } = candle;
+        const timestamp = candle.open_time || candle.timestamp || candle.time;
+        return {
+          ...candleWithoutId,
+          cacheId: `${candle.symbol || symbol}_${candle.timeframe || timeframe}_${timestamp}`,
+          symbol: candle.symbol || symbol,
+          timeframe: candle.timeframe || timeframe,
+          timestamp: timestamp,
+          open: Number(candle.open),
+          high: Number(candle.high),
+          low: Number(candle.low),
+          close: Number(candle.close),
+          volume: Number(candle.volume || 0)
+        };
+      });
+
+    // If no valid candles after filtering, don't save
+    if (candlesWithIds.length === 0) {
+      console.warn(`[CandleCache] No valid candles to save for ${symbol} ${timeframe}`);
+      return;
+    }
 
     const sortedCandles = [...candlesWithIds].sort((a, b) =>
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
