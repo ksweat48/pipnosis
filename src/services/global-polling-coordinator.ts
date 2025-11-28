@@ -361,13 +361,19 @@ class GlobalPollingCoordinator {
   }
 
   private startPollingForSymbol(symbol: string): void {
+    console.log(`[Coordinator] 🚀 Attempting to start polling for ${symbol}...`);
+
     if (this.pollIntervals.has(symbol)) {
       console.warn(`⚠️ Polling already active for ${symbol}`);
       return;
     }
 
     const status = this.pollStatus.get(symbol);
-    if (!status) return;
+    if (!status) {
+      console.error(`❌ [Coordinator] No status entry for ${symbol}! pollStatus has:`,
+        Array.from(this.pollStatus.keys()));
+      return;
+    }
 
     const pollFunction = async () => {
       // Always check market status before polling
@@ -429,6 +435,7 @@ class GlobalPollingCoordinator {
     const interval = setInterval(pollFunction, status.currentInterval);
     this.pollIntervals.set(symbol, interval);
 
+    console.log(`✅ [Coordinator] Started read-only polling for ${symbol} (${status.priority} priority, every ${status.currentInterval}ms)`);
     logger.debug(LogCategory.POLLING_COORDINATOR, `✅ Started read-only polling for ${symbol} (${status.priority} priority, every ${status.currentInterval}ms)`);
   }
 
