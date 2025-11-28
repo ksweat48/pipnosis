@@ -30,25 +30,16 @@ const FOREX_PAIRS = [
 
 class BackgroundCandleAggregator {
   private candleStates: CandleStateMap = new Map();
-  private subscription: any = null;
   private isRunning = false;
   private saveQueue: Array<{ symbol: string; timeframe: Timeframe; candle: CandleData }> = [];
   private saveInProgress = false;
   private listeners: Set<(symbol: string, timeframe: Timeframe, candle: CandleData) => void> = new Set();
   private tickListeners: Set<(tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => void> = new Set();
-  private reconnectAttempts = 0;
-  private readonly MAX_RECONNECT_ATTEMPTS = 10;
-  private readonly BASE_RECONNECT_DELAY = 1000;
-  private reconnectTimeout: NodeJS.Timeout | null = null;
   private lastMessageTime: Date | null = null;
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private readonly HEALTH_CHECK_INTERVAL_MS = 15000;
-  private readonly STALE_CONNECTION_THRESHOLD_MS = 60000;
-  private isConnecting = false;
-  private connectionState: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected';
-  private lastReconnectAttemptTime: number = 0;
-  private readonly MIN_RECONNECT_INTERVAL_MS = 2000;
-  private circuitBreakerTripped = false;
+  private readonly STALE_DATA_THRESHOLD_MS = 60000;
+  private connectionState: 'disconnected' | 'connected' | 'error' = 'disconnected';
   private isInitializing = false;
 
   private getCacheKey(symbol: string, timeframe: Timeframe): string {
@@ -63,10 +54,7 @@ class BackgroundCandleAggregator {
   private lastPriceCache: Map<string, number> = new Map();
   private candleFinalizerInterval: NodeJS.Timeout | null = null;
   private readonly CANDLE_FINALIZER_CHECK_INTERVAL_MS = 60000; // Check every minute
-  private heartbeatInterval: NodeJS.Timeout | null = null;
-  private fallbackPollingInterval: NodeJS.Timeout | null = null;
-  private lastTickReceived: Date | null = null;
-  private readonly TICK_TIMEOUT_MS = 30000; // 30 seconds without ticks = start fallback
+  private pollingInterval: NodeJS.Timeout | null = null;
 
   private initializeCandleState(symbol: string, timeframe: Timeframe, price: number, timestamp: number): CandleState {
     const candleTime = this.getCandleTime(timestamp, timeframe);
@@ -270,7 +258,7 @@ class BackgroundCandleAggregator {
       return;
     }
 
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🚀 Starting in hybrid mode: Live ticks + Database validation');
+    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🚀 Starting database polling mode');
 
     // Check if server-side aggregation is active FIRST
     const serverSideActive = await this.checkServerSideAggregation();
@@ -281,11 +269,11 @@ class BackgroundCandleAggregator {
       logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🎯 Candles will continue to be collected even when browser is closed');
     } else {
       logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ⚠️ Server-side aggregation not detected');
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔄 Running in legacy browser-based mode');
+      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔄 Running in browser-based mode');
       logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ⚠️ Candles will only be collected while browser is open');
     }
 
-    // Check database status with improved logic
+    // Check database status
     const dataStatus = await this.checkDatabaseStatus();
     logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Database status: ${dataStatus.status}`);
     logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Records found: ${dataStatus.recordCount}, Age: ${dataStatus.ageSeconds}s`);
@@ -302,7 +290,7 @@ class BackgroundCandleAggregator {
     } else if (dataStatus.status === 'stale') {
       logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ⚠️ Data is stale, but within acceptable range - monitoring...');
     } else {
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ✅ Database has recent data - relying on server-side polling');
+      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ✅ Database has recent data - starting polling');
     }
 
     // Clear any stale in-memory state
@@ -313,11 +301,11 @@ class BackgroundCandleAggregator {
     logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🧹 Cleared all in-memory candle state');
 
     logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🚀 Starting background candle aggregation for all pairs and timeframes...');
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔄 Auto-reconnection enabled for persistent operation');
+    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 📊 Polling database every 3 seconds for new prices');
     logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ✨ Building fresh candles from live data only');
 
     await this.initializeCurrentCandles();
-    await this.setupRealtimeSubscription();
+    this.startPricePolling();
     this.startHealthMonitoring();
     this.startCandleFinalizer();
 
@@ -540,150 +528,53 @@ class BackgroundCandleAggregator {
     }
   }
 
-  private async setupRealtimeSubscription(): Promise<void> {
-    // Prevent multiple simultaneous connection attempts
-    if (this.isConnecting) {
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Already connecting, skipping duplicate attempt');
-      return;
+  private startPricePolling(): void {
+    if (this.pollingInterval) {
+      return; // Already running
     }
 
-    // Circuit breaker check
-    if (this.circuitBreakerTripped) {
-      console.error('[BackgroundAggregator] Circuit breaker tripped - manual restart required');
-      return;
-    }
+    this.isRunning = true;
+    this.connectionState = 'connected';
+    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔄 Starting database polling (every 3 seconds)');
 
-    // Rate limit reconnection attempts
-    const timeSinceLastAttempt = Date.now() - this.lastReconnectAttemptTime;
-    if (timeSinceLastAttempt < this.MIN_RECONNECT_INTERVAL_MS) {
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Rate limiting: ${timeSinceLastAttempt}ms since last attempt, waiting...`);
-      return;
-    }
+    this.pollingInterval = setInterval(async () => {
+      try {
+        // Poll recent prices from database
+        const { data, error } = await supabase
+          .from('realtime_prices')
+          .select('symbol, bid, ask, broker_time, created_at')
+          .gt('broker_time', new Date(Date.now() - 5000).toISOString())
+          .order('broker_time', { ascending: false })
+          .limit(50);
 
-    try {
-      this.isConnecting = true;
-      this.connectionState = 'connecting';
-      this.lastReconnectAttemptTime = Date.now();
-
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Setting up realtime subscription...');
-
-      // Clean up existing subscription properly
-      if (this.subscription) {
-        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Cleaning up existing subscription');
-        try {
-          await this.subscription.unsubscribe();
-        } catch (cleanupError) {
-          console.warn('[BackgroundAggregator] Error during cleanup:', cleanupError);
+        if (error) {
+          console.error('[BackgroundAggregator] Polling error:', error);
+          return;
         }
-        this.subscription = null;
-        // Wait for cleanup to complete
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
 
-      this.subscription = supabase
-        .channel('background_price_aggregation')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'realtime_prices'
-          },
-          (payload) => {
-            this.lastMessageTime = new Date();
-            const { symbol, bid, ask, broker_time, created_at } = payload.new as any;
-            const timestamp = broker_time || created_at;
-
-            this.lastTickReceived = new Date();
+        if (data && data.length > 0) {
+          this.lastMessageTime = new Date();
+          data.forEach((price: any) => {
             this.processNewPrice(
-              symbol,
-              parseFloat(bid),
-              parseFloat(ask),
-              timestamp
+              price.symbol,
+              parseFloat(price.bid),
+              parseFloat(price.ask),
+              price.broker_time || price.created_at
             );
-          }
-        )
-        .subscribe((status, err) => {
-          console.log(`[BackgroundAggregator] 🔌 Subscription status: ${status}`, err || '');
-          logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Subscription status:', status);
-
-          if (status === 'SUBSCRIBED') {
-            this.isRunning = true;
-            this.isConnecting = false;
-            this.connectionState = 'connected';
-            this.reconnectAttempts = 0;
-            this.lastMessageTime = new Date();
-            this.lastTickReceived = new Date();
-            logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ✅ Successfully subscribed to realtime_prices');
-            this.startHeartbeatMonitor();
-            this.stopFallbackPolling(); // Stop fallback if it was running
-          } else if (status === 'CHANNEL_ERROR') {
-            console.error('[BackgroundAggregator] ❌ Channel error:', err);
-            this.isConnecting = false;
-            this.connectionState = 'error';
-            this.handleConnectionError();
-          } else if (status === 'TIMED_OUT') {
-            console.error('[BackgroundAggregator] ⏱️ Connection timed out');
-            this.isConnecting = false;
-            this.connectionState = 'error';
-            this.handleConnectionError();
-          } else if (status === 'CLOSED') {
-            logger.debug(LogCategory.BACKGROUND_AGGREGATOR, '🔌 Connection closed');
-            this.isConnecting = false;
-            this.connectionState = 'disconnected';
-            if (this.isRunning) {
-              this.handleConnectionError();
-            }
-          }
-        });
-    } catch (error) {
-      console.error('[BackgroundAggregator] Failed to setup subscription:', error);
-      this.isConnecting = false;
-      this.connectionState = 'error';
-      this.handleConnectionError();
-    }
+          });
+        }
+      } catch (error) {
+        console.error('[BackgroundAggregator] Polling error:', error);
+      }
+    }, 3000); // Poll every 3 seconds
   }
 
-  private handleConnectionError(): void {
-    // Prevent recursive calls
-    if (this.isConnecting) {
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Already attempting to connect, ignoring error');
-      return;
+  private stopPricePolling(): void {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
+      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' ✅ Stopped database polling');
     }
-
-    // Clear any existing reconnect timeout to prevent duplicates
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-
-    if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
-      console.error(
-        `[BackgroundAggregator] ❌ Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. ` +
-        'Manual restart required.'
-      );
-      this.circuitBreakerTripped = true;
-      this.connectionState = 'error';
-      this.isRunning = false;
-      return;
-    }
-
-    this.reconnectAttempts++;
-    const delay = Math.min(
-      this.BASE_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts - 1),
-      30000
-    );
-
-    logger.debug(
-      LogCategory.BACKGROUND_AGGREGATOR,
-      `🔄 Scheduling reconnection ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} in ${Math.round(delay / 1000)}s...`
-    );
-
-    this.reconnectTimeout = setTimeout(async () => {
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` 🔌 Reconnecting (attempt ${this.reconnectAttempts})...`);
-      this.reconnectTimeout = null;
-      await this.setupRealtimeSubscription();
-    }, delay);
   }
 
   private startHealthMonitoring(): void {
@@ -711,18 +602,15 @@ class BackgroundCandleAggregator {
       ? now - this.lastMessageTime.getTime()
       : Infinity;
 
-    if (timeSinceLastMessage > this.STALE_CONNECTION_THRESHOLD_MS) {
+    if (timeSinceLastMessage > this.STALE_DATA_THRESHOLD_MS) {
       logger.debug(
         LogCategory.BACKGROUND_AGGREGATOR,
-        `⚠️ No messages received for ${Math.round(timeSinceLastMessage / 1000)}s - connection may be stale`
+        `⚠️ No data received for ${Math.round(timeSinceLastMessage / 1000)}s - polling may be stalled`
       );
-
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔄 Forcing reconnection due to stale connection...');
-      this.handleConnectionError();
     } else {
       logger.debug(
         LogCategory.BACKGROUND_AGGREGATOR,
-        `✅ Health check passed (last message ${Math.round(timeSinceLastMessage / 1000)}s ago, ${this.candleStates.size} active candles)`
+        `✅ Health check passed (last data ${Math.round(timeSinceLastMessage / 1000)}s ago, ${this.candleStates.size} active candles)`
       );
     }
   }
@@ -812,10 +700,7 @@ class BackgroundCandleAggregator {
       this.candleFinalizerInterval = null;
     }
 
-    if (this.subscription) {
-      await this.subscription.unsubscribe();
-      this.subscription = null;
-    }
+    this.stopPricePolling();
 
     for (const [key, state] of this.candleStates.entries()) {
       const [symbol, timeframe] = key.split('_');
@@ -907,9 +792,7 @@ class BackgroundCandleAggregator {
 
     return {
       isRunning: this.isRunning,
-      isConnecting: this.isConnecting,
       connectionState: this.connectionState,
-      circuitBreakerTripped: this.circuitBreakerTripped,
       activeCandleStates: this.candleStates.size,
       saveQueueLength: this.saveQueue.length,
       listenerCount: this.listeners.size,
@@ -917,93 +800,17 @@ class BackgroundCandleAggregator {
       symbols: FOREX_PAIRS.length,
       timeframes: ALL_TIMEFRAMES.length,
       totalCombinations: FOREX_PAIRS.length * ALL_TIMEFRAMES.length,
-      reconnectAttempts: this.reconnectAttempts,
       lastMessageTime: this.lastMessageTime,
       timeSinceLastMessageMs: timeSinceLastMessage,
-      connectionHealthy: timeSinceLastMessage !== null && timeSinceLastMessage < this.STALE_CONNECTION_THRESHOLD_MS
+      dataHealthy: timeSinceLastMessage !== null && timeSinceLastMessage < this.STALE_DATA_THRESHOLD_MS
     };
   }
 
-  resetCircuitBreaker(): void {
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Resetting circuit breaker - manual restart enabled');
-    this.circuitBreakerTripped = false;
-    this.reconnectAttempts = 0;
-    this.connectionState = 'disconnected';
-  }
-
   async manualReconnect(): Promise<void> {
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Manual reconnection requested');
-    this.resetCircuitBreaker();
-    this.isConnecting = false;
+    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Manual restart requested');
     await this.stop();
     await new Promise(resolve => setTimeout(resolve, 1000));
     await this.start();
-  }
-
-  private startHeartbeatMonitor(): void {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-    }
-
-    this.heartbeatInterval = setInterval(() => {
-      const now = Date.now();
-      const timeSinceLastTick = this.lastTickReceived
-        ? now - this.lastTickReceived.getTime()
-        : Infinity;
-
-      if (timeSinceLastTick > this.TICK_TIMEOUT_MS) {
-        console.warn(`[BackgroundAggregator] ⚠️ No ticks received for ${Math.round(timeSinceLastTick / 1000)}s - starting fallback polling`);
-        this.startFallbackPolling();
-      }
-    }, 10000); // Check every 10 seconds
-  }
-
-  private startFallbackPolling(): void {
-    if (this.fallbackPollingInterval) {
-      return; // Already running
-    }
-
-    console.log('[BackgroundAggregator] 🔄 Starting fallback database polling (Realtime not sending events)');
-
-    this.fallbackPollingInterval = setInterval(async () => {
-      try {
-        // Poll recent prices from database
-        const { data, error } = await supabase
-          .from('realtime_prices')
-          .select('symbol, bid, ask, broker_time, created_at')
-          .gt('broker_time', new Date(Date.now() - 5000).toISOString())
-          .order('broker_time', { ascending: false })
-          .limit(50);
-
-        if (error) {
-          console.error('[BackgroundAggregator] Fallback polling error:', error);
-          return;
-        }
-
-        if (data && data.length > 0) {
-          console.log(`[BackgroundAggregator] 📊 Fallback poll found ${data.length} recent prices`);
-          data.forEach((price: any) => {
-            this.lastTickReceived = new Date();
-            this.processNewPrice(
-              price.symbol,
-              parseFloat(price.bid),
-              parseFloat(price.ask),
-              price.broker_time || price.created_at
-            );
-          });
-        }
-      } catch (error) {
-        console.error('[BackgroundAggregator] Fallback polling error:', error);
-      }
-    }, 3000); // Poll every 3 seconds
-  }
-
-  private stopFallbackPolling(): void {
-    if (this.fallbackPollingInterval) {
-      clearInterval(this.fallbackPollingInterval);
-      this.fallbackPollingInterval = null;
-      console.log('[BackgroundAggregator] ✅ Stopped fallback polling - Realtime working again');
-    }
   }
 }
 
