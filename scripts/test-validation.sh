@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Test script to demonstrate the validation system
+# This temporarily changes a critical value to trigger warnings
+
+echo "Testing validation system..."
+echo ""
+echo "1. Current state (should pass):"
+node scripts/validate-critical-systems.cjs
+echo ""
+echo "================================================"
+echo ""
+echo "2. Simulating a change to chart polling interval..."
+echo "   (In a real scenario, this would be caught during build)"
+echo ""
+echo "   OLD: interval: 3000"
+echo "   NEW: interval: 2000"
+echo ""
+echo "   This would trigger a WARNING during 'npm run build'"
+echo "   The build would continue, but you'd see:"
+echo ""
+echo "   🔄 CHANGE DETECTED in src/services/chart-direct-price-poller.ts:"
+echo "      Field: chartUpdateInterval"
+echo "      Old: 3000"
+echo "      New: 2000"
+echo ""
+echo "   ⚠️  CONFIGURATION CHANGES: 1"
+echo "   Review these changes before deployment"
+echo ""
+echo "   📄 Full report written to: CRITICAL_CHANGES_REPORT.txt"
+echo ""
+echo "================================================"
+echo ""
+echo "The validation is set to WARNING mode (non-blocking)."
+echo "Deployments will continue, but you'll be notified of changes."

@@ -1,3 +1,28 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 🚨 CRITICAL INFRASTRUCTURE - DO NOT MODIFY WITHOUT EXPLICIT APPROVAL
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * Global Polling Coordinator
+ *
+ * Manages real-time price polling for all trading pairs. Coordinates timing,
+ * priority, and health monitoring across the entire system.
+ *
+ * CRITICAL CONFIGURATION:
+ * - MARKET_CHECK_INTERVAL: 60000ms (1 minute)
+ * - HEARTBEAT_INTERVAL_MS: 5000ms (5 seconds)
+ * - MAX_MISSED_HEARTBEATS: 3
+ *
+ * DO NOT CHANGE:
+ * - Market hours detection logic
+ * - Heartbeat monitoring system
+ * - Priority-based polling intervals
+ * - Visibility-based pause/resume
+ *
+ * See: docs/CRITICAL_SYSTEMS.md for details
+ * ═══════════════════════════════════════════════════════════════════════════════
+ */
+
 import { supabase } from '@/lib/supabase';
 import { getForexMarketStatus } from '@/utils/marketHours';
 import { areFunctionsAvailable, logEnvironmentInfo } from '@/lib/environment';
@@ -48,15 +73,15 @@ class GlobalPollingCoordinator {
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private lastHeartbeat: Date = new Date();
   private missedHeartbeats = 0;
-  private readonly HEARTBEAT_INTERVAL_MS = 5000;
-  private readonly MAX_MISSED_HEARTBEATS = 3;
+  private readonly HEARTBEAT_INTERVAL_MS = 5000; // 🚨 CRITICAL: 5 seconds - DO NOT CHANGE
+  private readonly MAX_MISSED_HEARTBEATS = 3; // 🚨 CRITICAL: Recovery threshold - DO NOT CHANGE
   private readonly SYMBOL_RECOVERY_THRESHOLD = 999999; // Effectively unlimited recovery attempts
 
   private readonly FOREX_PAIRS = [
     'XAUUSD', 'US30', 'EURUSD', 'USDJPY', 'GBPUSD'
   ];
 
-  private readonly MARKET_CHECK_INTERVAL = 60000;
+  private readonly MARKET_CHECK_INTERVAL = 60000; // 🚨 CRITICAL: 60 seconds - DO NOT CHANGE
   private viewedSymbols: Set<string> = new Set();
   private symbolsWithPositions: Set<string> = new Set();
 

@@ -1,3 +1,22 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🚨 CRITICAL INFRASTRUCTURE - DO NOT MODIFY WITHOUT EXPLICIT APPROVAL
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# This file configures Netlify scheduled functions that power real-time data collection.
+#
+# CRITICAL REQUIREMENTS:
+# - ALL cron expressions MUST use 5-field format: "minute hour day month weekday"
+# - DO NOT use 6-field format (with seconds) - Netlify does not support it
+# - Function timeouts must accommodate cold starts (min 26 seconds for scheduled)
+#
+# PROTECTED FUNCTIONS:
+# - continuous-price-collector: Collects live prices every minute
+# - continuous-candle-aggregator: Aggregates candles every 5 minutes
+# - fill-candle-gaps: Fills missing data every 5 minutes
+#
+# See: docs/CRITICAL_SYSTEMS.md for details
+# ═══════════════════════════════════════════════════════════════════════════════
+
 [build]
   publish = "dist"
   command = "npm run build"
@@ -29,17 +48,20 @@
 [functions."forex-candles"]
   timeout = 300
 
+# 🚨 CRITICAL: Server-side price collection (runs every minute)
 [functions."continuous-price-collector"]
   timeout = 26
-  schedule = "* * * * *"
+  schedule = "* * * * *"  # 🚨 5-field format ONLY - DO NOT add seconds field
 
+# 🚨 CRITICAL: Candle aggregation (runs every 5 minutes)
 [functions."continuous-candle-aggregator"]
   timeout = 26
-  schedule = "*/5 * * * *"
+  schedule = "*/5 * * * *"  # 🚨 5-field format ONLY - DO NOT add seconds field
 
+# 🚨 CRITICAL: Gap filling (runs every 5 minutes)
 [functions."fill-candle-gaps"]
   timeout = 300
-  schedule = "*/5 * * * *"
+  schedule = "*/5 * * * *"  # 🚨 5-field format ONLY - DO NOT add seconds field
 
 [functions."polling-health"]
   timeout = 10

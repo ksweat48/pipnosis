@@ -1,9 +1,26 @@
 /**
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 🚨 CRITICAL INFRASTRUCTURE - DO NOT MODIFY WITHOUT EXPLICIT APPROVAL
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
  * Chart Direct Price Poller
  *
  * Provides smooth, real-time price updates for the chart by polling MetaAPI directly.
  * Only runs when the chart is visible to minimize API usage.
  * Falls back to database polling if MetaAPI is unavailable.
+ *
+ * CRITICAL CONFIGURATION:
+ * - Update interval: 3000ms (3 seconds) - Industry standard for retail forex
+ * - Matches TradingView and MetaTrader 5 behavior
+ * - Balances real-time feel with API rate limits
+ *
+ * DO NOT CHANGE:
+ * - interval: 3000 (line 50)
+ * - Visibility detection logic
+ * - Fallback mechanism (MetaAPI → Database)
+ *
+ * See: docs/CRITICAL_SYSTEMS.md for details
+ * ═══════════════════════════════════════════════════════════════════════════════
  */
 
 import { logger, LogCategory } from '@/lib/logger';
@@ -47,7 +64,7 @@ class ChartDirectPricePoller {
   };
 
   private options: PollerOptions = {
-    interval: 3000, // 3 seconds
+    interval: 3000, // 🚨 CRITICAL: 3 seconds - DO NOT CHANGE (industry standard)
     enabled: false
   };
 

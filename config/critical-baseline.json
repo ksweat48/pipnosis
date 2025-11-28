@@ -1,0 +1,70 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2025-11-28",
+  "description": "Critical infrastructure baseline configuration - DO NOT MODIFY without explicit approval",
+  "polling": {
+    "chartUpdateInterval": 3000,
+    "description": "Chart price update interval in milliseconds (3 seconds = industry standard)",
+    "priorityIntervals": {
+      "critical": 1000,
+      "high": 2000,
+      "normal": 3000,
+      "low": 5000
+    },
+    "marketCheckInterval": 60000,
+    "heartbeatInterval": 5000,
+    "maxMissedHeartbeats": 3
+  },
+  "netlifyFunctions": {
+    "continuousPriceCollector": {
+      "timeout": 26,
+      "schedule": "* * * * *",
+      "description": "Collects live prices every minute"
+    },
+    "continuousCandleAggregator": {
+      "timeout": 26,
+      "schedule": "*/5 * * * *",
+      "description": "Aggregates candles every 5 minutes"
+    },
+    "fillCandleGaps": {
+      "timeout": 300,
+      "schedule": "*/5 * * * *",
+      "description": "Fills missing candle data every 5 minutes"
+    },
+    "scheduledRefresh": {
+      "timeout": 600,
+      "schedule": "0 2 * * *",
+      "description": "Daily data refresh at 2 AM"
+    }
+  },
+  "chart": {
+    "visibilityDetectionEnabled": true,
+    "autoResume": true,
+    "fallbackSources": ["metaapi", "database"],
+    "indicatorColors": {
+      "live": "blue",
+      "cached": "yellow",
+      "offline": "red"
+    }
+  },
+  "database": {
+    "criticalTables": [
+      "realtime_prices",
+      "forex_candles",
+      "polling_configuration"
+    ]
+  },
+  "protectedFiles": [
+    "src/services/global-polling-coordinator.ts",
+    "src/services/chart-direct-price-poller.ts",
+    "src/services/polling-config-service.ts",
+    "src/components/MarketChart.tsx",
+    "netlify.toml"
+  ],
+  "validation": {
+    "enabled": true,
+    "mode": "warn",
+    "failOnError": false,
+    "generateReport": true
+  }
+}
