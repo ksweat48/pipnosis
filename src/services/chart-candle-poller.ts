@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
-import { CandleData } from '@/services/candle-data-service';
+import { CandleData, sanitizeCandleData, sanitizeCandleArray } from '@/services/candle-data-service';
 import { logger, LogCategory } from '@/lib/logger';
 
 interface PollResult {
@@ -109,26 +109,47 @@ class ChartCandlePoller {
       }
 
       // Convert database format to chart format with deduplication
+      // CRITICAL: Sanitize IMMEDIATELY after database query to prevent Date objects
       const candleMap = new Map<number, CandleData>();
 
       data.forEach(candle => {
         const timestamp = Math.floor(new Date(candle.open_time).getTime() / 1000);
+
+        // CRITICAL: Create raw candle object then sanitize it
+        const rawCandle = {
+          time: timestamp,
+          open: parseFloat(candle.open),
+          high: parseFloat(candle.high),
+          low: parseFloat(candle.low),
+          close: parseFloat(candle.close),
+          volume: parseFloat(candle.volume || '0')
+        };
+
+        // Sanitize to ensure all values are primitive numbers
+        const sanitizedCandle = sanitizeCandleData(rawCandle);
+
         // Keep only the most recent entry for each timestamp (first in descending order)
-        if (!candleMap.has(timestamp)) {
-          candleMap.set(timestamp, {
-            time: timestamp,
-            open: parseFloat(candle.open),
-            high: parseFloat(candle.high),
-            low: parseFloat(candle.low),
-            close: parseFloat(candle.close),
-            volume: parseFloat(candle.volume || '0')
-          });
+        if (!candleMap.has(sanitizedCandle.time)) {
+          candleMap.set(sanitizedCandle.time, sanitizedCandle);
         }
       });
 
       // Convert to array and sort ascending
-      const candles: CandleData[] = Array.from(candleMap.values())
+      let candles: CandleData[] = Array.from(candleMap.values())
         .sort((a, b) => a.time - b.time);
+
+      // CRITICAL: Sanitize the entire array as a final safeguard
+      candles = sanitizeCandleArray(candles);
+
+      // Log the first candle to verify types
+      if (candles.length > 0) {
+        console.log(`[ChartPoller] First candle type check for ${symbol}:`, {
+          time: candles[0].time,
+          timeType: typeof candles[0].time,
+          isObject: typeof candles[0].time === 'object',
+          value: candles[0].time
+        });
+      }
 
       if (data.length !== candles.length) {
         logger.debug(LogCategory.CHART_POLLER, `Deduplicated ${data.length - candles.length} overlapping candles for ${symbol} ${timeframe}`);
@@ -163,11 +184,21 @@ class ChartCandlePoller {
       }
 
       // Notify listeners
+      // CRITICAL: Sanitize candles one more time before notifying to ensure no objects slip through
+      const sanitizedForNotification = sanitizeCandleArray(candles);
+
       const result: PollResult = {
-        candles,
+        candles: sanitizedForNotification,
         hasNewData,
         latestCandleTime: latestCandle.time
       };
+
+      console.log(`[ChartPoller] Notifying listeners for ${symbol} with ${sanitizedForNotification.length} candles, types:`, {
+        firstTime: sanitizedForNotification[0]?.time,
+        firstTimeType: typeof sanitizedForNotification[0]?.time,
+        lastTime: sanitizedForNotification[sanitizedForNotification.length - 1]?.time,
+        lastTimeType: typeof sanitizedForNotification[sanitizedForNotification.length - 1]?.time
+      });
 
       this.notifyListeners(key, result);
     } catch (error) {
@@ -225,21 +256,61 @@ class ChartCandlePoller {
     const cache = this.cache.get(key);
 
     // Return full historical candles if available, otherwise return recent candles
+    let candles: CandleData[] = [];
+
     if (cache?.fullHistoricalCandles && cache.fullHistoricalCandles.length > 0) {
-      return cache.fullHistoricalCandles;
+      candles = cache.fullHistoricalCandles;
+    } else if (cache?.candles) {
+      candles = cache.candles;
     }
 
-    return cache?.candles || [];
+    // CRITICAL: Sanitize before returning to prevent any cached Date objects
+    if (candles.length > 0) {
+      console.log(`[ChartPoller] getCachedCandles for ${symbol}: returning ${candles.length} candles`);
+      console.log(`[ChartPoller] First cached candle type:`, {
+        time: candles[0].time,
+        timeType: typeof candles[0].time,
+        isObject: typeof candles[0].time === 'object'
+      });
+
+      const sanitized = sanitizeCandleArray(candles);
+
+      console.log(`[ChartPoller] After sanitization:`, {
+        time: sanitized[0].time,
+        timeType: typeof sanitized[0].time,
+        isObject: typeof sanitized[0].time === 'object'
+      });
+
+      return sanitized;
+    }
+
+    return [];
   }
 
   setFullHistoricalCandles(symbol: string, timeframe: Timeframe, candles: CandleData[]): void {
     const key = this.getCacheKey(symbol, timeframe);
     const cache = this.cache.get(key);
 
-    // Validate that all candles have proper time format (numbers, not objects)
-    const validatedCandles = candles.filter(candle => {
+    // CRITICAL: SANITIZE all incoming candles to convert any Date objects to numbers
+    console.log(`[ChartPoller] setFullHistoricalCandles called with ${candles.length} candles`);
+    console.log(`[ChartPoller] First candle before sanitization:`, {
+      time: candles[0]?.time,
+      timeType: typeof candles[0]?.time,
+      isObject: typeof candles[0]?.time === 'object'
+    });
+
+    const sanitizedCandles = sanitizeCandleArray(candles);
+
+    console.log(`[ChartPoller] After sanitization: ${sanitizedCandles.length} candles, first:`, {
+      time: sanitizedCandles[0]?.time,
+      timeType: typeof sanitizedCandles[0]?.time,
+      isObject: typeof sanitizedCandles[0]?.time === 'object'
+    });
+
+    // Additional validation after sanitization
+    const validatedCandles = sanitizedCandles.filter(candle => {
       if (typeof candle.time !== 'number' || isNaN(candle.time)) {
-        console.error(`[ChartPoller] Filtering out invalid candle with time:`, {
+        console.error(`[ChartPoller] Filtering out invalid candle after sanitization:`, {
           time: candle.time,
           type: typeof candle.time
         });
@@ -248,8 +319,8 @@ class ChartCandlePoller {
       return true;
     });
 
-    if (validatedCandles.length !== candles.length) {
-      console.warn(`[ChartPoller] Filtered out ${candles.length - validatedCandles.length} candles with invalid time format`);
+    if (validatedCandles.length !== sanitizedCandles.length) {
+      console.warn(`[ChartPoller] Filtered out ${sanitizedCandles.length - validatedCandles.length} candles with invalid time format after sanitization`);
     }
 
     if (cache) {
