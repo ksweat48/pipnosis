@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
-import { CandleData, sanitizeCandleData, sanitizeCandleArray } from '@/services/candle-data-service';
+import { CandleData, sanitizeCandleData, sanitizeCandleArray, ensureUnixTimestamp } from '@/services/candle-data-service';
 import { logger, LogCategory } from '@/lib/logger';
 
 interface PollResult {
@@ -113,7 +113,9 @@ class ChartCandlePoller {
       const candleMap = new Map<number, CandleData>();
 
       data.forEach(candle => {
-        const timestamp = Math.floor(new Date(candle.open_time).getTime() / 1000);
+        // CRITICAL FIX: Use robust timestamp converter to handle ALL data types from Supabase
+        // open_time could be: Date object, ISO string, or already a number
+        const timestamp = ensureUnixTimestamp(candle.open_time, 'ChartPoller');
 
         // CRITICAL: Create raw candle object then sanitize it
         const rawCandle = {

@@ -38,35 +38,66 @@ const TIMEFRAME_MINUTES_MAP: Record<Timeframe, number> = {
 const MAX_PRICE_DEVIATION_PERCENT = 10;
 
 /**
+ * CRITICAL: Convert any timestamp format to Unix timestamp (seconds)
+ * Handles: numbers (seconds/milliseconds), Date objects, ISO strings, timestamptz strings
+ * This is the SINGLE SOURCE OF TRUTH for timestamp conversion
+ */
+export function ensureUnixTimestamp(value: any, context: string = 'unknown'): number {
+  // Already a valid Unix timestamp in seconds
+  if (typeof value === 'number' && value > 0) {
+    // Check if it's in milliseconds (> year 2100 in seconds)
+    if (value > 4102444800) {
+      const seconds = Math.floor(value / 1000);
+      console.log(`[${context}] Converted milliseconds to seconds: ${value} -> ${seconds}`);
+      return seconds;
+    }
+    return value;
+  }
+
+  // Date object
+  if (value instanceof Date) {
+    const seconds = Math.floor(value.getTime() / 1000);
+    console.log(`[${context}] Converted Date object to seconds: ${value.toISOString()} -> ${seconds}`);
+    return seconds;
+  }
+
+  // String (ISO or timestamp)
+  if (typeof value === 'string') {
+    const date = new Date(value);
+    if (!isNaN(date.getTime())) {
+      const seconds = Math.floor(date.getTime() / 1000);
+      console.log(`[${context}] Converted string to seconds: ${value} -> ${seconds}`);
+      return seconds;
+    }
+  }
+
+  // Fallback for objects or invalid values
+  console.error(`[${context}] ⚠️ INVALID TIMESTAMP TYPE: ${typeof value}, value:`, value);
+  console.error(`[${context}] Using current time as fallback`);
+  return Math.floor(Date.now() / 1000);
+}
+
+/**
  * CRITICAL: Sanitize candle data to ensure ALL values are primitive numbers, not objects
  * This prevents the Lightweight Charts error: "Cannot update oldest data, last time=[object Object]"
  */
 export function sanitizeCandleData(candle: any): CandleData {
-  // Handle time field - could be number, Date object, or string
-  let timeValue: number;
+  // Use the robust timestamp converter
+  const timeValue = ensureUnixTimestamp(candle.time, 'sanitizeCandleData');
 
-  if (typeof candle.time === 'number') {
-    timeValue = candle.time;
-  } else if (candle.time instanceof Date) {
-    // Convert Date object to Unix timestamp
-    timeValue = Math.floor(candle.time.getTime() / 1000);
-    console.warn('[CandleData] ⚠️ Converted Date object to timestamp:', candle.time, '->', timeValue);
-  } else if (typeof candle.time === 'string') {
-    // Convert ISO string to Unix timestamp
-    timeValue = Math.floor(new Date(candle.time).getTime() / 1000);
-    console.warn('[CandleData] ⚠️ Converted string to timestamp:', candle.time, '->', timeValue);
-  } else if (typeof candle.time === 'object' && candle.time !== null) {
-    // Handle any other object by trying to extract timestamp
-    console.error('[CandleData] ❌ Unexpected object for time:', candle.time);
-    timeValue = Math.floor(new Date(candle.time.toString()).getTime() / 1000);
-  } else {
-    console.error('[CandleData] ❌ Invalid time value:', candle.time);
-    timeValue = 0; // Fallback
+  // CRITICAL TYPE CHECK: Ensure timeValue is actually a number
+  if (typeof timeValue !== 'number' || isNaN(timeValue)) {
+    console.error('[sanitizeCandleData] ❌ CRITICAL: timeValue is not a valid number:', {
+      timeValue,
+      type: typeof timeValue,
+      originalCandle: candle
+    });
+    throw new Error(`Invalid timestamp after conversion: ${timeValue}`);
   }
 
   // Ensure all OHLC values are primitive numbers
   return {
-    time: Number(timeValue),
+    time: timeValue,
     open: Number(candle.open),
     high: Number(candle.high),
     low: Number(candle.low),
@@ -221,7 +252,9 @@ export async function fetchPreAggregatedCandles(
     const candleMap = new Map<number, CandleData>();
 
     forexCandles.forEach((candle) => {
-      const timestamp = Math.floor(new Date(candle.open_time).getTime() / 1000);
+      // CRITICAL FIX: Use robust timestamp converter to handle ALL data types from Supabase
+      // open_time could be: Date object, ISO string, or already a number
+      const timestamp = ensureUnixTimestamp(candle.open_time, 'fetchPreAggregatedCandles');
 
       // Only keep the first occurrence of each timestamp (most recent in query order)
       if (!candleMap.has(timestamp)) {

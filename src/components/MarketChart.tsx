@@ -13,6 +13,7 @@ import {
   validateCandleAgainstHistorical,
   sanitizeCandleData,
   sanitizeCandleArray,
+  ensureUnixTimestamp,
   CandleData,
   RealtimePrice as RealtimePriceType
 } from '@/services/candle-data-service';
@@ -518,6 +519,26 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   const updateCurrentCandleFromPoller = (latestCandle: CandleData) => {
+    // CRITICAL TYPE GUARD: Ensure time is a primitive number, not an object
+    if (typeof latestCandle.time !== 'number') {
+      console.error('[Chart] ❌ CRITICAL: Candle time is not a number!', {
+        time: latestCandle.time,
+        type: typeof latestCandle.time,
+        isObject: typeof latestCandle.time === 'object',
+        candle: latestCandle
+      });
+
+      // Try to recover by converting it
+      try {
+        const fixedTime = ensureUnixTimestamp(latestCandle.time, 'updateCurrentCandleFromPoller');
+        latestCandle = { ...latestCandle, time: fixedTime };
+        console.log('[Chart] ✅ Recovered candle with fixed timestamp:', fixedTime);
+      } catch (error) {
+        console.error('[Chart] ❌ Failed to recover candle timestamp, skipping update');
+        return;
+      }
+    }
+
     // CRITICAL: Double-check symbol validation using both prop and ref
     if (latestCandle.symbol && (latestCandle.symbol !== symbol || latestCandle.symbol !== currentSymbolRef.current)) {
       console.warn(`[Chart][${symbol}] ❌ REJECTED polled candle for wrong symbol: got ${latestCandle.symbol}, expected ${symbol} (ref: ${currentSymbolRef.current})`);

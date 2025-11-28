@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { candleCacheManager } from './candle-cache-manager';
+import { ensureUnixTimestamp } from './candle-data-service';
 
 const NETLIFY_FUNCTION_URL = import.meta.env.VITE_NETLIFY_FUNCTIONS_URL || '/.netlify/functions';
 const CONCURRENT_BATCH_SIZE = 3;
@@ -248,11 +249,14 @@ class ConcurrentBulkLoader {
       // Reverse to get chronological order (oldest first)
       const chronologicalCandles = candles.reverse();
 
+      // CRITICAL FIX: Convert timestamps to Unix seconds immediately
+      // Supabase returns timestamptz as Date objects or ISO strings - we need numbers for database
       return chronologicalCandles.map((c: any) => ({
         symbol,
         timeframe: dbTimeframe,
-        open_time: c.open_time,
-        close_time: c.close_time || c.open_time,
+        // Convert timestamps to Unix seconds using robust converter
+        open_time: ensureUnixTimestamp(c.open_time, 'BulkLoader-open_time'),
+        close_time: ensureUnixTimestamp(c.close_time || c.open_time, 'BulkLoader-close_time'),
         open: c.open,
         high: c.high,
         low: c.low,
