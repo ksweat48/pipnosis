@@ -496,7 +496,8 @@ class PositionMonitorService {
           setup_type: (position as any).setup_type || 'Auto-closed position',
           market_conditions: (position as any).market_conditions || {},
           ai_decision_id: (position as any).ai_decision_id || null,
-          ai_analyzed: false
+          ai_analyzed: false,
+          trade_source: 'live_demo'
         });
 
       logger.debug(LogCategory.POSITION_MONITOR, ` Position ${position.id} closed with P&L: $${pnl.toFixed(2)}`);
