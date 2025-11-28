@@ -70,9 +70,10 @@ class ConcurrentBulkLoader {
         const cacheAge = Date.now() - cached.metadata.fetchTimestamp;
 
         if (cacheAge < 5 * 60 * 1000) {
-          await this.upsertCandles(cached.candles);
-          this.updateCacheInBackground(symbol, timeframe, candleCount);
-          return true;
+          // CRITICAL FIX: Don't upsert cached candles - they may have 'time' instead of 'open_time'
+          // Just fetch from database which has correct format
+          console.log(`[BulkLoader] Skipping cached data upsert for ${symbol} ${timeframe}, will fetch from database`);
+          // Don't return - continue to fetch from database
         }
       }
 
@@ -297,6 +298,15 @@ class ConcurrentBulkLoader {
       return validFields;
     });
 
+    // DEBUG: Log what we're about to send
+    console.log('[BulkLoader] About to upsert candles:', {
+      count: validCandles.length,
+      firstCandle: validCandles[0],
+      firstCandleKeys: Object.keys(validCandles[0]),
+      hasOpenTime: validCandles[0]?.open_time !== undefined,
+      hasTime: validCandles[0]?.time !== undefined
+    });
+
     const { error } = await supabase
       .from('forex_candles')
       .upsert(validCandles, {
@@ -305,6 +315,7 @@ class ConcurrentBulkLoader {
       });
 
     if (error) {
+      console.error('[BulkLoader] Upsert failed with candles:', validCandles.slice(0, 2));
       throw new Error(`Failed to upsert candles: ${error.message}`);
     }
   }
