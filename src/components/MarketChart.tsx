@@ -664,9 +664,16 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
       // Wrap chart update in try-catch to capture any Lightweight Charts errors
       try {
+        console.log('[Chart] About to update with safeCandle:', {
+          time: safeCandle.time,
+          timeType: typeof safeCandle.time,
+          candle: safeCandle
+        });
         candlestickSeriesRef.current.update(safeCandle);
       } catch (updateError) {
         console.error('[Chart] Update error:', updateError);
+        console.error('[Chart] Failed candle:', safeCandle);
+        console.error('[Chart] Last chart data:', chartData.slice(-3));
         console.error('[Chart] Candle data causing error:', {
           safeCandle,
           timeType: typeof safeCandle.time,
