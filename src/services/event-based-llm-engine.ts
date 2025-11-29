@@ -12,6 +12,7 @@ import { triggerDetectionRules, TriggerEvent, MarketSnapshot } from './trigger-d
 import { llmSnapshotBuilder, LLMSnapshot, LLMTradeDecision } from './llm-snapshot-builder';
 import { rewardEngine, TraderScore } from './reward-engine';
 import { llmStrategyBrain, StrategyPlan } from './llm-strategy-brain';
+import { strategyMemoryService } from './strategy-memory-service';
 import { conditionMonitor } from './condition-monitor';
 import { llmExecutionBrain } from './llm-execution-brain';
 import { safetyEnforcer } from './safety-enforcer';
@@ -86,6 +87,7 @@ class EventBasedLLMEngine {
   // Autonomous brain state
   private traderScore: TraderScore | null = null;
   private currentStrategy: StrategyPlan | null = null;
+  private currentStrategyId: string | null = null; // Track active strategy in memory
   private strategyPlanCount: number = 0;
   // Pipnosis Alpha is ALWAYS active - no fallback systems
 
@@ -209,8 +211,36 @@ class EventBasedLLMEngine {
 
       this.currentStrategy = await llmStrategyBrain.planStrategy(
         strategySnapshot,
-        this.traderScore!
+        this.traderScore!,
+        this.userId || undefined // Pass userId for memory loading
       );
+
+      // Save strategy to memory
+      if (this.userId) {
+        try {
+          this.currentStrategyId = await strategyMemoryService.saveStrategyPlan(
+            this.userId,
+            this.currentStrategy,
+            {
+              symbol: config.symbol,
+              timeframe: config.timeframe,
+              regime: marketState.trend,
+              volatility: marketState.volatility,
+              price: marketState.price,
+              ema50: marketState.ema50,
+              ema200: marketState.ema200,
+              rsi: marketState.rsi,
+              atr: marketState.atr,
+              trend_strength: marketState.momentum,
+              indicators: marketState
+            },
+            this.sessionId || undefined
+          );
+          console.log(`[Autonomous Brain] 💾 Strategy saved to memory (ID: ${this.currentStrategyId})`);
+        } catch (error) {
+          console.warn('[Autonomous Brain] Failed to save strategy to memory:', error);
+        }
+      }
       this.strategyPlanCount = 0;
       console.log(`[Autonomous Brain] ✅ Strategy planned: ${this.currentStrategy.mode}`);
       console.log(`[Autonomous Brain] Watching for: ${this.currentStrategy.conditions.join(', ')}`);
@@ -412,6 +442,22 @@ class EventBasedLLMEngine {
       trade.outcome = 'loss';
     } else {
       trade.outcome = 'breakeven';
+    }
+
+    // Update strategy memory with trade outcome
+    if (this.currentStrategyId && this.userId) {
+      const holdingMinutes = Math.floor((exitTime.getTime() - trade.entryTime.getTime()) / 60000);
+
+      strategyMemoryService.updateWithTradeOutcome(
+        this.currentStrategyId,
+        {
+          pnl: trade.pnl,
+          outcome: trade.outcome,
+          holdTimeMinutes: holdingMinutes
+        }
+      ).catch(error => {
+        console.warn('[Event Engine] Failed to update strategy memory:', error);
+      });
     }
 
     trade.holdingMinutes = Math.floor((exitTime.getTime() - trade.entryTime.getTime()) / 60000);

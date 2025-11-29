@@ -7,6 +7,7 @@
 
 import { openAIClient } from './openai-client';
 import { getStrategyPlanningIdentity, type TraderScore } from './ai-identity';
+import { strategyMemoryService } from './strategy-memory-service';
 
 export interface StrategySnapshot {
   sym: string;
@@ -43,21 +44,45 @@ export interface StrategyPlan {
 
 class LLMStrategyBrain {
   /**
-   * Plan trading strategy based on market conditions and trader score
+   * Plan trading strategy based on market conditions, trader score, AND past memory
    */
   async planStrategy(
     snapshot: StrategySnapshot,
-    traderScore: TraderScore
+    traderScore: TraderScore,
+    userId?: string
   ): Promise<StrategyPlan> {
     const identity = getStrategyPlanningIdentity(traderScore);
 
-    // Ultra-compressed prompt (< 300 tokens)
+    // Load strategy memory (if userId provided)
+    let memorySection = '';
+    if (userId) {
+      try {
+        const memory = await strategyMemoryService.loadMemory(
+          userId,
+          snapshot.sym,
+          snapshot.trend,
+          snapshot.vol
+        );
+
+        if (memory.memorySummary) {
+          memorySection = `\n\nYOUR MEMORY (past performance):\n${memory.memorySummary}\n`;
+          console.log('[Strategy Brain] 📚 Loaded strategy memory:');
+          console.log(`  - Recent strategies: ${memory.recentStrategies.length}`);
+          console.log(`  - Best in regime: ${memory.bestInCurrentRegime.length}`);
+          console.log(`  - Experience: ${memory.regimeInsights.totalExperience} trades`);
+        }
+      } catch (error) {
+        console.warn('[Strategy Brain] Failed to load memory:', error);
+      }
+    }
+
+    // Ultra-compressed prompt with memory context
     const prompt = `${identity}
 
 Market Snapshot:
-${JSON.stringify(snapshot)}
+${JSON.stringify(snapshot)}${memorySection}
 
-Analyze market. Define strategy for next 50-100 candles.
+Analyze market AND your memory. Define strategy for next 50-100 candles.
 
 CRITICAL: conditions MUST use EXACT parseable codes:
 - Price vs EMA: "p>e50", "p<e20", "p>e200", "p<e200"
