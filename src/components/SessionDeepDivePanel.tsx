@@ -1,3 +1,6 @@
+// DEPRECATED: This component uses legacy 5-layer system visualizations
+// TODO: Rewrite to show Pipnosis Alpha analytics and decision flow
+
 import React, { useState, useEffect } from 'react';
 import {
   TrendingUp, TrendingDown, Target, Award, AlertTriangle, CheckCircle,

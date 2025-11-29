@@ -7,7 +7,12 @@ interface TradeDecisionTimelineProps {
   orientation?: 'horizontal' | 'vertical';
 }
 
+// DEPRECATED: This component visualizes the old 5-layer system
+// TODO: Rewrite to show Pipnosis Alpha decision flow:
+//   1. Strategy Planning → 2. Condition Monitoring → 3. Execution Decision → 4. Safety Validation
+
 export function TradeDecisionTimeline({ trade, orientation = 'vertical' }: TradeDecisionTimelineProps) {
+  // Legacy layer extraction - kept for backward compatibility
   const trail = sessionIntelligenceService.extractLayerDecisionTrail(trade);
 
   const layers = [
