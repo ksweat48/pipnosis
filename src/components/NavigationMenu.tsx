@@ -1,13 +1,15 @@
 import React, { memo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity } from 'lucide-react';
+import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity, Coins } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
+import { useTokenBalance } from '@/hooks/useTokenBalance';
 
 const NavigationMenuComponent = () => {
   const location = useLocation();
   const { user, isAdmin, signOut } = useAuth();
   const { balance, totalPnL, openPositionsCount } = useUserBalance(user?.id || null);
+  const { balance: tokenBalance } = useTokenBalance(user?.id || null);
   const [showProfileMenu, setShowProfileMenu] = React.useState(false);
 
   const navItems = [
@@ -88,9 +90,25 @@ const NavigationMenuComponent = () => {
                         <div className={`text-sm mt-1 ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                           P&L: {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)}
                         </div>
+                        <div className="flex items-center gap-2 mt-2 text-sm">
+                          <Coins size={14} className="text-emerald-400" />
+                          <span className="text-gray-400">Tokens:</span>
+                          <span className={`font-semibold ${tokenBalance?.isAdmin ? 'text-purple-400' : 'text-emerald-400'}`}>
+                            {tokenBalance?.isAdmin ? '∞' : tokenBalance?.balance.toFixed(0) || '0'}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="p-2">
+                        <Link
+                          to="/tokens"
+                          onClick={() => setShowProfileMenu(false)}
+                          className="w-full flex items-center gap-3 px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/20 rounded transition-colors"
+                        >
+                          <Coins size={18} />
+                          <span>Tokens</span>
+                        </Link>
+
                         <Link
                           to="/settings"
                           onClick={() => setShowProfileMenu(false)}

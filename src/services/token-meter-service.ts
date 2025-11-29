@@ -1,0 +1,143 @@
+import { supabase } from '@/lib/supabase';
+
+export interface TokenBalance {
+  balance: number;
+  lifetimeEarned: number;
+  lifetimeSpent: number;
+  isAdmin: boolean;
+}
+
+export interface TokenTransaction {
+  id: string;
+  userId: string;
+  transactionType: string;
+  amount: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  metadata: Record<string, any>;
+  createdAt: string;
+}
+
+class TokenMeterService {
+  async getBalance(userId: string): Promise<TokenBalance | null> {
+    try {
+      const { data, error } = await supabase
+        .rpc('get_user_token_balance', { p_user_id: userId });
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) return null;
+
+      const row = data[0];
+      return {
+        balance: parseFloat(row.balance),
+        lifetimeEarned: parseFloat(row.lifetime_earned),
+        lifetimeSpent: parseFloat(row.lifetime_spent),
+        isAdmin: row.is_admin
+      };
+    } catch (error) {
+      console.error('[Token Meter] Error fetching balance:', error);
+      return null;
+    }
+  }
+
+  async deductTokens(
+    userId: string,
+    amount: number,
+    transactionType: string,
+    metadata: Record<string, any> = {}
+  ): Promise<boolean> {
+    try {
+      const { data, error } = await supabase
+        .rpc('deduct_tokens', {
+          p_user_id: userId,
+          p_amount: amount,
+          p_transaction_type: transactionType,
+          p_metadata: metadata
+        });
+
+      if (error) throw error;
+
+      return data === true;
+    } catch (error) {
+      console.error('[Token Meter] Error deducting tokens:', error);
+      return false;
+    }
+  }
+
+  async addTokens(
+    userId: string,
+    amount: number,
+    transactionType: string,
+    metadata: Record<string, any> = {}
+  ): Promise<boolean> {
+    try {
+      const { data, error } = await supabase
+        .rpc('add_tokens', {
+          p_user_id: userId,
+          p_amount: amount,
+          p_transaction_type: transactionType,
+          p_metadata: metadata
+        });
+
+      if (error) throw error;
+
+      return data === true;
+    } catch (error) {
+      console.error('[Token Meter] Error adding tokens:', error);
+      return false;
+    }
+  }
+
+  async getTransactionHistory(userId: string, limit: number = 50): Promise<TokenTransaction[]> {
+    try {
+      const { data, error } = await supabase
+        .from('token_transaction_history')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+
+      return (data || []).map(row => ({
+        id: row.id,
+        userId: row.user_id,
+        transactionType: row.transaction_type,
+        amount: parseFloat(row.amount),
+        balanceBefore: parseFloat(row.balance_before),
+        balanceAfter: parseFloat(row.balance_after),
+        metadata: row.metadata || {},
+        createdAt: row.created_at
+      }));
+    } catch (error) {
+      console.error('[Token Meter] Error fetching transaction history:', error);
+      return [];
+    }
+  }
+
+  subscribeToBalance(userId: string, callback: (balance: TokenBalance) => void) {
+    const channel = supabase
+      .channel(`token-balance-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_token_balance',
+          filter: `user_id=eq.${userId}`
+        },
+        async () => {
+          const balance = await this.getBalance(userId);
+          if (balance) callback(balance);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }
+}
+
+export const tokenMeterService = new TokenMeterService();
