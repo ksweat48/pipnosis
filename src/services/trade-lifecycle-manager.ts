@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { goalSessionManager } from './goal-session-manager';
 import { counterfactualEngine } from './counterfactual-engine';
 import { CandleData } from './candle-data-service';
+import { strategyPlaybookManager } from './strategy-playbook-manager';
 
 export interface PriceUpdate {
   symbol: string;
@@ -326,6 +327,39 @@ class TradeLifecycleManager {
           .from('goal_sessions')
           .update({ status: 'scanning' })
           .eq('id', trade.goal_session_id);
+      }
+
+      // Update playbook stats if trade has playbook metadata
+      if (trade.playbook_id && userId) {
+        try {
+          // Calculate risk-normalized metrics
+          const riskDollars = trade.risk_dollars || Math.abs(trade.entry_price - trade.stop_loss) * trade.position_size;
+          const pnl_r = riskDollars > 0 ? profitLoss / riskDollars : 0;
+
+          const tpDistance = Math.abs(trade.take_profit - trade.entry_price);
+          const slDistance = Math.abs(trade.entry_price - trade.stop_loss);
+          const realized_rr = slDistance > 0 ? tpDistance / slDistance : 0;
+
+          const is_win = profitLoss > riskDollars * 0.1; // >10% of risk = win
+          const is_loss = profitLoss < -riskDollars * 0.1; // <-10% of risk = loss
+          const is_breakeven = !is_win && !is_loss;
+
+          await strategyPlaybookManager.updatePlaybookStats(
+            trade.playbook_id,
+            userId,
+            {
+              pnl_r,
+              realized_rr,
+              is_win,
+              is_loss,
+              is_breakeven
+            }
+          );
+
+          console.log(`[Trade Lifecycle] 📖 Updated playbook stats: ${is_win ? 'WIN' : is_loss ? 'LOSS' : 'BE'}, R=${pnl_r.toFixed(2)}`);
+        } catch (error) {
+          console.error('[Trade Lifecycle] Failed to update playbook stats:', error);
+        }
       }
 
       console.log(`[Trade Lifecycle] Trade ${trade.id} closed successfully`);

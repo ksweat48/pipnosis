@@ -10,6 +10,7 @@ import { getStrategyPlanningIdentity, type TraderScore } from './ai-identity';
 import { strategyMemoryService } from './strategy-memory-service';
 import type { RegimeSnapshot } from './regime-oracle';
 import type { AdversarialSignal } from './adversarial-detector';
+import { strategyPlaybookManager } from './strategy-playbook-manager';
 
 export interface StrategySnapshot {
   sym: string;
@@ -111,6 +112,33 @@ class LLMStrategyBrain {
       });
     }
 
+    // Load playbook context (NEW: Deep Strategy Memory)
+    let playbookSection = '';
+    if (userId) {
+      try {
+        const playbookContext = await strategyPlaybookManager.getPlaybookContext(
+          userId,
+          snapshot.sym,
+          snapshot.tf,
+          'trend', // Default mode, can be adjusted
+          regime,
+          adversarial
+        );
+
+        if (playbookContext.has_playbook) {
+          playbookSection = `\n\n${playbookContext.compressed_summary}\n`;
+          console.log('[Strategy Brain] 📖 Loaded playbook:');
+          if (playbookContext.stats) {
+            console.log(`  - WR: ${(playbookContext.stats.win_rate * 100).toFixed(0)}%`);
+            console.log(`  - Avg R: ${playbookContext.stats.avg_pnl_r.toFixed(2)}`);
+            console.log(`  - Trades: ${playbookContext.stats.trades_count}`);
+          }
+        }
+      } catch (error) {
+        console.warn('[Strategy Brain] Failed to load playbook:', error);
+      }
+    }
+
     // Load strategy memory (if userId provided)
     let memorySection = '';
     if (userId) {
@@ -134,13 +162,15 @@ class LLMStrategyBrain {
       }
     }
 
-    // Ultra-compressed prompt with memory context
+    // Ultra-compressed prompt with playbook + memory context
     const prompt = `${identity}
 
 Market Snapshot:
-${JSON.stringify(snapshot)}${regimeSection}${adversarialSection}${memorySection}
+${JSON.stringify(snapshot)}${regimeSection}${adversarialSection}${playbookSection}${memorySection}
 
-Analyze market, regime, adversarial, AND your memory. Define strategy for next 50-100 candles.
+Analyze market, regime, adversarial, playbook, AND your memory. Define strategy for next 50-100 candles.
+
+${playbookSection ? 'NOTE: Use PLAYBOOK as starting point. You may adjust params slightly based on current conditions.' : ''}
 
 CRITICAL: conditions MUST use EXACT parseable codes:
 - Price vs EMA: "p>e50", "p<e20", "p>e200", "p<e200"
@@ -171,6 +201,14 @@ ADVERSARIAL RULES (if adversarial provided):
 - stop_run patterns: consider fade plays if structure supports
 - fake_breakout patterns: avoid breakout strategies, favor range trading
 - whipsaw patterns: require stronger confirmation, reduce position expectations
+
+PLAYBOOK RULES (if playbook provided):
+- Use playbook as baseline template
+- May adjust SL/TP by ±15% based on current volatility
+- May add 1-2 filters if conditions warrant
+- Respect proven R:R ratios from playbook history
+- If playbook WR > 60%, trust its approach
+- If playbook trades < 20, allow more experimentation
 
 Return JSON:
 {

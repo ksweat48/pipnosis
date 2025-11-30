@@ -91,6 +91,8 @@ class EventBasedLLMEngine {
   private currentStrategy: StrategyPlan | null = null;
   private currentStrategyId: string | null = null; // Track active strategy in memory
   private strategyPlanCount: number = 0;
+  private lastRegime: any = null; // Track last regime snapshot for playbook evaluation
+  private lastAdversarial: any = null; // Track last adversarial signal for playbook evaluation
   // Pipnosis Alpha is ALWAYS active - no fallback systems
 
   constructor() {
@@ -271,6 +273,10 @@ class EventBasedLLMEngine {
         candles[candles.length - 1].open_time,
         candles
       );
+
+      // Store regime and adversarial for playbook evaluation
+      this.lastRegime = conditionCheck.regime;
+      this.lastAdversarial = conditionCheck.adversarial;
 
       if (!conditionCheck.ready) {
         const statusMsg = this.getDetailedConditionStatus(conditionCheck, marketState);
@@ -859,6 +865,31 @@ class EventBasedLLMEngine {
       );
 
       console.log(`[Autonomous] 🎯 New personality: ${this.traderScore.confidence_level}`);
+      // Trigger playbook evaluation (check if better variant should be promoted)
+      if (trade.playbook_id && this.config?.symbol && this.config?.timeframe) {
+        try {
+          const { strategyPlaybookManager } = await import('./strategy-playbook-manager');
+          const { getRegimeBucket } = await import('./regime-bucketing');
+
+          // Get current regime bucket
+          const regimeBucket = getRegimeBucket(this.lastRegime, this.lastAdversarial);
+
+          // Evaluate every ~10 trades to avoid thrashing
+          const shouldEvaluate = Math.random() < 0.1; // 10% chance per trade
+
+          if (shouldEvaluate) {
+            await strategyPlaybookManager.evaluateAndPromotePlaybooks(
+              this.userId,
+              this.config.symbol,
+              this.config.timeframe,
+              this.currentStrategy?.mode || 'trend',
+              regimeBucket
+            );
+          }
+        } catch (error) {
+          console.error('[Autonomous] Failed to evaluate playbooks:', error);
+        }
+      }
     } catch (error) {
       console.error('[Autonomous] Error updating trader score:', error);
     }
