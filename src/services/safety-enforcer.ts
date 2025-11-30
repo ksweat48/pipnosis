@@ -7,6 +7,7 @@
 
 import type { TradeDecision } from './llm-execution-brain';
 import type { RegimeSnapshot } from './regime-oracle';
+import type { AdversarialSignal } from './adversarial-detector';
 
 export interface SafetyContext {
   balance: number;
@@ -16,6 +17,7 @@ export interface SafetyContext {
   atr: number;
   currentPrice: number;
   regime?: RegimeSnapshot; // Market regime for enhanced safety checks
+  adversarial?: AdversarialSignal; // Adversarial environment detection
 }
 
 export interface ValidationResult {
@@ -220,6 +222,51 @@ class SafetyEnforcer {
         if ((isNearResistance && adjustedDecision.action === 'BUY') ||
             (isNearSupport && adjustedDecision.action === 'SELL')) {
           violations.push('Breakout blocked: ATR compression + range structure');
+        }
+      }
+    }
+
+    // 12. ADVERSARIAL-BASED SAFETY CHECKS
+    if (context.adversarial) {
+      const adv = context.adversarial;
+
+      // Severe level: HARD BLOCK
+      if (adv.level === 'severe') {
+        violations.push(`Adversarial environment: ${adv.notes}`);
+        console.log(`[Safety] 🚫 BLOCKED by adversarial detector: ${adv.level}`);
+      }
+
+      // Moderate level: 50% risk reduction
+      else if (adv.level === 'moderate') {
+        const originalRisk = adjustedDecision.risk_pct;
+        adjustedDecision.risk_pct = originalRisk * 0.5;
+        adjustments.push(`Risk reduced 50% (adversarial): ${originalRisk.toFixed(2)}% → ${adjustedDecision.risk_pct.toFixed(2)}%`);
+        console.log(`[Safety] 🔧 Risk reduced 50% due to moderate adversarial environment`);
+      }
+
+      // Mild level: 25% risk reduction OR higher R:R requirement
+      else if (adv.level === 'mild') {
+        const currentRR = tpDistance / slDistance;
+
+        if (currentRR < 1.8) {
+          // Require minimum 1.8 R:R for mild adversarial
+          const requiredTpDistance = slDistance * 1.8;
+          const oldTp = adjustedDecision.takeProfit;
+
+          if (adjustedDecision.action === 'BUY') {
+            adjustedDecision.takeProfit = adjustedDecision.entry + requiredTpDistance;
+          } else {
+            adjustedDecision.takeProfit = adjustedDecision.entry - requiredTpDistance;
+          }
+
+          adjustments.push(`R:R increased to 1.8 (adversarial): ${currentRR.toFixed(2)} → 1.8`);
+          console.log(`[Safety] 🔧 R:R increased due to mild adversarial environment`);
+        } else {
+          // If R:R already good, reduce risk by 25%
+          const originalRisk = adjustedDecision.risk_pct;
+          adjustedDecision.risk_pct = originalRisk * 0.75;
+          adjustments.push(`Risk reduced 25% (adversarial): ${originalRisk.toFixed(2)}% → ${adjustedDecision.risk_pct.toFixed(2)}%`);
+          console.log(`[Safety] 🔧 Risk reduced 25% due to mild adversarial environment`);
         }
       }
     }

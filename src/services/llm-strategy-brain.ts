@@ -9,6 +9,7 @@ import { openAIClient } from './openai-client';
 import { getStrategyPlanningIdentity, type TraderScore } from './ai-identity';
 import { strategyMemoryService } from './strategy-memory-service';
 import type { RegimeSnapshot } from './regime-oracle';
+import type { AdversarialSignal } from './adversarial-detector';
 
 export interface StrategySnapshot {
   sym: string;
@@ -78,7 +79,8 @@ class LLMStrategyBrain {
     snapshot: StrategySnapshot,
     traderScore: TraderScore,
     userId?: string,
-    regime?: RegimeSnapshot
+    regime?: RegimeSnapshot,
+    adversarial?: AdversarialSignal
   ): Promise<StrategyPlan> {
     const identity = getStrategyPlanningIdentity(traderScore);
 
@@ -93,6 +95,19 @@ class LLMStrategyBrain {
         vol: regime.volatility_score,
         trend: regime.trend_strength_score,
         structure: regime.structure
+      });
+    }
+
+    // Build adversarial context (compressed)
+    let adversarialSection = '';
+    if (adversarial && adversarial.is_adversarial) {
+      const patternShort = adversarial.patterns.slice(0, 3).join(',');
+      adversarialSection = `\n\nADVERSARIAL:\nlvl=${adversarial.level}\nscore=${adversarial.suspicion_score}\npat=${patternShort}\n`;
+
+      console.log('[Strategy Brain] ⚠️  Adversarial context:', {
+        level: adversarial.level,
+        score: adversarial.suspicion_score,
+        patterns: adversarial.patterns.length
       });
     }
 
@@ -123,9 +138,9 @@ class LLMStrategyBrain {
     const prompt = `${identity}
 
 Market Snapshot:
-${JSON.stringify(snapshot)}${regimeSection}${memorySection}
+${JSON.stringify(snapshot)}${regimeSection}${adversarialSection}${memorySection}
 
-Analyze market, regime, AND your memory. Define strategy for next 50-100 candles.
+Analyze market, regime, adversarial, AND your memory. Define strategy for next 50-100 candles.
 
 CRITICAL: conditions MUST use EXACT parseable codes:
 - Price vs EMA: "p>e50", "p<e20", "p>e200", "p<e200"
@@ -149,6 +164,13 @@ REGIME RULES (if regime provided):
 - vol>80: reduce risk 50%
 - risk=HIGH: require R:R > 2.0
 - wick=high: widen stops 20%
+
+ADVERSARIAL RULES (if adversarial provided):
+- lvl=moderate: be cautious, avoid aggressive entries, prefer mean-reversion in stop-hunted ranges
+- lvl=mild: extra caution, slightly tighter conditions
+- stop_run patterns: consider fade plays if structure supports
+- fake_breakout patterns: avoid breakout strategies, favor range trading
+- whipsaw patterns: require stronger confirmation, reduce position expectations
 
 Return JSON:
 {
