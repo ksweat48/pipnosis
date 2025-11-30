@@ -20,6 +20,14 @@ export interface MicroSnapshot {
   trend: string;
   vol: string;
   dir: string; // suggested direction from strategy
+
+  // Omega Sensors (reduced set for micro snapshot)
+  bos?: string; // structure
+  cho?: string;
+  vol_s?: number; // volume spike
+  rdiv?: string; // rsi divergence
+  mdiv?: string; // macd divergence
+  pat?: { eng_b: number; eng_s: number; mom: number }; // key patterns only
 }
 
 export interface TradeDecision {

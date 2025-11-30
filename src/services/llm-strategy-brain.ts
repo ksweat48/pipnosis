@@ -27,6 +27,33 @@ export interface StrategySnapshot {
   sw: { h: number; l: number };
   trend: string; // bull/bear/side
   mom: number; // momentum
+
+  // Omega Sensor Package (compressed)
+  sh?: number; // swing_high
+  sl?: number; // swing_low
+  bos?: string; // break_of_structure
+  cho?: string; // change_of_character
+  eqh?: number; // equal_highs
+  eql?: number; // equal_lows
+  vol_s?: number; // volume_spike
+  atr_t?: string; // atr_trend
+  vol_r?: string; // vol_regime
+  rdiv?: string; // rsi_divergence
+  mdif?: number; // macd_diff
+  mdiv?: string; // macd_divergence
+  pat?: { // patterns
+    eng_b: number;
+    eng_s: number;
+    pin_b: number;
+    pin_s: number;
+    doji: number;
+    mom: number;
+  };
+  mic?: { // micro-structure
+    pull: number;
+    dvw: number;
+    msr: string;
+  };
 }
 
 export interface StrategyPlan {
@@ -91,6 +118,11 @@ CRITICAL: conditions MUST use EXACT parseable codes:
 - VWAP: "p>vw", "p<vw"
 - EMA cross: "e20>e50", "e20<e50"
 - Stoch RSI: "st>70", "st<30"
+- Structure: "bos_bull", "bos_bear", "choch_bull", "choch_bear", "swing_high", "swing_low", "equal_highs", "equal_lows"
+- Volume: "volume_spike", "vol_high", "vol_low", "atr_expanding", "atr_contracting"
+- Divergence: "rsi_div_bull", "rsi_div_bear", "macd_div_bull", "macd_div_bear"
+- Patterns: "bull_engulf", "bear_engulf", "pin_bar_bull", "pin_bar_bear", "doji", "momentum_bar"
+- Micro: "pullback_complete", "near_vwap", "above_resistance", "below_support"
 NO natural language. Use codes ONLY.
 
 Return JSON:

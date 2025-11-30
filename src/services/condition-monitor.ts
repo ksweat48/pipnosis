@@ -3,9 +3,11 @@
  *
  * Evaluates whether strategy conditions are met.
  * NO LLM CALLS - pure logic evaluation for cost efficiency.
+ * NOW ENHANCED with Omega Sensor Package for pro-trader indicators.
  */
 
 import type { StrategyPlan } from './llm-strategy-brain';
+import type { OmegaSensors } from './omega-sensors';
 
 export interface MarketState {
   price: number;
@@ -21,6 +23,9 @@ export interface MarketState {
   volatility: string;
   swingHigh: number;
   swingLow: number;
+  macd?: number;
+  macdSignal?: number;
+  omegaSensors?: OmegaSensors;
 }
 
 export interface ConditionCheckResult {
@@ -60,12 +65,22 @@ class ConditionMonitor {
       strategyPlan.conditions.length
     );
 
+    // Boost confidence with Omega sensor confirmation
+    let finalConfidence = ready ? strategyPlan.confidence : 0;
+    if (ready && marketState.omegaSensors) {
+      finalConfidence = this.adjustConfidenceWithSensors(
+        finalConfidence,
+        marketState,
+        strategyPlan.mode
+      );
+    }
+
     return {
       ready,
       conditionsMet,
       conditionsFailed,
       trigger: ready ? `${strategyPlan.mode}_setup` : 'waiting',
-      confidence: ready ? strategyPlan.confidence : 0
+      confidence: finalConfidence
     };
   }
 
@@ -226,6 +241,103 @@ class ConditionMonitor {
       return state.trend === 'bearish' || state.trend === 'bear';
     }
 
+    // === OMEGA SENSOR CONDITIONS ===
+    if (state.omegaSensors) {
+      const sensors = state.omegaSensors;
+
+      // Market Structure
+      if (c.includes('bos_bull') || c.includes('bullish_bos')) {
+        return sensors.bos === 'bull';
+      }
+      if (c.includes('bos_bear') || c.includes('bearish_bos')) {
+        return sensors.bos === 'bear';
+      }
+      if (c.includes('choch_bull') || c.includes('bullish_choch')) {
+        return sensors.cho === 'bull';
+      }
+      if (c.includes('choch_bear') || c.includes('bearish_choch')) {
+        return sensors.cho === 'bear';
+      }
+      if (c.includes('swing_high')) {
+        return sensors.sh === 1;
+      }
+      if (c.includes('swing_low')) {
+        return sensors.sl === 1;
+      }
+      if (c.includes('equal_highs') || c.includes('liquidity_high')) {
+        return sensors.eqh === 1;
+      }
+      if (c.includes('equal_lows') || c.includes('liquidity_low')) {
+        return sensors.eql === 1;
+      }
+
+      // Volume & Volatility
+      if (c.includes('volume_spike') || c.includes('vol_spike')) {
+        return sensors.vol_s === 1;
+      }
+      if (c.includes('vol_high') || c.includes('high_volume_regime')) {
+        return sensors.vol_r === 'high';
+      }
+      if (c.includes('vol_low') || c.includes('low_volume_regime')) {
+        return sensors.vol_r === 'low';
+      }
+      if (c.includes('atr_expanding') || c.includes('volatility_increasing')) {
+        return sensors.atr_t === 'up';
+      }
+      if (c.includes('atr_contracting') || c.includes('volatility_decreasing')) {
+        return sensors.atr_t === 'down';
+      }
+
+      // Divergences
+      if (c.includes('rsi_div_bull') || c.includes('bullish_rsi_divergence')) {
+        return sensors.rdiv === 'bull';
+      }
+      if (c.includes('rsi_div_bear') || c.includes('bearish_rsi_divergence')) {
+        return sensors.rdiv === 'bear';
+      }
+      if (c.includes('macd_div_bull') || c.includes('bullish_macd_divergence')) {
+        return sensors.mdiv === 'bull';
+      }
+      if (c.includes('macd_div_bear') || c.includes('bearish_macd_divergence')) {
+        return sensors.mdiv === 'bear';
+      }
+
+      // Candle Patterns
+      if (c.includes('bull_engulf') || c.includes('bullish_engulfing')) {
+        return sensors.pat.eng_b === 1;
+      }
+      if (c.includes('bear_engulf') || c.includes('bearish_engulfing')) {
+        return sensors.pat.eng_s === 1;
+      }
+      if (c.includes('pin_bar_bull') || c.includes('hammer')) {
+        return sensors.pat.pin_b === 1;
+      }
+      if (c.includes('pin_bar_bear') || c.includes('shooting_star')) {
+        return sensors.pat.pin_s === 1;
+      }
+      if (c.includes('doji')) {
+        return sensors.pat.doji === 1;
+      }
+      if (c.includes('momentum_bar') || c.includes('strong_candle')) {
+        return sensors.pat.mom === 1;
+      }
+
+      // Micro-Structure
+      if (c.includes('pullback_complete')) {
+        return sensors.mic.pull >= 2 && sensors.mic.pull <= 5;
+      }
+      if (c.includes('near_vwap')) {
+        return Math.abs(sensors.mic.dvw) < 0.3; // Within 0.3%
+      }
+      if (c.includes('above_resistance') || c.includes('broke_resistance')) {
+        return sensors.mic.msr === 'above';
+      }
+      if (c.includes('below_support') || c.includes('broke_support')) {
+        return sensors.mic.msr === 'below';
+      }
+    }
+    // === END OMEGA SENSORS ===
+
     // FALLBACK PARSERS for natural language conditions
 
     // Parse: "price oscillates between support at X and resistance at Y"
@@ -307,6 +419,67 @@ class ConditionMonitor {
     } else {
       return `⏳ Waiting: ${result.conditionsMet.length}/${strategyPlan.conditions.length} conditions met`;
     }
+  }
+
+  /**
+   * Adjust confidence with Omega sensor confirmation
+   * Boosts confidence when structure, volume, and patterns align
+   */
+  private adjustConfidenceWithSensors(
+    baseConfidence: number,
+    state: MarketState,
+    mode: string
+  ): number {
+    if (!state.omegaSensors) return baseConfidence;
+
+    const sensors = state.omegaSensors;
+    let boost = 0;
+
+    const isBullish = mode.toLowerCase().includes('buy') || mode.toLowerCase().includes('long');
+    const isBearish = mode.toLowerCase().includes('sell') || mode.toLowerCase().includes('short');
+
+    // Structure confirmation (+5%)
+    if (isBullish && sensors.bos === 'bull' && sensors.cho !== 'bear') {
+      boost += 5;
+    } else if (isBearish && sensors.bos === 'bear' && sensors.cho !== 'bull') {
+      boost += 5;
+    }
+
+    // Volume confirmation (+3%)
+    if (sensors.vol_s === 1 || sensors.vol_r === 'high') {
+      boost += 3;
+    }
+
+    // No opposing divergence (+3%)
+    if (isBullish && sensors.rdiv !== 'bear' && sensors.mdiv !== 'bear') {
+      boost += 3;
+    } else if (isBearish && sensors.rdiv !== 'bull' && sensors.mdiv !== 'bull') {
+      boost += 3;
+    }
+
+    // Supporting divergence (+5%)
+    if (isBullish && (sensors.rdiv === 'bull' || sensors.mdiv === 'bull')) {
+      boost += 5;
+    } else if (isBearish && (sensors.rdiv === 'bear' || sensors.mdiv === 'bear')) {
+      boost += 5;
+    }
+
+    // Pattern confirmation (+4%)
+    if (isBullish && (sensors.pat.eng_b === 1 || sensors.pat.pin_b === 1 || sensors.pat.mom === 1)) {
+      boost += 4;
+    } else if (isBearish && (sensors.pat.eng_s === 1 || sensors.pat.pin_s === 1 || sensors.pat.mom === 1)) {
+      boost += 4;
+    }
+
+    // Liquidity zones (+3%)
+    if (isBullish && sensors.eql === 1) {
+      boost += 3; // Equal lows = potential liquidity grab before rally
+    } else if (isBearish && sensors.eqh === 1) {
+      boost += 3; // Equal highs = potential liquidity grab before drop
+    }
+
+    // Cap at 95% max
+    return Math.min(95, baseConfidence + boost);
   }
 }
 
