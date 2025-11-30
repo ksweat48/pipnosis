@@ -60,6 +60,11 @@ export interface SimulatedTrade {
   pnl: number;
   outcome: 'win' | 'loss' | 'breakeven' | 'open';
   holdingMinutes?: number;
+  // Playbook tracking for learning system
+  playbook_id?: string;
+  regime_bucket?: string;
+  regimeSnapshot?: any; // Full regime data at trade entry
+  adversarialSignal?: any; // Full adversarial data at trade entry
 }
 
 export interface EngineStatistics {
@@ -93,6 +98,7 @@ class EventBasedLLMEngine {
   private strategyPlanCount: number = 0;
   private lastRegime: any = null; // Track last regime snapshot for playbook evaluation
   private lastAdversarial: any = null; // Track last adversarial signal for playbook evaluation
+  private currentConfig: EventBasedEngineConfig | null = null; // Store config for playbook lookups
   // Pipnosis Alpha is ALWAYS active - no fallback systems
 
   constructor() {
@@ -154,6 +160,9 @@ class EventBasedLLMEngine {
       tradesPlanned: number;
     }
   ): Promise<{ trade: SimulatedTrade | null; trigger: TriggerEvent | null; llmCalled: boolean }> {
+    // Store config for playbook lookups
+    this.currentConfig = config;
+
     // Pipnosis Alpha is the ONLY trading path
     return this.processCandleAutonomous(candles, config, openTrades, goalContext);
   }
@@ -385,6 +394,48 @@ class EventBasedLLMEngine {
     );
 
     const currentCandle = candles[candles.length - 1];
+
+    // Get active playbook and regime bucket for learning system
+    let playbookId: string | undefined;
+    let regimeBucket: string | undefined;
+    try {
+      const { strategyPlaybookManager } = await import('./strategy-playbook-manager');
+      const { getRegimeBucket } = await import('./regime-bucketing');
+
+      regimeBucket = getRegimeBucket(checkResult.regime, checkResult.adversarial);
+
+      const activePlaybook = await strategyPlaybookManager.getActivePlaybook(
+        config.symbol,
+        config.timeframe,
+        checkResult.regime?.structure || 'unknown',
+        checkResult.adversarial
+      );
+
+      if (activePlaybook) {
+        playbookId = activePlaybook.id;
+      } else if (this.userId) {
+        // Auto-create playbook entry for this new strategy variant
+        console.log(`[Playbook] 🆕 No playbook found - creating entry for ${this.currentStrategy.mode} in ${regimeBucket}`);
+        const newPlaybook = await strategyPlaybookManager.createPlaybookEntry(
+          this.userId,
+          config.symbol,
+          config.timeframe,
+          this.currentStrategy.mode,
+          regimeBucket,
+          {
+            rules: finalDecision.reasoning,
+            entry_conditions: this.currentStrategy.conditions?.join(', ') || '',
+            exit_rules: `SL: ${finalDecision.stopLoss}, TP: ${finalDecision.takeProfit}`,
+            risk_params: `Risk: ${riskPercent}%, Size: ${positionSize}`
+          }
+        );
+        playbookId = newPlaybook.id;
+        console.log(`[Playbook] ✅ Created playbook entry: ${playbookId}`);
+      }
+    } catch (err) {
+      console.warn('[Autonomous] Failed to load playbook context:', err);
+    }
+
     const trade: SimulatedTrade = {
       id: Math.random().toString(36).substring(7),
       symbol: config.symbol,
@@ -400,7 +451,12 @@ class EventBasedLLMEngine {
       triggerType: this.currentStrategy.mode,
       maxHoldMinutes: 240,
       pnl: 0,
-      outcome: 'open'
+      outcome: 'open',
+      // Playbook tracking for learning system
+      playbook_id: playbookId,
+      regime_bucket: regimeBucket,
+      regimeSnapshot: checkResult.regime,
+      adversarialSignal: checkResult.adversarial
     };
 
     console.log(`[Autonomous] ✓ Trade: ${trade.direction} @ ${trade.entryPrice}`);
@@ -815,7 +871,7 @@ class EventBasedLLMEngine {
    * Handle trade close and update trader score
    */
   async onTradeClose(trade: SimulatedTrade): Promise<void> {
-    if (!this.userId || !this.traderScore || !this.useAutonomousBrain) {
+    if (!this.userId || !this.traderScore) {
       return;
     }
 
@@ -865,8 +921,9 @@ class EventBasedLLMEngine {
       );
 
       console.log(`[Autonomous] 🎯 New personality: ${this.traderScore.confidence_level}`);
+
       // Trigger playbook evaluation (check if better variant should be promoted)
-      if (trade.playbook_id && this.config?.symbol && this.config?.timeframe) {
+      if (trade.playbook_id && this.currentConfig?.symbol && this.currentConfig?.timeframe) {
         try {
           const { strategyPlaybookManager } = await import('./strategy-playbook-manager');
           const { getRegimeBucket } = await import('./regime-bucketing');
@@ -878,10 +935,11 @@ class EventBasedLLMEngine {
           const shouldEvaluate = Math.random() < 0.1; // 10% chance per trade
 
           if (shouldEvaluate) {
+            console.log(`[Playbook] 🔍 Evaluating playbook promotion for ${this.currentConfig.symbol}/${this.currentConfig.timeframe} in ${regimeBucket}`);
             await strategyPlaybookManager.evaluateAndPromotePlaybooks(
               this.userId,
-              this.config.symbol,
-              this.config.timeframe,
+              this.currentConfig.symbol,
+              this.currentConfig.timeframe,
               this.currentStrategy?.mode || 'trend',
               regimeBucket
             );
