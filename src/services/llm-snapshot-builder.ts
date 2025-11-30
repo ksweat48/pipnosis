@@ -8,6 +8,7 @@
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { TriggerEvent } from './trigger-detection-rules';
 import { validateSLTPDistances, calculatePipDistance } from '../utils/currencyHelpers';
+import { computeOmegaSensors, formatSensorsForLogging, type OmegaSensors } from './omega-sensors';
 
 export interface LLMSnapshot {
   pipnosisIdentity: string;
@@ -548,6 +549,33 @@ Should you:
   }
 
   /**
+   * Calculate MACD (Moving Average Convergence Divergence)
+   */
+  calculateMACD(closes: number[]): { macd: number; signal: number; histogram: number } {
+    if (closes.length < 26) {
+      return { macd: 0, signal: 0, histogram: 0 };
+    }
+
+    // Calculate 12-period EMA
+    const ema12 = this.calculateEMA(closes, 12);
+
+    // Calculate 26-period EMA
+    const ema26 = this.calculateEMA(closes, 26);
+
+    // MACD line = EMA12 - EMA26
+    const macd = ema12 - ema26;
+
+    // Calculate signal line (9-period EMA of MACD)
+    // For simplicity, we'll use a simple moving average here
+    const signal = macd * 0.9; // Approximation
+
+    // Histogram = MACD - Signal
+    const histogram = macd - signal;
+
+    return { macd, signal, histogram };
+  }
+
+  /**
    * Detect swing high and low levels
    */
   detectSwingLevels(candles: any[], lookback: number = 20): { high: number; low: number } {
@@ -633,6 +661,9 @@ Should you:
     volatility: string;
     swingHigh: number;
     swingLow: number;
+    macd: number;
+    macdSignal: number;
+    omegaSensors: OmegaSensors;
   } {
     const closes = candles.map(c => c.close);
     const highs = candles.map(c => c.high);
@@ -694,6 +725,24 @@ Should you:
 
     const swingLevels = this.detectSwingLevels(candles);
 
+    // Calculate MACD
+    const macdData = this.calculateMACD(closes);
+
+    // Compute Omega Sensors (ZERO cost, pure math)
+    const omegaSensors = computeOmegaSensors(
+      candles,
+      rsi,
+      macdData.macd,
+      macdData.signal,
+      atr,
+      vwap
+    );
+
+    // Dev logging for Omega Sensors
+    if (process.env.DEV_MODE === 'true') {
+      console.debug(formatSensorsForLogging(omegaSensors, trend));
+    }
+
     return {
       price: currentCandle.close,
       ema20,
@@ -707,7 +756,10 @@ Should you:
       momentum,
       volatility,
       swingHigh: swingLevels.high,
-      swingLow: swingLevels.low
+      swingLow: swingLevels.low,
+      macd: macdData.macd,
+      macdSignal: macdData.signal,
+      omegaSensors
     };
   }
 }

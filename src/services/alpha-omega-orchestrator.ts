@@ -19,6 +19,7 @@ import { alphaCoordinator, type OmegaCouncilVotes, type MarketContext, type Alph
 import { midTradeMonitor, type MidTradeSnapshot, type MidTradeDecision } from '../brains/midtrade-monitor';
 import type { TraderScore } from './ai-identity';
 import { omegaAlphaLogger } from './omega-alpha-logger';
+import type { OmegaSensors } from './omega-sensors';
 
 export interface FullMarketState {
   symbol: string;
@@ -39,6 +40,7 @@ export interface FullMarketState {
   swingLow: number;
   recentCandles: any[];
   structure?: { hh: boolean; hl: boolean; lh: boolean; ll: boolean };
+  omegaSensors: OmegaSensors; // Pro-trader indicators at zero cost
 }
 
 export interface TradePosition {

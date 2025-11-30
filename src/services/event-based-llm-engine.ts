@@ -295,7 +295,8 @@ class EventBasedLLMEngine {
       resistance: [],
       swingHigh: marketState.swingHigh,
       swingLow: marketState.swingLow,
-      recentCandles: candles.slice(-20)
+      recentCandles: candles.slice(-20),
+      omegaSensors: marketState.omegaSensors
     };
 
     // Calculate proposed SL/TP based on strategy
@@ -450,7 +451,8 @@ class EventBasedLLMEngine {
             resistance: [],
             swingHigh: marketState.swingHigh,
             swingLow: marketState.swingLow,
-            recentCandles: candles.slice(-20)
+            recentCandles: candles.slice(-20),
+            omegaSensors: marketState.omegaSensors
           };
 
           const midTradeDecision = await alphaOmegaOrchestrator.monitorOpenTrade(
