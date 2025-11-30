@@ -1,5 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { goalSessionManager } from './goal-session-manager';
+import { counterfactualEngine } from './counterfactual-engine';
+import { CandleData } from './candle-data-service';
 
 export interface PriceUpdate {
   symbol: string;
@@ -290,6 +292,10 @@ class TradeLifecycleManager {
       const userId = trade.goal_sessions.user_id;
       const isProfit = profitLoss > 0;
 
+      this.runCounterfactualAnalysis(trade, exitPrice, profitLoss).catch(err => {
+        console.error('[Trade Lifecycle] Counterfactual analysis failed:', err);
+      });
+
       await goalSessionManager.addAIMessage(
         trade.goal_session_id,
         userId,
@@ -572,7 +578,6 @@ class TradeLifecycleManager {
         })
         .eq('id', trade.id);
 
-      // Update achievement record
       await supabase
         .from('goal_achievements')
         .update({
@@ -585,6 +590,79 @@ class TradeLifecycleManager {
       console.log(`[Trade Lifecycle] ✅ Stop loss moved to breakeven successfully`);
     } catch (error) {
       console.error('[Trade Lifecycle] Error moving stop loss to breakeven:', error);
+    }
+  }
+
+  /**
+   * Run counterfactual analysis on closed trade (async, non-blocking)
+   */
+  private async runCounterfactualAnalysis(
+    trade: any,
+    exitPrice: number,
+    profitLoss: number
+  ): Promise<void> {
+    try {
+      console.log(`[Trade Lifecycle] 🧠 Starting counterfactual analysis for ${trade.symbol}...`);
+
+      const timeframe = '15m';
+      const entryTime = new Date(trade.opened_at);
+      const exitTime = new Date();
+
+      const lookbackCandles = 500;
+      const lookbackMinutes = lookbackCandles * 15;
+      const startTime = new Date(entryTime.getTime() - lookbackMinutes * 60 * 1000);
+
+      const { data: candles, error } = await supabase
+        .from('forex_candles')
+        .select('open_time, open, high, low, close, volume')
+        .eq('symbol', trade.symbol)
+        .eq('timeframe', timeframe)
+        .gte('open_time', startTime.toISOString())
+        .lte('open_time', exitTime.toISOString())
+        .order('open_time', { ascending: true });
+
+      if (error) {
+        console.error('[Trade Lifecycle] Error fetching candles for counterfactual:', error);
+        return;
+      }
+
+      if (!candles || candles.length < 10) {
+        console.warn(`[Trade Lifecycle] Insufficient candle data (${candles?.length || 0}), skipping counterfactual`);
+        return;
+      }
+
+      const candleData: CandleData[] = candles.map(c => ({
+        time: Math.floor(new Date(c.open_time).getTime() / 1000),
+        open: parseFloat(c.open),
+        high: parseFloat(c.high),
+        low: parseFloat(c.low),
+        close: parseFloat(c.close),
+        volume: c.volume ? parseFloat(c.volume) : undefined
+      }));
+
+      const tradeData = {
+        id: trade.id,
+        user_id: trade.goal_sessions?.user_id || trade.user_id,
+        symbol: trade.symbol,
+        direction: trade.direction,
+        entry_price: trade.entry_price,
+        exit_price: exitPrice,
+        stop_loss: trade.stop_loss,
+        take_profit: trade.take_profit,
+        position_size: trade.position_size,
+        profit_loss: profitLoss,
+        entry_time: trade.opened_at,
+        exit_time: new Date().toISOString(),
+        timeframe
+      };
+
+      await counterfactualEngine.runCounterfactuals(tradeData, candleData, {
+        generateInsights: true
+      });
+
+      console.log(`[Trade Lifecycle] ✅ Counterfactual analysis complete for ${trade.symbol}`);
+    } catch (error) {
+      console.error('[Trade Lifecycle] Error in counterfactual analysis:', error);
     }
   }
 }
