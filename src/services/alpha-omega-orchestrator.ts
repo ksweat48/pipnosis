@@ -20,6 +20,7 @@ import { midTradeMonitor, type MidTradeSnapshot, type MidTradeDecision } from '.
 import type { TraderScore } from './ai-identity';
 import { omegaAlphaLogger } from './omega-alpha-logger';
 import type { OmegaSensors } from './omega-sensors';
+import type { RegimeSnapshot } from './regime-oracle';
 
 export interface FullMarketState {
   symbol: string;
@@ -41,6 +42,7 @@ export interface FullMarketState {
   recentCandles: any[];
   structure?: { hh: boolean; hl: boolean; lh: boolean; ll: boolean };
   omegaSensors: OmegaSensors; // Pro-trader indicators at zero cost
+  regime?: RegimeSnapshot; // Market regime intelligence (session, volatility, structure)
 }
 
 export interface TradePosition {
@@ -218,7 +220,7 @@ class AlphaOmegaOrchestrator {
    * Build snapshot for Omega Trend
    */
   private buildTrendSnapshot(state: FullMarketState): TrendSnapshot {
-    return {
+    const base: TrendSnapshot = {
       p: state.price,
       e20: state.ema20,
       e50: state.ema50,
@@ -227,6 +229,20 @@ class AlphaOmegaOrchestrator {
       tr: state.trend,
       vol: state.volatility
     };
+
+    // Add regime data if available
+    if (state.regime) {
+      return {
+        ...base,
+        regime: {
+          trend_strength: state.regime.trend_strength_score,
+          structure: state.regime.structure,
+          bias: state.regime.market_bias
+        }
+      } as any;
+    }
+
+    return base;
   }
 
   /**
@@ -237,7 +253,7 @@ class AlphaOmegaOrchestrator {
       c.open, c.high, c.low, c.close
     ]);
 
-    return {
+    const base: ScalperSnapshot = {
       p: state.price,
       vw: state.vwap,
       atr: state.atr,
@@ -245,13 +261,27 @@ class AlphaOmegaOrchestrator {
       vol: state.volatility,
       c: recentCandles
     };
+
+    // Add regime data if available
+    if (state.regime) {
+      return {
+        ...base,
+        regime: {
+          session: state.regime.session,
+          session_open: state.regime.session_open,
+          atr_expansion: state.regime.atr_expansion
+        }
+      } as any;
+    }
+
+    return base;
   }
 
   /**
    * Build snapshot for Omega Swing
    */
   private buildSwingSnapshot(state: FullMarketState): SwingSnapshot {
-    return {
+    const base: SwingSnapshot = {
       p: state.price,
       sup: state.support,
       res: state.resistance,
@@ -259,13 +289,26 @@ class AlphaOmegaOrchestrator {
       str: this.determineStructure(state),
       tr: state.trend
     };
+
+    // Add regime data if available
+    if (state.regime) {
+      return {
+        ...base,
+        regime: {
+          structure_type: state.regime.structure,
+          structure_quality: state.regime.structure_quality
+        }
+      } as any;
+    }
+
+    return base;
   }
 
   /**
    * Build snapshot for Omega Reversal
    */
   private buildReversalSnapshot(state: FullMarketState): ReversalSnapshot {
-    return {
+    const base: ReversalSnapshot = {
       p: state.price,
       rsi: state.rsi,
       st: state.stochRsi,
@@ -275,6 +318,20 @@ class AlphaOmegaOrchestrator {
       tr: state.trend,
       vol: state.volatility
     };
+
+    // Add regime data if available
+    if (state.regime) {
+      return {
+        ...base,
+        regime: {
+          atr_compression: state.regime.atr_compression,
+          wick_risk: state.regime.wick_risk,
+          structure: state.regime.structure
+        }
+      } as any;
+    }
+
+    return base;
   }
 
   /**
@@ -287,13 +344,29 @@ class AlphaOmegaOrchestrator {
 
     const wickRatio = this.calculateWickRatio(recentCandles);
 
-    return {
+    const base: VolatilitySnapshot = {
       atr: state.atr,
       atr_avg: state.atr,
       vol: state.volatility,
       c: recentCandles,
       wick_ratio: wickRatio
     };
+
+    // Add regime data if available
+    if (state.regime) {
+      return {
+        ...base,
+        regime: {
+          volatility_score: state.regime.volatility_score,
+          atr_compression: state.regime.atr_compression,
+          atr_expansion: state.regime.atr_expansion,
+          wick_risk: state.regime.wick_risk,
+          volatility_trend: state.regime.volatility_trend
+        }
+      } as any;
+    }
+
+    return base;
   }
 
   /**
@@ -305,7 +378,7 @@ class AlphaOmegaOrchestrator {
     proposedTP: number,
     riskPct: number
   ): RiskSnapshot {
-    return {
+    const base: RiskSnapshot = {
       p: state.price,
       proposed_sl: proposedSL,
       proposed_tp: proposedTP,
@@ -315,6 +388,20 @@ class AlphaOmegaOrchestrator {
       vol: state.volatility,
       risk_pct: riskPct
     };
+
+    // Add regime data if available
+    if (state.regime) {
+      return {
+        ...base,
+        regime: {
+          volatility_score: state.regime.volatility_score,
+          is_high_risk_regime: state.regime.is_high_risk_regime,
+          risk_reduction_factor: state.regime.risk_reduction_factor
+        }
+      } as any;
+    }
+
+    return base;
   }
 
   /**

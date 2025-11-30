@@ -8,6 +8,7 @@
 import { openAIClient } from './openai-client';
 import { getStrategyPlanningIdentity, type TraderScore } from './ai-identity';
 import { strategyMemoryService } from './strategy-memory-service';
+import type { RegimeSnapshot } from './regime-oracle';
 
 export interface StrategySnapshot {
   sym: string;
@@ -76,9 +77,24 @@ class LLMStrategyBrain {
   async planStrategy(
     snapshot: StrategySnapshot,
     traderScore: TraderScore,
-    userId?: string
+    userId?: string,
+    regime?: RegimeSnapshot
   ): Promise<StrategyPlan> {
     const identity = getStrategyPlanningIdentity(traderScore);
+
+    // Build regime context (compressed)
+    let regimeSection = '';
+    if (regime) {
+      const atrState = regime.atr_compression ? 'comp' : regime.atr_expansion ? 'exp' : 'norm';
+      regimeSection = `\n\nREGIME:\ns=${regime.session}\nvol=${regime.volatility_score}\ntrend=${regime.trend_strength_score}\nstruct=${regime.structure}\natr=${atrState}\nrisk=${regime.is_high_risk_regime ? 'HIGH' : 'norm'}\nwick=${regime.wick_risk}\n`;
+
+      console.log('[Strategy Brain] 🌍 Regime context:', {
+        session: regime.session,
+        vol: regime.volatility_score,
+        trend: regime.trend_strength_score,
+        structure: regime.structure
+      });
+    }
 
     // Load strategy memory (if userId provided)
     let memorySection = '';
@@ -107,9 +123,9 @@ class LLMStrategyBrain {
     const prompt = `${identity}
 
 Market Snapshot:
-${JSON.stringify(snapshot)}${memorySection}
+${JSON.stringify(snapshot)}${regimeSection}${memorySection}
 
-Analyze market AND your memory. Define strategy for next 50-100 candles.
+Analyze market, regime, AND your memory. Define strategy for next 50-100 candles.
 
 CRITICAL: conditions MUST use EXACT parseable codes:
 - Price vs EMA: "p>e50", "p<e20", "p>e200", "p<e200"
@@ -124,6 +140,15 @@ CRITICAL: conditions MUST use EXACT parseable codes:
 - Patterns: "bull_engulf", "bear_engulf", "pin_bar_bull", "pin_bar_bear", "doji", "momentum_bar"
 - Micro: "pullback_complete", "near_vwap", "above_resistance", "below_support"
 NO natural language. Use codes ONLY.
+
+REGIME RULES (if regime provided):
+- s=ny_open: avoid reversals, prefer breakouts, quick exits
+- s=london: prefer trend continuation, pullbacks
+- s=dead: avoid unless user override
+- atr=comp + struct=range: avoid breakouts
+- vol>80: reduce risk 50%
+- risk=HIGH: require R:R > 2.0
+- wick=high: widen stops 20%
 
 Return JSON:
 {

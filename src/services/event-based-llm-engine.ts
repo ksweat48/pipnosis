@@ -211,10 +211,17 @@ class EventBasedLLMEngine {
         }
       );
 
+      // Get regime data for strategy planning
+      const regimeData = conditionMonitor.checkConditions(
+        { mode: 'trend', conditions: [], entry_logic: '', sl_calculation: '', tp_calculation: '', risk_pct: 3, riskLevel: 3, confidence: 70, rationale: '', watch_indicators: [] },
+        marketState
+      ).regime;
+
       this.currentStrategy = await llmStrategyBrain.planStrategy(
         strategySnapshot,
         this.traderScore!,
-        this.userId || undefined // Pass userId for memory loading
+        this.userId || undefined, // Pass userId for memory loading
+        regimeData // Pass regime context
       );
 
       // Save strategy to memory
@@ -296,7 +303,8 @@ class EventBasedLLMEngine {
       swingHigh: marketState.swingHigh,
       swingLow: marketState.swingLow,
       recentCandles: candles.slice(-20),
-      omegaSensors: marketState.omegaSensors
+      omegaSensors: marketState.omegaSensors,
+      regime: conditionCheck.regime // Pass regime intelligence to Omegas
     };
 
     // Calculate proposed SL/TP based on strategy
@@ -338,7 +346,8 @@ class EventBasedLLMEngine {
       openTrades: openTrades.length,
       dailyDrawdown: 0,
       atr: marketState.atr,
-      currentPrice: marketState.price
+      currentPrice: marketState.price,
+      regime: conditionCheck.regime // Pass regime for enhanced safety checks
     });
 
     if (!safetyCheck.passed) {

@@ -6,6 +6,7 @@
  */
 
 import type { TradeDecision } from './llm-execution-brain';
+import type { RegimeSnapshot } from './regime-oracle';
 
 export interface SafetyContext {
   balance: number;
@@ -14,6 +15,7 @@ export interface SafetyContext {
   dailyDrawdown: number; // % drawdown today
   atr: number;
   currentPrice: number;
+  regime?: RegimeSnapshot; // Market regime for enhanced safety checks
 }
 
 export interface ValidationResult {
@@ -165,6 +167,61 @@ class SafetyEnforcer {
     const priceDiff = Math.abs(decision.entry - context.currentPrice) / context.currentPrice;
     if (priceDiff > 0.01) { // 1% difference
       violations.push(`Entry price ${decision.entry} too far from current ${context.currentPrice}`);
+    }
+
+    // 11. REGIME-BASED SAFETY CHECKS
+    if (context.regime) {
+      const regime = context.regime;
+
+      // Block dead zone trades (regime oracle should have caught this, but double-check)
+      if (regime.avoid_trading) {
+        violations.push(`Regime block: ${regime.reason || 'Unfavorable market conditions'}`);
+      }
+
+      // Apply risk reduction for high volatility
+      if (regime.is_high_risk_regime && regime.risk_reduction_factor < 1.0) {
+        const originalRisk = adjustedDecision.risk_pct;
+        adjustedDecision.risk_pct = originalRisk * regime.risk_reduction_factor;
+        adjustments.push(`Risk reduced: ${originalRisk.toFixed(2)}% → ${adjustedDecision.risk_pct.toFixed(2)}% (high volatility)`);
+        console.log(`[Safety] 🔧 Risk auto-reduced due to regime (factor: ${regime.risk_reduction_factor})`);
+      }
+
+      // Widen stops for high wick risk (stop hunting protection)
+      if (regime.wick_risk === 'high') {
+        const originalSL = adjustedDecision.stopLoss;
+        const slDirection = adjustedDecision.action === 'BUY' ? -1 : 1;
+        const widening = slDistance * 0.20; // 20% wider
+        adjustedDecision.stopLoss = adjustedDecision.entry + (slDirection * (slDistance + widening));
+        adjustments.push(`SL widened 20% for high wick risk: ${originalSL.toFixed(5)} → ${adjustedDecision.stopLoss.toFixed(5)}`);
+        console.log(`[Safety] 🔧 SL widened due to high wick risk`);
+      }
+
+      // Higher R:R requirement during volatile opens
+      if ((regime.session === 'ny_open' || regime.session_open) && regime.volatility_score > 75) {
+        const currentRR = tpDistance / slDistance;
+        if (currentRR < 2.0) {
+          const requiredTpDistance = slDistance * 2.0;
+          const oldTp = adjustedDecision.takeProfit;
+          if (adjustedDecision.action === 'BUY') {
+            adjustedDecision.takeProfit = adjustedDecision.entry + requiredTpDistance;
+          } else {
+            adjustedDecision.takeProfit = adjustedDecision.entry - requiredTpDistance;
+          }
+          adjustments.push(`R:R increased to 2.0 for volatile session open: ${currentRR.toFixed(2)} → 2.0`);
+          console.log(`[Safety] 🔧 R:R increased for volatile session open`);
+        }
+      }
+
+      // Block breakouts during compression + range
+      if (regime.atr_compression && regime.structure === 'range') {
+        // Check if this looks like a breakout attempt
+        const isNearResistance = context.currentPrice > (adjustedDecision.entry * 0.998);
+        const isNearSupport = context.currentPrice < (adjustedDecision.entry * 1.002);
+        if ((isNearResistance && adjustedDecision.action === 'BUY') ||
+            (isNearSupport && adjustedDecision.action === 'SELL')) {
+          violations.push('Breakout blocked: ATR compression + range structure');
+        }
+      }
     }
 
     const passed = violations.length === 0;

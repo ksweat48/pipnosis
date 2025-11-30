@@ -8,6 +8,7 @@
 
 import type { StrategyPlan } from './llm-strategy-brain';
 import type { OmegaSensors } from './omega-sensors';
+import { regimeOracle, type RegimeSnapshot, type Candle } from './regime-oracle';
 
 export interface MarketState {
   price: number;
@@ -34,16 +35,43 @@ export interface ConditionCheckResult {
   conditionsFailed: string[];
   trigger: string;
   confidence: number;
+  regime?: RegimeSnapshot;
+  blockedByRegime?: boolean;
 }
 
 class ConditionMonitor {
   /**
    * Check if strategy conditions are met
+   * Now includes regime oracle evaluation for zero-cost intelligence
    */
   checkConditions(
     strategyPlan: StrategyPlan,
-    marketState: MarketState
+    marketState: MarketState,
+    timestamp?: Date | number,
+    candles?: Candle[]
   ): ConditionCheckResult {
+    // REGIME ORACLE: Evaluate market regime FIRST (zero-cost gate)
+    let regime: RegimeSnapshot | undefined;
+    if (timestamp && candles && candles.length >= 10) {
+      regime = regimeOracle.evaluate(marketState, timestamp, candles);
+
+      // BLOCK if regime says avoid trading
+      if (regime.avoid_trading) {
+        console.log(`[Condition Monitor] ❌ Trade blocked by regime: ${regime.reason}`);
+        return {
+          ready: false,
+          conditionsMet: [],
+          conditionsFailed: ['Blocked by regime'],
+          trigger: 'regime_blocked',
+          confidence: 0,
+          regime,
+          blockedByRegime: true
+        };
+      }
+
+      console.log(`[Condition Monitor] ✅ Regime check passed: ${regime.session}, vol=${regime.volatility_score}, trend=${regime.trend_strength_score}`);
+    }
+
     const conditionsMet: string[] = [];
     const conditionsFailed: string[] = [];
 
@@ -75,12 +103,23 @@ class ConditionMonitor {
       );
     }
 
+    // Apply regime risk reduction factor if available
+    const adjustedConfidence = regime
+      ? finalConfidence * regime.risk_reduction_factor
+      : finalConfidence;
+
+    if (regime && regime.risk_reduction_factor < 1.0) {
+      console.log(`[Condition Monitor] Confidence adjusted: ${finalConfidence}% → ${adjustedConfidence.toFixed(0)}% (risk_factor: ${regime.risk_reduction_factor})`);
+    }
+
     return {
       ready,
       conditionsMet,
       conditionsFailed,
       trigger: ready ? `${strategyPlan.mode}_setup` : 'waiting',
-      confidence: finalConfidence
+      confidence: adjustedConfidence,
+      regime,
+      blockedByRegime: false
     };
   }
 
