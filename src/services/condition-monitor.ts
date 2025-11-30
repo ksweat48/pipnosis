@@ -9,6 +9,7 @@
 import type { StrategyPlan } from './llm-strategy-brain';
 import type { OmegaSensors } from './omega-sensors';
 import { regimeOracle, type RegimeSnapshot, type Candle } from './regime-oracle';
+import { adversarialDetector, type AdversarialSignal } from './adversarial-detector';
 
 export interface MarketState {
   price: number;
@@ -37,6 +38,8 @@ export interface ConditionCheckResult {
   confidence: number;
   regime?: RegimeSnapshot;
   blockedByRegime?: boolean;
+  adversarial?: AdversarialSignal;
+  blockedByAdversarial?: boolean;
 }
 
 class ConditionMonitor {
@@ -70,6 +73,35 @@ class ConditionMonitor {
       }
 
       console.log(`[Condition Monitor] ✅ Regime check passed: ${regime.session}, vol=${regime.volatility_score}, trend=${regime.trend_strength_score}`);
+    }
+
+    // ADVERSARIAL DETECTOR: Check for manipulation patterns (zero-cost gate)
+    let adversarial: AdversarialSignal | undefined;
+    if (candles && candles.length >= 10) {
+      adversarial = adversarialDetector.evaluate(marketState, candles, regime);
+
+      // BLOCK if adversarial level is severe or action is avoid
+      if (adversarial.recommended_action === 'avoid' || adversarial.level === 'severe') {
+        console.log(`[Condition Monitor] 🚫 Trade blocked by adversarial detector`);
+        console.log(`[Condition Monitor] Level: ${adversarial.level}, Score: ${adversarial.suspicion_score}`);
+        console.log(`[Condition Monitor] Patterns: ${adversarial.patterns.join(', ')}`);
+        return {
+          ready: false,
+          conditionsMet: [],
+          conditionsFailed: ['Blocked by adversarial environment'],
+          trigger: 'adversarial_blocked',
+          confidence: 0,
+          regime,
+          adversarial,
+          blockedByAdversarial: true
+        };
+      }
+
+      if (adversarial.is_adversarial) {
+        console.log(`[Condition Monitor] ⚠️  Adversarial detected: ${adversarial.level} - ${adversarial.notes}`);
+      } else {
+        console.log(`[Condition Monitor] ✅ Adversarial check passed: clean conditions`);
+      }
     }
 
     const conditionsMet: string[] = [];
@@ -119,7 +151,9 @@ class ConditionMonitor {
       trigger: ready ? `${strategyPlan.mode}_setup` : 'waiting',
       confidence: adjustedConfidence,
       regime,
-      blockedByRegime: false
+      blockedByRegime: false,
+      adversarial,
+      blockedByAdversarial: false
     };
   }
 

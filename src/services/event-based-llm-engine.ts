@@ -211,17 +211,20 @@ class EventBasedLLMEngine {
         }
       );
 
-      // Get regime data for strategy planning
-      const regimeData = conditionMonitor.checkConditions(
+      // Get regime and adversarial data for strategy planning
+      const prelimCheck = conditionMonitor.checkConditions(
         { mode: 'trend', conditions: [], entry_logic: '', sl_calculation: '', tp_calculation: '', risk_pct: 3, riskLevel: 3, confidence: 70, rationale: '', watch_indicators: [] },
-        marketState
-      ).regime;
+        marketState,
+        candles[candles.length - 1].open_time,
+        candles
+      );
 
       this.currentStrategy = await llmStrategyBrain.planStrategy(
         strategySnapshot,
         this.traderScore!,
         this.userId || undefined, // Pass userId for memory loading
-        regimeData // Pass regime context
+        prelimCheck.regime, // Pass regime context
+        prelimCheck.adversarial // Pass adversarial context
       );
 
       // Save strategy to memory
@@ -264,7 +267,9 @@ class EventBasedLLMEngine {
       marketState = llmSnapshotBuilder.buildMarketState(candles);
       conditionCheck = conditionMonitor.checkConditions(
         this.currentStrategy,
-        marketState
+        marketState,
+        candles[candles.length - 1].open_time,
+        candles
       );
 
       if (!conditionCheck.ready) {
@@ -304,7 +309,8 @@ class EventBasedLLMEngine {
       swingLow: marketState.swingLow,
       recentCandles: candles.slice(-20),
       omegaSensors: marketState.omegaSensors,
-      regime: conditionCheck.regime // Pass regime intelligence to Omegas
+      regime: conditionCheck.regime, // Pass regime intelligence to Omegas
+      adversarial: conditionCheck.adversarial // Pass adversarial intelligence to Omegas
     };
 
     // Calculate proposed SL/TP based on strategy
@@ -347,7 +353,8 @@ class EventBasedLLMEngine {
       dailyDrawdown: 0,
       atr: marketState.atr,
       currentPrice: marketState.price,
-      regime: conditionCheck.regime // Pass regime for enhanced safety checks
+      regime: conditionCheck.regime, // Pass regime for enhanced safety checks
+      adversarial: conditionCheck.adversarial // Pass adversarial for hostile environment detection
     });
 
     if (!safetyCheck.passed) {

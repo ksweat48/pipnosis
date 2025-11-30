@@ -21,6 +21,7 @@ import type { TraderScore } from './ai-identity';
 import { omegaAlphaLogger } from './omega-alpha-logger';
 import type { OmegaSensors } from './omega-sensors';
 import type { RegimeSnapshot } from './regime-oracle';
+import type { AdversarialSignal } from './adversarial-detector';
 
 export interface FullMarketState {
   symbol: string;
@@ -43,6 +44,7 @@ export interface FullMarketState {
   structure?: { hh: boolean; hl: boolean; lh: boolean; ll: boolean };
   omegaSensors: OmegaSensors; // Pro-trader indicators at zero cost
   regime?: RegimeSnapshot; // Market regime intelligence (session, volatility, structure)
+  adversarial?: AdversarialSignal; // Adversarial manipulation detection
 }
 
 export interface TradePosition {
@@ -238,7 +240,8 @@ class AlphaOmegaOrchestrator {
           trend_strength: state.regime.trend_strength_score,
           structure: state.regime.structure,
           bias: state.regime.market_bias
-        }
+        },
+        adv: state.adversarial ? { lvl: state.adversarial.level, score: state.adversarial.suspicion_score } : undefined
       } as any;
     }
 
@@ -270,7 +273,8 @@ class AlphaOmegaOrchestrator {
           session: state.regime.session,
           session_open: state.regime.session_open,
           atr_expansion: state.regime.atr_expansion
-        }
+        },
+        adv: state.adversarial ? { lvl: state.adversarial.level, pat: state.adversarial.patterns.slice(0, 2) } : undefined
       } as any;
     }
 
@@ -297,7 +301,8 @@ class AlphaOmegaOrchestrator {
         regime: {
           structure_type: state.regime.structure,
           structure_quality: state.regime.structure_quality
-        }
+        },
+        adv: state.adversarial ? { lvl: state.adversarial.level } : undefined
       } as any;
     }
 
@@ -327,7 +332,8 @@ class AlphaOmegaOrchestrator {
           atr_compression: state.regime.atr_compression,
           wick_risk: state.regime.wick_risk,
           structure: state.regime.structure
-        }
+        },
+        adv: state.adversarial ? { lvl: state.adversarial.level, pat: state.adversarial.patterns.slice(0, 2) } : undefined
       } as any;
     }
 
@@ -362,7 +368,8 @@ class AlphaOmegaOrchestrator {
           atr_expansion: state.regime.atr_expansion,
           wick_risk: state.regime.wick_risk,
           volatility_trend: state.regime.volatility_trend
-        }
+        },
+        adv: state.adversarial ? { lvl: state.adversarial.level, score: state.adversarial.suspicion_score } : undefined
       } as any;
     }
 
@@ -397,7 +404,8 @@ class AlphaOmegaOrchestrator {
           volatility_score: state.regime.volatility_score,
           is_high_risk_regime: state.regime.is_high_risk_regime,
           risk_reduction_factor: state.regime.risk_reduction_factor
-        }
+        },
+        adv: state.adversarial ? { lvl: state.adversarial.level, score: state.adversarial.suspicion_score } : undefined
       } as any;
     }
 
