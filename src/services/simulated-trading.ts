@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { StrategyOption } from '@/types/strategy';
+import { getCurrencyPipInfo } from '@/utils/currencyHelpers';
 
 interface TradeParams {
   symbol: string;
@@ -14,6 +15,9 @@ interface TradeParams {
   setupType?: string;
   marketConditions?: any;
   aiDecisionId?: string;
+  // Playbook tracking
+  playbookId?: string;
+  regimeBucket?: string;
 }
 
 interface Position {
@@ -38,6 +42,12 @@ interface Position {
 class SimulatedTradingService {
   async executeTrade(params: TradeParams, userId: string) {
     try {
+      // Calculate risk dollars for R-normalized metrics
+      const pipInfo = getCurrencyPipInfo(params.symbol);
+      const riskPips = Math.abs(params.entry - params.stopLoss) / pipInfo.pipValue;
+      const dollarPerPip = params.lotSize * 10; // Standard forex calculation
+      const riskDollars = riskPips * dollarPerPip;
+
       const { data, error } = await supabase
         .from('simulated_positions')
         .insert({
@@ -51,7 +61,10 @@ class SimulatedTradingService {
           take_profit: params.takeProfit,
           status: 'open',
           current_price: params.entry,
-          current_pnl: 0
+          current_pnl: 0,
+          playbook_id: params.playbookId || null,
+          regime_bucket: params.regimeBucket || null,
+          risk_dollars: riskDollars
         })
         .select()
         .single();

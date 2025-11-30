@@ -2,6 +2,8 @@ import { supabase } from '../lib/supabase';
 import { goalSessionManager } from './goal-session-manager';
 import { simulatedTradingService } from './simulated-trading';
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { strategyPlaybookManager } from './strategy-playbook-manager';
+import { getRegimeBucket } from './regime-bucketing';
 
 export interface TradeSignal {
   sessionId: string;
@@ -16,6 +18,9 @@ export interface TradeSignal {
   reasoning: string;
   riskReward: number;
   expectedProfit: number;
+  // Playbook tracking context
+  regimeSnapshot?: any;
+  adversarialState?: any;
 }
 
 export interface TradeExecutionResult {
@@ -135,6 +140,21 @@ class TradeExecutionEngine {
     userId: string,
     session: any
   ): Promise<TradeExecutionResult> {
+    // Get playbook context for this trade
+    const regimeBucket = signal.regimeSnapshot && signal.adversarialState
+      ? getRegimeBucket(signal.regimeSnapshot, signal.adversarialState)
+      : null;
+
+    const activePlaybook = regimeBucket
+      ? await strategyPlaybookManager.getActivePlaybook(signal.symbol, regimeBucket)
+      : null;
+
+    // Calculate risk dollars for R-normalized metrics
+    const pipInfo = getCurrencyPipInfo(signal.symbol);
+    const riskPips = Math.abs(signal.entryPrice - signal.stopLoss) / pipInfo.pipValue;
+    const dollarPerPip = signal.positionSize * 10; // Standard forex calculation
+    const riskDollars = riskPips * dollarPerPip;
+
     const { data: trade, error } = await supabase
       .from('goal_session_trades')
       .insert({
@@ -145,7 +165,10 @@ class TradeExecutionEngine {
         stop_loss: signal.stopLoss,
         take_profit: signal.takeProfit,
         position_size: signal.positionSize,
-        status: 'pending'
+        status: 'pending',
+        playbook_id: activePlaybook?.id || null,
+        regime_bucket: regimeBucket,
+        risk_dollars: riskDollars
       })
       .select()
       .single();
@@ -214,6 +237,23 @@ class TradeExecutionEngine {
       };
     }
 
+    // Get playbook context for this trade
+    const regimeBucket = signal.regimeSnapshot && signal.adversarialState
+      ? getRegimeBucket(signal.regimeSnapshot, signal.adversarialState)
+      : null;
+
+    const activePlaybook = regimeBucket
+      ? await strategyPlaybookManager.getActivePlaybook(signal.symbol, regimeBucket)
+      : null;
+
+    // Calculate risk dollars for R-normalized metrics
+    const pipInfo = getCurrencyPipInfo(signal.symbol);
+    const riskPips = Math.abs(signal.entryPrice - signal.stopLoss) / pipInfo.pipValue;
+    const dollarPerPip = signal.positionSize * 10; // Standard forex calculation
+    const riskDollars = riskPips * dollarPerPip;
+
+    console.log(`[Playbook] Trade context: bucket=${regimeBucket}, playbook=${activePlaybook?.variant_id || 'none'}, risk=$${riskDollars.toFixed(2)}`);
+
     const { data: trade, error } = await supabase
       .from('goal_session_trades')
       .insert({
@@ -225,7 +265,10 @@ class TradeExecutionEngine {
         take_profit: signal.takeProfit,
         position_size: signal.positionSize,
         status: 'open',
-        opened_at: new Date().toISOString()
+        opened_at: new Date().toISOString(),
+        playbook_id: activePlaybook?.id || null,
+        regime_bucket: regimeBucket,
+        risk_dollars: riskDollars
       })
       .select()
       .single();
