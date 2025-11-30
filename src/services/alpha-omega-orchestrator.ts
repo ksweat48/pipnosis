@@ -18,6 +18,7 @@ import { omegaRisk, type RiskSnapshot } from '../brains/omega/risk';
 import { alphaCoordinator, type OmegaCouncilVotes, type MarketContext, type AlphaDecision } from '../brains/coordinator-alpha';
 import { midTradeMonitor, type MidTradeSnapshot, type MidTradeDecision } from '../brains/midtrade-monitor';
 import type { TraderScore } from './ai-identity';
+import { omegaAlphaLogger } from './omega-alpha-logger';
 
 export interface FullMarketState {
   symbol: string;
