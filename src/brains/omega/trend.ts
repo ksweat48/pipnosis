@@ -1,0 +1,110 @@
+/**
+ * Omega Trend - Trend Analysis Specialist
+ *
+ * Specializes in:
+ * - Trend identification and strength
+ * - EMA alignment and crossovers
+ * - Momentum analysis
+ * - Trend continuation vs reversal
+ *
+ * Uses ultra-compressed prompts for cost efficiency
+ */
+
+import { openAIClient } from '../../services/openai-client';
+
+export interface TrendSnapshot {
+  p: number;      // price
+  e20: number;    // ema20
+  e50: number;    // ema50
+  e200: number;   // ema200
+  mom: number;    // momentum -100 to 100
+  tr: string;     // trend: bull/bear/side
+  vol: string;    // volatility: low/med/high
+}
+
+export interface OmegaVote {
+  vote: 'BUY' | 'SELL' | 'NO_TRADE';
+  confidence: number; // 0-100
+  reasoning: string;
+}
+
+class OmegaTrendBrain {
+  /**
+   * Evaluate trend for trading decision
+   */
+  async evaluate(snapshot: TrendSnapshot): Promise<OmegaVote> {
+    const prompt = `Trend Analysis:
+${JSON.stringify(snapshot)}
+
+Evaluate trend strength and direction.
+Vote: BUY (trend up strong), SELL (trend down strong), NO_TRADE (weak/unclear).
+
+Return JSON only:
+{
+  "vote": "BUY|SELL|NO_TRADE",
+  "confidence": 0-100,
+  "reasoning": "brief 1-line explanation"
+}`;
+
+    try {
+      const response = await openAIClient.chat(
+        [
+          {
+            role: 'system',
+            content: 'You are OmegaTrend, a trend analysis specialist. Return JSON only.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        {
+          model: 'gpt-4o-mini',
+          temperature: 0.3,
+          max_tokens: 100,
+          requestType: 'omega_trend_vote',
+          endpoint: 'omega-trend'
+        }
+      );
+
+      const content = response.choices[0]?.message?.content || '{}';
+      return this.parseVote(content);
+    } catch (error) {
+      console.error('[Omega Trend] Error:', error);
+      return {
+        vote: 'NO_TRADE',
+        confidence: 0,
+        reasoning: 'Analysis failed'
+      };
+    }
+  }
+
+  /**
+   * Parse LLM response into vote
+   */
+  private parseVote(response: string): OmegaVote {
+    try {
+      const cleaned = response
+        .replace(/```json\n?/g, '')
+        .replace(/```\n?/g, '')
+        .trim();
+
+      const parsed = JSON.parse(cleaned);
+
+      return {
+        vote: parsed.vote || 'NO_TRADE',
+        confidence: Math.min(100, Math.max(0, parsed.confidence || 0)),
+        reasoning: parsed.reasoning || 'No reasoning provided'
+      };
+    } catch (error) {
+      console.error('[Omega Trend] Parse error:', error);
+      return {
+        vote: 'NO_TRADE',
+        confidence: 0,
+        reasoning: 'Parse failed'
+      };
+    }
+  }
+}
+
+export const omegaTrend = new OmegaTrendBrain();

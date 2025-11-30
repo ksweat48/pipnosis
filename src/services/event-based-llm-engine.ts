@@ -15,6 +15,8 @@ import { llmStrategyBrain, StrategyPlan } from './llm-strategy-brain';
 import { strategyMemoryService } from './strategy-memory-service';
 import { conditionMonitor } from './condition-monitor';
 import { llmExecutionBrain } from './llm-execution-brain';
+import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';
+import type { MidTradeDecision } from '../brains/midtrade-monitor';
 import { safetyEnforcer } from './safety-enforcer';
 import { performanceAnalyzer } from './performance-analyzer';
 import { developerModeLogger } from './developer-mode-logger';
@@ -272,40 +274,55 @@ class EventBasedLLMEngine {
       return { trade: null, trigger: null, llmCalled: false };
     }
 
-    // STEP 3: Execute decision (LLM call)
-    const direction = conditionCheck.trigger.toLowerCase().includes('buy') ? 'buy' : 'sell';
-    const microSnapshot = llmExecutionBrain.buildMicroSnapshot(
-      marketState.price,
-      {
-        ema50: marketState.ema50,
-        ema200: marketState.ema200,
-        rsi: marketState.rsi,
-        stochRsi: marketState.stochRsi,
-        atr: marketState.atr,
-        vwap: marketState.vwap
-      },
-      {
-        trend: marketState.trend,
-        volatility: marketState.volatility
-      },
-      direction
-    );
+    // STEP 3: Alpha + Omega Council Decision
+    console.log(`[Autonomous Brain] 🎯 Calling Alpha + Omega Council...`);
 
-    console.log(`[Autonomous Brain] 🤖 Calling GPT-4o for trade validation...`);
-    const decision = await llmExecutionBrain.decideTrade(
-      conditionCheck.trigger,
-      microSnapshot,
+    // Build full market state for Alpha+Omega
+    const fullMarketState: FullMarketState = {
+      symbol: config.symbol,
+      price: marketState.price,
+      ema20: marketState.ema20,
+      ema50: marketState.ema50,
+      ema200: marketState.ema200,
+      rsi: marketState.rsi,
+      stochRsi: marketState.stochRsi,
+      atr: marketState.atr,
+      vwap: marketState.vwap,
+      trend: marketState.trend,
+      volatility: marketState.volatility,
+      momentum: marketState.momentum,
+      support: [],
+      resistance: [],
+      swingHigh: marketState.swingHigh,
+      swingLow: marketState.swingLow,
+      recentCandles: candles.slice(-20)
+    };
+
+    // Calculate proposed SL/TP based on strategy
+    const direction = conditionCheck.trigger.toLowerCase().includes('buy') ? 'buy' : 'sell';
+    const proposedSL = direction === 'buy'
+      ? marketState.price - (marketState.atr * 1.5)
+      : marketState.price + (marketState.atr * 1.5);
+    const proposedTP = direction === 'buy'
+      ? marketState.price + (marketState.atr * 2.5)
+      : marketState.price - (marketState.atr * 2.5);
+
+    // Call Alpha + Omega
+    const decision = await alphaOmegaOrchestrator.makeTradeDecision(
+      fullMarketState,
       this.traderScore!,
-      this.currentStrategy.mode,
-      conditionCheck.conditionsMet
+      proposedSL,
+      proposedTP
     );
 
     if (decision.action === 'NO_TRADE') {
-      console.log(`[Autonomous Brain] ✗ GPT-4o declined trade: ${decision.reasoning}`);
+      console.log(`[Autonomous Brain] ✗ Alpha declined trade: ${decision.reasoning}`);
+      console.log(`[Autonomous Brain] Omega Summary: ${decision.omega_summary}`);
       return { trade: null, trigger: null, llmCalled: true };
     }
 
-    console.log(`[Autonomous Brain] ✅ GPT-4o approved: ${decision.action} ${config.symbol}`);
+    console.log(`[Autonomous Brain] ✅ Alpha approved: ${decision.action} ${config.symbol}`);
+    console.log(`[Autonomous Brain] Omega Summary: ${decision.omega_summary}`);
 
     // STEP 4: Safety validation
     const balance = config.initialBalance || 10000;
@@ -376,7 +393,105 @@ class EventBasedLLMEngine {
   // All trade decisions now handled by Pipnosis Alpha Brain
 
   /**
-   * Update open trades with current price
+   * Update open trades with current price + mid-trade monitoring
+   */
+  async updateOpenTradesWithMonitoring(
+    openTrades: SimulatedTrade[],
+    currentCandle: any,
+    candles: any[]
+  ): Promise<SimulatedTrade[]> {
+    const currentPrice = currentCandle.close;
+    const currentTime = new Date(currentCandle.open_time);
+    const updatedTrades: SimulatedTrade[] = [];
+
+    for (const trade of openTrades) {
+      // Check for TP/SL hits first
+      const isTP = trade.direction === 'buy'
+        ? currentPrice >= trade.takeProfit
+        : currentPrice <= trade.takeProfit;
+
+      const isSL = trade.direction === 'buy'
+        ? currentPrice <= trade.stopLoss
+        : currentPrice >= trade.stopLoss;
+
+      const holdingMinutes = Math.floor((currentTime.getTime() - trade.entryTime.getTime()) / 60000);
+      const maxDurationExceeded = holdingMinutes >= trade.maxHoldMinutes;
+
+      if (isTP) {
+        this.closeTrade(trade, trade.takeProfit, currentTime, 'take_profit');
+        continue;
+      } else if (isSL) {
+        this.closeTrade(trade, trade.stopLoss, currentTime, 'stop_loss');
+        continue;
+      } else if (maxDurationExceeded) {
+        this.closeTrade(trade, currentPrice, currentTime, 'max_duration');
+        continue;
+      }
+
+      // MID-TRADE MONITORING (if not hitting SL/TP)
+      if (this.traderScore && candles.length >= 50) {
+        try {
+          const marketState = llmSnapshotBuilder.buildMarketState(candles);
+
+          const fullMarketState: FullMarketState = {
+            symbol: trade.symbol,
+            price: currentPrice,
+            ema20: marketState.ema20,
+            ema50: marketState.ema50,
+            ema200: marketState.ema200,
+            rsi: marketState.rsi,
+            stochRsi: marketState.stochRsi,
+            atr: marketState.atr,
+            vwap: marketState.vwap,
+            trend: marketState.trend,
+            volatility: marketState.volatility,
+            momentum: marketState.momentum,
+            support: [],
+            resistance: [],
+            swingHigh: marketState.swingHigh,
+            swingLow: marketState.swingLow,
+            recentCandles: candles.slice(-20)
+          };
+
+          const midTradeDecision = await alphaOmegaOrchestrator.monitorOpenTrade(
+            {
+              direction: trade.direction,
+              entryPrice: trade.entryPrice,
+              stopLoss: trade.stopLoss,
+              takeProfit: trade.takeProfit,
+              entryTime: trade.entryTime,
+              symbol: trade.symbol,
+              positionSize: trade.positionSize,
+              riskPct: 3
+            },
+            fullMarketState,
+            this.traderScore,
+            currentPrice,
+            currentTime
+          );
+
+          if (midTradeDecision) {
+            this.applyMidTradeDecision(trade, midTradeDecision, currentPrice, currentTime);
+
+            // If trade was closed, don't add to updatedTrades
+            if (midTradeDecision.action === 'CLOSE') {
+              continue;
+            }
+          }
+        } catch (error) {
+          console.warn('[MidTrade Monitor] Error monitoring trade:', error);
+        }
+      }
+
+      // Trade still open - add to updated trades
+      updatedTrades.push(trade);
+    }
+
+    return updatedTrades;
+  }
+
+  /**
+   * Legacy method for compatibility (calls new method)
    */
   updateOpenTrades(openTrades: SimulatedTrade[], currentCandle: any): SimulatedTrade[] {
     const currentPrice = currentCandle.close;
@@ -407,6 +522,59 @@ class EventBasedLLMEngine {
     }
 
     return updatedTrades;
+  }
+
+  /**
+   * Apply mid-trade decision (CLOSE, TRAIL_SL, REDUCE_RISK, HOLD)
+   */
+  private applyMidTradeDecision(
+    trade: SimulatedTrade,
+    decision: MidTradeDecision,
+    currentPrice: number,
+    currentTime: Date
+  ): void {
+    console.log(`[MidTrade] Applying decision: ${decision.action} (${decision.confidence}%)`);
+    console.log(`[MidTrade] Reasoning: ${decision.reasoning}`);
+
+    switch (decision.action) {
+      case 'CLOSE':
+        // Early exit before SL
+        console.log(`[MidTrade] \u26a0\ufe0f Closing trade early @ ${currentPrice}`);
+        this.closeTrade(trade, currentPrice, currentTime, 'midtrade_exit');
+        break;
+
+      case 'TRAIL_SL':
+        if (decision.adjustedSL) {
+          // Validate new SL is in favorable direction
+          const isValidTrail = trade.direction === 'buy'
+            ? decision.adjustedSL > trade.stopLoss
+            : decision.adjustedSL < trade.stopLoss;
+
+          if (isValidTrail) {
+            console.log(`[MidTrade] \ud83d\udc49 Trailing SL: ${trade.stopLoss} \u2192 ${decision.adjustedSL}`);
+            trade.stopLoss = decision.adjustedSL;
+          } else {
+            console.warn(`[MidTrade] \u26d4 Invalid trail direction - rejected`);
+          }
+        }
+        break;
+
+      case 'REDUCE_RISK':
+        // Tighten SL toward breakeven
+        const currentSLDistance = Math.abs(trade.entryPrice - trade.stopLoss);
+        const newSL = trade.direction === 'buy'
+          ? trade.entryPrice - (currentSLDistance * 0.5)
+          : trade.entryPrice + (currentSLDistance * 0.5);
+
+        console.log(`[MidTrade] \ud83d\udee1\ufe0f Reducing risk: SL ${trade.stopLoss} \u2192 ${newSL}`);
+        trade.stopLoss = newSL;
+        break;
+
+      case 'HOLD':
+      default:
+        console.log(`[MidTrade] \ud83d\udc4d Holding trade - setup still valid`);
+        break;
+    }
   }
 
   /**
