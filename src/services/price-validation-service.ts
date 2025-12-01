@@ -149,6 +149,12 @@ export class PriceValidationService {
 
     const timeDiff = (Date.now() - lastPriceData.timestamp) / 1000; // seconds
 
+    // CRITICAL FIX: Skip velocity check if insufficient time has passed (<0.5s)
+    // This prevents false positives when checking the same price multiple times rapidly
+    if (timeDiff < 0.5) {
+      return { isValid: true };
+    }
+
     // CRITICAL FIX: Skip velocity check if too much time has passed (>10 seconds)
     // This indicates we're loading historical data or recovering from pause, not live ticking
     if (timeDiff > 10) {

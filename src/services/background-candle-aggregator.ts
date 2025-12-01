@@ -128,9 +128,15 @@ class BackgroundCandleAggregator {
 
     await Promise.all(
       batch.map(({ symbol, timeframe, candle }) => {
+        // Convert CandleData (with 'time' field in Unix seconds) to CandleState (with 'startTime' in ms)
         const candleState: CandleState = {
-          ...candle,
-          startTime: candle.time * 1000,
+          time: candle.time, // Unix seconds
+          startTime: candle.time * 1000, // Convert to milliseconds
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          volume: candle.volume || 0,
           tickCount: 1
         };
         return this.saveCompletedCandle(symbol, timeframe, candleState);
