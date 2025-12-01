@@ -13,11 +13,12 @@ const {
   MultiSourceFetcher,
 } = require('./data-sources');
 const { BackfillOrchestrator } = require('./backfill-orchestrator');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 // Configuration
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
 // Symbols to backfill (primary pairs first, then others)
 const SYMBOLS = [
@@ -34,15 +35,15 @@ const SYMBOLS = [
   'ETHUSD',
 ];
 
-// Timeframes to backfill (start with higher timeframes)
+// Timeframes to backfill (database format)
 const TIMEFRAMES = [
-  '1d',  // Daily first (less data, completes fast)
-  '4h',  // 4-hour
-  '1h',  // Hourly
-  '30m', // 30-minute
-  '15m', // 15-minute
-  '5m',  // 5-minute
-  // '1m',  // 1-minute (very large dataset, optional)
+  'D1',  // Daily first (less data, completes fast)
+  'H4',  // 4-hour
+  'H1',  // Hourly
+  'M30', // 30-minute
+  'M15', // 15-minute
+  'M5',  // 5-minute
+  // 'M1',  // 1-minute (very large dataset, optional)
 ];
 
 // 1 year ago
@@ -70,14 +71,19 @@ async function main() {
   }
 
   // Initialize data sources (priority order)
-  const sources = [
-    { source: new YahooFinanceSource(), priority: 100 }, // Free, no API key, reliable
-    { source: new TwelveDataSource(process.env.TWELVE_DATA_API_KEY), priority: 90 },
-    { source: new FCSAPISource(process.env.FCSAPI_KEY), priority: 80 },
-    { source: new PolygonSource(process.env.POLYGON_API_KEY), priority: 70 },
-  ];
+  const yahooSource = new YahooFinanceSource();
+  yahooSource.priority = 100;
 
-  const dataFetcher = new MultiSourceFetcher(sources.map(s => ({ ...s.source, priority: s.priority })));
+  const twelveSource = new TwelveDataSource(process.env.TWELVE_DATA_API_KEY);
+  twelveSource.priority = 90;
+
+  const fcsSource = new FCSAPISource(process.env.FCSAPI_KEY);
+  fcsSource.priority = 80;
+
+  const polygonSource = new PolygonSource(process.env.POLYGON_API_KEY);
+  polygonSource.priority = 70;
+
+  const dataFetcher = new MultiSourceFetcher([yahooSource, twelveSource, fcsSource, polygonSource]);
 
   // Initialize orchestrator
   const orchestrator = new BackfillOrchestrator(SUPABASE_URL, SUPABASE_KEY, dataFetcher);

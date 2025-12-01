@@ -11,14 +11,15 @@ const {
   MultiSourceFetcher,
 } = require('./data-sources');
 const { BackfillOrchestrator } = require('./backfill-orchestrator');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
 // Test with EURUSD on 1-hour timeframe (reasonable amount of data)
 const TEST_SYMBOL = 'EURUSD';
-const TEST_TIMEFRAME = '1h';
+const TEST_TIMEFRAME = 'H1'; // Database format
 
 // Last 7 days for quick test
 const START_DATE = new Date();
@@ -41,12 +42,13 @@ async function main() {
   }
 
   // Initialize data sources
-  const sources = [
-    { source: new YahooFinanceSource(), priority: 100 },
-    { source: new TwelveDataSource(process.env.TWELVE_DATA_API_KEY), priority: 90 },
-  ];
+  const yahooSource = new YahooFinanceSource();
+  yahooSource.priority = 100;
 
-  const dataFetcher = new MultiSourceFetcher(sources.map(s => ({ ...s.source, priority: s.priority })));
+  const twelveSource = new TwelveDataSource(process.env.TWELVE_DATA_API_KEY);
+  twelveSource.priority = 90;
+
+  const dataFetcher = new MultiSourceFetcher([yahooSource, twelveSource]);
   const orchestrator = new BackfillOrchestrator(SUPABASE_URL, SUPABASE_KEY, dataFetcher);
 
   // Run test backfill

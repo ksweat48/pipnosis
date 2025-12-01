@@ -5,7 +5,8 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { CandleValidator } = require('./candle-validator');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 class BackfillOrchestrator {
   constructor(supabaseUrl, supabaseKey, dataFetcher) {
@@ -17,6 +18,15 @@ class BackfillOrchestrator {
 
   generateExecutionId() {
     return `backfill_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  // Convert database timeframe format to data source format
+  timeframeToSourceFormat(dbTimeframe) {
+    const mapping = {
+      'M1': '1m', 'M5': '5m', 'M15': '15m', 'M30': '30m',
+      'H1': '1h', 'H4': '4h', 'D1': '1d', 'W1': '1w'
+    };
+    return mapping[dbTimeframe] || dbTimeframe;
   }
 
   // Log execution details
@@ -89,20 +99,20 @@ class BackfillOrchestrator {
   // Check for existing candles to avoid duplicates
   async getExistingCandleTimes(symbol, timeframe, startTime, endTime) {
     try {
-      const { data, error } = await this.supabase
+      const { data, error} = await this.supabase
         .from('forex_candles')
-        .select('time')
+        .select('open_time')
         .eq('symbol', symbol)
         .eq('timeframe', timeframe)
-        .gte('time', Math.floor(startTime.getTime() / 1000))
-        .lte('time', Math.floor(endTime.getTime() / 1000));
+        .gte('open_time', startTime.toISOString())
+        .lte('open_time', endTime.toISOString());
 
       if (error) {
         console.error('[BackfillOrchestrator] Error fetching existing candles:', error);
         return new Set();
       }
 
-      return new Set(data.map(row => row.time));
+      return new Set(data.map(row => Math.floor(new Date(row.open_time).getTime() / 1000)));
     } catch (error) {
       console.error('[BackfillOrchestrator] Error fetching existing candles:', error.message);
       return new Set();
@@ -121,19 +131,31 @@ class BackfillOrchestrator {
         const { data, error } = await this.supabase
           .from('forex_candles')
           .upsert(
-            batch.map(candle => ({
-              symbol: candle.symbol,
-              timeframe: candle.timeframe,
-              time: candle.time,
-              open: candle.open,
-              high: candle.high,
-              low: candle.low,
-              close: candle.close,
-              volume: candle.volume || 0,
-              data_source: candle.source || 'backfill',
-            })),
+            batch.map(candle => {
+              const openTime = new Date(candle.time * 1000);
+              // Calculate close_time based on timeframe
+              const timeframeMinutes = {
+                'M1': 1, 'M5': 5, 'M15': 15, 'M30': 30,
+                'H1': 60, 'H4': 240, 'D1': 1440, 'W1': 10080
+              };
+              const minutes = timeframeMinutes[candle.timeframe] || 60;
+              const closeTime = new Date(openTime.getTime() + minutes * 60 * 1000);
+
+              return {
+                symbol: candle.symbol,
+                timeframe: candle.timeframe,
+                open_time: openTime.toISOString(),
+                close_time: closeTime.toISOString(),
+                open: candle.open,
+                high: candle.high,
+                low: candle.low,
+                close: candle.close,
+                volume: candle.volume || 0,
+                data_source: candle.source || 'backfill',
+              };
+            }),
             {
-              onConflict: 'symbol,timeframe,time',
+              onConflict: 'symbol,timeframe,open_time',
               ignoreDuplicates: false,
             }
           );
@@ -176,9 +198,10 @@ class BackfillOrchestrator {
 
       // Fetch candles from data source
       console.log(`[${symbol}] Fetching data...`);
+      const sourceTimeframe = this.timeframeToSourceFormat(timeframe);
       const { candles: rawCandles, source } = await this.dataFetcher.fetchCandles(
         symbol,
-        timeframe,
+        sourceTimeframe,
         startDate,
         endDate
       );
