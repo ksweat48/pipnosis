@@ -68,8 +68,9 @@ export class PriceValidationService {
 
   /**
    * Validates if a price is within acceptable range for a symbol
+   * @param skipVelocity - Skip velocity validation (for historical data)
    */
-  validatePrice(symbol: string, price: number): PriceValidationResult {
+  validatePrice(symbol: string, price: number, skipVelocity: boolean = false): PriceValidationResult {
     // Check if price is a valid number
     if (typeof price !== 'number' || isNaN(price) || !isFinite(price)) {
       return {
@@ -112,14 +113,16 @@ export class PriceValidationService {
       logger.warn(LogCategory.CHART, `[PriceValidation] ⚠️ UNUSUAL ${symbol} price ${price} (${deviation.toFixed(1)}% from typical ${range.typical})`);
     }
 
-    // Velocity validation - check if price changed too fast
-    const velocityCheck = this.validatePriceVelocity(symbol, price, range);
-    if (!velocityCheck.isValid) {
-      return velocityCheck;
-    }
+    // CRITICAL FIX: Skip velocity validation for historical/database-sourced data
+    if (!skipVelocity) {
+      const velocityCheck = this.validatePriceVelocity(symbol, price, range);
+      if (!velocityCheck.isValid) {
+        return velocityCheck;
+      }
 
-    // Update last price for next velocity check
-    this.lastPrices.set(symbol, { price, timestamp: Date.now() });
+      // Update last price for next velocity check
+      this.lastPrices.set(symbol, { price, timestamp: Date.now() });
+    }
 
     return {
       isValid: true,
@@ -188,13 +191,14 @@ export class PriceValidationService {
 
   /**
    * Validates a candle's OHLC values
+   * @param skipVelocity - Skip velocity validation (for historical data)
    */
-  validateCandle(symbol: string, candle: { open: number; high: number; low: number; close: number }): PriceValidationResult {
+  validateCandle(symbol: string, candle: { open: number; high: number; low: number; close: number }, skipVelocity: boolean = false): PriceValidationResult {
     const prices = [candle.open, candle.high, candle.low, candle.close];
 
-    // Validate each price
+    // Validate each price (skip velocity for historical data)
     for (const price of prices) {
-      const result = this.validatePrice(symbol, price);
+      const result = this.validatePrice(symbol, price, skipVelocity);
       if (!result.isValid) {
         return result;
       }

@@ -142,12 +142,13 @@ class ChartCandlePoller {
         const sanitizedCandle = sanitizeCandleData(rawCandle);
 
         // CRITICAL: Validate candle prices before accepting
+        // Skip velocity validation for database-sourced historical candles
         const validation = priceValidationService.validateCandle(symbol, {
           open: sanitizedCandle.open,
           high: sanitizedCandle.high,
           low: sanitizedCandle.low,
           close: sanitizedCandle.close
-        });
+        }, true); // skipVelocity = true for database candles
 
         if (!validation.isValid) {
           logger.error(LogCategory.CHART_POLLER, `[ChartPoller] ❌ REJECTED invalid candle for ${symbol}: ${validation.reason}`);

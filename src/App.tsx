@@ -162,10 +162,22 @@ export default function App() {
       }
     };
 
+    // CRITICAL: Reset circuit breaker on startup to clear false positives
+    const resetCircuitBreaker = async () => {
+      try {
+        const { chartCircuitBreaker } = await import('./services/chart-circuit-breaker');
+        chartCircuitBreaker.reset();
+        console.log('[App] ✅ Reset circuit breaker on startup');
+      } catch (error) {
+        console.warn('[App] Could not reset circuit breaker:', error);
+      }
+    };
+
     // Load circuit breaker utilities for emergency use
     import('./utils/reset-circuit-breaker').catch(console.warn);
 
     clearCache();
+    resetCircuitBreaker();
 
     // Only run background services in production and only when user is authenticated
     if (!import.meta.env.PROD) return;
