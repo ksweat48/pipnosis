@@ -269,6 +269,18 @@ export function TradePage() {
     }
   };
 
+  const handlePositionClick = (position: any) => {
+    // Only switch if clicking a different symbol
+    if (position.symbol !== selectedSymbol) {
+      setSelectedSymbol(position.symbol);
+      setActiveTradeLines({
+        entry: position.entry_price || undefined,
+        stopLoss: position.stop_loss,
+        takeProfit: position.take_profit
+      });
+    }
+  };
+
   const handleMarkAsRead = (id: string) => {
     setNotifications(notifications.map(n =>
       n.id === id ? { ...n, read: true } : n
@@ -375,7 +387,11 @@ export function TradePage() {
             />
           </div>
 
-          <ActivePositions refreshTrigger={positionRefreshTrigger} />
+          <ActivePositions
+            refreshTrigger={positionRefreshTrigger}
+            onPositionClick={handlePositionClick}
+            currentSymbol={selectedSymbol}
+          />
 
           {activeSearchSessionId && isSearching && (
             <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-blue-200">

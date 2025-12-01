@@ -23,9 +23,11 @@ interface Position {
 
 interface ActivePositionsProps {
   refreshTrigger?: number;
+  onPositionClick?: (position: Position) => void;
+  currentSymbol?: string;
 }
 
-export function ActivePositions({ refreshTrigger }: ActivePositionsProps) {
+export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol }: ActivePositionsProps) {
   const [openPositions, setOpenPositions] = useState<Position[]>([]);
   const [pendingOrders, setPendingOrders] = useState<Position[]>([]);
   const [loading, setLoading] = useState(true);
@@ -267,10 +269,18 @@ export function ActivePositions({ refreshTrigger }: ActivePositionsProps) {
                         : livePrices[position.symbol].ask)
                     : position.current_price;
 
+                  const isCurrentSymbol = currentSymbol === position.symbol;
+
                   return (
                     <div
                       key={position.id}
-                      className="bg-gray-800 border border-gray-700 rounded-lg p-4 hover:border-gray-600 transition-colors"
+                      onClick={() => onPositionClick?.(position)}
+                      className={`bg-gray-800 border rounded-lg p-4 transition-all cursor-pointer ${
+                        isCurrentSymbol
+                          ? 'border-emerald-500 shadow-lg shadow-emerald-500/20'
+                          : 'border-gray-700 hover:border-gray-600'
+                      }`}
+                      title={isCurrentSymbol ? 'Currently displayed on chart' : 'Click to view on chart'}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
@@ -321,7 +331,10 @@ export function ActivePositions({ refreshTrigger }: ActivePositionsProps) {
                         </div>
 
                         <button
-                          onClick={() => handleClosePosition(position)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleClosePosition(position);
+                          }}
                           disabled={closingPosition === position.id}
                           className="ml-4 p-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded transition-colors"
                           title="Close position"

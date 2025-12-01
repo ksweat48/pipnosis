@@ -217,7 +217,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       height: 400,
       timeScale: {
         timeVisible: true,
-        secondsVisible: false,
+        secondsVisible: true,
       },
       rightPriceScale: {
         visible: true,
@@ -1218,6 +1218,43 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     }
   }, [indicatorVisibility]);
 
+  // Listen for gap detection events and trigger backfill
+  useEffect(() => {
+    const handleGapDetected = async (event: CustomEvent) => {
+      const { symbol: gapSymbol, timeframe: gapTimeframe } = event.detail;
+
+      // Only process gaps for the current chart
+      if (gapSymbol === symbol && gapTimeframe === timeframe) {
+        console.log(`[Chart] Gap detected for ${symbol} ${timeframe}, triggering backfill...`);
+
+        // Re-run gap detection and backfill
+        const { candles: backfilledCandles, backfillResult } = await detectAndBackfillGaps(
+          symbol,
+          timeframe,
+          historicalCandlesRef.current
+        );
+
+        if (backfillResult.gapsFilled > 0) {
+          console.log(`[Chart] Backfilled ${backfillResult.gapsFilled} gaps immediately after detection`);
+
+          // Update chart with backfilled candles
+          historicalCandlesRef.current = backfilledCandles;
+          if (candlestickSeriesRef.current) {
+            const sanitized = sanitizeCandleArray(backfilledCandles);
+            candlestickSeriesRef.current.setData(sanitized);
+          }
+
+          // Show brief notification
+          setDataQualityWarning(`Filled ${backfillResult.candlesCreated} missing candles in real-time`);
+          setTimeout(() => setDataQualityWarning(null), 5000);
+        }
+      }
+    };
+
+    window.addEventListener('candle-gap-detected', handleGapDetected as EventListener);
+    return () => window.removeEventListener('candle-gap-detected', handleGapDetected as EventListener);
+  }, [symbol, timeframe]);
+
   useEffect(() => {
     if (!chartRef.current || !candlestickSeriesRef.current || !tradeLines) return;
 
@@ -1490,18 +1527,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         <div className="relative">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden" />
 
-          {/* Market Closed Overlay */}
+          {/* Market Closed Overlay - TradingView Style */}
           {!forexMarketStatus.isOpen && (
-            <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm flex items-center justify-center z-10 pointer-events-none rounded-lg">
-              <div className="bg-red-900/40 border border-red-500/50 rounded-xl px-8 py-6 text-center">
-                <Clock className="w-12 h-12 text-red-400 mx-auto mb-3" />
+            <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-[2px] flex items-center justify-center z-10 pointer-events-none rounded-lg">
+              <div className="bg-red-900/30 border border-red-500/40 rounded-xl px-8 py-6 text-center backdrop-blur-sm">
+                <Clock className="w-12 h-12 text-red-400 mx-auto mb-3 animate-pulse" />
                 <h3 className="text-xl font-bold text-white mb-2">Market Closed</h3>
-                <p className="text-red-200">
+                <p className="text-red-200 mb-1">
                   {(() => {
                     const timeUntil = getTimeUntilMarketChange();
                     return `Market ${timeUntil.isOpening ? 'opens' : 'closes'} in ${timeUntil.hours}h ${timeUntil.minutes}m`;
                   })()}
                 </p>
+                <p className="text-red-300/60 text-sm">Chart frozen at last traded price</p>
               </div>
             </div>
           )}

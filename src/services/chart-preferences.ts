@@ -127,7 +127,7 @@ class ChartPreferencesService {
   }
 
   getTimeframe(symbol: string): Timeframe {
-    return this.preferences[symbol] || 'M1';
+    return this.preferences[symbol] || 'M5';
   }
 
   setTimeframe(symbol: string, timeframe: Timeframe): void {
