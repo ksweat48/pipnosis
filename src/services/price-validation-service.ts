@@ -14,10 +14,10 @@ interface PriceRange {
 }
 
 const SYMBOL_PRICE_RANGES: Record<string, PriceRange> = {
-  // Major Forex Pairs - TIGHTENED RANGES
-  EURUSD: { min: 0.90, max: 1.40, typical: 1.10 },
-  GBPUSD: { min: 1.00, max: 1.60, typical: 1.27 },
-  USDJPY: { min: 90, max: 180, typical: 149 },
+  // Major Forex Pairs - UPDATED RANGES (Dec 2025)
+  EURUSD: { min: 0.95, max: 1.30, typical: 1.16 },
+  GBPUSD: { min: 1.10, max: 1.50, typical: 1.32 },
+  USDJPY: { min: 100, max: 180, typical: 155 },
   AUDUSD: { min: 0.50, max: 0.90, typical: 0.65 },
   USDCAD: { min: 1.15, max: 1.60, typical: 1.36 },
   NZDUSD: { min: 0.45, max: 0.80, typical: 0.59 },
@@ -30,14 +30,14 @@ const SYMBOL_PRICE_RANGES: Record<string, PriceRange> = {
   AUDJPY: { min: 70, max: 120, typical: 97 },
   EURAUD: { min: 1.40, max: 1.90, typical: 1.70 },
 
-  // Commodities - TIGHTENED RANGES
-  XAUUSD: { min: 1800, max: 3500, typical: 2600 }, // Gold - much tighter
+  // Commodities - UPDATED RANGES (Dec 2025)
+  XAUUSD: { min: 2000, max: 4500, typical: 4200 }, // Gold - updated for current rally
   XAGUSD: { min: 18, max: 50, typical: 30 }, // Silver
   XPTUSD: { min: 700, max: 1300, typical: 950 }, // Platinum
   XPDUSD: { min: 700, max: 1800, typical: 1000 }, // Palladium
 
-  // Indices (CFD) - TIGHTENED RANGES
-  US30: { min: 30000, max: 50000, typical: 39500 }, // Dow Jones
+  // Indices (CFD) - UPDATED RANGES (Dec 2025)
+  US30: { min: 35000, max: 52000, typical: 47500 }, // Dow Jones
   NAS100: { min: 12000, max: 21000, typical: 16200 }, // NASDAQ
   SPX500: { min: 3800, max: 6200, typical: 5000 }, // S&P 500
   UK100: { min: 6500, max: 8800, typical: 7500 }, // FTSE 100
