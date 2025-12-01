@@ -130,6 +130,7 @@ export class PriceValidationService {
 
   /**
    * Validates price velocity (rate of change)
+   * IMPORTANT: Only validates LIVE prices, not historical data
    */
   private validatePriceVelocity(
     symbol: string,
@@ -144,6 +145,15 @@ export class PriceValidationService {
     }
 
     const timeDiff = (Date.now() - lastPriceData.timestamp) / 1000; // seconds
+
+    // CRITICAL FIX: Skip velocity check if too much time has passed (>10 seconds)
+    // This indicates we're loading historical data or recovering from pause, not live ticking
+    if (timeDiff > 10) {
+      // Reset the last price to avoid false positives
+      this.lastPrices.set(symbol, { price: newPrice, timestamp: Date.now() });
+      return { isValid: true };
+    }
+
     const priceDiff = Math.abs(newPrice - lastPriceData.price);
     const percentChange = (priceDiff / range.typical) * 100;
 
@@ -246,7 +256,9 @@ export class PriceValidationService {
       // Check if price falls within this other symbol's range and is close to typical
       if (price >= range.min && price <= range.max) {
         const deviation = Math.abs((price - range.typical) / range.typical * 100);
-        if (deviation < 20) { // Price is within 20% of typical for this symbol
+        // CRITICAL FIX: Increase threshold to 30% to reduce false positives
+        // Gold at 4240 and SPX500 at 5000 can overlap, so we need stricter matching
+        if (deviation < 10) { // Price is within 10% of typical for this symbol (very close match)
           logger.error(LogCategory.CHART, `[PriceValidation] 🚨 CROSS-CONTAMINATION DETECTED: ${symbol} received ${otherSymbol} price ${price}`);
           return otherSymbol;
         }

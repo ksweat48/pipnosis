@@ -162,6 +162,9 @@ export default function App() {
       }
     };
 
+    // Load circuit breaker utilities for emergency use
+    import('./utils/reset-circuit-breaker').catch(console.warn);
+
     clearCache();
 
     // Only run background services in production and only when user is authenticated
