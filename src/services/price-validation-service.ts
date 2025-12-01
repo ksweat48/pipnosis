@@ -14,42 +14,42 @@ interface PriceRange {
 }
 
 const SYMBOL_PRICE_RANGES: Record<string, PriceRange> = {
-  // Major Forex Pairs
-  EURUSD: { min: 0.50, max: 2.00, typical: 1.10 },
-  GBPUSD: { min: 0.50, max: 3.00, typical: 1.27 },
-  USDJPY: { min: 50, max: 200, typical: 149 },
-  AUDUSD: { min: 0.40, max: 1.50, typical: 0.65 },
-  USDCAD: { min: 0.80, max: 2.00, typical: 1.36 },
-  NZDUSD: { min: 0.40, max: 1.50, typical: 0.59 },
-  USDCHF: { min: 0.60, max: 1.50, typical: 0.88 },
+  // Major Forex Pairs - TIGHTENED RANGES
+  EURUSD: { min: 0.90, max: 1.40, typical: 1.10 },
+  GBPUSD: { min: 1.00, max: 1.60, typical: 1.27 },
+  USDJPY: { min: 90, max: 180, typical: 149 },
+  AUDUSD: { min: 0.50, max: 0.90, typical: 0.65 },
+  USDCAD: { min: 1.15, max: 1.60, typical: 1.36 },
+  NZDUSD: { min: 0.45, max: 0.80, typical: 0.59 },
+  USDCHF: { min: 0.75, max: 1.10, typical: 0.88 },
 
-  // Cross Pairs
-  EURGBP: { min: 0.60, max: 1.20, typical: 0.86 },
-  EURJPY: { min: 80, max: 220, typical: 163 },
-  GBPJPY: { min: 100, max: 250, typical: 189 },
-  AUDJPY: { min: 50, max: 150, typical: 97 },
-  EURAUD: { min: 1.00, max: 2.00, typical: 1.70 },
+  // Cross Pairs - TIGHTENED RANGES
+  EURGBP: { min: 0.70, max: 1.00, typical: 0.86 },
+  EURJPY: { min: 120, max: 200, typical: 163 },
+  GBPJPY: { min: 140, max: 220, typical: 189 },
+  AUDJPY: { min: 70, max: 120, typical: 97 },
+  EURAUD: { min: 1.40, max: 1.90, typical: 1.70 },
 
-  // Commodities
-  XAUUSD: { min: 1000, max: 10000, typical: 2600 }, // Gold
-  XAGUSD: { min: 10, max: 100, typical: 30 }, // Silver
-  XPTUSD: { min: 500, max: 2000, typical: 950 }, // Platinum
-  XPDUSD: { min: 500, max: 3500, typical: 1000 }, // Palladium
+  // Commodities - TIGHTENED RANGES
+  XAUUSD: { min: 1800, max: 3500, typical: 2600 }, // Gold - much tighter
+  XAGUSD: { min: 18, max: 50, typical: 30 }, // Silver
+  XPTUSD: { min: 700, max: 1300, typical: 950 }, // Platinum
+  XPDUSD: { min: 700, max: 1800, typical: 1000 }, // Palladium
 
-  // Indices (CFD)
-  US30: { min: 10000, max: 60000, typical: 39500 }, // Dow Jones
-  NAS100: { min: 5000, max: 25000, typical: 16200 }, // NASDAQ
-  SPX500: { min: 2000, max: 7000, typical: 5000 }, // S&P 500
-  UK100: { min: 4000, max: 10000, typical: 7500 }, // FTSE 100
-  GER40: { min: 8000, max: 20000, typical: 17200 }, // DAX
+  // Indices (CFD) - TIGHTENED RANGES
+  US30: { min: 30000, max: 50000, typical: 39500 }, // Dow Jones
+  NAS100: { min: 12000, max: 21000, typical: 16200 }, // NASDAQ
+  SPX500: { min: 3800, max: 6200, typical: 5000 }, // S&P 500
+  UK100: { min: 6500, max: 8800, typical: 7500 }, // FTSE 100
+  GER40: { min: 14000, max: 20000, typical: 17200 }, // DAX
 
-  // Crypto (common pairs)
-  BTCUSD: { min: 10000, max: 150000, typical: 65000 },
-  ETHUSD: { min: 500, max: 10000, typical: 3200 },
+  // Crypto (common pairs) - TIGHTENED RANGES
+  BTCUSD: { min: 40000, max: 100000, typical: 65000 },
+  ETHUSD: { min: 2000, max: 5000, typical: 3200 },
 
-  // Oil
-  USOIL: { min: 20, max: 200, typical: 75 }, // WTI Crude
-  UKOIL: { min: 20, max: 200, typical: 78 }, // Brent Crude
+  // Oil - TIGHTENED RANGES
+  USOIL: { min: 50, max: 110, typical: 75 }, // WTI Crude
+  UKOIL: { min: 55, max: 115, typical: 78 }, // Brent Crude
 };
 
 export interface PriceValidationResult {
@@ -60,6 +60,12 @@ export interface PriceValidationResult {
 }
 
 export class PriceValidationService {
+  // Track last prices for velocity validation
+  private lastPrices: Map<string, { price: number; timestamp: number }> = new Map();
+
+  // Maximum price change per second (as percentage of typical price)
+  private readonly MAX_VELOCITY_PERCENT_PER_SECOND = 1.0; // 1% per second max
+
   /**
    * Validates if a price is within acceptable range for a symbol
    */
@@ -106,11 +112,68 @@ export class PriceValidationService {
       logger.warn(LogCategory.CHART, `[PriceValidation] ⚠️ UNUSUAL ${symbol} price ${price} (${deviation.toFixed(1)}% from typical ${range.typical})`);
     }
 
+    // Velocity validation - check if price changed too fast
+    const velocityCheck = this.validatePriceVelocity(symbol, price, range);
+    if (!velocityCheck.isValid) {
+      return velocityCheck;
+    }
+
+    // Update last price for next velocity check
+    this.lastPrices.set(symbol, { price, timestamp: Date.now() });
+
     return {
       isValid: true,
       expectedRange: range,
       deviation
     };
+  }
+
+  /**
+   * Validates price velocity (rate of change)
+   */
+  private validatePriceVelocity(
+    symbol: string,
+    newPrice: number,
+    range: PriceRange
+  ): PriceValidationResult {
+    const lastPriceData = this.lastPrices.get(symbol);
+
+    // First price - no velocity to check
+    if (!lastPriceData) {
+      return { isValid: true };
+    }
+
+    const timeDiff = (Date.now() - lastPriceData.timestamp) / 1000; // seconds
+    const priceDiff = Math.abs(newPrice - lastPriceData.price);
+    const percentChange = (priceDiff / range.typical) * 100;
+
+    // Calculate velocity (percent change per second)
+    const velocity = timeDiff > 0 ? percentChange / timeDiff : 0;
+
+    // Check if velocity exceeds maximum
+    if (velocity > this.MAX_VELOCITY_PERCENT_PER_SECOND) {
+      logger.error(
+        LogCategory.CHART,
+        `[PriceValidation] ❌ VELOCITY LIMIT EXCEEDED for ${symbol}: ${velocity.toFixed(2)}%/s (max: ${this.MAX_VELOCITY_PERCENT_PER_SECOND}%/s)`
+      );
+
+      return {
+        isValid: false,
+        reason: `Price changed too fast: ${priceDiff.toFixed(5)} in ${timeDiff.toFixed(1)}s (${velocity.toFixed(2)}%/s)`,
+        expectedRange: range,
+        deviation: percentChange,
+      };
+    }
+
+    // Warn if velocity is high but under limit
+    if (velocity > this.MAX_VELOCITY_PERCENT_PER_SECOND * 0.7) {
+      logger.warn(
+        LogCategory.CHART,
+        `[PriceValidation] ⚠️ HIGH VELOCITY for ${symbol}: ${velocity.toFixed(2)}%/s`
+      );
+    }
+
+    return { isValid: true };
   }
 
   /**

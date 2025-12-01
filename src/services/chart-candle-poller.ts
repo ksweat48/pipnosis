@@ -3,6 +3,8 @@ import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
 import { CandleData, sanitizeCandleData, sanitizeCandleArray, ensureUnixTimestamp, getTimeframeMinutes } from '@/services/candle-data-service';
 import { logger, LogCategory } from '@/lib/logger';
 import { priceValidationService } from './price-validation-service';
+import { validateSymbol, ValidatedSymbol } from '@/types/symbol';
+import { chartCircuitBreaker } from './chart-circuit-breaker';
 
 interface PollResult {
   candles: CandleData[];
@@ -114,6 +116,14 @@ class ChartCandlePoller {
       const candleMap = new Map<number, CandleData>();
 
       data.forEach(candle => {
+        // CRITICAL: Validate symbol before processing any data
+        const symbolValidation = validateSymbol(symbol);
+        if (!symbolValidation.isValid || !symbolValidation.symbol) {
+          logger.error(LogCategory.CHART_POLLER, `[ChartPoller] ❌ INVALID SYMBOL: ${symbol}`);
+          return;
+        }
+        const validatedSymbol = symbolValidation.symbol;
+
         // CRITICAL FIX: Use robust timestamp converter to handle ALL data types from Supabase
         // open_time could be: Date object, ISO string, or already a number
         const timestamp = ensureUnixTimestamp(candle.open_time, 'ChartPoller');
@@ -141,7 +151,28 @@ class ChartCandlePoller {
 
         if (!validation.isValid) {
           logger.error(LogCategory.CHART_POLLER, `[ChartPoller] ❌ REJECTED invalid candle for ${symbol}: ${validation.reason}`);
+
+          // Check for possible cross-contamination
+          const mismatchSymbol = priceValidationService.detectPossibleSymbolMismatch(symbol, sanitizedCandle.close);
+          if (mismatchSymbol) {
+            chartCircuitBreaker.recordContamination(
+              mismatchSymbol as ValidatedSymbol,
+              validatedSymbol,
+              'ChartCandlePoller.pollCandles',
+              { candle: sanitizedCandle, dbRecord: candle }
+            );
+          }
+
           return; // Skip this candle
+        }
+
+        // FINAL CHECK: Circuit breaker - reject if updates not allowed
+        if (!chartCircuitBreaker.isUpdateAllowed(validatedSymbol)) {
+          logger.error(
+            LogCategory.CHART_POLLER,
+            `[ChartPoller] 🔴 CIRCUIT BREAKER OPEN - Updates blocked for ${symbol}`
+          );
+          return;
         }
 
         // Keep only the most recent entry for each timestamp (first in descending order)

@@ -39,6 +39,8 @@ import { getForexMarketStatus, getTimeUntilMarketChange, type MarketStatus } fro
 import { concurrentBulkLoader } from '@/services/concurrent-bulk-loader';
 import { ChartLoadingOverlay, BackgroundLoadingIndicator } from '@/components/ChartLoadingOverlay';
 import { priceValidationService } from '@/services/price-validation-service';
+import { chartCircuitBreaker } from '@/services/chart-circuit-breaker';
+import { validateSymbol, type ValidatedSymbol } from '@/types/symbol';
 
 interface MarketChartProps {
   symbol: string;
@@ -61,8 +63,15 @@ interface CurrentCandle {
 }
 
 export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecuted }: MarketChartProps) {
-  // CRITICAL: Track current symbol to reject cross-contaminated updates
-  const currentSymbolRef = useRef<string>(symbol);
+  // CRITICAL: Validate and track current symbol to reject cross-contaminated updates
+  const validationResult = validateSymbol(symbol);
+  if (!validationResult.isValid) {
+    console.error(`[Chart] Invalid symbol provided: ${symbol}`);
+    return <div className="text-red-500 p-4">Error: Invalid symbol {symbol}</div>;
+  }
+
+  const validatedSymbol = validationResult.symbol!;
+  const currentSymbolRef = useRef<ValidatedSymbol>(validatedSymbol);
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -403,9 +412,26 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   const updateCurrentCandleFromTick = (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => {
+    // CRITICAL: Check circuit breaker first
+    if (!chartCircuitBreaker.isUpdateAllowed(validatedSymbol)) {
+      console.error(`[Chart][${symbol}] 🔴 CIRCUIT BREAKER OPEN - Updates blocked`);
+      return;
+    }
+
     // CRITICAL: Double-check symbol validation using both prop and ref
     if (tick.symbol !== symbol || tick.symbol !== currentSymbolRef.current) {
       console.warn(`[Chart][${symbol}] ❌ REJECTED tick for wrong symbol: got ${tick.symbol}, expected ${symbol} (ref: ${currentSymbolRef.current})`);
+
+      // Record contamination event
+      const tickSymbolValidation = validateSymbol(tick.symbol);
+      if (tickSymbolValidation.isValid) {
+        chartCircuitBreaker.recordContamination(
+          tickSymbolValidation.symbol!,
+          validatedSymbol,
+          'tick-update',
+          tick
+        );
+      }
       return;
     }
 
