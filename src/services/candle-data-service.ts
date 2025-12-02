@@ -44,7 +44,7 @@ const MAX_PRICE_DEVIATION_PERCENT = 10;
  */
 export function ensureUnixTimestamp(value: any, context: string = 'unknown'): number {
   // Already a valid Unix timestamp in seconds
-  if (typeof value === 'number' && value > 0) {
+  if (typeof value === 'number' && value > 0 && !isNaN(value)) {
     // Check if it's in milliseconds (> year 2100 in seconds)
     if (value > 4102444800) {
       const seconds = Math.floor(value / 1000);
@@ -63,6 +63,15 @@ export function ensureUnixTimestamp(value: any, context: string = 'unknown'): nu
 
   // String (ISO or timestamp)
   if (typeof value === 'string') {
+    // Handle numeric strings
+    if (/^\d+$/.test(value)) {
+      const numValue = parseInt(value, 10);
+      if (!isNaN(numValue)) {
+        return ensureUnixTimestamp(numValue, context);
+      }
+    }
+
+    // Handle ISO strings
     const date = new Date(value);
     if (!isNaN(date.getTime())) {
       const seconds = Math.floor(date.getTime() / 1000);
@@ -71,10 +80,31 @@ export function ensureUnixTimestamp(value: any, context: string = 'unknown'): nu
     }
   }
 
-  // Fallback for objects or invalid values
+  // Handle plain objects with numeric value (sometimes Supabase returns this)
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    // Try valueOf() method
+    if (typeof value.valueOf === 'function') {
+      const primitiveValue = value.valueOf();
+      if (typeof primitiveValue === 'number' || typeof primitiveValue === 'string') {
+        console.log(`[${context}] Unwrapped object to primitive:`, primitiveValue);
+        return ensureUnixTimestamp(primitiveValue, context);
+      }
+    }
+
+    // Try toString() if it gives us something useful
+    if (typeof value.toString === 'function') {
+      const stringValue = value.toString();
+      if (stringValue !== '[object Object]') {
+        console.log(`[${context}] Converted object to string:`, stringValue);
+        return ensureUnixTimestamp(stringValue, context);
+      }
+    }
+  }
+
+  // Fallback for invalid values - throw error instead of returning bad data
   console.error(`[${context}] ⚠️ INVALID TIMESTAMP TYPE: ${typeof value}, value:`, value);
-  console.error(`[${context}] Using current time as fallback`);
-  return Math.floor(Date.now() / 1000);
+  console.error(`[${context}] CRITICAL: Cannot convert to Unix timestamp, throwing error`);
+  throw new Error(`Invalid timestamp value: ${JSON.stringify(value)}`);
 }
 
 /**
@@ -294,22 +324,41 @@ export async function fetchPreAggregatedCandles(
     // Convert to standard format and deduplicate by timestamp
     const candleMap = new Map<number, CandleData>();
 
-    forexCandles.forEach((candle) => {
-      // CRITICAL FIX: Use robust timestamp converter to handle ALL data types from Supabase
-      // open_time could be: Date object, ISO string, or already a number
-      const timestamp = ensureUnixTimestamp(candle.open_time, 'fetchPreAggregatedCandles');
+    forexCandles.forEach((candle, index) => {
+      try {
+        // CRITICAL FIX: Use robust timestamp converter to handle ALL data types from Supabase
+        // open_time could be: Date object, ISO string, or already a number
+        const timestamp = ensureUnixTimestamp(candle.open_time, 'fetchPreAggregatedCandles');
 
-      // Only keep the first occurrence of each timestamp (most recent in query order)
-      if (!candleMap.has(timestamp)) {
-        // CRITICAL FIX: Explicitly parse all numeric fields to ensure they're numbers, not strings/objects
-        candleMap.set(timestamp, {
-          time: timestamp,
-          open: Number(candle.open),
-          high: Number(candle.high),
-          low: Number(candle.low),
-          close: Number(candle.close),
-          volume: Number(candle.volume || 0),
-        });
+        // Validate timestamp is reasonable (after year 2020, before year 2100)
+        if (timestamp < 1577836800 || timestamp > 4102444800) {
+          console.warn(`[fetchPreAggregatedCandles] Skipping candle ${index} with invalid timestamp: ${timestamp}`);
+          return;
+        }
+
+        // Only keep the first occurrence of each timestamp (most recent in query order)
+        if (!candleMap.has(timestamp)) {
+          // CRITICAL FIX: Explicitly parse all numeric fields to ensure they're numbers, not strings/objects
+          const candleData = {
+            time: timestamp,
+            open: Number(candle.open),
+            high: Number(candle.high),
+            low: Number(candle.low),
+            close: Number(candle.close),
+            volume: Number(candle.volume || 0),
+          };
+
+          // Validate all prices are valid numbers
+          if (isNaN(candleData.open) || isNaN(candleData.high) || isNaN(candleData.low) || isNaN(candleData.close)) {
+            console.warn(`[fetchPreAggregatedCandles] Skipping candle ${index} with invalid prices:`, candle);
+            return;
+          }
+
+          candleMap.set(timestamp, candleData);
+        }
+      } catch (error) {
+        console.error(`[fetchPreAggregatedCandles] Failed to process candle ${index}:`, error, candle);
+        // Continue processing other candles
       }
     });
 

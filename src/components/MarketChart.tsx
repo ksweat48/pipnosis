@@ -471,6 +471,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   const updateCurrentCandleFromTick = (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => {
+    // CRITICAL: Check if chart is still mounted
+    if (!candlestickSeriesRef.current || !chartRef.current) {
+      return;
+    }
+
     // CRITICAL: Check circuit breaker first
     if (!chartCircuitBreaker.isUpdateAllowed(validatedSymbol)) {
       console.error(`[Chart][${symbol}] 🔴 CIRCUIT BREAKER OPEN - Updates blocked`);
@@ -610,6 +615,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           setDebugInfo(`Live: ${new Date(tick.timestamp).toLocaleTimeString()} | Progress: ${progress.toFixed(0)}%`);
         }
       } catch (error) {
+        // Check if error is due to disposed chart
+        if (error instanceof Error && error.message.includes('disposed')) {
+          console.warn('[Chart] Chart was disposed during update, ignoring error');
+          return;
+        }
         console.error('[Chart] Error updating from tick:', error);
       }
 
