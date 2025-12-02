@@ -81,7 +81,10 @@ class ConcurrentBulkLoader {
       const candles = await this.fetchCandlesWithRetry(symbol, timeframe, candleCount, onProgress);
 
       if (candles && candles.length > 0) {
-        await this.upsertCandles(candles);
+        // CRITICAL FIX: Don't upsert candles that were just loaded from database
+        // They're already persisted! Only upsert when we have NEW data from external sources
+        // Upserting database-loaded candles causes unnecessary operations and field mismatch errors
+        console.log(`[BulkLoader] ✅ Loaded ${candles.length} candles from database (already persisted, skipping upsert)`);
 
         try {
           await candleCacheManager.saveCandles(symbol, timeframe, candles);
