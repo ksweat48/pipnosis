@@ -11,7 +11,6 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
 const TIMEFRAMES = [
-  { name: 'M1', minutes: 1 },
   { name: 'M5', minutes: 5 },
   { name: 'M15', minutes: 15 },
   { name: 'M30', minutes: 30 },
@@ -103,7 +102,11 @@ async function fetchMissingCandlesFromMetaApi(
     });
 
     if (!response.ok) {
-      console.error(`[MetaAPI] Error fetching ${symbol} ${timeframe}: ${response.status}`);
+      if (response.status === 404) {
+        console.log(`[MetaAPI] Historical data not available for ${symbol} ${timeframe} (404 - expected for M1)`);
+      } else {
+        console.error(`[MetaAPI] Error fetching ${symbol} ${timeframe}: ${response.status}`);
+      }
       return [];
     }
 
