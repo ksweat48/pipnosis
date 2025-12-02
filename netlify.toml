@@ -58,10 +58,10 @@
   timeout = 26
   schedule = "*/5 * * * *"  # 🚨 5-field format ONLY - DO NOT add seconds field
 
-# 🚨 CRITICAL: Gap filling (runs every 5 minutes)
-[functions."fill-candle-gaps"]
+# 🚨 TEMPORARILY DISABLED - Creates flat candles from MetaAPI historical endpoint
+[functions."fill-candle-gaps-DISABLED"]
   timeout = 300
-  schedule = "*/5 * * * *"  # 🚨 5-field format ONLY - DO NOT add seconds field
+  # schedule = "*/5 * * * *"  # DISABLED
 
 [functions."polling-health"]
   timeout = 10
