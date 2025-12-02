@@ -6,6 +6,7 @@ import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock
 import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
 import { chartPreferencesService, type IndicatorVisibility } from '@/services/chart-preferences';
 import { DataResetPanel } from '@/components/DataResetPanel';
+import { GapBackfillPanel } from '@/components/GapBackfillPanel';
 
 export function SettingsPage() {
   const { user, updatePassword } = useAuth();
@@ -885,6 +886,8 @@ export function SettingsPage() {
                 </div>
               </form>
             </div>
+
+            <GapBackfillPanel />
 
             <DataResetPanel />
           </div>
