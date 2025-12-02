@@ -76,10 +76,13 @@ User sees live price
 
 **Purpose:** Collects price data and aggregates candles on server-side to prevent browser throttling
 
-**Components:**
-- `netlify/functions/continuous-price-collector.ts`
-- `netlify/functions/continuous-candle-aggregator.ts`
-- `netlify/functions/fill-candle-gaps.ts`
+**⚠️ ARCHITECTURE DECISION: ALL SCHEDULING USES NETLIFY ONLY**
+
+Supabase pg_cron is permanently disabled. See `docs/ARCHITECTURE_DECISION.md` for rationale.
+
+**Approved Scheduled Functions:**
+- `netlify/functions/continuous-price-collector.ts` - Collects live prices every minute
+- `netlify/functions/continuous-candle-aggregator.ts` - Aggregates candles every 5 minutes
 
 **Critical Configuration (netlify.toml):**
 
@@ -91,13 +94,13 @@ User sees live price
 [functions."continuous-candle-aggregator"]
   timeout = 26
   schedule = "*/5 * * * *"  # Every 5 minutes
-
-[functions."fill-candle-gaps"]
-  timeout = 300
-  schedule = "*/5 * * * *"  # Every 5 minutes
 ```
 
-**⚠️ CRITICAL: Cron Format MUST be 5-field format (minute hour day month weekday)**
+**⚠️ CRITICAL REQUIREMENTS:**
+- Cron format MUST be 5-field format (minute hour day month weekday)
+- DO NOT use 6-field format (with seconds) - Netlify does not support it
+- DO NOT add Supabase cron jobs - they are permanently banned
+- DO NOT use MetaAPI historical candles endpoint - it returns flat data
 - ✅ CORRECT: `"* * * * *"` (5 fields)
 - ❌ WRONG: `"0 * * * * *"` (6 fields - will break)
 
