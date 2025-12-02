@@ -1,6 +1,5 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { getWorkingMetaApiAccount, markAccountFailed, markAccountSuccess } from './_shared/metaapi-account-manager';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -8,6 +7,20 @@ const metaApiToken = process.env.METAAPI_TOKEN!;
 const metaApiRegion = process.env.METAAPI_REGION || 'london';
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+const PRIMARY_ACCOUNT = process.env.METAAPI_ACCOUNT_ID || '';
+
+function getWorkingMetaApiAccount(): string {
+  return PRIMARY_ACCOUNT;
+}
+
+function markAccountFailed(accountId: string, error?: any): void {
+  console.warn(`[MetaAPI] Account ${accountId.slice(0, 8)}... failed:`, error?.message || error);
+}
+
+function markAccountSuccess(accountId: string): void {
+  // No-op for now
+}
 
 const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
 
