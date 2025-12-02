@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { getWorkingMetaApiAccount, markAccountFailed, markAccountSuccess } from '../../src/services/metaapi-account-manager';
+import { getWorkingMetaApiAccount, markAccountFailed, markAccountSuccess } from './_shared/metaapi-account-manager';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;

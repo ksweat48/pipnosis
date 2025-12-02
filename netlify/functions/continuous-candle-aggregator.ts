@@ -121,7 +121,9 @@ async function saveCandleToDatabase(candle: CandleData): Promise<boolean> {
         high: candle.high,
         low: candle.low,
         close: candle.close,
-        volume: candle.volume
+        volume: candle.volume,
+        tick_count: candle.volume,
+        data_source: 'netlify_aggregator'
       }, {
         onConflict: 'symbol,timeframe,open_time',
         ignoreDuplicates: false
