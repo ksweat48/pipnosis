@@ -924,8 +924,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         return true;
       });
 
-      if (validatedCandles.length !== backfilledCandles.length) {
-        console.warn(`[Chart Init] Filtered out ${backfilledCandles.length - validatedCandles.length} invalid candles`);
+      if (validatedCandles.length !== uniqueHistorical.length) {
+        console.warn(`[Chart Init] Filtered out ${uniqueHistorical.length - validatedCandles.length} invalid candles`);
       }
 
       historicalCandlesRef.current = validatedCandles;
