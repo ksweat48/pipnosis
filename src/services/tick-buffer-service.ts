@@ -13,7 +13,7 @@ interface TickData {
 
 const BUFFER_KEY_PREFIX = 'tick_buffer_';
 const MAX_BUFFER_SIZE = 1000;
-const SYNC_INTERVAL_MS = 5000;
+const SYNC_INTERVAL_MS = 30000; // 30 seconds - just for memory cleanup, not actual sync
 const MAX_RETRY_ATTEMPTS = 3;
 
 class TickBufferService {
@@ -28,13 +28,12 @@ class TickBufferService {
   private initOnlineDetection() {
     if (typeof window !== 'undefined') {
       window.addEventListener('online', () => {
-        logger.info(LogCategory.TICK_BUFFER, '🌐 Network online - resuming sync');
+        logger.info(LogCategory.TICK_BUFFER, '🌐 Network online - buffer active');
         this.isOnline = true;
-        this.syncAllBuffers();
       });
 
       window.addEventListener('offline', () => {
-        logger.info(LogCategory.TICK_BUFFER, '📡 Network offline - buffering to localStorage');
+        logger.info(LogCategory.TICK_BUFFER, '📡 Network offline - buffer active');
         this.isOnline = false;
       });
 
@@ -64,9 +63,8 @@ class TickBufferService {
 
     this.saveBuffer(bufferKey, buffer);
 
-    if (this.isOnline && buffer.length > 0) {
-      this.syncBuffer(bufferKey, symbol);
-    }
+    // NOTE: Immediate sync disabled - buffer cleanup happens on background interval only
+    // No need to sync after every tick since we're not writing to database
   }
 
   private getBuffer(key: string): TickData[] {
@@ -94,64 +92,23 @@ class TickBufferService {
   }
 
   private async syncBuffer(bufferKey: string, symbol: string): Promise<void> {
+    // NOTE: Database sync disabled - Netlify continuous-price-collector handles persistence
+    // This method now only manages local buffer cleanup to prevent memory bloat
+
     const buffer = this.getBuffer(bufferKey);
-    const unsyncedTicks = buffer.filter(t => !t.synced && t.retry_count < MAX_RETRY_ATTEMPTS);
 
-    if (unsyncedTicks.length === 0) return;
+    // Mark all ticks as "synced" (even though we're not actually syncing)
+    // This prevents buffer from growing indefinitely
+    const cleanedBuffer = buffer.map(tick => ({
+      ...tick,
+      synced: true
+    }));
 
-    logger.debug(LogCategory.TICK_BUFFER, `📤 Syncing ${unsyncedTicks.length} ticks for ${symbol}`);
+    // Keep only last 100 ticks in memory for performance
+    const recentBuffer = cleanedBuffer.slice(-100);
+    this.saveBuffer(bufferKey, recentBuffer);
 
-    const ticksToSync = unsyncedTicks.map(t => {
-      const bid = parseFloat(t.bid.toString());
-      const ask = parseFloat(t.ask.toString());
-      const mid = (bid + ask) / 2;
-      const spread = ask - bid;
-
-      return {
-        symbol: t.symbol,
-        bid: bid.toString(),
-        ask: ask.toString(),
-        mid: mid.toString(),
-        spread: spread.toString(),
-        broker_time: t.broker_time || t.timestamp,
-        created_at: t.timestamp
-      };
-    });
-
-    try {
-      const { error } = await supabase
-        .from('realtime_prices')
-        .insert(ticksToSync);
-
-      if (error) {
-        logger.error(LogCategory.TICK_BUFFER, `❌ Sync failed for ${symbol}:`, error);
-
-        unsyncedTicks.forEach(tick => {
-          tick.retry_count++;
-        });
-        this.saveBuffer(bufferKey, buffer);
-      } else {
-        logger.trace(LogCategory.TICK_BUFFER, `✅ Successfully synced ${ticksToSync.length} ticks for ${symbol}`);
-
-        const syncedBuffer = buffer.map(tick => {
-          if (unsyncedTicks.includes(tick)) {
-            return { ...tick, synced: true };
-          }
-          return tick;
-        });
-
-        const cleanedBuffer = syncedBuffer.filter(t => !t.synced || t.retry_count < MAX_RETRY_ATTEMPTS);
-        this.saveBuffer(bufferKey, cleanedBuffer);
-      }
-
-    } catch (error) {
-      logger.error(LogCategory.TICK_BUFFER, `❌ Sync error for ${symbol}:`, error);
-
-      unsyncedTicks.forEach(tick => {
-        tick.retry_count++;
-      });
-      this.saveBuffer(bufferKey, buffer);
-    }
+    logger.trace(LogCategory.TICK_BUFFER, `🧹 Cleaned buffer for ${symbol}, kept ${recentBuffer.length} recent ticks`);
   }
 
   private async syncAllBuffers(): Promise<void> {
@@ -174,7 +131,7 @@ class TickBufferService {
       }
     }, SYNC_INTERVAL_MS);
 
-    logger.debug(LogCategory.TICK_BUFFER, '🔄 Background sync started');
+    logger.debug(LogCategory.TICK_BUFFER, '🔄 Background buffer cleanup started');
   }
 
   getBufferStats(symbol: string): {
