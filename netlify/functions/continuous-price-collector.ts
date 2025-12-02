@@ -87,7 +87,17 @@ async function savePriceToDatabase(priceData: MetaApiPrice): Promise<boolean> {
 }
 
 export const handler: Handler = async (event, context) => {
-  console.log('[PriceCollector] Starting continuous price collection...');
+  const executionId = `exec_${Date.now()}`;
+  console.log(`[PriceCollector:${executionId}] 🚀 Starting continuous price collection...`);
+  console.log(`[PriceCollector:${executionId}] Environment check:`, {
+    hasMetaApiToken: !!metaApiToken,
+    hasMetaApiAccountId: !!metaApiAccountId,
+    hasSupabaseUrl: !!supabaseUrl,
+    hasSupabaseKey: !!supabaseServiceKey,
+    metaApiRegion,
+    symbols: ACTIVE_SYMBOLS
+  });
+
   const startTime = Date.now();
 
   try {
@@ -106,33 +116,47 @@ export const handler: Handler = async (event, context) => {
     const failed = results.length - successful;
 
     const duration = Date.now() - startTime;
-    console.log(`[PriceCollector] ✅ Completed in ${duration}ms: ${successful} prices saved, ${failed} failed`);
+    console.log(`[PriceCollector:${executionId}] ✅ Completed in ${duration}ms: ${successful} prices saved, ${failed} failed`);
 
     results.forEach((result, index) => {
       if (result.status === 'fulfilled' && result.value.success && result.value.price) {
         const { symbol, price } = result.value;
-        console.log(`  - ${symbol}: ${price.bid}/${price.ask} (spread: ${(price.ask - price.bid).toFixed(5)})`);
+        console.log(`[PriceCollector:${executionId}]   ✓ ${symbol}: ${price.bid}/${price.ask} (spread: ${(price.ask - price.bid).toFixed(5)})`);
+      } else if (result.status === 'fulfilled' && !result.value.success) {
+        console.error(`[PriceCollector:${executionId}]   ✗ ${result.value.symbol}: Failed to collect/save`);
+      } else if (result.status === 'rejected') {
+        console.error(`[PriceCollector:${executionId}]   ✗ Promise rejected:`, result.reason);
       }
     });
+
+    if (failed > 0) {
+      console.warn(`[PriceCollector:${executionId}] ⚠️ ${failed} symbols failed - may need attention`);
+    }
+
+    console.log(`[PriceCollector:${executionId}] 🎯 Summary: ${successful}/${ACTIVE_SYMBOLS.length} symbols successful`);
 
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         success: true,
+        executionId,
         pricesCollected: successful,
         pricesFailed: failed,
         durationMs: duration,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        symbols: ACTIVE_SYMBOLS
       })
     };
   } catch (error) {
-    console.error('[PriceCollector] Unexpected error:', error);
+    console.error(`[PriceCollector:${executionId}] ❌ Unexpected error:`, error);
+    console.error(`[PriceCollector:${executionId}] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         success: false,
+        executionId,
         error: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString()
       })

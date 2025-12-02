@@ -8,6 +8,7 @@ import { GlobalPollingStatus } from '@/components/GlobalPollingStatus';
 import { PollingPreferences } from '@/components/PollingPreferences';
 import { PipnosisMasteryCurve } from '@/components/PipnosisMasteryCurve';
 import { OpenAIUsageDashboard } from '@/components/OpenAIUsageDashboard';
+import { ServerSidePollingMonitor } from '@/components/ServerSidePollingMonitor';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { simpleAutoBacktestService } from '@/services/simple-auto-backtest-service';
@@ -365,6 +366,9 @@ export function AdminDashboard() {
         {activeTab === 'data' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 gap-6">
+              <ServerSidePollingMonitor />
+            </div>
+            <div className="grid grid-cols-1 gap-6">
               <CandleAggregatorStatus />
             </div>
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
@@ -372,6 +376,7 @@ export function AdminDashboard() {
                 <Activity size={20} className="text-emerald-400" />
                 <h2 className="text-xl font-semibold text-white">System Monitoring</h2>
               </div>
+              <GlobalPollingStatus />
             </div>
             <DataManagementPanel />
           </div>
