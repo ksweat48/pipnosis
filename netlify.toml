@@ -58,10 +58,9 @@
   timeout = 26
   schedule = "*/5 * * * *"  # 🚨 5-field format ONLY - DO NOT add seconds field
 
-# 🚨 TEMPORARILY DISABLED - Creates flat candles from MetaAPI historical endpoint
-[functions."fill-candle-gaps-DISABLED"]
-  timeout = 300
-  # schedule = "*/5 * * * *"  # DISABLED
+# 📊 Historical backfill (on-demand only, no schedule)
+[functions."historical-backfill"]
+  timeout = 600  # 10 minutes for large backfills
 
 [functions."polling-health"]
   timeout = 10

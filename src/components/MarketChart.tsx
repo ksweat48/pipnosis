@@ -17,7 +17,6 @@ import {
   CandleData,
   RealtimePrice as RealtimePriceType
 } from '@/services/candle-data-service';
-import { detectAndBackfillGaps } from '@/services/candle-backfill-service';
 import { candlePersistenceService } from '@/services/candle-persistence-service';
 import { chartCandlePoller } from '@/services/chart-candle-poller';
 import { backgroundCandleAggregator } from '@/services/background-candle-aggregator';
@@ -910,28 +909,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         }
       }
 
-      console.log(`[Chart Init] Checking for data gaps in ${uniqueHistorical.length} candles...`);
-      const { candles: backfilledCandles, backfillResult } = await detectAndBackfillGaps(
-        symbol,
-        timeframe,
-        uniqueHistorical
-      );
-
-      if (backfillResult.gapsFilled > 0) {
-        console.log(`[Chart Init] ✓ Backfilled ${backfillResult.gapsFilled} gaps, created ${backfillResult.candlesCreated} candles`);
-        setDataQualityWarning(`Data gaps detected and backfilled from tick data. ${backfillResult.candlesCreated} missing candles restored.`);
-
-        setTimeout(() => setDataQualityWarning(null), 10000);
-      } else {
-        setDataQualityWarning(null);
-      }
-
-      if (backfillResult.errors.length > 0) {
-        console.warn('[Chart Init] Backfill errors:', backfillResult.errors);
-      }
+      console.log(`[Chart Init] Loaded ${uniqueHistorical.length} candles from database`);
+      setDataQualityWarning(null);
 
       // Validate all candle times before setting
-      const validatedCandles = backfilledCandles.filter((candle, index) => {
+      const validatedCandles = uniqueHistorical.filter((candle, index) => {
         if (typeof candle.time !== 'number' || isNaN(candle.time)) {
           console.error(`[Chart Init] Invalid candle at index ${index}:`, {
             candle,
@@ -1314,41 +1296,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   }, [indicatorVisibility]);
 
   // Listen for gap detection events and trigger backfill
-  useEffect(() => {
-    const handleGapDetected = async (event: CustomEvent) => {
-      const { symbol: gapSymbol, timeframe: gapTimeframe } = event.detail;
-
-      // Only process gaps for the current chart
-      if (gapSymbol === symbol && gapTimeframe === timeframe) {
-        console.log(`[Chart] Gap detected for ${symbol} ${timeframe}, triggering backfill...`);
-
-        // Re-run gap detection and backfill
-        const { candles: backfilledCandles, backfillResult } = await detectAndBackfillGaps(
-          symbol,
-          timeframe,
-          historicalCandlesRef.current
-        );
-
-        if (backfillResult.gapsFilled > 0) {
-          console.log(`[Chart] Backfilled ${backfillResult.gapsFilled} gaps immediately after detection`);
-
-          // Update chart with backfilled candles
-          historicalCandlesRef.current = backfilledCandles;
-          if (candlestickSeriesRef.current) {
-            const sanitized = sanitizeCandleArray(backfilledCandles);
-            candlestickSeriesRef.current.setData(sanitized);
-          }
-
-          // Show brief notification
-          setDataQualityWarning(`Filled ${backfillResult.candlesCreated} missing candles in real-time`);
-          setTimeout(() => setDataQualityWarning(null), 5000);
-        }
-      }
-    };
-
-    window.addEventListener('candle-gap-detected', handleGapDetected as EventListener);
-    return () => window.removeEventListener('candle-gap-detected', handleGapDetected as EventListener);
-  }, [symbol, timeframe]);
+  // Gap detection removed - clean backfill system will handle historical data
+  // Charts now rely on continuous-candle-aggregator for fresh data
 
   useEffect(() => {
     if (!chartRef.current || !candlestickSeriesRef.current || !tradeLines) return;
