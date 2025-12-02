@@ -211,8 +211,8 @@ class EmergencyPricePoller {
           const livePrice = result.value;
           this.lastPrice = livePrice;
 
-          // Save to database for persistence
-          await this.savePriceToDatabase(livePrice);
+          // NOTE: Database writes are handled by Netlify continuous-price-collector
+          // Client-side emergency poller only fetches and notifies listeners
 
           // Notify listeners (BackgroundAggregator)
           this.notifyListeners(livePrice);
@@ -239,30 +239,6 @@ class EmergencyPricePoller {
         await this.determineMode();
         this.errorCount = 0;
       }
-    }
-  }
-
-  private async savePriceToDatabase(price: LivePrice): Promise<void> {
-    try {
-      const { error } = await supabase
-        .from('realtime_prices')
-        .insert({
-          symbol: price.symbol,
-          bid: price.bid.toString(),
-          ask: price.ask.toString(),
-          mid: ((price.bid + price.ask) / 2).toString(),
-          spread: (price.ask - price.bid).toString(),
-          broker_time: price.timestamp,
-          source: 'emergency_poller'
-        });
-
-      if (error) {
-        console.error(`[EmergencyPoller] Failed to save ${price.symbol} to DB:`, error);
-      } else {
-        logger.debug(LogCategory.SYSTEM, `💾 Saved ${price.symbol} to database`);
-      }
-    } catch (error) {
-      console.error('[EmergencyPoller] Exception saving price:', error);
     }
   }
 

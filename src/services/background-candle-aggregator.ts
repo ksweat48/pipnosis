@@ -505,32 +505,34 @@ class BackgroundCandleAggregator {
 
   private async checkServerSideAggregation(): Promise<boolean> {
     try {
-      // Check if candle_state table exists and has recent activity
+      // Check if Netlify continuous-candle-aggregator is working by checking recent candles
       const { data, error } = await supabase
-        .from('candle_state')
-        .select('last_updated')
-        .order('last_updated', { ascending: false })
+        .from('forex_candles')
+        .select('open_time, data_source')
+        .eq('data_source', 'netlify_aggregator')
+        .order('open_time', { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (error) {
-        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Server-side aggregation check: table not found or error', error.message);
+        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, 'Server-side aggregation check: error', error.message);
         return false;
       }
 
       if (!data) {
-        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' Server-side aggregation check: no candle state data found');
+        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, 'Server-side aggregation check: no netlify_aggregator candles found');
         return false;
       }
 
-      const lastUpdate = new Date(data.last_updated).getTime();
+      const lastUpdate = new Date(data.open_time).getTime();
       const ageSeconds = (Date.now() - lastUpdate) / 1000;
 
-      if (ageSeconds < 60) {
-        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Server-side aggregation active (last update ${Math.round(ageSeconds)}s ago)`);
+      // Netlify aggregator runs every 5 minutes, so data within 10 minutes is considered active
+      if (ageSeconds < 600) {
+        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `Server-side aggregation active (last candle ${Math.round(ageSeconds)}s ago)`);
         return true;
       } else {
-        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Server-side aggregation stale (last update ${Math.round(ageSeconds)}s ago)`);
+        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `Server-side aggregation stale (last candle ${Math.round(ageSeconds)}s ago)`);
         return false;
       }
     } catch (error) {
