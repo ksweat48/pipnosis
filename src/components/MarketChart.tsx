@@ -7,6 +7,8 @@ import { globalPollingCoordinator } from '@/services/global-polling-coordinator'
 import { pollingConfigService } from '@/services/polling-config-service';
 import {
   fetchCompleteChartData,
+  fetchCompleteChartDataByTime,
+  fetchCandlesByTimeRange,
   fetchRecentRealtimePrices,
   aggregatePricesToCurrentCandle,
   getTimeframeMinutes,
@@ -192,28 +194,29 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         // Resume polling FIRST so the system is ready
         chartCandlePoller.resume();
 
-        // Force refresh to fetch any new completed candles
-        await chartCandlePoller.forceRefresh(symbol, timeframe);
-
-        // Fetch the latest candle data to replace stale forming candle
+        // ENHANCED: Smart catchup - fetch ALL candles created while user was away
         try {
-          const result = await chartCandlePoller.getCachedCandles(symbol, timeframe);
-          if (result && result.candles.length > 0) {
-            const latestCandles = result.candles;
-            const lastCandle = latestCandles[latestCandles.length - 1];
+          if (historicalCandlesRef.current.length > 0) {
+            const lastKnownTime = historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time;
+            const lastKnownDate = new Date(lastKnownTime * 1000);
+            const now = new Date();
+            const hoursAway = (now.getTime() - lastKnownDate.getTime()) / (1000 * 60 * 60);
 
-            console.log('[Chart] ✅ Refreshed with latest data from DB');
-            console.log(`[Chart] Latest candle: ${new Date(lastCandle.time * 1000).toLocaleString()}`);
+            console.log(`[Chart] User was away for ${hoursAway.toFixed(1)} hours`);
 
-            // Update historical candles if needed
-            if (historicalCandlesRef.current.length > 0) {
-              const lastHistoricalTime = historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time;
+            // If user was away for more than 5 minutes, fetch all missed candles
+            if (hoursAway > (5 / 60)) {
+              console.log('[Chart] 🔄 Fetching missed candles from database...');
 
-              // Find new candles that were created while tab was hidden
-              const newCandles = latestCandles.filter(c => c.time > lastHistoricalTime);
+              // Fetch candles from the last known time until now
+              const lookbackHours = Math.min(Math.ceil(hoursAway) + 1, 24); // Cap at 24 hours
+              const allCandles = await fetchCandlesByTimeRange(symbol, timeframe, lookbackHours);
+
+              // Filter to only NEW candles after last known
+              const newCandles = allCandles.filter(c => c.time > lastKnownTime);
 
               if (newCandles.length > 0) {
-                console.log(`[Chart] 🆕 Adding ${newCandles.length} new candles created while tab was hidden`);
+                console.log(`[Chart] 🆕 Found ${newCandles.length} candles created while away`);
 
                 // Add new candles to historical data
                 historicalCandlesRef.current = [...historicalCandlesRef.current, ...newCandles];
@@ -229,21 +232,31 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                   });
                 }
 
-                // Update price and indicators
-                const currentCandle = newCandles[newCandles.length - 1];
-                setCurrentPrice(currentCandle.close);
+                // Update price and indicators with latest candle
+                const latestCandle = newCandles[newCandles.length - 1];
+                setCurrentPrice(latestCandle.close);
 
                 if (historicalCandlesRef.current.length >= 2) {
                   const firstCandle = historicalCandlesRef.current[0];
-                  setPriceChange(((currentCandle.close - firstCandle.open) / firstCandle.open) * 100);
+                  setPriceChange(((latestCandle.close - firstCandle.open) / firstCandle.open) * 100);
                 }
-              }
-            }
 
-            setLastUpdate(new Date());
+                console.log(`[Chart] ✓ Chart updated with all missed candles`);
+              } else {
+                console.log('[Chart] No new candles found (user was away during same candle period)');
+              }
+            } else {
+              console.log('[Chart] User was only away briefly, no catchup needed');
+            }
           }
+
+          // Force refresh poller to get latest data
+          await chartCandlePoller.forceRefresh(symbol, timeframe);
+          setLastUpdate(new Date());
         } catch (error) {
-          console.error('[Chart] Error refreshing chart data on visibility change:', error);
+          console.error('[Chart] Error during smart catchup:', error);
+          // Fallback to regular refresh
+          await chartCandlePoller.forceRefresh(symbol, timeframe);
         }
 
         console.log('[Chart] 📡 Live tick rendering resumed');
@@ -870,8 +883,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       }
 
       console.log('[Chart Init] Bulk loader succeeded, fetching chart data...');
-      const dataLimit = chartPreferencesService.getDataLimit(timeframe);
-      const chartData = await fetchCompleteChartData(symbol, timeframe, dataLimit);
+      // ENHANCED: Use time-based fetching (24 hours) instead of count-based limit
+      // This ensures we get ALL candles created while user was away
+      const CHART_LOOKBACK_HOURS = 24;
+      const chartData = await fetchCompleteChartDataByTime(symbol, timeframe, CHART_LOOKBACK_HOURS);
 
       console.log('[Chart Init] Chart data received:', {
         historicalCount: chartData.historical.length,

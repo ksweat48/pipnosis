@@ -561,3 +561,163 @@ export async function fetchCompleteChartData(
     current: finalCurrent,
   };
 }
+
+/**
+ * ENHANCED: Fetch candles by time range instead of count
+ * This prevents gaps when user returns after being away
+ */
+export async function fetchCandlesByTimeRange(
+  symbol: string,
+  timeframe: Timeframe,
+  hoursBack: number = 24
+): Promise<CandleData[]> {
+  try {
+    const dbTimeframe = appTimeframeToDb(timeframe);
+    const now = new Date();
+    const startTime = new Date(now.getTime() - hoursBack * 60 * 60 * 1000);
+
+    console.log(`[ChartData] Fetching candles for ${symbol} ${timeframe} from last ${hoursBack} hours`);
+    console.log(`[ChartData] Time range: ${startTime.toISOString()} to ${now.toISOString()}`);
+
+    const lowercaseFormat = timeframe.toLowerCase().replace(/^m/, '').replace(/^h/, '') +
+      (timeframe.startsWith('M') ? 'm' : timeframe.startsWith('H') ? 'h' : timeframe.startsWith('D') ? '' : '');
+    const lowercaseTimeframe = timeframe.startsWith('D') ? 'D1' :
+      timeframe.startsWith('W') ? 'W1' :
+      timeframe.replace(/^M/, '').replace(/^H/, '') + (timeframe.startsWith('M') ? 'm' : 'h');
+
+    const { data: forexCandles, error: forexError } = await supabase
+      .from('forex_candles')
+      .select('open_time, open, high, low, close, volume, data_source')
+      .eq('symbol', symbol)
+      .in('timeframe', [dbTimeframe, lowercaseTimeframe])
+      .gte('open_time', startTime.toISOString())
+      .order('open_time', { ascending: true });
+
+    if (forexError) {
+      console.error('[ChartData] Error fetching candles by time range:', forexError);
+      return [];
+    }
+
+    if (!forexCandles || forexCandles.length === 0) {
+      console.warn(`[ChartData] No candles found for ${symbol} ${timeframe} in last ${hoursBack} hours`);
+      return [];
+    }
+
+    // Convert and deduplicate
+    const candleMap = new Map<number, CandleData>();
+
+    forexCandles.forEach((candle, index) => {
+      try {
+        const timestamp = ensureUnixTimestamp(candle.open_time, 'fetchCandlesByTimeRange');
+
+        if (timestamp < 1577836800 || timestamp > 4102444800) {
+          console.warn(`[ChartData] Skipping candle ${index} with invalid timestamp: ${timestamp}`);
+          return;
+        }
+
+        if (!candleMap.has(timestamp)) {
+          const candleData = {
+            time: timestamp,
+            open: Number(candle.open),
+            high: Number(candle.high),
+            low: Number(candle.low),
+            close: Number(candle.close),
+            volume: Number(candle.volume || 0),
+          };
+
+          if (isNaN(candleData.open) || isNaN(candleData.high) || isNaN(candleData.low) || isNaN(candleData.close)) {
+            console.warn(`[ChartData] Skipping candle ${index} with invalid prices`);
+            return;
+          }
+
+          candleMap.set(timestamp, candleData);
+        }
+      } catch (error) {
+        console.error(`[ChartData] Failed to process candle ${index}:`, error);
+      }
+    });
+
+    const candles = Array.from(candleMap.values()).sort((a, b) => a.time - b.time);
+
+    console.log(`[ChartData] ✓ Loaded ${candles.length} candles from last ${hoursBack} hours`);
+    if (candles.length > 0) {
+      console.log(`[ChartData] Range: ${new Date(candles[0].time * 1000).toISOString()} to ${new Date(candles[candles.length - 1].time * 1000).toISOString()}`);
+    }
+
+    return candles;
+  } catch (error) {
+    console.error('[ChartData] Error fetching candles by time range:', error);
+    return [];
+  }
+}
+
+/**
+ * ENHANCED: Fetch complete chart data using time-based approach
+ * Ensures all candles from last N hours are loaded, eliminating gaps
+ */
+export async function fetchCompleteChartDataByTime(
+  symbol: string,
+  timeframe: Timeframe,
+  hoursBack: number = 24
+): Promise<{ historical: CandleData[]; current: CandleData | null }> {
+  console.log(`[ChartData] Fetching time-based chart data for ${symbol} ${timeframe} (last ${hoursBack} hours)`);
+
+  const currentCandleStartTime = getCurrentCandleStart(timeframe);
+  console.log(`[ChartData] Current candle period starts at: ${new Date(currentCandleStartTime * 1000).toISOString()}`);
+
+  const [historicalCandles, recentPrices] = await Promise.all([
+    fetchCandlesByTimeRange(symbol, timeframe, hoursBack),
+    fetchRecentRealtimePrices(symbol, getTimeframeMinutes(timeframe) * 2),
+  ]);
+
+  console.log(`[ChartData] Loaded ${historicalCandles.length} historical candles, ${recentPrices.length} recent prices`);
+
+  if (historicalCandles.length > 0) {
+    const lastHistorical = historicalCandles[historicalCandles.length - 1];
+    console.log(`[ChartData] Last historical candle: ${new Date(lastHistorical.time * 1000).toISOString()} - Close: ${lastHistorical.close}`);
+    console.log(`[ChartData] Time difference to current: ${(currentCandleStartTime - lastHistorical.time) / 60} minutes`);
+  }
+
+  const currentCandle = aggregatePricesToCurrentCandle(recentPrices, timeframe, historicalCandles, symbol);
+
+  if (currentCandle) {
+    console.log(`[ChartData] Current candle aggregated: ${new Date(currentCandle.time * 1000).toISOString()}`);
+  }
+
+  const deduplicatedHistorical = deduplicateCandles(historicalCandles);
+  let finalHistorical = deduplicatedHistorical;
+  let finalCurrent: CandleData | null = currentCandle;
+
+  if (currentCandle && deduplicatedHistorical.length > 0) {
+    const lastHistoricalTime = deduplicatedHistorical[deduplicatedHistorical.length - 1].time;
+
+    if (currentCandle.time === lastHistoricalTime) {
+      console.warn(`[ChartData] Current candle overlaps with last historical - removing last historical`);
+      finalHistorical = [...deduplicatedHistorical.slice(0, -1)];
+    } else if (currentCandle.time < lastHistoricalTime) {
+      console.error(`[ChartData] ERROR: Current candle time < last historical`);
+      return {
+        historical: deduplicatedHistorical,
+        current: null,
+      };
+    }
+
+    const timeDiff = currentCandle.time - lastHistoricalTime;
+    const intervalSeconds = getTimeframeMinutes(timeframe) * 60;
+
+    if (timeDiff === intervalSeconds) {
+      console.log(`[ChartData] ✓ PERFECT CONTINUITY: Exactly one ${timeframe} interval`);
+    } else if (timeDiff > intervalSeconds) {
+      const gapMinutes = timeDiff / 60;
+      const expectedCandles = gapMinutes / getTimeframeMinutes(timeframe);
+      console.warn(`[ChartData] ⚠️ GAP DETECTED: ${gapMinutes} minutes gap (${expectedCandles} missing candles)`);
+    }
+  }
+
+  console.log(`[ChartData] ✓ Final result: ${finalHistorical.length} historical + ${finalCurrent ? 1 : 0} current candle`);
+
+  return {
+    historical: finalHistorical,
+    current: finalCurrent,
+  };
+}
