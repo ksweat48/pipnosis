@@ -172,7 +172,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   }, []);
 
   useEffect(() => {
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = async () => {
       if (document.hidden) {
         console.log('[Chart] 🙈 Tab hidden - pausing live tick rendering');
         console.log('[Chart] 💾 DB polling continues (reduced frequency)');
@@ -185,11 +185,70 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         chartCandlePoller.pause();
       } else {
         console.log('[Chart] 👁️ Tab visible - resuming full hybrid mode');
-        console.log('[Chart] 📡 Live tick rendering active');
-        console.log('[Chart] 💾 DB polling resumed at full frequency');
+        console.log('[Chart] 🔄 Clearing stale current candle and fetching latest data...');
+
+        // CRITICAL FIX: Clear stale current candle reference
+        currentCandleRef.current = null;
+
+        // Resume polling FIRST so the system is ready
         chartCandlePoller.resume();
-        // Force a refresh to catch up on any missed data
-        chartCandlePoller.forceRefresh(symbol, timeframe);
+
+        // Force refresh to fetch any new completed candles
+        await chartCandlePoller.forceRefresh(symbol, timeframe);
+
+        // Fetch the latest candle data to replace stale forming candle
+        try {
+          const result = await chartCandlePoller.getCachedCandles(symbol, timeframe);
+          if (result && result.candles.length > 0) {
+            const latestCandles = result.candles;
+            const lastCandle = latestCandles[latestCandles.length - 1];
+
+            console.log('[Chart] ✅ Refreshed with latest data from DB');
+            console.log(`[Chart] Latest candle: ${new Date(lastCandle.time * 1000).toLocaleString()}`);
+
+            // Update historical candles if needed
+            if (historicalCandlesRef.current.length > 0) {
+              const lastHistoricalTime = historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time;
+
+              // Find new candles that were created while tab was hidden
+              const newCandles = latestCandles.filter(c => c.time > lastHistoricalTime);
+
+              if (newCandles.length > 0) {
+                console.log(`[Chart] 🆕 Adding ${newCandles.length} new candles created while tab was hidden`);
+
+                // Add new candles to historical data
+                historicalCandlesRef.current = [...historicalCandlesRef.current, ...newCandles];
+
+                // Update chart with new candles
+                if (candlestickSeriesRef.current) {
+                  newCandles.forEach(candle => {
+                    try {
+                      candlestickSeriesRef.current?.update(candle);
+                    } catch (error) {
+                      console.error('[Chart] Error updating candle:', error);
+                    }
+                  });
+                }
+
+                // Update price and indicators
+                const currentCandle = newCandles[newCandles.length - 1];
+                setCurrentPrice(currentCandle.close);
+
+                if (historicalCandlesRef.current.length >= 2) {
+                  const firstCandle = historicalCandlesRef.current[0];
+                  setPriceChange(((currentCandle.close - firstCandle.open) / firstCandle.open) * 100);
+                }
+              }
+            }
+
+            setLastUpdate(new Date());
+          }
+        } catch (error) {
+          console.error('[Chart] Error refreshing chart data on visibility change:', error);
+        }
+
+        console.log('[Chart] 📡 Live tick rendering resumed');
+        console.log('[Chart] 💾 DB polling resumed at full frequency');
       }
     };
 

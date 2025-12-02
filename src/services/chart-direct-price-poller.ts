@@ -86,6 +86,11 @@ class ChartDirectPricePoller {
         if (this.isVisible && this.options.enabled && !this.status.isActive) {
           logger.info(LogCategory.CHART, '👁️ Chart visible - resuming price polling');
           this.start();
+          // CRITICAL FIX: Immediately fetch fresh prices when tab becomes visible
+          logger.info(LogCategory.CHART, '🔄 Fetching fresh prices to clear stale data');
+          this.pollAllSymbols().catch(err => {
+            logger.error(LogCategory.CHART, 'Error fetching fresh prices on visibility change:', err);
+          });
         } else if (!this.isVisible && this.status.isActive) {
           logger.info(LogCategory.CHART, '🙈 Chart hidden - pausing price polling');
           this.pause();
