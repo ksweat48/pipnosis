@@ -104,7 +104,7 @@ async function fetchHistoricalCandles(
   let apiCalls = 0;
   let currentStartTime = startTime;
 
-  const url = `https://mt-market-data-api-v1.${metaApiRegion}.agiliumtrade.ai/users/current/accounts/${metaApiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles`;
+  const url = `https://mt-client-api-v1.${metaApiRegion}.agiliumtrade.ai/users/current/accounts/${metaApiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles`;
 
   while (currentStartTime < endTime) {
     try {
