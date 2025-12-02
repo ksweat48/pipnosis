@@ -1,11 +1,11 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
+import { getWorkingMetaApiAccount, markAccountFailed, markAccountSuccess } from '../../src/services/metaapi-account-manager';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const metaApiToken = process.env.METAAPI_TOKEN!;
-const metaApiAccountId = process.env.METAAPI_ACCOUNT_ID!;
-const metaApiRegion = process.env.METAAPI_REGION || 'new-york';
+const metaApiRegion = process.env.METAAPI_REGION || 'london';
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -19,9 +19,9 @@ interface MetaApiPrice {
   brokerTime: string;
 }
 
-async function fetchPriceFromMetaApi(symbol: string): Promise<MetaApiPrice | null> {
+async function fetchPriceFromMetaApi(symbol: string, accountId: string): Promise<MetaApiPrice | null> {
   try {
-    const url = `https://mt-client-api-v1.${metaApiRegion}.agiliumtrade.ai/users/current/accounts/${metaApiAccountId}/symbols/${symbol}/current-price`;
+    const url = `https://mt-client-api-v1.${metaApiRegion}.agiliumtrade.ai/users/current/accounts/${accountId}/symbols/${symbol}/current-price`;
 
     const response = await fetch(url, {
       method: 'GET',
@@ -32,6 +32,9 @@ async function fetchPriceFromMetaApi(symbol: string): Promise<MetaApiPrice | nul
     });
 
     if (!response.ok) {
+      const error = new Error(`MetaAPI HTTP ${response.status}`);
+      (error as any).response = { status: response.status };
+      markAccountFailed(accountId, error);
       console.error(`[PriceCollector] MetaAPI error for ${symbol}: ${response.status}`);
       return null;
     }
@@ -43,6 +46,9 @@ async function fetchPriceFromMetaApi(symbol: string): Promise<MetaApiPrice | nul
       return null;
     }
 
+    // Mark success
+    markAccountSuccess(accountId);
+
     return {
       symbol,
       bid: parseFloat(data.bid),
@@ -51,6 +57,7 @@ async function fetchPriceFromMetaApi(symbol: string): Promise<MetaApiPrice | nul
       brokerTime: data.brokerTime || data.time || new Date().toISOString()
     };
   } catch (error) {
+    markAccountFailed(accountId, error);
     console.error(`[PriceCollector] Error fetching ${symbol}:`, error);
     return null;
   }
@@ -88,10 +95,13 @@ async function savePriceToDatabase(priceData: MetaApiPrice): Promise<boolean> {
 
 export const handler: Handler = async (event, context) => {
   const executionId = `exec_${Date.now()}`;
+  const metaApiAccountId = getWorkingMetaApiAccount();
+
   console.log(`[PriceCollector:${executionId}] 🚀 Starting continuous price collection...`);
+  console.log(`[PriceCollector:${executionId}] Using MetaAPI Account: ${metaApiAccountId.slice(0, 8)}...`);
   console.log(`[PriceCollector:${executionId}] Environment check:`, {
     hasMetaApiToken: !!metaApiToken,
-    hasMetaApiAccountId: !!metaApiAccountId,
+    accountId: metaApiAccountId.slice(0, 8) + '...',
     hasSupabaseUrl: !!supabaseUrl,
     hasSupabaseKey: !!supabaseServiceKey,
     metaApiRegion,
@@ -103,7 +113,7 @@ export const handler: Handler = async (event, context) => {
   try {
     const results = await Promise.allSettled(
       ACTIVE_SYMBOLS.map(async (symbol) => {
-        const priceData = await fetchPriceFromMetaApi(symbol);
+        const priceData = await fetchPriceFromMetaApi(symbol, metaApiAccountId);
         if (priceData) {
           const saved = await savePriceToDatabase(priceData);
           return { symbol, success: saved, price: priceData };

@@ -1,4 +1,5 @@
 import { Handler } from '@netlify/functions';
+import { getWorkingMetaApiAccount, markAccountFailed, markAccountSuccess } from '../../src/services/metaapi-account-manager';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -15,12 +16,12 @@ interface MetaApiAccount {
 
 async function verifyMetaApiConnection(): Promise<{ ok: boolean; account?: MetaApiAccount; error?: string }> {
   const token = process.env.METAAPI_TOKEN;
-  const accountId = process.env.METAAPI_ACCOUNT_ID;
+  const accountId = getWorkingMetaApiAccount();
 
-  if (!token || !accountId) {
+  if (!token) {
     return {
       ok: false,
-      error: 'MetaAPI credentials not configured'
+      error: 'MetaAPI token not configured'
     };
   }
 
@@ -47,6 +48,9 @@ async function verifyMetaApiConnection(): Promise<{ ok: boolean; account?: MetaA
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[verify-metaapi-account] API error: ${response.status} - ${errorText}`);
+      const error = new Error(`MetaAPI HTTP ${response.status}`);
+      (error as any).response = { status: response.status };
+      markAccountFailed(accountId, error);
       return {
         ok: false,
         error: `MetaAPI returned ${response.status}: ${errorText}`
@@ -56,6 +60,9 @@ async function verifyMetaApiConnection(): Promise<{ ok: boolean; account?: MetaA
     const account: MetaApiAccount = await response.json();
 
     console.log(`[verify-metaapi-account] Account state: ${account.state}, connection: ${account.connectionStatus}`);
+
+    // Mark account success
+    markAccountSuccess(accountId);
 
     const isDeployed = account.state === 'DEPLOYED';
     const isConnected = account.connectionStatus === 'CONNECTED';

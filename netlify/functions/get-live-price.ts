@@ -1,5 +1,6 @@
 import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
+import { getWorkingMetaApiAccount, markAccountFailed, markAccountSuccess } from '../../src/services/metaapi-account-manager';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -17,11 +18,11 @@ interface MetaApiPrice {
 
 async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: number; timestamp: string; source: string }> {
   const token = process.env.METAAPI_TOKEN;
-  const accountId = process.env.METAAPI_ACCOUNT_ID;
-  const region = process.env.METAAPI_REGION || 'new-york';
+  const accountId = getWorkingMetaApiAccount();
+  const region = process.env.METAAPI_REGION || 'london';
 
-  if (!token || !accountId) {
-    throw new Error('MetaAPI credentials not configured');
+  if (!token) {
+    throw new Error('MetaAPI token not configured');
   }
 
   const url = `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/symbols/${symbol}/current-price`;
@@ -68,7 +69,10 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
         errorDetail = 'MetaAPI server error - service may be down';
       }
 
-      throw new Error(`MetaAPI HTTP ${response.status}: ${errorDetail}`);
+      const error = new Error(`MetaAPI HTTP ${response.status}: ${errorDetail}`);
+      (error as any).response = { status: response.status };
+      markAccountFailed(accountId, error);
+      throw error;
     }
 
     const data: MetaApiPrice = await response.json();
@@ -88,6 +92,9 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
       throw new Error(`Invalid numeric values: bid=${data.bid}, ask=${data.ask}`);
     }
 
+    // Mark account success
+    markAccountSuccess(accountId);
+
     return {
       bid: parseFloat(String(data.bid)),
       ask: parseFloat(String(data.ask)),
@@ -96,6 +103,9 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
     };
   } catch (error) {
     clearTimeout(timeoutId);
+    const accountId = getWorkingMetaApiAccount();
+    markAccountFailed(accountId, error);
+
     if (error instanceof Error && error.name === 'AbortError') {
       console.error(`[get-live-price] Request timeout for ${symbol} after 8 seconds`);
       throw new Error(`MetaAPI request timeout after 8 seconds for ${symbol}`);
@@ -285,10 +295,11 @@ export const handler: Handler = async (event) => {
     const requestId = Math.random().toString(36).substring(7);
 
     console.log(`[get-live-price][${requestId}] ========== NEW REQUEST ==========`);
+    const accountId = getWorkingMetaApiAccount();
     console.log(`[get-live-price][${requestId}] Symbol: ${symbol}`);
+    console.log(`[get-live-price][${requestId}] Using Account: ${accountId.slice(0, 8)}...`);
     console.log(`[get-live-price][${requestId}] Env check - METAAPI_TOKEN: ${process.env.METAAPI_TOKEN ? 'SET' : 'MISSING'}`);
-    console.log(`[get-live-price][${requestId}] Env check - METAAPI_ACCOUNT_ID: ${process.env.METAAPI_ACCOUNT_ID || 'MISSING'}`);
-    console.log(`[get-live-price][${requestId}] Env check - METAAPI_REGION: ${process.env.METAAPI_REGION || 'MISSING'}`);
+    console.log(`[get-live-price][${requestId}] Env check - METAAPI_REGION: ${process.env.METAAPI_REGION || 'london'}`);
 
     let priceData;
     let fetchMethod = 'unknown';
@@ -302,7 +313,7 @@ export const handler: Handler = async (event) => {
     // 5. Last resort (up to 5 minutes old)
 
     try {
-      console.log(`[get-live-price][${requestId}] Level 1: Attempting live MetaAPI...`);
+      console.log(`[get-live-price][${requestId}] Level 1: Attempting live MetaAPI with account ${accountId.slice(0, 8)}...`);
       priceData = await getMetaApiPrice(symbol);
       fetchMethod = 'metaapi-live';
       fallbackLevel = 1;

@@ -1,11 +1,11 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
+import { getWorkingMetaApiAccount, markAccountFailed, markAccountSuccess } from '../../src/services/metaapi-account-manager';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const metaApiToken = process.env.METAAPI_TOKEN!;
-const metaApiAccountId = process.env.METAAPI_ACCOUNT_ID!;
-const metaApiRegion = process.env.METAAPI_REGION || 'new-york';
+const metaApiRegion = process.env.METAAPI_REGION || 'london';
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -83,7 +83,8 @@ async function fetchMissingCandlesFromMetaApi(
   symbol: string,
   timeframe: string,
   startTime: Date,
-  count: number
+  count: number,
+  accountId: string
 ): Promise<any[]> {
   try {
     const tf = TIMEFRAMES.find(t => t.name === timeframe);
@@ -91,7 +92,7 @@ async function fetchMissingCandlesFromMetaApi(
 
     const endTime = new Date(startTime.getTime() + count * tf.minutes * 60 * 1000);
 
-    const url = `https://mt-client-api-v1.${metaApiRegion}.agiliumtrade.ai/users/current/accounts/${metaApiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`;
+    const url = `https://mt-client-api-v1.${metaApiRegion}.agiliumtrade.ai/users/current/accounts/${accountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`;
 
     const response = await fetch(url, {
       method: 'GET',
@@ -102,6 +103,10 @@ async function fetchMissingCandlesFromMetaApi(
     });
 
     if (!response.ok) {
+      const error = new Error(`MetaAPI HTTP ${response.status}`);
+      (error as any).response = { status: response.status };
+      markAccountFailed(accountId, error);
+
       if (response.status === 404) {
         console.log(`[MetaAPI] Historical data not available for ${symbol} ${timeframe} (404 - expected for M1)`);
       } else {
@@ -113,6 +118,9 @@ async function fetchMissingCandlesFromMetaApi(
     const candles = await response.json();
 
     if (!Array.isArray(candles)) return [];
+
+    // Mark success
+    markAccountSuccess(accountId);
 
     return candles.map(candle => ({
       symbol,
@@ -126,12 +134,13 @@ async function fetchMissingCandlesFromMetaApi(
       volume: parseFloat(candle.tickVolume || 0)
     }));
   } catch (error) {
+    markAccountFailed(accountId, error);
     console.error(`[MetaAPI] Error fetching candles:`, error);
     return [];
   }
 }
 
-async function fillGapsWithMetaApi(gaps: Gap[]): Promise<number> {
+async function fillGapsWithMetaApi(gaps: Gap[], accountId: string): Promise<number> {
   let totalFilled = 0;
 
   for (const gap of gaps) {
@@ -140,7 +149,8 @@ async function fillGapsWithMetaApi(gaps: Gap[]): Promise<number> {
         gap.symbol,
         gap.timeframe,
         gap.expectedTime,
-        gap.missingCandles
+        gap.missingCandles,
+        accountId
       );
 
       if (candles.length > 0) {
@@ -168,6 +178,9 @@ async function fillGapsWithMetaApi(gaps: Gap[]): Promise<number> {
 
 export const handler: Handler = async (event, context) => {
   console.log('[FillCandleGaps] Starting automatic gap detection and filling...');
+  const metaApiAccountId = getWorkingMetaApiAccount();
+  console.log(`[FillCandleGaps] Using MetaAPI Account: ${metaApiAccountId.slice(0, 8)}...`);
+
   const startTime = Date.now();
 
   try {
@@ -180,7 +193,7 @@ export const handler: Handler = async (event, context) => {
     let metaApiFilled = 0;
     if (gaps.length > 0) {
       console.log('[FillCandleGaps] Step 2: Filling gaps with MetaAPI...');
-      metaApiFilled = await fillGapsWithMetaApi(gaps.slice(0, 20));
+      metaApiFilled = await fillGapsWithMetaApi(gaps.slice(0, 20), metaApiAccountId);
     }
 
     console.log('[FillCandleGaps] Step 3: Running database gap fill function...');
