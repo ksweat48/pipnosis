@@ -67,8 +67,11 @@ class SymbolValidatorService {
         return dbResult;
       }
 
-      const apiResult = await this.testMetaApiAccess(symbol);
-      return apiResult;
+      return {
+        symbol,
+        available: true,
+        reason: 'Symbol not yet verified, assuming available'
+      };
     } catch (error) {
       console.error(`[SymbolValidator] Error validating ${symbol}:`, error);
       return {
@@ -107,62 +110,6 @@ class SymbolValidatorService {
     } catch (error) {
       console.warn('[SymbolValidator] Database check failed:', error);
       return null;
-    }
-  }
-
-  private async testMetaApiAccess(symbol: string): Promise<ValidationResult> {
-    try {
-      const netlifyUrl = `${window.location.origin}/.netlify/functions/forex-candles`;
-      const url = `${netlifyUrl}?symbol=${symbol}&timeframe=D1&limit=1`;
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-      try {
-        const response = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeoutId);
-
-        if (response.ok) {
-          return {
-            symbol,
-            available: true
-          };
-        }
-
-        const errorText = await response.text();
-
-        if (response.status === 404 || errorText.includes('NotFoundError')) {
-          return {
-            symbol,
-            available: false,
-            reason: 'Symbol not available for historical data from your broker'
-          };
-        }
-
-        return {
-          symbol,
-          available: false,
-          reason: `HTTP ${response.status}: ${errorText.substring(0, 100)}`
-        };
-      } catch (fetchError: any) {
-        clearTimeout(timeoutId);
-
-        if (fetchError.name === 'AbortError') {
-          return {
-            symbol,
-            available: false,
-            reason: 'Request timeout - symbol may not be available'
-          };
-        }
-
-        throw fetchError;
-      }
-    } catch (error) {
-      return {
-        symbol,
-        available: false,
-        reason: error instanceof Error ? error.message : 'Unknown error'
-      };
     }
   }
 

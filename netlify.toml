@@ -42,12 +42,6 @@
   timeout = 600
   schedule = "0 2 * * *"
 
-[functions."auto-fetch-candles"]
-  timeout = 300
-
-[functions."forex-candles"]
-  timeout = 300
-
 # 🚨 CRITICAL: Server-side price collection (runs every minute)
 [functions."continuous-price-collector"]
   timeout = 26

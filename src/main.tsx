@@ -48,12 +48,6 @@ if (typeof window !== 'undefined') {
     }
   }, 2000);
 
-  // Initialize automated refresh service lazily
-  setTimeout(async () => {
-    const { initializeAutomatedRefresh } = await import('@/services/automated-refresh-service');
-    initializeAutomatedRefresh();
-  }, 3000);
-
   // Start position monitoring only when needed
   setTimeout(async () => {
     try {
@@ -72,9 +66,7 @@ if (typeof window !== 'undefined') {
   if (!import.meta.env.PROD) {
     (window as any).refreshSymbols = async () => {
       const { symbolValidator } = await import('@/services/symbol-validator');
-      const { cleanupStaleSymbolConfigurations } = await import('@/services/automated-refresh-service');
       symbolValidator.clearCache();
-      await cleanupStaleSymbolConfigurations();
       console.log('✅ Symbol refresh complete. Reload the page to apply changes.');
     };
     console.log('💡 Debug utility available: Run refreshSymbols() in console');
