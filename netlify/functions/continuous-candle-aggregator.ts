@@ -141,6 +141,52 @@ async function saveCandleToDatabase(candle: CandleData): Promise<boolean> {
   }
 }
 
+// SQL-BASED AGGREGATION: More reliable than in-memory processing
+async function aggregateCandleSQL(
+  symbol: string,
+  timeframe: string,
+  startTime: Date,
+  endTime: Date
+): Promise<CandleData | null> {
+  try {
+    // Use SQL to calculate OHLC directly from realtime_prices
+    const { data, error } = await supabase.rpc('aggregate_candle_from_prices', {
+      p_symbol: symbol,
+      p_start_time: startTime.toISOString(),
+      p_end_time: endTime.toISOString()
+    });
+
+    if (error) {
+      // If RPC function doesn't exist, return null (will fall back to in-memory)
+      if (error.message.includes('function') && error.message.includes('does not exist')) {
+        return null;
+      }
+      console.error(`[CandleAggregator] SQL aggregation error:`, error.message);
+      return null;
+    }
+
+    if (!data || data.length === 0 || !data[0].price_count || data[0].price_count === 0) {
+      return null;
+    }
+
+    const row = data[0];
+    return {
+      symbol,
+      timeframe,
+      open_time: startTime,
+      close_time: endTime,
+      open: row.first_price,
+      high: row.high_price,
+      low: row.low_price,
+      close: row.last_price,
+      volume: row.price_count
+    };
+  } catch (error) {
+    console.error(`[CandleAggregator] SQL aggregation unexpected error:`, error);
+    return null;
+  }
+}
+
 async function aggregateCandlesForSymbol(symbol: string): Promise<number> {
   // CRITICAL FIX: Fetch enough prices for ALL timeframes, including D1 and W1
   // Need at least 24 hours of data to properly aggregate larger timeframes
@@ -152,51 +198,67 @@ async function aggregateCandlesForSymbol(symbol: string): Promise<number> {
     return 0;
   }
 
+  // DIAGNOSTIC: Log price data range
+  const firstPriceTime = new Date(prices[0].created_at);
+  const lastPriceTime = new Date(prices[prices.length - 1].created_at);
+  console.log(`[CandleAggregator] ${symbol}: Fetched ${prices.length} prices from ${firstPriceTime.toISOString()} to ${lastPriceTime.toISOString()}`);
+
   let candlesCreated = 0;
   const now = new Date();
+  console.log(`[CandleAggregator] ${symbol}: Current time (now): ${now.toISOString()}`);
 
   for (const timeframe of TIMEFRAMES) {
     const timeframeMinutes = TIMEFRAME_MINUTES[timeframe];
     const lastCandleTime = await getLastCandleTime(symbol, timeframe);
 
+    // FIX: Ensure we're working with the PREVIOUS completed candle, not the current one
     const currentCandleStart = roundTimeToCandle(now, timeframeMinutes);
     const previousCandleStart = new Date(currentCandleStart.getTime() - timeframeMinutes * 60 * 1000);
 
-    const candleStartToProcess = lastCandleTime && lastCandleTime >= previousCandleStart
-      ? currentCandleStart
-      : previousCandleStart;
+    // Always process the previous completed candle
+    const candleStartToProcess = previousCandleStart;
+    const candleEndTime = new Date(candleStartToProcess.getTime() + timeframeMinutes * 60 * 1000);
 
-    if (candleStartToProcess > now) {
+    // Skip if this candle was already created
+    if (lastCandleTime && lastCandleTime >= candleStartToProcess) {
       continue;
     }
 
-    const candleEndTime = new Date(candleStartToProcess.getTime() + timeframeMinutes * 60 * 1000);
-
-    // CRITICAL FIX: Create completed candles only (wait for period to finish)
-    // BUT allow for small time buffer (2 minutes) to handle processing delays
-    const bufferMs = 2 * 60 * 1000; // 2 minute buffer
-    if (candleEndTime > new Date(now.getTime() + bufferMs)) {
-      continue; // Candle period not complete yet
+    // Skip if candle period is not complete yet (with 1 minute safety buffer)
+    const bufferMs = 1 * 60 * 1000; // 1 minute buffer
+    if (candleEndTime > new Date(now.getTime() - bufferMs)) {
+      continue;
     }
 
-    const candlePrices = prices.filter(p => {
-      const priceTime = new Date(p.broker_time || p.created_at);
-      return priceTime >= candleStartToProcess && priceTime < candleEndTime;
-    });
+    // TRY SQL-BASED AGGREGATION FIRST (more reliable)
+    let candle = await aggregateCandleSQL(symbol, timeframe, candleStartToProcess, candleEndTime);
 
-    if (candlePrices.length > 0) {
-      const candle = calculateCandleFromPrices(candlePrices, symbol, timeframe, candleStartToProcess);
-      if (candle) {
-        const saved = await saveCandleToDatabase(candle);
-        if (saved) {
-          candlesCreated++;
-          console.log(`  - Created ${symbol} ${timeframe} candle at ${candleStartToProcess.toISOString()} (${candlePrices.length} prices)`);
-        }
+    // FALLBACK: If SQL method fails, use in-memory aggregation
+    if (!candle) {
+      const candlePrices = prices.filter(p => {
+        const priceTime = new Date(p.created_at);
+        return priceTime >= candleStartToProcess && priceTime < candleEndTime;
+      });
+
+      console.log(`[CandleAggregator] ${symbol} ${timeframe}: Window ${candleStartToProcess.toISOString()} to ${candleEndTime.toISOString()} => ${candlePrices.length} prices (in-memory fallback)`);
+
+      if (candlePrices.length > 0) {
+        candle = calculateCandleFromPrices(candlePrices, symbol, timeframe, candleStartToProcess);
       }
     } else {
-      // Log when we have no prices for a completed candle period
-      const minutesSinceEnd = Math.round((now.getTime() - candleEndTime.getTime()) / 60000);
-      if (minutesSinceEnd >= 0 && minutesSinceEnd < 60) {
+      console.log(`[CandleAggregator] ${symbol} ${timeframe}: Window ${candleStartToProcess.toISOString()} to ${candleEndTime.toISOString()} => ${candle.volume} prices (SQL)`);
+    }
+
+    if (candle) {
+      const saved = await saveCandleToDatabase(candle);
+      if (saved) {
+        candlesCreated++;
+        console.log(`  ✅ Created ${symbol} ${timeframe} candle at ${candleStartToProcess.toISOString()} (${candle.volume} prices)`);
+      }
+    } else {
+      // Only log if we're within reasonable time range
+      const hoursSinceEnd = Math.round((now.getTime() - candleEndTime.getTime()) / 3600000);
+      if (hoursSinceEnd >= 0 && hoursSinceEnd < 2) {
         console.log(`  ⚠️  No prices found for ${symbol} ${timeframe} candle at ${candleStartToProcess.toISOString()}`);
       }
     }
