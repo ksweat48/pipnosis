@@ -142,7 +142,9 @@ async function saveCandleToDatabase(candle: CandleData): Promise<boolean> {
 }
 
 async function aggregateCandlesForSymbol(symbol: string): Promise<number> {
-  const lookbackMinutes = 30;
+  // CRITICAL FIX: Fetch enough prices for ALL timeframes, including D1 and W1
+  // Need at least 24 hours of data to properly aggregate larger timeframes
+  const lookbackMinutes = 24 * 60; // 24 hours instead of 30 minutes
   const prices = await fetchRecentPrices(symbol, lookbackMinutes);
 
   if (prices.length === 0) {
@@ -170,8 +172,11 @@ async function aggregateCandlesForSymbol(symbol: string): Promise<number> {
 
     const candleEndTime = new Date(candleStartToProcess.getTime() + timeframeMinutes * 60 * 1000);
 
-    if (candleEndTime > now) {
-      continue;
+    // CRITICAL FIX: Create completed candles only (wait for period to finish)
+    // BUT allow for small time buffer (2 minutes) to handle processing delays
+    const bufferMs = 2 * 60 * 1000; // 2 minute buffer
+    if (candleEndTime > new Date(now.getTime() + bufferMs)) {
+      continue; // Candle period not complete yet
     }
 
     const candlePrices = prices.filter(p => {
@@ -185,8 +190,14 @@ async function aggregateCandlesForSymbol(symbol: string): Promise<number> {
         const saved = await saveCandleToDatabase(candle);
         if (saved) {
           candlesCreated++;
-          console.log(`  - Created ${symbol} ${timeframe} candle at ${candleStartToProcess.toISOString()}`);
+          console.log(`  - Created ${symbol} ${timeframe} candle at ${candleStartToProcess.toISOString()} (${candlePrices.length} prices)`);
         }
+      }
+    } else {
+      // Log when we have no prices for a completed candle period
+      const minutesSinceEnd = Math.round((now.getTime() - candleEndTime.getTime()) / 60000);
+      if (minutesSinceEnd >= 0 && minutesSinceEnd < 60) {
+        console.log(`  ⚠️  No prices found for ${symbol} ${timeframe} candle at ${candleStartToProcess.toISOString()}`);
       }
     }
   }

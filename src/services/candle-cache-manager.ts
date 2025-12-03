@@ -3,8 +3,10 @@ import { supabase } from '../lib/supabase';
 const DB_NAME = 'pipnosis_candle_cache';
 const DB_VERSION = 1;
 const STORE_NAME = 'candles';
-const CACHE_VALIDITY_MS = 5 * 60 * 1000;
-const STALE_DATA_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+// CRITICAL FIX: Increase cache validity to 2 hours so data persists between page loads
+// This ensures users don't lose chart data when they leave and return to the page
+const CACHE_VALIDITY_MS = 2 * 60 * 60 * 1000; // 2 hours (was 5 minutes)
+const STALE_DATA_THRESHOLD_MS = 48 * 60 * 60 * 1000; // 48 hours (was 24 hours)
 
 interface CachedCandle {
   cacheId: string;
