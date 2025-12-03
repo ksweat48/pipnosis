@@ -18,6 +18,7 @@ import { omegaTrend } from './omega/trend';
 import { omegaVolatility } from './omega/volatility';
 import { omegaRisk } from './omega/risk';
 import { omegaSwing } from './omega/swing';
+import { sentimentCoordinator } from '../services/sentiment-coordinator';
 import type { OmegaVote } from './omega/trend';
 import type { TraderScore } from '../services/ai-identity';
 
@@ -63,13 +64,64 @@ export interface MidTradeDecision {
 
 class MidTradeMonitorBrain {
   /**
+   * Check if sentiment should trigger mid-trade override
+   */
+  async shouldTriggerSentimentOverride(snapshot: MidTradeSnapshot): Promise<{
+    trigger: boolean;
+    reason: string;
+  }> {
+    try {
+      const sentimentData = await sentimentCoordinator.getSentimentForMidTrade();
+
+      // Trigger if sentiment has flipped
+      if (sentimentData.hasFlipped) {
+        return {
+          trigger: true,
+          reason: `Sentiment flipped ${sentimentData.direction}`
+        };
+      }
+
+      // Trigger if current sentiment is risk-off and high volatility
+      if (sentimentData.current?.sentiment === 'risk_off' &&
+          sentimentData.current?.volatility === 'high') {
+        return {
+          trigger: true,
+          reason: 'Risk-OFF + High volatility detected'
+        };
+      }
+
+      // Trigger if USD strength conflicts with position
+      if (sentimentData.current?.usd_strength === 'strong' &&
+          snapshot.sym === 'XAUUSD' &&
+          snapshot.dir === 'sell') {
+        return {
+          trigger: true,
+          reason: 'Strong USD against XAU/USD sell position'
+        };
+      }
+
+      return { trigger: false, reason: '' };
+
+    } catch (error) {
+      console.error('[MidTrade] Sentiment override check failed:', error);
+      return { trigger: false, reason: 'Sentiment check failed' };
+    }
+  }
+
+  /**
    * Soft Check (30-49% drawdown)
-   * Quick Alpha evaluation
+   * Quick Alpha evaluation with sentiment context
    */
   async evaluateSoft(snapshot: MidTradeSnapshot, traderScore: TraderScore): Promise<MidTradeDecision> {
+    // Get sentiment context
+    const sentimentData = await sentimentCoordinator.getSentimentForMidTrade();
+    const sentimentContext = sentimentData.current
+      ? `\nSentiment: ${sentimentData.current.sentiment}, Vol: ${sentimentData.current.volatility}, USD: ${sentimentData.current.usd_strength}${sentimentData.hasFlipped ? ' [FLIPPED]' : ''}`
+      : '';
+
     const prompt = `Mid-Trade Soft Check:
 ${JSON.stringify(snapshot)}
-Trader: ${traderScore.confidence_level}
+Trader: ${traderScore.confidence_level}${sentimentContext}
 
 Position ${snapshot.dd.toFixed(0)}% toward SL. Quick check - is this normal or concerning?
 
@@ -120,15 +172,22 @@ Return JSON:
 
   /**
    * Hard Check (50-69% drawdown)
-   * Full Alpha evaluation
+   * Full Alpha evaluation with sentiment
    */
   async evaluateHard(snapshot: MidTradeSnapshot, traderScore: TraderScore): Promise<MidTradeDecision> {
+    // Get sentiment context
+    const sentimentData = await sentimentCoordinator.getSentimentForMidTrade();
+    const sentimentContext = sentimentData.current
+      ? `\nSENTIMENT: ${sentimentData.current.sentiment}, Vol: ${sentimentData.current.volatility}, USD: ${sentimentData.current.usd_strength}\nWarnings: ${sentimentData.current.warnings.join(', ') || 'none'}${sentimentData.hasFlipped ? '\n⚠️ SENTIMENT FLIPPED' : ''}`
+      : '\nSentiment: unavailable';
+
     const prompt = `Mid-Trade Hard Check:
 ${JSON.stringify(snapshot)}
-Trader: ${traderScore.confidence_level} (Score: ${traderScore.current_score}, Streak: ${traderScore.win_streak})
+Trader: ${traderScore.confidence_level} (Score: ${traderScore.current_score}, Streak: ${traderScore.win_streak})${sentimentContext}
 
 Position ${snapshot.dd.toFixed(0)}% toward SL. SERIOUS evaluation needed.
 Analyze: Is trend still valid? Should we exit early? Trail SL?
+Consider sentiment conditions in your decision.
 
 Return JSON:
 {
