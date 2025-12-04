@@ -96,6 +96,7 @@ async function getLastCandleTime(symbol: string, timeframe: string): Promise<Dat
     .select('open_time')
     .eq('symbol', symbol)
     .eq('timeframe', timeframe)
+    .eq('data_source', 'netlify_aggregator')
     .order('open_time', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -187,6 +188,53 @@ async function aggregateCandleSQL(
   }
 }
 
+async function aggregateFromM1Candles(
+  symbol: string,
+  timeframe: string,
+  startTime: Date,
+  endTime: Date
+): Promise<CandleData | null> {
+  try {
+    const { data, error } = await supabase
+      .from('forex_candles')
+      .select('open, high, low, close, open_time')
+      .eq('symbol', symbol)
+      .eq('timeframe', 'M1')
+      .gte('open_time', startTime.toISOString())
+      .lt('open_time', endTime.toISOString())
+      .order('open_time', { ascending: true });
+
+    if (error) {
+      console.error(`[CandleAggregator] Error fetching M1 candles for aggregation:`, error.message);
+      return null;
+    }
+
+    if (!data || data.length === 0) {
+      return null;
+    }
+
+    const open = data[0].open;
+    const close = data[data.length - 1].close;
+    const high = Math.max(...data.map(c => c.high));
+    const low = Math.min(...data.map(c => c.low));
+
+    return {
+      symbol,
+      timeframe,
+      open_time: startTime,
+      close_time: endTime,
+      open,
+      high,
+      low,
+      close,
+      volume: data.length
+    };
+  } catch (error) {
+    console.error(`[CandleAggregator] M1 aggregation unexpected error:`, error);
+    return null;
+  }
+}
+
 async function aggregateCandlesForSymbol(symbol: string): Promise<number> {
   // CRITICAL FIX: Fetch enough prices for ALL timeframes, including D1 and W1
   const lookbackMinutes = 24 * 60; // 24 hours of data
@@ -240,8 +288,17 @@ async function aggregateCandlesForSymbol(symbol: string): Promise<number> {
         break;
       }
 
-      // TRY SQL-BASED AGGREGATION FIRST (more reliable)
-      let candle = await aggregateCandleSQL(symbol, timeframe, currentCandleToCreate, candleEndTime);
+      let candle: CandleData | null = null;
+
+      // For large timeframes (H4, D1, W1), aggregate from existing M1 candles
+      if (timeframe === 'H4' || timeframe === 'D1' || timeframe === 'W1') {
+        candle = await aggregateFromM1Candles(symbol, timeframe, currentCandleToCreate, candleEndTime);
+      }
+
+      // For small timeframes, try SQL-based aggregation from raw prices
+      if (!candle) {
+        candle = await aggregateCandleSQL(symbol, timeframe, currentCandleToCreate, candleEndTime);
+      }
 
       // FALLBACK: If SQL method fails, use in-memory aggregation
       if (!candle) {
