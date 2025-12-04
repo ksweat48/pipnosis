@@ -32,6 +32,9 @@
 [functions."get-live-price"]
   timeout = 10
 
+[functions."finnhub-import"]
+  timeout = 120
+
 [functions."verify-metaapi-connection"]
   timeout = 10
 

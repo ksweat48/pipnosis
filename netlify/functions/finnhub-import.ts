@@ -1,9 +1,32 @@
 import { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { createFinnhubClient } from './_shared/finnhub-client';
+import axios from 'axios';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+interface FinnhubCandle {
+  c: number[];
+  h: number[];
+  l: number[];
+  o: number[];
+  t: number[];
+  v: number[];
+  s: string;
+}
+
+interface ForexCandle {
+  symbol: string;
+  timeframe: string;
+  open_time: string;
+  close_time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  data_source: string;
+}
 
 interface ImportRequest {
   symbol: string;
@@ -25,6 +48,122 @@ interface ImportResult {
   error?: string;
   executionId?: string;
   duration: number;
+}
+
+const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1';
+const RATE_LIMIT_DELAY_MS = 1100;
+
+const SYMBOL_MAPPING: Record<string, string> = {
+  'EURUSD': 'OANDA:EUR_USD',
+  'GBPUSD': 'OANDA:GBP_USD',
+  'USDJPY': 'OANDA:USD_JPY',
+  'XAUUSD': 'OANDA:XAU_USD',
+  'US30': 'OANDA:US30_USD'
+};
+
+const RESOLUTION_MAPPING: Record<string, string> = {
+  'M1': '1',
+  'M5': '5',
+  'M15': '15',
+  'M30': '30',
+  'H1': '60',
+  'H4': '240',
+  'D1': 'D'
+};
+
+function mapSymbolToFinnhub(symbol: string): string {
+  const mapped = SYMBOL_MAPPING[symbol];
+  if (!mapped) {
+    throw new Error(`Unsupported symbol: ${symbol}`);
+  }
+  return mapped;
+}
+
+function mapTimeframeToResolution(timeframe: string): string {
+  const resolution = RESOLUTION_MAPPING[timeframe];
+  if (!resolution) {
+    throw new Error(`Unsupported timeframe: ${timeframe}`);
+  }
+  return resolution;
+}
+
+function calculateCandleInterval(timeframe: string): number {
+  const intervals: Record<string, number> = {
+    'M1': 60,
+    'M5': 300,
+    'M15': 900,
+    'M30': 1800,
+    'H1': 3600,
+    'H4': 14400,
+    'D1': 86400
+  };
+  return intervals[timeframe] || 3600;
+}
+
+async function fetchForexCandles(
+  symbol: string,
+  timeframe: string,
+  fromTimestamp: number,
+  toTimestamp: number,
+  apiKey: string
+): Promise<ForexCandle[]> {
+  const finnhubSymbol = mapSymbolToFinnhub(symbol);
+  const resolution = mapTimeframeToResolution(timeframe);
+  const intervalSeconds = calculateCandleInterval(timeframe);
+
+  const url = `${FINNHUB_BASE_URL}/forex/candle`;
+
+  console.log(`Fetching ${symbol} ${timeframe} from Finnhub`);
+
+  const response = await axios.get<FinnhubCandle>(url, {
+    params: {
+      symbol: finnhubSymbol,
+      resolution,
+      from: fromTimestamp,
+      to: toTimestamp,
+      token: apiKey
+    },
+    timeout: 30000
+  });
+
+  if (response.data.s === 'no_data' || !response.data.t || response.data.t.length === 0) {
+    console.log(`No candles returned for ${symbol} ${timeframe}`);
+    return [];
+  }
+
+  if (response.data.s !== 'ok') {
+    throw new Error(`Finnhub API error: ${response.data.s}`);
+  }
+
+  const candles: ForexCandle[] = [];
+  for (let i = 0; i < response.data.t.length; i++) {
+    const openTime = new Date(response.data.t[i] * 1000);
+    const closeTime = new Date((response.data.t[i] + intervalSeconds) * 1000);
+
+    if (response.data.h[i] < response.data.l[i]) {
+      continue;
+    }
+
+    if (response.data.o[i] <= 0 || response.data.h[i] <= 0 || response.data.l[i] <= 0 || response.data.c[i] <= 0) {
+      continue;
+    }
+
+    candles.push({
+      symbol,
+      timeframe,
+      open_time: openTime.toISOString(),
+      close_time: closeTime.toISOString(),
+      open: response.data.o[i],
+      high: response.data.h[i],
+      low: response.data.l[i],
+      close: response.data.c[i],
+      volume: response.data.v[i] || 0,
+      data_source: 'finnhub_import'
+    });
+  }
+
+  console.log(`Successfully transformed ${candles.length} candles for ${symbol} ${timeframe}`);
+  return candles;
 }
 
 const handler: Handler = async (event: HandlerEvent, context: HandlerContext) => {
@@ -58,6 +197,14 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
       };
     }
 
+    const finnhubApiKey = process.env.FINNHUB_API_KEY;
+    if (!finnhubApiKey) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'FINNHUB_API_KEY not configured' })
+      };
+    }
+
     console.log(`Starting Finnhub import for ${symbol} ${timeframe}`, {
       startDate,
       endDate,
@@ -65,7 +212,6 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
     });
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const finnhubClient = createFinnhubClient();
 
     const fromTimestamp = Math.floor(new Date(startDate).getTime() / 1000);
     const toTimestamp = Math.floor(new Date(endDate).getTime() / 1000);
@@ -95,9 +241,7 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
         .select('id')
         .single();
 
-      if (execError) {
-        console.error('Failed to create execution record:', execError);
-      } else {
+      if (!execError && execution) {
         executionId = execution.id;
       }
 
@@ -112,21 +256,19 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
           .gte('open_time', new Date(fromTimestamp * 1000).toISOString())
           .lte('open_time', new Date(toTimestamp * 1000).toISOString());
 
-        if (deleteError) {
-          console.error('Error deleting candles:', deleteError);
-        } else {
-          candlesDeleted = count || 0;
+        if (!deleteError && count !== null) {
+          candlesDeleted = count;
           console.log(`Deleted ${candlesDeleted} existing candles`);
         }
       }
 
       console.log(`Fetching candles from Finnhub...`);
-      const candles = await finnhubClient.fetchMultipleRanges(
+      const candles = await fetchForexCandles(
         symbol,
         timeframe,
         fromTimestamp,
         toTimestamp,
-        7
+        finnhubApiKey
       );
 
       console.log(`Received ${candles.length} candles from Finnhub`);

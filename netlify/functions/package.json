@@ -4,8 +4,10 @@
   "type": "commonjs",
   "description": "Serverless functions for Pipnosis trading platform",
   "dependencies": {
+    "@netlify/functions": "^2.4.0",
     "metaapi.cloud-sdk": "^29.3.1",
     "@supabase/supabase-js": "^2.53.0",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "axios": "^1.6.0"
   }
 }
