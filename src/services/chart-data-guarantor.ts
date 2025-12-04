@@ -1,7 +1,8 @@
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
+import { CandleData } from '../types/chart';
 
-export interface CandleData {
+interface DatabaseCandleRecord {
   id: string;
   symbol: string;
   timeframe: string;
@@ -12,7 +13,7 @@ export interface CandleData {
   low: number;
   close: number;
   volume: number;
-  data_source: string;
+  data_source?: string;
 }
 
 export interface GuarantorResult {
@@ -150,25 +151,59 @@ export class ChartDataGuarantor {
   }
 
   private static validateCandles(candles: any[]): CandleData[] {
-    return candles.filter(candle => {
-      if (!candle.open || !candle.high || !candle.low || !candle.close) {
-        return false;
+    const transformed: CandleData[] = [];
+    let conversionFailures = 0;
+
+    for (const dbCandle of candles) {
+      if (!dbCandle.open || !dbCandle.high || !dbCandle.low || !dbCandle.close) {
+        continue;
       }
 
-      if (candle.high < candle.low) {
-        return false;
+      if (dbCandle.high < dbCandle.low) {
+        continue;
       }
 
-      if (candle.high < candle.open || candle.high < candle.close) {
-        return false;
+      if (dbCandle.high < dbCandle.open || dbCandle.high < dbCandle.close) {
+        continue;
       }
 
-      if (candle.low > candle.open || candle.low > candle.close) {
-        return false;
+      if (dbCandle.low > dbCandle.open || dbCandle.low > dbCandle.close) {
+        continue;
       }
 
-      return true;
-    });
+      const timeInSeconds = new Date(dbCandle.open_time).getTime() / 1000;
+
+      if (isNaN(timeInSeconds) || !isFinite(timeInSeconds)) {
+        conversionFailures++;
+        logger.warn('[ChartDataGuarantor] Failed to convert open_time to timestamp:', dbCandle.open_time);
+        continue;
+      }
+
+      transformed.push({
+        time: timeInSeconds,
+        open: Number(dbCandle.open),
+        high: Number(dbCandle.high),
+        low: Number(dbCandle.low),
+        close: Number(dbCandle.close),
+        volume: dbCandle.volume ? Number(dbCandle.volume) : 0
+      });
+    }
+
+    if (conversionFailures > 0) {
+      logger.warn(`[ChartDataGuarantor] Failed to convert ${conversionFailures} candles`);
+    }
+
+    if (transformed.length > 0) {
+      logger.info(`[ChartDataGuarantor] Transformed ${transformed.length} candles. Sample:`, {
+        firstCandle: {
+          time: transformed[0].time,
+          timeAsDate: new Date(transformed[0].time * 1000).toISOString(),
+          open: transformed[0].open
+        }
+      });
+    }
+
+    return transformed;
   }
 
   private static detectGaps(
@@ -192,8 +227,8 @@ export class ChartDataGuarantor {
     let hasWeekdayGaps = false;
 
     for (let i = 1; i < candles.length; i++) {
-      const prevTime = new Date(candles[i - 1].open_time);
-      const currTime = new Date(candles[i].open_time);
+      const prevTime = new Date(candles[i - 1].time * 1000);
+      const currTime = new Date(candles[i].time * 1000);
 
       if (isNaN(prevTime.getTime()) || isNaN(currTime.getTime())) {
         logger.warn('[ChartDataGuarantor] Invalid date in gap detection, skipping');
