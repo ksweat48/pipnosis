@@ -16,3 +16,4 @@ export * from './openai-client';
 export * from './database-service';
 export * from './candle-data-service';
 export * from './simulated-trading';
+export * from './chart-data-guarantor';

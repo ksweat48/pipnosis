@@ -42,6 +42,7 @@ import { ChartLoadingOverlay, BackgroundLoadingIndicator } from '@/components/Ch
 import { priceValidationService } from '@/services/price-validation-service';
 import { chartCircuitBreaker } from '@/services/chart-circuit-breaker';
 import { validateSymbol, type ValidatedSymbol } from '@/types/symbol';
+import { ChartDataGuarantor } from '@/services/chart-data-guarantor';
 
 interface MarketChartProps {
   symbol: string;
@@ -98,6 +99,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [updateCount, setUpdateCount] = useState(0);
   const [debugInfo, setDebugInfo] = useState<string>('');
   const [dataQualityWarning, setDataQualityWarning] = useState<string | null>(null);
+  const [dataCompleteness, setDataCompleteness] = useState<{ isComplete: boolean; candleCount: number; targetCount: number } | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>(() => chartPreferencesService.getTimeframe(symbol));
   const [isLive, setIsLive] = useState(false);
   const [systemStatus, setSystemStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
@@ -864,17 +866,20 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         setLoadingProgress(null);
       }
 
-      console.log(`[Chart Init] Priority 1: Loading ${symbol} ${timeframe}...`);
+      const targetCandleCount = ChartDataGuarantor.calculateSmartCandleCount(timeframe);
+      console.log(`[Chart Init] Using ChartDataGuarantor - Target: ${targetCandleCount} candles`);
 
-      const success = await concurrentBulkLoader.loadSinglePair(
-        symbol,
-        timeframe,
-        (loaded, total) => {
-          setLoadingProgress({ loaded, total });
-        }
-      );
+      const result = await ChartDataGuarantor.guaranteeChartData(symbol, timeframe, targetCandleCount);
 
-      if (!success) {
+      console.log(`[Chart Init] Guarantor result:`, {
+        candleCount: result.candles.length,
+        isComplete: result.isComplete,
+        hasGaps: result.hasGaps,
+        missingCount: result.missingCount,
+        loadTime: result.loadTime
+      });
+
+      if (result.candles.length === 0) {
         console.warn('[Chart Init] No candle data found for symbol:', symbol);
         setError('Waiting for price data... The price feed will start shortly.');
         setIsLoading(false);
@@ -882,11 +887,27 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         return;
       }
 
-      console.log('[Chart Init] Bulk loader succeeded, fetching chart data...');
-      // ENHANCED: Use time-based fetching (24 hours) instead of count-based limit
-      // This ensures we get ALL candles created while user was away
-      const CHART_LOOKBACK_HOURS = 24;
-      const chartData = await fetchCompleteChartDataByTime(symbol, timeframe, CHART_LOOKBACK_HOURS);
+      setDataCompleteness({
+        isComplete: result.isComplete,
+        candleCount: result.candles.length,
+        targetCount: targetCandleCount
+      });
+
+      if (!result.isComplete) {
+        if (result.hasGaps) {
+          setDataQualityWarning(`Found ${result.gapDetails.length} gaps. Auto-filling...`);
+          console.log('[Chart Init] Triggering gap fills:', result.gapDetails);
+        } else if (result.missingCount > 0) {
+          setDataQualityWarning(`${result.missingCount} candles missing. Loading historical data...`);
+        }
+      } else {
+        setDataQualityWarning(null);
+      }
+
+      const chartData = {
+        historical: result.candles,
+        current: null
+      };
 
       console.log('[Chart Init] Chart data received:', {
         historicalCount: chartData.historical.length,
@@ -1059,6 +1080,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       console.log('[Chart Init] Initialization complete, setting isLoading to false');
       setIsLoading(false);
       setLoadingProgress(null);
+
+      if (result.hasGaps && result.gapDetails.length > 0) {
+        console.log(`[Chart Init] Detected ${result.gapDetails.length} weekday gaps, requesting auto-fill...`);
+        result.gapDetails.forEach(gap => {
+          ChartDataGuarantor.requestGapFill(symbol, timeframe, gap.start, gap.end);
+        });
+      }
 
       console.log(`[Chart Init] Priority 2: Starting background loading for remaining pairs...`);
       concurrentBulkLoader.loadAllPairsInBackground(
@@ -1529,6 +1557,31 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
               <p className="text-yellow-400/80 text-xs mt-1">{dataQualityWarning}</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {dataCompleteness && !isLoading && (
+        <div className="mb-3 flex items-center gap-2 text-xs">
+          <div className={`px-3 py-1.5 rounded-full flex items-center gap-2 ${
+            dataCompleteness.isComplete
+              ? 'bg-emerald-500/10 border border-emerald-500/30'
+              : 'bg-blue-500/10 border border-blue-500/30'
+          }`}>
+            <div className={`w-2 h-2 rounded-full ${
+              dataCompleteness.isComplete ? 'bg-emerald-500' : 'bg-blue-500 animate-pulse'
+            }`}></div>
+            <span className={dataCompleteness.isComplete ? 'text-emerald-400' : 'text-blue-400'}>
+              {dataCompleteness.candleCount}/{dataCompleteness.targetCount} candles
+            </span>
+            {dataCompleteness.isComplete && (
+              <span className="text-emerald-500/70 font-medium">Complete</span>
+            )}
+          </div>
+          {!dataCompleteness.isComplete && (
+            <span className="text-gray-400">
+              {Math.round((dataCompleteness.candleCount / dataCompleteness.targetCount) * 100)}% loaded
+            </span>
+          )}
         </div>
       )}
 
