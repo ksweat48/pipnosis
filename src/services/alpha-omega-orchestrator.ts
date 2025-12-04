@@ -15,6 +15,7 @@ import { omegaSwing, type SwingSnapshot } from '../brains/omega/swing';
 import { omegaReversal, type ReversalSnapshot } from '../brains/omega/reversal';
 import { omegaVolatility, type VolatilitySnapshot } from '../brains/omega/volatility';
 import { omegaRisk, type RiskSnapshot } from '../brains/omega/risk';
+import { omega8OrderFlow, type OrderFlowSnapshot } from '../brains/omega/orderflow';
 import { alphaCoordinator, type OmegaCouncilVotes, type MarketContext, type AlphaDecision } from '../brains/coordinator-alpha';
 import { midTradeMonitor, type MidTradeSnapshot, type MidTradeDecision } from '../brains/midtrade-monitor';
 import type { TraderScore } from './ai-identity';
@@ -77,12 +78,13 @@ class AlphaOmegaOrchestrator {
     const reversalSnap = this.buildReversalSnapshot(marketState);
     const volatilitySnap = this.buildVolatilitySnapshot(marketState);
     const riskSnap = this.buildRiskSnapshot(marketState, proposedSL, proposedTP, 3);
+    const orderFlowSnap = this.buildOrderFlowSnapshot(marketState, proposedSL);
 
     // Call all Omegas in parallel
     console.log('[Alpha+Omega] 🔮 Calling Omega Council (parallel)...');
     const startTime = Date.now();
 
-    const [trendVote, scalperVote, swingVote, reversalVote, volatilityVote, riskVote] = await Promise.all([
+    const [trendVote, scalperVote, swingVote, reversalVote, volatilityVote, riskVote, omega8Vote] = await Promise.all([
       omegaTrend.evaluate(trendSnap).catch(err => {
         console.warn('[Omega Trend] Failed:', err.message);
         return null;
@@ -106,6 +108,10 @@ class AlphaOmegaOrchestrator {
       omegaRisk.evaluate(riskSnap).catch(err => {
         console.warn('[Omega Risk] Failed:', err.message);
         return null;
+      }),
+      omega8OrderFlow.evaluate(orderFlowSnap).catch(err => {
+        console.warn('[Omega-8 OrderFlow] Failed:', err.message);
+        return null;
       })
     ]);
 
@@ -119,7 +125,8 @@ class AlphaOmegaOrchestrator {
       swing: swingVote,
       reversal: reversalVote,
       volatility: volatilityVote,
-      risk: riskVote
+      risk: riskVote,
+      omega8: omega8Vote
     });
 
     // Build market context for Alpha
@@ -142,7 +149,8 @@ class AlphaOmegaOrchestrator {
         swing: swingVote,
         reversal: reversalVote,
         volatility: volatilityVote,
-        risk: riskVote
+        risk: riskVote,
+        omega8: omega8Vote
       },
       marketContext,
       traderScore
@@ -413,6 +421,22 @@ class AlphaOmegaOrchestrator {
   }
 
   /**
+   * Build snapshot for Omega-8 OrderFlow
+   */
+  private buildOrderFlowSnapshot(state: FullMarketState, proposedSL?: number): OrderFlowSnapshot {
+    return omega8OrderFlow.buildSnapshot({
+      price: state.price,
+      support: state.support,
+      resistance: state.resistance,
+      recentCandles: state.recentCandles.slice(-20),
+      atr: state.atr,
+      trend: state.trend,
+      volatility: state.volatility,
+      currentStopLoss: proposedSL
+    });
+  }
+
+  /**
    * Determine structure pattern
    */
   private determineStructure(state: FullMarketState): string {
@@ -455,6 +479,11 @@ class AlphaOmegaOrchestrator {
     console.log(`  Reversal:   ${votes.reversal?.vote || 'N/A'} @ ${votes.reversal?.confidence || 0}% - ${votes.reversal?.reasoning || ''}`);
     console.log(`  Volatility: ${votes.volatility?.vote || 'N/A'} @ ${votes.volatility?.confidence || 0}% - ${votes.volatility?.reasoning || ''}`);
     console.log(`  Risk:       ${votes.risk?.vote || 'N/A'} @ ${votes.risk?.confidence || 0}% - ${votes.risk?.reasoning || ''}`);
+    if (votes.omega8) {
+      console.log(`  OrderFlow:  ${votes.omega8.vote || 'N/A'} @ ${votes.omega8.confidence || 0}% - ${votes.omega8.reasoning || ''} | Liq: ${votes.omega8.liquidity_bias}`);
+    } else {
+      console.log(`  OrderFlow:  N/A`);
+    }
   }
 }
 

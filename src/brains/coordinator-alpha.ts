@@ -13,7 +13,9 @@
 
 import { openAIClient } from '../services/openai-client';
 import type { OmegaVote } from './omega/trend';
+import type { Omega8Vote, Omega9ValidationResult } from '../types/omega';
 import type { TraderScore } from '../services/ai-identity';
+import { omega9Hallucination, type Omega9Input } from './omega9-hallucination-brain';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -22,6 +24,7 @@ export interface OmegaCouncilVotes {
   reversal: OmegaVote | null;
   volatility: OmegaVote | null;
   risk: OmegaVote | null;
+  omega8: Omega8Vote | null;
 }
 
 export interface MarketContext {
@@ -40,6 +43,9 @@ export interface AlphaDecision {
   confidence: number;
   reasoning: string;
   omega_summary: string;
+  omega8_liquidity_bias?: string;
+  omega8_direction_support?: string;
+  omega9_validation?: Omega9ValidationResult;
 }
 
 class AlphaCoordinatorBrain {
@@ -96,10 +102,76 @@ Return JSON only:
       );
 
       const content = response.choices[0]?.message?.content || '{}';
-      const decision = this.parseDecision(content, marketContext.price, marketContext.atr);
+      let decision = this.parseDecision(content, marketContext.price, marketContext.atr);
 
       // Add omega summary
       decision.omega_summary = this.generateOmegaSummary(votes, weights);
+
+      // Add Omega-8 insights
+      if (votes.omega8) {
+        decision.omega8_liquidity_bias = votes.omega8.liquidity_bias;
+        decision.omega8_direction_support = votes.omega8.direction_support;
+
+        // Reduce position size if stop-run risk detected
+        if (votes.omega8.liquidity_bias === 'stoprun_risk') {
+          decision.confidence = Math.max(0, decision.confidence - 15);
+          console.log('[Alpha Coordinator] ⚠️ Omega-8 flags stop-run risk - reducing confidence');
+        }
+      }
+
+      // Omega-9 validation (final safety check)
+      if (decision.action !== 'NO_TRADE') {
+        console.log('[Alpha Coordinator] 🛡️ Running Omega-9 validation...');
+
+        const omega9Input: Omega9Input = {
+          alphaDecision: decision,
+          omegaVotes: votes,
+          marketContext: {
+            price: marketContext.price,
+            atr: marketContext.atr,
+            symbol: marketContext.symbol
+          },
+          safetyRules: {
+            maxRiskPct: 5,
+            minRR: 1.5,
+            maxExposure: 10
+          }
+        };
+
+        const validation = await omega9Hallucination.validate(omega9Input);
+        decision.omega9_validation = validation;
+
+        if (!validation.pass) {
+          console.log('[Alpha Coordinator] ❌ Omega-9 BLOCKED trade:', validation.reasoning);
+          return {
+            action: 'NO_TRADE',
+            entry: marketContext.price,
+            stopLoss: marketContext.price,
+            takeProfit: marketContext.price,
+            confidence: 0,
+            reasoning: `Omega-9 block: ${validation.reasoning}`,
+            omega_summary: decision.omega_summary,
+            omega8_liquidity_bias: decision.omega8_liquidity_bias,
+            omega8_direction_support: decision.omega8_direction_support,
+            omega9_validation: validation
+          };
+        }
+
+        // Apply Omega-9 corrections if provided
+        if (validation.corrections.sl !== null) {
+          console.log(`[Alpha Coordinator] 🔧 Omega-9 corrected SL: ${decision.stopLoss} → ${validation.corrections.sl}`);
+          decision.stopLoss = validation.corrections.sl;
+        }
+        if (validation.corrections.tp !== null) {
+          console.log(`[Alpha Coordinator] 🔧 Omega-9 corrected TP: ${decision.takeProfit} → ${validation.corrections.tp}`);
+          decision.takeProfit = validation.corrections.tp;
+        }
+
+        // Apply confidence adjustment
+        decision.confidence = Math.max(0, Math.min(100, decision.confidence + validation.confidence_adjustment));
+
+        console.log('[Alpha Coordinator] ✅ Omega-9 validation passed');
+      }
 
       console.log('[Alpha Coordinator] Decision:', decision.action);
       console.log('[Alpha Coordinator] Confidence:', decision.confidence);
@@ -135,7 +207,8 @@ Return JSON only:
       swing: 1.0,
       reversal: 1.0,
       volatility: 1.0,
-      risk: 1.0
+      risk: 1.0,
+      omega8: 1.0
     };
 
     // Adjust by market regime
@@ -183,6 +256,17 @@ Return JSON only:
     // Risk specialist ALWAYS important
     weights.risk = Math.max(weights.risk, 1.2);
 
+    // Omega-8 OrderFlow adjustments
+    if (marketContext.regime === 'side') {
+      weights.omega8 = 1.4;  // Boost in ranging markets (stop-run risk higher)
+    }
+    if (marketContext.volatility === 'high') {
+      weights.omega8 = 1.3;  // Boost in high volatility (liquidity matters more)
+    }
+    if (traderScore.confidence_level === 'cautious') {
+      weights.omega8 = weights.omega8 * 1.2;  // Cautious traders value liquidity analysis
+    }
+
     return weights;
   }
 
@@ -209,14 +293,20 @@ Return JSON only:
       { name: 'Swing', vote: votes.swing, weight: weights.swing },
       { name: 'Reversal', vote: votes.reversal, weight: weights.reversal },
       { name: 'Volatility', vote: votes.volatility, weight: weights.volatility },
-      { name: 'Risk', vote: votes.risk, weight: weights.risk }
+      { name: 'Risk', vote: votes.risk, weight: weights.risk },
+      { name: 'OrderFlow', vote: votes.omega8, weight: weights.omega8 }
     ];
 
     for (const entry of voteEntries) {
       if (entry.vote) {
-        parts.push(
-          `${entry.name} (${entry.weight.toFixed(1)}x): ${entry.vote.vote} @ ${entry.vote.confidence}% - ${entry.vote.reasoning}`
-        );
+        const baseInfo = `${entry.name} (${entry.weight.toFixed(1)}x): ${entry.vote.vote} @ ${entry.vote.confidence}% - ${entry.vote.reasoning}`;
+
+        // Add Omega-8 specific details
+        if (entry.name === 'OrderFlow' && votes.omega8) {
+          parts.push(`${baseInfo} | Liq: ${votes.omega8.liquidity_bias}`);
+        } else {
+          parts.push(baseInfo);
+        }
       } else {
         parts.push(`${entry.name} (${entry.weight.toFixed(1)}x): UNAVAILABLE`);
       }
@@ -247,6 +337,16 @@ Return JSON only:
 
     if (votes.risk && votes.risk.vote === 'NO_TRADE') {
       summary.push(`⚠️ Risk specialist vetoed (${votes.risk.reasoning})`);
+    }
+
+    if (votes.omega8) {
+      if (votes.omega8.liquidity_bias === 'stoprun_risk') {
+        summary.push(`⚠️ OrderFlow: Stop-run risk detected`);
+      } else if (votes.omega8.liquidity_bias === 'clean') {
+        summary.push(`✓ OrderFlow: Clean liquidity`);
+      } else {
+        summary.push(`OrderFlow: ${votes.omega8.liquidity_bias}`);
+      }
     }
 
     return summary.join(' | ');
