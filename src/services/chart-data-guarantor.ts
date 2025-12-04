@@ -42,21 +42,42 @@ export class ChartDataGuarantor {
     timeframe: string,
     targetCount: number = this.TARGET_CANDLES
   ): Promise<GuarantorResult> {
-    const startTime = Date.now();
+    const startTimeMs = Date.now();
 
     try {
       logger.info(`[ChartDataGuarantor] Guaranteeing ${targetCount} candles for ${symbol} ${timeframe}`);
 
+      if (targetCount <= 0) {
+        throw new Error(`Invalid targetCount: ${targetCount}`);
+      }
+
+      if (!this.TIMEFRAME_SECONDS[timeframe]) {
+        throw new Error(`Invalid timeframe: ${timeframe}`);
+      }
+
       const endTime = new Date();
       const startTime = this.calculateStartTime(endTime, timeframe, targetCount);
+
+      if (isNaN(startTime.getTime())) {
+        throw new Error('Invalid start time calculated');
+      }
+
+      if (isNaN(endTime.getTime())) {
+        throw new Error('Invalid end time');
+      }
+
+      const startTimeISO = startTime.toISOString();
+      const endTimeISO = endTime.toISOString();
+
+      logger.info(`[ChartDataGuarantor] Query range: ${startTimeISO} to ${endTimeISO}`);
 
       const { data: candles, error } = await supabase
         .from('forex_candles')
         .select('*')
         .eq('symbol', symbol)
         .eq('timeframe', timeframe)
-        .gte('open_time', startTime.toISOString())
-        .lte('open_time', endTime.toISOString())
+        .gte('open_time', startTimeISO)
+        .lte('open_time', endTimeISO)
         .order('open_time', { ascending: true })
         .limit(this.EMERGENCY_LIMIT);
 
@@ -73,7 +94,7 @@ export class ChartDataGuarantor {
           missingCount: targetCount,
           hasGaps: false,
           gapDetails: [],
-          loadTime: Date.now() - startTime
+          loadTime: Date.now() - startTimeMs
         };
       }
 
@@ -90,7 +111,7 @@ export class ChartDataGuarantor {
         missingCount: Math.max(0, targetCount - validCandles.length),
         hasGaps: gapAnalysis.hasWeekdayGaps,
         gapDetails: gapAnalysis.gaps,
-        loadTime: Date.now() - startTime
+        loadTime: Date.now() - startTimeMs
       };
 
     } catch (error) {
@@ -104,12 +125,28 @@ export class ChartDataGuarantor {
     timeframe: string,
     targetCount: number
   ): Date {
-    const intervalSeconds = this.TIMEFRAME_SECONDS[timeframe] || 3600;
+    if (isNaN(endTime.getTime())) {
+      throw new Error('Invalid endTime provided to calculateStartTime');
+    }
+
+    if (targetCount <= 0) {
+      throw new Error(`Invalid targetCount: ${targetCount}`);
+    }
+
+    const intervalSeconds = this.TIMEFRAME_SECONDS[timeframe];
+    if (!intervalSeconds) {
+      throw new Error(`Unknown timeframe: ${timeframe}`);
+    }
 
     const safetyMultiplier = 2.5;
     const estimatedSeconds = intervalSeconds * targetCount * safetyMultiplier;
+    const startTimeMs = endTime.getTime() - estimatedSeconds * 1000;
 
-    return new Date(endTime.getTime() - estimatedSeconds * 1000);
+    if (isNaN(startTimeMs) || startTimeMs < 0) {
+      throw new Error('Calculated start time is invalid');
+    }
+
+    return new Date(startTimeMs);
   }
 
   private static validateCandles(candles: any[]): CandleData[] {
@@ -142,7 +179,12 @@ export class ChartDataGuarantor {
       return { hasWeekdayGaps: false, gaps: [] };
     }
 
-    const intervalSeconds = this.TIMEFRAME_SECONDS[timeframe] || 3600;
+    const intervalSeconds = this.TIMEFRAME_SECONDS[timeframe];
+    if (!intervalSeconds) {
+      logger.warn(`[ChartDataGuarantor] Unknown timeframe for gap detection: ${timeframe}`);
+      return { hasWeekdayGaps: false, gaps: [] };
+    }
+
     const expectedIntervalMs = intervalSeconds * 1000;
     const gapThreshold = expectedIntervalMs * 1.5;
 
@@ -152,6 +194,12 @@ export class ChartDataGuarantor {
     for (let i = 1; i < candles.length; i++) {
       const prevTime = new Date(candles[i - 1].open_time);
       const currTime = new Date(candles[i].open_time);
+
+      if (isNaN(prevTime.getTime()) || isNaN(currTime.getTime())) {
+        logger.warn('[ChartDataGuarantor] Invalid date in gap detection, skipping');
+        continue;
+      }
+
       const timeDiff = currTime.getTime() - prevTime.getTime();
 
       if (timeDiff > gapThreshold) {
