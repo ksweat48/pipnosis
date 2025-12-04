@@ -1549,37 +1549,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           </div>
         )}
 
-        {!isLoading && !error && (vwapValue || ema20Value || ema50Value || ema200Value) && (
-          <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-20 bg-gray-900/80 backdrop-blur-sm px-4 py-2 rounded-lg border border-gray-700 shadow-lg">
-            <div className="flex items-center gap-4 text-xs font-medium">
-              {vwapValue && (
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                  <span className="text-gray-400">VWAP</span>
-                </div>
-              )}
-              {ema20Value && (
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                  <span className="text-gray-400">EMA 20</span>
-                </div>
-              )}
-              {ema50Value && (
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                  <span className="text-gray-400">EMA 50</span>
-                </div>
-              )}
-              {ema200Value && (
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                  <span className="text-gray-400">EMA 200</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
         <div className="relative">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden" />
 
