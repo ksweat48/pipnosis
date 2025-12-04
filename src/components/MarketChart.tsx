@@ -1458,38 +1458,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
               ))}
             </select>
 
-            <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 bg-gray-800/50 rounded-lg border border-gray-700">
-              <div className={`w-2 h-2 rounded-full ${
-                systemStatus === 'connected' ? 'bg-green-500 animate-pulse' :
-                systemStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' :
-                'bg-red-500'
-              }`}></div>
-              <span className="hidden sm:inline text-xs font-medium text-gray-300">System</span>
-            </div>
-
-            <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 bg-gray-800/50 rounded-lg border border-gray-700">
-              <div className={`w-2 h-2 rounded-full ${
-                marketStatus === 'live' ? 'bg-green-500 animate-pulse' :
-                marketStatus === 'delayed' ? 'bg-yellow-500 animate-pulse' :
-                'bg-red-500'
-              }`}></div>
-              <span className="hidden sm:inline text-xs font-medium text-gray-300">Market</span>
-            </div>
-
-            <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 bg-gray-800/50 rounded-lg border border-gray-700">
-              <div className={`w-2 h-2 rounded-full ${
-                priceSource === 'metaapi' ? 'bg-blue-500 animate-pulse' :
-                priceSource === 'database' ? 'bg-yellow-500' :
-                'bg-gray-500'
-              }`}></div>
-              <span className="hidden sm:inline text-xs font-medium ${
-                priceSource === 'metaapi' ? 'text-blue-400' :
-                priceSource === 'database' ? 'text-yellow-400' :
-                'text-gray-400'
-              }">
-                {priceSource === 'metaapi' ? 'Live' : priceSource === 'database' ? 'Delayed' : 'Offline'}
-              </span>
-            </div>
           </div>
 
           {/* Desktop: Price on the right side */}
@@ -1560,30 +1528,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         </div>
       )}
 
-      {dataCompleteness && !isLoading && (
-        <div className="mb-3 flex items-center gap-2 text-xs">
-          <div className={`px-3 py-1.5 rounded-full flex items-center gap-2 ${
-            dataCompleteness.isComplete
-              ? 'bg-emerald-500/10 border border-emerald-500/30'
-              : 'bg-blue-500/10 border border-blue-500/30'
-          }`}>
-            <div className={`w-2 h-2 rounded-full ${
-              dataCompleteness.isComplete ? 'bg-emerald-500' : 'bg-blue-500 animate-pulse'
-            }`}></div>
-            <span className={dataCompleteness.isComplete ? 'text-emerald-400' : 'text-blue-400'}>
-              {dataCompleteness.candleCount}/{dataCompleteness.targetCount} candles
-            </span>
-            {dataCompleteness.isComplete && (
-              <span className="text-emerald-500/70 font-medium">Complete</span>
-            )}
-          </div>
-          {!dataCompleteness.isComplete && (
-            <span className="text-gray-400">
-              {Math.round((dataCompleteness.candleCount / dataCompleteness.targetCount) * 100)}% loaded
-            </span>
-          )}
-        </div>
-      )}
 
       <div className="relative isolate">
         {isLoading && (
