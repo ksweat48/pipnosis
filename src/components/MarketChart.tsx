@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle, LineSeries } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
-import { TrendingUp, Activity, AlertCircle, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { TrendingUp, Activity, AlertCircle, Clock, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { chartPreferencesService, Timeframe, type IndicatorVisibility } from '@/services/chart-preferences';
 import { globalPollingCoordinator } from '@/services/global-polling-coordinator';
 import { pollingConfigService } from '@/services/polling-config-service';
@@ -107,6 +107,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [priceSource, setPriceSource] = useState<'metaapi' | 'database' | 'offline'>('offline');
   const [directPollerActive, setDirectPollerActive] = useState(false);
   const [forexMarketStatus, setForexMarketStatus] = useState<MarketStatus>(() => getForexMarketStatus());
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [rsiData, setRsiData] = useState<IndicatorResult[]>([]);
   const [atrData, setAtrData] = useState<IndicatorResult[]>([]);
@@ -1433,6 +1434,39 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     localStorage.setItem(`indicators-visible-${symbol}`, String(newValue));
   };
 
+  const handleChartRefresh = async () => {
+    if (isRefreshing) return;
+
+    console.log(`[Chart] 🔄 Manual refresh triggered for ${symbol} ${timeframe}`);
+    setIsRefreshing(true);
+
+    try {
+      currentCandleRef.current = null;
+      historicalCandlesRef.current = [];
+
+      if (candlestickSeriesRef.current) {
+        candlestickSeriesRef.current.setData([]);
+        vwapSeriesRef.current?.setData([]);
+        ema20SeriesRef.current?.setData([]);
+        ema50SeriesRef.current?.setData([]);
+        ema200SeriesRef.current?.setData([]);
+      }
+
+      await initializeChart(true);
+
+      await chartCandlePoller.forceRefresh(symbol, timeframe);
+
+      console.log(`[Chart] ✅ Manual refresh complete for ${symbol} ${timeframe}`);
+    } catch (error) {
+      console.error('[Chart] Error during manual refresh:', error);
+      setError('Failed to refresh chart data');
+    } finally {
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 500);
+    }
+  };
+
   return (
     <div className="space-y-4 relative">
       <div className="flex flex-col gap-4">
@@ -1484,6 +1518,21 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                 }`}>
                   {forexMarketStatus.status}
                 </div>
+                <button
+                  onClick={handleChartRefresh}
+                  disabled={isRefreshing}
+                  className={`p-2 rounded-lg transition-all ${
+                    isRefreshing
+                      ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed'
+                      : 'bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 hover:border-gray-600'
+                  }`}
+                  title="Refresh chart data"
+                >
+                  <RefreshCw
+                    size={16}
+                    className={isRefreshing ? 'animate-spin' : ''}
+                  />
+                </button>
               </div>
             </div>
           )}
@@ -1512,6 +1561,21 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             }`}>
               {forexMarketStatus.status}
             </div>
+            <button
+              onClick={handleChartRefresh}
+              disabled={isRefreshing}
+              className={`p-1.5 rounded-lg transition-all ${
+                isRefreshing
+                  ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed'
+                  : 'bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 hover:border-gray-600'
+              }`}
+              title="Refresh chart data"
+            >
+              <RefreshCw
+                size={14}
+                className={isRefreshing ? 'animate-spin' : ''}
+              />
+            </button>
           </div>
         )}
       </div>
