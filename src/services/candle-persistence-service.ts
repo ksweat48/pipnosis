@@ -101,7 +101,9 @@ class CandlePersistenceService {
         high: candle.high,
         low: candle.low,
         close: candle.close,
-        volume: candle.volume || 0
+        volume: candle.volume || 0,
+        data_source: 'tick_aggregation',
+        quality_score: 70
       };
 
       const dbTimeframe = appTimeframeToDb(timeframe);

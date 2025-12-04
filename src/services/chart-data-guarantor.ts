@@ -72,6 +72,8 @@ export class ChartDataGuarantor {
 
       logger.info(`[ChartDataGuarantor] Query range: ${startTimeISO} to ${endTimeISO}`);
 
+      // Order by descending to get the NEWEST candles first (fixes issue where
+      // browser aggregator creates 500+ candles but we only fetch oldest 250)
       const { data: candles, error } = await supabase
         .from('forex_candles')
         .select('*')
@@ -79,7 +81,7 @@ export class ChartDataGuarantor {
         .eq('timeframe', timeframe)
         .gte('open_time', startTimeISO)
         .lte('open_time', endTimeISO)
-        .order('open_time', { ascending: true })
+        .order('open_time', { ascending: false })  // Get newest first
         .limit(this.EMERGENCY_LIMIT);
 
       if (error) {
@@ -99,13 +101,17 @@ export class ChartDataGuarantor {
         };
       }
 
-      const validCandles = this.validateCandles(candles);
+      // Candles are now in descending order (newest first), so reverse to ascending
+      const reversedCandles = [...candles].reverse();
+      const validCandles = this.validateCandles(reversedCandles);
       const gapAnalysis = this.detectGaps(validCandles, timeframe);
 
       const isComplete = validCandles.length >= targetCount && !gapAnalysis.hasWeekdayGaps;
 
       logger.info(`[ChartDataGuarantor] Retrieved ${validCandles.length} valid candles, target: ${targetCount}, complete: ${isComplete}`);
 
+      // Since we ordered descending and reversed, we now have ascending order
+      // Take the last targetCount candles (most recent)
       return {
         candles: validCandles.slice(-targetCount),
         isComplete,
