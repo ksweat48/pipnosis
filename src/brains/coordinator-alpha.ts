@@ -257,14 +257,17 @@ Return JSON only:
     weights.risk = Math.max(weights.risk, 1.2);
 
     // Omega-8 OrderFlow adjustments
+    if (votes.omega8 && votes.omega8.confidence >= 70) {
+      weights.omega8 = 1.5;  // High confidence orderflow analysis
+    }
     if (marketContext.regime === 'side') {
-      weights.omega8 = 1.4;  // Boost in ranging markets (stop-run risk higher)
+      weights.omega8 = weights.omega8 * 1.2;  // Boost in ranging markets (stop-run risk higher)
     }
     if (marketContext.volatility === 'high') {
-      weights.omega8 = 1.3;  // Boost in high volatility (liquidity matters more)
+      weights.omega8 = weights.omega8 * 1.15;  // Boost in high volatility (liquidity matters more)
     }
     if (traderScore.confidence_level === 'cautious') {
-      weights.omega8 = weights.omega8 * 1.2;  // Cautious traders value liquidity analysis
+      weights.omega8 = weights.omega8 * 1.1;  // Cautious traders value liquidity analysis
     }
 
     return weights;

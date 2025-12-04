@@ -15,7 +15,7 @@ import { omegaSwing, type SwingSnapshot } from '../brains/omega/swing';
 import { omegaReversal, type ReversalSnapshot } from '../brains/omega/reversal';
 import { omegaVolatility, type VolatilitySnapshot } from '../brains/omega/volatility';
 import { omegaRisk, type RiskSnapshot } from '../brains/omega/risk';
-import { omega8OrderFlow, type OrderFlowSnapshot } from '../brains/omega/orderflow';
+import { omega8Hybrid, type Omega8MarketSnapshot } from '../brains/omega8-hybrid-orderflow';
 import { alphaCoordinator, type OmegaCouncilVotes, type MarketContext, type AlphaDecision } from '../brains/coordinator-alpha';
 import { midTradeMonitor, type MidTradeSnapshot, type MidTradeDecision } from '../brains/midtrade-monitor';
 import type { TraderScore } from './ai-identity';
@@ -78,7 +78,7 @@ class AlphaOmegaOrchestrator {
     const reversalSnap = this.buildReversalSnapshot(marketState);
     const volatilitySnap = this.buildVolatilitySnapshot(marketState);
     const riskSnap = this.buildRiskSnapshot(marketState, proposedSL, proposedTP, 3);
-    const orderFlowSnap = this.buildOrderFlowSnapshot(marketState, proposedSL);
+    const omega8Snap = this.buildOmega8HybridSnapshot(marketState);
 
     // Call all Omegas in parallel
     console.log('[Alpha+Omega] 🔮 Calling Omega Council (parallel)...');
@@ -109,8 +109,8 @@ class AlphaOmegaOrchestrator {
         console.warn('[Omega Risk] Failed:', err.message);
         return null;
       }),
-      omega8OrderFlow.evaluate(orderFlowSnap).catch(err => {
-        console.warn('[Omega-8 OrderFlow] Failed:', err.message);
+      omega8Hybrid.runOmega8(omega8Snap).catch(err => {
+        console.warn('[Omega-8 Hybrid] Failed:', err.message);
         return null;
       })
     ]);
@@ -421,19 +421,32 @@ class AlphaOmegaOrchestrator {
   }
 
   /**
-   * Build snapshot for Omega-8 OrderFlow
+   * Build snapshot for Omega-8 Hybrid OrderFlow
    */
-  private buildOrderFlowSnapshot(state: FullMarketState, proposedSL?: number): OrderFlowSnapshot {
-    return omega8OrderFlow.buildSnapshot({
+  private buildOmega8HybridSnapshot(state: FullMarketState): Omega8MarketSnapshot {
+    const candles = state.recentCandles.slice(-30).map(c => ({
+      time: c.time || Date.now(),
+      open: c.open || c[0],
+      high: c.high || c[1],
+      low: c.low || c[2],
+      close: c.close || c[3],
+      volume: c.volume || c[4] || 1000
+    }));
+
+    let trendBias: 'up' | 'down' | 'sideways' = 'sideways';
+    if (state.trend === 'bull') trendBias = 'up';
+    else if (state.trend === 'bear') trendBias = 'down';
+
+    return {
+      symbol: state.symbol,
+      timeframe: 'M15',
       price: state.price,
-      support: state.support,
-      resistance: state.resistance,
-      recentCandles: state.recentCandles.slice(-20),
       atr: state.atr,
-      trend: state.trend,
-      volatility: state.volatility,
-      currentStopLoss: proposedSL
-    });
+      candles,
+      trendBias,
+      support: state.support,
+      resistance: state.resistance
+    };
   }
 
   /**
@@ -480,7 +493,8 @@ class AlphaOmegaOrchestrator {
     console.log(`  Volatility: ${votes.volatility?.vote || 'N/A'} @ ${votes.volatility?.confidence || 0}% - ${votes.volatility?.reasoning || ''}`);
     console.log(`  Risk:       ${votes.risk?.vote || 'N/A'} @ ${votes.risk?.confidence || 0}% - ${votes.risk?.reasoning || ''}`);
     if (votes.omega8) {
-      console.log(`  OrderFlow:  ${votes.omega8.vote || 'N/A'} @ ${votes.omega8.confidence || 0}% - ${votes.omega8.reasoning || ''} | Liq: ${votes.omega8.liquidity_bias}`);
+      const usedLLM = (votes.omega8 as any).usedLLM ? ' [LLM]' : ' [DET]';
+      console.log(`  OrderFlow:  ${votes.omega8.vote || 'N/A'} @ ${votes.omega8.confidence || 0}%${usedLLM} - ${votes.omega8.reasoning || ''} | Liq: ${votes.omega8.liquidity_bias}`);
     } else {
       console.log(`  OrderFlow:  N/A`);
     }
