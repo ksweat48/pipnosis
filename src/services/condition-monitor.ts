@@ -61,6 +61,7 @@ class ConditionMonitor {
       // BLOCK if regime says avoid trading
       if (regime.avoid_trading) {
         console.log(`[Condition Monitor] ❌ Trade blocked by regime: ${regime.reason}`);
+        console.log(`[Condition Monitor] Context: session=${regime.session}, vol=${regime.volatility_score}, wick_risk=${regime.wick_risk}, trend=${regime.trend_strength_score}`);
         return {
           ready: false,
           conditionsMet: [],
@@ -72,7 +73,11 @@ class ConditionMonitor {
         };
       }
 
-      console.log(`[Condition Monitor] ✅ Regime check passed: ${regime.session}, vol=${regime.volatility_score}, trend=${regime.trend_strength_score}`);
+      console.log(`[Condition Monitor] ✅ Regime check passed`);
+      console.log(`[Condition Monitor] Session: ${regime.session} (${regime.minutes_into_session}min in)`);
+      console.log(`[Condition Monitor] Volatility: ${regime.volatility_score}/100, wick_risk=${regime.wick_risk}`);
+      console.log(`[Condition Monitor] Trend: ${regime.trend_strength_score}/100, structure=${regime.structure}`);
+      console.log(`[Condition Monitor] Risk factor: ${regime.risk_reduction_factor}x`);
     }
 
     // ADVERSARIAL DETECTOR: Check for manipulation patterns (zero-cost gate)

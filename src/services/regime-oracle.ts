@@ -268,6 +268,9 @@ class RegimeOracle {
 
   /**
    * D. SAFETY FLAGS COMPUTATION
+   *
+   * UPDATED: More nuanced approach to wick risk.
+   * Medium wick risk now only reduces position size, doesn't block trades.
    */
   private computeSafetyFlags(
     time: TimeRegime,
@@ -294,9 +297,10 @@ class RegimeOracle {
       reason = 'Extreme volatility (stops unreliable)';
     }
 
+    // FIXED: Only HIGH wick risk blocks trades, medium just reduces size
     if (volatility.wick_risk_level === 'high') {
       avoidTrading = true;
-      reason = 'High wick risk (SL hunting probable)';
+      reason = 'High wick risk (SL hunting probable - multiple extreme wicks detected)';
     }
 
     if (volatility.spread_risk === 'high') {
@@ -304,9 +308,10 @@ class RegimeOracle {
       reason = 'High spread risk (execution unreliable)';
     }
 
-    if (volatility.atr_compression && trend.structure_type === 'range') {
+    // Only block if BOTH compression AND ranging (true dead market)
+    if (volatility.atr_compression && trend.structure_type === 'range' && volatility.volatility_score < 25) {
       avoidTrading = true;
-      reason = 'ATR compression + range structure (no opportunity)';
+      reason = 'ATR compression + range structure + dead conditions';
     }
 
     if (time.is_ny_open && volatility.volatility_score > 75) {
@@ -321,10 +326,14 @@ class RegimeOracle {
       reason = reason || 'High volatility regime';
     }
 
+    // FIXED: Medium wick risk = slight reduction, not blocking
     if (volatility.wick_risk_level === 'medium' && !avoidTrading) {
       isHighRisk = true;
-      riskFactor = Math.min(riskFactor, 0.75);
+      riskFactor = Math.min(riskFactor, 0.85); // Reduced from 0.75 to 0.85
+      reason = reason || 'Elevated wick activity (monitor stops)';
     }
+
+    console.log(`[Safety Flags] avoid=${avoidTrading}, highRisk=${isHighRisk}, riskFactor=${riskFactor}, reason=${reason || 'none'}`);
 
     return {
       is_high_risk_regime: isHighRisk,
@@ -345,20 +354,68 @@ class RegimeOracle {
 
   /**
    * Helper: Compute wick risk
+   *
+   * FIXED: Now uses ATR-relative measurements and realistic thresholds
+   * to avoid blocking trades during normal market consolidation.
    */
   private computeWickRisk(candles: Candle[]): 'low' | 'medium' | 'high' {
     const recent = candles.slice(-10);
+    if (recent.length < 5) return 'medium';
 
-    const avgWickRatio = recent.map(c => {
-      const body = Math.abs(c.close - c.open);
+    // Calculate ATR for context
+    const atr = this.compute20PeriodATRAvg(candles);
+    if (atr === 0) return 'medium';
+
+    // Method 1: Wick-to-Range ratio (more stable than wick-to-body)
+    const avgWickToRangeRatio = recent.map(c => {
+      const range = c.high - c.low;
+      if (range === 0) return 0;
+
       const upperWick = c.high - Math.max(c.open, c.close);
       const lowerWick = Math.min(c.open, c.close) - c.low;
       const totalWick = upperWick + lowerWick;
-      return body > 0 ? totalWick / body : 0;
+
+      return totalWick / range;
     }).reduce((sum, r) => sum + r, 0) / recent.length;
 
-    if (avgWickRatio > 0.6) return 'high';
-    if (avgWickRatio > 0.3) return 'medium';
+    // Method 2: Absolute wick size relative to ATR
+    const avgWickSizeVsATR = recent.map(c => {
+      const upperWick = c.high - Math.max(c.open, c.close);
+      const lowerWick = Math.min(c.open, c.close) - c.low;
+      const maxWick = Math.max(upperWick, lowerWick);
+      return maxWick / atr;
+    }).reduce((sum, r) => sum + r, 0) / recent.length;
+
+    // Count extreme wick candles (individual candles with very large wicks)
+    const extremeWickCount = recent.filter(c => {
+      const range = c.high - c.low;
+      if (range === 0) return false;
+
+      const upperWick = c.high - Math.max(c.open, c.close);
+      const lowerWick = Math.min(c.open, c.close) - c.low;
+      const maxWick = Math.max(upperWick, lowerWick);
+
+      // Extreme = wick is >80% of total range
+      return (maxWick / range) > 0.8;
+    }).length;
+
+    // DEBUG LOGGING
+    console.log(`[Wick Risk] Wick/Range ratio: ${avgWickToRangeRatio.toFixed(2)}, Wick/ATR: ${avgWickSizeVsATR.toFixed(2)}, Extreme wicks: ${extremeWickCount}/10`);
+
+    // REALISTIC THRESHOLDS:
+    // High risk = Multiple extreme wicks OR consistently huge wicks relative to ATR
+    if (extremeWickCount >= 4 || avgWickSizeVsATR > 1.5) {
+      console.log(`[Wick Risk] 🔴 HIGH - SL hunting probable`);
+      return 'high';
+    }
+
+    // Medium risk = Some extreme wicks OR large wicks relative to ATR
+    if (extremeWickCount >= 2 || avgWickSizeVsATR > 1.0 || avgWickToRangeRatio > 0.7) {
+      console.log(`[Wick Risk] 🟡 MEDIUM - Monitor stops closely`);
+      return 'medium';
+    }
+
+    console.log(`[Wick Risk] 🟢 LOW - Normal wick activity`);
     return 'low';
   }
 
