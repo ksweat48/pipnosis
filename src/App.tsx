@@ -3,7 +3,6 @@ import { Routes, Route } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
-import ConnectionStatusIndicator from './components/ConnectionStatusIndicator';
 
 // Lazy load all pages for code splitting
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -218,7 +217,6 @@ export default function App() {
   return (
     <DatabaseErrorBoundary>
       <AppRoutes />
-      <ConnectionStatusIndicator />
     </DatabaseErrorBoundary>
   );
 }
