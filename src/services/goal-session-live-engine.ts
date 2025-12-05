@@ -287,6 +287,20 @@ class GoalSessionLiveEngine {
     this.processingLock = true;
 
     try {
+      await this.processCandleAutonomous();
+    } catch (error) {
+      console.error('[Goal Live Engine] Error processing candle update:', error);
+      logger.error(LogCategory.AI_TRADING, 'Candle processing error', { error });
+    } finally {
+      this.processingLock = false;
+    }
+  }
+
+  /**
+   * Main autonomous candle processing logic
+   */
+  private async processCandleAutonomous(): Promise<void> {
+    try {
       const dbTimeframe = normalizeTimeframeToDb(this.config.timeframe);
       logger.debug(LogCategory.AI_TRADING, `Querying candles: ${this.config.symbol} ${this.config.timeframe} -> ${dbTimeframe}`);
 
@@ -552,9 +566,9 @@ class GoalSessionLiveEngine {
         .eq('id', this.activeSession);
 
     } catch (error) {
-      console.error('[Goal Live Engine] Error processing candle update:', error);
-    } finally {
-      this.processingLock = false;
+      console.error('[Goal Live Engine] Autonomous processing error:', error);
+      logger.error(LogCategory.AI_TRADING, 'Autonomous processing error', { error });
+      throw error; // Re-throw to be caught by outer handler
     }
   }
 

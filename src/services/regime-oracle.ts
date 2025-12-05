@@ -101,10 +101,11 @@ class RegimeOracle {
    */
   evaluate(
     marketState: MarketState,
-    timestamp: Date | number,
+    timestamp: Date | number | string,
     candles: Candle[]
   ): RegimeSnapshot {
-    const ts = typeof timestamp === 'number' ? new Date(timestamp) : timestamp;
+    // Convert timestamp to Date object, handling string, number, or Date
+    const ts = this.normalizeTimestamp(timestamp);
 
     const timeRegime = this.detectTimeRegime(ts);
     const volatilityRegime = this.detectVolatilityRegime(marketState.atr, candles);
@@ -132,6 +133,31 @@ class RegimeOracle {
       trend_regime: trendRegime,
       safety_flags: safetyFlags
     };
+  }
+
+  /**
+   * Helper: Normalize timestamp to Date object
+   */
+  private normalizeTimestamp(timestamp: Date | number | string): Date {
+    if (timestamp instanceof Date) {
+      return timestamp;
+    }
+
+    if (typeof timestamp === 'number') {
+      return new Date(timestamp);
+    }
+
+    if (typeof timestamp === 'string') {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) {
+        console.error('[Regime Oracle] Invalid date string:', timestamp);
+        return new Date(); // Fallback to current time
+      }
+      return date;
+    }
+
+    console.error('[Regime Oracle] Unexpected timestamp type:', typeof timestamp);
+    return new Date(); // Fallback to current time
   }
 
   /**

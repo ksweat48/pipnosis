@@ -50,7 +50,7 @@ class ConditionMonitor {
   checkConditions(
     strategyPlan: StrategyPlan,
     marketState: MarketState,
-    timestamp?: Date | number,
+    timestamp?: Date | number | string,
     candles?: Candle[]
   ): ConditionCheckResult {
     // REGIME ORACLE: Evaluate market regime FIRST (zero-cost gate)
