@@ -101,9 +101,9 @@ class StrategyPlaybookManager {
         .eq('mode', mode)
         .eq('regime_bucket', regimeBucket)
         .eq('is_active_default', true)
-        .single();
+        .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') {
+      if (error) {
         console.error('[Playbook] Error fetching active playbook:', error);
         return null;
       }
@@ -157,9 +157,9 @@ class StrategyPlaybookManager {
         .from('strategy_variant_stats')
         .select('*')
         .eq('playbook_id', playbookId)
-        .single();
+        .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') {
+      if (error) {
         console.error('[Playbook] Error fetching stats:', error);
         return null;
       }
