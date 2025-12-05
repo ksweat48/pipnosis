@@ -15,6 +15,8 @@ interface Trade {
   close_reason: string;
   stop_loss: number;
   take_profit: number;
+  trade_source: 'manual' | 'demo' | 'goal_mode';
+  goal_session_id?: string;
 }
 
 interface TradeStatistics {
@@ -37,6 +39,7 @@ export function TradeHistory() {
   const [loading, setLoading] = useState(true);
   const [filterSymbol, setFilterSymbol] = useState<string>('all');
   const [filterOutcome, setFilterOutcome] = useState<string>('all');
+  const [filterSource, setFilterSource] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'date' | 'profit'>('date');
 
   useEffect(() => {
@@ -49,14 +52,90 @@ export function TradeHistory() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data, error } = await supabase
+      // Fetch from trade_history table (manual trades)
+      const { data: manualTrades, error: manualError } = await supabase
         .from('trade_history')
         .select('*')
-        .eq('user_id', user.id)
-        .order('closed_at', { ascending: false });
+        .eq('user_id', user.id);
 
-      if (error) throw error;
-      setTrades(data || []);
+      if (manualError) throw manualError;
+
+      // Fetch from simulated_positions (demo trades)
+      const { data: demoTrades, error: demoError } = await supabase
+        .from('simulated_positions')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'closed');
+
+      if (demoError) throw demoError;
+
+      // Fetch from goal_session_trades (goal mode trades)
+      const { data: goalTrades, error: goalError } = await supabase
+        .from('goal_session_trades')
+        .select('*, goal_sessions!inner(user_id)')
+        .eq('goal_sessions.user_id', user.id)
+        .eq('status', 'closed');
+
+      if (goalError) throw goalError;
+
+      // Normalize manual trades
+      const normalizedManual: Trade[] = (manualTrades || []).map((trade: any) => ({
+        id: trade.id,
+        symbol: trade.symbol,
+        position_type: trade.position_type,
+        lot_size: parseFloat(trade.lot_size),
+        entry_price: parseFloat(trade.entry_price),
+        exit_price: parseFloat(trade.exit_price),
+        profit_loss: parseFloat(trade.profit_loss),
+        opened_at: trade.opened_at,
+        closed_at: trade.closed_at,
+        close_reason: trade.close_reason || 'manual',
+        stop_loss: parseFloat(trade.stop_loss) || 0,
+        take_profit: parseFloat(trade.take_profit) || 0,
+        trade_source: 'manual' as const
+      }));
+
+      // Normalize demo trades
+      const normalizedDemo: Trade[] = (demoTrades || []).map((trade: any) => ({
+        id: trade.id,
+        symbol: trade.symbol,
+        position_type: trade.position_type,
+        lot_size: parseFloat(trade.lot_size),
+        entry_price: parseFloat(trade.entry_price),
+        exit_price: parseFloat(trade.current_price) || parseFloat(trade.entry_price),
+        profit_loss: parseFloat(trade.current_pnl) || 0,
+        opened_at: trade.opened_at,
+        closed_at: trade.closed_at,
+        close_reason: trade.close_reason || 'manual',
+        stop_loss: parseFloat(trade.stop_loss) || 0,
+        take_profit: parseFloat(trade.take_profit) || 0,
+        trade_source: 'demo' as const
+      }));
+
+      // Normalize goal mode trades
+      const normalizedGoal: Trade[] = (goalTrades || []).map((trade: any) => ({
+        id: trade.id,
+        symbol: trade.symbol,
+        position_type: trade.direction,
+        lot_size: parseFloat(trade.position_size),
+        entry_price: parseFloat(trade.entry_price),
+        exit_price: parseFloat(trade.exit_price) || parseFloat(trade.entry_price),
+        profit_loss: parseFloat(trade.profit_loss) || 0,
+        opened_at: trade.opened_at,
+        closed_at: trade.closed_at,
+        close_reason: 'manual',
+        stop_loss: parseFloat(trade.stop_loss) || 0,
+        take_profit: parseFloat(trade.take_profit) || 0,
+        trade_source: 'goal_mode' as const,
+        goal_session_id: trade.goal_session_id
+      }));
+
+      // Combine and sort all trades by closed_at
+      const allTrades = [...normalizedManual, ...normalizedDemo, ...normalizedGoal]
+        .filter(trade => trade.closed_at)
+        .sort((a, b) => new Date(b.closed_at).getTime() - new Date(a.closed_at).getTime());
+
+      setTrades(allTrades);
       setLoading(false);
     } catch (error) {
       console.error('Failed to fetch trade history:', error);
@@ -138,6 +217,7 @@ export function TradeHistory() {
       if (filterSymbol !== 'all' && trade.symbol !== filterSymbol) return false;
       if (filterOutcome === 'winning' && trade.profit_loss <= 0) return false;
       if (filterOutcome === 'losing' && trade.profit_loss >= 0) return false;
+      if (filterSource !== 'all' && trade.trade_source !== filterSource) return false;
       return true;
     })
     .sort((a, b) => {
@@ -171,6 +251,19 @@ export function TradeHistory() {
       return `${hours}h ${minutes % 60}m`;
     }
     return `${minutes}m`;
+  };
+
+  const getSourceLabel = (source: string): { label: string; color: string } => {
+    switch (source) {
+      case 'manual':
+        return { label: 'Manual', color: 'bg-blue-900/30 text-blue-400' };
+      case 'demo':
+        return { label: 'Demo', color: 'bg-gray-700/50 text-gray-300' };
+      case 'goal_mode':
+        return { label: 'Goal Mode', color: 'bg-purple-900/30 text-purple-400' };
+      default:
+        return { label: 'Unknown', color: 'bg-gray-700/50 text-gray-400' };
+    }
   };
 
   if (loading) {
@@ -252,6 +345,17 @@ export function TradeHistory() {
           </select>
 
           <select
+            value={filterSource}
+            onChange={(e) => setFilterSource(e.target.value)}
+            className="bg-gray-800 text-white text-sm px-3 py-1 rounded border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            <option value="all">All Sources</option>
+            <option value="manual">Manual Trades</option>
+            <option value="demo">Demo Trades</option>
+            <option value="goal_mode">Goal Mode</option>
+          </select>
+
+          <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as 'date' | 'profit')}
             className="bg-gray-800 text-white text-sm px-3 py-1 rounded border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -284,7 +388,7 @@ export function TradeHistory() {
                       <TrendingDown className="w-5 h-5 text-red-400" />
                     )}
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-white font-bold">{trade.symbol}</span>
                         <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                           trade.position_type === 'buy'
@@ -292,6 +396,9 @@ export function TradeHistory() {
                             : 'bg-red-900/30 text-red-400'
                         }`}>
                           {trade.position_type.toUpperCase()}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getSourceLabel(trade.trade_source).color}`}>
+                          {getSourceLabel(trade.trade_source).label}
                         </span>
                         <span className="text-gray-400 text-sm">{trade.lot_size} lots</span>
                       </div>
