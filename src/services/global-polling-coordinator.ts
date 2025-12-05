@@ -85,6 +85,9 @@ class GlobalPollingCoordinator {
   private readonly MARKET_CHECK_INTERVAL = 60000; // 🚨 CRITICAL: 60 seconds - DO NOT CHANGE
   private viewedSymbols: Set<string> = new Set();
   private symbolsWithPositions: Set<string> = new Set();
+  private protectedSymbols: Map<string, Set<string>> = new Map(); // symbol -> Set of session IDs
+  private hasActiveSessions = false;
+  private activeSessionHeartbeatThreshold = 10; // Increase tolerance when sessions active
 
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -164,8 +167,14 @@ class GlobalPollingCoordinator {
         console.log('👁️ Tab became visible - verifying polling status...');
         this.verifyPollingHealth();
       } else if (wasVisible && !this.isTabVisible) {
-        console.log('🙈 Tab hidden - polling continues in background');
-        console.log('ℹ️ Note: Browser may throttle timers, heartbeat will detect issues');
+        if (this.hasActiveSessions) {
+          console.log('🙈 Tab hidden but 🛡️ ACTIVE GOAL SESSIONS detected');
+          console.log('✅ Maintaining full polling despite tab visibility');
+          console.log('ℹ️ Protected symbols will continue at normal rate');
+        } else {
+          console.log('🙈 Tab hidden - polling continues in background');
+          console.log('ℹ️ Note: Browser may throttle timers, heartbeat will detect issues');
+        }
       }
     };
 
@@ -189,12 +198,19 @@ class GlobalPollingCoordinator {
 
       if (drift > expectedInterval * 2) {
         this.missedHeartbeats++;
+
+        // Use higher threshold when active sessions exist
+        const effectiveThreshold = this.hasActiveSessions
+          ? this.activeSessionHeartbeatThreshold
+          : this.MAX_MISSED_HEARTBEATS;
+
         console.warn(
           `⚠️ Heartbeat drift detected: ${Math.round(drift)}ms ` +
-          `(expected ${expectedInterval}ms). Missed: ${this.missedHeartbeats}/${this.MAX_MISSED_HEARTBEATS}`
+          `(expected ${expectedInterval}ms). Missed: ${this.missedHeartbeats}/${effectiveThreshold}` +
+          (this.hasActiveSessions ? ' (active sessions mode)' : '')
         );
 
-        if (this.missedHeartbeats >= this.MAX_MISSED_HEARTBEATS) {
+        if (this.missedHeartbeats >= effectiveThreshold) {
           console.error('❌ Multiple missed heartbeats detected - polling may be throttled!');
           logger.debug(LogCategory.POLLING_COORDINATOR, '🔄 Attempting to recover polling...');
           this.recoverFromThrottling();
@@ -240,6 +256,12 @@ class GlobalPollingCoordinator {
     console.log('🔧 Recovering from timer throttling...');
 
     this.pollStatus.forEach((status, symbol) => {
+      // 🛡️ CRITICAL: Skip protected symbols
+      if (this.isSymbolProtected(symbol)) {
+        console.log(`🛡️ [${symbol}] Protected by active session - skipping recovery`);
+        return;
+      }
+
       const timeSinceLastSuccess = status.lastSuccessfulPoll
         ? Date.now() - status.lastSuccessfulPoll.getTime()
         : Infinity;
@@ -259,9 +281,18 @@ class GlobalPollingCoordinator {
 
     let staleCount = 0;
     let activeCount = 0;
+    let protectedCount = 0;
     const now = Date.now();
 
     this.pollStatus.forEach((status, symbol) => {
+      // 🛡️ CRITICAL: Protected symbols always count as healthy
+      if (this.isSymbolProtected(symbol)) {
+        protectedCount++;
+        activeCount++;
+        console.log(`  [${symbol}] 🛡️ Protected by active session - always healthy`);
+        return;
+      }
+
       const timeSinceLastSuccess = status.lastSuccessfulPoll
         ? now - status.lastSuccessfulPoll.getTime()
         : Infinity;
@@ -283,12 +314,15 @@ class GlobalPollingCoordinator {
 
     logger.debug(
       LogCategory.POLLING_COORDINATOR,
-      `📊 Health check complete: ${activeCount} active, ${staleCount} stale/dead of ${this.FOREX_PAIRS.length} pairs`
+      `📊 Health check complete: ${activeCount} active (${protectedCount} protected), ${staleCount} stale/dead of ${this.FOREX_PAIRS.length} pairs`
     );
 
-    if (staleCount > this.FOREX_PAIRS.length / 2) {
+    // Don't restart if we have active sessions - they're protected
+    if (staleCount > this.FOREX_PAIRS.length / 2 && !this.hasActiveSessions) {
       console.error('❌ Majority of pairs are stale - initiating full restart');
       this.restartPolling();
+    } else if (this.hasActiveSessions) {
+      console.log('🛡️ Active sessions present - skipping full restart despite stale pairs');
     }
   }
 
@@ -326,6 +360,46 @@ class GlobalPollingCoordinator {
       this.symbolsWithPositions.delete(symbol);
     }
     this.updateSymbolPriority(symbol);
+  }
+
+  protectSymbol(symbol: string, sessionId: string): void {
+    if (!this.protectedSymbols.has(symbol)) {
+      this.protectedSymbols.set(symbol, new Set());
+    }
+    this.protectedSymbols.get(symbol)!.add(sessionId);
+    console.log(`[GlobalCoordinator] 🛡️ Protected ${symbol} for session ${sessionId}`);
+
+    // Upgrade to critical priority
+    this.setSymbolHasPosition(symbol, true);
+  }
+
+  unprotectSymbol(symbol: string, sessionId: string): void {
+    const sessions = this.protectedSymbols.get(symbol);
+    if (sessions) {
+      sessions.delete(sessionId);
+      if (sessions.size === 0) {
+        this.protectedSymbols.delete(symbol);
+        console.log(`[GlobalCoordinator] ✅ Unprotected ${symbol} - no active sessions`);
+        // Downgrade priority
+        this.setSymbolHasPosition(symbol, false);
+      } else {
+        console.log(`[GlobalCoordinator] 🛡️ ${symbol} still protected by ${sessions.size} session(s)`);
+      }
+    }
+  }
+
+  isSymbolProtected(symbol: string): boolean {
+    const sessions = this.protectedSymbols.get(symbol);
+    return sessions ? sessions.size > 0 : false;
+  }
+
+  notifyActiveSessions(hasActiveSessions: boolean): void {
+    this.hasActiveSessions = hasActiveSessions;
+    if (hasActiveSessions) {
+      console.log('[GlobalCoordinator] 🛡️ Active sessions detected - increasing heartbeat tolerance');
+    } else {
+      console.log('[GlobalCoordinator] ✅ No active sessions - normal heartbeat tolerance');
+    }
   }
 
   private updateSymbolPriority(symbol: string): void {

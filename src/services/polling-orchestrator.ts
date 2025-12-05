@@ -38,6 +38,8 @@ class PollingOrchestrator {
   private failoverInProgress = false;
   private readonly MONITOR_INTERVAL_MS = 30000; // Check every 30 seconds
   private readonly FAILOVER_COOLDOWN_MS = 10000; // Wait 10 seconds between failovers
+  private sessionSubscription: any = null;
+  private activeGoalSessions = new Set<string>();
 
   async initialize(): Promise<void> {
     if (this.isInitialized) {
@@ -72,8 +74,119 @@ class PollingOrchestrator {
     // Start health monitoring
     this.startHealthMonitoring();
 
+    // Subscribe to goal session changes
+    this.subscribeToGoalSessions();
+
+    // Load existing active sessions
+    await this.loadActiveSessions();
+
     this.isInitialized = true;
     logger.info(LogCategory.POLLING_COORDINATOR, `✅ Initialized with ${this.activePoller} as active poller`);
+  }
+
+  private async loadActiveSessions(): Promise<void> {
+    try {
+      const { data: sessions, error } = await supabase
+        .from('goal_sessions')
+        .select('id, config')
+        .in('status', ['scanning', 'initializing', 'trade_pending', 'in_trade', 'soft_closing']);
+
+      if (error) {
+        console.error('[PollingOrchestrator] Failed to load active sessions:', error);
+        return;
+      }
+
+      if (sessions && sessions.length > 0) {
+        sessions.forEach(session => {
+          this.activeGoalSessions.add(session.id);
+          if (session.config?.symbol) {
+            globalPollingCoordinator.protectSymbol(session.config.symbol, session.id);
+          }
+        });
+        console.log(`[PollingOrchestrator] 🛡️ Loaded ${sessions.length} active goal sessions - polling protected`);
+      }
+    } catch (error) {
+      console.error('[PollingOrchestrator] Error loading active sessions:', error);
+    }
+  }
+
+  private subscribeToGoalSessions(): void {
+    try {
+      this.sessionSubscription = supabase
+        .channel('goal_sessions_orchestrator')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'goal_sessions'
+          },
+          (payload: any) => {
+            this.handleSessionChange(payload);
+          }
+        )
+        .subscribe();
+
+      logger.debug(LogCategory.POLLING_COORDINATOR, '✅ Subscribed to goal_sessions changes');
+    } catch (error) {
+      console.error('[PollingOrchestrator] Failed to subscribe to goal_sessions:', error);
+    }
+  }
+
+  private handleSessionChange(payload: any): void {
+    const { eventType, new: newRecord, old: oldRecord } = payload;
+
+    if (eventType === 'INSERT' || eventType === 'UPDATE') {
+      const session = newRecord;
+      const activeStatuses = ['scanning', 'initializing', 'trade_pending', 'in_trade', 'soft_closing'];
+
+      if (activeStatuses.includes(session.status)) {
+        if (!this.activeGoalSessions.has(session.id)) {
+          this.activeGoalSessions.add(session.id);
+          if (session.config?.symbol) {
+            globalPollingCoordinator.protectSymbol(session.config.symbol, session.id);
+          }
+          console.log(`[PollingOrchestrator] 🛡️ Goal session ${session.id} started - protecting ${session.config?.symbol || 'unknown'}`);
+        }
+      } else {
+        if (this.activeGoalSessions.has(session.id)) {
+          this.activeGoalSessions.delete(session.id);
+          if (session.config?.symbol) {
+            globalPollingCoordinator.unprotectSymbol(session.config.symbol, session.id);
+          }
+          console.log(`[PollingOrchestrator] ✅ Goal session ${session.id} ended - unprotecting ${session.config?.symbol || 'unknown'}`);
+        }
+      }
+    } else if (eventType === 'DELETE') {
+      const session = oldRecord;
+      if (this.activeGoalSessions.has(session.id)) {
+        this.activeGoalSessions.delete(session.id);
+        if (session.config?.symbol) {
+          globalPollingCoordinator.unprotectSymbol(session.config.symbol, session.id);
+        }
+        console.log(`[PollingOrchestrator] ✅ Goal session ${session.id} deleted - unprotecting ${session.config?.symbol || 'unknown'}`);
+      }
+    }
+  }
+
+  private async checkForActiveSessions(): Promise<boolean> {
+    try {
+      const { data: sessions, error } = await supabase
+        .from('goal_sessions')
+        .select('id')
+        .in('status', ['scanning', 'initializing', 'trade_pending', 'in_trade', 'soft_closing'])
+        .limit(1);
+
+      if (error) {
+        console.error('[PollingOrchestrator] Failed to check active sessions:', error);
+        return false;
+      }
+
+      return sessions && sessions.length > 0;
+    } catch (error) {
+      console.error('[PollingOrchestrator] Error checking active sessions:', error);
+      return false;
+    }
   }
 
   private async startBrowserPoller(): Promise<void> {
@@ -128,6 +241,16 @@ class PollingOrchestrator {
       // Check if GlobalPollingCoordinator is healthy
       if (globalStatus.activePairs < FOREX_PAIRS.length / 2) {
         console.warn('[PollingOrchestrator] GlobalPollingCoordinator unhealthy, considering failover to Browser');
+
+        // 🛡️ CRITICAL: Check for active goal sessions before allowing failover
+        const hasActiveSessions = await this.checkForActiveSessions();
+        if (hasActiveSessions) {
+          console.warn('[PollingOrchestrator] ⚠️ Active goal sessions detected - MAINTAINING polling despite health issues');
+          console.warn(`[PollingOrchestrator] Protected sessions: ${this.activeGoalSessions.size}`);
+          // Notify global coordinator to increase tolerance
+          globalPollingCoordinator.notifyActiveSessions(true);
+          return; // Skip failover
+        }
 
         // Only failover if circuit breaker isn't the issue
         if (circuitStatus.state !== 'open') {
@@ -324,11 +447,25 @@ class PollingOrchestrator {
   }
 
   async shutdown(): Promise<void> {
+    // 🛡️ CRITICAL: Check for active sessions before shutdown
+    const hasActiveSessions = await this.checkForActiveSessions();
+    if (hasActiveSessions) {
+      console.warn('[PollingOrchestrator] ⚠️ Cannot shutdown - active goal sessions detected!');
+      console.warn(`[PollingOrchestrator] Protected sessions: ${this.activeGoalSessions.size}`);
+      return;
+    }
+
     logger.info(LogCategory.POLLING_COORDINATOR, 'Shutting down...');
 
     if (this.monitorInterval) {
       clearInterval(this.monitorInterval);
       this.monitorInterval = null;
+    }
+
+    // Cleanup session subscription
+    if (this.sessionSubscription) {
+      await this.sessionSubscription.unsubscribe();
+      this.sessionSubscription = null;
     }
 
     browserPricePoller.stop();
