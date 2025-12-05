@@ -24,7 +24,6 @@ const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ 
 const SystemDiagnosticsPage = lazy(() => import('./pages/SystemDiagnosticsPage'));
 const AILearningCenterPage = lazy(() => import('./pages/AILearningCenterPage'));
 const TokensPage = lazy(() => import('./pages/TokensPage').then(m => ({ default: m.TokensPage })));
-const MultiSymbolIntelligencePage = lazy(() => import('./pages/MultiSymbolIntelligencePage'));
 
 // Loading component
 const LoadingFallback = () => (
@@ -127,14 +126,6 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute>
             <AILearningCenterPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/intelligence"
-        element={
-          <ProtectedRoute>
-            <MultiSymbolIntelligencePage />
           </ProtectedRoute>
         }
       />

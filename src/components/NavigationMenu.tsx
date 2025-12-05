@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity, Coins, Brain } from 'lucide-react';
+import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity, Coins } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 import { useTokenBalance } from '@/hooks/useTokenBalance';
@@ -116,15 +116,6 @@ const NavigationMenuComponent = () => {
                         >
                           <Settings size={18} />
                           <span>Settings</span>
-                        </Link>
-
-                        <Link
-                          to="/intelligence"
-                          onClick={() => setShowProfileMenu(false)}
-                          className="w-full flex items-center gap-3 px-3 py-2 text-purple-400 hover:text-purple-300 hover:bg-purple-900/20 rounded transition-colors"
-                        >
-                          <Brain size={18} />
-                          <span>Intelligence</span>
                         </Link>
 
                         {isAdmin && (
