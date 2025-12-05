@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, WifiOff } from 'lucide-react';
+import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, WifiOff, AlertTriangle, Search, Shield } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalNotificationSystem } from '../services/goal-notifications';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
@@ -302,8 +302,54 @@ export const GoalSessionDashboard: React.FC = () => {
       </div>
 
       {activeSession && activeSession.status === 'scanning' && (
-        <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-blue-200">
-          <div className="animate-pulse">Scanning {activeSession.config.watchlist.length} pairs for opportunities...</div>
+        <div>
+          {/* Show block status if system is blocked by adversarial conditions */}
+          {activeSession.block_state ? (
+            <div className="bg-yellow-900/30 border border-yellow-500/50 rounded-lg p-5">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <AlertTriangle className="w-6 h-6 text-yellow-400" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-yellow-200 font-semibold mb-2 flex items-center gap-2">
+                    Protected from Manipulation
+                    {activeSession.block_candles_ago > 0 && (
+                      <span className="text-xs bg-yellow-900/50 px-2 py-1 rounded-full">
+                        {activeSession.block_candles_ago} candles ago
+                      </span>
+                    )}
+                  </h4>
+                  <p className="text-yellow-100 text-sm mb-3">
+                    {activeSession.block_reason || 'Market conditions detected that suggest manipulation or high risk'}
+                  </p>
+                  <div className="flex items-center gap-4 text-xs text-yellow-200/80">
+                    {activeSession.block_expires_at && (
+                      <div className="flex items-center gap-1">
+                        <Clock className="w-4 h-4" />
+                        <span>
+                          Expires: {new Date(activeSession.block_expires_at).toLocaleTimeString()}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1">
+                      <Shield className="w-4 h-4" />
+                      <span>Your account is protected</span>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-xs text-yellow-200/60">
+                    The system will automatically resume scanning when market conditions stabilize.
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-blue-200">
+              <div className="animate-pulse flex items-center gap-2">
+                <Search className="w-5 h-5" />
+                <span>Scanning {activeSession.config.watchlist.length} pairs for opportunities...</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

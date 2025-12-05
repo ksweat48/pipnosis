@@ -541,19 +541,64 @@ class AdversarialDetector {
 
     const candlesAgo = recentCandles.length - 1 - stopRunCandleIndex;
 
-    // A) Check for manipulation spike (ATR > 2.2x)
+    // A) Check for manipulation spike (ATR > 2.2x) with TIME-BASED EXPIRATION
     const stopRunCandle = recentCandles[stopRunCandleIndex];
     const stopRunRange = stopRunCandle.high - stopRunCandle.low;
-    const isManipulationSpike = stopRunRange > avgCandleRange * 2.2;
+    const spikeMultiplier = stopRunRange / avgCandleRange;
+    const isManipulationSpike = spikeMultiplier > 2.2;
 
     if (isManipulationSpike) {
-      console.warn('[Adversarial] Manipulation Spike Detected → BLOCK');
+      // CRITICAL FIX: Add time-based expiration to prevent infinite blocks
+      const isExtremeSpike = spikeMultiplier > 4.0; // Very extreme spikes
+      const isRecentSpike = candlesAgo <= 5; // Recent = within 5 candles
+      const isAgedSpike = candlesAgo >= 10; // Aged = 10+ candles old
+
+      // Hard block only for recent OR extreme spikes
+      if (isRecentSpike || isExtremeSpike) {
+        console.warn(`[Adversarial] Manipulation Spike Detected (${spikeMultiplier.toFixed(1)}x, ${candlesAgo} candles ago) → BLOCK`);
+        return {
+          type: 'manipulation_spike',
+          candles_ago: candlesAgo,
+          has_bos: false,
+          should_block: true,
+          reasoning: `Extreme volatility spike (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) - block expires in ${Math.max(0, 10 - candlesAgo)} candles`
+        };
+      }
+
+      // Aged spikes (10+ candles): downgrade to Omega-9 validation instead of hard block
+      if (isAgedSpike) {
+        console.log(`[Adversarial] Aged manipulation spike (${spikeMultiplier.toFixed(1)}x, ${candlesAgo} candles ago) → needs Omega-9 validation`);
+        return {
+          type: 'manipulation_spike',
+          candles_ago: candlesAgo,
+          has_bos: false,
+          should_block: false, // Let Omega-9 decide after sufficient time has passed
+          reasoning: `Historical manipulation spike (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) - requires additional validation`
+        };
+      }
+
+      // Mid-range spikes (6-9 candles): check for market stabilization
+      console.log(`[Adversarial] Mid-aged manipulation spike (${spikeMultiplier.toFixed(1)}x, ${candlesAgo} candles ago) → checking stabilization...`);
+      const hasStabilized = this.checkMarketStabilization(recentCandles, stopRunCandleIndex, avgCandleRange);
+
+      if (hasStabilized) {
+        console.log('[Adversarial] Market has stabilized → ALLOW with Omega-9 validation');
+        return {
+          type: 'manipulation_spike',
+          candles_ago: candlesAgo,
+          has_bos: false,
+          should_block: false,
+          reasoning: `Manipulation spike stabilized (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) - market normalized`
+        };
+      }
+
+      console.warn(`[Adversarial] Manipulation spike still unstable → BLOCK for ${Math.max(0, 10 - candlesAgo)} more candles`);
       return {
         type: 'manipulation_spike',
         candles_ago: candlesAgo,
         has_bos: false,
         should_block: true,
-        reasoning: `Extreme volatility spike (${(stopRunRange / avgCandleRange).toFixed(1)}x ATR) suggests manipulation`
+        reasoning: `Manipulation spike (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) - waiting for stabilization`
       };
     }
 
@@ -597,6 +642,46 @@ class AdversarialDetector {
       should_block: false, // Let Omega-9 decide
       reasoning: `Historical sweep without clear BOS - requires additional validation`
     };
+  }
+
+  /**
+   * Check if market has stabilized after a manipulation spike
+   * Returns true if recent candles show normal volatility
+   */
+  private checkMarketStabilization(
+    candles: Candle[],
+    spikeIndex: number,
+    avgCandleRange: number
+  ): boolean {
+    if (spikeIndex >= candles.length - 3) {
+      return false; // Not enough candles after spike to assess stability
+    }
+
+    const candlesAfterSpike = candles.slice(spikeIndex + 1);
+
+    // Check if all candles after spike are within normal range (< 1.5x ATR)
+    const allNormalVolatility = candlesAfterSpike.every(c => {
+      const range = c.high - c.low;
+      return range < avgCandleRange * 1.5;
+    });
+
+    if (!allNormalVolatility) {
+      return false;
+    }
+
+    // Check if there's no new extreme wicks in recent candles
+    const recentCandles = candlesAfterSpike.slice(-3);
+    const hasExtremeWicks = recentCandles.some(c => {
+      const body = Math.abs(c.close - c.open);
+      const maxOC = Math.max(c.open, c.close);
+      const minOC = Math.min(c.open, c.close);
+      const wickHigh = c.high - maxOC;
+      const wickLow = minOC - c.low;
+
+      return wickHigh > avgCandleRange * 0.8 || wickLow > avgCandleRange * 0.8;
+    });
+
+    return !hasExtremeWicks;
   }
 
   /**
