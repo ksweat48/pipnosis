@@ -43,6 +43,7 @@ import { priceValidationService } from '@/services/price-validation-service';
 import { chartCircuitBreaker } from '@/services/chart-circuit-breaker';
 import { validateSymbol, type ValidatedSymbol } from '@/types/symbol';
 import { ChartDataGuarantor } from '@/services/chart-data-guarantor';
+import { currentCandleReconstructor } from '@/services/current-candle-reconstructor';
 
 interface MarketChartProps {
   symbol: string;
@@ -189,10 +190,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         chartCandlePoller.pause();
       } else {
         console.log('[Chart] 👁️ Tab visible - resuming full hybrid mode');
-        console.log('[Chart] 🔄 Clearing stale current candle and fetching latest data...');
-
-        // CRITICAL FIX: Clear stale current candle reference
-        currentCandleRef.current = null;
+        console.log('[Chart] 🔄 Reconstructing current candle from latest data...');
 
         // Resume polling FIRST so the system is ready
         chartCandlePoller.resume();
@@ -248,8 +246,88 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
               } else {
                 console.log('[Chart] No new candles found (user was away during same candle period)');
               }
+
+              // CRITICAL FIX: Reconstruct current candle after catchup
+              const lastHistoricalTime = historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time;
+              console.log('[Chart] 🔄 Reconstructing current candle from database ticks...');
+
+              try {
+                const reconstruction = await currentCandleReconstructor.reconstructCurrentCandle(
+                  symbol,
+                  timeframe,
+                  lastHistoricalTime
+                );
+
+                if (reconstruction.wasReconstructed && reconstruction.candle) {
+                  console.log(`[Chart] ✅ Current candle reconstructed from ${reconstruction.tickCount} ticks`);
+
+                  const safeCurrentCandle: CandleData = {
+                    time: Number(reconstruction.candle.time),
+                    open: Number(reconstruction.candle.open),
+                    high: Number(reconstruction.candle.high),
+                    low: Number(reconstruction.candle.low),
+                    close: Number(reconstruction.candle.close)
+                  };
+
+                  currentCandleRef.current = {
+                    ...safeCurrentCandle,
+                    startTime: safeCurrentCandle.time * 1000
+                  };
+
+                  if (candlestickSeriesRef.current) {
+                    candlestickSeriesRef.current.update(safeCurrentCandle);
+                    setCurrentPrice(safeCurrentCandle.close);
+                  }
+
+                  console.log('[Chart] 💾 Current candle state restored');
+                } else {
+                  console.log('[Chart] ℹ️ No current candle to reconstruct');
+                  currentCandleRef.current = null;
+                }
+              } catch (error) {
+                console.error('[Chart] Error reconstructing current candle:', error);
+                currentCandleRef.current = null;
+              }
             } else {
               console.log('[Chart] User was only away briefly, no catchup needed');
+
+              // Still reconstruct current candle even for brief absences
+              if (historicalCandlesRef.current.length > 0) {
+                const lastHistoricalTime = historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time;
+
+                try {
+                  const reconstruction = await currentCandleReconstructor.reconstructCurrentCandle(
+                    symbol,
+                    timeframe,
+                    lastHistoricalTime
+                  );
+
+                  if (reconstruction.wasReconstructed && reconstruction.candle) {
+                    const safeCurrentCandle: CandleData = {
+                      time: Number(reconstruction.candle.time),
+                      open: Number(reconstruction.candle.open),
+                      high: Number(reconstruction.candle.high),
+                      low: Number(reconstruction.candle.low),
+                      close: Number(reconstruction.candle.close)
+                    };
+
+                    currentCandleRef.current = {
+                      ...safeCurrentCandle,
+                      startTime: safeCurrentCandle.time * 1000
+                    };
+
+                    if (candlestickSeriesRef.current) {
+                      candlestickSeriesRef.current.update(safeCurrentCandle);
+                      setCurrentPrice(safeCurrentCandle.close);
+                    }
+                  } else {
+                    currentCandleRef.current = null;
+                  }
+                } catch (error) {
+                  console.error('[Chart] Error reconstructing current candle:', error);
+                  currentCandleRef.current = null;
+                }
+              }
             }
           }
 
@@ -976,6 +1054,52 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         const lastCandle = validatedCandles[validatedCandles.length - 1];
         console.log(`[Chart Init] Historical range: ${new Date(firstCandle.time * 1000).toISOString()} to ${new Date(lastCandle.time * 1000).toISOString()}`);
         console.log(`[Chart Init] Total span: ${((lastCandle.time - firstCandle.time) / 3600).toFixed(1)} hours`);
+
+        // CRITICAL FIX: Reconstruct the current in-progress candle from database ticks
+        console.log('[Chart Init] 🔄 Attempting to reconstruct current candle from database ticks...');
+        try {
+          const reconstruction = await currentCandleReconstructor.reconstructCurrentCandle(
+            symbol,
+            timeframe,
+            lastCandle.time
+          );
+
+          if (reconstruction.wasReconstructed && reconstruction.candle) {
+            console.log(`[Chart Init] ✅ Current candle reconstructed from ${reconstruction.tickCount} ticks`);
+            console.log(`[Chart Init]   OHLC: ${reconstruction.candle.open.toFixed(5)} / ${reconstruction.candle.high.toFixed(5)} / ${reconstruction.candle.low.toFixed(5)} / ${reconstruction.candle.close.toFixed(5)}`);
+            console.log(`[Chart Init]   Time: ${new Date(reconstruction.candle.time * 1000).toISOString()}`);
+
+            // Set the reconstructed candle as the current candle
+            const safeCurrentCandle: CandleData = {
+              time: Number(reconstruction.candle.time),
+              open: Number(reconstruction.candle.open),
+              high: Number(reconstruction.candle.high),
+              low: Number(reconstruction.candle.low),
+              close: Number(reconstruction.candle.close)
+            };
+
+            currentCandleRef.current = {
+              ...safeCurrentCandle,
+              startTime: safeCurrentCandle.time * 1000
+            };
+
+            console.log('[Chart Init] 💾 Current candle restored - will persist across refreshes');
+
+            // Display the reconstructed candle on the chart immediately
+            if (candlestickSeriesRef.current) {
+              try {
+                candlestickSeriesRef.current.update(safeCurrentCandle);
+                console.log('[Chart Init] ✅ Reconstructed candle displayed on chart');
+              } catch (error) {
+                console.error('[Chart Init] Error displaying reconstructed candle:', error);
+              }
+            }
+          } else {
+            console.log(`[Chart Init] ℹ️ No current candle to reconstruct (${reconstruction.tickCount} ticks found)`);
+          }
+        } catch (error) {
+          console.error('[Chart Init] Error reconstructing current candle:', error);
+        }
       }
 
       if (candlestickSeriesRef.current && validatedCandles.length > 0) {
