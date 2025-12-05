@@ -15,6 +15,215 @@ class TradeLifecycleManager {
   private monitoringInterval: number | null = null;
   private isMonitoring: boolean = false;
 
+  /**
+   * Calculate cumulative profit for a goal session across all closed trades
+   */
+  async getCumulativeProfit(goalSessionId: string): Promise<number> {
+    try {
+      const { data: closedTrades, error } = await supabase
+        .from('goal_session_trades')
+        .select('profit_loss')
+        .eq('goal_session_id', goalSessionId)
+        .eq('status', 'closed');
+
+      if (error) {
+        console.error('[Trade Lifecycle] Error calculating cumulative profit:', error);
+        return 0;
+      }
+
+      if (!closedTrades || closedTrades.length === 0) {
+        return 0;
+      }
+
+      const totalProfit = closedTrades.reduce((sum, trade) => {
+        return sum + (trade.profit_loss || 0);
+      }, 0);
+
+      return totalProfit;
+    } catch (error) {
+      console.error('[Trade Lifecycle] Error in getCumulativeProfit:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Update goal session progress after trade closes
+   */
+  async updateGoalProgress(
+    goalSessionId: string,
+    cumulativeProfit: number,
+    targetValue: number
+  ): Promise<void> {
+    try {
+      const progressPercentage = (cumulativeProfit / targetValue) * 100;
+
+      await supabase
+        .from('goal_sessions')
+        .update({
+          current_progress: cumulativeProfit,
+          progress_percentage: progressPercentage,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', goalSessionId);
+
+      // Create progress snapshot
+      await supabase.from('goal_progress_snapshots').insert({
+        goal_session_id: goalSessionId,
+        progress_amount: cumulativeProfit,
+        progress_percentage: progressPercentage,
+        snapshot_time: new Date().toISOString()
+      });
+
+      console.log(`[Trade Lifecycle] 📊 Progress updated: $${cumulativeProfit.toFixed(2)} / $${targetValue.toFixed(2)} (${progressPercentage.toFixed(1)}%)`);
+    } catch (error) {
+      console.error('[Trade Lifecycle] Error updating goal progress:', error);
+    }
+  }
+
+  /**
+   * Check if cumulative goal has been achieved across multiple trades
+   */
+  async checkCumulativeGoalAchievement(
+    goalSessionId: string,
+    cumulativeProfit: number,
+    targetValue: number,
+    userId: string
+  ): Promise<boolean> {
+    try {
+      if (cumulativeProfit < targetValue) {
+        return false;
+      }
+
+      // Check if already marked as achieved
+      const { data: goalSession } = await supabase
+        .from('goal_sessions')
+        .select('goal_achieved_at, status')
+        .eq('id', goalSessionId)
+        .maybeSingle();
+
+      if (goalSession?.goal_achieved_at) {
+        return false; // Already processed
+      }
+
+      console.log(`[Trade Lifecycle] 🎯 CUMULATIVE GOAL ACHIEVED! Target: $${targetValue}, Achieved: $${cumulativeProfit.toFixed(2)}`);
+
+      // Mark goal as achieved
+      await supabase
+        .from('goal_sessions')
+        .update({
+          goal_achieved_at: new Date().toISOString(),
+          goal_achieved_pnl: cumulativeProfit,
+          status: 'goal_achieved',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', goalSessionId);
+
+      // Get session details for achievement record
+      const { data: session } = await supabase
+        .from('goal_sessions')
+        .select('starting_balance, start_time, timeframe_hours')
+        .eq('id', goalSessionId)
+        .maybeSingle();
+
+      // Create permanent achievement record
+      const { data: achievement } = await supabase
+        .from('goal_achievements')
+        .insert({
+          user_id: userId,
+          goal_session_id: goalSessionId,
+          achieved_pnl: cumulativeProfit,
+          target_amount: targetValue,
+          achievement_type: 'cumulative_multi_trade'
+        })
+        .select()
+        .single();
+
+      console.log(`[Trade Lifecycle] ✅ Goal logged as PERMANENT WIN (cumulative across multiple trades)`);
+
+      // Apply goal achievement reward
+      if (achievement?.id && session) {
+        try {
+          const { rewardEngine } = await import('./reward-engine');
+          const traderScore = await rewardEngine.loadTraderScore(userId);
+
+          const startTime = new Date(session.start_time);
+          const achievedTime = new Date();
+          const hoursElapsed = (achievedTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+
+          const rewardResult = await rewardEngine.applyGoalReward(
+            userId,
+            achievement.id,
+            {
+              goalAmount: targetValue,
+              accountBalance: session.starting_balance,
+              timeToAchieveHours: hoursElapsed,
+              timeLimitHours: session.timeframe_hours || 24
+            },
+            traderScore
+          );
+
+          console.log(`[Trade Lifecycle] 🏆 REWARD: +${rewardResult.scoreChange} points!`);
+          if (rewardResult.personalityChange) {
+            console.log(`[Trade Lifecycle] 🎭 Personality Level Up!`);
+          }
+        } catch (error) {
+          console.error('[Trade Lifecycle] Error applying goal reward:', error);
+        }
+      }
+
+      // Send achievement notification
+      await supabase.from('goal_notifications').insert({
+        goal_session_id: goalSessionId,
+        user_id: userId,
+        notification_type: 'goal_achieved',
+        priority: 'high',
+        title: '🎯 Goal Achieved!',
+        message: `Congratulations! You've reached your $${targetValue} goal with cumulative profit of $${cumulativeProfit.toFixed(2)} across multiple trades!`,
+        data: {
+          cumulativeProfit,
+          targetValue,
+          achievementType: 'cumulative_multi_trade'
+        },
+        channels: ['in_app', 'email']
+      });
+
+      // Add celebration AI message
+      const { data: trades } = await supabase
+        .from('goal_session_trades')
+        .select('*')
+        .eq('goal_session_id', goalSessionId)
+        .eq('status', 'closed')
+        .order('closed_at', { ascending: false });
+
+      const tradeCount = trades?.length || 0;
+      const avgProfit = tradeCount > 0 ? cumulativeProfit / tradeCount : 0;
+
+      await goalSessionManager.addAIMessage(
+        goalSessionId,
+        userId,
+        `🎉 GOAL ACHIEVED! You've successfully reached your $${targetValue} goal!\n\n` +
+        `📊 Final Results:\n` +
+        `• Total Profit: $${cumulativeProfit.toFixed(2)} (${((cumulativeProfit / targetValue) * 100).toFixed(1)}% of goal)\n` +
+        `• Trades Executed: ${tradeCount}\n` +
+        `• Average per Trade: $${avgProfit.toFixed(2)}\n` +
+        `• Completion Status: AHEAD OF SCHEDULE ✨\n\n` +
+        `Your session will now automatically stop. All open positions have been protected. Great job! 🏆`,
+        {
+          cumulativeProfit,
+          targetValue,
+          tradeCount,
+          achievementType: 'cumulative_multi_trade'
+        },
+        'celebratory'
+      );
+
+      return true;
+    } catch (error) {
+      console.error('[Trade Lifecycle] Error checking cumulative goal achievement:', error);
+      return false;
+    }
+  }
+
   async startMonitoring(intervalMs: number = 5000): void {
     if (this.isMonitoring) {
       console.log('[Trade Lifecycle] Already monitoring');
@@ -188,6 +397,22 @@ class TradeLifecycleManager {
             await this.checkDefaultAction(trade, goalSession, unrealizedPnL);
           }
         }
+
+        // ALSO check cumulative goal achievement (multi-trade goals)
+        // This handles the case where the sum of closed trades + current unrealized P&L reaches the goal
+        if (!goalSession.goal_achieved_at) {
+          const cumulativeProfit = await this.getCumulativeProfit(trade.goal_session_id);
+          const cumulativePlusUnrealized = cumulativeProfit + unrealizedPnL;
+
+          if (cumulativePlusUnrealized >= goalSession.target_value) {
+            console.log(`[Trade Lifecycle] 🎯 CUMULATIVE GOAL REACHED! Target: $${goalSession.target_value}, Cumulative + Unrealized: $${cumulativePlusUnrealized.toFixed(2)}`);
+
+            // Close this trade at current profit to lock in the goal
+            shouldClose = true;
+            closeReason = 'Cumulative goal target reached';
+            profitLoss = unrealizedPnL;
+          }
+        }
       }
 
       // Check SL/TP only if goal completion didn't trigger close
@@ -297,11 +522,84 @@ class TradeLifecycleManager {
         console.error('[Trade Lifecycle] Counterfactual analysis failed:', err);
       });
 
+      // CRITICAL: Calculate cumulative progress after trade closes
+      let cumulativeProfit = 0;
+      let progressPercentage = 0;
+      let goalTargetValue = 0;
+      let tradesRemaining = 0;
+
+      if (trade.goal_session_id) {
+        try {
+          // Get goal session details
+          const { data: goalSession } = await supabase
+            .from('goal_sessions')
+            .select('target_value, status')
+            .eq('id', trade.goal_session_id)
+            .maybeSingle();
+
+          if (goalSession) {
+            goalTargetValue = goalSession.target_value;
+
+            // Calculate cumulative profit across all closed trades
+            cumulativeProfit = await this.getCumulativeProfit(trade.goal_session_id);
+            progressPercentage = (cumulativeProfit / goalTargetValue) * 100;
+
+            // Update goal session progress
+            await this.updateGoalProgress(
+              trade.goal_session_id,
+              cumulativeProfit,
+              goalTargetValue
+            );
+
+            // Estimate trades remaining (rough calculation)
+            if (cumulativeProfit > 0 && cumulativeProfit < goalTargetValue) {
+              const { data: closedTrades } = await supabase
+                .from('goal_session_trades')
+                .select('id')
+                .eq('goal_session_id', trade.goal_session_id)
+                .eq('status', 'closed');
+
+              const tradeCount = closedTrades?.length || 1;
+              const avgProfitPerTrade = cumulativeProfit / tradeCount;
+              const remainingProfit = goalTargetValue - cumulativeProfit;
+              tradesRemaining = Math.ceil(remainingProfit / avgProfitPerTrade);
+            }
+          }
+        } catch (error) {
+          console.error('[Trade Lifecycle] Error calculating cumulative progress:', error);
+        }
+      }
+
+      // Enhanced AI message with progress tracking
+      let progressMessage = `Trade on ${trade.symbol} closed! ${reason}. ${trade.direction.toUpperCase()} position exited at ${exitPrice.toFixed(5)}. ${isProfit ? 'Profit' : 'Loss'}: $${Math.abs(profitLoss).toFixed(2)}. Entry was ${trade.entry_price.toFixed(5)}.`;
+
+      if (trade.goal_session_id && goalTargetValue > 0) {
+        progressMessage += `\n\n📊 Goal Progress: $${cumulativeProfit.toFixed(2)} / $${goalTargetValue.toFixed(2)} (${progressPercentage.toFixed(1)}%)`;
+
+        if (cumulativeProfit < goalTargetValue) {
+          const remaining = goalTargetValue - cumulativeProfit;
+          progressMessage += `\n💰 Remaining: $${remaining.toFixed(2)}`;
+          if (tradesRemaining > 0) {
+            progressMessage += ` (est. ${tradesRemaining} more trade${tradesRemaining > 1 ? 's' : ''})`;
+          }
+          progressMessage += `\n🔍 Continuing to scan for next high-quality setup...`;
+        }
+      }
+
       await goalSessionManager.addAIMessage(
         trade.goal_session_id,
         userId,
-        `Trade on ${trade.symbol} closed! ${reason}. ${trade.direction.toUpperCase()} position exited at ${exitPrice.toFixed(5)}. ${isProfit ? 'Profit' : 'Loss'}: $${Math.abs(profitLoss).toFixed(2)}. Entry was ${trade.entry_price.toFixed(5)}.`,
-        { trade, exitPrice, profitLoss, reason },
+        progressMessage,
+        {
+          trade,
+          exitPrice,
+          profitLoss,
+          reason,
+          cumulativeProfit,
+          progressPercentage,
+          goalTargetValue,
+          tradesRemaining
+        },
         isProfit ? 'celebratory' : 'neutral'
       );
 
@@ -315,6 +613,53 @@ class TradeLifecycleManager {
         data: { trade, exitPrice, profitLoss, reason },
         channels: ['in_app', 'email']
       });
+
+      // CRITICAL: Check if cumulative goal has been achieved
+      if (trade.goal_session_id && goalTargetValue > 0) {
+        const goalAchieved = await this.checkCumulativeGoalAchievement(
+          trade.goal_session_id,
+          cumulativeProfit,
+          goalTargetValue,
+          userId
+        );
+
+        if (goalAchieved) {
+          console.log(`[Trade Lifecycle] 🎯 Goal achieved! Stopping live engine if running...`);
+
+          // Signal goal-session-live-engine to stop (if it's running)
+          try {
+            const { goalSessionLiveEngine } = await import('./goal-session-live-engine');
+            if (goalSessionLiveEngine.getActiveSessionId() === trade.goal_session_id) {
+              await goalSessionLiveEngine.stopSession();
+              console.log(`[Trade Lifecycle] ✅ Live engine stopped - goal session complete`);
+            }
+          } catch (error) {
+            console.error('[Trade Lifecycle] Error stopping live engine:', error);
+          }
+
+          // Close any remaining open trades with breakeven protection
+          const { data: remainingTrades } = await supabase
+            .from('goal_session_trades')
+            .select('*')
+            .eq('goal_session_id', trade.goal_session_id)
+            .eq('status', 'open');
+
+          if (remainingTrades && remainingTrades.length > 0) {
+            console.log(`[Trade Lifecycle] Closing ${remainingTrades.length} remaining open trade(s) with breakeven protection`);
+            for (const openTrade of remainingTrades) {
+              // Move SL to breakeven before closing
+              await supabase
+                .from('goal_session_trades')
+                .update({
+                  stop_loss: openTrade.entry_price
+                })
+                .eq('id', openTrade.id);
+            }
+          }
+
+          return; // Exit early - goal achieved, no need to continue
+        }
+      }
 
       const { data: otherOpenTrades } = await supabase
         .from('goal_session_trades')
