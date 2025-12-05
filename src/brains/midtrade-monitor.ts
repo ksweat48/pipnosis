@@ -21,6 +21,7 @@ import { omegaSwing } from './omega/swing';
 import { sentimentCoordinator } from '../services/sentiment-coordinator';
 import type { OmegaVote } from './omega/trend';
 import type { TraderScore } from '../services/ai-identity';
+import { llmTokenTracker } from '../services/llm-token-tracker';
 
 export interface MidTradeSnapshot {
   // Position info
@@ -154,6 +155,18 @@ Return JSON:
         }
       );
 
+      // Log token usage
+      await llmTokenTracker.logUsage({
+        brainName: 'MidTrade-Monitor',
+        model: 'gpt-4o-mini',
+        promptTokens: response.usage?.prompt_tokens || 0,
+        completionTokens: response.usage?.completion_tokens || 0,
+        totalTokens: response.usage?.total_tokens || 0,
+        contextType: 'mid_trade',
+        userId: undefined,
+        sessionId: undefined
+      });
+
       const content = response.choices[0]?.message?.content || '{}';
       const decision = this.parseDecision(content, 'soft');
 
@@ -217,6 +230,18 @@ Return JSON:
           endpoint: 'midtrade-hard'
         }
       );
+
+      // Log token usage
+      await llmTokenTracker.logUsage({
+        brainName: 'MidTrade-Monitor',
+        model: 'gpt-4o-mini',
+        promptTokens: response.usage?.prompt_tokens || 0,
+        completionTokens: response.usage?.completion_tokens || 0,
+        totalTokens: response.usage?.total_tokens || 0,
+        contextType: 'mid_trade',
+        userId: undefined,
+        sessionId: undefined
+      });
 
       const content = response.choices[0]?.message?.content || '{}';
       const decision = this.parseDecision(content, 'hard');
@@ -334,6 +359,18 @@ Return JSON:
           endpoint: 'midtrade-emergency'
         }
       );
+
+      // Log token usage
+      await llmTokenTracker.logUsage({
+        brainName: 'MidTrade-Monitor',
+        model: 'gpt-4o-mini',
+        promptTokens: response.usage?.prompt_tokens || 0,
+        completionTokens: response.usage?.completion_tokens || 0,
+        totalTokens: response.usage?.total_tokens || 0,
+        contextType: 'mid_trade',
+        userId: undefined,
+        sessionId: undefined
+      });
 
       const content = response.choices[0]?.message?.content || '{}';
       const decision = this.parseDecision(content, 'emergency');

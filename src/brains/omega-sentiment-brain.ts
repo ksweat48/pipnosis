@@ -8,6 +8,7 @@
  */
 
 import { openAIClient } from '@/services/openai-client';
+import { llmTokenTracker } from '@/services/llm-token-tracker';
 
 export interface SentimentInput {
   googleNews: string[];
@@ -54,6 +55,18 @@ class OmegaSentimentBrain {
         max_tokens: this.MAX_TOKENS,
         temperature: 0.3, // Low temperature for consistent analysis
         response_format: { type: 'json_object' }
+      });
+
+      // Log token usage
+      await llmTokenTracker.logUsage({
+        brainName: 'Omega-7',
+        model: this.MODEL,
+        promptTokens: response.usage?.prompt_tokens || 0,
+        completionTokens: response.usage?.completion_tokens || 0,
+        totalTokens: response.usage?.total_tokens || 0,
+        contextType: 'sentiment',
+        userId: undefined,
+        sessionId: undefined
       });
 
       const content = response.choices[0]?.message?.content;

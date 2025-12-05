@@ -16,6 +16,7 @@
 import { openAIClient } from '../services/openai-client';
 import type { Omega9ValidationResult, Omega9Corrections, OmegaVote } from '../types/omega';
 import type { AlphaDecision } from './coordinator-alpha';
+import { llmTokenTracker } from '../services/llm-token-tracker';
 
 export interface Omega9Input {
   alphaDecision: AlphaDecision;
@@ -277,6 +278,18 @@ Return JSON only:
           endpoint: 'omega9-hallucination'
         }
       );
+
+      // Log token usage
+      await llmTokenTracker.logUsage({
+        brainName: 'Omega-9',
+        model: 'gpt-4o-mini',
+        promptTokens: response.usage?.prompt_tokens || 0,
+        completionTokens: response.usage?.completion_tokens || 0,
+        totalTokens: response.usage?.total_tokens || 0,
+        contextType: 'meta_reasoning',
+        userId: undefined,
+        sessionId: undefined
+      });
 
       const content = response.choices[0]?.message?.content || '{}';
       return this.parseValidation(content);

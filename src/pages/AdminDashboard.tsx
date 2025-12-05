@@ -9,6 +9,7 @@ import { PollingPreferences } from '@/components/PollingPreferences';
 import { PipnosisMasteryCurve } from '@/components/PipnosisMasteryCurve';
 import { OpenAIUsageDashboard } from '@/components/OpenAIUsageDashboard';
 import { ServerSidePollingMonitor } from '@/components/ServerSidePollingMonitor';
+import { LLMTokenUsageDashboard } from '@/components/LLMTokenUsageDashboard';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { simpleAutoBacktestService } from '@/services/simple-auto-backtest-service';
@@ -383,7 +384,10 @@ export function AdminDashboard() {
         )}
 
         {activeTab === 'api-usage' && (
-          <OpenAIUsageDashboard />
+          <div className="space-y-6">
+            <LLMTokenUsageDashboard />
+            <OpenAIUsageDashboard />
+          </div>
         )}
 
         {activeTab === 'settings' && (

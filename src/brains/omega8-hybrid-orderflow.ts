@@ -21,6 +21,7 @@
 import { openAIClient } from '../services/openai-client';
 import type { Omega8Vote } from '../types/omega';
 import { supabase } from '../lib/supabase';
+import { llmTokenTracker } from '../services/llm-token-tracker';
 
 export interface Omega8Candle {
   time: number;
@@ -518,6 +519,18 @@ Return JSON:
           endpoint: 'omega8-hybrid'
         }
       );
+
+      // Log token usage
+      await llmTokenTracker.logUsage({
+        brainName: 'Omega-8',
+        model: 'gpt-4o-mini',
+        promptTokens: response.usage?.prompt_tokens || 0,
+        completionTokens: response.usage?.completion_tokens || 0,
+        totalTokens: response.usage?.total_tokens || 0,
+        contextType: 'vote',
+        userId: undefined,
+        sessionId: undefined
+      });
 
       const content = response.choices[0]?.message?.content || '{}';
       const tokensUsed = response.usage?.total_tokens || 0;

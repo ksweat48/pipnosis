@@ -24,6 +24,7 @@ import type {
   LLMMetaAnalysis
 } from '../types/omega10';
 import { openaiProxyClient } from '../services/openai-proxy-client';
+import { llmTokenTracker } from '../services/llm-token-tracker';
 
 const DEFAULT_OMEGA10_CONFIG = {
   scheduledIntervalHours: 4,
@@ -535,13 +536,38 @@ async function runLLMMetaAnalysis(
   try {
     const prompt = buildLLMPrompt(input, deterministicAnalysis);
 
-    const response = await openaiProxyClient.sendMessage(prompt, {
+    const response = await openaiProxyClient.chat({
+      messages: [
+        {
+          role: 'system',
+          content: 'You are Omega-10, meta-reasoning specialist. Analyze system-level intelligence. Return JSON only.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
       model: 'gpt-4o-mini',
       temperature: 0.3,
-      maxTokens: 500
+      max_tokens: 500,
+      requestType: 'omega10_meta_reasoning',
+      endpoint: 'omega10-meta'
     });
 
-    const parsed = JSON.parse(response);
+    // Log token usage
+    await llmTokenTracker.logUsage({
+      brainName: 'Omega-10',
+      model: 'gpt-4o-mini',
+      promptTokens: response.usage?.prompt_tokens || 0,
+      completionTokens: response.usage?.completion_tokens || 0,
+      totalTokens: response.usage?.total_tokens || 0,
+      contextType: 'meta_reasoning',
+      userId: input.userId || undefined,
+      sessionId: undefined
+    });
+
+    const content = response.choices[0]?.message?.content || '{}';
+    const parsed = JSON.parse(content);
 
     return {
       faults: parsed.faults || [],

@@ -17,6 +17,7 @@ import type { Omega8Vote, Omega9ValidationResult } from '../types/omega';
 import type { TraderScore } from '../services/ai-identity';
 import { omega9Hallucination, type Omega9Input } from './omega9-hallucination-brain';
 import { omega10Scheduler } from '../services/omega10-scheduler';
+import { llmTokenTracker } from '../services/llm-token-tracker';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -106,6 +107,18 @@ Return JSON only:
           endpoint: 'alpha-coordinator'
         }
       );
+
+      // Log token usage
+      await llmTokenTracker.logUsage({
+        brainName: 'Alpha',
+        model: 'gpt-4o-mini',
+        promptTokens: response.usage?.prompt_tokens || 0,
+        completionTokens: response.usage?.completion_tokens || 0,
+        totalTokens: response.usage?.total_tokens || 0,
+        contextType: 'fusion',
+        userId: userId,
+        sessionId: undefined
+      });
 
       const content = response.choices[0]?.message?.content || '{}';
       let decision = this.parseDecision(content, marketContext.price, marketContext.atr);
