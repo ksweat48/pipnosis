@@ -26,6 +26,9 @@ class SentimentScrapers {
 
   /**
    * Scrape all sources and aggregate into SentimentInput
+   *
+   * NOTE: Scrapers typically fail in browser due to CSP restrictions.
+   * This is expected - system gracefully degrades to LLM-only analysis.
    */
   async scrapeAll(): Promise<SentimentInput> {
     console.log('[Scrapers] Starting sentiment scraping...');
@@ -67,6 +70,13 @@ class SentimentScrapers {
     if (result.status === 'fulfilled') {
       return result.value;
     }
+    // Scrapers expected to fail in browser due to CSP - this is normal
+    // System gracefully degrades to LLM-only sentiment analysis
+    const errorMsg = result.reason?.message || String(result.reason);
+    if (errorMsg.includes('Content Security Policy') || errorMsg.includes('violates')) {
+      // Silent CSP failures - expected behavior
+      return [];
+    }
     console.error('[Scrapers] Source failed:', result.reason);
     return [];
   }
@@ -89,7 +99,11 @@ class SentimentScrapers {
       return headlines.filter(h => h.length > 0);
 
     } catch (error) {
-      console.error('[Scrapers] Google News failed:', error);
+      // CSP errors are expected in browser - fail silently
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      if (!errorMsg.includes('Content Security Policy') && !errorMsg.includes('violates')) {
+        console.error('[Scrapers] Google News failed:', error);
+      }
       return [];
     }
   }

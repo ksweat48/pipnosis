@@ -224,13 +224,19 @@ class ConditionMonitor {
       return state.rsi >= min && state.rsi <= max;
     }
 
-    // RSI conditions
-    if (c.includes('rsi>70')) return state.rsi > 70;
-    if (c.includes('rsi>60')) return state.rsi > 60;
-    if (c.includes('rsi>50')) return state.rsi > 50;
-    if (c.includes('rsi<50')) return state.rsi < 50;
-    if (c.includes('rsi<40')) return state.rsi < 40;
-    if (c.includes('rsi<30')) return state.rsi < 30;
+    // RSI conditions - flexible threshold support
+    const rsiMatch = c.match(/rsi\s*([><]=?)\s*(\d+)/);
+    if (rsiMatch) {
+      const operator = rsiMatch[1];
+      const threshold = parseInt(rsiMatch[2]);
+      switch (operator) {
+        case '>': return state.rsi > threshold;
+        case '<': return state.rsi < threshold;
+        case '>=': return state.rsi >= threshold;
+        case '<=': return state.rsi <= threshold;
+        default: return false;
+      }
+    }
 
     // Stoch RSI
     if (c.includes('st>70') || c.includes('stoch>70')) return state.stochRsi > 70;

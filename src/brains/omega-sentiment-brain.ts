@@ -40,9 +40,8 @@ class OmegaSentimentBrain {
 
       console.log('[Omega-7] Analyzing market sentiment...');
 
-      const response = await openAIClient.chat.completions.create({
-        model: this.MODEL,
-        messages: [
+      const response = await openAIClient.chat(
+        [
           {
             role: 'system',
             content: this.getSystemPrompt()
@@ -52,10 +51,14 @@ class OmegaSentimentBrain {
             content: prompt
           }
         ],
-        max_tokens: this.MAX_TOKENS,
-        temperature: 0.3, // Low temperature for consistent analysis
-        response_format: { type: 'json_object' }
-      });
+        {
+          model: this.MODEL,
+          max_tokens: this.MAX_TOKENS,
+          temperature: 0.3, // Low temperature for consistent analysis
+          requestType: 'omega_sentiment_analysis',
+          endpoint: 'omega-sentiment'
+        }
+      );
 
       // Log token usage
       await llmTokenTracker.logUsage({
