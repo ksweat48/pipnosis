@@ -88,7 +88,7 @@ class PollingOrchestrator {
     try {
       const { data: sessions, error } = await supabase
         .from('goal_sessions')
-        .select('id, config')
+        .select('id, watchlist')
         .in('status', ['scanning', 'initializing', 'trade_pending', 'in_trade', 'soft_closing']);
 
       if (error) {
@@ -99,8 +99,10 @@ class PollingOrchestrator {
       if (sessions && sessions.length > 0) {
         sessions.forEach(session => {
           this.activeGoalSessions.add(session.id);
-          if (session.config?.symbol) {
-            globalPollingCoordinator.protectSymbol(session.config.symbol, session.id);
+          if (session.watchlist && Array.isArray(session.watchlist)) {
+            session.watchlist.forEach((symbol: string) => {
+              globalPollingCoordinator.protectSymbol(symbol, session.id);
+            });
           }
         });
         console.log(`[PollingOrchestrator] 🛡️ Loaded ${sessions.length} active goal sessions - polling protected`);
@@ -143,28 +145,34 @@ class PollingOrchestrator {
       if (activeStatuses.includes(session.status)) {
         if (!this.activeGoalSessions.has(session.id)) {
           this.activeGoalSessions.add(session.id);
-          if (session.config?.symbol) {
-            globalPollingCoordinator.protectSymbol(session.config.symbol, session.id);
+          if (session.watchlist && Array.isArray(session.watchlist)) {
+            session.watchlist.forEach((symbol: string) => {
+              globalPollingCoordinator.protectSymbol(symbol, session.id);
+            });
           }
-          console.log(`[PollingOrchestrator] 🛡️ Goal session ${session.id} started - protecting ${session.config?.symbol || 'unknown'}`);
+          console.log(`[PollingOrchestrator] 🛡️ Goal session ${session.id} started - protecting ${session.watchlist?.join(', ') || 'unknown'}`);
         }
       } else {
         if (this.activeGoalSessions.has(session.id)) {
           this.activeGoalSessions.delete(session.id);
-          if (session.config?.symbol) {
-            globalPollingCoordinator.unprotectSymbol(session.config.symbol, session.id);
+          if (session.watchlist && Array.isArray(session.watchlist)) {
+            session.watchlist.forEach((symbol: string) => {
+              globalPollingCoordinator.unprotectSymbol(symbol, session.id);
+            });
           }
-          console.log(`[PollingOrchestrator] ✅ Goal session ${session.id} ended - unprotecting ${session.config?.symbol || 'unknown'}`);
+          console.log(`[PollingOrchestrator] ✅ Goal session ${session.id} ended - unprotecting ${session.watchlist?.join(', ') || 'unknown'}`);
         }
       }
     } else if (eventType === 'DELETE') {
       const session = oldRecord;
       if (this.activeGoalSessions.has(session.id)) {
         this.activeGoalSessions.delete(session.id);
-        if (session.config?.symbol) {
-          globalPollingCoordinator.unprotectSymbol(session.config.symbol, session.id);
+        if (session.watchlist && Array.isArray(session.watchlist)) {
+          session.watchlist.forEach((symbol: string) => {
+            globalPollingCoordinator.unprotectSymbol(symbol, session.id);
+          });
         }
-        console.log(`[PollingOrchestrator] ✅ Goal session ${session.id} deleted - unprotecting ${session.config?.symbol || 'unknown'}`);
+        console.log(`[PollingOrchestrator] ✅ Goal session ${session.id} deleted - unprotecting ${session.watchlist?.join(', ') || 'unknown'}`);
       }
     }
   }
