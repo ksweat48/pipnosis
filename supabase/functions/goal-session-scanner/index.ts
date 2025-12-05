@@ -45,7 +45,7 @@ Deno.serve(async (req: Request) => {
     const { data: activeSessions, error: sessionsError } = await supabase
       .from('goal_sessions')
       .select('*')
-      .in('status', ['scanning', 'trade_pending', 'in_trade'])
+      .in('status', ['scanning', 'trade_pending', 'in_trade', 'soft_closing'])
       .lte('next_scan_time', now);
 
     if (sessionsError) {
@@ -72,20 +72,96 @@ Deno.serve(async (req: Request) => {
           .single();
 
         if (expiredCheck && new Date(expiredCheck.end_time) < new Date()) {
-          await supabase
-            .from('goal_sessions')
-            .update({ status: 'expired', updated_at: now })
-            .eq('id', session.id);
+          const { data: openTrades } = await supabase
+            .from('simulated_positions')
+            .select('id')
+            .eq('goal_session_id', session.id)
+            .eq('status', 'open');
 
-          await supabase.from('goal_ai_conversations').insert({
-            goal_session_id: session.id,
-            user_id: session.user_id,
-            role: 'ai',
-            message: 'Session time expired. Generating final summary...',
-            context: {},
-            sentiment: 'neutral',
-          });
+          const tradesCount = openTrades?.length || 0;
 
+          if (tradesCount > 0) {
+            await supabase
+              .from('goal_sessions')
+              .update({
+                status: 'soft_closing',
+                timeframe_expired_at: now,
+                trades_open_at_expiration: tradesCount,
+                updated_at: now
+              })
+              .eq('id', session.id);
+
+            await supabase.from('goal_ai_conversations').insert({
+              goal_session_id: session.id,
+              user_id: session.user_id,
+              role: 'ai',
+              message: `🏁 Session timeframe expired with ${tradesCount} trade${tradesCount > 1 ? 's' : ''} still open. No new trades will be opened. Monitoring active positions until they close naturally...`,
+              context: { timeframe_expired: true, trades_open: tradesCount },
+              sentiment: 'neutral',
+            });
+
+            console.log(`[Goal Scanner] Session ${session.id} moved to soft_closing (${tradesCount} trades open)`);
+          } else {
+            await supabase
+              .from('goal_sessions')
+              .update({ status: 'expired', updated_at: now })
+              .eq('id', session.id);
+
+            await supabase.from('goal_ai_conversations').insert({
+              goal_session_id: session.id,
+              user_id: session.user_id,
+              role: 'ai',
+              message: 'Session timeframe expired. All trades closed. Generating final summary...',
+              context: { timeframe_expired: true, trades_open: 0 },
+              sentiment: 'neutral',
+            });
+
+            console.log(`[Goal Scanner] Session ${session.id} expired (no open trades)`);
+          }
+
+          continue;
+        }
+
+        if (session.status === 'soft_closing') {
+          const { data: openTrades } = await supabase
+            .from('simulated_positions')
+            .select('id')
+            .eq('goal_session_id', session.id)
+            .eq('status', 'open');
+
+          if (!openTrades || openTrades.length === 0) {
+            const softCloseStart = session.timeframe_expired_at ? new Date(session.timeframe_expired_at) : null;
+            const softCloseDuration = softCloseStart
+              ? Math.floor((new Date().getTime() - softCloseStart.getTime()) / 60000)
+              : 0;
+
+            await supabase
+              .from('goal_sessions')
+              .update({
+                status: 'expired',
+                soft_close_duration_minutes: softCloseDuration,
+                updated_at: now
+              })
+              .eq('id', session.id);
+
+            await supabase.from('goal_ai_conversations').insert({
+              goal_session_id: session.id,
+              user_id: session.user_id,
+              role: 'ai',
+              message: `✅ All trades closed after timeframe expiration. Soft close took ${softCloseDuration} minutes. Generating final session summary...`,
+              context: {
+                soft_close_complete: true,
+                soft_close_duration_minutes: softCloseDuration,
+                trades_at_expiration: session.trades_open_at_expiration || 0
+              },
+              sentiment: 'neutral',
+            });
+
+            console.log(`[Goal Scanner] Session ${session.id} soft close complete (${softCloseDuration}m)`);
+            continue;
+          }
+
+          console.log(`[Goal Scanner] Session ${session.id} still in soft_closing (${openTrades.length} trades open)`);
           continue;
         }
 
