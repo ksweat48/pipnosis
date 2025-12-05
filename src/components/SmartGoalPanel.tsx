@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, AlertCircle, Loader2, Zap } from 'lucide-react';
+import { Target, TrendingUp, Clock, AlertCircle, Loader2, Zap, AlertTriangle, CheckCircle } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalConfig } from '../services/smart-goal-session-manager';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
+import { aiGoalParser } from '../lib/aiGoalParser';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 
@@ -34,6 +35,12 @@ const GOAL_TEMPLATES: GoalTemplate[] = [
   },
 ];
 
+interface ValidationResult {
+  isRealistic: boolean;
+  warnings: string[];
+  suggestions: string[];
+}
+
 export const SmartGoalPanel: React.FC = () => {
   const { user } = useAuth();
   const toast = useToast();
@@ -41,6 +48,35 @@ export const SmartGoalPanel: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [accountBalance] = useState(10000);
+  const [validation, setValidation] = useState<ValidationResult | null>(null);
+  const [showWarning, setShowWarning] = useState(true);
+  const [parsedGoal, setParsedGoal] = useState<any>(null);
+
+  useEffect(() => {
+    const validateGoal = async () => {
+      if (!goalPrompt.trim()) {
+        setValidation(null);
+        setParsedGoal(null);
+        setShowWarning(true);
+        return;
+      }
+
+      try {
+        const parsed = await aiGoalParser.parseGoal(goalPrompt, accountBalance);
+        setParsedGoal(parsed);
+
+        const validationResult = await aiGoalParser.validateGoal(parsed.config, accountBalance);
+        setValidation(validationResult);
+        setShowWarning(true);
+      } catch (err) {
+        console.error('Validation error:', err);
+        setValidation(null);
+      }
+    };
+
+    const debounceTimer = setTimeout(validateGoal, 500);
+    return () => clearTimeout(debounceTimer);
+  }, [goalPrompt, accountBalance]);
 
   const handleTemplateClick = (template: GoalTemplate) => {
     setGoalPrompt(template.prompt);
@@ -129,22 +165,90 @@ export const SmartGoalPanel: React.FC = () => {
           <TrendingUp className="absolute right-3 top-3 w-5 h-5 text-gray-500" />
         </div>
 
-        {goalPrompt.trim() && (
-          <div className="bg-gray-700 rounded-lg p-4 border border-green-600">
+        {goalPrompt.trim() && validation && !validation.isRealistic && showWarning && (
+          <div className="bg-yellow-900/30 border border-yellow-600 rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-green-400 mt-0.5" />
+              <AlertTriangle className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" />
               <div className="flex-1">
-                <div className="text-sm font-medium text-green-400 mb-2">Ready to Start!</div>
+                <div className="text-sm font-bold text-yellow-400 mb-2">Goal Assessment</div>
+                {parsedGoal && (
+                  <div className="text-xs text-gray-300 mb-3 pb-3 border-b border-yellow-600/30">
+                    <p><strong>Your Request:</strong> {parsedGoal.interpretation}</p>
+                    <p className="mt-1"><strong>Account Balance:</strong> ${accountBalance.toLocaleString()}</p>
+                  </div>
+                )}
+
+                <div className="space-y-2 mb-3">
+                  <div className="text-xs font-semibold text-yellow-300">Reality Check:</div>
+                  {validation.warnings.map((warning, idx) => (
+                    <div key={idx} className="flex items-start gap-2 text-xs text-yellow-200">
+                      <span className="text-yellow-400 mt-0.5">⚠</span>
+                      <span>{warning}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-2 mb-3">
+                  <div className="text-xs font-semibold text-green-300">Recommended Alternatives:</div>
+                  {validation.suggestions.map((suggestion, idx) => (
+                    <div key={idx} className="flex items-start gap-2 text-xs text-gray-300">
+                      <CheckCircle className="w-3 h-3 text-green-400 mt-0.5 flex-shrink-0" />
+                      <span>{suggestion}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex gap-2 mt-3 pt-3 border-t border-yellow-600/30">
+                  <button
+                    onClick={() => setShowWarning(false)}
+                    className="flex-1 px-3 py-2 bg-yellow-600/20 hover:bg-yellow-600/30 border border-yellow-600 rounded text-xs font-medium text-yellow-200 transition-colors"
+                  >
+                    I Understand - Proceed Anyway
+                  </button>
+                  <button
+                    onClick={() => setGoalPrompt('')}
+                    className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-xs font-medium text-gray-300 transition-colors"
+                  >
+                    Adjust My Goal
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {goalPrompt.trim() && validation && validation.isRealistic && (
+          <div className="bg-green-900/20 border border-green-600 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <CheckCircle className="w-5 h-5 text-green-400 mt-0.5" />
+              <div className="flex-1">
+                <div className="text-sm font-medium text-green-400 mb-2">Realistic Goal - Ready to Start!</div>
+                {parsedGoal && (
+                  <div className="text-xs text-gray-300 mb-2">
+                    <p><strong>Target:</strong> {parsedGoal.interpretation}</p>
+                  </div>
+                )}
                 <div className="text-xs text-gray-300">
-                  <p className="mb-2">Pipnosis will try to achieve your goal in ONE high-quality trade:</p>
+                  <p className="mb-2">Pipnosis will try to achieve your goal efficiently:</p>
                   <ul className="space-y-1 ml-4 list-disc">
                     <li>Each trade lasts minutes to hours (max {PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_HOURS}h)</li>
-                    <li>Scans markets every {PIPNOSIS_CORE_RULES.SCAN_FREQUENCY_MINUTES} minutes for the BEST setup</li>
+                    <li>Scans markets every {PIPNOSIS_CORE_RULES.SCAN_FREQUENCY_MINUTES} minutes for best setups</li>
                     <li>1-3 minute countdown before auto-execution</li>
-                    <li>Will take backup trades only if first trade doesn't achieve goal</li>
                     <li>All positions close before end of day</li>
                   </ul>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {goalPrompt.trim() && validation && !validation.isRealistic && !showWarning && (
+          <div className="bg-gray-700/50 border border-gray-600 rounded-lg p-3">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-gray-400 mt-0.5" />
+              <div className="text-xs text-gray-300">
+                <p className="font-medium text-gray-200 mb-1">Proceeding with high-risk goal</p>
+                <p>AI will do its best, but success probability is low. Each trade protected by 5% max risk limit.</p>
               </div>
             </div>
           </div>
@@ -158,7 +262,7 @@ export const SmartGoalPanel: React.FC = () => {
 
         <button
           onClick={handleCreateSession}
-          disabled={!goalPrompt.trim() || loading}
+          disabled={!goalPrompt.trim() || loading || (validation && !validation.isRealistic && showWarning)}
           className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium text-white transition-colors flex items-center justify-center gap-2"
         >
           {loading ? (
@@ -169,7 +273,7 @@ export const SmartGoalPanel: React.FC = () => {
           ) : (
             <>
               <Target className="w-5 h-5" />
-              Start Goal Session
+              {validation && !validation.isRealistic && showWarning ? 'Review Warning Above' : 'Start Goal Session'}
             </>
           )}
         </button>
