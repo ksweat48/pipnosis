@@ -1009,18 +1009,23 @@ This learning will carry forward to improve future sessions!
     } else {
       const strategy = await this.getCurrentStrategy();
       if (strategy) {
-        message += `\n🎯 Strategy: ${strategy.mode}\n`;
-        message += `🔍 Looking for: ${strategy.conditions.slice(0, 2).join(', ')}\n`;
+        message += `\n🎯 AI Strategy: ${strategy.mode.toUpperCase()}\n`;
+        message += `📋 Conditions: ${strategy.conditions.slice(0, 3).join(' + ')}\n`;
+        message += `🎲 Confidence: ${strategy.confidence}% | Risk: ${strategy.risk_pct}%\n`;
+        if (strategy.rationale) {
+          message += `💭 Rationale: ${strategy.rationale.substring(0, 80)}${strategy.rationale.length > 80 ? '...' : ''}\n`;
+        }
 
         // Check if nothing changed
         if (!hasSignificantChange) {
           message += `⏳ No changes - still monitoring conditions (${time})`;
         } else {
-          message += `⏳ Monitoring conditions...`;
+          message += `⏳ Evaluating setup...`;
         }
       } else {
-        message += `\n⏳ Monitoring market conditions\n`;
-        message += `🔍 Waiting for high-probability setup...`;
+        message += `\n🤖 Building strategy plan...\n`;
+        message += `🔍 Analyzing: market structure, regime, adversarial patterns\n`;
+        message += `⏳ Will share strategy once AI decides approach`;
       }
     }
 

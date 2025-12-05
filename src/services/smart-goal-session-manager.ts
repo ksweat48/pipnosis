@@ -334,9 +334,14 @@ class SmartGoalSessionManager {
           `🛡️ Risk Mode: ${config.riskMode.toUpperCase()} (max $${breakDown.maxProfitPerTrade.toFixed(2)} per trade)\\n` +
           `\\n🔍 Monitoring: ${config.watchlist.join(', ')}\\n` +
           `⚡ Analyzing markets every minute for optimal entries\\n` +
-          `🧠 Autonomous Pipnosis Alpha: GPT-4o analyzing market conditions\\n` +
+          `🧠 Autonomous Pipnosis Alpha: GPT-4o-mini creating dynamic strategies\\n` +
           `📈 All trades will have visible SL/TP on charts (Live Demo Mode)\\n` +
-          `\\n✨ Looking for: VWAP reversals, EMA crossovers, momentum shifts, support/resistance bounces`;
+          `\\n🤖 The AI is analyzing:\\n` +
+          `   • Market structure & regime (trend/range/breakout conditions)\\n` +
+          `   • Smart money concepts (BOS, ChoCh, liquidity zones)\\n` +
+          `   • Adversarial patterns (stop hunts, fake breakouts)\\n` +
+          `   • Its own memory & playbook of proven strategies\\n` +
+          `\\n📊 Strategy plans will be shared as the AI makes decisions in real-time`;
 
         await supabase.from('goal_ai_conversations').insert({
           goal_session_id: sessionId,
