@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { AlertTriangle, RefreshCw, Trash2, CheckCircle } from 'lucide-react';
 import { cacheResetService } from '@/services/cache-reset-service';
 import { supabase } from '@/lib/supabase';
+import { useToast } from '@/hooks/useToast';
 
 export const DataResetPanel: React.FC = () => {
+  const toast = useToast();
   const [isResetting, setIsResetting] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [stats, setStats] = useState<{
@@ -63,12 +65,15 @@ export const DataResetPanel: React.FC = () => {
       await cacheResetService.performCompleteReset();
 
       // Note: Database reset must be done via migration
-      alert('Cache cleared. Database reset requires running the migration from Supabase dashboard.');
+      toast.success('Cache Cleared', 'All caches have been cleared. Database reset requires running the migration from Supabase dashboard.');
 
-      // Reload page
-      window.location.reload();
+      // Reload page after a brief delay to show the toast
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
     } catch (error) {
       console.error('Full reset failed:', error);
+      toast.error('Reset Failed', 'Failed to complete the reset. Please try again.');
       setIsResetting(false);
     }
   };

@@ -5,10 +5,12 @@ import { goalNotificationSystem } from '../services/goal-notifications';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
 import { useAuth } from '../hooks/useAuth';
 import { MarketAnalysisStream } from './MarketAnalysisStream';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
 // GoalScanReadinessIndicator removed - using simple indicator
 
 export const GoalSessionDashboard: React.FC = () => {
   const { user } = useAuth();
+  const { confirm } = useConfirmDialog();
   const [activeSession, setActiveSession] = useState<SmartGoalSession | null>(null);
   const [progress, setProgress] = useState<any>(null);
   const [conversations, setConversations] = useState<any[]>([]);
@@ -83,7 +85,14 @@ export const GoalSessionDashboard: React.FC = () => {
   const handleStopSession = async () => {
     if (!activeSession || !user) return;
 
-    const confirmed = window.confirm('Are you sure you want to stop this goal session?');
+    const confirmed = await confirm({
+      title: 'Stop Goal Session',
+      message: 'Are you sure you want to stop this goal session? Any progress will be saved.',
+      confirmText: 'Stop Session',
+      cancelText: 'Continue',
+      variant: 'warning'
+    });
+
     if (!confirmed) return;
 
     const success = await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);

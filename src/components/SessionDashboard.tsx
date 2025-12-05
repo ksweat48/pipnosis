@@ -4,9 +4,13 @@ import { sessionManagementService, type TradingSession } from '@/services/sessio
 import { sessionReportGenerator, type SessionReport } from '@/services/session-report-generator';
 import { SPCProgressBar } from './SPCProgressBar';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/useToast';
+import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 
 export function SessionDashboard() {
   const { user } = useAuth();
+  const toast = useToast();
+  const { confirm } = useConfirmDialog();
   const [activeSession, setActiveSession] = useState<TradingSession | null>(null);
   const [recentSessions, setRecentSessions] = useState<TradingSession[]>([]);
   const [latestReport, setLatestReport] = useState<SessionReport | null>(null);
@@ -56,8 +60,9 @@ export function SessionDashboard() {
       await loadActiveSession();
       setSessionName('');
       setSessionNotes('');
+      toast.success('Session Started', 'Your trading session has begun');
     } else {
-      alert(result.error);
+      toast.error('Failed to Start', result.error || 'Could not start session');
     }
 
     setLoading(false);
@@ -92,9 +97,13 @@ export function SessionDashboard() {
   const handleEndSession = async () => {
     if (!user?.id || !activeSession) return;
 
-    const confirmed = window.confirm(
-      'Are you sure you want to end this session? A session report will be generated.'
-    );
+    const confirmed = await confirm({
+      title: 'End Trading Session',
+      message: 'Are you sure you want to end this session? A session report will be generated.',
+      confirmText: 'End Session',
+      cancelText: 'Continue Trading',
+      variant: 'warning'
+    });
 
     if (!confirmed) return;
 
@@ -109,12 +118,13 @@ export function SessionDashboard() {
 
       if (reportResult.success && reportResult.report) {
         setLatestReport(reportResult.report);
+        toast.success('Session Ended', 'Your session report has been generated');
       }
 
       await loadActiveSession();
       await loadRecentSessions();
     } else {
-      alert(result.error);
+      toast.error('Failed to End', result.error || 'Could not end session');
     }
 
     setLoading(false);

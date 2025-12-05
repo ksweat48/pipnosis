@@ -3,6 +3,10 @@ import { Routes, Route } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
+import { ConfirmDialogProvider } from './hooks/useConfirmDialog';
+import { ToastContainer } from './components/ToastNotification';
+import { useToast } from './hooks/useToast';
+import { globalToastManager } from './services/global-toast-manager';
 
 // Lazy load all pages for code splitting
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -34,14 +38,29 @@ const LoadingFallback = () => (
 
 const AppRoutes: React.FC = () => {
   const { user, loading } = useAuth();
+  const toast = useToast();
+
+  useEffect(() => {
+    const handleGlobalToast = (toastData: any) => {
+      toast.showToast(toastData.type, toastData.title, toastData.message, toastData.duration);
+    };
+
+    globalToastManager.onToast(handleGlobalToast);
+
+    return () => {
+      globalToastManager.offToast(handleGlobalToast);
+    };
+  }, [toast]);
 
   if (loading) {
     return <LoadingFallback />;
   }
 
   return (
-    <Suspense fallback={<LoadingFallback />}>
-      <Routes>
+    <>
+      <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
+      <Suspense fallback={<LoadingFallback />}>
+        <Routes>
       <Route path="/auth" element={<AuthPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route
@@ -143,8 +162,9 @@ const AppRoutes: React.FC = () => {
           </ProtectedRoute>
         }
       />
-      </Routes>
-    </Suspense>
+        </Routes>
+      </Suspense>
+    </>
   );
 };
 
@@ -216,7 +236,9 @@ export default function App() {
 
   return (
     <DatabaseErrorBoundary>
-      <AppRoutes />
+      <ConfirmDialogProvider>
+        <AppRoutes />
+      </ConfirmDialogProvider>
     </DatabaseErrorBoundary>
   );
 }

@@ -27,6 +27,7 @@ import { supabase } from '@/lib/supabase';
 import { getForexMarketStatus } from '@/utils/marketHours';
 import { areFunctionsAvailable, logEnvironmentInfo } from '@/lib/environment';
 import { pollingConfigService, SymbolPriority } from './polling-config-service';
+import { globalToastManager } from './global-toast-manager';
 // polling-health-monitor removed - health tracking simplified
 import { logger, LogCategory } from '@/lib/logger';
 
@@ -603,7 +604,10 @@ class GlobalPollingCoordinator {
         this.startAllPolling();
       } else {
         console.warn('⚠️ Cannot resume polling: Market is currently closed');
-        alert('Cannot resume polling while market is closed. Polling will automatically resume when the market opens (Sunday 5:00 PM EST).');
+        globalToastManager.warning(
+          'Market Closed',
+          'Cannot resume polling while market is closed. Polling will automatically resume when the market opens (Sunday 5:00 PM EST).'
+        );
       }
     }
   }

@@ -6,9 +6,11 @@ import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock
 import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
 import { chartPreferencesService, type IndicatorVisibility } from '@/services/chart-preferences';
 import { DataResetPanel } from '@/components/DataResetPanel';
+import { useToast } from '@/hooks/useToast';
 
 export function SettingsPage() {
   const { user, updatePassword } = useAuth();
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<any>(null);
@@ -114,13 +116,13 @@ export function SettingsPage() {
 
       if (error) {
         console.error('Error saving preferences:', error);
-        alert('Failed to save preferences. Please try again.');
+        toast.error('Save Failed', 'Failed to save preferences. Please try again.');
       } else {
-        alert('Preferences saved successfully!');
+        toast.success('Preferences Saved', 'Your preferences have been updated successfully');
       }
     } catch (error) {
       console.error('Error saving preferences:', error);
-      alert('Failed to save preferences. Please try again.');
+      toast.error('Save Failed', 'Failed to save preferences. Please try again.');
     } finally {
       setSaving(false);
     }

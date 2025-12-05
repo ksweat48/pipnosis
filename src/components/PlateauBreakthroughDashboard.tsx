@@ -3,12 +3,14 @@ import { AlertTriangle, TrendingUp, Zap, Target, Activity, Info } from 'lucide-r
 import { plateauDetector, PlateauAnalysis } from '../services/plateau-detector';
 import { breakthroughEngine } from '../services/breakthrough-engine';
 import { supabase } from '../lib/supabase';
+import { useToast } from '../hooks/useToast';
 
 interface Props {
   userId: string;
 }
 
 function PlateauBreakthroughDashboard({ userId }: Props) {
+  const toast = useToast();
   const [plateauStatus, setPlateauStatus] = useState<PlateauAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [breakthroughRunning, setBreakthroughRunning] = useState(false);
@@ -117,11 +119,16 @@ function PlateauBreakthroughDashboard({ userId }: Props) {
     setBreakthroughRunning(true);
     try {
       const result = await breakthroughEngine.runFullBreakthroughCycle(userId);
-      alert(`Breakthrough cycle complete!\n\nBest Strategy: ${result.bestStrategy?.strategyName}\nImprovement: ${result.bestStrategy?.improvement.toFixed(1)}%\n\n${result.recommendation}`);
+      const improvementPercent = result.bestStrategy?.improvement.toFixed(1) || '0';
+      toast.success(
+        'Breakthrough Complete!',
+        `Best Strategy: ${result.bestStrategy?.strategyName || 'Unknown'} (${improvementPercent}% improvement). ${result.recommendation}`,
+        8000
+      );
       loadPlateauStatus();
     } catch (error) {
       console.error('Error running breakthrough:', error);
-      alert('Failed to run breakthrough cycle');
+      toast.error('Breakthrough Failed', 'Failed to run breakthrough cycle. Please try again.');
     } finally {
       setBreakthroughRunning(false);
     }

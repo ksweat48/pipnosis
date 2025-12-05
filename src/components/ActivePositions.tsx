@@ -4,6 +4,8 @@ import { supabase } from '@/lib/supabase';
 import { simulatedTradingService } from '@/services/simulated-trading';
 import { pollingConfigService } from '@/services/polling-config-service';
 import { notificationManager } from '@/services/notification-manager';
+import { useToast } from '@/hooks/useToast';
+import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 
 interface Position {
   id: string;
@@ -33,6 +35,8 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
   const [loading, setLoading] = useState(true);
   const [closingPosition, setClosingPosition] = useState<string | null>(null);
   const [livePrices, setLivePrices] = useState<Record<string, { bid: number; ask: number }>>({});
+  const toast = useToast();
+  const { confirm } = useConfirmDialog();
 
   useEffect(() => {
     fetchPositions();
@@ -135,9 +139,13 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
       currentPrice = data ? parseFloat(data.close) : (position.current_price || position.entry_price || 0);
     }
 
-    const confirmed = window.confirm(
-      `Close ${position.position_type.toUpperCase()} ${position.symbol} ${position.lot_size} lots?\nCurrent P&L: $${pnl.toFixed(2)}`
-    );
+    const confirmed = await confirm({
+      title: 'Close Position',
+      message: `Close ${position.position_type.toUpperCase()} ${position.symbol} ${position.lot_size} lots?\nCurrent P&L: $${pnl.toFixed(2)}`,
+      confirmText: 'Close',
+      cancelText: 'Cancel',
+      variant: pnl >= 0 ? 'info' : 'warning'
+    });
 
     if (!confirmed) return;
 
@@ -155,20 +163,28 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
 
       if (result.success) {
         notificationManager.playSound('trade_exit');
+        toast.success('Position Closed', result.message || 'Position closed successfully');
         await fetchPositions();
       } else {
-        alert(result.message);
+        toast.error('Failed to Close', result.message || 'Could not close position');
       }
     } catch (error) {
       console.error('Failed to close position:', error);
-      alert('Failed to close position');
+      toast.error('Error', 'Failed to close position. Please try again.');
     } finally {
       setClosingPosition(null);
     }
   };
 
   const handleCancelOrder = async (orderId: string) => {
-    const confirmed = window.confirm('Cancel this pending order?');
+    const confirmed = await confirm({
+      title: 'Cancel Order',
+      message: 'Are you sure you want to cancel this pending order?',
+      confirmText: 'Cancel Order',
+      cancelText: 'Keep Order',
+      variant: 'warning'
+    });
+
     if (!confirmed) return;
 
     try {
@@ -178,13 +194,14 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
       const result = await simulatedTradingService.cancelPendingOrder(orderId, user.id);
       if (result.success) {
         notificationManager.playSound('trade_exit');
+        toast.success('Order Cancelled', result.message || 'Pending order cancelled successfully');
         await fetchPositions();
       } else {
-        alert(result.message);
+        toast.error('Failed to Cancel', result.message || 'Could not cancel order');
       }
     } catch (error) {
       console.error('Failed to cancel order:', error);
-      alert('Failed to cancel order');
+      toast.error('Error', 'Failed to cancel order. Please try again.');
     }
   };
 

@@ -3,8 +3,10 @@ import { Activity, Zap, TrendingUp, Save, RefreshCw } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { pollingConfigService, PollingSpeed, POLLING_STRATEGIES } from '@/services/polling-config-service';
 import { globalPollingCoordinator } from '@/services/global-polling-coordinator';
+import { useToast } from '@/hooks/useToast';
 
 export function PollingPreferences() {
+  const toast = useToast();
   const [speed, setSpeed] = useState<PollingSpeed>('balanced');
   const [enableVolatilityAdjustment, setEnableVolatilityAdjustment] = useState(true);
   const [pauseOnInactive, setPauseOnInactive] = useState(true);
@@ -40,10 +42,11 @@ export function PollingPreferences() {
       globalPollingCoordinator.restartPolling();
 
       setSaved(true);
+      toast.success('Preferences Saved', 'Your polling preferences have been updated');
       setTimeout(() => setSaved(false), 3000);
     } catch (error) {
       console.error('Failed to save polling preferences:', error);
-      alert('Failed to save preferences. Please try again.');
+      toast.error('Save Failed', 'Failed to save preferences. Please try again.');
     } finally {
       setSaving(false);
     }
