@@ -102,6 +102,27 @@ class ConditionMonitor {
         };
       }
 
+      // ENHANCED: BLOCK if stop run patterns detected (regardless of severity)
+      const hasStopRun = adversarial.patterns.some(p =>
+        p.includes('stop_run') || p.includes('stop run')
+      );
+
+      if (hasStopRun) {
+        console.log(`[Condition Monitor] 🚫 Trade blocked: Stop run pattern detected`);
+        console.log(`[Condition Monitor] Level: ${adversarial.level}, Patterns: ${adversarial.patterns.join(', ')}`);
+        console.log(`[Condition Monitor] Stop runs indicate potential manipulation - avoiding trade`);
+        return {
+          ready: false,
+          conditionsMet: [],
+          conditionsFailed: ['Blocked by stop run pattern'],
+          trigger: 'stop_run_blocked',
+          confidence: 0,
+          regime,
+          adversarial,
+          blockedByAdversarial: true
+        };
+      }
+
       if (adversarial.is_adversarial) {
         console.log(`[Condition Monitor] ⚠️  Adversarial detected: ${adversarial.level} - ${adversarial.notes}`);
       } else {

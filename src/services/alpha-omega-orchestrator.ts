@@ -150,6 +150,46 @@ class AlphaOmegaOrchestrator {
       omega8: omega8Vote
     });
 
+    // ✅ CRITICAL: Check for high-confidence directional conflicts
+    const conflictCheck = this.detectOmegaConflicts({
+      trend: trendVote,
+      scalper: scalperVote,
+      swing: swingVote,
+      reversal: reversalVote,
+      volatility: volatilityVote,
+      risk: riskVote,
+      omega8: omega8Vote
+    });
+
+    if (conflictCheck.hasConflict) {
+      console.warn(`[Alpha+Omega] ⚠️  DIRECTIONAL CONFLICT DETECTED!`);
+      console.warn(`[Alpha+Omega] Conflict: ${conflictCheck.conflictDescription}`);
+      console.warn(`[Alpha+Omega] Severity: ${conflictCheck.severity}`);
+
+      if (conflictCheck.severity === 'HIGH') {
+        console.error('[Alpha+Omega] 🚫 TRADE BLOCKED - High-confidence directional conflict');
+        return {
+          action: 'NO_TRADE',
+          confidence: 0,
+          reasoning: `Directional conflict detected: ${conflictCheck.conflictDescription}`,
+          entry: marketState.price,
+          stopLoss: proposedSL,
+          takeProfit: proposedTP,
+          risk_pct: 0,
+          omega_summary: `Omega conflict: ${conflictCheck.conflictDescription}`,
+          omega_votes: {
+            trend: trendVote,
+            scalper: scalperVote,
+            swing: swingVote,
+            reversal: reversalVote,
+            volatility: volatilityVote,
+            risk: riskVote,
+            omega8: omega8Vote
+          }
+        };
+      }
+    }
+
     // ✅ CRITICAL: Risk Omega is REQUIRED - block trade if Risk fails or says NO_TRADE
     if (!riskVote) {
       console.error('[Alpha+Omega] 🚫 TRADE BLOCKED - Risk Omega failed to provide vote');
@@ -553,6 +593,67 @@ class AlphaOmegaOrchestrator {
   /**
    * Log Omega votes
    */
+  /**
+   * Detect high-confidence directional conflicts between Omega brains
+   */
+  private detectOmegaConflicts(votes: OmegaCouncilVotes): {
+    hasConflict: boolean;
+    severity: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
+    conflictDescription: string;
+  } {
+    const HIGH_CONFIDENCE = 70;
+
+    // Collect directional votes with high confidence
+    const directionalVotes: Array<{ brain: string; direction: 'BUY' | 'SELL'; confidence: number }> = [];
+
+    if (votes.trend && (votes.trend.vote === 'BUY' || votes.trend.vote === 'SELL') && votes.trend.confidence >= HIGH_CONFIDENCE) {
+      directionalVotes.push({ brain: 'Trend', direction: votes.trend.vote, confidence: votes.trend.confidence });
+    }
+    if (votes.scalper && (votes.scalper.vote === 'BUY' || votes.scalper.vote === 'SELL') && votes.scalper.confidence >= HIGH_CONFIDENCE) {
+      directionalVotes.push({ brain: 'Scalper', direction: votes.scalper.vote, confidence: votes.scalper.confidence });
+    }
+    if (votes.swing && (votes.swing.vote === 'BUY' || votes.swing.vote === 'SELL') && votes.swing.confidence >= HIGH_CONFIDENCE) {
+      directionalVotes.push({ brain: 'Swing', direction: votes.swing.vote, confidence: votes.swing.confidence });
+    }
+    if (votes.reversal && (votes.reversal.vote === 'BUY' || votes.reversal.vote === 'SELL') && votes.reversal.confidence >= HIGH_CONFIDENCE) {
+      directionalVotes.push({ brain: 'Reversal', direction: votes.reversal.vote, confidence: votes.reversal.confidence });
+    }
+    if (votes.omega8 && (votes.omega8.vote === 'BUY' || votes.omega8.vote === 'SELL') && votes.omega8.confidence >= HIGH_CONFIDENCE) {
+      directionalVotes.push({ brain: 'OrderFlow', direction: votes.omega8.vote, confidence: votes.omega8.confidence });
+    }
+
+    // Check for conflicts
+    if (directionalVotes.length < 2) {
+      return { hasConflict: false, severity: 'NONE', conflictDescription: 'No conflict' };
+    }
+
+    const buyVotes = directionalVotes.filter(v => v.direction === 'BUY');
+    const sellVotes = directionalVotes.filter(v => v.direction === 'SELL');
+
+    if (buyVotes.length > 0 && sellVotes.length > 0) {
+      const buyBrains = buyVotes.map(v => `${v.brain}(${v.confidence}%)`).join(', ');
+      const sellBrains = sellVotes.map(v => `${v.brain}(${v.confidence}%)`).join(', ');
+      const description = `BUY: [${buyBrains}] vs SELL: [${sellBrains}]`;
+
+      // Determine severity based on number of conflicting votes and confidence
+      const totalConflicts = Math.min(buyVotes.length, sellVotes.length);
+      const avgBuyConfidence = buyVotes.reduce((sum, v) => sum + v.confidence, 0) / buyVotes.length;
+      const avgSellConfidence = sellVotes.reduce((sum, v) => sum + v.confidence, 0) / sellVotes.length;
+      const avgConfidence = (avgBuyConfidence + avgSellConfidence) / 2;
+
+      let severity: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW';
+      if (totalConflicts >= 2 && avgConfidence >= 75) {
+        severity = 'HIGH';
+      } else if (totalConflicts >= 2 || avgConfidence >= 75) {
+        severity = 'MEDIUM';
+      }
+
+      return { hasConflict: true, severity, conflictDescription: description };
+    }
+
+    return { hasConflict: false, severity: 'NONE', conflictDescription: 'No conflict' };
+  }
+
   private logOmegaVotes(votes: OmegaCouncilVotes): void {
     console.log('[Omega Council Votes]:');
     console.log(`  Trend:      ${votes.trend?.vote || 'N/A'} @ ${votes.trend?.confidence || 0}% - ${votes.trend?.reasoning || ''}`);
