@@ -16,6 +16,7 @@ import type { OmegaVote } from './omega/trend';
 import type { Omega8Vote, Omega9ValidationResult } from '../types/omega';
 import type { TraderScore } from '../services/ai-identity';
 import { omega9Hallucination, type Omega9Input } from './omega9-hallucination-brain';
+import { omega10Scheduler } from '../services/omega10-scheduler';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -37,6 +38,7 @@ export interface MarketContext {
 
 export interface AlphaDecision {
   action: 'BUY' | 'SELL' | 'NO_TRADE';
+  decision: 'BUY' | 'SELL' | 'NO_TRADE';
   entry: number;
   stopLoss: number;
   takeProfit: number;
@@ -46,6 +48,9 @@ export interface AlphaDecision {
   omega8_liquidity_bias?: string;
   omega8_direction_support?: string;
   omega9_validation?: Omega9ValidationResult;
+  omega10_applied?: boolean;
+  symbol?: string;
+  timestamp?: Date;
 }
 
 class AlphaCoordinatorBrain {
@@ -55,10 +60,11 @@ class AlphaCoordinatorBrain {
   async coordinate(
     votes: OmegaCouncilVotes,
     marketContext: MarketContext,
-    traderScore: TraderScore
+    traderScore: TraderScore,
+    userId?: string
   ): Promise<AlphaDecision> {
-    // Calculate vote weights
-    const weights = this.calculateWeights(votes, marketContext, traderScore);
+    // Calculate vote weights (with Omega-10 overrides if available)
+    const weights = await this.calculateWeights(votes, marketContext, traderScore, userId);
 
     // Build compressed context
     const context = this.buildCoordinationContext(votes, weights, marketContext, traderScore);
@@ -104,8 +110,24 @@ Return JSON only:
       const content = response.choices[0]?.message?.content || '{}';
       let decision = this.parseDecision(content, marketContext.price, marketContext.atr);
 
+      // Add decision field for compatibility
+      decision.decision = decision.action;
+      decision.symbol = marketContext.symbol;
+      decision.timestamp = new Date();
+
       // Add omega summary
       decision.omega_summary = this.generateOmegaSummary(votes, weights);
+
+      // Check Omega-10 recommendations
+      if (userId) {
+        const omega10Analysis = await omega10Scheduler.getLatestAnalysis(userId);
+        if (omega10Analysis && omega10Analysis.riskHorizon.level === 'high') {
+          console.log('[Alpha Coordinator] ⚠️ Omega-10 risk horizon: HIGH - reducing confidence');
+          decision.confidence = Math.max(0, decision.confidence - 20);
+          decision.omega10_applied = true;
+          decision.reasoning += ' [Omega-10: High risk horizon detected]';
+        }
+      }
 
       // Add Omega-8 insights
       if (votes.omega8) {
@@ -195,12 +217,14 @@ Return JSON only:
 
   /**
    * Calculate vote weights based on regime and personality
+   * Includes Omega-10 meta-reasoning overrides
    */
-  private calculateWeights(
+  private async calculateWeights(
     votes: OmegaCouncilVotes,
     marketContext: MarketContext,
-    traderScore: TraderScore
-  ): Record<string, number> {
+    traderScore: TraderScore,
+    userId?: string
+  ): Promise<Record<string, number>> {
     const weights: Record<string, number> = {
       trend: 1.0,
       scalper: 1.0,
@@ -268,6 +292,21 @@ Return JSON only:
     }
     if (traderScore.confidence_level === 'cautious') {
       weights.omega8 = weights.omega8 * 1.1;  // Cautious traders value liquidity analysis
+    }
+
+    // Omega-10 Meta-Reasoning Overrides (System-Level Intelligence)
+    if (userId) {
+      const omega10Overrides = await omega10Scheduler.getActiveOverrides(userId);
+      if (Object.keys(omega10Overrides).length > 0) {
+        console.log('[Alpha Coordinator] 🧠 Applying Omega-10 meta-reasoning overrides...');
+        for (const [omegaName, multiplier] of Object.entries(omega10Overrides)) {
+          if (weights[omegaName] !== undefined) {
+            const originalWeight = weights[omegaName];
+            weights[omegaName] *= multiplier;
+            console.log(`[Alpha Coordinator]   - ${omegaName}: ${originalWeight.toFixed(2)} → ${weights[omegaName].toFixed(2)} (${multiplier}x)`);
+          }
+        }
+      }
     }
 
     return weights;
