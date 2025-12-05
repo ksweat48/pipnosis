@@ -16,17 +16,20 @@ import { llmMidTradeEvaluator } from './llm-mid-trade-evaluator';
 import { logger, LogCategory } from '../lib/logger';
 import { openAIClient } from './openai-client';
 import { normalizeTimeframeToDb } from './chart-preferences';
+import { multiSymbolScanner } from './multi-symbol-scanner';
 
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
   userId: string;
-  symbol: string;
+  symbol: string; // Kept for backward compatibility, but watchlist is now primary
+  watchlist?: string[]; // Multi-symbol watchlist (e.g., ['EURUSD', 'XAUUSD', 'GBPUSD'])
   timeframe: string;
   useLLM: boolean;
   riskMode: 'low' | 'medium' | 'high';
   maxConcurrentTrades: number;
   initialBalance: number;
   autoExecute: boolean;
+  minConfidence?: number; // Minimum confidence threshold for trades
 }
 
 export interface LiveTradeSignal {
