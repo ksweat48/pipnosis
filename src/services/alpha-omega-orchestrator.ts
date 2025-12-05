@@ -161,22 +161,25 @@ class AlphaOmegaOrchestrator {
       omega8: omega8Vote
     });
 
+    // Store confidence penalty for later application
+    let confidencePenaltyMultiplier = 1.0;
+
     if (conflictCheck.hasConflict) {
       console.warn(`[Alpha+Omega] ⚠️  DIRECTIONAL CONFLICT DETECTED!`);
+      console.warn(`[Alpha+Omega] Type: ${conflictCheck.conflictType}, Severity: ${conflictCheck.severity}`);
       console.warn(`[Alpha+Omega] Conflict: ${conflictCheck.conflictDescription}`);
-      console.warn(`[Alpha+Omega] Severity: ${conflictCheck.severity}`);
 
-      if (conflictCheck.severity === 'HIGH') {
-        console.error('[Alpha+Omega] 🚫 TRADE BLOCKED - High-confidence directional conflict');
+      if (conflictCheck.conflictType === 'HARD') {
+        console.error('[Alpha+Omega] 🚫 TRADE BLOCKED - HARD conflict from opposing domains with high confidence');
         return {
           action: 'NO_TRADE',
           confidence: 0,
-          reasoning: `Directional conflict detected: ${conflictCheck.conflictDescription}`,
+          reasoning: `Hard directional conflict: ${conflictCheck.conflictDescription}`,
           entry: marketState.price,
           stopLoss: proposedSL,
           takeProfit: proposedTP,
           risk_pct: 0,
-          omega_summary: `Omega conflict: ${conflictCheck.conflictDescription}`,
+          omega_summary: `Hard Omega conflict: ${conflictCheck.conflictDescription}`,
           omega_votes: {
             trend: trendVote,
             scalper: scalperVote,
@@ -187,6 +190,10 @@ class AlphaOmegaOrchestrator {
             omega8: omega8Vote
           }
         };
+      } else if (conflictCheck.conflictType === 'SOFT') {
+        // Apply confidence penalty but don't block
+        confidencePenaltyMultiplier = conflictCheck.confidencePenalty;
+        console.warn(`[Alpha+Omega] SOFT conflict detected - applying ${confidencePenaltyMultiplier}x confidence penalty`);
       }
     }
 
@@ -270,6 +277,14 @@ class AlphaOmegaOrchestrator {
 
     console.log(`[Alpha+Omega] ⚡ Alpha complete (${alphaTime}ms)`);
     console.log(`[Alpha+Omega] 📊 Total pipeline: ${totalTime}ms`);
+
+    // Apply confidence penalty from soft conflicts
+    if (confidencePenaltyMultiplier < 1.0) {
+      const originalConfidence = decision.confidence;
+      decision.confidence = Math.round(decision.confidence * confidencePenaltyMultiplier);
+      console.log(`[Alpha+Omega] ✅ Confidence adjusted: ${originalConfidence}% → ${decision.confidence}% (penalty: ${confidencePenaltyMultiplier}x)`);
+    }
+
     console.log(`[Alpha+Omega] 🎯 FINAL: ${decision.action} @ ${decision.confidence}%`);
 
     return decision;
@@ -595,63 +610,146 @@ class AlphaOmegaOrchestrator {
    */
   /**
    * Detect high-confidence directional conflicts between Omega brains
+   * REFINED: Distinguishes between HARD BLOCK and SOFT WARNING
    */
   private detectOmegaConflicts(votes: OmegaCouncilVotes): {
     hasConflict: boolean;
+    conflictType: 'HARD' | 'SOFT' | 'NONE';
     severity: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
     conflictDescription: string;
+    confidencePenalty: number; // Multiplier to apply (0.8 = -20%, 1.0 = no change)
   } {
     const HIGH_CONFIDENCE = 70;
 
-    // Collect directional votes with high confidence
-    const directionalVotes: Array<{ brain: string; direction: 'BUY' | 'SELL'; confidence: number }> = [];
+    // Define conflicting domain pairs
+    const conflictingDomains: Record<string, string[]> = {
+      'Trend': ['Swing', 'OrderFlow'],
+      'Swing': ['Trend', 'Reversal', 'OrderFlow'],
+      'OrderFlow': ['Trend', 'Swing', 'Reversal'],
+      'Reversal': ['Swing', 'OrderFlow'],
+      'Scalper': [] // Scalper can disagree with anyone without being critical
+    };
 
-    if (votes.trend && (votes.trend.vote === 'BUY' || votes.trend.vote === 'SELL') && votes.trend.confidence >= HIGH_CONFIDENCE) {
-      directionalVotes.push({ brain: 'Trend', direction: votes.trend.vote, confidence: votes.trend.confidence });
+    // Collect ALL directional votes (not just high confidence)
+    const allVotes: Array<{ brain: string; direction: 'BUY' | 'SELL'; confidence: number; domain: string }> = [];
+
+    if (votes.trend && (votes.trend.vote === 'BUY' || votes.trend.vote === 'SELL')) {
+      allVotes.push({ brain: 'Trend', direction: votes.trend.vote, confidence: votes.trend.confidence, domain: 'Trend' });
     }
-    if (votes.scalper && (votes.scalper.vote === 'BUY' || votes.scalper.vote === 'SELL') && votes.scalper.confidence >= HIGH_CONFIDENCE) {
-      directionalVotes.push({ brain: 'Scalper', direction: votes.scalper.vote, confidence: votes.scalper.confidence });
+    if (votes.scalper && (votes.scalper.vote === 'BUY' || votes.scalper.vote === 'SELL')) {
+      allVotes.push({ brain: 'Scalper', direction: votes.scalper.vote, confidence: votes.scalper.confidence, domain: 'Scalper' });
     }
-    if (votes.swing && (votes.swing.vote === 'BUY' || votes.swing.vote === 'SELL') && votes.swing.confidence >= HIGH_CONFIDENCE) {
-      directionalVotes.push({ brain: 'Swing', direction: votes.swing.vote, confidence: votes.swing.confidence });
+    if (votes.swing && (votes.swing.vote === 'BUY' || votes.swing.vote === 'SELL')) {
+      allVotes.push({ brain: 'Swing', direction: votes.swing.vote, confidence: votes.swing.confidence, domain: 'Swing' });
     }
-    if (votes.reversal && (votes.reversal.vote === 'BUY' || votes.reversal.vote === 'SELL') && votes.reversal.confidence >= HIGH_CONFIDENCE) {
-      directionalVotes.push({ brain: 'Reversal', direction: votes.reversal.vote, confidence: votes.reversal.confidence });
+    if (votes.reversal && (votes.reversal.vote === 'BUY' || votes.reversal.vote === 'SELL')) {
+      allVotes.push({ brain: 'Reversal', direction: votes.reversal.vote, confidence: votes.reversal.confidence, domain: 'Reversal' });
     }
-    if (votes.omega8 && (votes.omega8.vote === 'BUY' || votes.omega8.vote === 'SELL') && votes.omega8.confidence >= HIGH_CONFIDENCE) {
-      directionalVotes.push({ brain: 'OrderFlow', direction: votes.omega8.vote, confidence: votes.omega8.confidence });
+    if (votes.omega8 && (votes.omega8.vote === 'BUY' || votes.omega8.vote === 'SELL')) {
+      allVotes.push({ brain: 'OrderFlow', direction: votes.omega8.vote, confidence: votes.omega8.confidence, domain: 'OrderFlow' });
     }
 
     // Check for conflicts
-    if (directionalVotes.length < 2) {
-      return { hasConflict: false, severity: 'NONE', conflictDescription: 'No conflict' };
+    if (allVotes.length < 2) {
+      return {
+        hasConflict: false,
+        conflictType: 'NONE',
+        severity: 'NONE',
+        conflictDescription: 'No conflict',
+        confidencePenalty: 1.0
+      };
     }
 
-    const buyVotes = directionalVotes.filter(v => v.direction === 'BUY');
-    const sellVotes = directionalVotes.filter(v => v.direction === 'SELL');
+    const buyVotes = allVotes.filter(v => v.direction === 'BUY');
+    const sellVotes = allVotes.filter(v => v.direction === 'SELL');
 
-    if (buyVotes.length > 0 && sellVotes.length > 0) {
-      const buyBrains = buyVotes.map(v => `${v.brain}(${v.confidence}%)`).join(', ');
-      const sellBrains = sellVotes.map(v => `${v.brain}(${v.confidence}%)`).join(', ');
-      const description = `BUY: [${buyBrains}] vs SELL: [${sellBrains}]`;
+    if (buyVotes.length === 0 || sellVotes.length === 0) {
+      return {
+        hasConflict: false,
+        conflictType: 'NONE',
+        severity: 'NONE',
+        conflictDescription: 'No conflict',
+        confidencePenalty: 1.0
+      };
+    }
 
-      // Determine severity based on number of conflicting votes and confidence
-      const totalConflicts = Math.min(buyVotes.length, sellVotes.length);
-      const avgBuyConfidence = buyVotes.reduce((sum, v) => sum + v.confidence, 0) / buyVotes.length;
-      const avgSellConfidence = sellVotes.reduce((sum, v) => sum + v.confidence, 0) / sellVotes.length;
-      const avgConfidence = (avgBuyConfidence + avgSellConfidence) / 2;
+    // We have conflicting directions - now determine HARD vs SOFT
 
-      let severity: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW';
-      if (totalConflicts >= 2 && avgConfidence >= 75) {
-        severity = 'HIGH';
-      } else if (totalConflicts >= 2 || avgConfidence >= 75) {
-        severity = 'MEDIUM';
+    // Filter for high-confidence votes
+    const highConfBuyVotes = buyVotes.filter(v => v.confidence >= HIGH_CONFIDENCE);
+    const highConfSellVotes = sellVotes.filter(v => v.confidence >= HIGH_CONFIDENCE);
+
+    // Check for conflicting domains
+    const hasConflictingDomains = highConfBuyVotes.some(buy =>
+      highConfSellVotes.some(sell =>
+        conflictingDomains[buy.domain]?.includes(sell.domain) ||
+        conflictingDomains[sell.domain]?.includes(buy.domain)
+      )
+    );
+
+    const buyBrains = buyVotes.map(v => `${v.brain}(${v.confidence}%)`).join(', ');
+    const sellBrains = sellVotes.map(v => `${v.brain}(${v.confidence}%)`).join(', ');
+    const description = `BUY: [${buyBrains}] vs SELL: [${sellBrains}]`;
+
+    // HARD BLOCK CONDITIONS:
+    // 1. At least 2 Omegas disagree in direction
+    // 2. Their disagreement confidence >= 70%
+    // 3. They are from conflicting domains
+    const hardBlockCondition1 = highConfBuyVotes.length >= 1 && highConfSellVotes.length >= 1;
+    const hardBlockCondition2 = hardBlockCondition1; // Already filtered for >= 70%
+    const hardBlockCondition3 = hasConflictingDomains;
+
+    if (hardBlockCondition1 && hardBlockCondition2 && hardBlockCondition3) {
+      console.log('[Omega Conflict] HARD BLOCK: Conflicting high-confidence signals from opposing domains');
+      return {
+        hasConflict: true,
+        conflictType: 'HARD',
+        severity: 'HIGH',
+        conflictDescription: description,
+        confidencePenalty: 0.0 // Will block, so penalty doesn't matter
+      };
+    }
+
+    // SOFT WARNING CONDITIONS:
+    // - Only one Omega disagrees
+    // - OR confidence < 70%
+    // - OR disagreement is between similar-domain Omegas
+    if (highConfBuyVotes.length <= 1 || highConfSellVotes.length <= 1 || !hasConflictingDomains) {
+      const lowConfCount = buyVotes.filter(v => v.confidence < HIGH_CONFIDENCE).length +
+                           sellVotes.filter(v => v.confidence < HIGH_CONFIDENCE).length;
+
+      let penalty = 1.0;
+      let severityLevel: 'LOW' | 'MEDIUM' = 'LOW';
+
+      if (lowConfCount > 0) {
+        penalty = 0.9; // -10% for low confidence disagreement
+        severityLevel = 'LOW';
+      } else if (!hasConflictingDomains) {
+        penalty = 0.85; // -15% for similar domain disagreement
+        severityLevel = 'LOW';
+      } else {
+        penalty = 0.8; // -20% for single high-confidence disagreement
+        severityLevel = 'MEDIUM';
       }
 
-      return { hasConflict: true, severity, conflictDescription: description };
+      console.warn(`[Omega Conflict] SOFT conflict, applying ${penalty}x confidence penalty`);
+      return {
+        hasConflict: true,
+        conflictType: 'SOFT',
+        severity: severityLevel,
+        conflictDescription: description,
+        confidencePenalty: penalty
+      };
     }
 
-    return { hasConflict: false, severity: 'NONE', conflictDescription: 'No conflict' };
+    // Default: no conflict
+    return {
+      hasConflict: false,
+      conflictType: 'NONE',
+      severity: 'NONE',
+      conflictDescription: 'No conflict',
+      confidencePenalty: 1.0
+    };
   }
 
   private logOmegaVotes(votes: OmegaCouncilVotes): void {

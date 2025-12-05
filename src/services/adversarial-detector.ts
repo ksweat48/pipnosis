@@ -17,6 +17,13 @@ export interface AdversarialSignal {
   patterns: string[]; // ["stop_run_high", "whipsaw_cluster"]
   recommended_action: 'normal' | 'reduce_size' | 'delay' | 'avoid';
   notes: string; // short, 80 chars max
+  stop_run_classification?: {
+    type: 'active_stop_run' | 'historical_sweep' | 'manipulation_spike' | 'none';
+    candles_ago: number; // How many candles ago the stop run occurred
+    has_bos: boolean; // Break of structure after sweep
+    should_block: boolean; // Final decision
+    reasoning: string;
+  };
 }
 
 export interface MarketState {
@@ -125,6 +132,15 @@ class AdversarialDetector {
     // Clamp score to 0-100
     suspicion_score = Math.min(100, Math.max(0, suspicion_score));
 
+    // G) REFINED STOP-RUN CLASSIFICATION
+    const stopRunClassification = this.classifyStopRuns(
+      patterns,
+      recentCandles,
+      candleAnalyses,
+      marketState,
+      avgCandleRange
+    );
+
     // Classify level and determine action
     const level = this.classifyLevel(suspicion_score);
     const recommended_action = this.determineAction(level);
@@ -136,13 +152,21 @@ class AdversarialDetector {
       console.log(`[Adversarial] Patterns: ${patterns.join(', ')}`);
     }
 
+    // Log stop-run classification
+    if (stopRunClassification.type !== 'none') {
+      console.log(`[Adversarial] Stop-Run: ${stopRunClassification.type} (${stopRunClassification.candles_ago} candles ago)`);
+      console.log(`[Adversarial] BOS: ${stopRunClassification.has_bos}, Block: ${stopRunClassification.should_block}`);
+      console.log(`[Adversarial] ${stopRunClassification.reasoning}`);
+    }
+
     return {
       is_adversarial,
       level,
       suspicion_score,
       patterns,
       recommended_action,
-      notes
+      notes,
+      stop_run_classification: stopRunClassification
     };
   }
 
@@ -454,6 +478,165 @@ class AdversarialDetector {
   }
 
   /**
+   * Classify stop-run patterns with refined logic
+   */
+  private classifyStopRuns(
+    patterns: string[],
+    candles: Candle[],
+    analyses: CandleAnalysis[],
+    marketState: MarketState,
+    avgCandleRange: number
+  ): {
+    type: 'active_stop_run' | 'historical_sweep' | 'manipulation_spike' | 'none';
+    candles_ago: number;
+    has_bos: boolean;
+    should_block: boolean;
+    reasoning: string;
+  } {
+    // Check if any stop-run patterns exist
+    const hasStopRun = patterns.some(p => p.includes('stop_run'));
+    if (!hasStopRun) {
+      return {
+        type: 'none',
+        candles_ago: 0,
+        has_bos: false,
+        should_block: false,
+        reasoning: 'No stop-run patterns detected'
+      };
+    }
+
+    // Find the most recent stop-run candle
+    let stopRunCandleIndex = -1;
+    const recentCount = Math.min(20, candles.length);
+    const recentCandles = candles.slice(-recentCount);
+    const recentAnalyses = analyses.slice(-recentCount);
+
+    for (let i = recentCandles.length - 1; i >= 1; i--) {
+      const analysis = recentAnalyses[i];
+
+      // Check for long wick (ATR-relative)
+      const hasLongUpperWick =
+        analysis.wick_high > analysis.body * 2 &&
+        analysis.wick_high > marketState.atr * 0.5;
+
+      const hasLongLowerWick =
+        analysis.wick_low > analysis.body * 2 &&
+        analysis.wick_low > marketState.atr * 0.5;
+
+      if (hasLongUpperWick || hasLongLowerWick) {
+        stopRunCandleIndex = i;
+        break;
+      }
+    }
+
+    if (stopRunCandleIndex === -1) {
+      return {
+        type: 'none',
+        candles_ago: 0,
+        has_bos: false,
+        should_block: false,
+        reasoning: 'Stop-run pattern in history but not recent'
+      };
+    }
+
+    const candlesAgo = recentCandles.length - 1 - stopRunCandleIndex;
+
+    // A) Check for manipulation spike (ATR > 2.2x)
+    const stopRunCandle = recentCandles[stopRunCandleIndex];
+    const stopRunRange = stopRunCandle.high - stopRunCandle.low;
+    const isManipulationSpike = stopRunRange > avgCandleRange * 2.2;
+
+    if (isManipulationSpike) {
+      console.warn('[Adversarial] Manipulation Spike Detected → BLOCK');
+      return {
+        type: 'manipulation_spike',
+        candles_ago: candlesAgo,
+        has_bos: false,
+        should_block: true,
+        reasoning: `Extreme volatility spike (${(stopRunRange / avgCandleRange).toFixed(1)}x ATR) suggests manipulation`
+      };
+    }
+
+    // B) Check if active (within last 1-3 candles)
+    if (candlesAgo <= 3) {
+      console.warn('[Adversarial] Active Stop Run Detected → BLOCK');
+      return {
+        type: 'active_stop_run',
+        candles_ago: candlesAgo,
+        has_bos: false,
+        should_block: true,
+        reasoning: `Stop run occurred ${candlesAgo} candle(s) ago - too recent to trust`
+      };
+    }
+
+    // C) Historical sweep - check for Break of Structure (BOS)
+    const hasBOS = this.checkBreakOfStructure(
+      recentCandles,
+      stopRunCandleIndex,
+      marketState
+    );
+
+    if (hasBOS) {
+      console.log('[Adversarial] Historical sweep detected, checking BOS...');
+      console.log('[Adversarial] Sweep resolved, BOS confirmed → ALLOW');
+      return {
+        type: 'historical_sweep',
+        candles_ago: candlesAgo,
+        has_bos: true,
+        should_block: false,
+        reasoning: `Historical sweep with BOS - valid reversal setup`
+      };
+    }
+
+    // D) Historical sweep without BOS - require Omega-9 validation
+    console.log('[Adversarial] Historical sweep without BOS → needs Omega-9 approval');
+    return {
+      type: 'historical_sweep',
+      candles_ago: candlesAgo,
+      has_bos: false,
+      should_block: false, // Let Omega-9 decide
+      reasoning: `Historical sweep without clear BOS - requires additional validation`
+    };
+  }
+
+  /**
+   * Check for Break of Structure (BOS) after a stop run
+   * BOS = price broke through a previous swing high/low, indicating trend shift
+   */
+  private checkBreakOfStructure(
+    candles: Candle[],
+    stopRunIndex: number,
+    marketState: MarketState
+  ): boolean {
+    if (stopRunIndex >= candles.length - 2) {
+      return false; // Not enough candles after stop run
+    }
+
+    const stopRunCandle = candles[stopRunIndex];
+    const candlesAfter = candles.slice(stopRunIndex + 1);
+
+    // Determine stop run direction
+    const isUpperWick = (stopRunCandle.high - Math.max(stopRunCandle.open, stopRunCandle.close)) >
+                        (Math.min(stopRunCandle.open, stopRunCandle.close) - stopRunCandle.low);
+
+    if (isUpperWick) {
+      // Stop run high → look for bearish BOS (break below structure)
+      // Check if price closed below swing low after the stop run
+      const hasBreakLow = candlesAfter.some(c =>
+        c.close < stopRunCandle.low - marketState.atr * 0.3
+      );
+      return hasBreakLow;
+    } else {
+      // Stop run low → look for bullish BOS (break above structure)
+      // Check if price closed above swing high after the stop run
+      const hasBreakHigh = candlesAfter.some(c =>
+        c.close > stopRunCandle.high + marketState.atr * 0.3
+      );
+      return hasBreakHigh;
+    }
+  }
+
+  /**
    * Create clean signal (no adversarial patterns detected)
    */
   private createCleanSignal(): AdversarialSignal {
@@ -463,7 +646,14 @@ class AdversarialDetector {
       suspicion_score: 0,
       patterns: [],
       recommended_action: 'normal',
-      notes: 'Clean market conditions'
+      notes: 'Clean market conditions',
+      stop_run_classification: {
+        type: 'none',
+        candles_ago: 0,
+        has_bos: false,
+        should_block: false,
+        reasoning: 'No stop-run patterns detected'
+      }
     };
   }
 }

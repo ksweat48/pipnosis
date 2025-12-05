@@ -102,25 +102,32 @@ class ConditionMonitor {
         };
       }
 
-      // ENHANCED: BLOCK if stop run patterns detected (regardless of severity)
-      const hasStopRun = adversarial.patterns.some(p =>
-        p.includes('stop_run') || p.includes('stop run')
-      );
+      // REFINED: BLOCK based on stop-run classification
+      if (adversarial.stop_run_classification) {
+        const stopRunClass = adversarial.stop_run_classification;
 
-      if (hasStopRun) {
-        console.log(`[Condition Monitor] 🚫 Trade blocked: Stop run pattern detected`);
-        console.log(`[Condition Monitor] Level: ${adversarial.level}, Patterns: ${adversarial.patterns.join(', ')}`);
-        console.log(`[Condition Monitor] Stop runs indicate potential manipulation - avoiding trade`);
-        return {
-          ready: false,
-          conditionsMet: [],
-          conditionsFailed: ['Blocked by stop run pattern'],
-          trigger: 'stop_run_blocked',
-          confidence: 0,
-          regime,
-          adversarial,
-          blockedByAdversarial: true
-        };
+        if (stopRunClass.should_block) {
+          console.log(`[Condition Monitor] 🚫 Trade blocked: ${stopRunClass.type}`);
+          console.log(`[Condition Monitor] ${stopRunClass.reasoning}`);
+          console.log(`[Condition Monitor] Candles ago: ${stopRunClass.candles_ago}, BOS: ${stopRunClass.has_bos}`);
+          return {
+            ready: false,
+            conditionsMet: [],
+            conditionsFailed: [`Blocked by ${stopRunClass.type}`],
+            trigger: 'stop_run_blocked',
+            confidence: 0,
+            regime,
+            adversarial,
+            blockedByAdversarial: true
+          };
+        }
+
+        // Historical sweep without BOS - allow but flag for Omega-9 validation
+        if (stopRunClass.type === 'historical_sweep' && !stopRunClass.has_bos) {
+          console.log(`[Condition Monitor] ⚠️  Historical sweep detected without BOS`);
+          console.log(`[Condition Monitor] ${stopRunClass.reasoning}`);
+          console.log(`[Condition Monitor] Trade will proceed but requires Omega-9 validation`);
+        }
       }
 
       if (adversarial.is_adversarial) {
