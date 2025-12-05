@@ -101,7 +101,10 @@ class MasteryCurveService {
       .gte('measurement_date', startDate.toISOString().split('T')[0])
       .order('measurement_date', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      console.warn('[Mastery Curve] Performance Evolution not available:', error.message);
+      return [];
+    }
     return data || [];
   }
 
@@ -114,7 +117,10 @@ class MasteryCurveService {
       .gte('window_end_time', startDate.toISOString())
       .order('window_end_time', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      console.warn('[Mastery Curve] Confidence Performance not available:', error.message);
+      return [];
+    }
     return data || [];
   }
 
@@ -126,7 +132,10 @@ class MasteryCurveService {
       .gte('created_at', startDate.toISOString())
       .order('created_at', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      console.warn('[Mastery Curve] AI Learning Insights not available:', error.message);
+      return [];
+    }
 
     const aggregated = new Map<string, any>();
     (data || []).forEach(insight => {
@@ -158,7 +167,10 @@ class MasteryCurveService {
       .gte('timestamp', startDate.toISOString())
       .order('timestamp', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      console.warn('[Mastery Curve] Avoid Pattern Log not available:', error.message);
+      return [];
+    }
 
     const aggregated = new Map<string, any>();
     (data || []).forEach(log => {
@@ -193,7 +205,10 @@ class MasteryCurveService {
       .gte('date', startDate.toISOString().split('T')[0])
       .order('date', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      console.warn('[Mastery Curve] LLM Layer KPIs not available:', error.message);
+      return [];
+    }
 
     const aggregated = new Map<string, any>();
     (data || []).forEach(kpi => {
