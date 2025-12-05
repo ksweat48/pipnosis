@@ -80,6 +80,19 @@ class LLMTokenTracker {
         params.completionTokens
       );
 
+      // Get current user ID if not provided
+      let userId = params.userId;
+      if (!userId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        userId = user?.id || null;
+      }
+
+      // Skip logging if no user context available
+      if (!userId) {
+        console.warn('[TokenTracker] No user context available, skipping token log');
+        return;
+      }
+
       const { error } = await supabase
         .from('llm_token_usage')
         .insert({
@@ -90,7 +103,7 @@ class LLMTokenTracker {
           total_tokens: params.totalTokens,
           estimated_cost_usd: cost,
           context_type: params.contextType,
-          user_id: params.userId || null,
+          user_id: userId,
           session_id: params.sessionId || null,
           timestamp: new Date().toISOString()
         });

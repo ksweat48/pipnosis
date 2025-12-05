@@ -667,7 +667,18 @@ Return JSON:
 
   private async logUsage(symbol: string, confidence: number, usedLLM: boolean, tokensUsed: number): Promise<void> {
     try {
+      // Get current user ID
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id;
+
+      // Skip logging if no user context available
+      if (!userId) {
+        console.warn('[Omega-8 Hybrid] No user context available, skipping usage log');
+        return;
+      }
+
       await supabase.from('omega8_hybrid_usage').insert({
+        user_id: userId,
         symbol,
         confidence,
         used_llm: usedLLM,
