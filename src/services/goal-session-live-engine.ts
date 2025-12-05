@@ -170,7 +170,9 @@ class GoalSessionLiveEngine {
         .from('goal_sessions')
         .update({
           status: 'scanning',
-          last_scan_time: new Date().toISOString()
+          last_scan_time: new Date().toISOString(),
+          execution_mode: 'client',
+          client_last_seen: new Date().toISOString()
         })
         .eq('id', config.goalSessionId);
 
@@ -561,7 +563,8 @@ class GoalSessionLiveEngine {
         .from('goal_sessions')
         .update({
           last_scan_time: new Date().toISOString(),
-          next_scan_time: new Date(Date.now() + this.POLLING_INTERVAL_MS).toISOString()
+          next_scan_time: new Date(Date.now() + this.POLLING_INTERVAL_MS).toISOString(),
+          client_last_seen: new Date().toISOString()
         })
         .eq('id', this.activeSession);
 

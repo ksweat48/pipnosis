@@ -24,7 +24,7 @@ export interface SmartGoalSession {
   sessionId: string;
   userId: string;
   config: SmartGoalConfig;
-  status: 'initializing' | 'scanning' | 'trade_pending' | 'in_trade' | 'goal_achieved' | 'expired' | 'user_stopped';
+  status: 'initializing' | 'scanning' | 'trade_pending' | 'in_trade' | 'goal_achieved' | 'expired' | 'user_stopped' | 'soft_closing';
   strategy: {
     targetTradeCount: number;
     avgProfitPerTrade: number;
@@ -34,6 +34,11 @@ export interface SmartGoalSession {
   startTime: Date;
   nextScanTime: Date;
   lastScanTime?: Date;
+  executionMode?: 'client' | 'server' | 'hybrid';
+  serverHeartbeat?: string;
+  serverLastCheck?: string;
+  serverEnabled?: boolean;
+  autonomousEnabled?: boolean;
 }
 
 class SmartGoalSessionManager {
@@ -217,7 +222,7 @@ class SmartGoalSessionManager {
         .from('goal_sessions')
         .select('*')
         .eq('user_id', userId)
-        .in('status', ['initializing', 'scanning', 'trade_pending', 'in_trade'])
+        .in('status', ['initializing', 'scanning', 'trade_pending', 'in_trade', 'soft_closing'])
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -256,7 +261,12 @@ class SmartGoalSessionManager {
         },
         startTime: new Date(data.start_time),
         nextScanTime: new Date(data.next_scan_time),
-        lastScanTime: data.last_scan_time ? new Date(data.last_scan_time) : undefined
+        lastScanTime: data.last_scan_time ? new Date(data.last_scan_time) : undefined,
+        executionMode: data.execution_mode || 'client',
+        serverHeartbeat: data.server_heartbeat,
+        serverLastCheck: data.server_last_check,
+        serverEnabled: data.server_enabled ?? true,
+        autonomousEnabled: data.autonomous_enabled ?? true
       };
 
       this.activeSessions.set(data.id, reconstructed);

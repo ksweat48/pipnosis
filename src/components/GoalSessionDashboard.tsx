@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2 } from 'lucide-react';
+import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, WifiOff } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalNotificationSystem } from '../services/goal-notifications';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
@@ -110,6 +110,21 @@ export const GoalSessionDashboard: React.FC = () => {
     return `${hours}h ${minutes}m remaining`;
   };
 
+  const formatTimeAgo = (timestamp: string) => {
+    const now = Date.now();
+    const time = new Date(timestamp).getTime();
+    const diffMs = now - time;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+
+    if (diffSec < 60) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHour = Math.floor(diffMin / 60);
+    if (diffHour < 24) return `${diffHour}h ago`;
+    const diffDay = Math.floor(diffHour / 24);
+    return `${diffDay}d ago`;
+  };
+
   const getStatusColor = (status: string) => {
     const colors = {
       initializing: 'text-yellow-400',
@@ -186,6 +201,38 @@ export const GoalSessionDashboard: React.FC = () => {
             Stop Session
           </button>
         </div>
+
+        {/* Server-Side Status Indicator */}
+        {activeSession.serverHeartbeat && (
+          <div className="mb-4 p-3 bg-green-900/20 border border-green-500/30 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Cloud className="w-4 h-4 text-green-400 animate-pulse" />
+                <span className="text-sm font-medium text-green-400">Running Autonomously in Cloud</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-gray-400">
+                <Wifi className="w-3 h-3" />
+                <span>Last check: {formatTimeAgo(activeSession.serverHeartbeat)}</span>
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">
+              This session continues running even when you close this window.
+              View from any device!
+            </p>
+          </div>
+        )}
+
+        {activeSession.executionMode === 'client' && !activeSession.serverHeartbeat && (
+          <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
+            <div className="flex items-center gap-2">
+              <WifiOff className="w-4 h-4 text-yellow-400" />
+              <span className="text-sm font-medium text-yellow-400">Browser-Only Mode</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">
+              Keep this window open. Session will stop if you close the browser.
+            </p>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-gray-700/50 rounded-lg p-4">

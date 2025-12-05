@@ -55,6 +55,11 @@
   timeout = 60  # Increased to 60s to handle 24h lookback for all timeframes
   schedule = "*/5 * * * *"  # 🚨 5-field format ONLY - DO NOT add seconds field
 
+# 🤖 AUTONOMOUS: Goal session autonomous monitor (runs every minute)
+[functions."autonomous-goal-monitor"]
+  timeout = 30
+  schedule = "* * * * *"  # 🚨 5-field format ONLY - processes active goal sessions
+
 # 📊 Historical backfill (on-demand only, no schedule)
 [functions."historical-backfill"]
   timeout = 600  # 10 minutes for large backfills
