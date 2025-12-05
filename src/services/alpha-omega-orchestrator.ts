@@ -23,6 +23,8 @@ import { omegaAlphaLogger } from './omega-alpha-logger';
 import type { OmegaSensors } from './omega-sensors';
 import type { RegimeSnapshot } from './regime-oracle';
 import type { AdversarialSignal } from './adversarial-detector';
+import { sentimentCoordinator } from './sentiment-coordinator';
+import type { AggregatedSentiment } from './sentiment-aggregator';
 
 export interface FullMarketState {
   symbol: string;
@@ -46,6 +48,7 @@ export interface FullMarketState {
   omegaSensors: OmegaSensors; // Pro-trader indicators at zero cost
   regime?: RegimeSnapshot; // Market regime intelligence (session, volatility, structure)
   adversarial?: AdversarialSignal; // Adversarial manipulation detection
+  sentiment?: AggregatedSentiment; // Omega-7 market sentiment analysis
 }
 
 export interface TradePosition {
@@ -70,6 +73,24 @@ class AlphaOmegaOrchestrator {
     proposedTP: number
   ): Promise<AlphaDecision> {
     console.log('[Alpha+Omega] 🎯 Starting decision pipeline...');
+
+    // ✅ STEP 0: Get Omega-7 Market Sentiment (if not already provided)
+    let sentiment = marketState.sentiment;
+    if (!sentiment) {
+      try {
+        console.log('[Alpha+Omega] 🔮 Fetching Omega-7 sentiment...');
+        sentiment = await sentimentCoordinator.getCurrentSentiment();
+        if (sentiment) {
+          console.log(`[Alpha+Omega] ✅ Omega-7: ${sentiment.sentiment.toUpperCase()} | USD: ${sentiment.usd_strength} | Vol: ${sentiment.volatility} | Confidence: ${sentiment.confidence}%`);
+          console.log(`[Alpha+Omega] 📰 Sentiment: ${sentiment.summary}`);
+          marketState.sentiment = sentiment; // Add to market state for Omegas
+        } else {
+          console.warn('[Alpha+Omega] ⚠️ Omega-7 sentiment unavailable - proceeding without');
+        }
+      } catch (error) {
+        console.warn('[Alpha+Omega] ⚠️ Omega-7 failed:', error);
+      }
+    }
 
     // Build snapshots for each Omega
     const trendSnap = this.buildTrendSnapshot(marketState);
@@ -128,6 +149,54 @@ class AlphaOmegaOrchestrator {
       risk: riskVote,
       omega8: omega8Vote
     });
+
+    // ✅ CRITICAL: Risk Omega is REQUIRED - block trade if Risk fails or says NO_TRADE
+    if (!riskVote) {
+      console.error('[Alpha+Omega] 🚫 TRADE BLOCKED - Risk Omega failed to provide vote');
+      return {
+        action: 'NO_TRADE',
+        confidence: 0,
+        reasoning: 'Risk Omega system failure - cannot proceed without risk validation',
+        entry: proposedSL,
+        stopLoss: proposedSL,
+        takeProfit: proposedTP,
+        risk_pct: 0,
+        omega_summary: 'Risk Omega unavailable - trade blocked for safety',
+        omega_votes: {
+          trend: trendVote,
+          scalper: scalperVote,
+          swing: swingVote,
+          reversal: reversalVote,
+          volatility: volatilityVote,
+          risk: null,
+          omega8: omega8Vote
+        }
+      };
+    }
+
+    if (riskVote.vote === 'NO_TRADE' && riskVote.confidence >= 70) {
+      console.error('[Alpha+Omega] 🚫 TRADE BLOCKED - Risk Omega strongly recommends NO_TRADE');
+      console.error(`[Alpha+Omega] Risk reasoning: ${riskVote.reasoning}`);
+      return {
+        action: 'NO_TRADE',
+        confidence: riskVote.confidence,
+        reasoning: `Risk Omega blocked trade: ${riskVote.reasoning}`,
+        entry: proposedSL,
+        stopLoss: proposedSL,
+        takeProfit: proposedTP,
+        risk_pct: 0,
+        omega_summary: `Risk Omega veto: ${riskVote.reasoning}`,
+        omega_votes: {
+          trend: trendVote,
+          scalper: scalperVote,
+          swing: swingVote,
+          reversal: reversalVote,
+          volatility: volatilityVote,
+          risk: riskVote,
+          omega8: omega8Vote
+        }
+      };
+    }
 
     // Build market context for Alpha
     const marketContext: MarketContext = {

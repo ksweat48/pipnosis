@@ -61,9 +61,14 @@ Return JSON only:
       );
 
       const content = response.choices[0]?.message?.content || '{}';
-      return this.parseVote(content);
+      const vote = this.parseVote(content);
+
+      // Log vote for transparency
+      console.log(`[Omega-5 Volatility] Vote: ${vote.vote} | Confidence: ${vote.confidence}% | Reasoning: ${vote.reasoning}`);
+
+      return vote;
     } catch (error) {
-      console.error('[Omega Volatility] Error:', error);
+      console.error('[Omega-5 Volatility] LLM call failed:', error);
       return {
         vote: 'NO_TRADE',
         confidence: 0,
@@ -87,6 +92,8 @@ Return JSON only:
         reasoning: parsed.reasoning || 'No reasoning provided'
       };
     } catch (error) {
+      console.error('[Omega-5 Volatility] ❌ Parse error:', error);
+      console.error('[Omega-5 Volatility] Raw response:', response.substring(0, 200));
       return {
         vote: 'NO_TRADE',
         confidence: 0,
