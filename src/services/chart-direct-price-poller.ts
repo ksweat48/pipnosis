@@ -88,7 +88,7 @@ class ChartDirectPricePoller {
           this.start();
           // CRITICAL FIX: Immediately fetch fresh prices when tab becomes visible
           logger.info(LogCategory.CHART, '🔄 Fetching fresh prices to clear stale data');
-          this.pollAllSymbols().catch(err => {
+          this.poll().catch(err => {
             logger.error(LogCategory.CHART, 'Error fetching fresh prices on visibility change:', err);
           });
         } else if (!this.isVisible && this.status.isActive) {
