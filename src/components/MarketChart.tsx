@@ -133,6 +133,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const liveTickStreamActive = useRef<boolean>(false);
   const lastTickUpdateRef = useRef<number>(0);
   const renderFrameRef = useRef<number | null>(null);
+  const safeguardTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     let previousMarketStatus = forexMarketStatus.isOpen;
@@ -930,7 +931,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
   const initializeChart = async (showLoadingState = true) => {
     try {
+      console.log(`[Chart Init] ========================================`);
       console.log(`[Chart Init] Starting initialization for ${symbol} ${timeframe}`);
+      console.log(`[Chart Init] candlestickSeriesRef exists: ${!!candlestickSeriesRef.current}`);
+      console.log(`[Chart Init] historicalCandlesRef length: ${historicalCandlesRef.current.length}`);
+
       if (showLoadingState) {
         setIsLoading(true);
       }
@@ -943,6 +948,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       console.log(`[Chart Init] Using ChartDataGuarantor - Target: ${targetCandleCount} candles`);
 
       const result = await ChartDataGuarantor.guaranteeChartData(symbol, timeframe, targetCandleCount);
+      console.log(`[Chart Init] ⚠️ CRITICAL: Guarantor returned ${result.candles.length} candles`);
 
       console.log(`[Chart Init] Guarantor result:`, {
         candleCount: result.candles.length,
@@ -1100,7 +1106,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         // CRITICAL: Sanitize ALL candles to ensure primitive numbers before giving to chart
         const sanitizedCandles = sanitizeCandleArray(validatedCandles);
 
-        console.log('[Chart Init] Setting chart data with', sanitizedCandles.length, 'candles');
+        console.log('[Chart Init] ✅ Setting chart data with', sanitizedCandles.length, 'candles');
+        console.log('[Chart Init] First candle:', sanitizedCandles[0]);
+        console.log('[Chart Init] Last candle:', sanitizedCandles[sanitizedCandles.length - 1]);
         console.log('[Chart Init] First candle type check:', {
           time: typeof sanitizedCandles[0].time,
           open: typeof sanitizedCandles[0].open,
@@ -1108,9 +1116,27 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         });
 
         candlestickSeriesRef.current.setData(sanitizedCandles);
-        console.log('[Chart Init] Chart data set successfully');
+
+        // VERIFICATION: Check if data was actually set
+        const chartDataAfterSet = candlestickSeriesRef.current.data();
+        console.log('[Chart Init] ✅ Chart data set successfully - Verification:', {
+          sentToChart: sanitizedCandles.length,
+          actuallyInChart: chartDataAfterSet.length,
+          match: sanitizedCandles.length === chartDataAfterSet.length
+        });
+
+        if (chartDataAfterSet.length === 0) {
+          console.error('[Chart Init] ❌ CRITICAL: Chart has ZERO candles after setData()!');
+          console.error('[Chart Init] This indicates a lightweight-charts library issue or data format problem');
+        } else if (chartDataAfterSet.length < sanitizedCandles.length) {
+          console.warn('[Chart Init] ⚠️ WARNING: Chart has fewer candles than sent:', {
+            sent: sanitizedCandles.length,
+            inChart: chartDataAfterSet.length,
+            missing: sanitizedCandles.length - chartDataAfterSet.length
+          });
+        }
       } else {
-        console.error('[Chart Init] Cannot set chart data:', {
+        console.error('[Chart Init] ❌ Cannot set chart data:', {
           hasSeriesRef: !!candlestickSeriesRef.current,
           candleCount: validatedCandles.length
         });
@@ -1330,12 +1356,29 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     // Always run initialization to check for new data
     if (!hasCachedData) {
+      console.log('[Chart] 🔴 NO CACHED DATA - Loading from database with loading state...');
       initializeChart(true); // Show loading state when no cached data
     } else {
       // If we have cached data, still refresh in background but don't show loading state
-      console.log('[Chart] Refreshing data in background...');
+      console.log('[Chart] 🟢 CACHED DATA EXISTS - Refreshing in background...');
       initializeChart(false); // Don't show loading state when we have cached data
     }
+
+    // SAFEGUARD: Verify chart has data after a delay
+    if (safeguardTimeoutRef.current) {
+      clearTimeout(safeguardTimeoutRef.current);
+    }
+    safeguardTimeoutRef.current = setTimeout(() => {
+      if (candlestickSeriesRef.current) {
+        const chartData = candlestickSeriesRef.current.data();
+        console.log(`[Chart] 🔍 SAFEGUARD CHECK: Chart has ${chartData.length} candles`);
+        if (chartData.length === 0) {
+          console.error('[Chart] ❌ SAFEGUARD TRIGGERED: Chart is empty after initialization!');
+          console.error('[Chart] Attempting forced reload...');
+          initializeChart(true);
+        }
+      }
+    }, 2000);
 
     console.log(`[Chart] 🚀 Starting SMOOTH HYBRID mode: Direct MetaAPI + Fallback DB polling for ${symbol} ${timeframe}`);
     setSystemStatus('connecting');
@@ -1434,6 +1477,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       clearInterval(healthCheck);
       if (renderFrameRef.current) {
         cancelAnimationFrame(renderFrameRef.current);
+      }
+      if (safeguardTimeoutRef.current) {
+        clearTimeout(safeguardTimeoutRef.current);
       }
     };
   }, [symbol, timeframe]);
