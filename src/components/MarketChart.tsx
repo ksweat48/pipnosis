@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle, LineSeries } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
-import { TrendingUp, Activity, AlertCircle, Clock, RefreshCw } from 'lucide-react';
+import { TrendingUp, Activity, AlertCircle, Clock, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { chartPreferencesService, Timeframe, type IndicatorVisibility } from '@/services/chart-preferences';
 import { globalPollingCoordinator } from '@/services/global-polling-coordinator';
 import { pollingConfigService } from '@/services/polling-config-service';
@@ -34,6 +34,8 @@ import {
   VolumeData,
   PatternDetection
 } from '@/utils/technicalIndicators';
+import { RSIPanel, ATRPanel, VolumePanel, PatternDetectionPanel } from '@/components/IndicatorPanels';
+import { ManualTradePanel } from '@/components/ManualTradePanel';
 import { getForexMarketStatus, getTimeUntilMarketChange, type MarketStatus } from '@/utils/marketHours';
 import { concurrentBulkLoader } from '@/services/concurrent-bulk-loader';
 import { ChartLoadingOverlay, BackgroundLoadingIndicator } from '@/components/ChartLoadingOverlay';
@@ -117,6 +119,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [ema20Value, setEma20Value] = useState<number | null>(null);
   const [ema50Value, setEma50Value] = useState<number | null>(null);
   const [ema200Value, setEma200Value] = useState<number | null>(null);
+  const [showIndicators, setShowIndicators] = useState(() => {
+    const saved = localStorage.getItem(`indicators-visible-${symbol}`);
+    return saved !== null ? saved === 'true' : false;
+  });
   const [indicatorVisibility, setIndicatorVisibility] = useState<IndicatorVisibility>({
     vwap: true,
     ema20: true,
@@ -1541,7 +1547,15 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const handleSymbolChangeInternal = (newSymbol: string) => {
     const savedTimeframe = chartPreferencesService.getTimeframe(newSymbol);
     setTimeframe(savedTimeframe);
+    const saved = localStorage.getItem(`indicators-visible-${newSymbol}`);
+    setShowIndicators(saved !== null ? saved === 'true' : true);
     onSymbolChange(newSymbol);
+  };
+
+  const toggleIndicators = () => {
+    const newValue = !showIndicators;
+    setShowIndicators(newValue);
+    localStorage.setItem(`indicators-visible-${symbol}`, String(newValue));
   };
 
   const handleChartRefresh = async () => {
@@ -1748,6 +1762,38 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             {debugInfo}
           </div>
         )}
+      </div>
+
+      <div className="mt-4">
+        <button
+          onClick={toggleIndicators}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg border border-gray-700 transition-all mb-4"
+        >
+          <span className="text-sm font-medium">
+            {showIndicators ? 'Hide' : 'Show'} Manual Trading & Technical Indicators
+          </span>
+          {showIndicators ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </button>
+
+        <div
+          className={`transition-all duration-300 ease-in-out overflow-hidden ${
+            showIndicators ? 'max-h-[3000px] opacity-100' : 'max-h-0 opacity-0'
+          }`}
+        >
+          <div className="mb-4">
+            <ManualTradePanel
+              symbol={symbol}
+              onTradeExecuted={onTradeExecuted}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            <RSIPanel data={rsiData} />
+            <ATRPanel data={atrData} />
+            <VolumePanel data={volumeData} />
+            <PatternDetectionPanel patterns={patternData} />
+          </div>
+        </div>
       </div>
 
       {backgroundLoading && (
