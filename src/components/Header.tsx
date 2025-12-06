@@ -15,25 +15,21 @@ export function Header() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
         <div className="flex flex-col gap-2 sm:gap-3">
           {/* Mobile: Icon - Balance - User Menu Layout */}
-          <div className="flex sm:hidden items-center justify-between">
+          <div className="flex sm:hidden items-center justify-between gap-2">
             {/* Left: Pipnosis Icon */}
             <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-xl flex items-center justify-center shrink-0">
               <span className="text-white font-bold text-lg">P</span>
             </div>
 
-            {/* Center: Balance with P&L */}
-            {user && (
-              <div className="flex flex-col items-center justify-center flex-1 mx-2 min-w-0">
-                <div className="text-lg font-bold text-white whitespace-nowrap">
-                  ${(balance || 10000).toFixed(0)}
-                </div>
-                {totalPnL !== 0 && (
-                  <div className={`text-xs font-semibold whitespace-nowrap ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {totalPnL >= 0 ? '+' : ''}${Math.abs(totalPnL).toFixed(2)}
-                  </div>
-                )}
+            {/* Center: Balance with P&L - ALWAYS SHOW */}
+            <div className="flex flex-col items-center justify-center flex-1 px-2">
+              <div className="text-lg font-bold text-white">
+                ${(balance || 10000).toFixed(0)}
               </div>
-            )}
+              <div className={`text-xs font-semibold ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {totalPnL >= 0 ? '+' : ''}${Math.abs(totalPnL).toFixed(2)}
+              </div>
+            </div>
 
             {/* Right: User Menu */}
             {user && (
