@@ -6,7 +6,6 @@ import { MarketChart } from '@/components/MarketChart';
 import { NotificationCenter } from '@/components/NotificationCenter';
 // SearchStatusPanel removed - using simple status
 import { StrategyOptions } from '@/components/StrategyOptions';
-import { ActivePositions } from '@/components/ActivePositions';
 import { TradeConfirmationModal } from '@/components/TradeConfirmationModal';
 import { positionMonitorService } from '@/services/position-monitor';
 import { usePromptAnalysis } from '@/hooks/useAPI';
@@ -44,7 +43,6 @@ export function TradePage() {
   } | null>(null);
   const [activeSearchSessionId, setActiveSearchSessionId] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
-  const [positionRefreshTrigger, setPositionRefreshTrigger] = useState(0);
 
   const strategyOptionsRef = useRef<HTMLDivElement>(null);
   const [shouldScrollToStrategy, setShouldScrollToStrategy] = useState(false);
@@ -99,7 +97,7 @@ export function TradePage() {
     const interval = setInterval(fetchActivePositionForSymbol, 3000);
 
     return () => clearInterval(interval);
-  }, [selectedSymbol, user, positionRefreshTrigger, strategyOptions.length]);
+  }, [selectedSymbol, user, strategyOptions.length]);
 
   const handlePromptSubmit = async (prompt: string) => {
     if (!user) return;
@@ -241,7 +239,6 @@ export function TradePage() {
       if (result.success) {
         refreshBalance();
         refreshPositions();
-        setPositionRefreshTrigger(prev => prev + 1);
       }
     } catch (error) {
       console.error('Trade execution failed:', error);
@@ -266,18 +263,6 @@ export function TradePage() {
     setSelectedSymbol(symbol);
     if (!currentPositionForSymbol) {
       setActiveTradeLines({});
-    }
-  };
-
-  const handlePositionClick = (position: any) => {
-    // Only switch if clicking a different symbol
-    if (position.symbol !== selectedSymbol) {
-      setSelectedSymbol(position.symbol);
-      setActiveTradeLines({
-        entry: position.entry_price || undefined,
-        stopLoss: position.stop_loss,
-        takeProfit: position.take_profit
-      });
     }
   };
 
@@ -382,16 +367,9 @@ export function TradePage() {
               onTradeExecuted={() => {
                 refreshBalance();
                 refreshPositions();
-                setPositionRefreshTrigger(prev => prev + 1);
               }}
             />
           </div>
-
-          <ActivePositions
-            refreshTrigger={positionRefreshTrigger}
-            onPositionClick={handlePositionClick}
-            currentSymbol={selectedSymbol}
-          />
 
           {activeSearchSessionId && isSearching && (
             <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-blue-200">
