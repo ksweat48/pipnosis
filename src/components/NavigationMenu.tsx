@@ -30,21 +30,11 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
   return (
     <nav className="bg-gray-900 border-b border-gray-800 relative z-[9999]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="flex items-center justify-between h-16">
+        <div className="flex items-center justify-between h-16 relative">
           <div className="flex items-center gap-8">
             <Link to="/trade" className="flex items-center gap-2">
               <img src="/Pipnosis icon.png" alt="Pipnosis AI" className="h-10 w-10" />
             </Link>
-
-            {/* Mobile Balance Display - Only visible on small/medium screens */}
-            {user && (
-              <div className="flex lg:hidden flex-col items-start">
-                <div className="text-white font-semibold text-sm">${balance.toFixed(2)}</div>
-                <div className={`text-xs ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)} P&L
-                </div>
-              </div>
-            )}
 
             <div className="hidden md:flex items-center gap-2">
               {navItems.map((item) => {
@@ -67,6 +57,16 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
               })}
             </div>
           </div>
+
+          {/* Mobile Balance Display - Centered on mobile, hidden on desktop */}
+          {user && (
+            <div className="absolute left-1/2 -translate-x-1/2 flex lg:hidden flex-col items-center">
+              <div className="text-white font-semibold text-sm">${balance.toFixed(2)}</div>
+              <div className={`text-xs ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)} P&L
+              </div>
+            </div>
+          )}
 
           {user && (
             <div className="flex items-center gap-4">
