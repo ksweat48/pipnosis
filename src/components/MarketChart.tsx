@@ -1739,23 +1739,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         <div className="relative">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden" />
-
-          {/* Market Closed Overlay - TradingView Style */}
-          {!forexMarketStatus.isOpen && (
-            <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-[2px] flex items-center justify-center z-10 pointer-events-none rounded-lg">
-              <div className="bg-red-900/30 border border-red-500/40 rounded-xl px-8 py-6 text-center backdrop-blur-sm">
-                <Clock className="w-12 h-12 text-red-400 mx-auto mb-3 animate-pulse" />
-                <h3 className="text-xl font-bold text-white mb-2">Market Closed</h3>
-                <p className="text-red-200 mb-1">
-                  {(() => {
-                    const timeUntil = getTimeUntilMarketChange();
-                    return `Market ${timeUntil.isOpening ? 'opens' : 'closes'} in ${timeUntil.hours}h ${timeUntil.minutes}m`;
-                  })()}
-                </p>
-                <p className="text-red-300/60 text-sm">Chart frozen at last traded price</p>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
