@@ -1779,7 +1779,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           </div>
           {!forexMarketStatus.isOpen && (
             <div className="text-red-400 text-xs">
-              {forexMarketStatus.status}
+              Forex {forexMarketStatus.status}
             </div>
           )}
         </div>
