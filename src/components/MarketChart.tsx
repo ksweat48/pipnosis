@@ -1626,13 +1626,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
   return (
     <div className="h-full flex flex-col relative">
-      <div className="flex-shrink-0 flex flex-col gap-4 pt-6 pb-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex-shrink-0 pt-6 pb-6">
+        <div className="flex items-center justify-between gap-2">
+          {/* Selectors */}
+          <div className="flex items-center gap-1.5 sm:gap-3">
             <select
               value={symbol}
               onChange={(e) => handleSymbolChangeInternal(e.target.value)}
-              className="bg-gray-800 text-white px-3 sm:px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-sm"
+              className="bg-gray-800 text-white px-2 sm:px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-xs sm:text-sm"
             >
               {FOREX_PAIRS.map(pair => (
                 <option key={pair} value={pair}>{pair}</option>
@@ -1642,19 +1643,36 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             <select
               value={timeframe}
               onChange={(e) => handleTimeframeChange(e.target.value as Timeframe)}
-              className="bg-gray-800 text-white px-3 sm:px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-sm"
+              className="bg-gray-800 text-white px-2 sm:px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-xs sm:text-sm"
             >
               {TIMEFRAMES.map(tf => (
                 <option key={tf} value={tf}>{tf}</option>
               ))}
             </select>
-
           </div>
 
-          {/* Desktop: Price on the right side */}
+          {/* Price section - responsive for all screen sizes */}
           {currentPrice && (
-            <div className="hidden sm:flex items-center gap-4">
-              <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-4">
+              {/* Mobile: Price stacked vertically */}
+              <div className="flex sm:hidden flex-col items-end">
+                <div className={`text-base font-bold transition-all duration-500 ease-out ${
+                  priceUpdateFlash
+                    ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
+                    : 'text-white scale-100'
+                }`}>
+                  {currentPrice.toFixed(5)}
+                </div>
+                <div className={`text-xs flex items-center gap-0.5 ${
+                  priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
+                }`}>
+                  <Activity size={10} />
+                  {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
+                </div>
+              </div>
+
+              {/* Desktop: Price horizontal */}
+              <div className="hidden sm:flex items-center gap-3">
                 <div className={`text-2xl font-bold transition-all duration-500 ease-out ${
                   priceUpdateFlash
                     ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
@@ -1668,59 +1686,27 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                   <Activity size={14} />
                   {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
                 </div>
-                <button
-                  onClick={handleChartRefresh}
-                  disabled={isRefreshing}
-                  className={`p-2 rounded-lg transition-all ${
-                    isRefreshing
-                      ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed'
-                      : 'bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 hover:border-gray-600'
-                  }`}
-                  title="Refresh chart data"
-                >
-                  <RefreshCw
-                    size={16}
-                    className={isRefreshing ? 'animate-spin' : ''}
-                  />
-                </button>
               </div>
+
+              {/* Refresh button */}
+              <button
+                onClick={handleChartRefresh}
+                disabled={isRefreshing}
+                className={`p-1.5 sm:p-2 rounded-lg transition-all ${
+                  isRefreshing
+                    ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed'
+                    : 'bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 hover:border-gray-600'
+                }`}
+                title="Refresh chart data"
+              >
+                <RefreshCw
+                  size={14}
+                  className={isRefreshing ? 'animate-spin' : ''}
+                />
+              </button>
             </div>
           )}
         </div>
-
-        {/* Mobile: Price below controls */}
-        {currentPrice && (
-          <div className="sm:hidden flex items-center justify-center gap-3 px-3 py-2 bg-gray-800/50 rounded-lg border border-gray-700">
-            <div className={`text-lg font-bold transition-all duration-500 ease-out ${
-              priceUpdateFlash
-                ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
-                : 'text-white scale-100'
-            }`}>
-              {currentPrice.toFixed(5)}
-            </div>
-            <div className={`text-sm flex items-center gap-1 ${
-              priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
-            }`}>
-              <Activity size={12} />
-              {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
-            </div>
-            <button
-              onClick={handleChartRefresh}
-              disabled={isRefreshing}
-              className={`p-1.5 rounded-lg transition-all ${
-                isRefreshing
-                  ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed'
-                  : 'bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 hover:border-gray-600'
-              }`}
-              title="Refresh chart data"
-            >
-              <RefreshCw
-                size={14}
-                className={isRefreshing ? 'animate-spin' : ''}
-              />
-            </button>
-          </div>
-        )}
       </div>
 
       {dataQualityWarning && (
