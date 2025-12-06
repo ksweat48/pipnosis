@@ -36,6 +36,16 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
               <img src="/Pipnosis icon.png" alt="Pipnosis AI" className="h-10 w-10" />
             </Link>
 
+            {/* Mobile Balance Display - Only visible on small/medium screens */}
+            {user && (
+              <div className="flex lg:hidden flex-col items-start">
+                <div className="text-white font-semibold text-sm">${balance.toFixed(2)}</div>
+                <div className={`text-xs ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)} P&L
+                </div>
+              </div>
+            )}
+
             <div className="hidden md:flex items-center gap-2">
               {navItems.map((item) => {
                 const Icon = item.icon;
