@@ -1626,7 +1626,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
   return (
     <div className="h-full flex flex-col relative">
-      <div className="flex-shrink-0 flex flex-col gap-4">
+      <div className="flex-shrink-0 flex flex-col gap-4 pt-6 pb-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2 sm:gap-3">
             <select
