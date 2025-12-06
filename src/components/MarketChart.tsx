@@ -1760,15 +1760,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         <div className="relative">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden" />
-
-          {/* Start Trading Button - Bottom Right */}
-          <button
-            onClick={() => navigate('/ai-trade')}
-            className="absolute bottom-4 right-4 flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-semibold rounded-lg shadow-lg shadow-emerald-600/30 hover:shadow-emerald-500/40 transition-all duration-300 transform hover:scale-105 z-10"
-          >
-            <Zap size={18} />
-            <span>Start Trading</span>
-          </button>
         </div>
       </div>
 
@@ -1787,11 +1778,20 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             </div>
           )}
         </div>
-        {debugInfo && (
-          <div className="text-blue-400/70 font-mono text-xs">
-            {debugInfo}
-          </div>
-        )}
+        <div className="flex items-center gap-4">
+          {debugInfo && (
+            <div className="text-blue-400/70 font-mono text-xs">
+              {debugInfo}
+            </div>
+          )}
+          <button
+            onClick={() => navigate('/ai-trade')}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-semibold rounded-lg shadow-lg shadow-emerald-600/30 hover:shadow-emerald-500/40 transition-all duration-300 transform hover:scale-105"
+          >
+            <Zap size={16} />
+            <span>AI Trading</span>
+          </button>
+        </div>
       </div>
 
       {backgroundLoading && (
