@@ -27,7 +27,7 @@ const NavigationMenuComponent = () => {
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-8">
             <Link to="/trade" className="flex items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-bold text-white">Pipnosis AI</h1>
+              <img src="/Pipnosis icon.png" alt="Pipnosis AI" className="h-10 w-10" />
             </Link>
 
             <div className="hidden md:flex items-center gap-2">
