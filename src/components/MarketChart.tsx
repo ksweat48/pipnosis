@@ -1038,15 +1038,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       const seenTimestamps = new Set<number>();
 
       for (const candle of sortedHistorical) {
-        // Filter out Saturday candles (market is always closed)
-        const candleDate = new Date(candle.time * 1000);
-        const dayOfWeek = candleDate.getUTCDay();
-
-        if (dayOfWeek === 6) {
-          console.log(`[Chart Init] Filtering out Saturday candle at ${candleDate.toISOString()}`);
-          continue;
-        }
-
+        // Keep all historical candles for viewing (including weekends)
+        // Weekend filtering only applies to LIVE candle formation, not historical display
         if (!seenTimestamps.has(candle.time)) {
           seenTimestamps.add(candle.time);
           uniqueHistorical.push(candle);
