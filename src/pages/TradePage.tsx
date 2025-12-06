@@ -347,56 +347,65 @@ export function TradePage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+    <div className="h-screen overflow-hidden bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex flex-col">
       <NavigationMenu />
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12 relative z-0">
-        <div className="space-y-6 sm:space-y-8 lg:space-y-12">
+      <main className="flex-1 flex flex-col overflow-hidden relative z-0">
+        {/* Notification Center - Overlay */}
+        <div className="absolute top-4 right-4 z-50 max-w-md">
           <NotificationCenter
             notifications={notifications}
             onMarkAsRead={handleMarkAsRead}
             onDismiss={handleDismissNotification}
             isCollapsible={true}
           />
-
-          <div className="glass-card p-4 sm:p-6 lg:p-8 relative z-0">
-            <MarketChart
-              symbol={selectedSymbol}
-              onSymbolChange={handleSymbolChange}
-              tradeLines={activeTradeLines}
-              onTradeExecuted={() => {
-                refreshBalance();
-                refreshPositions();
-              }}
-            />
-          </div>
-
-          {activeSearchSessionId && isSearching && (
-            <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-blue-200">
-              <div className="animate-pulse">Searching for trading opportunities...</div>
-            </div>
-          )}
-
-          {isAnalyzing && (
-            <div className="glass-card p-6 sm:p-8 lg:p-12 text-center">
-              <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-green-500/20 rounded-full blur-xl"></div>
-                <div className="relative animate-spin h-8 w-8 sm:h-12 sm:w-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full mx-auto mb-4 sm:mb-6"></div>
-              </div>
-              <h3 className="text-lg sm:text-xl lg:text-2xl font-semibold text-white mb-2 sm:mb-3">AI Analyzing Market Conditions</h3>
-              <p className="text-white/70 text-base sm:text-lg">Generating optimal trading strategies...</p>
-              <p className="text-white/50 text-sm mt-2 sm:mt-3">This may take 10-30 seconds</p>
-            </div>
-          )}
-
-          <div ref={strategyOptionsRef}>
-            <StrategyOptions
-              options={strategyOptions}
-              onSelect={handleStrategySelect}
-              isExecuting={isExecuting}
-            />
-          </div>
         </div>
+
+        {/* Main Chart Area - Full Height */}
+        <div className="flex-1 flex flex-col overflow-hidden px-4 sm:px-6">
+          <MarketChart
+            symbol={selectedSymbol}
+            onSymbolChange={handleSymbolChange}
+            tradeLines={activeTradeLines}
+            onTradeExecuted={() => {
+              refreshBalance();
+              refreshPositions();
+            }}
+          />
+        </div>
+
+        {/* Strategy Options Panel - Slide-up Overlay */}
+        {(strategyOptions.length > 0 || isAnalyzing || (activeSearchSessionId && isSearching)) && (
+          <div className="absolute bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur-lg border-t border-white/10 max-h-[40vh] overflow-y-auto z-40">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
+              {activeSearchSessionId && isSearching && (
+                <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-blue-200 mb-4">
+                  <div className="animate-pulse">Searching for trading opportunities...</div>
+                </div>
+              )}
+
+              {isAnalyzing && (
+                <div className="text-center py-6">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-green-500/20 rounded-full blur-xl"></div>
+                    <div className="relative animate-spin h-10 w-10 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full mx-auto mb-4"></div>
+                  </div>
+                  <h3 className="text-lg font-semibold text-white mb-2">AI Analyzing Market Conditions</h3>
+                  <p className="text-white/70 text-sm">Generating optimal trading strategies...</p>
+                  <p className="text-white/50 text-xs mt-2">This may take 10-30 seconds</p>
+                </div>
+              )}
+
+              <div ref={strategyOptionsRef}>
+                <StrategyOptions
+                  options={strategyOptions}
+                  onSelect={handleStrategySelect}
+                  isExecuting={isExecuting}
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {selectedStrategy && (
           <TradeConfirmationModal

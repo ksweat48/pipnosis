@@ -357,10 +357,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     }
 
     const containerWidth = chartContainerRef.current.clientWidth;
-    console.log('[Chart] Creating chart with container width:', containerWidth);
+    const containerHeight = chartContainerRef.current.clientHeight;
+    console.log('[Chart] Creating chart with dimensions:', { width: containerWidth, height: containerHeight });
 
-    if (containerWidth === 0) {
-      console.warn('[Chart] Container width is 0, chart may not display properly');
+    if (containerWidth === 0 || containerHeight === 0) {
+      console.warn('[Chart] Container dimensions are 0, chart may not display properly');
     }
 
     const chart = createChart(chartContainerRef.current, {
@@ -373,7 +374,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         horzLines: { color: '#374151' },
       },
       width: containerWidth || 600,
-      height: 400,
+      height: containerHeight || 400,
       timeScale: {
         timeVisible: true,
         secondsVisible: true,
@@ -467,7 +468,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     const handleResize = () => {
       if (chartContainerRef.current) {
-        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+        chart.applyOptions({
+          width: chartContainerRef.current.clientWidth,
+          height: chartContainerRef.current.clientHeight
+        });
       }
     };
 
@@ -1613,8 +1617,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   return (
-    <div className="space-y-4 relative">
-      <div className="flex flex-col gap-4">
+    <div className="h-full flex flex-col relative">
+      <div className="flex-shrink-0 flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2 sm:gap-3">
             <select
@@ -1738,7 +1742,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       )}
 
 
-      <div className="relative isolate">
+      <div className="flex-1 relative isolate min-h-0">
         {isLoading && (
           <ChartLoadingOverlay
             symbol={symbol}
@@ -1758,12 +1762,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           </div>
         )}
 
-        <div className="relative">
-          <div ref={chartContainerRef} className="rounded-lg overflow-hidden" />
+        <div className="relative h-full">
+          <div ref={chartContainerRef} className="rounded-lg overflow-hidden h-full" />
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+      <div className="flex-shrink-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs pt-3">
         <div className="flex items-center gap-4">
           {lastUpdate && (
             <div className="text-white/50 flex items-center gap-2">
