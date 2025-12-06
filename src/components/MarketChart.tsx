@@ -1775,7 +1775,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         </div>
       </div>
 
-      <div className="flex-shrink-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs pt-6 pb-4">
+      <div className="flex-shrink-0 flex flex-row items-center justify-between gap-2 text-xs pt-6 pb-4">
         <div className="flex items-center gap-4">
           {lastUpdate && (
             <div className="text-white/50 flex items-center gap-2">
