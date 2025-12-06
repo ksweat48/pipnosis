@@ -53,6 +53,7 @@ interface MarketChartProps {
     takeProfit?: number;
   };
   onTradeExecuted?: () => void;
+  onPriceUpdate?: (price: number, priceChange: number) => void;
 }
 
 interface CurrentCandle {
@@ -64,7 +65,7 @@ interface CurrentCandle {
   startTime: number;
 }
 
-export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecuted }: MarketChartProps) {
+export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecuted, onPriceUpdate }: MarketChartProps) {
   const navigate = useNavigate();
 
   // CRITICAL: Validate and track current symbol to reject cross-contaminated updates
@@ -137,6 +138,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const lastTickUpdateRef = useRef<number>(0);
   const renderFrameRef = useRef<number | null>(null);
   const safeguardTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Notify parent component of price updates
+  useEffect(() => {
+    if (currentPrice !== null && onPriceUpdate) {
+      onPriceUpdate(currentPrice, priceChange);
+    }
+  }, [currentPrice, priceChange, onPriceUpdate]);
 
   useEffect(() => {
     let previousMarketStatus = forexMarketStatus.isOpen;

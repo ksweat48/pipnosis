@@ -27,6 +27,8 @@ export function TradePage() {
   const [strategyOptions, setStrategyOptions] = useState<StrategyOption[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState('EURUSD');
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+  const [priceChange, setPriceChange] = useState<number>(0);
   const [activeTradeLines, setActiveTradeLines] = useState<{
     entry?: number;
     stopLoss?: number;
@@ -348,7 +350,11 @@ export function TradePage() {
 
   return (
     <div className="h-screen overflow-hidden bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex flex-col">
-      <NavigationMenu />
+      <NavigationMenu
+        currentPrice={currentPrice}
+        priceChange={priceChange}
+        symbol={selectedSymbol}
+      />
 
       <main className="flex-1 flex flex-col overflow-hidden relative z-0">
         {/* Notification Center - Overlay */}
@@ -370,6 +376,10 @@ export function TradePage() {
             onTradeExecuted={() => {
               refreshBalance();
               refreshPositions();
+            }}
+            onPriceUpdate={(price, change) => {
+              setCurrentPrice(price);
+              setPriceChange(change);
             }}
           />
         </div>
