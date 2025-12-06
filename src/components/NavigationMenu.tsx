@@ -15,7 +15,6 @@ const NavigationMenuComponent = () => {
   const navItems = [
     { path: '/trade', label: 'Charts', icon: TrendingUp },
     { path: '/positions', label: 'Positions', icon: Activity },
-    { path: '/ai-trade', label: 'AI Trade', icon: Bot },
     { path: '/analysis', label: 'Analysis', icon: BarChart3 },
     { path: '/journal', label: 'Journal', icon: BookOpen },
   ];

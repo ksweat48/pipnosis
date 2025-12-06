@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle, LineSeries } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
-import { TrendingUp, Activity, AlertCircle, Clock, RefreshCw } from 'lucide-react';
+import { TrendingUp, Activity, AlertCircle, Clock, RefreshCw, Zap } from 'lucide-react';
 import { chartPreferencesService, Timeframe, type IndicatorVisibility } from '@/services/chart-preferences';
 import { globalPollingCoordinator } from '@/services/global-polling-coordinator';
 import { pollingConfigService } from '@/services/polling-config-service';
@@ -64,6 +65,8 @@ interface CurrentCandle {
 }
 
 export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecuted }: MarketChartProps) {
+  const navigate = useNavigate();
+
   // CRITICAL: Validate and track current symbol to reject cross-contaminated updates
   const validationResult = validateSymbol(symbol);
   if (!validationResult.isValid) {
@@ -1757,6 +1760,15 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         <div className="relative">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden" />
+
+          {/* Start Trading Button - Bottom Right */}
+          <button
+            onClick={() => navigate('/ai-trade')}
+            className="absolute bottom-4 right-4 flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-semibold rounded-lg shadow-lg shadow-emerald-600/30 hover:shadow-emerald-500/40 transition-all duration-300 transform hover:scale-105 z-10"
+          >
+            <Zap size={18} />
+            <span>Start Trading</span>
+          </button>
         </div>
       </div>
 
