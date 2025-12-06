@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { LogOut, User } from 'lucide-react';
 import { BalanceDisplay } from './BalanceDisplay';
@@ -10,8 +10,55 @@ export function Header() {
   const [balanceRefresh, setBalanceRefresh] = useState(0);
   const { balance = 10000, totalPnL = 0 } = useUserBalance(user?.id || null);
 
+  // AGGRESSIVE DEBUGGING
+  console.log('🔴 HEADER RENDER:', {
+    user: !!user,
+    balance,
+    totalPnL,
+    timestamp: new Date().toLocaleTimeString(),
+    windowWidth: typeof window !== 'undefined' ? window.innerWidth : 'N/A'
+  });
+
+  // Force render on mobile - check if element exists
+  useEffect(() => {
+    const checkElement = () => {
+      const mobileContainer = document.querySelector('.flex.sm\\:hidden');
+      console.log('🔍 Mobile container found:', !!mobileContainer);
+      if (mobileContainer) {
+        console.log('📏 Container dimensions:', {
+          width: mobileContainer.clientWidth,
+          height: mobileContainer.clientHeight,
+          visible: window.getComputedStyle(mobileContainer).display !== 'none'
+        });
+      }
+    };
+    checkElement();
+    setTimeout(checkElement, 1000);
+  }, []);
+
   return (
     <header className="bg-gray-900/50 backdrop-blur-sm border-b border-gray-800">
+      {/* ALWAYS VISIBLE TEST ELEMENT */}
+      <div style={{
+        position: 'fixed',
+        top: '80px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        backgroundColor: '#ff00ff',
+        color: '#fff',
+        padding: '10px 20px',
+        zIndex: 99999,
+        fontSize: '14px',
+        fontWeight: 'bold',
+        border: '3px solid #00ff00',
+        borderRadius: '8px',
+        textAlign: 'center'
+      }}>
+        TEST VISIBLE<br/>
+        B: ${balance} | P: ${totalPnL.toFixed(2)}<br/>
+        W: {typeof window !== 'undefined' ? window.innerWidth : 'N/A'}px
+      </div>
+
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
         <div className="flex flex-col gap-2 sm:gap-3">
           {/* Mobile: Icon - Balance - User Menu Layout */}
@@ -21,41 +68,64 @@ export function Header() {
               <span className="text-white font-bold text-lg">P</span>
             </div>
 
-            {/* Center: Balance with P&L - NUCLEAR FIX */}
+            {/* Center: Balance with P&L - ULTRA VISIBLE DEBUG VERSION */}
             <div style={{
+              position: 'relative',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
               flex: '1 1 auto',
-              minWidth: '120px',
+              width: '150px',
+              minWidth: '150px',
+              maxWidth: '150px',
+              height: '60px',
+              minHeight: '60px',
               padding: '8px',
-              backgroundColor: '#1f2937',
+              backgroundColor: '#ff0000',
               borderRadius: '8px',
-              border: '2px solid #10b981'
+              border: '4px solid #00ff00',
+              zIndex: 9999,
+              boxShadow: '0 0 20px rgba(255,0,0,0.8)'
             }}>
               <div style={{
-                fontSize: '18px',
-                fontWeight: '700',
+                fontSize: '20px',
+                fontWeight: '900',
                 color: '#ffffff',
                 lineHeight: '1.2',
                 textAlign: 'center',
+                textShadow: '0 0 10px #000',
                 WebkitTextFillColor: '#ffffff',
-                opacity: 1
+                opacity: 1,
+                position: 'relative',
+                zIndex: 10000
               }}>
                 ${typeof balance === 'number' ? balance.toFixed(0) : '10000'}
               </div>
               <div style={{
-                fontSize: '12px',
-                fontWeight: '600',
-                color: totalPnL >= 0 ? '#4ade80' : '#f87171',
+                fontSize: '14px',
+                fontWeight: '700',
+                color: '#ffff00',
                 lineHeight: '1.2',
                 textAlign: 'center',
-                marginTop: '2px',
-                WebkitTextFillColor: totalPnL >= 0 ? '#4ade80' : '#f87171',
-                opacity: 1
+                marginTop: '4px',
+                textShadow: '0 0 10px #000',
+                WebkitTextFillColor: '#ffff00',
+                opacity: 1,
+                position: 'relative',
+                zIndex: 10000
               }}>
                 {totalPnL >= 0 ? '+' : ''}${typeof totalPnL === 'number' ? Math.abs(totalPnL).toFixed(2) : '0.00'}
+              </div>
+              <div style={{
+                fontSize: '8px',
+                color: '#ffffff',
+                position: 'absolute',
+                bottom: '2px',
+                right: '4px',
+                opacity: 0.7
+              }}>
+                DEBUG
               </div>
             </div>
 
