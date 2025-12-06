@@ -313,6 +313,23 @@ async function aggregateCandlesForSymbol(symbol: string): Promise<number> {
       }
 
       if (candle) {
+        // CRITICAL: Check if candle is during market open hours
+        // Skip weekend candles (Saturday/Sunday)
+        const candleDay = candle.open_time.getUTCDay();
+        const candleHour = candle.open_time.getUTCHours();
+
+        // Sunday = 0, Saturday = 6
+        // Friday closes at 21:00 UTC (5pm EST), Sunday opens at 21:00 UTC (5pm EST)
+        const isWeekend = candleDay === 6 || candleDay === 0;
+        const isFridayAfterClose = candleDay === 5 && candleHour >= 21;
+        const isSundayBeforeOpen = candleDay === 0 && candleHour < 21;
+
+        if (isWeekend || isFridayAfterClose || isSundayBeforeOpen) {
+          // Skip weekend candle - market is closed
+          currentCandleToCreate = new Date(currentCandleToCreate.getTime() + timeframeMinutes * 60 * 1000);
+          continue;
+        }
+
         const saved = await saveCandleToDatabase(candle);
         if (saved) {
           candlesCreated++;
