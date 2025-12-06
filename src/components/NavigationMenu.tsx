@@ -58,21 +58,6 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
             </div>
           </div>
 
-          {/* Price Display */}
-          {currentPrice && symbol && (
-            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-gray-800/50 rounded-lg border border-gray-700">
-              <div className="text-white text-xl font-bold">
-                {currentPrice.toFixed(5)}
-              </div>
-              <div className={`text-sm flex items-center gap-1 ${
-                priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
-              }`}>
-                <Activity size={14} />
-                {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
-              </div>
-            </div>
-          )}
-
           {user && (
             <div className="flex items-center gap-4">
               <div className="hidden lg:flex flex-col items-end">
