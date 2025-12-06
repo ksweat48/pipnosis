@@ -959,11 +959,42 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       });
 
       if (result.candles.length === 0) {
-        console.warn('[Chart Init] No candle data found for symbol:', symbol);
-        setError('Waiting for price data... The price feed will start shortly.');
-        setIsLoading(false);
-        setLoadingProgress(null);
-        return;
+        console.error('[Chart Init] ❌ ZERO CANDLES returned from guarantor!');
+        console.error('[Chart Init] This should NEVER happen for active symbols');
+        console.error('[Chart Init] Checking database directly...');
+
+        // EMERGENCY: Try direct database query
+        const { data: directCandles, error: directError } = await supabase
+          .from('forex_candles')
+          .select('*')
+          .eq('symbol', symbol)
+          .eq('timeframe', timeframe)
+          .order('open_time', { ascending: false })
+          .limit(200);
+
+        if (directError) {
+          console.error('[Chart Init] Direct query error:', directError);
+        } else {
+          console.log('[Chart Init] Direct query returned:', directCandles?.length || 0, 'candles');
+          if (directCandles && directCandles.length > 0) {
+            console.log('[Chart Init] 🚨 EMERGENCY: Using direct query candles!');
+            result.candles = directCandles.reverse().map((c: any) => ({
+              time: Math.floor(new Date(c.open_time).getTime() / 1000),
+              open: parseFloat(c.open),
+              high: parseFloat(c.high),
+              low: parseFloat(c.low),
+              close: parseFloat(c.close)
+            }));
+          }
+        }
+
+        if (result.candles.length === 0) {
+          console.warn('[Chart Init] No candle data found for symbol:', symbol);
+          setError('Waiting for price data... The price feed will start shortly.');
+          setIsLoading(false);
+          setLoadingProgress(null);
+          return;
+        }
       }
 
       setDataCompleteness({
@@ -1315,54 +1346,16 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     lastFetchTimeRef.current = null;
     liveTickStreamActive.current = false;
 
-    console.log(`[Chart][${symbol}] Chart series cleared, checking for cached data...`);
+    console.log(`[Chart][${symbol}] Chart series cleared, FORCE LOADING from database...`);
 
-    // CRITICAL FIX: Check if we have cached data from the poller before clearing everything
-    const cachedCandles = chartCandlePoller.getCachedCandles(symbol, timeframe);
-    const hasCachedData = cachedCandles.length > 0;
-
-    if (hasCachedData) {
-      console.log(`[Chart] ✅ Found ${cachedCandles.length} cached candles for ${symbol} ${timeframe} - restoring immediately`);
-
-      // CRITICAL: Sanitize cached data to ensure primitive numbers
-      const sanitizedCachedCandles = sanitizeCandleArray(cachedCandles);
-
-      // Restore cached data to chart immediately for instant display
-      historicalCandlesRef.current = sanitizedCachedCandles;
-      candlestickSeriesRef.current.setData(sanitizedCachedCandles);
-
-      // Update price and indicators with cached data
-      const lastCandle = cachedCandles[cachedCandles.length - 1];
-      const firstCandle = cachedCandles[0];
-      setCurrentPrice(lastCandle.close);
-      setPriceChange(((lastCandle.close - firstCandle.open) / firstCandle.open) * 100);
-      setLastUpdate(new Date());
-
-      // Update indicators with cached data
-      requestAnimationFrame(() => {
-        updateIndicators(cachedCandles);
-        if (chartRef.current && !userInteractedRef.current) {
-          chartRef.current.timeScale().scrollToRealTime();
-        }
-      });
-
-      setIsLoading(false);
-      setError(null);
-    } else {
-      console.log(`[Chart][${symbol}] No cached data found, will load from database...`);
-    }
+    // CRITICAL FIX: ALWAYS load fresh from database - skip cache entirely
+    // This ensures candles ALWAYS appear
+    console.log('[Chart] 🔴 BYPASSING CACHE - Force loading from database...');
 
     concurrentBulkLoader.interruptForSymbol(symbol, timeframe);
 
-    // Always run initialization to check for new data
-    if (!hasCachedData) {
-      console.log('[Chart] 🔴 NO CACHED DATA - Loading from database with loading state...');
-      initializeChart(true); // Show loading state when no cached data
-    } else {
-      // If we have cached data, still refresh in background but don't show loading state
-      console.log('[Chart] 🟢 CACHED DATA EXISTS - Refreshing in background...');
-      initializeChart(false); // Don't show loading state when we have cached data
-    }
+    // ALWAYS force fresh database load with loading state
+    initializeChart(true);
 
     // SAFEGUARD: Verify chart has data after a delay
     if (safeguardTimeoutRef.current) {
