@@ -59,7 +59,7 @@ export function BackgroundLoadingIndicator({ completed, total, currentBatch }: B
   const progress = total > 0 ? (completed / total) * 100 : 0;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 bg-gray-900/95 backdrop-blur-sm border border-gray-700 rounded-lg shadow-xl p-3 min-w-[280px]">
+    <div className="fixed bottom-4 left-4 z-50 bg-gray-900/95 backdrop-blur-sm border border-gray-700 rounded-lg shadow-xl p-3 min-w-[280px]">
       <div className="flex items-center gap-3 mb-2">
         <div className="relative">
           <div className="animate-spin h-5 w-5 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full"></div>
