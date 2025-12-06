@@ -46,6 +46,44 @@ function roundTimeToCandle(time: Date, minutes: number): Date {
   return new Date(roundedMs);
 }
 
+/**
+ * Check if a specific date/time is during open market hours
+ * Uses EST/EDT timezone (New York) to properly handle daylight saving time
+ * Market closes Friday 5:00 PM EST and opens Sunday 5:00 PM EST
+ */
+function isMarketOpenAtTime(date: Date): boolean {
+  // Convert to EST/EDT (New York timezone) - automatically handles DST
+  const estTime = new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+
+  const dayOfWeek = estTime.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
+  const hours = estTime.getHours();
+  const minutes = estTime.getMinutes();
+  const totalMinutes = hours * 60 + minutes;
+
+  // Friday 5:00 PM = 17:00 = 1020 minutes
+  const fridayCloseTime = 17 * 60;
+
+  // Sunday 5:00 PM = 17:00 = 1020 minutes
+  const sundayOpenTime = 17 * 60;
+
+  // Market is closed on Saturday (all day)
+  if (dayOfWeek === 6) {
+    return false;
+  }
+
+  // Market is closed Friday after 5:00 PM
+  if (dayOfWeek === 5 && totalMinutes >= fridayCloseTime) {
+    return false;
+  }
+
+  // Market is closed Sunday before 5:00 PM
+  if (dayOfWeek === 0 && totalMinutes < sundayOpenTime) {
+    return false;
+  }
+
+  return true;
+}
+
 function calculateCandleFromPrices(
   prices: RealtimePrice[],
   symbol: string,
@@ -314,17 +352,8 @@ async function aggregateCandlesForSymbol(symbol: string): Promise<number> {
 
       if (candle) {
         // CRITICAL: Check if candle is during market open hours
-        // Skip weekend candles (Saturday/Sunday)
-        const candleDay = candle.open_time.getUTCDay();
-        const candleHour = candle.open_time.getUTCHours();
-
-        // Sunday = 0, Saturday = 6
-        // Friday closes at 21:00 UTC (5pm EST), Sunday opens at 21:00 UTC (5pm EST)
-        const isWeekend = candleDay === 6 || candleDay === 0;
-        const isFridayAfterClose = candleDay === 5 && candleHour >= 21;
-        const isSundayBeforeOpen = candleDay === 0 && candleHour < 21;
-
-        if (isWeekend || isFridayAfterClose || isSundayBeforeOpen) {
+        // Skip weekend candles using proper EST/EDT timezone conversion
+        if (!isMarketOpenAtTime(candle.open_time)) {
           // Skip weekend candle - market is closed
           currentCandleToCreate = new Date(currentCandleToCreate.getTime() + timeframeMinutes * 60 * 1000);
           continue;
