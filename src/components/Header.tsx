@@ -21,13 +21,41 @@ export function Header() {
               <span className="text-white font-bold text-lg">P</span>
             </div>
 
-            {/* Center: Balance with P&L - DEBUG VERSION */}
-            <div className="flex flex-col items-center justify-center flex-1 px-2 bg-gray-800/50 rounded-lg py-1">
-              <div className="text-base font-bold text-white" style={{ color: '#ffffff' }}>
-                ${balance?.toFixed?.(0) ?? '10000'}
+            {/* Center: Balance with P&L - NUCLEAR FIX */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flex: '1 1 auto',
+              minWidth: '120px',
+              padding: '8px',
+              backgroundColor: '#1f2937',
+              borderRadius: '8px',
+              border: '2px solid #10b981'
+            }}>
+              <div style={{
+                fontSize: '18px',
+                fontWeight: '700',
+                color: '#ffffff',
+                lineHeight: '1.2',
+                textAlign: 'center',
+                WebkitTextFillColor: '#ffffff',
+                opacity: 1
+              }}>
+                ${typeof balance === 'number' ? balance.toFixed(0) : '10000'}
               </div>
-              <div className="text-xs font-semibold text-green-400" style={{ color: totalPnL >= 0 ? '#4ade80' : '#f87171' }}>
-                {totalPnL >= 0 ? '+' : ''}${Math.abs(totalPnL || 0).toFixed(2)}
+              <div style={{
+                fontSize: '12px',
+                fontWeight: '600',
+                color: totalPnL >= 0 ? '#4ade80' : '#f87171',
+                lineHeight: '1.2',
+                textAlign: 'center',
+                marginTop: '2px',
+                WebkitTextFillColor: totalPnL >= 0 ? '#4ade80' : '#f87171',
+                opacity: 1
+              }}>
+                {totalPnL >= 0 ? '+' : ''}${typeof totalPnL === 'number' ? Math.abs(totalPnL).toFixed(2) : '0.00'}
               </div>
             </div>
 
