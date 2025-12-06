@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
 import { normalizeTimestamp, getCurrentCandleStart, getLastCompletedCandleStart, isTimestampAligned } from '@/utils/timestampNormalizer';
 import { automaticGapBackfill } from '@/services/automatic-gap-backfill';
+import { isMarketOpenAt, getLastMarketCloseTime, getTimeframeLookbackHours } from '@/utils/marketHours';
 
 export interface CandleData {
   time: number;
@@ -221,6 +222,30 @@ function deduplicateCandles(candles: CandleData[]): CandleData[] {
   return deduplicated;
 }
 
+/**
+ * CRITICAL: Filter out candles from closed market periods (Saturday, Friday after 5pm EST, Sunday before 5pm EST)
+ * This prevents fake/reconstructed candles from appearing on charts
+ */
+function filterCandlesByMarketHours(candles: CandleData[], symbol: string): CandleData[] {
+  if (candles.length === 0) return [];
+
+  const filtered = candles.filter(candle => {
+    const isOpen = isMarketOpenAt(candle.time);
+    if (!isOpen) {
+      const dateStr = new Date(candle.time * 1000).toISOString();
+      console.log(`[CandleData] 🚫 Filtered out closed-market candle for ${symbol}: ${dateStr}`);
+    }
+    return isOpen;
+  });
+
+  const removedCount = candles.length - filtered.length;
+  if (removedCount > 0) {
+    console.log(`[CandleData] ✅ Removed ${removedCount} closed-market candles for ${symbol}`);
+  }
+
+  return filtered;
+}
+
 export function getTimeframeMinutes(timeframe: Timeframe): number {
   return TIMEFRAME_MINUTES_MAP[timeframe] || 15;
 }
@@ -296,21 +321,56 @@ export async function fetchPreAggregatedCandles(
   try {
     const dbTimeframe = appTimeframeToDb(timeframe);
 
-    // CRITICAL FIX: Fetch from BOTH uppercase and lowercase formats to catch all data
-    // Then deduplicate by timestamp to prevent overlaps
-    const lowercaseFormat = timeframe.toLowerCase().replace(/^m/, '').replace(/^h/, '') +
-      (timeframe.startsWith('M') ? 'm' : timeframe.startsWith('H') ? 'h' : timeframe.startsWith('D') ? '' : '');
-    const lowercaseTimeframe = timeframe.startsWith('D') ? 'D1' :
-      timeframe.startsWith('W') ? 'W1' :
-      timeframe.replace(/^M/, '').replace(/^H/, '') + (timeframe.startsWith('M') ? 'm' : 'h');
+    // CRITICAL FIX: For lower timeframes, use time-based queries instead of count-based
+    // This ensures we get enough historical data even when market is closed
+    const usesTimeBasedQuery = ['M1', 'M5', 'M15', 'M30'].includes(timeframe);
 
-    const { data: forexCandles, error: forexError } = await supabase
-      .from('forex_candles')
-      .select('open_time, open, high, low, close, volume')
-      .eq('symbol', symbol)
-      .in('timeframe', [dbTimeframe, lowercaseTimeframe])
-      .order('open_time', { ascending: false })
-      .limit(limit * 2); // Fetch more to account for potential duplicates
+    let forexCandles: any[] = [];
+    let forexError: any = null;
+
+    if (usesTimeBasedQuery) {
+      // TIME-BASED QUERY: Fetch by time range for lower timeframes
+      const lookbackHours = getTimeframeLookbackHours(timeframe);
+      const now = new Date();
+      const startTime = new Date(now.getTime() - lookbackHours * 60 * 60 * 1000);
+
+      console.log(`[CandleData] Using time-based query for ${symbol} ${timeframe}: last ${lookbackHours} hours`);
+
+      const lowercaseFormat = timeframe.toLowerCase().replace(/^m/, '').replace(/^h/, '') +
+        (timeframe.startsWith('M') ? 'm' : timeframe.startsWith('H') ? 'h' : timeframe.startsWith('D') ? '' : '');
+      const lowercaseTimeframe = timeframe.startsWith('D') ? 'D1' :
+        timeframe.startsWith('W') ? 'W1' :
+        timeframe.replace(/^M/, '').replace(/^H/, '') + (timeframe.startsWith('M') ? 'm' : 'h');
+
+      const { data, error } = await supabase
+        .from('forex_candles')
+        .select('open_time, open, high, low, close, volume')
+        .eq('symbol', symbol)
+        .in('timeframe', [dbTimeframe, lowercaseTimeframe])
+        .gte('open_time', startTime.toISOString())
+        .order('open_time', { ascending: true });
+
+      forexCandles = data || [];
+      forexError = error;
+    } else {
+      // COUNT-BASED QUERY: Use traditional limit-based query for higher timeframes
+      const lowercaseFormat = timeframe.toLowerCase().replace(/^m/, '').replace(/^h/, '') +
+        (timeframe.startsWith('M') ? 'm' : timeframe.startsWith('H') ? 'h' : timeframe.startsWith('D') ? '' : '');
+      const lowercaseTimeframe = timeframe.startsWith('D') ? 'D1' :
+        timeframe.startsWith('W') ? 'W1' :
+        timeframe.replace(/^M/, '').replace(/^H/, '') + (timeframe.startsWith('M') ? 'm' : 'h');
+
+      const { data, error } = await supabase
+        .from('forex_candles')
+        .select('open_time, open, high, low, close, volume')
+        .eq('symbol', symbol)
+        .in('timeframe', [dbTimeframe, lowercaseTimeframe])
+        .order('open_time', { ascending: false })
+        .limit(limit * 2); // Fetch more to account for potential duplicates
+
+      forexCandles = data || [];
+      forexError = error;
+    }
 
     if (forexError) {
       console.error('Error fetching pre-aggregated candles:', forexError);
@@ -363,14 +423,21 @@ export async function fetchPreAggregatedCandles(
       }
     });
 
-    // Convert map to array, sort by time ascending, and limit to requested count
-    const candles = Array.from(candleMap.values())
-      .sort((a, b) => a.time - b.time)
-      .slice(-limit);
+    // Convert map to array and sort by time ascending
+    let candles = Array.from(candleMap.values())
+      .sort((a, b) => a.time - b.time);
 
     const duplicatesRemoved = forexCandles.length - candleMap.size;
     if (duplicatesRemoved > 0) {
       console.log(`[CandleData] Removed ${duplicatesRemoved} duplicate candles for ${symbol} ${timeframe}`);
+    }
+
+    // CRITICAL: Filter out candles from closed market periods (Saturday, Friday after 5pm, Sunday before 5pm)
+    candles = filterCandlesByMarketHours(candles, symbol);
+
+    // For count-based queries, apply limit after filtering
+    if (!usesTimeBasedQuery) {
+      candles = candles.slice(-limit);
     }
 
     console.log(`Loaded ${candles.length} pre-aggregated candles from forex_candles for ${symbol} ${timeframe} (db: ${dbTimeframe})`);
@@ -579,10 +646,15 @@ export async function fetchCandlesByTimeRange(
     });
 
     const dbTimeframe = appTimeframeToDb(timeframe);
-    const now = new Date();
-    const startTime = new Date(now.getTime() - hoursBack * 60 * 60 * 1000);
 
-    console.log(`[ChartData] Fetching candles for ${symbol} ${timeframe} from last ${hoursBack} hours`);
+    // CRITICAL: Use smart lookback hours for lower timeframes
+    const smartHoursBack = getTimeframeLookbackHours(timeframe);
+    const effectiveHoursBack = Math.max(hoursBack, smartHoursBack);
+
+    const now = new Date();
+    const startTime = new Date(now.getTime() - effectiveHoursBack * 60 * 60 * 1000);
+
+    console.log(`[ChartData] Fetching candles for ${symbol} ${timeframe} from last ${effectiveHoursBack} hours`);
     console.log(`[ChartData] Time range: ${startTime.toISOString()} to ${now.toISOString()}`);
 
     const lowercaseFormat = timeframe.toLowerCase().replace(/^m/, '').replace(/^h/, '') +
@@ -605,7 +677,7 @@ export async function fetchCandlesByTimeRange(
     }
 
     if (!forexCandles || forexCandles.length === 0) {
-      console.warn(`[ChartData] No candles found for ${symbol} ${timeframe} in last ${hoursBack} hours`);
+      console.warn(`[ChartData] No candles found for ${symbol} ${timeframe} in last ${effectiveHoursBack} hours`);
       return [];
     }
 
@@ -643,9 +715,12 @@ export async function fetchCandlesByTimeRange(
       }
     });
 
-    const candles = Array.from(candleMap.values()).sort((a, b) => a.time - b.time);
+    let candles = Array.from(candleMap.values()).sort((a, b) => a.time - b.time);
 
-    console.log(`[ChartData] ✓ Loaded ${candles.length} candles from last ${hoursBack} hours`);
+    // CRITICAL: Filter out candles from closed market periods
+    candles = filterCandlesByMarketHours(candles, symbol);
+
+    console.log(`[ChartData] ✓ Loaded ${candles.length} candles from last ${effectiveHoursBack} hours`);
     if (candles.length > 0) {
       console.log(`[ChartData] Range: ${new Date(candles[0].time * 1000).toISOString()} to ${new Date(candles[candles.length - 1].time * 1000).toISOString()}`);
     }

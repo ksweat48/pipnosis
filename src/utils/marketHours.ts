@@ -99,3 +99,109 @@ export function getTimeUntilMarketChange(): { hours: number; minutes: number; is
     };
   }
 }
+
+/**
+ * CRITICAL: Check if a specific timestamp (Unix seconds) was during open market hours
+ * This prevents displaying fake candles from Saturday/Sunday when market is closed
+ *
+ * @param unixTimestamp - Unix timestamp in seconds
+ * @returns true if timestamp is during open market hours
+ */
+export function isMarketOpenAt(unixTimestamp: number): boolean {
+  // Convert Unix timestamp to Date
+  const date = new Date(unixTimestamp * 1000);
+
+  // Convert to EST/EDT (New York timezone)
+  const estTime = new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+
+  const dayOfWeek = estTime.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
+  const hours = estTime.getHours();
+  const minutes = estTime.getMinutes();
+  const totalMinutes = hours * 60 + minutes;
+
+  // Friday 5:00 PM = 17:00 = 1020 minutes
+  const fridayCloseTime = 17 * 60;
+
+  // Sunday 5:00 PM = 17:00 = 1020 minutes
+  const sundayOpenTime = 17 * 60;
+
+  // Market is closed on Saturday (all day)
+  if (dayOfWeek === 6) {
+    return false;
+  }
+
+  // Market is closed Friday after 5:00 PM
+  if (dayOfWeek === 5 && totalMinutes >= fridayCloseTime) {
+    return false;
+  }
+
+  // Market is closed Sunday before 5:00 PM
+  if (dayOfWeek === 0 && totalMinutes < sundayOpenTime) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Get the timestamp of the last market close (Friday 5pm EST)
+ * This is useful for determining the cutoff for historical data
+ *
+ * @returns Unix timestamp in seconds of last market close
+ */
+export function getLastMarketCloseTime(): number {
+  const now = new Date();
+  const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+
+  const dayOfWeek = estTime.getDay();
+  const hours = estTime.getHours();
+  const minutes = estTime.getMinutes();
+
+  // Calculate the most recent Friday 5pm
+  let daysToSubtract = 0;
+
+  if (dayOfWeek === 6) {
+    // Saturday - go back 1 day to Friday
+    daysToSubtract = 1;
+  } else if (dayOfWeek === 0) {
+    // Sunday - go back 2 days to Friday
+    daysToSubtract = 2;
+  } else if (dayOfWeek === 5 && (hours < 17 || (hours === 17 && minutes === 0))) {
+    // Friday before 5pm - go back 7 days to last Friday
+    daysToSubtract = 7;
+  } else if (dayOfWeek === 5) {
+    // Friday after 5pm - this is the close time
+    daysToSubtract = 0;
+  } else {
+    // Monday-Thursday - go back to previous Friday
+    daysToSubtract = (dayOfWeek + 2) % 7;
+  }
+
+  const lastClose = new Date(estTime);
+  lastClose.setDate(lastClose.getDate() - daysToSubtract);
+  lastClose.setHours(17, 0, 0, 0);
+
+  return Math.floor(lastClose.getTime() / 1000);
+}
+
+/**
+ * Get appropriate lookback time in hours based on timeframe
+ * Lower timeframes need more hours to get enough candles
+ *
+ * @param timeframe - The chart timeframe (M1, M5, M15, etc.)
+ * @returns Number of hours to look back
+ */
+export function getTimeframeLookbackHours(timeframe: string): number {
+  const lookbackMap: Record<string, number> = {
+    'M1': 48,   // 48 hours = 2880 candles
+    'M5': 72,   // 72 hours = 864 candles
+    'M15': 96,  // 96 hours = 384 candles
+    'M30': 120, // 120 hours = 240 candles
+    'H1': 200,  // Keep as candle count (converted to hours: 200 hours)
+    'H4': 800,  // 800 hours
+    'D1': 2400, // 2400 hours (100 days)
+    'W1': 8760  // 8760 hours (365 days)
+  };
+
+  return lookbackMap[timeframe] || 72; // Default to 72 hours
+}

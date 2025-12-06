@@ -3,6 +3,7 @@ import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
 import { getTimeframeMinutes, CandleData } from '@/services/candle-data-service';
 import { emergencyPricePoller } from '@/services/emergency-price-poller';
 import { logger, LogCategory } from '@/lib/logger';
+import { getForexMarketStatus, isMarketOpenAt } from '@/utils/marketHours';
 
 interface CandleState {
   time: number;
@@ -79,6 +80,17 @@ class BackgroundCandleAggregator {
   }
 
   private async saveCompletedCandle(symbol: string, timeframe: Timeframe, candle: CandleState): Promise<void> {
+    // CRITICAL: Check if candle timestamp is during open market hours
+    // Prevent saving fake candles from Saturday/Sunday
+    if (!isMarketOpenAt(candle.time)) {
+      const dateStr = new Date(candle.time * 1000).toISOString();
+      logger.debug(
+        LogCategory.BACKGROUND_AGGREGATOR,
+        `🚫 Skipping save for ${symbol} ${timeframe} - market was closed at ${dateStr}`
+      );
+      return;
+    }
+
     const openTime = new Date(candle.startTime);
     const timeframeMinutes = getTimeframeMinutes(timeframe);
     const closeTime = new Date(candle.startTime + timeframeMinutes * 60 * 1000);
