@@ -1668,13 +1668,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                   <Activity size={14} />
                   {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
                 </div>
-                <div className={`px-3 py-1 rounded-lg text-sm font-semibold ${
-                  forexMarketStatus.isOpen
-                    ? 'bg-green-500/20 text-green-400 border border-green-500/50'
-                    : 'bg-red-500/20 text-red-400 border border-red-500/50'
-                }`}>
-                  {forexMarketStatus.status}
-                </div>
                 <button
                   onClick={handleChartRefresh}
                   disabled={isRefreshing}
@@ -1710,13 +1703,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             }`}>
               <Activity size={12} />
               {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
-            </div>
-            <div className={`px-2.5 py-0.5 rounded-lg text-xs font-semibold ${
-              forexMarketStatus.isOpen
-                ? 'bg-green-500/20 text-green-400 border border-green-500/50'
-                : 'bg-red-500/20 text-red-400 border border-red-500/50'
-            }`}>
-              {forexMarketStatus.status}
             </div>
             <button
               onClick={handleChartRefresh}
@@ -1776,17 +1762,24 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       </div>
 
       <div className="flex-shrink-0 flex flex-row items-center justify-between gap-2 text-xs pt-6 pb-4">
-        <div className="flex items-center gap-4">
-          {lastUpdate && (
-            <div className="text-white/50 flex items-center gap-2">
-              <Clock size={12} />
-              Last updated: {lastUpdate.toLocaleTimeString()}
-            </div>
-          )}
-          {updateCount > 0 && (
-            <div className="text-emerald-500/70 flex items-center gap-1">
-              <TrendingUp size={12} />
-              {updateCount} updates
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-4">
+            {lastUpdate && (
+              <div className="text-white/50 flex items-center gap-2">
+                <Clock size={12} />
+                Last updated: {lastUpdate.toLocaleTimeString()}
+              </div>
+            )}
+            {updateCount > 0 && (
+              <div className="text-emerald-500/70 flex items-center gap-1">
+                <TrendingUp size={12} />
+                {updateCount} updates
+              </div>
+            )}
+          </div>
+          {!forexMarketStatus.isOpen && (
+            <div className="text-red-400 text-xs">
+              {forexMarketStatus.status}
             </div>
           )}
         </div>
