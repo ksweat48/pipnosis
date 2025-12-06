@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle, LineSeries } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
-import { TrendingUp, Activity, AlertCircle, Clock, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { TrendingUp, Activity, AlertCircle, Clock, RefreshCw } from 'lucide-react';
 import { chartPreferencesService, Timeframe, type IndicatorVisibility } from '@/services/chart-preferences';
 import { globalPollingCoordinator } from '@/services/global-polling-coordinator';
 import { pollingConfigService } from '@/services/polling-config-service';
@@ -34,8 +34,6 @@ import {
   VolumeData,
   PatternDetection
 } from '@/utils/technicalIndicators';
-import { RSIPanel, ATRPanel, VolumePanel, PatternDetectionPanel } from '@/components/IndicatorPanels';
-import { ManualTradePanel } from '@/components/ManualTradePanel';
 import { getForexMarketStatus, getTimeUntilMarketChange, type MarketStatus } from '@/utils/marketHours';
 import { concurrentBulkLoader } from '@/services/concurrent-bulk-loader';
 import { ChartLoadingOverlay, BackgroundLoadingIndicator } from '@/components/ChartLoadingOverlay';
@@ -119,10 +117,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [ema20Value, setEma20Value] = useState<number | null>(null);
   const [ema50Value, setEma50Value] = useState<number | null>(null);
   const [ema200Value, setEma200Value] = useState<number | null>(null);
-  const [showIndicators, setShowIndicators] = useState(() => {
-    const saved = localStorage.getItem(`indicators-visible-${symbol}`);
-    return saved !== null ? saved === 'true' : false;
-  });
   const [indicatorVisibility, setIndicatorVisibility] = useState<IndicatorVisibility>({
     vwap: true,
     ema20: true,
@@ -139,6 +133,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const liveTickStreamActive = useRef<boolean>(false);
   const lastTickUpdateRef = useRef<number>(0);
   const renderFrameRef = useRef<number | null>(null);
+  const safeguardTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     let previousMarketStatus = forexMarketStatus.isOpen;
@@ -936,7 +931,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
   const initializeChart = async (showLoadingState = true) => {
     try {
+      console.log(`[Chart Init] ========================================`);
       console.log(`[Chart Init] Starting initialization for ${symbol} ${timeframe}`);
+      console.log(`[Chart Init] candlestickSeriesRef exists: ${!!candlestickSeriesRef.current}`);
+      console.log(`[Chart Init] historicalCandlesRef length: ${historicalCandlesRef.current.length}`);
+
       if (showLoadingState) {
         setIsLoading(true);
       }
@@ -949,6 +948,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       console.log(`[Chart Init] Using ChartDataGuarantor - Target: ${targetCandleCount} candles`);
 
       const result = await ChartDataGuarantor.guaranteeChartData(symbol, timeframe, targetCandleCount);
+      console.log(`[Chart Init] ⚠️ CRITICAL: Guarantor returned ${result.candles.length} candles`);
 
       console.log(`[Chart Init] Guarantor result:`, {
         candleCount: result.candles.length,
@@ -1106,7 +1106,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         // CRITICAL: Sanitize ALL candles to ensure primitive numbers before giving to chart
         const sanitizedCandles = sanitizeCandleArray(validatedCandles);
 
-        console.log('[Chart Init] Setting chart data with', sanitizedCandles.length, 'candles');
+        console.log('[Chart Init] ✅ Setting chart data with', sanitizedCandles.length, 'candles');
+        console.log('[Chart Init] First candle:', sanitizedCandles[0]);
+        console.log('[Chart Init] Last candle:', sanitizedCandles[sanitizedCandles.length - 1]);
         console.log('[Chart Init] First candle type check:', {
           time: typeof sanitizedCandles[0].time,
           open: typeof sanitizedCandles[0].open,
@@ -1114,9 +1116,27 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         });
 
         candlestickSeriesRef.current.setData(sanitizedCandles);
-        console.log('[Chart Init] Chart data set successfully');
+
+        // VERIFICATION: Check if data was actually set
+        const chartDataAfterSet = candlestickSeriesRef.current.data();
+        console.log('[Chart Init] ✅ Chart data set successfully - Verification:', {
+          sentToChart: sanitizedCandles.length,
+          actuallyInChart: chartDataAfterSet.length,
+          match: sanitizedCandles.length === chartDataAfterSet.length
+        });
+
+        if (chartDataAfterSet.length === 0) {
+          console.error('[Chart Init] ❌ CRITICAL: Chart has ZERO candles after setData()!');
+          console.error('[Chart Init] This indicates a lightweight-charts library issue or data format problem');
+        } else if (chartDataAfterSet.length < sanitizedCandles.length) {
+          console.warn('[Chart Init] ⚠️ WARNING: Chart has fewer candles than sent:', {
+            sent: sanitizedCandles.length,
+            inChart: chartDataAfterSet.length,
+            missing: sanitizedCandles.length - chartDataAfterSet.length
+          });
+        }
       } else {
-        console.error('[Chart Init] Cannot set chart data:', {
+        console.error('[Chart Init] ❌ Cannot set chart data:', {
           hasSeriesRef: !!candlestickSeriesRef.current,
           candleCount: validatedCandles.length
         });
@@ -1336,12 +1356,29 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     // Always run initialization to check for new data
     if (!hasCachedData) {
+      console.log('[Chart] 🔴 NO CACHED DATA - Loading from database with loading state...');
       initializeChart(true); // Show loading state when no cached data
     } else {
       // If we have cached data, still refresh in background but don't show loading state
-      console.log('[Chart] Refreshing data in background...');
+      console.log('[Chart] 🟢 CACHED DATA EXISTS - Refreshing in background...');
       initializeChart(false); // Don't show loading state when we have cached data
     }
+
+    // SAFEGUARD: Verify chart has data after a delay
+    if (safeguardTimeoutRef.current) {
+      clearTimeout(safeguardTimeoutRef.current);
+    }
+    safeguardTimeoutRef.current = setTimeout(() => {
+      if (candlestickSeriesRef.current) {
+        const chartData = candlestickSeriesRef.current.data();
+        console.log(`[Chart] 🔍 SAFEGUARD CHECK: Chart has ${chartData.length} candles`);
+        if (chartData.length === 0) {
+          console.error('[Chart] ❌ SAFEGUARD TRIGGERED: Chart is empty after initialization!');
+          console.error('[Chart] Attempting forced reload...');
+          initializeChart(true);
+        }
+      }
+    }, 2000);
 
     console.log(`[Chart] 🚀 Starting SMOOTH HYBRID mode: Direct MetaAPI + Fallback DB polling for ${symbol} ${timeframe}`);
     setSystemStatus('connecting');
@@ -1440,6 +1477,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       clearInterval(healthCheck);
       if (renderFrameRef.current) {
         cancelAnimationFrame(renderFrameRef.current);
+      }
+      if (safeguardTimeoutRef.current) {
+        clearTimeout(safeguardTimeoutRef.current);
       }
     };
   }, [symbol, timeframe]);
@@ -1547,15 +1587,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const handleSymbolChangeInternal = (newSymbol: string) => {
     const savedTimeframe = chartPreferencesService.getTimeframe(newSymbol);
     setTimeframe(savedTimeframe);
-    const saved = localStorage.getItem(`indicators-visible-${newSymbol}`);
-    setShowIndicators(saved !== null ? saved === 'true' : true);
     onSymbolChange(newSymbol);
-  };
-
-  const toggleIndicators = () => {
-    const newValue = !showIndicators;
-    setShowIndicators(newValue);
-    localStorage.setItem(`indicators-visible-${symbol}`, String(newValue));
   };
 
   const handleChartRefresh = async () => {
@@ -1762,38 +1794,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             {debugInfo}
           </div>
         )}
-      </div>
-
-      <div className="mt-4">
-        <button
-          onClick={toggleIndicators}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg border border-gray-700 transition-all mb-4"
-        >
-          <span className="text-sm font-medium">
-            {showIndicators ? 'Hide' : 'Show'} Manual Trading & Technical Indicators
-          </span>
-          {showIndicators ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </button>
-
-        <div
-          className={`transition-all duration-300 ease-in-out overflow-hidden ${
-            showIndicators ? 'max-h-[3000px] opacity-100' : 'max-h-0 opacity-0'
-          }`}
-        >
-          <div className="mb-4">
-            <ManualTradePanel
-              symbol={symbol}
-              onTradeExecuted={onTradeExecuted}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            <RSIPanel data={rsiData} />
-            <ATRPanel data={atrData} />
-            <VolumePanel data={volumeData} />
-            <PatternDetectionPanel patterns={patternData} />
-          </div>
-        </div>
       </div>
 
       {backgroundLoading && (
