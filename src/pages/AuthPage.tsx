@@ -32,8 +32,17 @@ export function AuthPage() {
   };
 
   return (
-    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex items-center justify-center p-4">
-      <div className="glass-card p-8 max-w-md w-full">
+    <div className="app-viewport relative flex items-center justify-center p-4 overflow-hidden">
+      <div
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat animate-subtle-zoom"
+        style={{
+          backgroundImage: 'url(/2_pipnosis_background_hawk_and_candle_image.png)',
+          backgroundAttachment: 'fixed'
+        }}
+      />
+      <div className="absolute inset-0 bg-black/60" />
+
+      <div className="glass-card p-8 max-w-md w-full relative z-10">
         <h1 className="text-3xl font-bold text-white mb-6 text-center">
           {isSignUp ? 'Sign Up' : 'Sign In'}
         </h1>

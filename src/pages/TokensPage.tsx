@@ -143,18 +143,25 @@ export function CreditsPage() {
   const subscriptionPackages = packages.filter(p => p.packageType === 'subscription');
 
   return (
-    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative" ref={pullToRefresh.containerRef}>
-      <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-blue-500/5 pointer-events-none" />
-      <div className="absolute top-20 left-10 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl animate-pulse pointer-events-none" />
-      <div className="absolute bottom-20 right-10 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse pointer-events-none" style={{ animationDelay: '1s' }} />
-
-      <PullToRefreshIndicator
-        isPulling={pullToRefresh.isPulling}
-        isRefreshing={pullToRefresh.isRefreshing}
-        pullDistance={pullToRefresh.pullDistance}
-        threshold={pullToRefresh.threshold}
+    <div className="app-viewport relative overflow-hidden" ref={pullToRefresh.containerRef}>
+      <div
+        className="fixed inset-0 bg-cover bg-center bg-no-repeat animate-subtle-zoom"
+        style={{
+          backgroundImage: 'url(/2_pipnosis_background_hawk_and_candle_image.png)',
+          backgroundAttachment: 'fixed'
+        }}
       />
-      <NavigationMenu />
+      <div className="fixed inset-0 bg-black/60 pointer-events-none" />
+
+      <div className="relative z-10">
+        <PullToRefreshIndicator
+          isPulling={pullToRefresh.isPulling}
+          isRefreshing={pullToRefresh.isRefreshing}
+          pullDistance={pullToRefresh.pullDistance}
+          threshold={pullToRefresh.threshold}
+        />
+        <NavigationMenu />
+      </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 relative z-10">
         <div className="mb-8">
@@ -535,7 +542,9 @@ export function CreditsPage() {
           </div>
         )}
       </div>
-      <BottomNavigation />
+      <div className="relative z-10">
+        <BottomNavigation />
+      </div>
     </div>
   );
 }

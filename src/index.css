@@ -173,6 +173,18 @@
   }
 }
 
+@keyframes subtleZoom {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
 @layer utilities {
   .animate-slide-in-right {
     animation: slideInRight 0.3s ease-out;
@@ -184,6 +196,10 @@
 
   .animate-slide-up {
     animation: slideUp 0.4s ease-out;
+  }
+
+  .animate-subtle-zoom {
+    animation: subtleZoom 20s ease-in-out infinite;
   }
 
   /* Safe area utilities for mobile notch/home indicator */
