@@ -349,14 +349,14 @@ export function TradePage() {
   };
 
   return (
-    <div className="fixed inset-0 w-full h-screen overflow-hidden bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex flex-col" style={{ height: '100dvh' }}>
+    <div className="chart-page-container bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex flex-col">
       <NavigationMenu
         currentPrice={currentPrice}
         priceChange={priceChange}
         symbol={selectedSymbol}
       />
 
-      <main className="flex-1 flex flex-col overflow-hidden relative z-0" style={{ touchAction: 'none' }}>
+      <main className="flex-1 flex flex-col overflow-hidden relative z-0" style={{ touchAction: 'pan-x pan-y' }}>
         {/* Notification Center - Overlay */}
         <div className="absolute top-4 right-4 z-50 max-w-md">
           <NotificationCenter
