@@ -25,7 +25,7 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ defa
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 const SystemDiagnosticsPage = lazy(() => import('./pages/SystemDiagnosticsPage'));
 const AILearningCenterPage = lazy(() => import('./pages/AILearningCenterPage'));
-const TokensPage = lazy(() => import('./pages/TokensPage').then(m => ({ default: m.TokensPage })));
+const CreditsPage = lazy(() => import('./pages/TokensPage').then(m => ({ default: m.CreditsPage })));
 
 // Loading component
 const LoadingFallback = () => (
@@ -125,10 +125,10 @@ const AppRoutes: React.FC = () => {
         }
       />
       <Route
-        path="/tokens"
+        path="/credits"
         element={
           <ProtectedRoute>
-            <TokensPage />
+            <CreditsPage />
           </ProtectedRoute>
         }
       />

@@ -36,7 +36,7 @@ class TokenMeterService {
         isAdmin: row.is_admin
       };
     } catch (error) {
-      console.error('[Token Meter] Error fetching balance:', error);
+      console.error('[Credit Meter] Error fetching balance:', error);
       return null;
     }
   }
@@ -60,7 +60,7 @@ class TokenMeterService {
 
       return data === true;
     } catch (error) {
-      console.error('[Token Meter] Error deducting tokens:', error);
+      console.error('[Credit Meter] Error deducting credits:', error);
       return false;
     }
   }
@@ -84,7 +84,7 @@ class TokenMeterService {
 
       return data === true;
     } catch (error) {
-      console.error('[Token Meter] Error adding tokens:', error);
+      console.error('[Credit Meter] Error adding credits:', error);
       return false;
     }
   }
@@ -111,7 +111,7 @@ class TokenMeterService {
         createdAt: row.created_at
       }));
     } catch (error) {
-      console.error('[Token Meter] Error fetching transaction history:', error);
+      console.error('[Credit Meter] Error fetching transaction history:', error);
       return [];
     }
   }

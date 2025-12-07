@@ -37,12 +37,12 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
               <img src="/Pipnosis icon.png" alt="Pipnosis AI" className="h-10 w-10" />
             </Link>
 
-            {/* Token Balance Display */}
+            {/* Credit Balance Display */}
             {user && (
               <div className="flex items-center gap-2">
                 <Coins size={18} className="text-emerald-400" />
                 <div className="flex flex-col items-start">
-                  <div className="text-gray-400 text-xs leading-tight">Tokens</div>
+                  <div className="text-gray-400 text-xs leading-tight">Credits</div>
                   <div className={`font-semibold text-sm leading-tight ${tokenBalance?.isAdmin ? 'text-purple-400' : 'text-emerald-400'}`}>
                     {tokenBalance?.isAdmin ? '∞' : tokenBalance?.balance.toFixed(0) || '0'}
                   </div>
@@ -112,7 +112,7 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                         </div>
                         <div className="flex items-center gap-2 mt-2 text-sm">
                           <Coins size={14} className="text-emerald-400" />
-                          <span className="text-gray-400">Tokens:</span>
+                          <span className="text-gray-400">Credits:</span>
                           <span className={`font-semibold ${tokenBalance?.isAdmin ? 'text-purple-400' : 'text-emerald-400'}`}>
                             {tokenBalance?.isAdmin ? '∞' : tokenBalance?.balance.toFixed(0) || '0'}
                           </span>
@@ -121,12 +121,12 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
 
                       <div className="p-2">
                         <Link
-                          to="/tokens"
+                          to="/credits"
                           onClick={() => setShowProfileMenu(false)}
                           className="w-full flex items-center gap-3 px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/20 rounded transition-colors"
                         >
                           <Coins size={18} />
-                          <span>Tokens</span>
+                          <span>Credits</span>
                         </Link>
 
                         <Link

@@ -33,7 +33,7 @@ interface ReferralData {
   }>;
 }
 
-export function TokensPage() {
+export function CreditsPage() {
   const { user } = useAuth();
   const { balance, isLoading } = useTokenBalance(user?.id || null);
   const [activeTab, setActiveTab] = useState<'balance' | 'purchase' | 'history' | 'referral'>('balance');
@@ -161,12 +161,12 @@ export function TokensPage() {
           <div className="relative inline-block">
             <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur opacity-20" />
             <h1 className="relative text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-blue-400 to-emerald-400 mb-2">
-              Tokens
+              Credits
             </h1>
           </div>
           <p className="text-gray-400 flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-emerald-400" />
-            Manage your tokens, subscriptions, and referrals
+            Manage your credits, subscriptions, and referrals
           </p>
         </div>
 
@@ -268,37 +268,11 @@ export function TokensPage() {
 
               <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl p-6 border border-gray-700/50 shadow-xl">
                 <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                  Token Usage
+                  Credit Usage
                   <Sparkles className="w-4 h-4 text-emerald-400" />
                 </h3>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-gray-700/30 hover:bg-gray-700/50 transition-all">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-yellow-500/10 rounded-lg">
-                        <Zap size={18} className="text-yellow-400" />
-                      </div>
-                      <span className="text-gray-300">Trade Evaluation</span>
-                    </div>
-                    <span className="text-white font-semibold">1 token</span>
-                  </div>
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-gray-700/30 hover:bg-gray-700/50 transition-all">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-blue-500/10 rounded-lg">
-                        <TrendingUp size={18} className="text-blue-400" />
-                      </div>
-                      <span className="text-gray-300">Position Analysis</span>
-                    </div>
-                    <span className="text-white font-semibold">0.5 tokens</span>
-                  </div>
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-gray-700/30 hover:bg-gray-700/50 transition-all">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-purple-500/10 rounded-lg">
-                        <AlertCircle size={18} className="text-purple-400" />
-                      </div>
-                      <span className="text-gray-300">Mid-Trade Check</span>
-                    </div>
-                    <span className="text-white font-semibold">0.25 tokens</span>
-                  </div>
+                <div className="text-center py-6">
+                  <p className="text-gray-300 text-lg">All trades cost 1 credit per trade.</p>
                 </div>
               </div>
             </div>
@@ -311,7 +285,7 @@ export function TokensPage() {
               <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-green-400 mb-2">One-Time Packages</h2>
               <p className="text-gray-400 mb-4 flex items-center gap-2">
                 <Package className="w-4 h-4 text-emerald-400" />
-                Premium pricing: $0.15 per token
+                Premium pricing: $0.15 per credit
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {onetimePackages.map(pkg => (
@@ -324,7 +298,7 @@ export function TokensPage() {
                           <Package size={24} className="text-emerald-400" />
                         </div>
                         <div>
-                          <h3 className="text-xl font-bold text-white">{pkg.tokenAmount} Tokens</h3>
+                          <h3 className="text-xl font-bold text-white">{pkg.tokenAmount} Credits</h3>
                           <p className="text-gray-400 text-sm">{pkg.description}</p>
                         </div>
                       </div>
@@ -342,7 +316,7 @@ export function TokensPage() {
               <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400 mb-2">Subscription Packages</h2>
               <p className="text-gray-400 mb-4 flex items-center gap-2">
                 <Zap className="w-4 h-4 text-blue-400 animate-pulse" />
-                Best value: $0.10 per token (33% savings!)
+                Best value: $0.10 per credit (33% savings!)
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {subscriptionPackages.map(pkg => (
@@ -355,7 +329,7 @@ export function TokensPage() {
                           <Zap size={24} className="text-blue-400" />
                         </div>
                         <div>
-                          <h3 className="text-xl font-bold text-white">{pkg.tokenAmount} Tokens</h3>
+                          <h3 className="text-xl font-bold text-white">{pkg.tokenAmount} Credits</h3>
                           <p className="text-gray-300 text-sm">Monthly</p>
                         </div>
                       </div>
@@ -440,11 +414,11 @@ export function TokensPage() {
               <div className="relative bg-gradient-to-br from-purple-900/40 to-pink-900/40 backdrop-blur-xl border-2 border-purple-500/30 rounded-xl p-6 shadow-2xl">
                 <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-400 mb-4 flex items-center gap-2">
                   <Users className="w-6 h-6 text-purple-400" />
-                  Share & Earn 5 Tokens
+                  Share & Earn 5 Credits
                 </h2>
                 <p className="text-gray-300 mb-6 flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-purple-400" />
-                  Invite friends and you both get 5 tokens! Monthly limit: 5 referrals
+                  Invite friends and you both get 5 credits! Monthly limit: 5 referrals
                 </p>
 
                 <div className="bg-gray-800/70 backdrop-blur-sm rounded-xl p-4 mb-4 border border-gray-700/50">
