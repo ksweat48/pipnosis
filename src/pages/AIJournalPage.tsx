@@ -10,11 +10,15 @@ export function AIJournalPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+    <div className="chart-page-container bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex flex-col">
       <NavigationMenu />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        <AITradeJournal />
+      <main className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex-1 overflow-y-auto mobile-panel-scroll px-4 sm:px-6 py-6 sm:py-8">
+          <div className="max-w-4xl mx-auto">
+            <AITradeJournal />
+          </div>
+        </div>
       </main>
     </div>
   );
