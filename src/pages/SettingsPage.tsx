@@ -7,7 +7,6 @@ import { supabase } from '@/lib/supabase';
 import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity, DollarSign } from 'lucide-react';
 import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
 import { chartPreferencesService, type IndicatorVisibility } from '@/services/chart-preferences';
-import { DataResetPanel } from '@/components/DataResetPanel';
 import { useToast } from '@/hooks/useToast';
 
 export function SettingsPage() {
@@ -902,8 +901,6 @@ export function SettingsPage() {
                 </div>
               </form>
             </div>
-
-            <DataResetPanel />
           </div>
         )}
       </div>
