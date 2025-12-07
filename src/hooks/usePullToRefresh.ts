@@ -5,13 +5,15 @@ interface PullToRefreshOptions {
   threshold?: number;
   resistance?: number;
   enabled?: boolean;
+  topZonePercentage?: number;
 }
 
 export function usePullToRefresh({
   onRefresh,
   threshold = 80,
   resistance = 2.5,
-  enabled = true
+  enabled = true,
+  topZonePercentage = 30
 }: PullToRefreshOptions) {
   const [isPulling, setIsPulling] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -27,10 +29,15 @@ export function usePullToRefresh({
     const scrollableElement = scrollableElementRef.current || containerRef.current || document.scrollingElement || document.documentElement;
     const isAtTop = scrollableElement.scrollTop === 0;
 
-    if (isAtTop) {
-      touchStartY.current = e.touches[0].clientY;
+    const touchY = e.touches[0].clientY;
+    const viewportHeight = window.innerHeight;
+    const topZoneThreshold = viewportHeight * (topZonePercentage / 100);
+    const isInTopZone = touchY <= topZoneThreshold;
+
+    if (isAtTop && isInTopZone) {
+      touchStartY.current = touchY;
     }
-  }, [enabled, isRefreshing]);
+  }, [enabled, isRefreshing, topZonePercentage]);
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
     if (!enabled || isRefreshing || touchStartY.current === 0) return;
