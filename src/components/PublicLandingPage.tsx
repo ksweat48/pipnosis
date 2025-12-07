@@ -23,20 +23,12 @@ export function PublicLandingPage() {
         <p className="text-2xl md:text-3xl text-gray-300 font-light tracking-wide mb-12">
           AI Trading Assistant
         </p>
-        <div className="relative inline-block">
-          <div className="absolute -inset-px blur opacity-60 rounded-lg animate-pulse">
-            <div className="absolute inset-0 bg-white rounded-lg"></div>
-          </div>
-          <Link
-            to="/auth"
-            className="relative px-10 py-4 bg-emerald-600 text-white text-lg font-semibold rounded-lg hover:bg-emerald-700 inline-block transition-all hover:scale-105"
-            style={{
-              boxShadow: '0 0 8px rgba(255, 255, 255, 0.6), 0 0 15px rgba(255, 255, 255, 0.3)'
-            }}
-          >
-            Get Started
-          </Link>
-        </div>
+        <Link
+          to="/auth"
+          className="px-10 py-4 bg-emerald-600 text-white text-lg font-semibold rounded-lg hover:bg-emerald-700 inline-block transition-all hover:scale-105"
+        >
+          Get Started
+        </Link>
       </div>
     </div>
   );
