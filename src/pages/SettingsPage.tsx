@@ -290,7 +290,7 @@ export function SettingsPage() {
   }[passwordValidation.strength];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
       <NavigationMenu />
 
       <div className="max-w-4xl mx-auto px-4 py-8">

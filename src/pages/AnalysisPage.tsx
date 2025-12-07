@@ -118,7 +118,7 @@ export function AnalysisPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+      <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
         <NavigationMenu />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
           <div className="text-center text-white">
@@ -131,7 +131,7 @@ export function AnalysisPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
       <NavigationMenu />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-12">

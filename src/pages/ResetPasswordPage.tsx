@@ -27,7 +27,7 @@ export function ResetPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex items-center justify-center p-4">
+    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex items-center justify-center p-4">
       <div className="glass-card p-8 max-w-md w-full">
         <h1 className="text-3xl font-bold text-white mb-6 text-center">Reset Password</h1>
 

@@ -28,9 +28,9 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <nav className="bg-gray-900 border-b border-gray-800 relative z-[9999]">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="flex items-center justify-between h-16 relative">
+    <nav className="bg-gray-900 border-b border-gray-800 relative z-[9999]" style={{ paddingTop: 'var(--safe-area-top)' }}>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6" style={{ paddingLeft: 'max(1rem, var(--safe-area-left))', paddingRight: 'max(1rem, var(--safe-area-right))' }}>
+        <div className="flex items-center justify-between h-14 sm:h-16 relative">
           <div className="flex items-center gap-8">
             <Link to="/trade" className="flex items-center gap-2">
               <img src="/Pipnosis icon.png" alt="Pipnosis AI" className="h-10 w-10" />
@@ -80,9 +80,9 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
               <div className="relative">
                 <button
                   onClick={() => setShowProfileMenu(!showProfileMenu)}
-                  className="flex items-center gap-3 px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+                  className="flex items-center gap-3 px-3 py-2 bg-gray-800 active:bg-gray-700 rounded-lg transition-colors min-h-[44px]"
                 >
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center">
                     <User size={18} className="text-white" />
                   </div>
                   <div className="hidden sm:block text-left">
@@ -175,7 +175,7 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
           )}
         </div>
 
-        <div className="md:hidden overflow-x-auto pb-3 -mx-4 px-4 scrollbar-hide">
+        <div className="md:hidden overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
           <div className="flex items-center gap-2 min-w-max">
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -184,10 +184,10 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all whitespace-nowrap flex-shrink-0 ${
+                  className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all whitespace-nowrap flex-shrink-0 min-h-[44px] ${
                     active
                       ? 'bg-emerald-600 text-white'
-                      : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                      : 'text-gray-400 active:bg-gray-800'
                   }`}
                 >
                   <Icon size={18} />

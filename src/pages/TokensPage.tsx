@@ -133,7 +133,7 @@ export function TokensPage() {
   const subscriptionPackages = packages.filter(p => p.packageType === 'subscription');
 
   return (
-    <div className="min-h-screen bg-gray-950">
+    <div className="app-viewport bg-gray-950">
       <NavigationMenu />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">

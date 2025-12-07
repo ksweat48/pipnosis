@@ -16,7 +16,7 @@ function AILearningCenterPage() {
 
   if (!user) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center app-viewport">
         <div className="text-center">
           <Brain className="w-16 h-16 text-gray-600 mx-auto mb-4" />
           <p className="text-gray-400">Please sign in to access the AI Learning Center</p>
@@ -34,7 +34,7 @@ function AILearningCenterPage() {
   return (
     <>
       <NavigationMenu />
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6">
+      <div className="app-viewport bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6">
         <div className="max-w-7xl mx-auto">
           <div className="bg-gradient-to-br from-emerald-900/30 to-blue-900/30 backdrop-blur-sm border-2 border-emerald-500/30 rounded-lg shadow-md p-6 mb-6">
             <div className="flex items-center gap-3 mb-2">

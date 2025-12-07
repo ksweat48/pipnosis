@@ -25,6 +25,23 @@ if (!import.meta.env.PROD) {
   });
 }
 
+// Dynamic viewport height for mobile - handles URL bar collapse
+if (typeof window !== 'undefined') {
+  function setAppHeight() {
+    const vh = window.innerHeight;
+    document.documentElement.style.setProperty('--app-height', `${vh}px`);
+  }
+
+  setAppHeight();
+  window.addEventListener('resize', setAppHeight);
+  window.addEventListener('orientationchange', setAppHeight);
+
+  // Also handle visualViewport for better mobile support
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', setAppHeight);
+  }
+}
+
 // Defer non-critical initialization
 if (typeof window !== 'undefined') {
   // Clean up stale cache asynchronously

@@ -9,7 +9,7 @@ export const SmartGoalModePage: React.FC = () => {
   const toast = useToast();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+    <div className="app-viewport bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
       <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
       <GoalNotificationListener />
       <div className="max-w-full mx-auto px-2 py-6">
