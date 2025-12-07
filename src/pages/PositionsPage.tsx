@@ -27,7 +27,8 @@ import {
   XCircle,
   Percent,
   History,
-  ArrowUpDown
+  ArrowUpDown,
+  Sparkles
 } from 'lucide-react';
 
 interface Position {
@@ -491,7 +492,11 @@ export function PositionsPage() {
   }
 
   return (
-    <div ref={pullToRefresh.containerRef} className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+    <div ref={pullToRefresh.containerRef} className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-blue-500/5 pointer-events-none" />
+      <div className="absolute top-20 left-10 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl animate-pulse" />
+      <div className="absolute bottom-20 right-10 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+
       <PullToRefreshIndicator
         isPulling={pullToRefresh.isPulling}
         isRefreshing={pullToRefresh.isRefreshing}
@@ -500,120 +505,149 @@ export function PositionsPage() {
       />
       <NavigationMenu />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-12">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-12 relative z-10">
         <div className="mb-6">
-          <h1 className="text-xl sm:text-3xl font-bold text-white mb-1">Active Positions</h1>
-          <p className="text-gray-400 text-sm sm:text-base">Monitor and manage all your trading positions in real-time</p>
+          <div className="relative inline-block">
+            <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur opacity-30 animate-pulse" />
+            <h1 className="relative text-xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-blue-400 to-emerald-400 mb-1">Active Positions</h1>
+          </div>
+          <p className="text-gray-400 text-sm sm:text-base flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-emerald-400" />
+            Monitor and manage all your trading positions in real-time
+          </p>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-          <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-6">
-            <div className="flex items-center justify-between mb-1 sm:mb-2">
-              <span className="text-gray-400 text-xs sm:text-sm">Open Positions</span>
-              <Activity className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
+          <div className="relative group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-green-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
+            <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl border border-gray-700/50 rounded-xl p-3 sm:p-6 shadow-xl hover:border-emerald-500/30 transition-all">
+              <div className="flex items-center justify-between mb-1 sm:mb-2">
+                <span className="text-gray-400 text-xs sm:text-sm">Open Positions</span>
+                <div className="p-1 bg-emerald-500/10 rounded-lg">
+                  <Activity className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
+                </div>
+              </div>
+              <div className="text-xl sm:text-3xl font-bold text-white">{openPositions.length}</div>
+              <div className="text-xs text-gray-500 mt-1">{pendingOrders.length} pending</div>
             </div>
-            <div className="text-xl sm:text-3xl font-bold text-white">{openPositions.length}</div>
-            <div className="text-xs text-gray-500 mt-1">{pendingOrders.length} pending</div>
           </div>
 
-          <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-6">
-            <div className="flex items-center justify-between mb-1 sm:mb-2">
-              <span className="text-gray-400 text-xs sm:text-sm truncate">Total P&L</span>
-              <DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400" />
+          <div className="relative group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
+            <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl border border-gray-700/50 rounded-xl p-3 sm:p-6 shadow-xl hover:border-blue-500/30 transition-all">
+              <div className="flex items-center justify-between mb-1 sm:mb-2">
+                <span className="text-gray-400 text-xs sm:text-sm truncate">Total P&L</span>
+                <div className="p-1 bg-blue-500/10 rounded-lg">
+                  <DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400" />
+                </div>
+              </div>
+              <div className={`text-xl sm:text-3xl font-bold ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">Unrealized</div>
             </div>
-            <div className={`text-xl sm:text-3xl font-bold ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">Unrealized</div>
           </div>
 
-          <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-6">
-            <div className="flex items-center justify-between mb-1 sm:mb-2">
-              <span className="text-gray-400 text-xs sm:text-sm truncate">Largest Winner</span>
-              <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-green-400" />
+          <div className="relative group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
+            <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl border border-gray-700/50 rounded-xl p-3 sm:p-6 shadow-xl hover:border-green-500/30 transition-all">
+              <div className="flex items-center justify-between mb-1 sm:mb-2">
+                <span className="text-gray-400 text-xs sm:text-sm truncate">Largest Winner</span>
+                <div className="p-1 bg-green-500/10 rounded-lg">
+                  <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-green-400" />
+                </div>
+              </div>
+              <div className="text-xl sm:text-3xl font-bold text-green-400">
+                +${largestWinner.toFixed(2)}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">Current best</div>
             </div>
-            <div className="text-xl sm:text-3xl font-bold text-green-400">
-              +${largestWinner.toFixed(2)}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">Current best</div>
           </div>
 
-          <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-6">
-            <div className="flex items-center justify-between mb-1 sm:mb-2">
-              <span className="text-gray-400 text-xs sm:text-sm truncate">Largest Loser</span>
-              <TrendingDown className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" />
+          <div className="relative group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-red-500 to-pink-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
+            <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl border border-gray-700/50 rounded-xl p-3 sm:p-6 shadow-xl hover:border-red-500/30 transition-all">
+              <div className="flex items-center justify-between mb-1 sm:mb-2">
+                <span className="text-gray-400 text-xs sm:text-sm truncate">Largest Loser</span>
+                <div className="p-1 bg-red-500/10 rounded-lg">
+                  <TrendingDown className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" />
+                </div>
+              </div>
+              <div className="text-xl sm:text-3xl font-bold text-red-400">
+                ${largestLoser.toFixed(2)}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">Current worst</div>
             </div>
-            <div className="text-xl sm:text-3xl font-bold text-red-400">
-              ${largestLoser.toFixed(2)}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">Current worst</div>
           </div>
         </div>
 
         {openPositions.length > 0 && (
-          <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4 mb-6">
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4">
-                <div className="flex items-center gap-2">
-                  <Filter className="w-4 h-4 text-gray-400 hidden sm:block" />
-                  <span className="text-xs sm:text-sm text-gray-400">Filter:</span>
-                  <select
-                    value={filterType}
-                    onChange={(e) => setFilterType(e.target.value as FilterType)}
-                    className="flex-1 bg-gray-800 text-white text-xs sm:text-sm border border-gray-700 rounded px-2 sm:px-3 py-1.5 focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="all">All Positions</option>
-                    <option value="winning">Winning</option>
-                    <option value="losing">Losing</option>
-                    <option value="breakeven">Breakeven</option>
-                  </select>
+          <div className="relative group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
+            <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl border border-gray-700/50 rounded-xl p-3 sm:p-4 mb-6 shadow-xl">
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4">
+                  <div className="flex items-center gap-2">
+                    <Filter className="w-4 h-4 text-gray-400 hidden sm:block" />
+                    <span className="text-xs sm:text-sm text-gray-400">Filter:</span>
+                    <select
+                      value={filterType}
+                      onChange={(e) => setFilterType(e.target.value as FilterType)}
+                      className="flex-1 bg-gray-700/50 backdrop-blur-sm text-white text-xs sm:text-sm border border-gray-600/50 rounded-lg px-2 sm:px-3 py-1.5 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                    >
+                      <option value="all">All Positions</option>
+                      <option value="winning">Winning</option>
+                      <option value="losing">Losing</option>
+                      <option value="breakeven">Breakeven</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs sm:text-sm text-gray-400">Symbol:</span>
+                    <select
+                      value={selectedSymbol}
+                      onChange={(e) => setSelectedSymbol(e.target.value)}
+                      className="flex-1 bg-gray-700/50 backdrop-blur-sm text-white text-xs sm:text-sm border border-gray-600/50 rounded-lg px-2 sm:px-3 py-1.5 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                    >
+                      <option value="all">All Symbols</option>
+                      {uniqueSymbols.map(symbol => (
+                        <option key={symbol} value={symbol}>{symbol}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <ArrowUpDown className="w-4 h-4 text-gray-400 hidden sm:block" />
+                    <span className="text-xs sm:text-sm text-gray-400">Sort:</span>
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as SortType)}
+                      className="flex-1 bg-gray-700/50 backdrop-blur-sm text-white text-xs sm:text-sm border border-gray-600/50 rounded-lg px-2 sm:px-3 py-1.5 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                    >
+                      <option value="pnl">P&L</option>
+                      <option value="duration">Duration</option>
+                      <option value="symbol">Symbol</option>
+                      <option value="size">Lot Size</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <span className="text-xs sm:text-sm text-gray-400">Symbol:</span>
-                  <select
-                    value={selectedSymbol}
-                    onChange={(e) => setSelectedSymbol(e.target.value)}
-                    className="flex-1 bg-gray-800 text-white text-xs sm:text-sm border border-gray-700 rounded px-2 sm:px-3 py-1.5 focus:outline-none focus:border-emerald-500"
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCloseWinningPositions}
+                    disabled={openPositions.filter(p => calculateCurrentPnL(p) > 0).length === 0}
+                    className="flex-1 px-3 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-medium rounded-lg transition-all shadow-lg hover:shadow-green-500/25 hover:scale-105 active:scale-95 disabled:scale-100"
                   >
-                    <option value="all">All Symbols</option>
-                    {uniqueSymbols.map(symbol => (
-                      <option key={symbol} value={symbol}>{symbol}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <ArrowUpDown className="w-4 h-4 text-gray-400 hidden sm:block" />
-                  <span className="text-xs sm:text-sm text-gray-400">Sort:</span>
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as SortType)}
-                    className="flex-1 bg-gray-800 text-white text-xs sm:text-sm border border-gray-700 rounded px-2 sm:px-3 py-1.5 focus:outline-none focus:border-emerald-500"
+                    Close Winners
+                  </button>
+                  <button
+                    onClick={handleCloseAllPositions}
+                    disabled={openPositions.length === 0}
+                    className="flex-1 px-3 py-2 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-medium rounded-lg transition-all shadow-lg hover:shadow-red-500/25 hover:scale-105 active:scale-95 disabled:scale-100"
                   >
-                    <option value="pnl">P&L</option>
-                    <option value="duration">Duration</option>
-                    <option value="symbol">Symbol</option>
-                    <option value="size">Lot Size</option>
-                  </select>
+                    Close All
+                  </button>
                 </div>
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={handleCloseWinningPositions}
-                  disabled={openPositions.filter(p => calculateCurrentPnL(p) > 0).length === 0}
-                  className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-medium rounded transition-colors"
-                >
-                  Close Winners
-                </button>
-                <button
-                  onClick={handleCloseAllPositions}
-                  disabled={openPositions.length === 0}
-                  className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-medium rounded transition-colors"
-                >
-                  Close All
-                </button>
               </div>
             </div>
           </div>
