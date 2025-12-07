@@ -143,27 +143,16 @@ export function CreditsPage() {
   const subscriptionPackages = packages.filter(p => p.packageType === 'subscription');
 
   return (
-    <div className="app-viewport relative overflow-hidden" ref={pullToRefresh.containerRef}>
-      <div
-        className="fixed inset-0 bg-cover bg-center bg-no-repeat animate-subtle-zoom"
-        style={{
-          backgroundImage: 'url(/2_pipnosis_background_hawk_and_candle_image.png)',
-          backgroundAttachment: 'fixed'
-        }}
+    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950" ref={pullToRefresh.containerRef}>
+      <PullToRefreshIndicator
+        isPulling={pullToRefresh.isPulling}
+        isRefreshing={pullToRefresh.isRefreshing}
+        pullDistance={pullToRefresh.pullDistance}
+        threshold={pullToRefresh.threshold}
       />
-      <div className="fixed inset-0 bg-black/60 pointer-events-none" />
+      <NavigationMenu />
 
-      <div className="relative z-10">
-        <PullToRefreshIndicator
-          isPulling={pullToRefresh.isPulling}
-          isRefreshing={pullToRefresh.isRefreshing}
-          pullDistance={pullToRefresh.pullDistance}
-          threshold={pullToRefresh.threshold}
-        />
-        <NavigationMenu />
-      </div>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 relative z-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         <div className="mb-8">
           <div className="relative inline-block">
             <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur opacity-20" />
@@ -542,9 +531,7 @@ export function CreditsPage() {
           </div>
         )}
       </div>
-      <div className="relative z-10">
-        <BottomNavigation />
-      </div>
+      <BottomNavigation />
     </div>
   );
 }
