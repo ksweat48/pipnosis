@@ -7,6 +7,7 @@ import { ConfirmDialogProvider } from './hooks/useConfirmDialog';
 import { ToastContainer } from './components/ToastNotification';
 import { useToast } from './hooks/useToast';
 import { globalToastManager } from './services/global-toast-manager';
+import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 
 // Lazy load all pages for code splitting
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -60,6 +61,7 @@ const AppRoutes: React.FC = () => {
   return (
     <>
       <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
+      <PWAInstallPrompt />
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
       <Route path="/auth" element={<AuthPage />} />

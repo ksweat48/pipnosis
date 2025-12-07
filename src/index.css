@@ -182,6 +182,10 @@
     animation: slideUp 0.3s ease-out;
   }
 
+  .animate-slide-up {
+    animation: slideUp 0.4s ease-out;
+  }
+
   /* Safe area utilities for mobile notch/home indicator */
   .safe-top {
     padding-top: var(--safe-area-top);
