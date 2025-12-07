@@ -35,10 +35,40 @@ if (typeof window !== 'undefined') {
   setAppHeight();
   window.addEventListener('resize', setAppHeight);
   window.addEventListener('orientationchange', setAppHeight);
+  window.addEventListener('scroll', setAppHeight, { passive: true });
 
   // Also handle visualViewport for better mobile support
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', setAppHeight);
+    window.visualViewport.addEventListener('scroll', setAppHeight);
+  }
+
+  // Auto-hide browser address bar on load
+  // This trick forces mobile browsers to collapse the address bar immediately
+  setTimeout(() => {
+    window.scrollTo(0, 1);
+    setTimeout(() => {
+      window.scrollTo(0, 0);
+      setAppHeight();
+    }, 10);
+  }, 100);
+
+  // Register service worker for PWA functionality
+  if ('serviceWorker' in navigator && import.meta.env.PROD) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then((registration) => {
+          console.log('PWA: Service Worker registered successfully');
+
+          // Check for updates periodically
+          setInterval(() => {
+            registration.update();
+          }, 60000);
+        })
+        .catch((error) => {
+          console.log('PWA: Service Worker registration failed:', error);
+        });
+    });
   }
 }
 
