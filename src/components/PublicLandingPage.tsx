@@ -14,9 +14,16 @@ export function PublicLandingPage() {
       <div className="absolute inset-0 bg-black/60" />
 
       <div className="text-center relative z-10">
-        <h1 className="text-5xl font-bold text-white mb-6">Pipnosis AI Trading</h1>
-        <p className="text-xl text-gray-400 mb-8">AI-Powered Forex Trading Assistant</p>
-        <Link to="/auth" className="px-8 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 inline-block transition-all hover:scale-105 shadow-lg hover:shadow-emerald-500/25">
+        <div className="mb-4">
+          <h1 className="text-7xl md:text-8xl font-bold text-white mb-3 tracking-tight">
+            Pipnosis
+          </h1>
+          <div className="h-0.5 w-32 mx-auto bg-gradient-to-r from-transparent via-emerald-500 to-transparent" />
+        </div>
+        <p className="text-2xl md:text-3xl text-gray-300 font-light tracking-wide mb-12">
+          AI Trading Assistant
+        </p>
+        <Link to="/auth" className="px-10 py-4 bg-emerald-600 text-white text-lg font-semibold rounded-lg hover:bg-emerald-700 inline-block transition-all hover:scale-105 shadow-2xl hover:shadow-emerald-500/50">
           Get Started
         </Link>
       </div>
