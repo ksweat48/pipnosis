@@ -25,13 +25,13 @@ export function PublicLandingPage() {
         </p>
         <div className="relative inline-block">
           <div className="absolute -inset-0.5 blur-sm opacity-75 rounded-lg animate-pulse">
-            <div className="absolute inset-0 bg-gradient-to-r from-red-500 via-emerald-500 to-red-500 rounded-lg"></div>
+            <div className="absolute inset-0 bg-red-500 rounded-lg"></div>
           </div>
           <Link
             to="/auth"
             className="relative px-10 py-4 bg-emerald-600 text-white text-lg font-semibold rounded-lg hover:bg-emerald-700 inline-block transition-all hover:scale-105"
             style={{
-              boxShadow: '0 0 15px rgba(16, 185, 129, 0.6), 0 0 30px rgba(220, 38, 38, 0.4)'
+              boxShadow: '0 0 15px rgba(220, 38, 38, 0.8), 0 0 30px rgba(220, 38, 38, 0.5)'
             }}
           >
             Get Started
