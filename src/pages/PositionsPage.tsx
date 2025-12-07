@@ -109,13 +109,17 @@ export function PositionsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const [open, pending, recent] = await Promise.all([
+      const [open, pending, recent, goalPositions] = await Promise.all([
         simulatedTradingService.getOpenPositions(user.id),
         simulatedTradingService.getPendingOrders(user.id),
-        fetchRecentTrades(user.id)
+        fetchRecentTrades(user.id),
+        fetchGoalModePositions(user.id)
       ]);
 
-      setOpenPositions(open);
+      // Combine simulated and goal mode positions
+      const allOpenPositions = [...open, ...goalPositions];
+
+      setOpenPositions(allOpenPositions);
       setPendingOrders(pending);
       setRecentTrades(recent);
       setLoading(false);
@@ -139,6 +143,36 @@ export function PositionsPage() {
     }
 
     return data || [];
+  };
+
+  const fetchGoalModePositions = async (userId: string): Promise<Position[]> => {
+    const { data, error } = await supabase
+      .from('goal_session_trades')
+      .select('*, goal_sessions!inner(user_id)')
+      .eq('goal_sessions.user_id', userId)
+      .eq('status', 'open');
+
+    if (error) {
+      console.error('Failed to fetch goal mode positions:', error);
+      return [];
+    }
+
+    // Normalize goal mode trades to match Position interface
+    return (data || []).map((trade: any) => ({
+      id: trade.id,
+      symbol: trade.symbol,
+      position_type: trade.direction as 'buy' | 'sell',
+      order_type: 'market' as const,
+      lot_size: parseFloat(trade.position_size) || 0,
+      entry_price: parseFloat(trade.entry_price) || null,
+      limit_price: null,
+      stop_loss: parseFloat(trade.stop_loss) || 0,
+      take_profit: parseFloat(trade.take_profit) || 0,
+      status: 'open' as const,
+      current_price: parseFloat(trade.current_price) || null,
+      current_pnl: parseFloat(trade.current_pnl) || 0,
+      opened_at: trade.opened_at
+    }));
   };
 
   const fetchLivePrices = async (symbols: string[]) => {

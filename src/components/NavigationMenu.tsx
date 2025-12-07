@@ -13,7 +13,7 @@ interface NavigationMenuProps {
 
 const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: NavigationMenuProps) => {
   const location = useLocation();
-  const { user, isAdmin, signOut } = useAuth();
+  const { user, isAdmin, adminLoading, signOut } = useAuth();
   const { balance, totalPnL, openPositionsCount } = useUserBalance(user?.id || null);
   const { balance: tokenBalance } = useTokenBalance(user?.id || null);
   const [showProfileMenu, setShowProfileMenu] = React.useState(false);
@@ -134,7 +134,7 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                           <span>Settings</span>
                         </Link>
 
-                        {isAdmin && (
+                        {!adminLoading && isAdmin && (
                           <>
                             <Link
                               to="/ai-learning-center"

@@ -350,8 +350,6 @@ export function TradeHistory() {
             className="bg-gray-800 text-white text-sm px-3 py-1 rounded border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
             <option value="all">All Sources</option>
-            <option value="manual">Manual Trades</option>
-            <option value="demo">Demo Trades</option>
             <option value="goal_mode">Goal Mode</option>
           </select>
 
