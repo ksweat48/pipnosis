@@ -41,10 +41,12 @@ export function TradeHistory() {
   const [filterOutcome, setFilterOutcome] = useState<string>('all');
   const [filterSource, setFilterSource] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'date' | 'profit'>('date');
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
 
   useEffect(() => {
     fetchTradeHistory();
     fetchStatistics();
+    fetchAvailableSymbols();
   }, []);
 
   const fetchTradeHistory = async () => {
@@ -160,6 +162,41 @@ export function TradeHistory() {
     }
   };
 
+  const fetchAvailableSymbols = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Fetch symbols from open goal mode positions
+      const { data: openGoalTrades, error: openError } = await supabase
+        .from('goal_session_trades')
+        .select('symbol, goal_sessions!inner(user_id)')
+        .eq('goal_sessions.user_id', user.id)
+        .eq('status', 'open');
+
+      // Fetch symbols from closed goal mode positions
+      const { data: closedGoalTrades, error: closedError } = await supabase
+        .from('goal_session_trades')
+        .select('symbol, goal_sessions!inner(user_id)')
+        .eq('goal_sessions.user_id', user.id)
+        .eq('status', 'closed');
+
+      const symbols = new Set<string>();
+
+      if (!openError && openGoalTrades) {
+        openGoalTrades.forEach((trade: any) => symbols.add(trade.symbol));
+      }
+
+      if (!closedError && closedGoalTrades) {
+        closedGoalTrades.forEach((trade: any) => symbols.add(trade.symbol));
+      }
+
+      setAvailableSymbols(Array.from(symbols).sort());
+    } catch (error) {
+      console.error('Failed to fetch available symbols:', error);
+    }
+  };
+
   const exportToCSV = () => {
     if (trades.length === 0) return;
 
@@ -210,7 +247,10 @@ export function TradeHistory() {
     window.URL.revokeObjectURL(url);
   };
 
-  const uniqueSymbols = Array.from(new Set(trades.map(t => t.symbol)));
+  // Use availableSymbols from state, fallback to trades if empty
+  const uniqueSymbols = availableSymbols.length > 0
+    ? availableSymbols
+    : Array.from(new Set(trades.map(t => t.symbol)));
 
   const filteredTrades = trades
     .filter(trade => {
