@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { Eye, EyeOff } from 'lucide-react';
 
 export function AuthPage() {
   const [email, setEmail] = useState('');
@@ -8,6 +9,7 @@ export function AuthPage() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const { signIn, signUp } = useAuth();
   const navigate = useNavigate();
 
@@ -66,14 +68,36 @@ export function AuthPage() {
           </div>
 
           <div>
-            <label className="block text-gray-400 text-sm mb-2">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-gray-800 text-white p-3 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              required
-            />
+            <div className="flex justify-between items-center mb-2">
+              <label className="block text-gray-400 text-sm">Password</label>
+              {!isSignUp && (
+                <Link
+                  to="/reset-password"
+                  className="text-emerald-500 hover:text-emerald-400 text-xs transition-colors"
+                >
+                  Forgot password?
+                </Link>
+              )}
+            </div>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-gray-800 text-white p-3 pr-12 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                required
+              />
+              {isSignUp && (
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300 transition-colors"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              )}
+            </div>
           </div>
 
           <button

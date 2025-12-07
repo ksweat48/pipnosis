@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { ArrowLeft } from 'lucide-react';
 
 export function ResetPasswordPage() {
   const [email, setEmail] = useState('');
@@ -27,8 +29,27 @@ export function ResetPasswordPage() {
   };
 
   return (
-    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex items-center justify-center p-4">
-      <div className="glass-card p-8 max-w-md w-full">
+    <div className="app-viewport relative flex items-center justify-center p-4 overflow-hidden">
+      <div
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat animate-subtle-zoom"
+        style={{
+          backgroundImage: 'url(/2_pipnosis_background_hawk_and_candle_image.png)',
+          backgroundAttachment: 'fixed'
+        }}
+      />
+      <div className="absolute inset-0 bg-black/60" />
+
+      <div className="glass-card p-8 max-w-md w-full relative z-10">
+        <div className="mb-4">
+          <Link
+            to="/auth"
+            className="inline-flex items-center text-gray-400 hover:text-emerald-500 text-sm transition-colors"
+          >
+            <ArrowLeft size={16} className="mr-1" />
+            Back to Sign In
+          </Link>
+        </div>
+
         <h1 className="text-3xl font-bold text-white mb-6 text-center">Reset Password</h1>
 
         {message && (
