@@ -444,50 +444,50 @@ export function PositionsPage() {
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
       <NavigationMenu />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        <div className="mb-8">
-          <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">Active Positions</h1>
-          <p className="text-gray-400 text-lg">Monitor and manage all your trading positions in real-time</p>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-12">
+        <div className="mb-6">
+          <h1 className="text-xl sm:text-3xl font-bold text-white mb-1">Active Positions</h1>
+          <p className="text-gray-400 text-sm sm:text-base">Monitor and manage all your trading positions in real-time</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-8">
-          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-gray-400 text-sm">Open Positions</span>
-              <Activity className="w-5 h-5 text-emerald-400" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-6">
+            <div className="flex items-center justify-between mb-1 sm:mb-2">
+              <span className="text-gray-400 text-xs sm:text-sm">Open Positions</span>
+              <Activity className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
             </div>
-            <div className="text-3xl font-bold text-white">{openPositions.length}</div>
+            <div className="text-xl sm:text-3xl font-bold text-white">{openPositions.length}</div>
             <div className="text-xs text-gray-500 mt-1">{pendingOrders.length} pending</div>
           </div>
 
-          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-gray-400 text-sm">Total P&L</span>
-              <DollarSign className="w-5 h-5 text-blue-400" />
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-6">
+            <div className="flex items-center justify-between mb-1 sm:mb-2">
+              <span className="text-gray-400 text-xs sm:text-sm truncate">Total P&L</span>
+              <DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400" />
             </div>
-            <div className={`text-3xl font-bold ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            <div className={`text-xl sm:text-3xl font-bold ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
               {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)}
             </div>
             <div className="text-xs text-gray-500 mt-1">Unrealized</div>
           </div>
 
-          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-gray-400 text-sm">Largest Winner</span>
-              <TrendingUp className="w-5 h-5 text-green-400" />
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-6">
+            <div className="flex items-center justify-between mb-1 sm:mb-2">
+              <span className="text-gray-400 text-xs sm:text-sm truncate">Largest Winner</span>
+              <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-green-400" />
             </div>
-            <div className="text-3xl font-bold text-green-400">
+            <div className="text-xl sm:text-3xl font-bold text-green-400">
               +${largestWinner.toFixed(2)}
             </div>
             <div className="text-xs text-gray-500 mt-1">Current best</div>
           </div>
 
-          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-gray-400 text-sm">Largest Loser</span>
-              <TrendingDown className="w-5 h-5 text-red-400" />
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-6">
+            <div className="flex items-center justify-between mb-1 sm:mb-2">
+              <span className="text-gray-400 text-xs sm:text-sm truncate">Largest Loser</span>
+              <TrendingDown className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" />
             </div>
-            <div className="text-3xl font-bold text-red-400">
+            <div className="text-xl sm:text-3xl font-bold text-red-400">
               ${largestLoser.toFixed(2)}
             </div>
             <div className="text-xs text-gray-500 mt-1">Current worst</div>
@@ -495,64 +495,66 @@ export function PositionsPage() {
         </div>
 
         {openPositions.length > 0 && (
-          <div className="bg-gray-900 border border-gray-700 rounded-lg p-4 mb-6">
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-gray-400" />
-                <span className="text-sm text-gray-400">Filter:</span>
-                <select
-                  value={filterType}
-                  onChange={(e) => setFilterType(e.target.value as FilterType)}
-                  className="bg-gray-800 text-white text-sm border border-gray-700 rounded px-3 py-1.5 focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="all">All Positions</option>
-                  <option value="winning">Winning Only</option>
-                  <option value="losing">Losing Only</option>
-                  <option value="breakeven">Breakeven</option>
-                </select>
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4 mb-6">
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4">
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-gray-400 hidden sm:block" />
+                  <span className="text-xs sm:text-sm text-gray-400">Filter:</span>
+                  <select
+                    value={filterType}
+                    onChange={(e) => setFilterType(e.target.value as FilterType)}
+                    className="flex-1 bg-gray-800 text-white text-xs sm:text-sm border border-gray-700 rounded px-2 sm:px-3 py-1.5 focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="all">All Positions</option>
+                    <option value="winning">Winning</option>
+                    <option value="losing">Losing</option>
+                    <option value="breakeven">Breakeven</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs sm:text-sm text-gray-400">Symbol:</span>
+                  <select
+                    value={selectedSymbol}
+                    onChange={(e) => setSelectedSymbol(e.target.value)}
+                    className="flex-1 bg-gray-800 text-white text-xs sm:text-sm border border-gray-700 rounded px-2 sm:px-3 py-1.5 focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="all">All Symbols</option>
+                    {uniqueSymbols.map(symbol => (
+                      <option key={symbol} value={symbol}>{symbol}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <ArrowUpDown className="w-4 h-4 text-gray-400 hidden sm:block" />
+                  <span className="text-xs sm:text-sm text-gray-400">Sort:</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as SortType)}
+                    className="flex-1 bg-gray-800 text-white text-xs sm:text-sm border border-gray-700 rounded px-2 sm:px-3 py-1.5 focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="pnl">P&L</option>
+                    <option value="duration">Duration</option>
+                    <option value="symbol">Symbol</option>
+                    <option value="size">Lot Size</option>
+                  </select>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-400">Symbol:</span>
-                <select
-                  value={selectedSymbol}
-                  onChange={(e) => setSelectedSymbol(e.target.value)}
-                  className="bg-gray-800 text-white text-sm border border-gray-700 rounded px-3 py-1.5 focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="all">All Symbols</option>
-                  {uniqueSymbols.map(symbol => (
-                    <option key={symbol} value={symbol}>{symbol}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <ArrowUpDown className="w-4 h-4 text-gray-400" />
-                <span className="text-sm text-gray-400">Sort:</span>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as SortType)}
-                  className="bg-gray-800 text-white text-sm border border-gray-700 rounded px-3 py-1.5 focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="pnl">P&L</option>
-                  <option value="duration">Duration</option>
-                  <option value="symbol">Symbol</option>
-                  <option value="size">Lot Size</option>
-                </select>
-              </div>
-
-              <div className="ml-auto flex gap-2">
+              <div className="flex gap-2">
                 <button
                   onClick={handleCloseWinningPositions}
                   disabled={openPositions.filter(p => calculateCurrentPnL(p) > 0).length === 0}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium rounded transition-colors"
+                  className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-medium rounded transition-colors"
                 >
                   Close Winners
                 </button>
                 <button
                   onClick={handleCloseAllPositions}
                   disabled={openPositions.length === 0}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium rounded transition-colors"
+                  className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-medium rounded transition-colors"
                 >
                   Close All
                 </button>
@@ -572,10 +574,10 @@ export function PositionsPage() {
             <>
               {filteredPositions.length > 0 && (
                 <div className="bg-gray-900 border border-gray-700 rounded-lg">
-                  <div className="p-4 border-b border-gray-700">
-                    <h3 className="text-lg font-bold text-white">Open Positions ({filteredPositions.length})</h3>
+                  <div className="p-3 sm:p-4 border-b border-gray-700">
+                    <h3 className="text-base sm:text-lg font-bold text-white">Open Positions ({filteredPositions.length})</h3>
                   </div>
-                  <div className="p-4 space-y-3">
+                  <div className="p-3 sm:p-4 space-y-3">
                     {filteredPositions.map((position) => {
                       const currentPnL = calculateCurrentPnL(position);
                       const currentPrice = livePrices[position.symbol]
@@ -599,23 +601,23 @@ export function PositionsPage() {
                       return (
                         <div
                           key={position.id}
-                          className="bg-gray-800 border border-gray-700 rounded-lg p-5 hover:border-gray-600 transition-all"
+                          className="bg-gray-800 border border-gray-700 rounded-lg p-3 sm:p-5 hover:border-gray-600 transition-all"
                         >
-                          <div className="flex items-start justify-between mb-4">
-                            <div className="flex items-center gap-3">
+                          <div className="flex items-start justify-between mb-3 sm:mb-4">
+                            <div className="flex items-center gap-2 sm:gap-3">
                               {position.position_type === 'buy' ? (
-                                <div className="p-2 bg-green-900/30 rounded">
-                                  <TrendingUp className="w-6 h-6 text-green-400" />
+                                <div className="p-1.5 sm:p-2 bg-green-900/30 rounded">
+                                  <TrendingUp className="w-4 h-4 sm:w-6 sm:h-6 text-green-400" />
                                 </div>
                               ) : (
-                                <div className="p-2 bg-red-900/30 rounded">
-                                  <TrendingDown className="w-6 h-6 text-red-400" />
+                                <div className="p-1.5 sm:p-2 bg-red-900/30 rounded">
+                                  <TrendingDown className="w-4 h-4 sm:w-6 sm:h-6 text-red-400" />
                                 </div>
                               )}
                               <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xl font-bold text-white">{position.symbol}</span>
-                                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                <div className="flex items-center gap-1.5 sm:gap-2">
+                                  <span className="text-base sm:text-xl font-bold text-white">{position.symbol}</span>
+                                  <span className={`px-1.5 sm:px-2 py-0.5 rounded text-xs font-semibold ${
                                     position.position_type === 'buy'
                                       ? 'bg-green-900/30 text-green-400'
                                       : 'bg-red-900/30 text-red-400'
@@ -623,65 +625,63 @@ export function PositionsPage() {
                                     {position.position_type.toUpperCase()}
                                   </span>
                                 </div>
-                                <div className="text-sm text-gray-400 mt-1">
+                                <div className="text-xs sm:text-sm text-gray-400 mt-1">
                                   {position.lot_size} lots • {getDuration(position.opened_at)}
                                 </div>
                               </div>
                             </div>
                             <div className="text-right">
-                              <div className={`text-2xl font-bold ${currentPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              <div className={`text-lg sm:text-2xl font-bold ${currentPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                                 {currentPnL >= 0 ? '+' : ''}${currentPnL.toFixed(2)}
                               </div>
-                              <div className={`text-sm ${pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              <div className={`text-xs sm:text-sm ${pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                                 {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
                               </div>
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 sm:gap-4 mb-3 sm:mb-4">
                             <div>
-                              <div className="text-xs text-gray-500 mb-1">Entry Price</div>
-                              <div className="text-white font-medium">{formatPrice(position.entry_price, position.symbol)}</div>
+                              <div className="text-xs text-gray-500 mb-1">Entry</div>
+                              <div className="text-white font-medium text-xs sm:text-sm truncate">{formatPrice(position.entry_price, position.symbol)}</div>
                             </div>
                             <div>
-                              <div className="text-xs text-gray-500 mb-1">Current Price</div>
-                              <div className="text-white font-medium">{formatPrice(currentPrice, position.symbol)}</div>
+                              <div className="text-xs text-gray-500 mb-1">Current</div>
+                              <div className="text-white font-medium text-xs sm:text-sm truncate">{formatPrice(currentPrice, position.symbol)}</div>
                             </div>
                             <div>
                               <div className="text-xs text-gray-500 mb-1">Stop Loss</div>
-                              <div className="text-yellow-400 font-medium">{formatPrice(position.stop_loss, position.symbol)}</div>
-                              <div className="text-xs text-gray-600">{distanceToSL.toFixed(1)} pips</div>
+                              <div className="text-yellow-400 font-medium text-xs sm:text-sm truncate">{formatPrice(position.stop_loss, position.symbol)}</div>
+                              <div className="text-xs text-gray-600">{distanceToSL.toFixed(1)}p</div>
                             </div>
                             <div>
                               <div className="text-xs text-gray-500 mb-1">Take Profit</div>
-                              <div className="text-green-400 font-medium">{formatPrice(position.take_profit, position.symbol)}</div>
-                              <div className="text-xs text-gray-600">{distanceToTP.toFixed(1)} pips</div>
+                              <div className="text-green-400 font-medium text-xs sm:text-sm truncate">{formatPrice(position.take_profit, position.symbol)}</div>
+                              <div className="text-xs text-gray-600">{distanceToTP.toFixed(1)}p</div>
                             </div>
-                            <div>
+                            <div className="hidden md:block">
                               <div className="text-xs text-gray-500 mb-1">Opened</div>
                               <div className="text-white font-medium text-sm">{formatDateTime(position.opened_at)}</div>
                             </div>
                           </div>
 
-                          <div className="flex justify-end">
-                            <button
-                              onClick={() => handleClosePosition(position)}
-                              disabled={closingPosition === position.id}
-                              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium rounded transition-colors"
-                            >
-                              {closingPosition === position.id ? (
-                                <>
-                                  <Clock className="w-4 h-4 animate-spin" />
-                                  Closing...
-                                </>
-                              ) : (
-                                <>
-                                  <X className="w-4 h-4" />
-                                  Close Position
-                                </>
-                              )}
-                            </button>
-                          </div>
+                          <button
+                            onClick={() => handleClosePosition(position)}
+                            disabled={closingPosition === position.id}
+                            className="w-full flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-medium rounded transition-colors"
+                          >
+                            {closingPosition === position.id ? (
+                              <>
+                                <Clock className="w-4 h-4 animate-spin" />
+                                Closing...
+                              </>
+                            ) : (
+                              <>
+                                <X className="w-4 h-4" />
+                                Close Position
+                              </>
+                            )}
+                          </button>
                         </div>
                       );
                     })}
@@ -691,10 +691,10 @@ export function PositionsPage() {
 
               {pendingOrders.length > 0 && (
                 <div className="bg-gray-900 border border-gray-700 rounded-lg">
-                  <div className="p-4 border-b border-gray-700">
-                    <h3 className="text-lg font-bold text-white">Pending Orders ({pendingOrders.length})</h3>
+                  <div className="p-3 sm:p-4 border-b border-gray-700">
+                    <h3 className="text-base sm:text-lg font-bold text-white">Pending Orders ({pendingOrders.length})</h3>
                   </div>
-                  <div className="p-4 space-y-3">
+                  <div className="p-3 sm:p-4 space-y-3">
                     {pendingOrders.map((order) => {
                       const currentPrice = livePrices[order.symbol];
                       const distanceToPips = currentPrice && order.limit_price
@@ -778,14 +778,14 @@ export function PositionsPage() {
 
           {recentTrades.length > 0 && (
             <div className="bg-gray-900 border border-gray-700 rounded-lg">
-              <div className="p-4 border-b border-gray-700 flex items-center justify-between">
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <History className="w-5 h-5" />
+              <div className="p-3 sm:p-4 border-b border-gray-700 flex items-center justify-between">
+                <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                  <History className="w-4 h-4 sm:w-5 sm:h-5" />
                   Recent Closures
                 </h3>
-                <span className="text-sm text-gray-400">Last 10 trades</span>
+                <span className="text-xs sm:text-sm text-gray-400">Last 10</span>
               </div>
-              <div className="p-4">
+              <div className="p-3 sm:p-4">
                 <div className="space-y-2">
                   {recentTrades.map((trade) => (
                     <div
