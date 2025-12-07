@@ -24,7 +24,7 @@ export function usePullToRefresh({
   const handleTouchStart = useCallback((e: TouchEvent) => {
     if (!enabled || isRefreshing) return;
 
-    const scrollableElement = scrollableElementRef.current || document.scrollingElement || document.documentElement;
+    const scrollableElement = scrollableElementRef.current || containerRef.current || document.scrollingElement || document.documentElement;
     const isAtTop = scrollableElement.scrollTop === 0;
 
     if (isAtTop) {
@@ -35,7 +35,7 @@ export function usePullToRefresh({
   const handleTouchMove = useCallback((e: TouchEvent) => {
     if (!enabled || isRefreshing || touchStartY.current === 0) return;
 
-    const scrollableElement = scrollableElementRef.current || document.scrollingElement || document.documentElement;
+    const scrollableElement = scrollableElementRef.current || containerRef.current || document.scrollingElement || document.documentElement;
     const isAtTop = scrollableElement.scrollTop === 0;
 
     if (!isAtTop) {
@@ -79,8 +79,9 @@ export function usePullToRefresh({
     const container = containerRef.current;
     if (!container || !enabled) return;
 
+    // Look for a specific scrollable element, otherwise use the container itself
     const scrollable = container.querySelector('[data-scrollable]') as Element;
-    scrollableElementRef.current = scrollable;
+    scrollableElementRef.current = scrollable || container;
 
     container.addEventListener('touchstart', handleTouchStart, { passive: true });
     container.addEventListener('touchmove', handleTouchMove, { passive: false });
