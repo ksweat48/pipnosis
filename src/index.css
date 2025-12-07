@@ -121,9 +121,9 @@
 
   /* Fixed viewport layout for all pages - mobile optimized */
   .app-viewport {
-    min-height: 100vh; /* Fallback */
-    min-height: 100dvh; /* Modern browsers */
-    min-height: var(--app-height); /* Dynamic */
+    height: 100vh; /* Fallback */
+    height: 100dvh; /* Modern browsers */
+    height: var(--app-height); /* Dynamic */
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior-y: none;
