@@ -32,10 +32,23 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
     <nav className="sticky top-0 bg-gray-900 border-b border-gray-800 z-[9999]" style={{ paddingTop: 'var(--safe-area-top)' }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6" style={{ paddingLeft: 'max(1rem, var(--safe-area-left))', paddingRight: 'max(1rem, var(--safe-area-right))' }}>
         <div className="flex items-center justify-between h-14 sm:h-16 relative">
-          <div className="flex items-center gap-8">
+          <div className="flex items-center gap-4 sm:gap-8">
             <Link to="/trade" className="flex items-center gap-2">
               <img src="/Pipnosis icon.png" alt="Pipnosis AI" className="h-10 w-10" />
             </Link>
+
+            {/* Token Balance Display */}
+            {user && (
+              <div className="flex items-center gap-2">
+                <Coins size={18} className="text-emerald-400" />
+                <div className="flex flex-col items-start">
+                  <div className="text-gray-400 text-xs leading-tight">Tokens</div>
+                  <div className={`font-semibold text-sm leading-tight ${tokenBalance?.isAdmin ? 'text-purple-400' : 'text-emerald-400'}`}>
+                    {tokenBalance?.isAdmin ? '∞' : tokenBalance?.balance.toFixed(0) || '0'}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="hidden md:flex items-center gap-2">
               {navItems.map((item) => {
