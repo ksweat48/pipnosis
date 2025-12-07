@@ -65,7 +65,7 @@ export function ResetPasswordPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-gray-800 text-white p-3 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full bg-white/20 text-white p-3 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500 placeholder-gray-300"
               required
             />
           </div>

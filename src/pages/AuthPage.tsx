@@ -62,7 +62,7 @@ export function AuthPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-gray-800 text-white p-3 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full bg-white/20 text-white p-3 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500 placeholder-gray-300"
               required
             />
           </div>
@@ -84,7 +84,7 @@ export function AuthPage() {
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-gray-800 text-white p-3 pr-12 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full bg-white/20 text-white p-3 pr-12 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500 placeholder-gray-300"
                 required
               />
               {isSignUp && (
