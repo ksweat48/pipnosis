@@ -26,7 +26,7 @@ export function AITradePage() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
         <div className="mb-8">
-          <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">AI Trade</h1>
+          <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">Trade</h1>
           <p className="text-gray-400 text-lg">Let AI analyze markets and execute your trading goals autonomously</p>
         </div>
 

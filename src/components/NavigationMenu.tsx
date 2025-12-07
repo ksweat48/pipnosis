@@ -21,6 +21,7 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
   const navItems = [
     { path: '/trade', label: 'Charts', icon: TrendingUp },
     { path: '/positions', label: 'Positions', icon: Activity },
+    { path: '/ai-trade', label: 'Trade', icon: Zap },
     { path: '/analysis', label: 'Analysis', icon: BarChart3 },
     { path: '/journal', label: 'Journal', icon: BookOpen },
   ];
@@ -28,7 +29,7 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <nav className="bg-gray-900 border-b border-gray-800 relative z-[9999]" style={{ paddingTop: 'var(--safe-area-top)' }}>
+    <nav className="sticky top-0 bg-gray-900 border-b border-gray-800 z-[9999]" style={{ paddingTop: 'var(--safe-area-top)' }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6" style={{ paddingLeft: 'max(1rem, var(--safe-area-left))', paddingRight: 'max(1rem, var(--safe-area-right))' }}>
         <div className="flex items-center justify-between h-14 sm:h-16 relative">
           <div className="flex items-center gap-8">
