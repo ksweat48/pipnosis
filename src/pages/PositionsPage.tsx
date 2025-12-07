@@ -508,7 +508,7 @@ export function PositionsPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-12 relative z-10">
         <div className="mb-6">
           <div className="relative inline-block">
-            <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur opacity-20" />
+            <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur-sm opacity-5" />
             <h1 className="relative text-xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-blue-400 to-emerald-400 mb-1">Active Positions</h1>
           </div>
           <p className="text-gray-400 text-sm sm:text-base flex items-center gap-2">

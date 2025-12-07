@@ -164,7 +164,7 @@ export function AnalysisPage() {
         <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div className="relative inline-block">
-              <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur opacity-20" />
+              <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur-sm opacity-5" />
               <h2 className="relative text-xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-blue-400 to-emerald-400 mb-1">Performance Analysis</h2>
             </div>
             <p className="text-gray-400 text-sm sm:text-base flex items-center gap-2">
