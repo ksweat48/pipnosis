@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, AlertCircle, Loader2, Zap, AlertTriangle, CheckCircle, Sparkles } from 'lucide-react';
+import { Target, TrendingUp, Clock, AlertCircle, Loader2, Zap, AlertTriangle, CheckCircle, Sparkles, ChevronDown } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalConfig } from '../services/smart-goal-session-manager';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { aiGoalParser } from '../lib/aiGoalParser';
@@ -51,6 +51,7 @@ export const SmartGoalPanel: React.FC = () => {
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [showWarning, setShowWarning] = useState(true);
   const [parsedGoal, setParsedGoal] = useState<any>(null);
+  const [isTradingModeExpanded, setIsTradingModeExpanded] = useState(false);
 
   useEffect(() => {
     const validateGoal = async () => {
@@ -139,15 +140,29 @@ export const SmartGoalPanel: React.FC = () => {
         </div>
 
       <div className="space-y-4">
-        <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-3 mb-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Zap className="w-4 h-4 text-blue-400" />
-            <span className="text-sm font-semibold text-blue-400">Short-Term Trading Mode</span>
-          </div>
-          <p className="text-xs text-gray-300">
-            Pipnosis specializes in trades lasting <strong>minutes to hours</strong>, never overnight.
-            <strong>Pipnosis will always try to complete your goal in ONE trade</strong>, but may use several trades if needed depending on markets and the goal itself.
-          </p>
+        <div className="bg-blue-900/20 border border-blue-700 rounded-lg overflow-hidden mb-3">
+          <button
+            onClick={() => setIsTradingModeExpanded(!isTradingModeExpanded)}
+            className="w-full flex items-center justify-between gap-2 p-3 hover:bg-blue-900/30 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-blue-400" />
+              <span className="text-sm font-semibold text-blue-400">Short-Term Trading Mode</span>
+            </div>
+            <ChevronDown
+              className={`w-4 h-4 text-blue-400 transition-transform duration-200 ${
+                isTradingModeExpanded ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
+          {isTradingModeExpanded && (
+            <div className="px-3 pb-3 animate-in fade-in slide-in-from-top-2 duration-200">
+              <p className="text-xs text-gray-300">
+                Pipnosis specializes in trades lasting <strong>minutes to hours</strong>, never overnight.
+                <strong> Pipnosis will always try to complete your goal in ONE trade</strong>, but may use several trades if needed depending on markets and the goal itself.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">

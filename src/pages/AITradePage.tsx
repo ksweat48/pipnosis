@@ -34,13 +34,13 @@ export function AITradePage() {
         <div className="mb-10">
           <div className="relative inline-block">
             <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur-sm opacity-5" />
-            <h1 className="relative text-4xl sm:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-blue-400 to-emerald-400 mb-3">
+            <h1 className="relative text-3xl sm:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-blue-400 to-emerald-400">
               Pipnosis
             </h1>
           </div>
 
-          <p className="text-gray-400 text-lg mt-4 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-emerald-400" />
+          <p className="text-gray-400 text-base mt-1 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-emerald-400" />
             Your AI Trading Assistant
           </p>
         </div>
