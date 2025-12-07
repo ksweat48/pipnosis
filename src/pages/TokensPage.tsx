@@ -142,7 +142,7 @@ export function TokensPage() {
   const subscriptionPackages = packages.filter(p => p.packageType === 'subscription');
 
   return (
-    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative overflow-hidden" ref={pullToRefresh.containerRef}>
+    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative" ref={pullToRefresh.containerRef}>
       <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-blue-500/5 pointer-events-none" />
       <div className="absolute top-20 left-10 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl animate-pulse" />
       <div className="absolute bottom-20 right-10 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
@@ -158,7 +158,7 @@ export function TokensPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 relative z-10">
         <div className="mb-8">
           <div className="relative inline-block">
-            <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur opacity-30 animate-pulse" />
+            <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur opacity-20" />
             <h1 className="relative text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-blue-400 to-emerald-400 mb-2">
               Tokens
             </h1>

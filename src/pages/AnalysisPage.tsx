@@ -147,7 +147,7 @@ export function AnalysisPage() {
   }
 
   return (
-    <div ref={pullToRefresh.containerRef} className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative overflow-hidden">
+    <div ref={pullToRefresh.containerRef} className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative">
       <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-blue-500/5 pointer-events-none" />
       <div className="absolute top-20 left-10 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl animate-pulse" />
       <div className="absolute bottom-20 right-10 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
@@ -164,7 +164,7 @@ export function AnalysisPage() {
         <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div className="relative inline-block">
-              <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur opacity-30 animate-pulse" />
+              <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur opacity-20" />
               <h2 className="relative text-xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-blue-400 to-emerald-400 mb-1">Performance Analysis</h2>
             </div>
             <p className="text-gray-400 text-sm sm:text-base flex items-center gap-2">

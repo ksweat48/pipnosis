@@ -492,7 +492,7 @@ export function PositionsPage() {
   }
 
   return (
-    <div ref={pullToRefresh.containerRef} className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative overflow-hidden">
+    <div ref={pullToRefresh.containerRef} className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative">
       <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-blue-500/5 pointer-events-none" />
       <div className="absolute top-20 left-10 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl animate-pulse" />
       <div className="absolute bottom-20 right-10 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
@@ -508,7 +508,7 @@ export function PositionsPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-12 relative z-10">
         <div className="mb-6">
           <div className="relative inline-block">
-            <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur opacity-30 animate-pulse" />
+            <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur opacity-20" />
             <h1 className="relative text-xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-blue-400 to-emerald-400 mb-1">Active Positions</h1>
           </div>
           <p className="text-gray-400 text-sm sm:text-base flex items-center gap-2">
