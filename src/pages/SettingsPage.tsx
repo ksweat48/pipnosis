@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { NavigationMenu } from '@/components/NavigationMenu';
+import { BottomNavigation } from '@/components/BottomNavigation';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { supabase } from '@/lib/supabase';
@@ -904,6 +905,7 @@ export function SettingsPage() {
           </div>
         )}
       </div>
+      <BottomNavigation />
     </div>
   );
 }

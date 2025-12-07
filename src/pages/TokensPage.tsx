@@ -7,6 +7,7 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { tokenMeterService } from '@/services/token-meter-service';
 import { supabase } from '@/lib/supabase';
 import { NavigationMenu } from '@/components/NavigationMenu';
+import { BottomNavigation } from '@/components/BottomNavigation';
 
 interface TokenPackage {
   id: string;
@@ -560,6 +561,7 @@ export function TokensPage() {
           </div>
         )}
       </div>
+      <BottomNavigation />
     </div>
   );
 }

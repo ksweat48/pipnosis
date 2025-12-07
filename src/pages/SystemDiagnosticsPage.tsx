@@ -3,6 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 // learning-pipeline-health-check removed - diagnostics simplified
 // LearningPipelineMonitor removed
 import GPT4oUsageMonitor from '../components/GPT4oUsageMonitor';
+import { BottomNavigation } from '@/components/BottomNavigation';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { supabase } from '../lib/supabase';
@@ -426,6 +427,7 @@ export default function SystemDiagnosticsPage() {
           </div>
         </div>
       </div>
+      <BottomNavigation />
     </div>
   );
 }

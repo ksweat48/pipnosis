@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { NavigationMenu } from '@/components/NavigationMenu';
+import { BottomNavigation } from '@/components/BottomNavigation';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { DataManagementPanel } from '@/components/DataManagementPanel';
@@ -415,6 +416,7 @@ export function AdminDashboard() {
           </div>
         )}
       </main>
+      <BottomNavigation />
     </div>
   );
 }
