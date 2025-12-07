@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, WifiOff, AlertTriangle, Search, Shield } from 'lucide-react';
+import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, WifiOff, AlertTriangle, Search, Shield, Sparkles } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalNotificationSystem } from '../services/goal-notifications';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
@@ -176,11 +176,49 @@ export const GoalSessionDashboard: React.FC = () => {
 
   if (!activeSession) {
     return (
-      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-        <div className="text-center">
-          <Target className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-400">No active goal session</p>
-          <p className="text-sm text-gray-500 mt-1">Create a new goal to get started</p>
+      <div className="relative group">
+        <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-emerald-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
+
+        <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl p-12 border border-gray-700/50 shadow-2xl">
+          <div className="text-center">
+            <div className="relative inline-block mb-6">
+              <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full blur-2xl opacity-30 animate-pulse" />
+              <div className="relative w-24 h-24 mx-auto bg-gradient-to-br from-gray-700 to-gray-800 rounded-full flex items-center justify-center border border-gray-600/50">
+                <Target className="w-12 h-12 text-gray-500" />
+              </div>
+            </div>
+
+            <h3 className="text-2xl font-bold text-white mb-2">No active goal session</h3>
+            <p className="text-gray-400 mb-6 max-w-md mx-auto">
+              Create a new goal to get started with AI-powered trading. Set your target and let Pipnosis work autonomously to achieve it.
+            </p>
+
+            <div className="grid grid-cols-3 gap-4 max-w-2xl mx-auto mt-8 pt-8 border-t border-gray-700/50">
+              <div className="text-center">
+                <div className="w-12 h-12 mx-auto mb-3 bg-gradient-to-br from-emerald-600/20 to-blue-600/20 rounded-xl flex items-center justify-center border border-emerald-500/20">
+                  <Sparkles className="w-6 h-6 text-emerald-400" />
+                </div>
+                <p className="text-sm font-medium text-gray-300">AI-Powered</p>
+                <p className="text-xs text-gray-500 mt-1">Smart analysis</p>
+              </div>
+
+              <div className="text-center">
+                <div className="w-12 h-12 mx-auto mb-3 bg-gradient-to-br from-blue-600/20 to-emerald-600/20 rounded-xl flex items-center justify-center border border-blue-500/20">
+                  <TrendingUp className="w-6 h-6 text-blue-400" />
+                </div>
+                <p className="text-sm font-medium text-gray-300">Autonomous</p>
+                <p className="text-xs text-gray-500 mt-1">Hands-free trading</p>
+              </div>
+
+              <div className="text-center">
+                <div className="w-12 h-12 mx-auto mb-3 bg-gradient-to-br from-emerald-600/20 to-blue-600/20 rounded-xl flex items-center justify-center border border-emerald-500/20">
+                  <Shield className="w-6 h-6 text-emerald-400" />
+                </div>
+                <p className="text-sm font-medium text-gray-300">Protected</p>
+                <p className="text-xs text-gray-500 mt-1">Risk managed</p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -188,28 +226,37 @@ export const GoalSessionDashboard: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-6 border border-gray-700">
-        <div className="flex items-start justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 bg-gray-700 rounded-lg ${getStatusColor(activeSession.status)}`}>
-              {getStatusIcon(activeSession.status)}
+      <div className="relative group">
+        <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-xl opacity-20 group-hover:opacity-30 transition duration-300 blur" />
+
+        <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl p-6 border border-gray-700/50 shadow-2xl">
+          <div className="flex items-start justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <div className={`absolute inset-0 rounded-xl blur opacity-50 ${getStatusColor(activeSession.status).replace('text-', 'bg-')}`} />
+                <div className={`relative p-3 bg-gradient-to-br from-gray-700 to-gray-800 rounded-xl ${getStatusColor(activeSession.status)} shadow-lg`}>
+                  {getStatusIcon(activeSession.status)}
+                </div>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  Active Goal Session
+                  <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />
+                </h3>
+                <p className="text-sm text-gray-400 capitalize">{activeSession.status.replace('_', ' ')}</p>
+                {scanStatus.message && (
+                  <p className="text-xs text-gray-500 mt-1">{scanStatus.message}</p>
+                )}
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">Active Goal Session</h3>
-              <p className="text-sm text-gray-400 capitalize">{activeSession.status.replace('_', ' ')}</p>
-              {scanStatus.message && (
-                <p className="text-xs text-gray-500 mt-1">{scanStatus.message}</p>
-              )}
-            </div>
+            <button
+              onClick={handleStopSession}
+              className="px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 rounded-xl text-sm font-semibold text-white transition-all duration-300 flex items-center gap-2 shadow-lg hover:shadow-red-500/25 hover:scale-105 active:scale-95"
+            >
+              <Pause className="w-4 h-4" />
+              Stop Session
+            </button>
           </div>
-          <button
-            onClick={handleStopSession}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium text-white transition-colors flex items-center gap-2"
-          >
-            <Pause className="w-4 h-4" />
-            Stop Session
-          </button>
-        </div>
 
         {/* Server-Side Status Indicator */}
         {activeSession.serverHeartbeat && (
@@ -244,42 +291,60 @@ export const GoalSessionDashboard: React.FC = () => {
         )}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-gray-700/50 rounded-lg p-4">
-            <div className="text-sm text-gray-400 mb-1">Target</div>
-            <div className="text-2xl font-bold text-white">
-              ${activeSession.config.goalAmount.toFixed(0)}
+          <div className="relative group overflow-hidden rounded-xl">
+            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-blue-500/10 group-hover:from-emerald-500/20 group-hover:to-blue-500/20 transition-all duration-300" />
+            <div className="relative bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 group-hover:border-emerald-500/30 transition-all duration-300">
+              <div className="text-sm text-gray-400 mb-1">Target</div>
+              <div className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-blue-400">
+                ${activeSession.config.goalAmount.toFixed(0)}
+              </div>
             </div>
           </div>
-          <div className="bg-gray-700/50 rounded-lg p-4">
-            <div className="text-sm text-gray-400 mb-1">Progress</div>
-            <div className="text-2xl font-bold text-blue-400">
-              ${(progress?.stats?.totalProfit || 0).toFixed(2)}
+
+          <div className="relative group overflow-hidden rounded-xl">
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-emerald-500/10 group-hover:from-blue-500/20 group-hover:to-emerald-500/20 transition-all duration-300" />
+            <div className="relative bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 group-hover:border-blue-500/30 transition-all duration-300">
+              <div className="text-sm text-gray-400 mb-1">Progress</div>
+              <div className="text-2xl font-bold text-blue-400">
+                ${(progress?.stats?.totalProfit || 0).toFixed(2)}
+              </div>
             </div>
           </div>
-          <div className="bg-gray-700/50 rounded-lg p-4">
-            <div className="text-sm text-gray-400 mb-1">Completion</div>
-            <div className="text-2xl font-bold text-green-400">
-              {progress?.session?.progress_percentage ? progress.session.progress_percentage.toFixed(1) : '0.0'}%
+
+          <div className="relative group overflow-hidden rounded-xl">
+            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-green-500/10 group-hover:from-emerald-500/20 group-hover:to-green-500/20 transition-all duration-300" />
+            <div className="relative bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 group-hover:border-emerald-500/30 transition-all duration-300">
+              <div className="text-sm text-gray-400 mb-1">Completion</div>
+              <div className="text-2xl font-bold text-emerald-400">
+                {progress?.session?.progress_percentage ? progress.session.progress_percentage.toFixed(1) : '0.0'}%
+              </div>
             </div>
           </div>
-          <div className="bg-gray-700/50 rounded-lg p-4">
-            <div className="text-sm text-gray-400 mb-1">Trades</div>
-            <div className="text-lg font-bold text-orange-400">
-              {progress?.stats?.closedTradesCount || 0} / {activeSession.strategy.targetTradeCount}
+
+          <div className="relative group overflow-hidden rounded-xl">
+            <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-amber-500/10 group-hover:from-orange-500/20 group-hover:to-amber-500/20 transition-all duration-300" />
+            <div className="relative bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 group-hover:border-orange-500/30 transition-all duration-300">
+              <div className="text-sm text-gray-400 mb-1">Trades</div>
+              <div className="text-lg font-bold text-orange-400">
+                {progress?.stats?.closedTradesCount || 0} / {activeSession.strategy.targetTradeCount}
+              </div>
             </div>
           </div>
         </div>
 
         <div className="mb-6">
-          <div className="flex justify-between text-sm mb-2">
-            <span className="text-gray-400">Goal Progress</span>
-            <span className="text-white font-medium">{progress?.session?.progress_percentage ? progress.session.progress_percentage.toFixed(1) : '0.0'}%</span>
+          <div className="flex justify-between text-sm mb-3">
+            <span className="text-gray-400 font-medium">Goal Progress</span>
+            <span className="text-white font-bold">{progress?.session?.progress_percentage ? progress.session.progress_percentage.toFixed(1) : '0.0'}%</span>
           </div>
-          <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+          <div className="relative w-full bg-gray-700/50 backdrop-blur-sm rounded-full h-4 overflow-hidden border border-gray-600/50">
+            <div className="absolute inset-0 bg-gradient-to-r from-gray-700 to-gray-800" />
             <div
-              className="bg-gradient-to-r from-blue-500 to-green-500 h-full transition-all duration-500"
+              className="relative bg-gradient-to-r from-emerald-500 via-blue-500 to-emerald-400 h-full transition-all duration-500 shadow-lg"
               style={{ width: `${Math.min(progress?.session?.progress_percentage || 0, 100)}%` }}
-            />
+            >
+              <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/20 to-transparent" />
+            </div>
           </div>
         </div>
 
@@ -299,6 +364,7 @@ export const GoalSessionDashboard: React.FC = () => {
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {activeSession && activeSession.status === 'scanning' && (

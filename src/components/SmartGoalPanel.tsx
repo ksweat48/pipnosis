@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, AlertCircle, Loader2, Zap, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Target, TrendingUp, Clock, AlertCircle, Loader2, Zap, AlertTriangle, CheckCircle, Sparkles } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalConfig } from '../services/smart-goal-session-manager';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { aiGoalParser } from '../lib/aiGoalParser';
@@ -118,16 +118,25 @@ export const SmartGoalPanel: React.FC = () => {
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 bg-blue-600 rounded-lg">
-          <Target className="w-6 h-6 text-white" />
+    <div className="relative group">
+      <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-xl opacity-20 group-hover:opacity-40 transition duration-300 blur" />
+
+      <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl p-6 border border-gray-700/50 shadow-2xl">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="relative">
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-emerald-500 rounded-xl blur opacity-50 animate-pulse" />
+            <div className="relative p-3 bg-gradient-to-br from-blue-600 to-emerald-600 rounded-xl shadow-lg">
+              <Target className="w-6 h-6 text-white" />
+            </div>
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              Smart Goal Mode
+              <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />
+            </h2>
+            <p className="text-sm text-gray-400">Tell me your trading goal and I'll make it happen</p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-xl font-bold text-white">Smart Goal Mode</h2>
-          <p className="text-sm text-gray-400">Tell me your trading goal and I'll make it happen</p>
-        </div>
-      </div>
 
       <div className="space-y-4">
         <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-3 mb-3">
@@ -141,28 +150,32 @@ export const SmartGoalPanel: React.FC = () => {
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-3">
           {GOAL_TEMPLATES.map((template, index) => (
             <button
               key={index}
               onClick={() => handleTemplateClick(template)}
-              className="px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-left transition-colors border border-gray-600 hover:border-blue-500"
+              className="group relative px-4 py-4 bg-gradient-to-br from-gray-700/50 to-gray-800/50 hover:from-gray-600/50 hover:to-gray-700/50 backdrop-blur-sm rounded-xl text-left transition-all duration-300 border border-gray-600/50 hover:border-emerald-500/50 hover:shadow-lg hover:shadow-emerald-500/10 hover:scale-105"
             >
-              <div className="text-sm font-medium text-white">{template.label}</div>
-              <div className="text-xs text-gray-400 mt-1">{template.description}</div>
+              <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/0 to-blue-500/0 group-hover:from-emerald-500/5 group-hover:to-blue-500/5 rounded-xl transition-all duration-300" />
+              <div className="relative">
+                <div className="text-sm font-semibold text-white group-hover:text-emerald-300 transition-colors">{template.label}</div>
+                <div className="text-xs text-gray-400 group-hover:text-gray-300 mt-1.5 transition-colors">{template.description}</div>
+              </div>
             </button>
           ))}
         </div>
 
-        <div className="relative">
+        <div className="relative group">
+          <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-xl opacity-0 group-focus-within:opacity-20 transition duration-300 blur" />
           <input
             type="text"
             value={goalPrompt}
             onChange={(e) => setGoalPrompt(e.target.value)}
             placeholder="e.g., 'Make me $100 today' or 'Earn 3% this week'"
-            className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
+            className="relative w-full px-4 py-4 bg-gray-800/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all duration-300"
           />
-          <TrendingUp className="absolute right-3 top-3 w-5 h-5 text-gray-500" />
+          <TrendingUp className="absolute right-4 top-4 w-5 h-5 text-gray-500 group-focus-within:text-emerald-400 transition-colors" />
         </div>
 
         {goalPrompt.trim() && validation && !validation.isRealistic && showWarning && (
@@ -260,23 +273,27 @@ export const SmartGoalPanel: React.FC = () => {
           </div>
         )}
 
-        <button
-          onClick={handleCreateSession}
-          disabled={!goalPrompt.trim() || loading || (validation && !validation.isRealistic && showWarning)}
-          className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium text-white transition-colors flex items-center justify-center gap-2"
-        >
-          {loading ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Activating AI Goal Mode...
-            </>
-          ) : (
-            <>
-              <Target className="w-5 h-5" />
-              {validation && !validation.isRealistic && showWarning ? 'Review Warning Above' : 'Start Goal Session'}
-            </>
-          )}
-        </button>
+        <div className="relative group">
+          <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 via-blue-500 to-emerald-500 rounded-xl opacity-70 group-hover:opacity-100 transition duration-300 blur" />
+          <button
+            onClick={handleCreateSession}
+            disabled={!goalPrompt.trim() || loading || (validation && !validation.isRealistic && showWarning)}
+            className="relative w-full py-4 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed rounded-xl font-semibold text-white transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:shadow-emerald-500/25 hover:scale-[1.02] active:scale-[0.98]"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="animate-pulse">Activating AI Goal Mode...</span>
+              </>
+            ) : (
+              <>
+                <Target className="w-5 h-5" />
+                {validation && !validation.isRealistic && showWarning ? 'Review Warning Above' : 'Start Goal Session'}
+              </>
+            )}
+          </button>
+        </div>
+      </div>
       </div>
     </div>
   );
