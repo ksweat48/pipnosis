@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { TradeHistory } from '@/components/TradeHistory';
+import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { supabase } from '@/lib/supabase';
 import { pageContext } from '@/services/page-context';
 import { TrendingUp, TrendingDown, DollarSign, Target, Award, AlertTriangle, Clock, Calendar, BarChart3, PieChart } from 'lucide-react';
@@ -39,6 +41,13 @@ export function AnalysisPage() {
   const [symbolPerformance, setSymbolPerformance] = useState<SymbolPerformance[]>([]);
   const [loading, setLoading] = useState(true);
   const [timePeriod, setTimePeriod] = useState<'today' | 'week' | 'month' | 'all'>('all');
+
+  const pullToRefresh = usePullToRefresh({
+    onRefresh: async () => {
+      window.location.reload();
+    },
+    enabled: true
+  });
 
   // Set page context on mount
   useEffect(() => {
@@ -119,7 +128,13 @@ export function AnalysisPage() {
 
   if (loading) {
     return (
-      <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+      <div ref={pullToRefresh.containerRef} className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+        <PullToRefreshIndicator
+          isPulling={pullToRefresh.isPulling}
+          isRefreshing={pullToRefresh.isRefreshing}
+          pullDistance={pullToRefresh.pullDistance}
+          threshold={pullToRefresh.threshold}
+        />
         <NavigationMenu />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
           <div className="text-center text-white">
@@ -132,7 +147,13 @@ export function AnalysisPage() {
   }
 
   return (
-    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+    <div ref={pullToRefresh.containerRef} className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+      <PullToRefreshIndicator
+        isPulling={pullToRefresh.isPulling}
+        isRefreshing={pullToRefresh.isRefreshing}
+        pullDistance={pullToRefresh.pullDistance}
+        threshold={pullToRefresh.threshold}
+      />
       <NavigationMenu />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-12">

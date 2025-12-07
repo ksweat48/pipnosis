@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { NavigationMenu } from '@/components/NavigationMenu';
+import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { supabase } from '@/lib/supabase';
 import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity, DollarSign } from 'lucide-react';
 import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
@@ -47,6 +49,13 @@ export function SettingsPage() {
   const [savingBalance, setSavingBalance] = useState(false);
   const [balanceMessage, setBalanceMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showBalanceConfirmModal, setShowBalanceConfirmModal] = useState(false);
+
+  const pullToRefresh = usePullToRefresh({
+    onRefresh: async () => {
+      window.location.reload();
+    },
+    enabled: true
+  });
 
   useEffect(() => {
     if (user) {
@@ -290,7 +299,13 @@ export function SettingsPage() {
   }[passwordValidation.strength];
 
   return (
-    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950" ref={pullToRefresh.containerRef}>
+      <PullToRefreshIndicator
+        isPulling={pullToRefresh.isPulling}
+        isRefreshing={pullToRefresh.isRefreshing}
+        pullDistance={pullToRefresh.pullDistance}
+        threshold={pullToRefresh.threshold}
+      />
       <NavigationMenu />
 
       <div className="max-w-4xl mx-auto px-4 py-8">

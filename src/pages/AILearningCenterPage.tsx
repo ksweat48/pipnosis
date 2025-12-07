@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { Brain, BookOpen, BarChart3, Trophy } from 'lucide-react';
 import { NavigationMenu } from '../components/NavigationMenu';
+import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { SessionHistoryList } from '../components/SessionHistoryList';
 import { SessionDeepDivePanel } from '../components/SessionDeepDivePanel';
 import { LearningImpactTracker } from '../components/LearningImpactTracker';
@@ -14,9 +16,22 @@ function AILearningCenterPage() {
   const [activeTab, setActiveTab] = useState<TabId>('trader-score');
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
+  const pullToRefresh = usePullToRefresh({
+    onRefresh: async () => {
+      window.location.reload();
+    },
+    enabled: true
+  });
+
   if (!user) {
     return (
-      <div className="flex items-center justify-center app-viewport">
+      <div className="flex items-center justify-center app-viewport" ref={pullToRefresh.containerRef}>
+        <PullToRefreshIndicator
+          isPulling={pullToRefresh.isPulling}
+          isRefreshing={pullToRefresh.isRefreshing}
+          pullDistance={pullToRefresh.pullDistance}
+          threshold={pullToRefresh.threshold}
+        />
         <div className="text-center">
           <Brain className="w-16 h-16 text-gray-600 mx-auto mb-4" />
           <p className="text-gray-400">Please sign in to access the AI Learning Center</p>
@@ -34,7 +49,13 @@ function AILearningCenterPage() {
   return (
     <>
       <NavigationMenu />
-      <div className="app-viewport bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6">
+      <div className="app-viewport bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6" ref={pullToRefresh.containerRef}>
+        <PullToRefreshIndicator
+          isPulling={pullToRefresh.isPulling}
+          isRefreshing={pullToRefresh.isRefreshing}
+          pullDistance={pullToRefresh.pullDistance}
+          threshold={pullToRefresh.threshold}
+        />
         <div className="max-w-7xl mx-auto">
           <div className="bg-gradient-to-br from-emerald-900/30 to-blue-900/30 backdrop-blur-sm border-2 border-emerald-500/30 rounded-lg shadow-md p-6 mb-6">
             <div className="flex items-center gap-3 mb-2">

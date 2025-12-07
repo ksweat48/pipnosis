@@ -373,6 +373,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       layout: {
         background: { color: '#1f2937' },
         textColor: '#9ca3af',
+        attributionLogo: false,
       },
       grid: {
         vertLines: { color: '#374151' },
@@ -1748,17 +1749,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           {/* Status Overlay - Bottom Left */}
           <div className="absolute bottom-2 left-2 z-20 pointer-events-none">
             <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-800/50 rounded px-1.5 py-1 space-y-0.5 shadow-lg">
-              {lastUpdate && (
-                <div className="text-white/60 flex items-center gap-1 text-[10px]">
-                  <Clock size={9} />
-                  Last updated: {lastUpdate.toLocaleTimeString()}
-                </div>
-              )}
-              {!forexMarketStatus.isOpen && (
-                <div className="text-red-400 text-[10px] font-medium">
-                  Forex {forexMarketStatus.status}
-                </div>
-              )}
+              <div className="text-white/60 flex items-center gap-1 text-[10px]">
+                <Clock size={9} />
+                Last updated: {lastUpdate ? lastUpdate.toLocaleTimeString() : 'Waiting...'}
+              </div>
+              <div className={`text-[10px] font-medium ${forexMarketStatus.isOpen ? 'text-green-400' : 'text-red-400'}`}>
+                Forex {forexMarketStatus.status}
+              </div>
             </div>
           </div>
         </div>

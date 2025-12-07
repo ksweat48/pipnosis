@@ -3,6 +3,8 @@ import { useAuth } from '../hooks/useAuth';
 // learning-pipeline-health-check removed - diagnostics simplified
 // LearningPipelineMonitor removed
 import GPT4oUsageMonitor from '../components/GPT4oUsageMonitor';
+import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { supabase } from '../lib/supabase';
 import { simpleAutoBacktestService } from '../services/simple-auto-backtest-service';
 import {
@@ -25,6 +27,13 @@ export default function SystemDiagnosticsPage() {
   const [trainingLabHealth, setTrainingLabHealth] = useState<any>(null);
   const [autoBacktestState, setAutoBacktestState] = useState<any>(null);
   const [healthLoading, setHealthLoading] = useState(true);
+
+  const pullToRefresh = usePullToRefresh({
+    onRefresh: async () => {
+      window.location.reload();
+    },
+    enabled: true
+  });
 
   useEffect(() => {
     checkTrainingLabHealth();
@@ -162,7 +171,13 @@ export default function SystemDiagnosticsPage() {
   };
 
   return (
-    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 p-6">
+    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 p-6" ref={pullToRefresh.containerRef}>
+      <PullToRefreshIndicator
+        isPulling={pullToRefresh.isPulling}
+        isRefreshing={pullToRefresh.isRefreshing}
+        pullDistance={pullToRefresh.pullDistance}
+        threshold={pullToRefresh.threshold}
+      />
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-6">

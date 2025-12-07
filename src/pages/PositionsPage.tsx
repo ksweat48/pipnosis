@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
+import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 import { useToast } from '@/hooks/useToast';
 import { useConfirmDialog } from '@/hooks/useConfirmDialog';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { supabase } from '@/lib/supabase';
 import { simulatedTradingService } from '@/services/simulated-trading';
 import { pollingConfigService } from '@/services/polling-config-service';
@@ -76,6 +78,13 @@ export function PositionsPage() {
   const [filterType, setFilterType] = useState<FilterType>('all');
   const [sortBy, setSortBy] = useState<SortType>('pnl');
   const [selectedSymbol, setSelectedSymbol] = useState<string>('all');
+
+  const pullToRefresh = usePullToRefresh({
+    onRefresh: async () => {
+      window.location.reload();
+    },
+    enabled: true
+  });
 
   useEffect(() => {
     pageContext.setPage('positions');
@@ -463,7 +472,13 @@ export function PositionsPage() {
 
   if (loading) {
     return (
-      <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+      <div ref={pullToRefresh.containerRef} className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+        <PullToRefreshIndicator
+          isPulling={pullToRefresh.isPulling}
+          isRefreshing={pullToRefresh.isRefreshing}
+          pullDistance={pullToRefresh.pullDistance}
+          threshold={pullToRefresh.threshold}
+        />
         <NavigationMenu />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
           <div className="text-center text-white py-16">
@@ -476,7 +491,13 @@ export function PositionsPage() {
   }
 
   return (
-    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+    <div ref={pullToRefresh.containerRef} className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
+      <PullToRefreshIndicator
+        isPulling={pullToRefresh.isPulling}
+        isRefreshing={pullToRefresh.isRefreshing}
+        pullDistance={pullToRefresh.pullDistance}
+        threshold={pullToRefresh.threshold}
+      />
       <NavigationMenu />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-12">

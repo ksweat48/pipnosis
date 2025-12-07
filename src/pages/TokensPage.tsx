@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Coins, CreditCard, History, Users, Copy, Check, Package, Zap, TrendingUp, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTokenBalance } from '@/hooks/useTokenBalance';
+import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { tokenMeterService } from '@/services/token-meter-service';
 import { supabase } from '@/lib/supabase';
 import { NavigationMenu } from '@/components/NavigationMenu';
@@ -38,6 +40,13 @@ export function TokensPage() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [referralData, setReferralData] = useState<ReferralData | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+
+  const pullToRefresh = usePullToRefresh({
+    onRefresh: async () => {
+      window.location.reload();
+    },
+    enabled: true
+  });
 
   useEffect(() => {
     if (user) {
@@ -133,7 +142,13 @@ export function TokensPage() {
   const subscriptionPackages = packages.filter(p => p.packageType === 'subscription');
 
   return (
-    <div className="app-viewport bg-gray-950">
+    <div className="app-viewport bg-gray-950" ref={pullToRefresh.containerRef}>
+      <PullToRefreshIndicator
+        isPulling={pullToRefresh.isPulling}
+        isRefreshing={pullToRefresh.isRefreshing}
+        pullDistance={pullToRefresh.pullDistance}
+        threshold={pullToRefresh.threshold}
+      />
       <NavigationMenu />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">

@@ -3,13 +3,28 @@ import { SmartGoalPanel } from '../components/SmartGoalPanel';
 import { GoalSessionDashboard } from '../components/GoalSessionDashboard';
 import { ToastContainer } from '../components/ToastNotification';
 import { GoalNotificationListener } from '../components/GoalNotificationListener';
+import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useToast } from '../hooks/useToast';
 
 export const SmartGoalModePage: React.FC = () => {
   const toast = useToast();
 
+  const pullToRefresh = usePullToRefresh({
+    onRefresh: async () => {
+      window.location.reload();
+    },
+    enabled: true
+  });
+
   return (
-    <div className="app-viewport bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+    <div className="app-viewport bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900" ref={pullToRefresh.containerRef}>
+      <PullToRefreshIndicator
+        isPulling={pullToRefresh.isPulling}
+        isRefreshing={pullToRefresh.isRefreshing}
+        pullDistance={pullToRefresh.pullDistance}
+        threshold={pullToRefresh.threshold}
+      />
       <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
       <GoalNotificationListener />
       <div className="max-w-full mx-auto px-2 py-6">
