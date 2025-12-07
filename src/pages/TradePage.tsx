@@ -349,14 +349,14 @@ export function TradePage() {
   };
 
   return (
-    <div className="h-screen overflow-hidden bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex flex-col">
+    <div className="fixed inset-0 w-full h-screen overflow-hidden bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex flex-col" style={{ height: '100dvh' }}>
       <NavigationMenu
         currentPrice={currentPrice}
         priceChange={priceChange}
         symbol={selectedSymbol}
       />
 
-      <main className="flex-1 flex flex-col overflow-hidden relative z-0">
+      <main className="flex-1 flex flex-col overflow-hidden relative z-0" style={{ touchAction: 'none' }}>
         {/* Notification Center - Overlay */}
         <div className="absolute top-4 right-4 z-50 max-w-md">
           <NotificationCenter
@@ -386,7 +386,7 @@ export function TradePage() {
 
         {/* Strategy Options Panel - Slide-up Overlay */}
         {(strategyOptions.length > 0 || isAnalyzing || (activeSearchSessionId && isSearching)) && (
-          <div className="absolute bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur-lg border-t border-white/10 max-h-[40vh] overflow-y-auto z-40">
+          <div className="absolute bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur-lg border-t border-white/10 max-h-[40vh] overflow-y-auto z-40 mobile-panel-scroll">
             <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
               {activeSearchSessionId && isSearching && (
                 <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-blue-200 mb-4">
