@@ -175,7 +175,7 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
           )}
         </div>
 
-        <div className="md:hidden overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+        <div className="hidden overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
           <div className="flex items-center gap-2 min-w-max">
             {navItems.map((item) => {
               const Icon = item.icon;

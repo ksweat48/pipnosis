@@ -17,7 +17,7 @@ export function BottomNavigation() {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 z-[9999] safe-area-bottom"
+      className="md:hidden fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 z-[9999] safe-area-bottom"
       style={{
         paddingBottom: 'max(8px, var(--safe-area-bottom))',
         paddingLeft: 'var(--safe-area-left)',

@@ -1742,29 +1742,18 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         <div className="relative h-full">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden h-full" />
 
-          {/* Status Overlay - Bottom Right */}
-          <div className="absolute bottom-4 right-4 z-20 pointer-events-none">
+          {/* Status Overlay - Bottom Left */}
+          <div className="absolute bottom-4 left-4 z-20 pointer-events-none">
             <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-800/50 rounded-lg px-3 py-2 space-y-1 shadow-lg">
               {lastUpdate && (
                 <div className="text-white/60 flex items-center gap-2 text-xs">
                   <Clock size={11} />
-                  Last: {lastUpdate.toLocaleTimeString()}
-                </div>
-              )}
-              {updateCount > 0 && (
-                <div className="text-emerald-500/70 flex items-center gap-1 text-xs">
-                  <TrendingUp size={11} />
-                  {updateCount} updates
+                  Last updated: {lastUpdate.toLocaleTimeString()}
                 </div>
               )}
               {!forexMarketStatus.isOpen && (
                 <div className="text-red-400 text-xs font-medium">
                   Forex {forexMarketStatus.status}
-                </div>
-              )}
-              {debugInfo && (
-                <div className="text-blue-400/70 font-mono text-[10px]">
-                  {debugInfo}
                 </div>
               )}
             </div>
