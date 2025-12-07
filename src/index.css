@@ -116,6 +116,7 @@
     overflow: hidden;
     overscroll-behavior: none;
     -webkit-overflow-scrolling: touch;
+    padding-bottom: calc(76px + var(--safe-area-bottom));
   }
 
   /* Fixed viewport layout for all pages - mobile optimized */
@@ -127,6 +128,7 @@
     overflow-y: auto;
     overscroll-behavior-y: none;
     -webkit-overflow-scrolling: touch;
+    padding-bottom: calc(76px + var(--safe-area-bottom));
   }
 
   /* Allow scrolling within panels/modals but prevent page-level scroll */

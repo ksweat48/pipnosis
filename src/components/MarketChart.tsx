@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle, LineSeries } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
-import { TrendingUp, Activity, AlertCircle, Clock, RefreshCw, Zap } from 'lucide-react';
+import { TrendingUp, Activity, AlertCircle, Clock, RefreshCw } from 'lucide-react';
 import { chartPreferencesService, Timeframe, type IndicatorVisibility } from '@/services/chart-preferences';
 import { globalPollingCoordinator } from '@/services/global-polling-coordinator';
 import { pollingConfigService } from '@/services/polling-config-service';
@@ -66,8 +65,6 @@ interface CurrentCandle {
 }
 
 export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecuted, onPriceUpdate }: MarketChartProps) {
-  const navigate = useNavigate();
-
   // CRITICAL: Validate and track current symbol to reject cross-contaminated updates
   const validationResult = validateSymbol(symbol);
   if (!validationResult.isValid) {
@@ -1744,44 +1741,34 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         <div className="relative h-full">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden h-full" />
-        </div>
-      </div>
 
-      <div className="flex-shrink-0 flex flex-row items-center justify-between gap-2 text-xs pt-6 pb-4">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-4">
-            {lastUpdate && (
-              <div className="text-white/50 flex items-center gap-2">
-                <Clock size={12} />
-                Last updated: {lastUpdate.toLocaleTimeString()}
-              </div>
-            )}
-            {updateCount > 0 && (
-              <div className="text-emerald-500/70 flex items-center gap-1">
-                <TrendingUp size={12} />
-                {updateCount} updates
-              </div>
-            )}
+          {/* Status Overlay - Bottom Right */}
+          <div className="absolute bottom-4 right-4 z-20 pointer-events-none">
+            <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-800/50 rounded-lg px-3 py-2 space-y-1 shadow-lg">
+              {lastUpdate && (
+                <div className="text-white/60 flex items-center gap-2 text-xs">
+                  <Clock size={11} />
+                  Last: {lastUpdate.toLocaleTimeString()}
+                </div>
+              )}
+              {updateCount > 0 && (
+                <div className="text-emerald-500/70 flex items-center gap-1 text-xs">
+                  <TrendingUp size={11} />
+                  {updateCount} updates
+                </div>
+              )}
+              {!forexMarketStatus.isOpen && (
+                <div className="text-red-400 text-xs font-medium">
+                  Forex {forexMarketStatus.status}
+                </div>
+              )}
+              {debugInfo && (
+                <div className="text-blue-400/70 font-mono text-[10px]">
+                  {debugInfo}
+                </div>
+              )}
+            </div>
           </div>
-          {!forexMarketStatus.isOpen && (
-            <div className="text-red-400 text-xs">
-              Forex {forexMarketStatus.status}
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-4">
-          {debugInfo && (
-            <div className="text-blue-400/70 font-mono text-xs">
-              {debugInfo}
-            </div>
-          )}
-          <button
-            onClick={() => navigate('/ai-trade')}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-semibold rounded-lg shadow-lg shadow-emerald-600/30 hover:shadow-emerald-500/40 transition-all duration-300 transform hover:scale-105"
-          >
-            <Zap size={16} />
-            <span>AI Trading</span>
-          </button>
         </div>
       </div>
 

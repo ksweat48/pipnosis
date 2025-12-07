@@ -1,5 +1,6 @@
 import React from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
+import { BottomNavigation } from '@/components/BottomNavigation';
 import { SmartGoalPanel } from '@/components/SmartGoalPanel';
 import { GoalSessionDashboard } from '@/components/GoalSessionDashboard';
 
@@ -26,6 +27,8 @@ export function AITradePage() {
           </div>
         </div>
       </main>
+
+      <BottomNavigation />
     </div>
   );
 }

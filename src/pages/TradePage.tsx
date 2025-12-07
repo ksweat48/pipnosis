@@ -1,7 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { NavigationMenu } from '@/components/NavigationMenu';
+import { BottomNavigation } from '@/components/BottomNavigation';
+import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { MarketChart } from '@/components/MarketChart';
 import { NotificationCenter } from '@/components/NotificationCenter';
 // SearchStatusPanel removed - using simple status
@@ -51,6 +54,18 @@ export function TradePage() {
 
   const { isAnalyzing } = usePromptAnalysis();
   const { balance: accountBalance, refreshBalance, refreshPositions } = useUserBalance(user?.id || null);
+
+  const handleRefresh = async () => {
+    await Promise.all([
+      refreshBalance(),
+      refreshPositions()
+    ]);
+  };
+
+  const pullToRefresh = usePullToRefresh({
+    onRefresh: handleRefresh,
+    enabled: true
+  });
 
   useEffect(() => {
     if (shouldScrollToStrategy && strategyOptions.length > 0 && strategyOptionsRef.current) {
@@ -349,7 +364,14 @@ export function TradePage() {
   };
 
   return (
-    <div className="chart-page-container bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex flex-col">
+    <div ref={pullToRefresh.containerRef} className="chart-page-container bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex flex-col">
+      <PullToRefreshIndicator
+        isPulling={pullToRefresh.isPulling}
+        isRefreshing={pullToRefresh.isRefreshing}
+        pullDistance={pullToRefresh.pullDistance}
+        threshold={pullToRefresh.threshold}
+      />
+
       <NavigationMenu
         currentPrice={currentPrice}
         priceChange={priceChange}
@@ -430,6 +452,8 @@ export function TradePage() {
           />
         )}
       </main>
+
+      <BottomNavigation />
     </div>
   );
 }

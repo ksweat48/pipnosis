@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
+import { BottomNavigation } from '@/components/BottomNavigation';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 import { useToast } from '@/hooks/useToast';
@@ -865,6 +866,8 @@ export function PositionsPage() {
           )}
         </div>
       </main>
+
+      <BottomNavigation />
     </div>
   );
 }

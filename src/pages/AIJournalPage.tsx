@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
+import { BottomNavigation } from '@/components/BottomNavigation';
 import { AITradeJournal } from '@/components/AITradeJournal';
 import { pageContext } from '@/services/page-context';
 
@@ -10,7 +11,7 @@ export function AIJournalPage() {
   }, []);
 
   return (
-    <div className="chart-page-container bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex flex-col">
+    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 flex flex-col">
       <NavigationMenu />
 
       <main className="flex-1 overflow-hidden flex flex-col">
@@ -20,6 +21,8 @@ export function AIJournalPage() {
           </div>
         </div>
       </main>
+
+      <BottomNavigation />
     </div>
   );
 }

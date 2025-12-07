@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
+import { BottomNavigation } from '@/components/BottomNavigation';
 import { TradeHistory } from '@/components/TradeHistory';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
@@ -344,6 +345,8 @@ export function AnalysisPage() {
           <TradeHistory />
         </div>
       </main>
+
+      <BottomNavigation />
     </div>
   );
 }
