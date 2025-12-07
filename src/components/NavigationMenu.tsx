@@ -72,20 +72,10 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
             </div>
           </div>
 
-          {/* Mobile Balance Display - Centered on mobile, hidden on desktop */}
           {user && (
-            <div className="absolute left-1/2 -translate-x-1/2 flex lg:hidden flex-col items-center">
-              <div className="text-white font-semibold text-sm">${balance.toFixed(2)}</div>
-              <div className={`text-xs ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)} P&L
-              </div>
-            </div>
-          )}
-
-          {user && (
-            <div className="flex items-center gap-4">
-              <div className="hidden lg:flex flex-col items-end">
-                <div className="text-white font-semibold">${balance.toFixed(2)}</div>
+            <div className="flex items-center gap-2 sm:gap-4">
+              <div className="flex flex-col items-end">
+                <div className="text-white font-semibold text-sm sm:text-base">${balance.toFixed(2)}</div>
                 <div className={`text-xs ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                   {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)} P&L
                 </div>
