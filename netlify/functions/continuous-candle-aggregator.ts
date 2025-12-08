@@ -357,19 +357,21 @@ async function aggregateCandlesForSymbol(
   startTime: number,
   maxDurationMs: number = 100000 // 100 seconds safety margin
 ): Promise<{ candlesCreated: number; timedOut: boolean }> {
+  console.log(`[CandleAggregator]   📊 Starting aggregation for ${symbol}...`);
+
   // OPTIMIZATION: Fetch only 30 minutes of recent prices for fast timeframes
   // For H4/D1/W1, we aggregate from M1 candles instead (no raw price data needed)
   const lookbackMinutes = 30; // Reduced from 24 hours to 30 minutes!
   const prices = await fetchRecentPrices(symbol, lookbackMinutes);
 
   if (prices.length === 0) {
-    console.log(`[CandleAggregator] No prices found for ${symbol}`);
+    console.log(`[CandleAggregator]   ⚠️ ${symbol}: No prices found in last ${lookbackMinutes} minutes`);
     return { candlesCreated: 0, timedOut: false };
   }
 
   const firstPriceTime = new Date(prices[0].created_at);
   const lastPriceTime = new Date(prices[prices.length - 1].created_at);
-  console.log(`[CandleAggregator] ${symbol}: Fetched ${prices.length} prices from ${firstPriceTime.toISOString()} to ${lastPriceTime.toISOString()}`);
+  console.log(`[CandleAggregator]   📈 ${symbol}: Fetched ${prices.length} prices from ${firstPriceTime.toISOString()} to ${lastPriceTime.toISOString()}`);
 
   let candlesCreated = 0;
   const now = new Date();
@@ -462,9 +464,12 @@ async function aggregateCandlesForSymbol(
 
   // OPTIMIZATION: Batch save all candles at once (much faster than individual inserts)
   if (candlesToSave.length > 0) {
+    console.log(`[CandleAggregator]   💾 ${symbol}: Saving ${candlesToSave.length} candles to database...`);
     const saved = await saveCandlesBatch(candlesToSave);
     candlesCreated = saved;
-    console.log(`  ✅ ${symbol}: Created ${saved} candles across ${timeframesToProcess.length} timeframes`);
+    console.log(`[CandleAggregator]   ✅ ${symbol}: Created ${saved} candles across ${timeframesToProcess.length} timeframes`);
+  } else {
+    console.log(`[CandleAggregator]   ℹ️ ${symbol}: No new candles to create`);
   }
 
   return { candlesCreated, timedOut: false };
@@ -485,11 +490,15 @@ export const handler: Handler = async (event, context) => {
     let symbolsTimedOut = 0;
     const symbolResults: Record<string, { candles: number; timedOut: boolean; error?: string }> = {};
 
+    console.log(`[CandleAggregator] Starting loop for ${ACTIVE_SYMBOLS.length} symbols: ${ACTIVE_SYMBOLS.join(', ')}`);
+
     for (const symbol of ACTIVE_SYMBOLS) {
+      console.log(`[CandleAggregator] ▶️ Processing symbol ${symbolsProcessed + 1}/${ACTIVE_SYMBOLS.length}: ${symbol}`);
+
       // Check if we're approaching timeout (leave 15 seconds for cleanup)
       const elapsedMs = Date.now() - startTime;
       if (elapsedMs > 105000) { // 105 seconds (leave 15s buffer)
-        console.log(`[CandleAggregator] ⚠️ Approaching function timeout, stopping at ${symbol}`);
+        console.log(`[CandleAggregator] ⚠️ Approaching function timeout (${elapsedMs}ms), stopping at ${symbol}`);
         break;
       }
 
@@ -501,11 +510,13 @@ export const handler: Handler = async (event, context) => {
         if (result.timedOut) {
           symbolsTimedOut++;
           symbolResults[symbol] = { candles: result.candlesCreated, timedOut: true };
+          console.log(`[CandleAggregator]   ⏱️ ${symbol} timed out after creating ${result.candlesCreated} candles`);
         } else {
           symbolResults[symbol] = { candles: result.candlesCreated, timedOut: false };
+          console.log(`[CandleAggregator]   ✅ ${symbol} completed: ${result.candlesCreated} candles created`);
         }
       } catch (error) {
-        console.error(`[CandleAggregator] Error processing ${symbol}:`, error);
+        console.error(`[CandleAggregator] ❌ Error processing ${symbol}:`, error);
         symbolResults[symbol] = {
           candles: 0,
           timedOut: false,
@@ -515,6 +526,8 @@ export const handler: Handler = async (event, context) => {
         symbolsProcessed++;
       }
     }
+
+    console.log(`[CandleAggregator] Loop completed. Processed ${symbolsProcessed}/${ACTIVE_SYMBOLS.length} symbols`);
 
     const duration = Date.now() - startTime;
     console.log(`[CandleAggregator] ✅ Completed in ${duration}ms: ${totalCandlesCreated} candles created`);
