@@ -35,7 +35,7 @@ class Logger {
   private isDev: boolean;
 
   constructor() {
-    this.isDev = import.meta.env.DEV;
+    this.isDev = typeof import.meta !== 'undefined' && import.meta.env?.DEV === true;
     // Default: WARN (only warnings and errors, no verbose polling/tick logs)
     this.globalLevel = LogLevel.WARN;
     this.loadSettings();
