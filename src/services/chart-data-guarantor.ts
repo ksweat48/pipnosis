@@ -394,16 +394,16 @@ export class ChartDataGuarantor {
 
   static calculateSmartCandleCount(timeframe: string): number {
     const counts: Record<string, number> = {
-      'M1': 10080,  // 7 days of M1 candles (increased from 240 to show backfill data)
-      'M5': 8640,   // 30 days of M5 candles (increased from 200 to show backfill data)
-      'M15': 5760,  // 60 days of M15 candles (increased from 200 to show backfill data)
-      'M30': 4320,  // 90 days of M30 candles (increased from 200 to show backfill data)
-      'H1': 4320,   // 180 days of H1 candles (increased from 168)
-      'H4': 2190,   // 365 days of H4 candles (increased from 168)
-      'D1': 365     // 1 year of daily candles (increased from 90)
+      'M1': 500,    // 8 hours of M1 candles (optimized for chart display)
+      'M5': 288,    // 24 hours of M5 candles (optimized for chart display)
+      'M15': 672,   // 7 days of M15 candles (optimized for chart display)
+      'M30': 720,   // 15 days of M30 candles (optimized for chart display)
+      'H1': 720,    // 30 days of H1 candles
+      'H4': 720,    // 120 days of H4 candles
+      'D1': 365     // 1 year of daily candles
     };
 
-    return counts[timeframe] || 2000;
+    return counts[timeframe] || 500;
   }
 
   static async ensureMinimumDataset(

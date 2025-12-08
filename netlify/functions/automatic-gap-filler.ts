@@ -20,6 +20,20 @@ const TIMEFRAME_SECONDS: Record<string, number> = {
   'D1': 86400
 };
 
+const TIMEFRAME_LOOKBACK_DAYS: Record<string, number> = {
+  'M1': 7,
+  'M5': 14,
+  'M15': 30,
+  'M30': 30,
+  'H1': 30,
+  'H4': 30,
+  'D1': 30
+};
+
+function getLookbackDays(timeframe: string): number {
+  return TIMEFRAME_LOOKBACK_DAYS[timeframe] || 7;
+}
+
 interface GapInfo {
   symbol: string;
   timeframe: string;
@@ -45,7 +59,8 @@ function isMarketOpenAt(timestamp: Date): boolean {
   return true;
 }
 
-async function detectGapsForSymbol(symbol: string, timeframe: string, lookbackDays: number = 7): Promise<GapInfo[]> {
+async function detectGapsForSymbol(symbol: string, timeframe: string): Promise<GapInfo[]> {
+  const lookbackDays = getLookbackDays(timeframe);
   const endTime = new Date();
   const startTime = new Date(endTime.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
 
@@ -178,19 +193,21 @@ async function fillGap(gap: GapInfo): Promise<number> {
 }
 
 async function processSymbolTimeframe(symbol: string, timeframe: string): Promise<number> {
-  const gaps = await detectGapsForSymbol(symbol, timeframe, 7);
+  const gaps = await detectGapsForSymbol(symbol, timeframe);
 
   if (gaps.length === 0) {
     return 0;
   }
 
   let totalFilled = 0;
+  const maxGapsToFill = (timeframe === 'M1' || timeframe === 'M5') ? 3 : 5;
 
-  for (const gap of gaps.slice(0, 5)) {
+  for (const gap of gaps.slice(0, maxGapsToFill)) {
     const filled = await fillGap(gap);
     totalFilled += filled;
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const delay = (timeframe === 'M1' || timeframe === 'M5') ? 2000 : 1000;
+    await new Promise(resolve => setTimeout(resolve, delay));
   }
 
   return totalFilled;
@@ -204,8 +221,10 @@ export const handler: Handler = async (event, context) => {
     const results: Record<string, number> = {};
     let totalCandlesFilled = 0;
 
+    const prioritizedTimeframes = ['M1', 'M5', ...TIMEFRAMES.filter(t => t !== 'M1' && t !== 'M5')];
+
     for (const symbol of ACTIVE_SYMBOLS) {
-      for (const timeframe of TIMEFRAMES) {
+      for (const timeframe of prioritizedTimeframes) {
         const key = `${symbol}_${timeframe}`;
 
         try {
@@ -221,7 +240,8 @@ export const handler: Handler = async (event, context) => {
           results[key] = 0;
         }
 
-        await new Promise(resolve => setTimeout(resolve, 500));
+        const delay = (timeframe === 'M1' || timeframe === 'M5') ? 1000 : 500;
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
 

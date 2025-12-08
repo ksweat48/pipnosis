@@ -17,8 +17,21 @@ interface BackfillResult {
 
 const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
-const TARGET_DAYS = 30;
 const BACKFILL_CHECK_KEY = 'last_historical_backfill_check';
+
+const TIMEFRAME_TARGET_DAYS: Record<string, number> = {
+  'M1': 7,
+  'M5': 14,
+  'M15': 30,
+  'M30': 30,
+  'H1': 30,
+  'H4': 30,
+  'D1': 30
+};
+
+function getTargetDaysForTimeframe(timeframe: string): number {
+  return TIMEFRAME_TARGET_DAYS[timeframe] || 30;
+}
 
 class HistoricalBackfillManager {
   private isBackfilling = false;
@@ -49,8 +62,9 @@ class HistoricalBackfillManager {
 
   async checkBackfillStatus(symbol: string, timeframe: string): Promise<BackfillStatus> {
     try {
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - TARGET_DAYS);
+      const targetDays = getTargetDaysForTimeframe(timeframe);
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() - targetDays);
 
       const { data: oldestCandle, error } = await supabase
         .from('forex_candles')
@@ -84,7 +98,7 @@ class HistoricalBackfillManager {
 
       const oldestDate = new Date(oldestCandle.open_time);
       const daysAvailable = Math.floor((Date.now() - oldestDate.getTime()) / (1000 * 60 * 60 * 24));
-      const needsBackfill = oldestDate > thirtyDaysAgo;
+      const needsBackfill = oldestDate > targetDate;
 
       return {
         symbol,
@@ -161,18 +175,24 @@ class HistoricalBackfillManager {
     }
 
     this.isBackfilling = true;
-    logger.info('[HistoricalBackfill] Starting full historical backfill (30 days)');
+    logger.info('[HistoricalBackfill] Starting full historical backfill with timeframe-specific targets');
 
     try {
       const combinations = ACTIVE_SYMBOLS.flatMap(symbol =>
         TIMEFRAMES.map(timeframe => ({ symbol, timeframe }))
       );
 
-      const total = combinations.length;
+      const prioritized = [
+        ...combinations.filter(c => c.timeframe === 'M1'),
+        ...combinations.filter(c => c.timeframe === 'M5'),
+        ...combinations.filter(c => c.timeframe !== 'M1' && c.timeframe !== 'M5')
+      ];
+
+      const total = prioritized.length;
       let current = 0;
       let totalCandlesFilled = 0;
 
-      for (const { symbol, timeframe } of combinations) {
+      for (const { symbol, timeframe } of prioritized) {
         current++;
 
         if (onProgress) {
@@ -182,8 +202,9 @@ class HistoricalBackfillManager {
         const status = await this.checkBackfillStatus(symbol, timeframe);
 
         if (status.needsBackfill) {
-          const daysToFetch = Math.max(TARGET_DAYS - status.daysAvailable, 7);
-          logger.info(`[HistoricalBackfill] ${symbol} ${timeframe} needs ${daysToFetch} days of data`);
+          const targetDays = getTargetDaysForTimeframe(timeframe);
+          const daysToFetch = Math.max(targetDays - status.daysAvailable, Math.min(7, targetDays));
+          logger.info(`[HistoricalBackfill] ${symbol} ${timeframe} needs ${daysToFetch} days of data (target: ${targetDays} days)`);
 
           const result = await this.triggerBackfillForSymbol(symbol, timeframe, daysToFetch);
 
@@ -191,7 +212,8 @@ class HistoricalBackfillManager {
             totalCandlesFilled += result.candlesFilled;
           }
 
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          const delay = (timeframe === 'M1' || timeframe === 'M5') ? 3000 : 2000;
+          await new Promise(resolve => setTimeout(resolve, delay));
         } else {
           logger.debug(LogCategory.CHART, `[HistoricalBackfill] ${symbol} ${timeframe} has ${status.daysAvailable} days - no backfill needed`);
         }
