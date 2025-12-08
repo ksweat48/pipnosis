@@ -7,7 +7,12 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
-const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
+
+// OPTIMIZATION: Different timeframe groups for smart scheduling
+const FAST_TIMEFRAMES = ['M1', 'M5', 'M15']; // Process every run (5 min)
+const MEDIUM_TIMEFRAMES = ['M30', 'H1']; // Process every 3rd run (15 min)
+const SLOW_TIMEFRAMES = ['H4', 'D1', 'W1']; // Process every 12th run (60 min)
+const ALL_TIMEFRAMES = [...FAST_TIMEFRAMES, ...MEDIUM_TIMEFRAMES, ...SLOW_TIMEFRAMES];
 
 const TIMEFRAME_MINUTES: Record<string, number> = {
   'M1': 1,
@@ -44,6 +49,31 @@ function roundTimeToCandle(time: Date, minutes: number): Date {
   const ms = time.getTime();
   const roundedMs = Math.floor(ms / (minutes * 60 * 1000)) * (minutes * 60 * 1000);
   return new Date(roundedMs);
+}
+
+/**
+ * Determine which timeframes to process based on current minute
+ * This prevents timeout by processing heavy timeframes less frequently
+ */
+function getTimeframesToProcess(): string[] {
+  const now = new Date();
+  const minuteOfHour = now.getMinutes();
+
+  // ALWAYS process fast timeframes (M1, M5, M15)
+  let timeframes = [...FAST_TIMEFRAMES];
+
+  // Every 15 minutes (0, 15, 30, 45), also process medium timeframes
+  if (minuteOfHour % 15 === 0) {
+    timeframes.push(...MEDIUM_TIMEFRAMES);
+  }
+
+  // Every hour (0 minutes), also process slow timeframes
+  if (minuteOfHour === 0) {
+    timeframes.push(...SLOW_TIMEFRAMES);
+  }
+
+  console.log(`[CandleAggregator] Processing timeframes: ${timeframes.join(', ')}`);
+  return timeframes;
 }
 
 /**
@@ -180,6 +210,46 @@ async function saveCandleToDatabase(candle: CandleData): Promise<boolean> {
   }
 }
 
+/**
+ * OPTIMIZATION: Batch save multiple candles in a single DB transaction
+ */
+async function saveCandlesBatch(candles: CandleData[]): Promise<number> {
+  if (candles.length === 0) return 0;
+
+  try {
+    const candleRecords = candles.map(candle => ({
+      symbol: candle.symbol,
+      timeframe: candle.timeframe,
+      open_time: candle.open_time.toISOString(),
+      close_time: candle.close_time.toISOString(),
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      volume: candle.volume,
+      tick_count: candle.volume,
+      data_source: 'netlify_aggregator'
+    }));
+
+    const { error } = await supabase
+      .from('forex_candles')
+      .upsert(candleRecords, {
+        onConflict: 'symbol,timeframe,open_time',
+        ignoreDuplicates: false
+      });
+
+    if (error) {
+      console.error(`[CandleAggregator] Batch save error:`, error.message);
+      return 0;
+    }
+
+    return candles.length;
+  } catch (error) {
+    console.error(`[CandleAggregator] Unexpected batch save error:`, error);
+    return 0;
+  }
+}
+
 // SQL-BASED AGGREGATION: More reliable than in-memory processing
 async function aggregateCandleSQL(
   symbol: string,
@@ -273,14 +343,20 @@ async function aggregateFromM1Candles(
   }
 }
 
-async function aggregateCandlesForSymbol(symbol: string): Promise<number> {
-  // CRITICAL FIX: Fetch enough prices for ALL timeframes, including D1 and W1
-  const lookbackMinutes = 24 * 60; // 24 hours of data
+async function aggregateCandlesForSymbol(
+  symbol: string,
+  timeframesToProcess: string[],
+  startTime: number,
+  maxDurationMs: number = 100000 // 100 seconds safety margin
+): Promise<{ candlesCreated: number; timedOut: boolean }> {
+  // OPTIMIZATION: Fetch only 30 minutes of recent prices for fast timeframes
+  // For H4/D1/W1, we aggregate from M1 candles instead (no raw price data needed)
+  const lookbackMinutes = 30; // Reduced from 24 hours to 30 minutes!
   const prices = await fetchRecentPrices(symbol, lookbackMinutes);
 
   if (prices.length === 0) {
     console.log(`[CandleAggregator] No prices found for ${symbol}`);
-    return 0;
+    return { candlesCreated: 0, timedOut: false };
   }
 
   const firstPriceTime = new Date(prices[0].created_at);
@@ -289,9 +365,15 @@ async function aggregateCandlesForSymbol(symbol: string): Promise<number> {
 
   let candlesCreated = 0;
   const now = new Date();
-  console.log(`[CandleAggregator] ${symbol}: Current time (now): ${now.toISOString()}`);
+  const candlesToSave: CandleData[] = [];
 
-  for (const timeframe of TIMEFRAMES) {
+  for (const timeframe of timeframesToProcess) {
+    // TIMEOUT PROTECTION: Check if we're approaching the limit
+    const elapsedMs = Date.now() - startTime;
+    if (elapsedMs > maxDurationMs) {
+      console.log(`[CandleAggregator] ⚠️ Approaching timeout (${elapsedMs}ms), stopping ${symbol} at ${timeframe}`);
+      return { candlesCreated, timedOut: true };
+    }
     const timeframeMinutes = TIMEFRAME_MINUTES[timeframe];
     const lastCandleTime = await getLastCandleTime(symbol, timeframe);
 
@@ -305,7 +387,9 @@ async function aggregateCandlesForSymbol(symbol: string): Promise<number> {
       // Start from the next candle after the last one we have
       startFrom = new Date(lastCandleTime.getTime() + timeframeMinutes * 60 * 1000);
     } else {
-      // No candles exist, start from 24 hours ago
+      // No candles exist, start from lookback period
+      // For fast timeframes (M1, M5, M15): 30 minutes is enough
+      // For slow timeframes (H4, D1, W1): Will aggregate from M1 candles (goes back further automatically)
       startFrom = new Date(now.getTime() - lookbackMinutes * 60 * 1000);
       startFrom = roundTimeToCandle(startFrom, timeframeMinutes);
     }
@@ -359,23 +443,23 @@ async function aggregateCandlesForSymbol(symbol: string): Promise<number> {
           continue;
         }
 
-        const saved = await saveCandleToDatabase(candle);
-        if (saved) {
-          candlesCreated++;
-          candlesCreatedForTimeframe++;
-        }
+        // OPTIMIZATION: Collect candles for batch insert
+        candlesToSave.push(candle);
       }
 
       // Move to next candle period
       currentCandleToCreate = new Date(currentCandleToCreate.getTime() + timeframeMinutes * 60 * 1000);
     }
-
-    if (candlesCreatedForTimeframe > 0) {
-      console.log(`  ✅ ${symbol} ${timeframe}: Created ${candlesCreatedForTimeframe} candles`);
-    }
   }
 
-  return candlesCreated;
+  // OPTIMIZATION: Batch save all candles at once (much faster than individual inserts)
+  if (candlesToSave.length > 0) {
+    const saved = await saveCandlesBatch(candlesToSave);
+    candlesCreated = saved;
+    console.log(`  ✅ ${symbol}: Created ${saved} candles across ${timeframesToProcess.length} timeframes`);
+  }
+
+  return { candlesCreated, timedOut: false };
 }
 
 export const handler: Handler = async (event, context) => {
@@ -383,19 +467,50 @@ export const handler: Handler = async (event, context) => {
   const startTime = Date.now();
 
   try {
-    const results = await Promise.allSettled(
-      ACTIVE_SYMBOLS.map(symbol => aggregateCandlesForSymbol(symbol))
-    );
+    // OPTIMIZATION: Determine which timeframes to process this run
+    const timeframesToProcess = getTimeframesToProcess();
 
-    const totalCandlesCreated = results.reduce((sum, result) => {
-      if (result.status === 'fulfilled') {
-        return sum + result.value;
+    // OPTIMIZATION: Process symbols sequentially with timeout protection
+    // This is more reliable than Promise.allSettled for timeout detection
+    let totalCandlesCreated = 0;
+    let symbolsProcessed = 0;
+    let symbolsTimedOut = 0;
+    const symbolResults: Record<string, { candles: number; timedOut: boolean; error?: string }> = {};
+
+    for (const symbol of ACTIVE_SYMBOLS) {
+      // Check if we're approaching timeout (leave 15 seconds for cleanup)
+      const elapsedMs = Date.now() - startTime;
+      if (elapsedMs > 105000) { // 105 seconds (leave 15s buffer)
+        console.log(`[CandleAggregator] ⚠️ Approaching function timeout, stopping at ${symbol}`);
+        break;
       }
-      return sum;
-    }, 0);
+
+      try {
+        const result = await aggregateCandlesForSymbol(symbol, timeframesToProcess, startTime);
+        totalCandlesCreated += result.candlesCreated;
+        symbolsProcessed++;
+
+        if (result.timedOut) {
+          symbolsTimedOut++;
+          symbolResults[symbol] = { candles: result.candlesCreated, timedOut: true };
+        } else {
+          symbolResults[symbol] = { candles: result.candlesCreated, timedOut: false };
+        }
+      } catch (error) {
+        console.error(`[CandleAggregator] Error processing ${symbol}:`, error);
+        symbolResults[symbol] = {
+          candles: 0,
+          timedOut: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        };
+        // Continue processing other symbols even if one fails
+        symbolsProcessed++;
+      }
+    }
 
     const duration = Date.now() - startTime;
     console.log(`[CandleAggregator] ✅ Completed in ${duration}ms: ${totalCandlesCreated} candles created`);
+    console.log(`[CandleAggregator] Symbols: ${symbolsProcessed}/${ACTIVE_SYMBOLS.length} processed, ${symbolsTimedOut} timed out`);
 
     return {
       statusCode: 200,
@@ -403,8 +518,12 @@ export const handler: Handler = async (event, context) => {
       body: JSON.stringify({
         success: true,
         candlesCreated: totalCandlesCreated,
-        symbolsProcessed: ACTIVE_SYMBOLS.length,
+        symbolsProcessed,
+        symbolsTimedOut,
+        totalSymbols: ACTIVE_SYMBOLS.length,
+        timeframesProcessed: timeframesToProcess,
         durationMs: duration,
+        symbolResults,
         timestamp: new Date().toISOString()
       })
     };

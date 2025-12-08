@@ -2,7 +2,7 @@
 🚨 CRITICAL INFRASTRUCTURE CHANGES DETECTED
 ════════════════════════════════════════════════════════════════════════════════
 
-Generated: 2025-12-08T10:36:45.822Z
+Generated: 2025-12-08T17:14:10.279Z
 Baseline Version: 1.0
 
 
@@ -11,7 +11,7 @@ Baseline Version: 1.0
 1. netlify.toml [functions."continuous-candle-aggregator"]
    Field: timeout
    Old Value: 26
-   New Value: 60
+   New Value: 120
 
 
 📋 RECOMMENDED ACTIONS:

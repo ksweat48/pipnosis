@@ -52,7 +52,7 @@
 
 # 🚨 CRITICAL: Candle aggregation (runs every 5 minutes)
 [functions."continuous-candle-aggregator"]
-  timeout = 60  # Increased to 60s to handle 24h lookback for all timeframes
+  timeout = 120  # Increased to 120s to handle aggregation for all timeframes
   schedule = "*/5 * * * *"  # 🚨 5-field format ONLY - DO NOT add seconds field
 
 # 🤖 AUTONOMOUS: Goal session autonomous monitor (runs every minute)
