@@ -42,6 +42,9 @@ import { chartCircuitBreaker } from '@/services/chart-circuit-breaker';
 import { validateSymbol, type ValidatedSymbol } from '@/types/symbol';
 import { ChartDataGuarantor } from '@/services/chart-data-guarantor';
 import { currentCandleReconstructor } from '@/services/current-candle-reconstructor';
+import { gapVisualizationService, PriceGap } from '@/services/gap-visualization-service';
+import { candleGapFillerService } from '@/services/candle-gap-filler';
+import { GapVisualizationPanel } from '@/components/GapVisualizationPanel';
 
 interface MarketChartProps {
   symbol: string;
@@ -124,6 +127,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     ema50: false,
     ema200: false
   });
+
+  const [detectedGaps, setDetectedGaps] = useState<PriceGap[]>([]);
 
   const currentCandleRef = useRef<CurrentCandle | null>(null);
   const lastFetchTimeRef = useRef<string | null>(null);
@@ -384,6 +389,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       timeScale: {
         timeVisible: true,
         secondsVisible: true,
+        barSpacing: gapVisualizationService.getBarSpacing(),
+        minBarSpacing: 1,
+        rightBarStaysOnScroll: true,
       },
       rightPriceScale: {
         visible: true,
@@ -572,6 +580,69 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     setAtrData(atr);
     setVolumeData(volume);
     setPatternData(patterns);
+  };
+
+  const detectAndProcessGaps = (candles: CandleData[]): CandleData[] => {
+    try {
+      const gaps = gapVisualizationService.detectGaps(candles);
+      setDetectedGaps(gaps);
+
+      const stats = gapVisualizationService.getGapStatistics(gaps);
+      const quality = gapVisualizationService.assessDataQuality(gaps);
+
+      console.log('[Chart] Gap Analysis:', {
+        totalGaps: stats.totalGaps,
+        priceGaps: stats.priceGaps,
+        weekendGaps: stats.weekendGaps,
+        majorGaps: stats.majorGaps,
+        avgGapSize: stats.avgGapSize.toFixed(2) + '%',
+        dataQuality: quality.score
+      });
+
+      if (candleGapFillerService.isEnabled()) {
+        const timeframeMinutes = getTimeframeMinutes(timeframe);
+        const filledCandles = candleGapFillerService.fillGaps(candles, timeframeMinutes);
+
+        if (filledCandles.length > candles.length) {
+          const fillingStats = candleGapFillerService.getGapFillingStats(candles, filledCandles);
+          console.log('[Chart] Gap Filling Applied:', {
+            original: fillingStats.originalCount,
+            filled: fillingStats.filledCount,
+            synthetic: fillingStats.syntheticCount,
+            gapsFilled: fillingStats.gapsFilled
+          });
+
+          return filledCandles;
+        }
+      }
+
+      return candles;
+    } catch (error) {
+      console.error('[Chart] Gap detection error:', error);
+      return candles;
+    }
+  };
+
+  const handleGapSettingsChange = () => {
+    const currentData = candlestickSeriesRef.current?.data() || [];
+
+    if (currentData.length > 0 && chartRef.current) {
+      const newBarSpacing = gapVisualizationService.getBarSpacing();
+      chartRef.current.timeScale().applyOptions({
+        barSpacing: newBarSpacing
+      });
+
+      const processedCandles = detectAndProcessGaps(currentData as CandleData[]);
+
+      if (candlestickSeriesRef.current && processedCandles.length > 0) {
+        candlestickSeriesRef.current.setData(processedCandles);
+      }
+
+      console.log('[Chart] Gap visualization settings updated:', {
+        mode: gapVisualizationService.getSettings().mode,
+        barSpacing: newBarSpacing
+      });
+    }
   };
 
   const updateCurrentCandleFromTick = (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => {
@@ -1155,7 +1226,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           timeValue: sanitizedCandles[0].time
         });
 
-        candlestickSeriesRef.current.setData(sanitizedCandles);
+        const processedCandles = detectAndProcessGaps(sanitizedCandles);
+        candlestickSeriesRef.current.setData(processedCandles);
 
         // VERIFICATION: Check if data was actually set
         const chartDataAfterSet = candlestickSeriesRef.current.data();
@@ -1768,6 +1840,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           currentBatch={backgroundLoading.currentBatch}
         />
       )}
+
+      <GapVisualizationPanel
+        gaps={detectedGaps}
+        onSettingsChange={handleGapSettingsChange}
+      />
     </div>
   );
 }
