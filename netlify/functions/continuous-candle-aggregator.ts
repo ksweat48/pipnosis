@@ -8,11 +8,15 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
 
-// OPTIMIZATION: Different timeframe groups for smart scheduling
-const FAST_TIMEFRAMES = ['M1', 'M5', 'M15']; // Process every run (5 min)
+// OPTIMIZATION: Only process M1 in this high-frequency function (runs every 5 min)
+// Other timeframes are aggregated from M1 by separate, less frequent functions
+const FAST_TIMEFRAMES = ['M1']; // Process every run (5 min) - CRITICAL FOR SPEED
 const MEDIUM_TIMEFRAMES = ['M30', 'H1']; // Process every 3rd run (15 min)
 const SLOW_TIMEFRAMES = ['H4', 'D1', 'W1']; // Process every 12th run (60 min)
 const ALL_TIMEFRAMES = [...FAST_TIMEFRAMES, ...MEDIUM_TIMEFRAMES, ...SLOW_TIMEFRAMES];
+
+// SAFETY: Maximum candles to create per timeframe to prevent timeout
+const MAX_CANDLES_PER_TIMEFRAME = 10;
 
 const TIMEFRAME_MINUTES: Record<string, number> = {
   'M1': 1,
@@ -355,13 +359,13 @@ async function aggregateCandlesForSymbol(
   symbol: string,
   timeframesToProcess: string[],
   startTime: number,
-  maxDurationMs: number = 100000 // 100 seconds safety margin
+  maxDurationMs: number = 18000 // 18 seconds per symbol (5 symbols * 18s = 90s total)
 ): Promise<{ candlesCreated: number; timedOut: boolean }> {
+  const symbolStartTime = Date.now();
   console.log(`[CandleAggregator]   📊 Starting aggregation for ${symbol}...`);
 
-  // OPTIMIZATION: Fetch only 30 minutes of recent prices for fast timeframes
-  // For H4/D1/W1, we aggregate from M1 candles instead (no raw price data needed)
-  const lookbackMinutes = 30; // Reduced from 24 hours to 30 minutes!
+  // OPTIMIZATION: Fetch only 15 minutes of recent prices (M1 only needs recent data)
+  const lookbackMinutes = 15; // Reduced from 30 to 15 minutes for faster processing
   const prices = await fetchRecentPrices(symbol, lookbackMinutes);
 
   if (prices.length === 0) {
@@ -378,12 +382,16 @@ async function aggregateCandlesForSymbol(
   const candlesToSave: CandleData[] = [];
 
   for (const timeframe of timeframesToProcess) {
+    const timeframeStartTime = Date.now();
+
     // TIMEOUT PROTECTION: Check if we're approaching the limit
     const elapsedMs = Date.now() - startTime;
     if (elapsedMs > maxDurationMs) {
       console.log(`[CandleAggregator] ⚠️ Approaching timeout (${elapsedMs}ms), stopping ${symbol} at ${timeframe}`);
       return { candlesCreated, timedOut: true };
     }
+
+    console.log(`[CandleAggregator]     🔧 Processing ${symbol} ${timeframe}...`);
     const timeframeMinutes = TIMEFRAME_MINUTES[timeframe];
     const lastCandleTime = await getLastCandleTime(symbol, timeframe);
 
@@ -412,6 +420,19 @@ async function aggregateCandlesForSymbol(
     let candlesCreatedForTimeframe = 0;
 
     while (currentCandleToCreate <= endAt) {
+      // TIMEOUT PROTECTION: Check inside the loop to prevent hanging
+      const loopElapsedMs = Date.now() - startTime;
+      if (loopElapsedMs > maxDurationMs) {
+        console.log(`[CandleAggregator]       ⚠️ Timeout in while loop (${loopElapsedMs}ms), stopping ${symbol} ${timeframe}`);
+        return { candlesCreated, timedOut: true };
+      }
+
+      // MAX CANDLES PROTECTION: Prevent creating too many candles per timeframe
+      if (candlesCreatedForTimeframe >= MAX_CANDLES_PER_TIMEFRAME) {
+        console.log(`[CandleAggregator]       ⚠️ Max candles reached (${MAX_CANDLES_PER_TIMEFRAME}) for ${symbol} ${timeframe}`);
+        break;
+      }
+
       const candleEndTime = new Date(currentCandleToCreate.getTime() + timeframeMinutes * 60 * 1000);
 
       // Skip if candle period is not complete yet (with 1 minute safety buffer)
@@ -455,22 +476,32 @@ async function aggregateCandlesForSymbol(
 
         // OPTIMIZATION: Collect candles for batch insert
         candlesToSave.push(candle);
+        candlesCreatedForTimeframe++;
       }
 
       // Move to next candle period
       currentCandleToCreate = new Date(currentCandleToCreate.getTime() + timeframeMinutes * 60 * 1000);
     }
+
+    // Performance logging for timeframe
+    const timeframeDuration = Date.now() - timeframeStartTime;
+    console.log(`[CandleAggregator]       ✅ ${symbol} ${timeframe}: ${candlesCreatedForTimeframe} candles queued (${timeframeDuration}ms)`);
   }
 
   // OPTIMIZATION: Batch save all candles at once (much faster than individual inserts)
   if (candlesToSave.length > 0) {
+    const saveStartTime = Date.now();
     console.log(`[CandleAggregator]   💾 ${symbol}: Saving ${candlesToSave.length} candles to database...`);
     const saved = await saveCandlesBatch(candlesToSave);
+    const saveDuration = Date.now() - saveStartTime;
     candlesCreated = saved;
-    console.log(`[CandleAggregator]   ✅ ${symbol}: Created ${saved} candles across ${timeframesToProcess.length} timeframes`);
+    console.log(`[CandleAggregator]   ✅ ${symbol}: Created ${saved} candles across ${timeframesToProcess.length} timeframes (save: ${saveDuration}ms)`);
   } else {
     console.log(`[CandleAggregator]   ℹ️ ${symbol}: No new candles to create`);
   }
+
+  const symbolTotalDuration = Date.now() - symbolStartTime;
+  console.log(`[CandleAggregator]   ⏱️ ${symbol} completed in ${symbolTotalDuration}ms`);
 
   return { candlesCreated, timedOut: false };
 }
@@ -495,10 +526,11 @@ export const handler: Handler = async (event, context) => {
     for (const symbol of ACTIVE_SYMBOLS) {
       console.log(`[CandleAggregator] ▶️ Processing symbol ${symbolsProcessed + 1}/${ACTIVE_SYMBOLS.length}: ${symbol}`);
 
-      // Check if we're approaching timeout (leave 15 seconds for cleanup)
+      // Check if we're approaching timeout (leave 20 seconds for cleanup and logging)
       const elapsedMs = Date.now() - startTime;
-      if (elapsedMs > 105000) { // 105 seconds (leave 15s buffer)
-        console.log(`[CandleAggregator] ⚠️ Approaching function timeout (${elapsedMs}ms), stopping at ${symbol}`);
+      if (elapsedMs > 100000) { // 100 seconds (leave 20s buffer for Netlify 120s timeout)
+        console.log(`[CandleAggregator] ⚠️ Approaching function timeout (${elapsedMs}ms), stopping before ${symbol}`);
+        symbolResults[symbol] = { candles: 0, timedOut: false, error: 'Function timeout - not processed' };
         break;
       }
 
