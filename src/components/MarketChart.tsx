@@ -43,6 +43,7 @@ import { validateSymbol, type ValidatedSymbol } from '@/types/symbol';
 import { ChartDataGuarantor } from '@/services/chart-data-guarantor';
 import { currentCandleReconstructor } from '@/services/current-candle-reconstructor';
 import { recentCandleBackfill } from '@/services/recent-candle-backfill';
+import { ChartHealthMonitor } from '@/components/ChartHealthMonitor';
 
 interface MarketChartProps {
   symbol: string;
@@ -1756,6 +1757,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             </div>
           </div>
         )}
+
+        <ChartHealthMonitor symbol={symbol} timeframe={timeframe} />
 
         <div className="relative h-full">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden h-full" />

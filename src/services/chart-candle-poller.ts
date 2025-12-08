@@ -5,6 +5,8 @@ import { logger, LogCategory } from '@/lib/logger';
 import { priceValidationService } from './price-validation-service';
 import { validateSymbol, ValidatedSymbol } from '@/types/symbol';
 import { chartCircuitBreaker } from './chart-circuit-breaker';
+import { databaseResilienceWrapper } from './database-resilience-wrapper';
+import { chartMemoryManager } from './chart-memory-manager';
 
 interface PollResult {
   candles: CandleData[];
@@ -28,6 +30,43 @@ class ChartCandlePoller {
   private readonly POLL_INTERVAL_MS = 2000; // 2 seconds
   private readonly CACHE_STALE_MS = 5000; // Consider cache stale after 5 seconds
   private isPollingActive = true;
+  private memoryManagerRegistered = false;
+
+  constructor() {
+    // Register cache with memory manager for automatic cleanup
+    this.registerWithMemoryManager();
+  }
+
+  private registerWithMemoryManager(): void {
+    if (this.memoryManagerRegistered) return;
+
+    chartMemoryManager.registerCache({
+      id: 'chart-candle-poller',
+      getSize: () => {
+        let total = 0;
+        for (const cache of this.cache.values()) {
+          total += cache.candles.length + cache.fullHistoricalCandles.length;
+        }
+        return total;
+      },
+      clear: () => {
+        this.cache.clear();
+      },
+      prune: (limit: number) => {
+        let pruned = 0;
+        for (const cache of this.cache.values()) {
+          const before = cache.fullHistoricalCandles.length;
+          if (before > limit) {
+            cache.fullHistoricalCandles = cache.fullHistoricalCandles.slice(-limit);
+            pruned += before - limit;
+          }
+        }
+        return pruned;
+      },
+    });
+
+    this.memoryManagerRegistered = true;
+  }
 
   private getCacheKey(symbol: string, timeframe: Timeframe): string {
     return `${symbol}_${timeframe}`;
@@ -93,13 +132,20 @@ class ChartCandlePoller {
       const dbTimeframe = appTimeframeToDb(timeframe);
 
       // Fetch the most recent 3 candles to detect updates and new candles
-      const { data, error } = await supabase
-        .from('forex_candles')
-        .select('open_time, close_time, open, high, low, close, volume')
-        .eq('symbol', symbol)
-        .eq('timeframe', dbTimeframe)
-        .order('open_time', { ascending: false })
-        .limit(3);
+      // Wrapped with database resilience for retry and caching
+      const { data, error } = await databaseResilienceWrapper.query(
+        () => supabase
+          .from('forex_candles')
+          .select('open_time, close_time, open, high, low, close, volume')
+          .eq('symbol', symbol)
+          .eq('timeframe', dbTimeframe)
+          .order('open_time', { ascending: false })
+          .limit(3),
+        {
+          cacheKey: `chart-poller:${symbol}:${timeframe}`,
+          cacheDuration: 2000, // 2 seconds
+        }
+      );
 
       if (error) {
         console.error(`[ChartPoller] Error fetching candles for ${symbol} ${timeframe}:`, error);

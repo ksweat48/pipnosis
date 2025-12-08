@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
 import { CandleData } from '../types/chart';
+import { databaseResilienceWrapper } from './database-resilience-wrapper';
 
 interface DatabaseCandleRecord {
   id: string;
@@ -74,15 +75,22 @@ export class ChartDataGuarantor {
 
       // Order by descending to get the NEWEST candles first (fixes issue where
       // browser aggregator creates 500+ candles but we only fetch oldest 250)
-      const { data: candles, error } = await supabase
-        .from('forex_candles')
-        .select('*')
-        .eq('symbol', symbol)
-        .eq('timeframe', timeframe)
-        .gte('open_time', startTimeISO)
-        .lte('open_time', endTimeISO)
-        .order('open_time', { ascending: false })  // Get newest first
-        .limit(this.EMERGENCY_LIMIT);
+      // Wrapped with database resilience for retry and caching
+      const { data: candles, error } = await databaseResilienceWrapper.query(
+        () => supabase
+          .from('forex_candles')
+          .select('*')
+          .eq('symbol', symbol)
+          .eq('timeframe', timeframe)
+          .gte('open_time', startTimeISO)
+          .lte('open_time', endTimeISO)
+          .order('open_time', { ascending: false })  // Get newest first
+          .limit(this.EMERGENCY_LIMIT),
+        {
+          cacheKey: `chart-guarantor:${symbol}:${timeframe}:${startTimeISO}`,
+          cacheDuration: 30000, // 30 seconds
+        }
+      );
 
       if (error) {
         logger.error('[ChartDataGuarantor] Database error:', error);
