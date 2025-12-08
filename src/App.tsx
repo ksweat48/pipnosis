@@ -27,6 +27,7 @@ const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ 
 const SystemDiagnosticsPage = lazy(() => import('./pages/SystemDiagnosticsPage'));
 const AILearningCenterPage = lazy(() => import('./pages/AILearningCenterPage'));
 const CreditsPage = lazy(() => import('./pages/TokensPage').then(m => ({ default: m.CreditsPage })));
+const OptimizedCandleTestPage = lazy(() => import('./pages/OptimizedCandleTestPage'));
 
 // Loading component
 const LoadingFallback = () => (
@@ -178,6 +179,14 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute adminOnly={true}>
             <SystemDiagnosticsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/optimized-candles"
+        element={
+          <ProtectedRoute>
+            <OptimizedCandleTestPage />
           </ProtectedRoute>
         }
       />
