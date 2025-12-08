@@ -49,8 +49,42 @@ class RecentCandleBackfill {
   }
 
   /**
+   * Check if we have sufficient recent data in database
+   */
+  private async checkDataSufficiency(
+    symbol: string,
+    timeframe: Timeframe,
+    targetCandles: number
+  ): Promise<{ sufficient: boolean; currentCount: number; missingCount: number }> {
+    const { supabase } = await import('@/lib/supabase');
+
+    const daysBack = this.calculateDaysForCandleCount(timeframe, targetCandles);
+    const startTime = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
+
+    const { data, error } = await supabase
+      .from('forex_candles')
+      .select('open_time', { count: 'exact', head: true })
+      .eq('symbol', symbol)
+      .eq('timeframe', timeframe)
+      .gte('open_time', startTime.toISOString())
+      .order('open_time', { ascending: false });
+
+    if (error) {
+      logger.error(LogCategory.DATA, '[RecentBackfill] Error checking data sufficiency:', error);
+      return { sufficient: false, currentCount: 0, missingCount: targetCandles };
+    }
+
+    const currentCount = (data as any)?.count || 0;
+    const threshold = targetCandles * 0.8; // 80% threshold
+    const sufficient = currentCount >= threshold;
+    const missingCount = Math.max(0, targetCandles - currentCount);
+
+    return { sufficient, currentCount, missingCount };
+  }
+
+  /**
    * Silently backfill recent candles for a symbol/timeframe
-   * No UI indicators, no errors thrown - just works in background
+   * Only calls MetaAPI if we're actually missing significant data
    */
   async backfillRecent(symbol: string, timeframe: Timeframe): Promise<void> {
     const key = `${symbol}_${timeframe}`;
@@ -64,11 +98,29 @@ class RecentCandleBackfill {
     this.activeBackfills.add(key);
 
     try {
-      const daysBack = this.calculateDaysForCandleCount(timeframe, 100);
+      const targetCandles = 100;
+
+      // Check if we already have sufficient data
+      const sufficiency = await this.checkDataSufficiency(symbol, timeframe, targetCandles);
+
+      if (sufficiency.sufficient) {
+        logger.info(
+          LogCategory.DATA,
+          `[RecentBackfill] ✅ ${symbol} ${timeframe} has sufficient data (${sufficiency.currentCount}/${targetCandles} candles), skipping MetaAPI fetch`
+        );
+        return;
+      }
 
       logger.info(
         LogCategory.DATA,
-        `[RecentBackfill] Starting silent backfill for ${symbol} ${timeframe} (${daysBack} days)`
+        `[RecentBackfill] 📊 ${symbol} ${timeframe} needs more data (${sufficiency.currentCount}/${targetCandles}), missing ${sufficiency.missingCount} candles`
+      );
+
+      const daysBack = this.calculateDaysForCandleCount(timeframe, targetCandles);
+
+      logger.info(
+        LogCategory.DATA,
+        `[RecentBackfill] Starting MetaAPI fetch for ${symbol} ${timeframe} (${daysBack} days back)`
       );
 
       const response = await fetch(this.NETLIFY_FUNCTION_URL, {
@@ -88,21 +140,29 @@ class RecentCandleBackfill {
         const result = await response.json();
         logger.info(
           LogCategory.DATA,
-          `[RecentBackfill] ✅ Completed for ${symbol} ${timeframe}: ${result.candlesInserted} candles inserted`
+          `[RecentBackfill] ✅ Completed for ${symbol} ${timeframe}: ${result.candlesInserted} new candles inserted`
         );
       } else {
         const errorText = await response.text();
-        logger.warn(
-          LogCategory.DATA,
-          `[RecentBackfill] Failed for ${symbol} ${timeframe}: ${response.status} - ${errorText}`
-        );
+
+        // Check if error is due to MetaAPI not having symbol
+        if (errorText.includes('No MetaAPI account has') || errorText.includes('doesn\'t have')) {
+          logger.info(
+            LogCategory.DATA,
+            `[RecentBackfill] ℹ️ MetaAPI doesn't have ${symbol}, using existing ${sufficiency.currentCount} candles from database`
+          );
+        } else {
+          logger.warn(
+            LogCategory.DATA,
+            `[RecentBackfill] Failed for ${symbol} ${timeframe}: ${response.status} - using existing database data`
+          );
+        }
       }
     } catch (error) {
       // Silent failure - don't disrupt user experience
-      logger.error(
+      logger.info(
         LogCategory.DATA,
-        `[RecentBackfill] Error for ${symbol} ${timeframe}:`,
-        error
+        `[RecentBackfill] Using existing database data for ${symbol} ${timeframe} (MetaAPI unavailable)`
       );
     } finally {
       this.activeBackfills.delete(key);
