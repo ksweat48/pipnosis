@@ -385,7 +385,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       timeScale: {
         timeVisible: true,
         secondsVisible: true,
-        barSpacing: gapVisualizationService.getBarSpacing(),
+        barSpacing: 8,
         minBarSpacing: 1,
         rightBarStaysOnScroll: true,
       },
