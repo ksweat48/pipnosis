@@ -582,8 +582,26 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     setPatternData(patterns);
   };
 
-  const detectAndProcessGaps = (candles: CandleData[]): CandleData[] => {
+  const detectAndProcessGaps = (candles: CandleData[], skipProcessingOnLoad = false): CandleData[] => {
     try {
+      // SAFETY CHECK 1: Early return for empty or very small datasets
+      if (!candles || candles.length === 0) {
+        console.log('[Chart] Gap detection skipped - no candles provided');
+        return candles;
+      }
+
+      // SAFETY CHECK 2: Skip gap processing during initial load if data is incomplete
+      if (skipProcessingOnLoad && candles.length < 10) {
+        console.log('[Chart] Gap detection deferred - waiting for more data on initial load');
+        return candles;
+      }
+
+      // SAFETY CHECK 3: Skip gap processing if we're still loading
+      if (isLoading && candles.length < 50) {
+        console.log('[Chart] Gap detection skipped - chart is still loading');
+        return candles;
+      }
+
       const gaps = gapVisualizationService.detectGaps(candles);
       setDetectedGaps(gaps);
 
@@ -603,6 +621,25 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         const timeframeMinutes = getTimeframeMinutes(timeframe);
         const filledCandles = candleGapFillerService.fillGaps(candles, timeframeMinutes);
 
+        // SAFETY CHECK 4: Validate filled candles are not empty
+        if (!filledCandles || filledCandles.length === 0) {
+          console.error('[Chart] Gap filling returned empty array - using original data');
+          return candles;
+        }
+
+        // SAFETY CHECK 5: Ensure filled candles contain valid data
+        const hasValidData = filledCandles.every(c =>
+          typeof c.time === 'number' &&
+          !isNaN(c.time) &&
+          typeof c.open === 'number' &&
+          !isNaN(c.open)
+        );
+
+        if (!hasValidData) {
+          console.error('[Chart] Gap filling produced invalid data - using original data');
+          return candles;
+        }
+
         if (filledCandles.length > candles.length) {
           const fillingStats = candleGapFillerService.getGapFillingStats(candles, filledCandles);
           console.log('[Chart] Gap Filling Applied:', {
@@ -619,6 +656,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       return candles;
     } catch (error) {
       console.error('[Chart] Gap detection error:', error);
+      // CRITICAL: Always return original candles on error
       return candles;
     }
   };
@@ -632,7 +670,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         barSpacing: newBarSpacing
       });
 
-      const processedCandles = detectAndProcessGaps(currentData as CandleData[]);
+      // User-triggered gap settings change - always process (skipProcessingOnLoad=false)
+      const processedCandles = detectAndProcessGaps(currentData as CandleData[], false);
 
       if (candlestickSeriesRef.current && processedCandles.length > 0) {
         candlestickSeriesRef.current.setData(processedCandles);
@@ -1226,20 +1265,32 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           timeValue: sanitizedCandles[0].time
         });
 
-        const processedCandles = detectAndProcessGaps(sanitizedCandles);
-        candlestickSeriesRef.current.setData(processedCandles);
+        // CRITICAL FIX: Skip gap processing on initial load to prevent empty chart
+        // Pass skipProcessingOnLoad=true to defer gap detection until data is stable
+        const processedCandles = detectAndProcessGaps(sanitizedCandles, true);
+
+        // SAFETY CHECK: Verify gap processing didn't return empty data
+        if (!processedCandles || processedCandles.length === 0) {
+          console.error('[Chart Init] ❌ CRITICAL: Gap processing returned empty data - using original');
+          candlestickSeriesRef.current.setData(sanitizedCandles);
+        } else {
+          candlestickSeriesRef.current.setData(processedCandles);
+        }
 
         // VERIFICATION: Check if data was actually set
         const chartDataAfterSet = candlestickSeriesRef.current.data();
         console.log('[Chart Init] ✅ Chart data set successfully - Verification:', {
-          sentToChart: sanitizedCandles.length,
+          sentToChart: processedCandles.length || sanitizedCandles.length,
           actuallyInChart: chartDataAfterSet.length,
-          match: sanitizedCandles.length === chartDataAfterSet.length
+          match: chartDataAfterSet.length > 0
         });
 
         if (chartDataAfterSet.length === 0) {
           console.error('[Chart Init] ❌ CRITICAL: Chart has ZERO candles after setData()!');
           console.error('[Chart Init] This indicates a lightweight-charts library issue or data format problem');
+          // EMERGENCY FALLBACK: Try setting data directly without any processing
+          console.error('[Chart Init] Attempting emergency fallback - setting data without processing...');
+          candlestickSeriesRef.current.setData(sanitizedCandles);
         } else if (chartDataAfterSet.length < sanitizedCandles.length) {
           console.warn('[Chart Init] ⚠️ WARNING: Chart has fewer candles than sent:', {
             sent: sanitizedCandles.length,
