@@ -42,6 +42,15 @@ interface GapInfo {
   missingCandles: number;
 }
 
+interface GapFillStats {
+  totalGapsDetected: number;
+  totalGapsFilled: number;
+  filledByRealtimePrices: number;
+  filledBySmallerTimeframe: number;
+  filledByMetaAPI: number;
+  failedToFill: number;
+}
+
 function isMarketOpenAt(timestamp: Date): boolean {
   const estTime = new Date(timestamp.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const dayOfWeek = estTime.getDay();
@@ -57,6 +66,32 @@ function isMarketOpenAt(timestamp: Date): boolean {
   if (dayOfWeek === 0 && totalMinutes < sundayOpenTime) return false;
 
   return true;
+}
+
+function isWeekendPeriod(startTime: Date, endTime: Date): boolean {
+  const start = startTime.getUTCDay();
+  const end = endTime.getUTCDay();
+
+  return (start === 5 && (end === 0 || end === 1)) ||
+         (start === 6 && (end === 0 || end === 1));
+}
+
+function getSmallerTimeframe(timeframe: string): string | null {
+  const hierarchy: Record<string, string> = {
+    'M5': 'M1',
+    'M15': 'M5',
+    'M30': 'M15',
+    'H1': 'M15',
+    'H4': 'H1',
+    'D1': 'H4'
+  };
+  return hierarchy[timeframe] || null;
+}
+
+function getGapAgeHours(gap: GapInfo): number {
+  const now = Date.now();
+  const gapEndTime = gap.gapEnd.getTime();
+  return (now - gapEndTime) / (60 * 60 * 1000);
 }
 
 async function detectGapsForSymbol(symbol: string, timeframe: string): Promise<GapInfo[]> {
@@ -87,7 +122,7 @@ async function detectGapsForSymbol(symbol: string, timeframe: string): Promise<G
 
   const gaps: GapInfo[] = [];
   const intervalMs = TIMEFRAME_SECONDS[timeframe] * 1000;
-  const gapThreshold = intervalMs * 1.5;
+  const gapThreshold = intervalMs * 2.5;
 
   for (let i = 1; i < candles.length; i++) {
     const prevTime = new Date(candles[i - 1].open_time);
@@ -95,12 +130,7 @@ async function detectGapsForSymbol(symbol: string, timeframe: string): Promise<G
     const timeDiff = currTime.getTime() - prevTime.getTime();
 
     if (timeDiff > gapThreshold) {
-      const prevDay = prevTime.getUTCDay();
-      const currDay = currTime.getUTCDay();
-
-      const isWeekendGap =
-        (prevDay === 5 && (currDay === 0 || currDay === 1)) ||
-        (prevDay === 6 && (currDay === 0 || currDay === 1));
+      const isWeekendGap = isWeekendPeriod(prevTime, currTime);
 
       if (!isWeekendGap) {
         const missingCandles = Math.floor(timeDiff / intervalMs) - 1;
@@ -113,20 +143,188 @@ async function detectGapsForSymbol(symbol: string, timeframe: string): Promise<G
             gapEnd: new Date(currTime.getTime() - intervalMs),
             missingCandles
           });
+        } else if (missingCandles > 100) {
+          console.warn(`[GapFiller] Skipping large gap: ${missingCandles} candles (too large to fill)`);
         }
       }
     }
   }
 
   if (gaps.length > 0) {
-    console.log(`[AutoGapFiller] Found ${gaps.length} gaps in ${symbol} ${timeframe}`);
+    console.log(`[GapFiller] Found ${gaps.length} fillable gaps in ${symbol} ${timeframe}`);
   }
 
   return gaps;
 }
 
-async function fillGap(gap: GapInfo): Promise<number> {
-  console.log(`[AutoGapFiller] Filling gap: ${gap.symbol} ${gap.timeframe} from ${gap.gapStart.toISOString()} to ${gap.gapEnd.toISOString()} (${gap.missingCandles} candles)`);
+async function fillGapFromRealtimePrices(gap: GapInfo): Promise<number> {
+  console.log(`[GapFiller] Strategy 1: Trying realtime_prices aggregation (SQL)...`);
+
+  const intervalSeconds = TIMEFRAME_SECONDS[gap.timeframe];
+  const intervalMs = intervalSeconds * 1000;
+  const candlesToInsert = [];
+  let currentCandleStart = gap.gapStart.getTime();
+
+  while (currentCandleStart <= gap.gapEnd.getTime()) {
+    const currentCandleEnd = currentCandleStart + intervalMs;
+    const startTime = new Date(currentCandleStart);
+    const endTime = new Date(currentCandleEnd);
+
+    if (!isMarketOpenAt(startTime)) {
+      currentCandleStart = currentCandleEnd;
+      continue;
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('aggregate_candle_from_prices', {
+        p_symbol: gap.symbol,
+        p_start_time: startTime.toISOString(),
+        p_end_time: endTime.toISOString()
+      });
+
+      if (error) {
+        console.error(`[GapFiller] SQL aggregation error: ${error.message}`);
+        currentCandleStart = currentCandleEnd;
+        continue;
+      }
+
+      if (data && data.length > 0 && data[0].price_count > 0) {
+        const row = data[0];
+
+        candlesToInsert.push({
+          symbol: gap.symbol,
+          timeframe: gap.timeframe,
+          open_time: startTime.toISOString(),
+          close_time: endTime.toISOString(),
+          open: row.first_price,
+          high: row.high_price,
+          low: row.low_price,
+          close: row.last_price,
+          volume: row.price_count,
+          tick_count: row.price_count,
+          data_source: 'gap_filler_prices',
+          quality_score: 95
+        });
+      }
+    } catch (error) {
+      console.error(`[GapFiller] Error calling SQL function:`, error);
+    }
+
+    currentCandleStart = currentCandleEnd;
+  }
+
+  if (candlesToInsert.length === 0) {
+    console.log(`[GapFiller] No realtime_prices data available for gap range`);
+    return 0;
+  }
+
+  const { error: insertError } = await supabase
+    .from('forex_candles')
+    .upsert(candlesToInsert, {
+      onConflict: 'symbol,timeframe,open_time',
+      ignoreDuplicates: false
+    });
+
+  if (insertError) {
+    console.error(`[GapFiller] Error inserting candles from realtime: ${insertError.message}`);
+    return 0;
+  }
+
+  console.log(`[GapFiller] ✅ Successfully filled ${candlesToInsert.length} candles from realtime_prices (SQL aggregation)`);
+  return candlesToInsert.length;
+}
+
+async function fillGapFromSmallerTimeframe(gap: GapInfo): Promise<number> {
+  const smallerTf = getSmallerTimeframe(gap.timeframe);
+  if (!smallerTf) {
+    console.log(`[GapFiller] No smaller timeframe available (already at M1)`);
+    return 0;
+  }
+
+  console.log(`[GapFiller] Strategy 2: Aggregating from ${smallerTf}...`);
+
+  const { data: smallerCandles, error } = await supabase
+    .from('forex_candles')
+    .select('open_time, open, high, low, close, volume')
+    .eq('symbol', gap.symbol)
+    .eq('timeframe', smallerTf)
+    .gte('open_time', gap.gapStart.toISOString())
+    .lt('open_time', gap.gapEnd.toISOString())
+    .order('open_time', { ascending: true });
+
+  if (error || !smallerCandles || smallerCandles.length === 0) {
+    console.log(`[GapFiller] Not enough ${smallerTf} candles (${smallerCandles?.length || 0})`);
+    return 0;
+  }
+
+  const intervalSeconds = TIMEFRAME_SECONDS[gap.timeframe];
+  const intervalMs = intervalSeconds * 1000;
+  const candlesToInsert = [];
+  let currentCandleStart = gap.gapStart.getTime();
+
+  while (currentCandleStart <= gap.gapEnd.getTime()) {
+    const currentCandleEnd = currentCandleStart + intervalMs;
+    const startTime = new Date(currentCandleStart);
+
+    if (!isMarketOpenAt(startTime)) {
+      currentCandleStart = currentCandleEnd;
+      continue;
+    }
+
+    const candlesInPeriod = smallerCandles.filter(c => {
+      const candleTime = new Date(c.open_time).getTime();
+      return candleTime >= currentCandleStart && candleTime < currentCandleEnd;
+    });
+
+    if (candlesInPeriod.length > 0) {
+      const open = candlesInPeriod[0].open;
+      const close = candlesInPeriod[candlesInPeriod.length - 1].close;
+      const high = Math.max(...candlesInPeriod.map(c => c.high));
+      const low = Math.min(...candlesInPeriod.map(c => c.low));
+      const volume = candlesInPeriod.reduce((sum, c) => sum + (c.volume || 0), 0);
+
+      candlesToInsert.push({
+        symbol: gap.symbol,
+        timeframe: gap.timeframe,
+        open_time: startTime.toISOString(),
+        close_time: new Date(currentCandleEnd).toISOString(),
+        open,
+        high,
+        low,
+        close,
+        volume,
+        tick_count: candlesInPeriod.length,
+        data_source: `gap_filler_${smallerTf}`,
+        quality_score: 90
+      });
+    }
+
+    currentCandleStart = currentCandleEnd;
+  }
+
+  if (candlesToInsert.length === 0) {
+    console.log(`[GapFiller] No aggregatable data from ${smallerTf}`);
+    return 0;
+  }
+
+  const { error: insertError } = await supabase
+    .from('forex_candles')
+    .upsert(candlesToInsert, {
+      onConflict: 'symbol,timeframe,open_time',
+      ignoreDuplicates: false
+    });
+
+  if (insertError) {
+    console.error(`[GapFiller] Error inserting aggregated candles: ${insertError.message}`);
+    return 0;
+  }
+
+  console.log(`[GapFiller] ✅ Successfully filled ${candlesToInsert.length} candles from ${smallerTf}`);
+  return candlesToInsert.length;
+}
+
+async function fillGapFromMetaAPI(gap: GapInfo): Promise<number> {
+  console.log(`[GapFiller] Strategy 3: Trying MetaAPI historical fetch (fallback)...`);
 
   try {
     const gapDurationDays = Math.ceil((gap.gapEnd.getTime() - gap.gapStart.getTime()) / (24 * 60 * 60 * 1000));
@@ -139,7 +337,7 @@ async function fillGap(gap: GapInfo): Promise<number> {
     );
 
     if (historicalCandles.length === 0) {
-      console.warn(`[AutoGapFiller] No historical data returned from MetaAPI for ${gap.symbol} ${gap.timeframe}`);
+      console.warn(`[GapFiller] MetaAPI returned no data`);
       return 0;
     }
 
@@ -152,7 +350,7 @@ async function fillGap(gap: GapInfo): Promise<number> {
     });
 
     if (candlesInGapRange.length === 0) {
-      console.warn(`[AutoGapFiller] No candles in gap range after filtering`);
+      console.warn(`[GapFiller] No candles in gap range from MetaAPI`);
       return 0;
     }
 
@@ -179,21 +377,62 @@ async function fillGap(gap: GapInfo): Promise<number> {
       });
 
     if (insertError) {
-      console.error(`[AutoGapFiller] Error inserting candles: ${insertError.message}`);
+      console.error(`[GapFiller] Error inserting MetaAPI candles: ${insertError.message}`);
       return 0;
     }
 
-    console.log(`[AutoGapFiller] Successfully filled gap with ${candlesToInsert.length} candles`);
+    console.log(`[GapFiller] ✅ Successfully filled ${candlesToInsert.length} candles from MetaAPI`);
     return candlesToInsert.length;
 
   } catch (error) {
-    console.error(`[AutoGapFiller] Error filling gap:`, error);
+    console.warn(`[GapFiller] MetaAPI failed:`, error instanceof Error ? error.message : 'Unknown error');
     return 0;
   }
 }
 
-async function processSymbolTimeframe(symbol: string, timeframe: string): Promise<number> {
+async function fillGap(gap: GapInfo, stats: GapFillStats): Promise<number> {
+  console.log(`[GapFiller] Filling gap: ${gap.symbol} ${gap.timeframe} from ${gap.gapStart.toISOString()} to ${gap.gapEnd.toISOString()} (${gap.missingCandles} candles)`);
+
+  const gapAgeHours = getGapAgeHours(gap);
+  console.log(`[GapFiller] Gap age: ${gapAgeHours.toFixed(1)} hours`);
+
+  let candlesFilled = 0;
+
+  if (gapAgeHours < 24) {
+    candlesFilled = await fillGapFromRealtimePrices(gap);
+    if (candlesFilled > 0) {
+      stats.filledByRealtimePrices += candlesFilled;
+      stats.totalGapsFilled++;
+      return candlesFilled;
+    }
+    console.log(`[GapFiller] Strategy 1 failed: No realtime_prices data available`);
+  }
+
+  candlesFilled = await fillGapFromSmallerTimeframe(gap);
+  if (candlesFilled > 0) {
+    stats.filledBySmallerTimeframe += candlesFilled;
+    stats.totalGapsFilled++;
+    return candlesFilled;
+  }
+  console.log(`[GapFiller] Strategy 2 failed: No smaller timeframe data available`);
+
+  candlesFilled = await fillGapFromMetaAPI(gap);
+  if (candlesFilled > 0) {
+    stats.filledByMetaAPI += candlesFilled;
+    stats.totalGapsFilled++;
+    return candlesFilled;
+  }
+  console.log(`[GapFiller] Strategy 3 failed: MetaAPI unavailable or returned no data`);
+
+  console.warn(`[GapFiller] ⚠️  Could not fill gap for ${gap.symbol} ${gap.timeframe} - no data available`);
+  stats.failedToFill++;
+  return 0;
+}
+
+async function processSymbolTimeframe(symbol: string, timeframe: string, stats: GapFillStats): Promise<number> {
   const gaps = await detectGapsForSymbol(symbol, timeframe);
+
+  stats.totalGapsDetected += gaps.length;
 
   if (gaps.length === 0) {
     return 0;
@@ -203,7 +442,7 @@ async function processSymbolTimeframe(symbol: string, timeframe: string): Promis
   const maxGapsToFill = (timeframe === 'M1' || timeframe === 'M5') ? 3 : 5;
 
   for (const gap of gaps.slice(0, maxGapsToFill)) {
-    const filled = await fillGap(gap);
+    const filled = await fillGap(gap, stats);
     totalFilled += filled;
 
     const delay = (timeframe === 'M1' || timeframe === 'M5') ? 2000 : 1000;
@@ -217,6 +456,15 @@ export const handler: Handler = async (event, context) => {
   console.log('[AutoGapFiller] Starting automatic gap detection and filling...');
   const startTime = Date.now();
 
+  const stats: GapFillStats = {
+    totalGapsDetected: 0,
+    totalGapsFilled: 0,
+    filledByRealtimePrices: 0,
+    filledBySmallerTimeframe: 0,
+    filledByMetaAPI: 0,
+    failedToFill: 0
+  };
+
   try {
     const results: Record<string, number> = {};
     let totalCandlesFilled = 0;
@@ -228,7 +476,7 @@ export const handler: Handler = async (event, context) => {
         const key = `${symbol}_${timeframe}`;
 
         try {
-          const filled = await processSymbolTimeframe(symbol, timeframe);
+          const filled = await processSymbolTimeframe(symbol, timeframe, stats);
           results[key] = filled;
           totalCandlesFilled += filled;
 
@@ -246,13 +494,23 @@ export const handler: Handler = async (event, context) => {
     }
 
     const duration = Date.now() - startTime;
-    console.log(`[AutoGapFiller] Completed in ${duration}ms: ${totalCandlesFilled} candles filled`);
+
+    console.log('[AutoGapFiller] ===== SUMMARY =====');
+    console.log(`Total gaps detected: ${stats.totalGapsDetected}`);
+    console.log(`Total gaps filled: ${stats.totalGapsFilled}`);
+    console.log(`  - From realtime_prices: ${stats.filledByRealtimePrices}`);
+    console.log(`  - From smaller timeframes: ${stats.filledBySmallerTimeframe}`);
+    console.log(`  - From MetaAPI: ${stats.filledByMetaAPI}`);
+    console.log(`  - Failed to fill: ${stats.failedToFill}`);
+    console.log(`Completed in ${duration}ms`);
+    console.log('================================');
 
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         success: true,
+        stats,
         totalCandlesFilled,
         durationMs: duration,
         results,
