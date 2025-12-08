@@ -174,5 +174,19 @@ If issues occur, the old code logic is preserved as a fallback:
 
 ✅ Migration applied to database
 ✅ Code changes committed
-✅ Netlify build triggered
-⏳ Waiting for deployment and next scheduled run
+✅ Enhanced error handling for SQL RPC failures
+✅ Netlify build triggered (Dec 8, 2025)
+⏳ Waiting for deployment to complete (check: https://app.netlify.com/sites/pipnosis/deploys)
+⏳ Waiting for next scheduled run to verify
+
+## Recent Fixes (Dec 8, 2025)
+
+### Enhanced Error Handling
+- **Issue**: `TypeError: fetch failed` when calling SQL RPC function
+- **Fix**: Gracefully fall back to in-memory aggregation on any error
+- **Result**: Function continues processing all symbols even if SQL fails
+
+### Deployment Configuration
+- **Issue**: Function timing out at 60 seconds despite 120s in netlify.toml
+- **Fix**: Triggered fresh deployment with cache clear to reload configuration
+- **Verification**: Check Netlify Functions UI after deployment completes

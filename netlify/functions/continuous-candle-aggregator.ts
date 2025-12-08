@@ -268,9 +268,10 @@ async function aggregateCandleSQL(
     if (error) {
       // If RPC function doesn't exist, return null (will fall back to in-memory)
       if (error.message.includes('function') && error.message.includes('does not exist')) {
+        console.log(`[CandleAggregator] SQL function not found, using fallback`);
         return null;
       }
-      console.error(`[CandleAggregator] SQL aggregation error:`, error.message);
+      console.error(`[CandleAggregator] SQL aggregation error: ${error.message}`);
       return null;
     }
 
@@ -291,7 +292,14 @@ async function aggregateCandleSQL(
       volume: row.price_count
     };
   } catch (error) {
-    console.error(`[CandleAggregator] SQL aggregation unexpected error:`, error);
+    // CRITICAL: Network errors (TypeError: fetch failed) should not crash the function
+    // Fall back to in-memory aggregation silently
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    if (errorMsg.includes('fetch failed') || errorMsg.includes('TypeError')) {
+      console.log(`[CandleAggregator] SQL RPC connection issue, using fallback method`);
+    } else {
+      console.error(`[CandleAggregator] SQL aggregation error: ${errorMsg}`);
+    }
     return null;
   }
 }
