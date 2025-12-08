@@ -27,7 +27,7 @@ export interface GuarantorResult {
 
 export class ChartDataGuarantor {
   private static readonly TARGET_CANDLES = 200;
-  private static readonly EMERGENCY_LIMIT = 250;
+  private static readonly EMERGENCY_LIMIT = 15000; // Increased from 250 to handle historical backfill data
   private static readonly TIMEFRAME_SECONDS: Record<string, number> = {
     'M1': 60,
     'M5': 300,
@@ -335,16 +335,16 @@ export class ChartDataGuarantor {
 
   static calculateSmartCandleCount(timeframe: string): number {
     const counts: Record<string, number> = {
-      'M1': 240,
-      'M5': 200,
-      'M15': 200,
-      'M30': 200,
-      'H1': 168,
-      'H4': 168,
-      'D1': 90
+      'M1': 10080,  // 7 days of M1 candles (increased from 240 to show backfill data)
+      'M5': 8640,   // 30 days of M5 candles (increased from 200 to show backfill data)
+      'M15': 5760,  // 60 days of M15 candles (increased from 200 to show backfill data)
+      'M30': 4320,  // 90 days of M30 candles (increased from 200 to show backfill data)
+      'H1': 4320,   // 180 days of H1 candles (increased from 168)
+      'H4': 2190,   // 365 days of H4 candles (increased from 168)
+      'D1': 365     // 1 year of daily candles (increased from 90)
     };
 
-    return counts[timeframe] || 200;
+    return counts[timeframe] || 2000;
   }
 
   static async ensureMinimumDataset(

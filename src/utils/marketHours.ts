@@ -193,15 +193,15 @@ export function getLastMarketCloseTime(): number {
  */
 export function getTimeframeLookbackHours(timeframe: string): number {
   const lookbackMap: Record<string, number> = {
-    'M1': 48,   // 48 hours = 2880 candles
-    'M5': 72,   // 72 hours = 864 candles
-    'M15': 96,  // 96 hours = 384 candles
-    'M30': 120, // 120 hours = 240 candles
-    'H1': 200,  // Keep as candle count (converted to hours: 200 hours)
-    'H4': 800,  // 800 hours
-    'D1': 2400, // 2400 hours (100 days)
-    'W1': 8760  // 8760 hours (365 days)
+    'M1': 336,   // 14 days = 20,160 candles (increased from 48h to show backfill data)
+    'M5': 720,   // 30 days = 8,640 candles (increased from 72h to show backfill data)
+    'M15': 1440, // 60 days = 5,760 candles (increased from 96h to show backfill data)
+    'M30': 2160, // 90 days = 4,320 candles (increased from 120h to show backfill data)
+    'H1': 4320,  // 180 days = 4,320 candles (increased to match other timeframes)
+    'H4': 8760,  // 365 days = 2,190 candles (1 year of data)
+    'D1': 8760,  // 365 days = 365 candles (1 year of data)
+    'W1': 17520  // 2 years = 104 weeks (increased for more historical context)
   };
 
-  return lookbackMap[timeframe] || 72; // Default to 72 hours
+  return lookbackMap[timeframe] || 720; // Default to 30 days
 }
