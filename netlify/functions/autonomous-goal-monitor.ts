@@ -5,10 +5,10 @@
  * Enables goal sessions to continue running even when browser is closed
  * Users can start sessions from any device and they'll keep running in the cloud
  *
- * Schedule: Every 1 minute
+ * Schedule: Every 1 minute (defined in netlify.toml)
  */
 
-import { schedule } from '@netlify/functions';
+import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { processGoalSessionIteration, initializeGoalSession } from '../../src/services/goal-session-core-engine';
 
@@ -17,7 +17,7 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-const handler = async () => {
+export const handler: Handler = async (event, context) => {
   const startTime = Date.now();
   console.log('[Autonomous Monitor] Starting scheduled check...');
 
@@ -176,6 +176,3 @@ const handler = async () => {
     };
   }
 };
-
-// Schedule to run every minute
-export default schedule('* * * * *', handler);
