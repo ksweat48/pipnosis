@@ -199,23 +199,29 @@ class HistoricalBackfillManager {
           onProgress(current, total, `${symbol} ${timeframe}`);
         }
 
-        const status = await this.checkBackfillStatus(symbol, timeframe);
+        try {
+          const status = await this.checkBackfillStatus(symbol, timeframe);
 
-        if (status.needsBackfill) {
-          const targetDays = getTargetDaysForTimeframe(timeframe);
-          const daysToFetch = Math.max(targetDays - status.daysAvailable, Math.min(7, targetDays));
-          logger.info(`[HistoricalBackfill] ${symbol} ${timeframe} needs ${daysToFetch} days of data (target: ${targetDays} days)`);
+          if (status.needsBackfill) {
+            const targetDays = getTargetDaysForTimeframe(timeframe);
+            const daysToFetch = Math.max(targetDays - status.daysAvailable, Math.min(7, targetDays));
+            logger.info(`[HistoricalBackfill] ${symbol} ${timeframe} needs ${daysToFetch} days of data (target: ${targetDays} days)`);
 
-          const result = await this.triggerBackfillForSymbol(symbol, timeframe, daysToFetch);
+            const result = await this.triggerBackfillForSymbol(symbol, timeframe, daysToFetch);
 
-          if (result.success) {
-            totalCandlesFilled += result.candlesFilled;
+            if (result.success) {
+              totalCandlesFilled += result.candlesFilled;
+            } else if (result.error && result.error.includes('404')) {
+              logger.warn(`[HistoricalBackfill] ${symbol} ${timeframe} not available on MetaAPI account - skipping`);
+            }
+
+            const delay = (timeframe === 'M1' || timeframe === 'M5') ? 3000 : 2000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+          } else {
+            logger.debug(LogCategory.CHART, `[HistoricalBackfill] ${symbol} ${timeframe} has ${status.daysAvailable} days - no backfill needed`);
           }
-
-          const delay = (timeframe === 'M1' || timeframe === 'M5') ? 3000 : 2000;
-          await new Promise(resolve => setTimeout(resolve, delay));
-        } else {
-          logger.debug(LogCategory.CHART, `[HistoricalBackfill] ${symbol} ${timeframe} has ${status.daysAvailable} days - no backfill needed`);
+        } catch (error) {
+          logger.error(`[HistoricalBackfill] Error processing ${symbol} ${timeframe}:`, error);
         }
       }
 
