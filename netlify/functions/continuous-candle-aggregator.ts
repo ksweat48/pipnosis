@@ -15,8 +15,8 @@ const MEDIUM_TIMEFRAMES = ['M30', 'H1']; // Process every 3rd run (15 min)
 const SLOW_TIMEFRAMES = ['H4', 'D1', 'W1']; // Process every 12th run (60 min)
 const ALL_TIMEFRAMES = [...FAST_TIMEFRAMES, ...MEDIUM_TIMEFRAMES, ...SLOW_TIMEFRAMES];
 
-// SAFETY: Maximum candles to create per timeframe to prevent timeout
-const MAX_CANDLES_PER_TIMEFRAME = 10;
+// SAFETY: Maximum candles to create per timeframe (only last 3 M1 candles)
+const MAX_CANDLES_PER_TIMEFRAME = 3;
 
 const TIMEFRAME_MINUTES: Record<string, number> = {
   'M1': 1,
@@ -359,13 +359,13 @@ async function aggregateCandlesForSymbol(
   symbol: string,
   timeframesToProcess: string[],
   startTime: number,
-  maxDurationMs: number = 18000 // 18 seconds per symbol (5 symbols * 18s = 90s total)
+  maxDurationMs: number = 5000 // 5 seconds per symbol (M1 only, much faster)
 ): Promise<{ candlesCreated: number; timedOut: boolean }> {
   const symbolStartTime = Date.now();
   console.log(`[CandleAggregator]   📊 Starting aggregation for ${symbol}...`);
 
-  // OPTIMIZATION: Fetch only 15 minutes of recent prices (M1 only needs recent data)
-  const lookbackMinutes = 15; // Reduced from 30 to 15 minutes for faster processing
+  // OPTIMIZATION: Fetch only 3 minutes of recent prices (just 2-3 M1 candles max)
+  const lookbackMinutes = 3; // CRITICAL: Reduced to 3 minutes for fastest processing
   const prices = await fetchRecentPrices(symbol, lookbackMinutes);
 
   if (prices.length === 0) {
@@ -393,26 +393,31 @@ async function aggregateCandlesForSymbol(
 
     console.log(`[CandleAggregator]     🔧 Processing ${symbol} ${timeframe}...`);
     const timeframeMinutes = TIMEFRAME_MINUTES[timeframe];
-    const lastCandleTime = await getLastCandleTime(symbol, timeframe);
 
-    // CRITICAL FIX: Backfill ALL missing candles, not just the most recent one
+    // OPTIMIZATION: Fetch ALL existing candles for this time range in ONE query
+    // This eliminates per-candle database queries in the loop
+    const lookbackTime = new Date(now.getTime() - lookbackMinutes * 60 * 1000);
+    const { data: existingCandles } = await supabase
+      .from('forex_candles')
+      .select('open_time')
+      .eq('symbol', symbol)
+      .eq('timeframe', timeframe)
+      .gte('open_time', lookbackTime.toISOString())
+      .order('open_time', { ascending: true });
+
+    // Create a Set of existing candle timestamps for O(1) lookup
+    const existingCandleTimes = new Set(
+      (existingCandles || []).map(c => new Date(c.open_time).getTime())
+    );
+
+    console.log(`[CandleAggregator]       📋 Found ${existingCandleTimes.size} existing ${timeframe} candles`);
+
+    // CRITICAL: Only process the last 3 completed candles (not all 15 minutes)
     const currentCandleStart = roundTimeToCandle(now, timeframeMinutes);
     const previousCandleStart = new Date(currentCandleStart.getTime() - timeframeMinutes * 60 * 1000);
 
-    // Determine starting point for backfill
-    let startFrom: Date;
-    if (lastCandleTime) {
-      // Start from the next candle after the last one we have
-      startFrom = new Date(lastCandleTime.getTime() + timeframeMinutes * 60 * 1000);
-    } else {
-      // No candles exist, start from lookback period
-      // For fast timeframes (M1, M5, M15): 30 minutes is enough
-      // For slow timeframes (H4, D1, W1): Will aggregate from M1 candles (goes back further automatically)
-      startFrom = new Date(now.getTime() - lookbackMinutes * 60 * 1000);
-      startFrom = roundTimeToCandle(startFrom, timeframeMinutes);
-    }
-
-    // Don't go beyond the previous completed candle
+    // Start from 3 candles ago
+    const startFrom = new Date(previousCandleStart.getTime() - (2 * timeframeMinutes * 60 * 1000));
     const endAt = previousCandleStart;
 
     // BACKFILL LOOP: Create all missing candles
@@ -441,28 +446,23 @@ async function aggregateCandlesForSymbol(
         break;
       }
 
+      // OPTIMIZATION: Check if candle already exists (O(1) lookup in Set)
+      if (existingCandleTimes.has(currentCandleToCreate.getTime())) {
+        // Candle already exists, skip it
+        currentCandleToCreate = new Date(currentCandleToCreate.getTime() + timeframeMinutes * 60 * 1000);
+        continue;
+      }
+
       let candle: CandleData | null = null;
 
-      // For large timeframes (H4, D1, W1), aggregate from existing M1 candles
-      if (timeframe === 'H4' || timeframe === 'D1' || timeframe === 'W1') {
-        candle = await aggregateFromM1Candles(symbol, timeframe, currentCandleToCreate, candleEndTime);
-      }
+      // FAST PATH: For M1, use in-memory aggregation from prices (no database queries)
+      const candlePrices = prices.filter(p => {
+        const priceTime = new Date(p.created_at);
+        return priceTime >= currentCandleToCreate && priceTime < candleEndTime;
+      });
 
-      // For small timeframes, try SQL-based aggregation from raw prices
-      if (!candle) {
-        candle = await aggregateCandleSQL(symbol, timeframe, currentCandleToCreate, candleEndTime);
-      }
-
-      // FALLBACK: If SQL method fails, use in-memory aggregation
-      if (!candle) {
-        const candlePrices = prices.filter(p => {
-          const priceTime = new Date(p.created_at);
-          return priceTime >= currentCandleToCreate && priceTime < candleEndTime;
-        });
-
-        if (candlePrices.length > 0) {
-          candle = calculateCandleFromPrices(candlePrices, symbol, timeframe, currentCandleToCreate);
-        }
+      if (candlePrices.length > 0) {
+        candle = calculateCandleFromPrices(candlePrices, symbol, timeframe, currentCandleToCreate);
       }
 
       if (candle) {
@@ -526,9 +526,9 @@ export const handler: Handler = async (event, context) => {
     for (const symbol of ACTIVE_SYMBOLS) {
       console.log(`[CandleAggregator] ▶️ Processing symbol ${symbolsProcessed + 1}/${ACTIVE_SYMBOLS.length}: ${symbol}`);
 
-      // Check if we're approaching timeout (leave 20 seconds for cleanup and logging)
+      // Check if we're approaching timeout (5 symbols * 5s = 25s, leave 90s buffer)
       const elapsedMs = Date.now() - startTime;
-      if (elapsedMs > 100000) { // 100 seconds (leave 20s buffer for Netlify 120s timeout)
+      if (elapsedMs > 30000) { // 30 seconds total (well under 120s Netlify timeout)
         console.log(`[CandleAggregator] ⚠️ Approaching function timeout (${elapsedMs}ms), stopping before ${symbol}`);
         symbolResults[symbol] = { candles: 0, timedOut: false, error: 'Function timeout - not processed' };
         break;
