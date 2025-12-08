@@ -8,6 +8,7 @@ import { ToastContainer } from './components/ToastNotification';
 import { useToast } from './hooks/useToast';
 import { globalToastManager } from './services/global-toast-manager';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
+import { historicalBackfillManager } from './services/historical-backfill-manager';
 
 // Lazy load all pages for code splitting
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -53,6 +54,13 @@ const AppRoutes: React.FC = () => {
       globalToastManager.offToast(handleGlobalToast);
     };
   }, [toast]);
+
+  useEffect(() => {
+    if (user) {
+      console.log('[App] User logged in, triggering historical backfill check');
+      historicalBackfillManager.runBackfillInBackground();
+    }
+  }, [user]);
 
   if (loading) {
     return <LoadingFallback />;

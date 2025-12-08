@@ -60,6 +60,11 @@
   timeout = 30
   schedule = "* * * * *"  # 🚨 5-field format ONLY - processes active goal sessions
 
+# 🔧 AUTOMATIC GAP FILLER: Detects and fills gaps every 15 minutes
+[functions."automatic-gap-filler"]
+  timeout = 120  # 2 minutes to detect and fill gaps
+  schedule = "*/15 * * * *"  # 🚨 5-field format ONLY - runs every 15 minutes
+
 # 📊 Historical backfill (on-demand only, no schedule)
 [functions."historical-backfill"]
   timeout = 600  # 10 minutes for large backfills

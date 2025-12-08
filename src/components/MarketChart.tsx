@@ -1070,11 +1070,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         setLoadingProgress(null);
       }
 
-      const targetCandleCount = ChartDataGuarantor.calculateSmartCandleCount(timeframe);
-      console.log(`[Chart Init] Using ChartDataGuarantor - Target: ${targetCandleCount} candles`);
+      const targetCandleCount = 200;
+      console.log(`[Chart Init] Using ChartDataGuarantor with aggressive backfill - Target: ${targetCandleCount} candles`);
 
-      const result = await ChartDataGuarantor.guaranteeChartData(symbol, timeframe, targetCandleCount);
-      console.log(`[Chart Init] ⚠️ CRITICAL: Guarantor returned ${result.candles.length} candles`);
+      const result = await ChartDataGuarantor.guaranteeChartDataWithBackfill(symbol, timeframe, targetCandleCount);
+      console.log(`[Chart Init] ⚠️ CRITICAL: Guarantor returned ${result.candles.length} candles (target: ${targetCandleCount})`);
 
       console.log(`[Chart Init] Guarantor result:`, {
         candleCount: result.candles.length,

@@ -308,7 +308,7 @@ export class ChartDataGuarantor {
         endTime
       });
 
-      const response = await fetch('/.netlify/functions/fill-candle-gaps', {
+      const response = await fetch('/.netlify/functions/automatic-gap-filler', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -331,6 +331,65 @@ export class ChartDataGuarantor {
     } catch (error) {
       logger.error('[ChartDataGuarantor] Gap fill request error:', error);
     }
+  }
+
+  static async guaranteeChartDataWithBackfill(
+    symbol: string,
+    timeframe: string,
+    targetCount: number = this.TARGET_CANDLES
+  ): Promise<GuarantorResult> {
+    logger.info(`[ChartDataGuarantor] Guaranteeing ${targetCount} candles with aggressive backfill for ${symbol} ${timeframe}`);
+
+    let result = await this.guaranteeChartData(symbol, timeframe, targetCount);
+
+    if (result.isComplete && !result.hasGaps) {
+      logger.info('[ChartDataGuarantor] Data is complete with no gaps, returning immediately');
+      return result;
+    }
+
+    if (result.hasGaps && result.gapDetails.length > 0) {
+      logger.warn(`[ChartDataGuarantor] Found ${result.gapDetails.length} gaps, attempting to fill...`);
+
+      const gapFillPromises = result.gapDetails.slice(0, 3).map(gap =>
+        this.requestGapFill(symbol, timeframe, gap.start, gap.end)
+      );
+
+      await Promise.all(gapFillPromises);
+
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      result = await this.guaranteeChartData(symbol, timeframe, targetCount);
+    }
+
+    if (result.missingCount > targetCount * 0.5) {
+      logger.warn(`[ChartDataGuarantor] Still missing ${result.missingCount} candles (>${targetCount * 0.5}), triggering historical backfill`);
+
+      try {
+        const response = await fetch('/.netlify/functions/historical-backfill', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            symbol,
+            timeframe,
+            daysBack: 7
+          })
+        });
+
+        if (response.ok) {
+          logger.info('[ChartDataGuarantor] Historical backfill triggered, waiting for data...');
+
+          await new Promise(resolve => setTimeout(resolve, 5000));
+
+          result = await this.guaranteeChartData(symbol, timeframe, targetCount);
+        }
+      } catch (error) {
+        logger.error('[ChartDataGuarantor] Historical backfill failed:', error);
+      }
+    }
+
+    return result;
   }
 
   static calculateSmartCandleCount(timeframe: string): number {
