@@ -1277,14 +1277,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       setLoadingProgress(null);
 
       // ALWAYS backfill recent 100 candles in background (silent, no UI)
+      // Fire-and-forget - polling will pick up new candles automatically
       console.log('[Chart Init] 🔄 Starting silent backfill of recent 100 candles...');
       recentCandleBackfill.backfillRecent(symbol, timeframe).then(() => {
-        console.log('[Chart Init] ✅ Silent backfill complete, refreshing chart data...');
-        // Silently reload chart data without showing loading spinner
-        initializeChart(false);
+        console.log('[Chart Init] ✅ Silent backfill complete - polling will display new candles');
       }).catch(error => {
         console.error('[Chart Init] Silent backfill error (non-blocking):', error);
-        // Don't show error to user - this is a background operation
       });
 
       console.log(`[Chart Init] Priority 2: Starting background loading for remaining pairs...`);
@@ -1613,11 +1611,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     setIsRefreshing(true);
 
     try {
-      // Trigger silent backfill of recent candles
-      console.log('[Chart] Starting background backfill...');
-      await recentCandleBackfill.backfillRecent(symbol, timeframe);
-      console.log('[Chart] Background backfill complete');
-
       // Clear current state
       currentCandleRef.current = null;
       historicalCandlesRef.current = [];
@@ -1630,7 +1623,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         ema200SeriesRef.current?.setData([]);
       }
 
-      // Reload chart with fresh data (no loading spinner)
+      // Reload chart with fresh data (initializeChart will trigger backfill automatically)
       await initializeChart(false);
 
       await chartCandlePoller.forceRefresh(symbol, timeframe);
