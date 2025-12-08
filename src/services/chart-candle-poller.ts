@@ -210,28 +210,6 @@ class ChartCandlePoller {
         console.log(
           `[ChartPoller] ${symbol} ${timeframe} - New candle detected at ${new Date(latestCandle.time * 1000).toLocaleTimeString()}`
         );
-
-        // Trigger gap detection when a new completed candle is confirmed
-        if (cache.lastCandleTime !== null && cache.fullHistoricalCandles.length > 0) {
-          const expectedNextTime = cache.lastCandleTime + (getTimeframeMinutes(timeframe) * 60);
-          const actualTime = latestCandle.time;
-          const timeDiff = actualTime - cache.lastCandleTime;
-          const expectedInterval = getTimeframeMinutes(timeframe) * 60;
-
-          // Detect gap: if time difference is more than 1.5x the expected interval
-          if (timeDiff > expectedInterval * 1.5) {
-            const missedCandles = Math.floor(timeDiff / expectedInterval) - 1;
-            console.log(`[ChartPoller] 🔍 Gap detected: ${missedCandles} candles missing between ${new Date(cache.lastCandleTime * 1000).toLocaleString()} and ${new Date(actualTime * 1000).toLocaleString()}`);
-            console.log(`[ChartPoller] 🔄 Gap fill will be triggered on next chart refresh`);
-
-            // Dispatch custom event to trigger gap fill in chart component
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('candle-gap-detected', {
-                detail: { symbol, timeframe, gapStart: cache.lastCandleTime, gapEnd: actualTime }
-              }));
-            }
-          }
-        }
       }
 
       // Update cache
