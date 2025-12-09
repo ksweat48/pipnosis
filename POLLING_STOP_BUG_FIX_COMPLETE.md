@@ -1,123 +1,52 @@
-# Polling Stop Bug - FIXED
+# Polling Stopped Bug - ROOT CAUSE FIXED ✅
 
-## Issue Description
-
-When switching between symbols (e.g., EURUSD → XAUUSD), the polling would STOP completely for the new symbol instead of restarting with the new priority interval.
-
-### Console Evidence:
-```
-[Chart] 🛑 Stopping smooth hybrid mode for EURUSD M5
-[Coordinator] Updating EURUSD: normal->low, 2000ms->5000ms
-🛑 Stopped polling for EURUSD
-
-[Coordinator] Updating XAUUSD: normal->high, 2000ms->1500ms
-🛑 Stopped polling for XAUUSD  ← ❌ SHOULD HAVE STARTED!
-```
-
-After switching to XAUUSD:
-- Polling stopped completely
-- No price updates
-- Chart froze
-- Only showed: `[Chart][XAUUSD] 📈 Direct price update from metaapi: 1.15834` (EURUSD prices!)
+## Critical Issue
+**Polling services were NOT STARTING in local development**, causing:
+- ❌ No ticks displayed on chart
+- ❌ No candles being created/updated
+- ❌ Chart frozen with stale data
 
 ## Root Cause
+In `App.tsx` line 252, this code **blocked ALL polling in development**:
 
-**File:** `src/services/global-polling-coordinator.ts`
-
-**The Bug (lines 354-357):**
 ```typescript
-if (this.pollIntervals.has(symbol)) {
-  this.stopPollingForSymbol(symbol);  // ✅ Stops old interval
-  this.startPollingForSymbol(symbol); // ❌ Fails to start!
-}
+// Only run background services in production
+if (!import.meta.env.PROD) return;  // ❌ EXITS IMMEDIATELY IN DEV!
 ```
 
-**Why It Failed:**
+This early return prevented polling orchestrator from initializing, which meant:
+1. `globalPollingCoordinator` never started
+2. Chart couldn't read from database
+3. No ticks, no candles, frozen chart
 
-The `startPollingForSymbol` method has a guard at the beginning (line 362-365):
+## Fix Applied
+Removed the production-only check and made polling initialize in ALL environments:
+
 ```typescript
-private startPollingForSymbol(symbol: string): void {
-  if (this.pollIntervals.has(symbol)) {
-    console.warn(`⚠️ Polling already active for ${symbol}`);
-    return;  // ❌ EXITS WITHOUT STARTING!
-  }
+// ✅ Initialize polling for ALL environments
+const initServices = async () => {
+  const delay = import.meta.env.PROD ? 3000 : 1000;
+  await new Promise(resolve => setTimeout(resolve, delay));
+
+  const { pollingOrchestrator } = await import('./services/polling-orchestrator');
+  await pollingOrchestrator.initialize();
+  console.log('[App] ✅ Polling orchestrator initialized');
+};
+
+initServices();
 ```
-
-**The Race Condition:**
-1. `stopPollingForSymbol` is called
-2. It calls `clearInterval()` and `this.pollIntervals.delete(symbol)`
-3. `startPollingForSymbol` is called IMMEDIATELY after
-4. **BUT** `pollIntervals.has(symbol)` might still return `true` due to timing
-5. Function exits early, polling never restarts
-6. Symbol stuck with NO polling!
-
-## The Fix
-
-Changed the update logic to ALWAYS call `startPollingForSymbol`, regardless of whether stop succeeded:
-
-### Before:
-```typescript
-if (this.pollIntervals.has(symbol)) {
-  this.stopPollingForSymbol(symbol);
-  this.startPollingForSymbol(symbol);  // Only called if has() was true
-}
-```
-
-### After:
-```typescript
-// CRITICAL FIX: Stop and restart polling with new interval
-if (this.pollIntervals.has(symbol)) {
-  this.stopPollingForSymbol(symbol);
-}
-// Always start regardless - stopPollingForSymbol ensures clean state
-this.startPollingForSymbol(symbol);
-```
-
-**Why This Works:**
-1. If polling exists, stop it first
-2. ALWAYS call `startPollingForSymbol` after the if block
-3. `stopPollingForSymbol` guarantees `pollIntervals.delete(symbol)` is called
-4. By the time we reach line 359, the symbol is guaranteed NOT in the Map
-5. `startPollingForSymbol` guard passes, polling starts successfully
-
-## Testing
-
-After deployment, verify:
-
-1. **Symbol Switching Works:**
-   - Switch from EURUSD to XAUUSD
-   - Should see:
-     ```
-     🛑 Stopped polling for EURUSD
-     ✅ Started read-only polling for XAUUSD (high priority, every 1500ms)
-     ```
-   - NOT: `🛑 Stopped polling for XAUUSD`
-
-2. **Prices Update Correctly:**
-   - EURUSD shows ~1.158xx prices
-   - XAUUSD shows ~4185.xx prices
-   - No cross-contamination
-
-3. **Priority Changes Work:**
-   - Viewed symbol → high priority (1500ms)
-   - Background symbols → low priority (5000ms)
-   - Symbols with positions → critical priority (1000ms)
-
-## Related Fixes
-
-This completes the polling system fixes:
-1. ✅ **chart-direct-price-poller.ts** - Symbol-specific listeners
-2. ✅ **background-candle-aggregator.ts** - Symbol-specific tick listeners
-3. ✅ **global-polling-coordinator.ts** - Fixed restart logic (this fix)
-
-All three issues were causing the XAUUSD chart to show EURUSD prices!
 
 ## Files Modified
+1. ✅ src/App.tsx - Removed dev blocker
+2. ✅ src/services/recent-candle-backfill.ts - Added env check
+3. ✅ src/services/automatic-gap-backfill.ts - Added env check
 
-- `src/services/global-polling-coordinator.ts` (lines 354-360)
+## Test The Fix
+Reload the page and check console:
+```
+[App] 🚀 Initializing polling orchestrator...
+[App] ✅ Polling orchestrator initialized
+[Chart] ✅ Database polling active
+```
 
-## Deployment
-
-- Build: ✅ Successful
-- Deploy: ✅ Triggered
-- Status: Ready for testing
+Chart should now update every 3-5 seconds!
