@@ -164,10 +164,13 @@ class MultiSymbolSnapshotBuilder {
 
     const omegaSensors = computeOmegaSensors(sortedCandles, marketState);
 
-    const regime = regimeOracle.analyze(
-      sortedCandles,
+    // CRITICAL FIX: Use correct method name and parameter order
+    // RegimeOracle.evaluate(marketState, timestamp, candles)
+    const latestTimestamp = latestCandle.open_time || latestCandle.time || new Date();
+    const regime = regimeOracle.evaluate(
       marketState,
-      symbol
+      latestTimestamp,
+      sortedCandles
     );
 
     const adversarial = adversarialDetector.evaluate(
