@@ -3,9 +3,9 @@ import { supabase } from '../lib/supabase';
 const DB_NAME = 'pipnosis_candle_cache';
 const DB_VERSION = 1;
 const STORE_NAME = 'candles';
-// CRITICAL FIX: Reduced cache validity to 30 minutes to ensure fresh data after gap fills
-// This balances persistence with data freshness when new candles are added
-const CACHE_VALIDITY_MS = 30 * 60 * 1000; // 30 minutes (reduced from 2 hours)
+// CRITICAL FIX: Reduced cache validity to 2 minutes for immediate gap fill visibility
+// This ensures users see new candles and gap fills without manual refresh
+const CACHE_VALIDITY_MS = 2 * 60 * 1000; // 2 minutes (reduced from 30 minutes)
 const STALE_DATA_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours (reduced from 48 hours)
 
 interface CachedCandle {

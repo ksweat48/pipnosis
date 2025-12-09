@@ -432,8 +432,9 @@ export async function fetchPreAggregatedCandles(
       console.log(`[CandleData] Removed ${duplicatesRemoved} duplicate candles for ${symbol} ${timeframe}`);
     }
 
-    // CRITICAL: Filter out candles from closed market periods (Saturday, Friday after 5pm, Sunday before 5pm)
-    candles = filterCandlesByMarketHours(candles, symbol);
+    // HISTORICAL DATA: Keep all candles for historical display - market hours filter removed
+    // This allows viewing complete historical data including weekends
+    // candles = filterCandlesByMarketHours(candles, symbol);
 
     // For count-based queries, apply limit after filtering
     if (!usesTimeBasedQuery) {
@@ -717,8 +718,8 @@ export async function fetchCandlesByTimeRange(
 
     let candles = Array.from(candleMap.values()).sort((a, b) => a.time - b.time);
 
-    // CRITICAL: Filter out candles from closed market periods
-    candles = filterCandlesByMarketHours(candles, symbol);
+    // HISTORICAL DATA: Keep all candles for historical display - market hours filter removed
+    // candles = filterCandlesByMarketHours(candles, symbol);
 
     console.log(`[ChartData] ✓ Loaded ${candles.length} candles from last ${effectiveHoursBack} hours`);
     if (candles.length > 0) {

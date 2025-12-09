@@ -1440,23 +1440,21 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       }
     });
 
-    const unsubscribeDirectStatus = chartDirectPricePoller.onStatusUpdate((status) => {
-      setPriceSource(status.source);
-      setDirectPollerActive(status.isActive);
-      console.log(`[Chart] 📊 Direct poller status: ${status.source}, active: ${status.isActive}`);
-    });
+    // DISABLED: Direct price poller causes conflicts with database polling
+    // const unsubscribeDirectStatus = chartDirectPricePoller.onStatusUpdate((status) => {
+    //   setPriceSource(status.source);
+    //   setDirectPollerActive(status.isActive);
+    //   console.log(`[Chart] 📊 Direct poller status: ${status.source}, active: ${status.isActive}`);
+    // });
+    // chartDirectPricePoller.start();
 
-    chartDirectPricePoller.start();
-
-    // FALLBACK: Background aggregator for when direct polling fails
-    console.log(`[Chart] 📡 Subscribing to background aggregator as fallback for ${symbol}...`);
-    // CRITICAL FIX: Pass symbol to ensure we only receive ticks for THIS symbol
-    const unsubscribeTicks = backgroundCandleAggregator.onTickUpdate(symbol, (tick) => {
-      // Only use if direct poller is not providing updates
-      if (!directPollerActive) {
-        updateCurrentCandleFromTick(tick);
-      }
-    });
+    // DISABLED: Background aggregator causes conflicts - using database polling only
+    // const unsubscribeTicks = backgroundCandleAggregator.onTickUpdate(symbol, (tick) => {
+    //   if (!directPollerActive) {
+    //     updateCurrentCandleFromTick(tick);
+    //   }
+    // });
+    const unsubscribeTicks = () => {}; // Noop cleanup
 
     // Start database polling for validation and completed candles
     console.log(`[Chart] 💾 Starting database polling (3s interval)...`);
@@ -1478,14 +1476,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     globalPollingCoordinator.setSymbolViewed(symbol, true);
 
-    // Check if there's a forming candle from the aggregator
-    const formingCandle = backgroundCandleAggregator.getFormingCandle(symbol, timeframe);
-    if (formingCandle) {
-      console.log(`[Chart] 📊 Loaded forming candle from aggregator:`, formingCandle);
-      updateCurrentCandleFromPoller(formingCandle);
-    }
+    // DISABLED: Using database polling only for consistency
+    // const formingCandle = backgroundCandleAggregator.getFormingCandle(symbol, timeframe);
+    // if (formingCandle) {
+    //   console.log(`[Chart] 📊 Loaded forming candle from aggregator:`, formingCandle);
+    //   updateCurrentCandleFromPoller(formingCandle);
+    // }
 
-    // Also check DB for latest completed candle
+    // Check DB for latest completed candle
     const existingCandle = chartCandlePoller.getLatestCandle(symbol, timeframe);
     if (existingCandle) {
       console.log(`[Chart] 💾 Loaded latest completed candle from DB:`, existingCandle);
@@ -1503,10 +1501,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     }, 15000);
 
     return () => {
-      console.log(`[Chart] 🛑 Stopping smooth hybrid mode for ${symbol} ${timeframe}`);
-      chartDirectPricePoller.removeSymbol(symbol);
+      console.log(`[Chart] 🛑 Stopping database polling mode for ${symbol} ${timeframe}`);
+      // chartDirectPricePoller.removeSymbol(symbol); // DISABLED
       unsubscribeDirectPrice();
-      unsubscribeDirectStatus();
+      // unsubscribeDirectStatus(); // DISABLED
       unsubscribeTicks();
       unsubscribePoller();
       chartCandlePoller.stopPolling(symbol, timeframe);
