@@ -24,6 +24,12 @@ function markAccountSuccess(accountId: string): void {
 
 const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
 
+// OPTIMIZATION: Collect multiple ticks within the 1-minute window
+// This dramatically improves wick quality by getting 8 ticks instead of 1
+const TICKS_PER_MINUTE = 8;
+const TICK_INTERVAL_MS = 3000; // 3 seconds between ticks
+const MAX_EXECUTION_TIME_MS = 24000; // 24 seconds max (within 26s timeout)
+
 interface MetaApiPrice {
   symbol: string;
   bid: number;
@@ -122,41 +128,63 @@ export const handler: Handler = async (event, context) => {
   });
 
   const startTime = Date.now();
+  let totalTicksCollected = 0;
+  let totalTicksFailed = 0;
 
   try {
-    const results = await Promise.allSettled(
-      ACTIVE_SYMBOLS.map(async (symbol) => {
-        const priceData = await fetchPriceFromMetaApi(symbol, metaApiAccountId);
-        if (priceData) {
-          const saved = await savePriceToDatabase(priceData);
-          return { symbol, success: saved, price: priceData };
-        }
-        return { symbol, success: false, price: null };
-      })
-    );
+    // BREAKTHROUGH: Collect multiple ticks per minute instead of just 1
+    // This gives us 8x more data points for realistic wicks
+    console.log(`[PriceCollector:${executionId}] 📊 Collecting ${TICKS_PER_MINUTE} ticks over ${MAX_EXECUTION_TIME_MS / 1000}s...`);
 
-    const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
-    const failed = results.length - successful;
+    for (let tickNum = 0; tickNum < TICKS_PER_MINUTE; tickNum++) {
+      const tickStartTime = Date.now();
 
-    const duration = Date.now() - startTime;
-    console.log(`[PriceCollector:${executionId}] ✅ Completed in ${duration}ms: ${successful} prices saved, ${failed} failed`);
-
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled' && result.value.success && result.value.price) {
-        const { symbol, price } = result.value;
-        console.log(`[PriceCollector:${executionId}]   ✓ ${symbol}: ${price.bid}/${price.ask} (spread: ${(price.ask - price.bid).toFixed(5)})`);
-      } else if (result.status === 'fulfilled' && !result.value.success) {
-        console.error(`[PriceCollector:${executionId}]   ✗ ${result.value.symbol}: Failed to collect/save`);
-      } else if (result.status === 'rejected') {
-        console.error(`[PriceCollector:${executionId}]   ✗ Promise rejected:`, result.reason);
+      // Check if we're running out of time
+      if (tickStartTime - startTime > MAX_EXECUTION_TIME_MS) {
+        console.warn(`[PriceCollector:${executionId}] ⏱️ Approaching timeout, stopping at tick ${tickNum}`);
+        break;
       }
-    });
 
-    if (failed > 0) {
-      console.warn(`[PriceCollector:${executionId}] ⚠️ ${failed} symbols failed - may need attention`);
+      // Collect all symbols in parallel for this tick
+      const results = await Promise.allSettled(
+        ACTIVE_SYMBOLS.map(async (symbol) => {
+          const priceData = await fetchPriceFromMetaApi(symbol, metaApiAccountId);
+          if (priceData) {
+            const saved = await savePriceToDatabase(priceData);
+            return { symbol, success: saved, price: priceData };
+          }
+          return { symbol, success: false, price: null };
+        })
+      );
+
+      const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+      const failed = results.length - successful;
+
+      totalTicksCollected += successful;
+      totalTicksFailed += failed;
+
+      const tickDuration = Date.now() - tickStartTime;
+      console.log(`[PriceCollector:${executionId}] Tick ${tickNum + 1}/${TICKS_PER_MINUTE}: ${successful} prices saved in ${tickDuration}ms`);
+
+      // Wait before next tick (unless it's the last one)
+      if (tickNum < TICKS_PER_MINUTE - 1) {
+        const remainingTime = TICK_INTERVAL_MS - tickDuration;
+        if (remainingTime > 0) {
+          await new Promise(resolve => setTimeout(resolve, remainingTime));
+        }
+      }
     }
 
-    console.log(`[PriceCollector:${executionId}] 🎯 Summary: ${successful}/${ACTIVE_SYMBOLS.length} symbols successful`);
+    const duration = Date.now() - startTime;
+    const avgTicksPerSymbol = totalTicksCollected / ACTIVE_SYMBOLS.length;
+
+    console.log(`[PriceCollector:${executionId}] ✅ Completed in ${duration}ms: ${totalTicksCollected} total ticks saved, ${totalTicksFailed} failed`);
+    console.log(`[PriceCollector:${executionId}] 🎯 Summary: ${totalTicksCollected} total ticks (avg ${avgTicksPerSymbol.toFixed(1)} per symbol)`);
+    console.log(`[PriceCollector:${executionId}] 📈 Improvement: ${avgTicksPerSymbol}x more ticks than before (was 1 per symbol)`);
+
+    if (totalTicksFailed > 0) {
+      console.warn(`[PriceCollector:${executionId}] ⚠️ ${totalTicksFailed} ticks failed - may need attention`);
+    }
 
     return {
       statusCode: 200,
@@ -164,8 +192,9 @@ export const handler: Handler = async (event, context) => {
       body: JSON.stringify({
         success: true,
         executionId,
-        pricesCollected: successful,
-        pricesFailed: failed,
+        totalTicksCollected,
+        totalTicksFailed,
+        avgTicksPerSymbol: totalTicksCollected / ACTIVE_SYMBOLS.length,
         durationMs: duration,
         timestamp: new Date().toISOString(),
         symbols: ACTIVE_SYMBOLS
