@@ -1,4 +1,5 @@
 import { GoalSessionConfig } from '@/services/goal-session-manager';
+import { getDefaultWatchlist } from '../config/watchlist';
 
 interface AIGoalParsing {
   config: GoalSessionConfig;
@@ -163,7 +164,7 @@ Respond with ONLY valid JSON in this format:
     const timeframeDays = timeframe.includes('week') ? 7 : timeframe.includes('month') ? 30 : 1;
     const estimatedTrades = Math.ceil(baseTradesPerDay * timeframeDays * riskMultipliers[riskMode]);
 
-    const watchlist = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
+    const watchlist = getDefaultWatchlist();
 
     return {
       config: {

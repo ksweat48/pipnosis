@@ -291,6 +291,64 @@ class AlphaOmegaOrchestrator {
   }
 
   /**
+   * Evaluate multiple symbols and return decisions for each
+   */
+  async evaluateMultipleSymbols(
+    marketStates: FullMarketState[],
+    traderScore: TraderScore,
+    userId?: string
+  ): Promise<Map<string, AlphaDecision>> {
+    console.log(`[Alpha+Omega] 🔍 Evaluating ${marketStates.length} symbols in parallel...`);
+    const startTime = Date.now();
+
+    const evaluationPromises = marketStates.map(async (marketState) => {
+      try {
+        const proposedSL = marketState.price - (marketState.atr * 1.5);
+        const proposedTP = marketState.price + (marketState.atr * 2.5);
+
+        const decision = await this.makeTradeDecision(
+          marketState,
+          traderScore,
+          proposedSL,
+          proposedTP
+        );
+
+        return {
+          symbol: marketState.symbol,
+          decision
+        };
+      } catch (error) {
+        console.error(`[Alpha+Omega] Failed to evaluate ${marketState.symbol}:`, error);
+        return {
+          symbol: marketState.symbol,
+          decision: {
+            action: 'NO_TRADE' as const,
+            decision: 'NO_TRADE' as const,
+            entry: marketState.price,
+            stopLoss: marketState.price,
+            takeProfit: marketState.price,
+            confidence: 0,
+            reasoning: `Evaluation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            omega_summary: 'System error during evaluation'
+          }
+        };
+      }
+    });
+
+    const results = await Promise.all(evaluationPromises);
+    const decisionMap = new Map<string, AlphaDecision>();
+
+    results.forEach(result => {
+      decisionMap.set(result.symbol, result.decision);
+    });
+
+    const duration = Date.now() - startTime;
+    console.log(`[Alpha+Omega] ✅ Multi-symbol evaluation complete in ${duration}ms`);
+
+    return decisionMap;
+  }
+
+  /**
    * Monitor open trade (mid-trade evaluation)
    */
   async monitorOpenTrade(

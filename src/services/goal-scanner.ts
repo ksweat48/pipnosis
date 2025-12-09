@@ -7,6 +7,7 @@ import { llmContextEnricher } from './llm-context-enricher';
 import { normalizeTimeframeToDb } from './chart-preferences';
 import { calculatePositionSize, getCurrencyPipInfo, calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
 import { positionSafetyValidator } from './position-safety-validator';
+import { getDefaultWatchlist } from '../config/watchlist';
 
 export interface ScanResult {
   symbol: string;
@@ -49,7 +50,7 @@ class GoalScanner {
         return [];
       }
 
-      const watchlist = session.data.watchlist || ['XAUUSD', 'US30', 'EURUSD', 'USDJPY', 'GBPUSD'];
+      const watchlist = session.data.watchlist || getDefaultWatchlist();
       const results: ScanResult[] = [];
 
       for (const symbol of watchlist) {

@@ -17,6 +17,11 @@ import { logger, LogCategory } from '../lib/logger';
 import { openAIClient } from './openai-client';
 import { normalizeTimeframeToDb } from './chart-preferences';
 import { multiSymbolScanner } from './multi-symbol-scanner';
+import { multiSymbolSnapshotBuilder, type SymbolSnapshot } from './multi-symbol-snapshot-builder';
+import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';
+import { bestSymbolSelector } from './best-symbol-selector';
+import { getDefaultWatchlist } from '../config/watchlist';
+import { TraderScore } from './ai-identity';
 
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
@@ -302,17 +307,200 @@ class GoalSessionLiveEngine {
   }
 
   /**
-   * Main autonomous candle processing logic
+   * Process multi-symbol trading cycle
+   * Evaluates all watchlist symbols and selects the best opportunity
+   */
+  private async processMultiSymbolCycle(watchlist: string[]): Promise<void> {
+    try {
+      console.log(`[Multi-Symbol] 📊 Building snapshots for ${watchlist.length} symbols...`);
+
+      const snapshotResult = await multiSymbolSnapshotBuilder.buildSnapshots(watchlist);
+
+      if (snapshotResult.snapshots.length === 0) {
+        console.log('[Multi-Symbol] ⚠️ No symbol data available');
+        return;
+      }
+
+      console.log(`[Multi-Symbol] ✅ ${snapshotResult.tradeableSymbols.length}/${snapshotResult.snapshots.length} symbols tradeable`);
+
+      if (snapshotResult.blockedSymbols.size > 0) {
+        snapshotResult.blockedSymbols.forEach((reason, symbol) => {
+          console.log(`[Multi-Symbol] ❌ ${symbol}: Blocked (${reason})`);
+        });
+      }
+
+      const tradeableSnapshots = snapshotResult.snapshots.filter(s => s.tradeable);
+
+      if (tradeableSnapshots.length === 0) {
+        console.log('[Multi-Symbol] 🚫 No tradeable opportunities - WAIT mode');
+        await this.sendAIMessage('Scanning 5 markets... No tradeable opportunities detected. Continuing scan.');
+        return;
+      }
+
+      const marketStates: FullMarketState[] = tradeableSnapshots.map(snapshot => ({
+        symbol: snapshot.symbol,
+        price: snapshot.price,
+        ema20: snapshot.ema20,
+        ema50: snapshot.ema50,
+        ema200: snapshot.ema200,
+        rsi: snapshot.rsi,
+        stochRsi: snapshot.stochRsi,
+        atr: snapshot.atr,
+        vwap: snapshot.vwap,
+        trend: snapshot.trend,
+        volatility: snapshot.volatility,
+        momentum: snapshot.momentum,
+        support: snapshot.support,
+        resistance: snapshot.resistance,
+        swingHigh: snapshot.swingHigh,
+        swingLow: snapshot.swingLow,
+        recentCandles: snapshot.recentCandles,
+        structure: snapshot.structure,
+        omegaSensors: snapshot.omegaSensors,
+        regime: snapshot.regime,
+        adversarial: snapshot.adversarial
+      }));
+
+      const traderScore: TraderScore = {
+        currentLevel: 1,
+        totalTrades: 0,
+        winRate: 0,
+        profitFactor: 1.0,
+        avgHoldTime: 0,
+        riskTolerance: this.config.riskMode === 'high' ? 0.8 : this.config.riskMode === 'medium' ? 0.5 : 0.3,
+        preferredTimeframe: this.config.timeframe,
+        learningProgress: 0
+      };
+
+      console.log(`[Multi-Symbol] 🧠 Running Omega Council for ${marketStates.length} symbols...`);
+
+      const omegaDecisions = await alphaOmegaOrchestrator.evaluateMultipleSymbols(
+        marketStates,
+        traderScore,
+        this.config.userId
+      );
+
+      const bestSymbolResult = bestSymbolSelector.selectBestSymbol(
+        tradeableSnapshots,
+        omegaDecisions
+      );
+
+      bestSymbolSelector.logEvaluationDetails(bestSymbolResult);
+
+      if (!bestSymbolResult.selected || !bestSymbolResult.symbol || !bestSymbolResult.evaluation) {
+        console.log('[Multi-Symbol] 🚫 No symbols passed selection criteria');
+        await this.sendAIMessage('All symbols evaluated. No high-quality setups detected. Continuing scan.');
+        return;
+      }
+
+      const selectedSymbol = bestSymbolResult.symbol;
+      const decision = bestSymbolResult.evaluation.omegaDecision;
+
+      console.log(`[Multi-Symbol] 🎯 SELECTED: ${selectedSymbol} | ${decision.action} @ ${decision.confidence}%`);
+
+      if (decision.action === 'NO_TRADE') {
+        await this.sendAIMessage(`Best symbol: ${selectedSymbol}. Setup detected but confidence threshold not met. Waiting for stronger signals.`);
+        return;
+      }
+
+      if (this.openTrades.length >= this.config.maxConcurrentTrades) {
+        console.log('[Multi-Symbol] Max concurrent trades reached');
+        return;
+      }
+
+      if (!this.allowNewTrades) {
+        console.log('[Multi-Symbol] ⏸️ Timeframe expired - not opening new trades');
+        return;
+      }
+
+      const minConfidence = this.config.minConfidence || 70;
+      if (decision.confidence < minConfidence) {
+        console.log(`[Multi-Symbol] Confidence ${decision.confidence}% below threshold ${minConfidence}%`);
+        return;
+      }
+
+      const snapshot = bestSymbolResult.evaluation.snapshot;
+      const latestCandle = snapshot.recentCandles[snapshot.recentCandles.length - 1];
+
+      const trade: SimulatedTrade = {
+        id: `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        symbol: selectedSymbol,
+        timeframe: this.config.timeframe,
+        direction: decision.action.toLowerCase() as 'buy' | 'sell',
+        entryTime: new Date(),
+        entryPrice: decision.entry,
+        stopLoss: decision.stopLoss,
+        takeProfit: decision.takeProfit,
+        positionSize: 0.01,
+        confidence: decision.confidence,
+        reasoning: decision.reasoning,
+        triggerType: 'multi_symbol_best_opportunity',
+        maxHoldMinutes: 240,
+        pnl: 0,
+        outcome: 'open'
+      };
+
+      this.openTrades.push(trade);
+
+      await tradeExecutionEngine.executeTradeSignal({
+        goalSessionId: this.activeSession!,
+        symbol: selectedSymbol,
+        direction: trade.direction,
+        entryPrice: trade.entryPrice,
+        stopLoss: trade.stopLoss,
+        takeProfit: trade.takeProfit,
+        positionSize: trade.positionSize,
+        confidence: trade.confidence,
+        reasoning: trade.reasoning,
+        triggerType: trade.triggerType,
+        timestamp: new Date()
+      });
+
+      logger.info(LogCategory.AI_TRADING, `Trade executed: ${selectedSymbol} ${trade.direction} @ ${trade.entryPrice} (confidence: ${trade.confidence}%)`);
+
+      const selectionSummary = bestSymbolResult.allEvaluations
+        .slice(0, 3)
+        .map((e, i) => `${i + 1}. ${e.symbol} (${e.overallScore.toFixed(1)})`)
+        .join('\n');
+
+      await this.sendAIMessage(
+        `🎯 Trade Signal: ${selectedSymbol}\n\n` +
+        `Direction: ${decision.action}\n` +
+        `Entry: ${decision.entry.toFixed(5)}\n` +
+        `SL: ${decision.stopLoss.toFixed(5)} | TP: ${decision.takeProfit.toFixed(5)}\n` +
+        `Confidence: ${decision.confidence}%\n\n` +
+        `Why ${selectedSymbol}?\n${decision.reasoning}\n\n` +
+        `Symbol Rankings:\n${selectionSummary}`
+      );
+
+    } catch (error) {
+      console.error('[Multi-Symbol] Error processing cycle:', error);
+      logger.error(LogCategory.AI_TRADING, 'Multi-symbol cycle error', { error });
+    }
+  }
+
+  /**
+   * Main autonomous candle processing logic (Multi-Symbol Mode)
    */
   private async processCandleAutonomous(): Promise<void> {
     try {
+      const watchlist = this.config.watchlist || getDefaultWatchlist();
+      const useMultiSymbolMode = watchlist.length > 1;
+
+      if (useMultiSymbolMode) {
+        console.log(`[Multi-Symbol Mode] 🔍 Evaluating ${watchlist.length} symbols...`);
+        await this.processMultiSymbolCycle(watchlist);
+        return;
+      }
+
+      const symbol = this.config.symbol || watchlist[0];
       const dbTimeframe = normalizeTimeframeToDb(this.config.timeframe);
-      logger.debug(LogCategory.AI_TRADING, `Querying candles: ${this.config.symbol} ${this.config.timeframe} -> ${dbTimeframe}`);
+      logger.debug(LogCategory.AI_TRADING, `Querying candles: ${symbol} ${this.config.timeframe} -> ${dbTimeframe}`);
 
       const { data: candles, error } = await supabase
         .from('forex_candles')
         .select('*')
-        .eq('symbol', this.config.symbol)
+        .eq('symbol', symbol)
         .eq('timeframe', dbTimeframe)
         .order('open_time', { ascending: false })
         .limit(100);
@@ -1129,6 +1317,27 @@ This learning will carry forward to improve future sessions!
   /**
    * Send trigger detected message
    */
+  /**
+   * Send a simple AI message to the user
+   */
+  private async sendAIMessage(message: string): Promise<void> {
+    if (!this.activeSession || !this.config) {
+      return;
+    }
+
+    try {
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: this.activeSession,
+        user_id: this.config.userId,
+        role: 'ai',
+        message,
+        sentiment: 'neutral'
+      });
+    } catch (error) {
+      console.error('[Goal Live Engine] Failed to send AI message:', error);
+    }
+  }
+
   private async sendTriggerDetectedMessage(trigger: any, latestCandle: any): Promise<void> {
     if (!this.config || !this.activeSession) return;
 
