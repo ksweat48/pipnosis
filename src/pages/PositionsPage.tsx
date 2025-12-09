@@ -264,21 +264,67 @@ export function PositionsPage() {
     setClosingPosition(position.id);
 
     try {
-      const result = await simulatedTradingService.closePosition(
-        position.id,
-        currentPrice,
-        user!.id
-      );
+      // Check if this is a goal session trade or simulated position
+      const { data: goalTrade } = await supabase
+        .from('goal_session_trades')
+        .select('id')
+        .eq('id', position.id)
+        .maybeSingle();
 
-      if (result.success) {
+      if (goalTrade) {
+        // This is a goal session trade - close via goal_session_trades table
+        const { error } = await supabase
+          .from('goal_session_trades')
+          .update({
+            status: 'closed',
+            exit_price: currentPrice,
+            profit_loss: pnl,
+            closed_at: new Date().toISOString(),
+            current_pnl: pnl
+          })
+          .eq('id', position.id);
+
+        if (error) throw error;
+
+        // Also close linked simulated position if exists
+        const { data: linkedPos } = await supabase
+          .from('goal_session_trades')
+          .select('simulated_position_id')
+          .eq('id', position.id)
+          .maybeSingle();
+
+        if (linkedPos?.simulated_position_id) {
+          await simulatedTradingService.closePosition(
+            linkedPos.simulated_position_id,
+            currentPrice,
+            user!.id
+          ).catch(() => {
+            // Ignore errors - main goal trade is already closed
+          });
+        }
+
         notificationManager.playSound('trade_exit');
-        toast.success('Position Closed', result.message || 'Position closed successfully');
-        await fetchAllData();
-        await refreshBalance();
-        await refreshPositions();
+        toast.success('Position Closed', 'Goal mode trade closed successfully');
       } else {
-        toast.error('Failed to Close', result.message || 'Could not close position');
+        // This is a regular simulated position
+        const result = await simulatedTradingService.closePosition(
+          position.id,
+          currentPrice,
+          user!.id
+        );
+
+        if (result.success) {
+          notificationManager.playSound('trade_exit');
+          toast.success('Position Closed', result.message || 'Position closed successfully');
+        } else {
+          toast.error('Failed to Close', result.message || 'Could not close position');
+          return;
+        }
       }
+
+      await fetchAllData();
+      await refreshBalance();
+      await refreshPositions();
     } catch (error) {
       console.error('Failed to close position:', error);
       toast.error('Error', 'Failed to close position. Please try again.');
