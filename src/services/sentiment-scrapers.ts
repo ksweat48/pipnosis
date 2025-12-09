@@ -27,12 +27,10 @@ class SentimentScrapers {
   /**
    * Scrape all sources and aggregate into SentimentInput
    *
-   * NOTE: Scrapers typically fail in browser due to CSP restrictions.
+   * NOTE: Scrapers typically fail in browser due to CORS restrictions.
    * This is expected - system gracefully degrades to LLM-only analysis.
    */
   async scrapeAll(): Promise<SentimentInput> {
-    console.log('[Scrapers] Starting sentiment scraping...');
-
     const results = await Promise.allSettled([
       this.scrapeGoogleNews(),
       this.scrapeInvestingCom(),
@@ -47,13 +45,17 @@ class SentimentScrapers {
     const redditSignals = this.extractResult(results[3]);
     const twitterSignals = this.extractResult(results[4]);
 
-    console.log('[Scrapers] Scraping complete:', {
-      google: googleNews.length,
-      investing: investingNews.length,
-      fxstreet: fxStreetNews.length,
-      reddit: redditSignals.length,
-      twitter: twitterSignals.length
-    });
+    // Only log successful sources
+    const successfulSources: string[] = [];
+    if (googleNews.length > 0) successfulSources.push(`Google(${googleNews.length})`);
+    if (investingNews.length > 0) successfulSources.push(`Investing(${investingNews.length})`);
+    if (fxStreetNews.length > 0) successfulSources.push(`FXStreet(${fxStreetNews.length})`);
+    if (redditSignals.length > 0) successfulSources.push(`Reddit(${redditSignals.length})`);
+    if (twitterSignals.length > 0) successfulSources.push(`Twitter(${twitterSignals.length})`);
+
+    if (successfulSources.length > 0) {
+      console.log(`[Scrapers] ✓ ${successfulSources.join(', ')}`);
+    }
 
     return {
       googleNews: googleNews.slice(0, this.MAX_ITEMS_PER_SOURCE),
@@ -70,14 +72,8 @@ class SentimentScrapers {
     if (result.status === 'fulfilled') {
       return result.value;
     }
-    // Scrapers expected to fail in browser due to CSP - this is normal
-    // System gracefully degrades to LLM-only sentiment analysis
-    const errorMsg = result.reason?.message || String(result.reason);
-    if (errorMsg.includes('Content Security Policy') || errorMsg.includes('violates')) {
-      // Silent CSP failures - expected behavior
-      return [];
-    }
-    console.error('[Scrapers] Source failed:', result.reason);
+    // Scrapers expected to fail in browser due to CORS - this is normal
+    // System gracefully degrades to working sources (Reddit)
     return [];
   }
 
@@ -95,15 +91,10 @@ class SentimentScrapers {
       const items = this.parseRSS(text);
       const headlines = items.map(item => this.sanitizeText(item.title || ''));
 
-      console.log(`[Scrapers] Google News: ${headlines.length} items`);
       return headlines.filter(h => h.length > 0);
 
     } catch (error) {
-      // CSP errors are expected in browser - fail silently
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      if (!errorMsg.includes('Content Security Policy') && !errorMsg.includes('violates')) {
-        console.error('[Scrapers] Google News failed:', error);
-      }
+      // CORS errors are expected in browser - fail silently
       return [];
     }
   }
@@ -127,11 +118,9 @@ class SentimentScrapers {
         .filter(r => r.status === 'fulfilled')
         .flatMap(r => (r as PromiseFulfilledResult<string[]>).value);
 
-      console.log(`[Scrapers] Investing.com: ${allItems.length} items`);
       return allItems.slice(0, this.MAX_ITEMS_PER_SOURCE);
 
     } catch (error) {
-      console.error('[Scrapers] Investing.com failed:', error);
       return [];
     }
   }
@@ -145,7 +134,6 @@ class SentimentScrapers {
       return await this.scrapeRSSFeed(url);
 
     } catch (error) {
-      console.error('[Scrapers] FXStreet failed:', error);
       return [];
     }
   }
@@ -169,11 +157,9 @@ class SentimentScrapers {
         .filter(r => r.status === 'fulfilled')
         .flatMap(r => (r as PromiseFulfilledResult<string[]>).value);
 
-      console.log(`[Scrapers] Reddit: ${allItems.length} items`);
       return allItems.slice(0, this.MAX_ITEMS_PER_SOURCE);
 
     } catch (error) {
-      console.error('[Scrapers] Reddit failed:', error);
       return [];
     }
   }
@@ -197,7 +183,6 @@ class SentimentScrapers {
           const items = await this.scrapeRSSFeed(url);
 
           if (items.length > 0) {
-            console.log(`[Scrapers] Nitter (${instance}): ${items.length} items`);
             return items;
           }
         } catch (err) {
@@ -206,11 +191,9 @@ class SentimentScrapers {
         }
       }
 
-      console.warn('[Scrapers] All Nitter instances failed');
       return [];
 
     } catch (error) {
-      console.error('[Scrapers] Nitter failed:', error);
       return [];
     }
   }
@@ -303,7 +286,6 @@ class SentimentScrapers {
       return items.slice(0, this.MAX_ITEMS_PER_SOURCE);
 
     } catch (error) {
-      console.error('[Scrapers] RSS parsing failed:', error);
       return [];
     }
   }
