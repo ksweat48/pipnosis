@@ -35,6 +35,7 @@ class CandleCacheManager {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
   private forceRefresh: boolean = false;
+  private realtimeSubscription: any = null;
 
   private async initDB(): Promise<void> {
     if (this.db) return;
@@ -306,6 +307,57 @@ class CandleCacheManager {
       };
       request.onerror = () => reject(request.error);
     });
+  }
+
+  /**
+   * Subscribe to real-time cache invalidation events from Supabase
+   * When new candles are inserted, the cache is automatically invalidated
+   */
+  subscribeToInvalidationEvents(): void {
+    if (this.realtimeSubscription) {
+      console.log('[CandleCache] ⚠️ Already subscribed to invalidation events');
+      return;
+    }
+
+    console.log('[CandleCache] 🔔 Subscribing to real-time cache invalidation events...');
+
+    this.realtimeSubscription = supabase
+      .channel('candle-cache-invalidation')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'candle_cache_invalidation_events'
+        },
+        async (payload) => {
+          const { symbol, timeframe, candle_time } = payload.new as any;
+          console.log(
+            `[CandleCache] 🔄 Real-time invalidation: ${symbol} ${timeframe} at ${candle_time}`
+          );
+
+          // Invalidate cache immediately
+          await this.invalidateSymbolTimeframe(symbol, timeframe);
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[CandleCache] ✅ Subscribed to cache invalidation events');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('[CandleCache] ❌ Failed to subscribe to invalidation events');
+        }
+      });
+  }
+
+  /**
+   * Unsubscribe from real-time cache invalidation events
+   */
+  unsubscribeFromInvalidationEvents(): void {
+    if (this.realtimeSubscription) {
+      console.log('[CandleCache] 🔕 Unsubscribing from cache invalidation events');
+      supabase.removeChannel(this.realtimeSubscription);
+      this.realtimeSubscription = null;
+    }
   }
 }
 

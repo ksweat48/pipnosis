@@ -216,6 +216,9 @@ export default function App() {
         const { candleCacheManager } = await import('./services/candle-cache-manager');
         await candleCacheManager.clearAllCache();
         console.log('[App] ✅ Cleared all candle cache on startup to prevent cross-contamination');
+
+        // Subscribe to real-time cache invalidation events
+        candleCacheManager.subscribeToInvalidationEvents();
       } catch (error) {
         console.warn('[App] Could not clear cache:', error);
       }
@@ -237,6 +240,13 @@ export default function App() {
 
     clearCache();
     resetCircuitBreaker();
+
+    // Cleanup on unmount
+    return () => {
+      import('./services/candle-cache-manager').then(({ candleCacheManager }) => {
+        candleCacheManager.unsubscribeFromInvalidationEvents();
+      }).catch(console.warn);
+    };
 
     // Only run background services in production and only when user is authenticated
     if (!import.meta.env.PROD) return;
