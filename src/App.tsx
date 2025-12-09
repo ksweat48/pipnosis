@@ -9,6 +9,7 @@ import { useToast } from './hooks/useToast';
 import { globalToastManager } from './services/global-toast-manager';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { historicalBackfillManager } from './services/historical-backfill-manager';
+import { cacheClearOnRefresh } from './services/cache-clear-on-refresh';
 
 // Lazy load all pages for code splitting
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -55,6 +56,17 @@ const AppRoutes: React.FC = () => {
       globalToastManager.offToast(handleGlobalToast);
     };
   }, [toast]);
+
+  useEffect(() => {
+    const initCache = async () => {
+      await cacheClearOnRefresh.forceClearOnHardRefresh();
+      await cacheClearOnRefresh.checkAndClearStaleCache();
+    };
+
+    initCache().catch(error => {
+      console.error('[App] Error initializing cache:', error);
+    });
+  }, []);
 
   useEffect(() => {
     if (user) {

@@ -7,6 +7,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
+import { candleCacheManager } from '@/services/candle-cache-manager';
 
 interface BackfillState {
   isRunning: boolean;
@@ -158,6 +159,12 @@ class AutomaticGapBackfillService {
         candlesInserted: result.candlesInserted,
         candlesSkipped: result.candlesSkipped
       });
+
+      // CRITICAL: Invalidate cache so new candles are visible immediately
+      if (result.candlesInserted && result.candlesInserted > 0) {
+        console.log(`[AutoBackfill] 🗑️ Invalidating cache for ${key} to show new candles`);
+        await candleCacheManager.invalidateSymbolTimeframe(symbol, timeframe);
+      }
 
       // Update last run timestamp
       this.state.lastRun[key] = Date.now();

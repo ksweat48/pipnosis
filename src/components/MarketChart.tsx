@@ -23,6 +23,7 @@ import { candlePersistenceService } from '@/services/candle-persistence-service'
 import { chartCandlePoller } from '@/services/chart-candle-poller';
 import { backgroundCandleAggregator } from '@/services/background-candle-aggregator';
 import { chartDirectPricePoller } from '@/services/chart-direct-price-poller';
+import { candleCacheManager } from '@/services/candle-cache-manager';
 import {
   calculateVWAP,
   calculateEMA,
@@ -110,6 +111,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [directPollerActive, setDirectPollerActive] = useState(false);
   const [forexMarketStatus, setForexMarketStatus] = useState<MarketStatus>(() => getForexMarketStatus());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [cacheAge, setCacheAge] = useState<number | null>(null);
 
   const [rsiData, setRsiData] = useState<IndicatorResult[]>([]);
   const [atrData, setAtrData] = useState<IndicatorResult[]>([]);
@@ -354,6 +356,26 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [symbol, timeframe]);
+
+  useEffect(() => {
+    const handleGapBackfillComplete = async (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const { symbol: filledSymbol, timeframe: filledTimeframe, result } = customEvent.detail;
+
+      if (filledSymbol === symbol && filledTimeframe === timeframe && result.candlesInserted > 0) {
+        console.log(`[Chart] 🎉 Gap backfill completed: ${result.candlesInserted} candles added`);
+        console.log(`[Chart] 🔄 Refreshing chart to show new candles...`);
+
+        await handleChartRefresh();
+      }
+    };
+
+    window.addEventListener('gap-backfill-complete', handleGapBackfillComplete);
+
+    return () => {
+      window.removeEventListener('gap-backfill-complete', handleGapBackfillComplete);
     };
   }, [symbol, timeframe]);
 
@@ -1612,6 +1634,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     setIsRefreshing(true);
 
     try {
+      // CRITICAL: Clear cache to force loading from database
+      console.log(`[Chart] 🗑️ Clearing cache for ${symbol} ${timeframe} to show latest data`);
+      await candleCacheManager.invalidateSymbolTimeframe(symbol, timeframe);
+
       // Clear current state
       currentCandleRef.current = null;
       historicalCandlesRef.current = [];
@@ -1770,6 +1796,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                 <Clock size={9} />
                 Last updated: {lastUpdate ? lastUpdate.toLocaleTimeString() : 'Waiting...'}
               </div>
+              {cacheAge !== null && (
+                <div className={`text-[10px] ${cacheAge > 15 ? 'text-yellow-400' : 'text-blue-400'}`}>
+                  Data: {cacheAge < 1 ? 'Live' : `${Math.round(cacheAge)}min ago`}
+                </div>
+              )}
               <div className={`text-[10px] font-medium ${forexMarketStatus.isOpen ? 'text-green-400' : 'text-red-400'}`}>
                 Forex {forexMarketStatus.status}
               </div>

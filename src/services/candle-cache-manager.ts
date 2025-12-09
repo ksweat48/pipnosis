@@ -3,10 +3,10 @@ import { supabase } from '../lib/supabase';
 const DB_NAME = 'pipnosis_candle_cache';
 const DB_VERSION = 1;
 const STORE_NAME = 'candles';
-// CRITICAL FIX: Increase cache validity to 2 hours so data persists between page loads
-// This ensures users don't lose chart data when they leave and return to the page
-const CACHE_VALIDITY_MS = 2 * 60 * 60 * 1000; // 2 hours (was 5 minutes)
-const STALE_DATA_THRESHOLD_MS = 48 * 60 * 60 * 1000; // 48 hours (was 24 hours)
+// CRITICAL FIX: Reduced cache validity to 30 minutes to ensure fresh data after gap fills
+// This balances persistence with data freshness when new candles are added
+const CACHE_VALIDITY_MS = 30 * 60 * 1000; // 30 minutes (reduced from 2 hours)
+const STALE_DATA_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours (reduced from 48 hours)
 
 interface CachedCandle {
   cacheId: string;
@@ -34,6 +34,7 @@ interface CacheMetadata {
 class CandleCacheManager {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
+  private forceRefresh: boolean = false;
 
   private async initDB(): Promise<void> {
     if (this.db) return;
@@ -70,6 +71,12 @@ class CandleCacheManager {
   async getCachedCandles(symbol: string, timeframe: string): Promise<{ candles: CachedCandle[], metadata: CacheMetadata | null }> {
     await this.initDB();
     if (!this.db) throw new Error('Database not initialized');
+
+    // CRITICAL: If force refresh is enabled, skip cache entirely
+    if (this.forceRefresh) {
+      console.log('[CandleCache] 🔄 Force refresh enabled - bypassing cache');
+      return { candles: [], metadata: null };
+    }
 
     const metadata = await this.getMetadata(symbol, timeframe);
 
@@ -260,8 +267,44 @@ class CandleCacheManager {
       candleStore.clear();
       metaStore.clear();
 
-      transaction.oncomplete = () => resolve();
+      transaction.oncomplete = () => {
+        console.log('[CandleCache] ✅ All cache cleared');
+        resolve();
+      };
       transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
+  setForceRefresh(enabled: boolean): void {
+    this.forceRefresh = enabled;
+    if (enabled) {
+      console.log('[CandleCache] 🔄 Force refresh mode ENABLED - all requests will bypass cache');
+    } else {
+      console.log('[CandleCache] ✅ Force refresh mode DISABLED - cache enabled');
+    }
+  }
+
+  async invalidateSymbolTimeframe(symbol: string, timeframe: string): Promise<void> {
+    console.log(`[CandleCache] 🗑️ Invalidating cache for ${symbol} ${timeframe}`);
+    await this.clearCache(symbol, timeframe);
+  }
+
+  async getCacheInfo(): Promise<{ size: number; symbols: string[] }> {
+    await this.initDB();
+    if (!this.db) return { size: 0, symbols: [] };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['metadata'], 'readonly');
+      const metaStore = transaction.objectStore('metadata');
+      const request = metaStore.getAll();
+
+      request.onsuccess = () => {
+        const metadata = request.result as CacheMetadata[];
+        const symbols = [...new Set(metadata.map(m => `${m.symbol}/${m.timeframe}`))];
+        const totalCandles = metadata.reduce((sum, m) => sum + m.candleCount, 0);
+        resolve({ size: totalCandles, symbols });
+      };
+      request.onerror = () => reject(request.error);
     });
   }
 }
