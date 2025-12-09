@@ -28,7 +28,6 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const metaApiToken = process.env.METAAPI_TOKEN!;
 const metaApiRegion = process.env.METAAPI_REGION || 'london';
 const metaApiAccountId = process.env.METAAPI_ACCOUNT_ID!;
-const metaApiAccountIdFallback = process.env.METAAPI_ACCOUNT_ID_FALLBACK!;
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -93,7 +92,7 @@ function validateRequest(req: BackfillRequest): { valid: boolean; error?: string
 }
 
 /**
- * Fetch historical candles from MetaAPI with fallback account support
+ * Fetch historical candles from MetaAPI
  */
 async function fetchHistoricalCandles(
   symbol: string,
@@ -105,54 +104,9 @@ async function fetchHistoricalCandles(
   let apiCalls = 0;
   let currentStartTime = startTime;
 
-  const accounts = [metaApiAccountId, metaApiAccountIdFallback];
-  let lastError: Error | null = null;
-  let workingAccountId: string | null = null;
+  const url = `https://mt-client-api-v1.${metaApiRegion}.agiliumtrade.ai/users/current/accounts/${metaApiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles`;
 
-  for (const accountId of accounts) {
-    const url = `https://mt-client-api-v1.${metaApiRegion}.agiliumtrade.ai/users/current/accounts/${accountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles`;
-
-    try {
-      const queryParams = new URLSearchParams({
-        startTime: currentStartTime.toISOString(),
-        limit: '10'
-      });
-
-      const testResponse = await fetch(`${url}?${queryParams}`, {
-        method: 'GET',
-        headers: {
-          'auth-token': metaApiToken,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      apiCalls++;
-
-      if (testResponse.ok) {
-        workingAccountId = accountId;
-        console.log(`[Backfill] Using account ${accountId} for ${symbol} ${timeframe}`);
-        break;
-      } else if (testResponse.status === 404) {
-        console.log(`[Backfill] Account ${accountId} doesn't have ${symbol} - trying next account`);
-        lastError = new Error(`Account doesn't have ${symbol} available`);
-        continue;
-      } else {
-        throw new Error(`MetaAPI HTTP ${testResponse.status}: ${testResponse.statusText}`);
-      }
-    } catch (error) {
-      lastError = error as Error;
-      console.log(`[Backfill] Error with account ${accountId}:`, error);
-      continue;
-    }
-  }
-
-  if (!workingAccountId) {
-    throw new Error(`No MetaAPI account has ${symbol} available. Last error: ${lastError?.message}`);
-  }
-
-  const url = `https://mt-client-api-v1.${metaApiRegion}.agiliumtrade.ai/users/current/accounts/${workingAccountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles`;
-
-  currentStartTime = startTime;
+  console.log(`[Backfill] Using account ${metaApiAccountId} for ${symbol} ${timeframe}`);
 
   while (currentStartTime < endTime) {
     try {
