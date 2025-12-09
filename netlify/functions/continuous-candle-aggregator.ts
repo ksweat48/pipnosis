@@ -196,7 +196,8 @@ async function saveCandleToDatabase(candle: CandleData): Promise<boolean> {
         close: candle.close,
         volume: candle.volume,
         tick_count: candle.volume,
-        data_source: 'netlify_aggregator'
+        data_source: 'netlify_aggregator',
+        quality_score: 95
       }, {
         onConflict: 'symbol,timeframe,open_time',
         ignoreDuplicates: false
@@ -232,7 +233,8 @@ async function saveCandlesBatch(candles: CandleData[]): Promise<number> {
       close: candle.close,
       volume: candle.volume,
       tick_count: candle.volume,
-      data_source: 'netlify_aggregator'
+      data_source: 'netlify_aggregator',
+      quality_score: 95
     }));
 
     const { error } = await supabase
