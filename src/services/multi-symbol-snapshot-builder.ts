@@ -55,7 +55,7 @@ export interface MultiSymbolSnapshotResult {
 
 class MultiSymbolSnapshotBuilder {
   private readonly CANDLE_LOOKBACK = 100;
-  private readonly TIMEFRAME = '5m';
+  private readonly TIMEFRAME = 'M5'; // Database uses uppercase format: M5, M15, H1, etc.
 
   async buildSnapshots(symbols: string[]): Promise<MultiSymbolSnapshotResult> {
     console.log(`[Multi-Symbol] Building snapshots for ${symbols.length} symbols...`);
@@ -91,11 +91,12 @@ class MultiSymbolSnapshotBuilder {
   }
 
   private async buildSingleSnapshot(symbol: string): Promise<SymbolSnapshot> {
+    // CRITICAL FIX: Query for both timeframe formats (M5 and 5m) to handle database variations
     const { data: candles, error } = await supabase
       .from('forex_candles')
       .select('*')
       .eq('symbol', symbol)
-      .eq('timeframe', this.TIMEFRAME)
+      .in('timeframe', ['M5', '5m']) // Query both formats
       .order('open_time', { ascending: false })
       .limit(this.CANDLE_LOOKBACK);
 
