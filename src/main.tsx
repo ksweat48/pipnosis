@@ -9,11 +9,14 @@ import './index.css';
 
 // Application startup (debug info available via logger if needed)
 
+// Silence verbose logs in production
+import('./lib/silence-verbose-logs');
+
 // Initialize logging and utilities only in development
 if (!import.meta.env.PROD) {
   // Load logger and utilities only in dev mode
   import('@/lib/logger').then(({ logger, LogLevel }) => {
-    logger.setGlobalLevel(LogLevel.INFO);
+    logger.setGlobalLevel(LogLevel.DEBUG);
   });
 
   // Load debug utilities only in dev

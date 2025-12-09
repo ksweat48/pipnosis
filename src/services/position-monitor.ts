@@ -4,6 +4,7 @@ import { globalPollingCoordinator } from './global-polling-coordinator';
 import { logger, LogCategory } from '@/lib/logger';
 import type { GoalSessionTrade } from '@/types/position';
 import { calculatePnL } from '@/types/position';
+import { prodLogger } from '@/lib/production-logger';
 
 type MonitoredPosition = GoalSessionTrade;
 
@@ -340,10 +341,16 @@ class PositionMonitorService {
     reason: 'stop_loss' | 'take_profit'
   ) {
     try {
-      logger.debug(LogCategory.POSITION_MONITOR, ` Auto-closing position ${position.id} due to ${reason}`);
-
       // Use the secure RPC function to close
-      await positionService.closePosition(position.id, closePrice, reason);
+      const result = await positionService.closePosition(position.id, closePrice, reason);
+
+      if (result.success && result.pnl !== undefined) {
+        prodLogger.position(
+          `AUTO-CLOSED (${reason === 'stop_loss' ? 'SL' : 'TP'})`,
+          position.symbol,
+          result.pnl
+        );
+      }
 
       // Update goal session status if no more open trades
       const { data: otherTrades } = await supabase
@@ -358,8 +365,6 @@ class PositionMonitorService {
           .update({ status: 'scanning' })
           .eq('id', position.goal_session_id);
       }
-
-      logger.debug(LogCategory.POSITION_MONITOR, ` Position ${position.id} closed successfully via ${reason}`);
     } catch (error) {
       console.error(`[PositionMonitor] Failed to auto-close position ${position.id}:`, error);
     }

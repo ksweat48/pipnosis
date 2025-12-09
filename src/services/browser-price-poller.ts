@@ -12,7 +12,10 @@
  */
 
 import { tickBufferService } from './tick-buffer-service';
-import { logger, LogCategory } from '@/lib/logger';
+import { logger, LogCategory, LogLevel } from '@/lib/logger';
+
+// Silence verbose polling logs in production
+logger.setCategoryLevel(LogCategory.BROWSER_POLLER, LogLevel.SILENT);
 // polling-health-monitor removed
 import { circuitBreakerService } from './circuit-breaker-service';
 import { pageContext } from './page-context';

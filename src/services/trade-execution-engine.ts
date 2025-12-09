@@ -4,6 +4,7 @@ import { positionService } from './position-service';
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { strategyPlaybookManager } from './strategy-playbook-manager';
 import { getRegimeBucket } from './regime-bucketing';
+import { prodLogger } from '../lib/production-logger';
 
 export interface TradeSignal {
   sessionId: string;
@@ -286,9 +287,7 @@ class TradeExecutionEngine {
     const actualEntryPrice = this.applySlippage(signal.symbol, signal.entryPrice, signal.direction);
     const slippagePips = Math.abs(actualEntryPrice - signal.entryPrice) / getCurrencyPipInfo(signal.symbol).pipValue;
 
-    console.log(`[Trade Execution] ✅ Creating simulated position for ${signal.symbol}...`);
-    console.log(`[Trade Execution] Slippage applied: ${slippagePips.toFixed(1)} pips (${signal.entryPrice} → ${actualEntryPrice})`);
-    console.log(`[Trade Execution] This will make SL/TP visible on chart`);
+    // Verbose logs removed - keeping only important trade execution
 
     // Update goal_session_trade with execution details (direct position creation)
     const { error: updateError } = await supabase
@@ -320,8 +319,15 @@ class TradeExecutionEngine {
       };
     }
 
-    console.log(`[Trade Execution] ✅ Position opened in goal_session_trades`);
-    console.log(`[Trade Execution] ✅ Trade ID: ${trade.id}`);
+    prodLogger.trade('OPENED', signal.symbol, {
+      direction: signal.direction.toUpperCase(),
+      entry: actualEntryPrice,
+      sl: signal.stopLoss,
+      tp: signal.takeProfit,
+      size: signal.positionSize,
+      confidence: `${signal.confidence}%`,
+      setup: signal.setupType
+    });
 
     await supabase
       .from('goal_sessions')
@@ -396,7 +402,7 @@ class TradeExecutionEngine {
         };
       }
 
-      console.log(`[Trade Execution] Opening position for confirmed trade ${trade.symbol}...`);
+      // Verbose log removed
 
       // Open position directly in goal_session_trades
       const { error: updateError } = await supabase
