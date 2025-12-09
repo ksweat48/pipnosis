@@ -16,7 +16,8 @@ const SLOW_TIMEFRAMES = ['H4', 'D1', 'W1']; // Process every 12th run (60 min)
 const ALL_TIMEFRAMES = [...FAST_TIMEFRAMES, ...MEDIUM_TIMEFRAMES, ...SLOW_TIMEFRAMES];
 
 // SAFETY: Maximum candles to create per timeframe per run (prevents runaway processing)
-const MAX_CANDLES_PER_TIMEFRAME = 3;
+// INCREASED from 3 to 10 for better completion rates
+const MAX_CANDLES_PER_TIMEFRAME = 10;
 
 // WICK RECONSTRUCTION: Improve candle quality by adding realistic wicks
 const ENABLE_WICK_RECONSTRUCTION = true;
@@ -481,8 +482,9 @@ async function aggregateCandlesForSymbol(
   const symbolStartTime = Date.now();
   console.log(`[CandleAggregator]   📊 Starting aggregation for ${symbol}...`);
 
-  // OPTIMIZATION: Fetch only 3 minutes of recent prices (just 2-3 M1 candles max)
-  const lookbackMinutes = 3; // CRITICAL: Reduced to 3 minutes for fastest processing
+  // OPTIMIZATION: Fetch 10 minutes of recent prices to ensure complete candle coverage
+  // INCREASED from 3 to 10 minutes to prevent gaps when function is delayed
+  const lookbackMinutes = 10; // CRITICAL: Extended lookback for 100% candle completion
   const prices = await fetchRecentPrices(symbol, lookbackMinutes);
 
   if (prices.length === 0) {
@@ -529,12 +531,20 @@ async function aggregateCandlesForSymbol(
 
     console.log(`[CandleAggregator]       📋 Found ${existingCandleTimes.size} existing ${timeframe} candles`);
 
-    // CRITICAL: Only process the last 3 completed candles (not all 15 minutes)
+    // INTELLIGENT LOOKBACK: Check last saved candle and fill from there
     const currentCandleStart = roundTimeToCandle(now, timeframeMinutes);
     const previousCandleStart = new Date(currentCandleStart.getTime() - timeframeMinutes * 60 * 1000);
 
-    // Start from 3 candles ago
-    const startFrom = new Date(previousCandleStart.getTime() - (2 * timeframeMinutes * 60 * 1000));
+    // Get the last saved candle for this symbol/timeframe
+    const lastSavedCandle = existingCandleTimes.size > 0
+      ? new Date(Math.max(...Array.from(existingCandleTimes)))
+      : new Date(previousCandleStart.getTime() - (9 * timeframeMinutes * 60 * 1000)); // Default to 10 candles back if none exist
+
+    // Start from one period after the last saved candle, or 10 candles ago (whichever is more recent)
+    const tenCandlesAgo = new Date(previousCandleStart.getTime() - (9 * timeframeMinutes * 60 * 1000));
+    const startFrom = lastSavedCandle > tenCandlesAgo
+      ? new Date(lastSavedCandle.getTime() + timeframeMinutes * 60 * 1000)
+      : tenCandlesAgo;
     const endAt = previousCandleStart;
 
     // BACKFILL LOOP: Create all missing candles
@@ -557,8 +567,8 @@ async function aggregateCandlesForSymbol(
 
       const candleEndTime = new Date(currentCandleToCreate.getTime() + timeframeMinutes * 60 * 1000);
 
-      // Skip if candle period is not complete yet (with 1 minute safety buffer)
-      const bufferMs = 1 * 60 * 1000;
+      // Skip if candle period is not complete yet (with 30 second safety buffer for faster completion)
+      const bufferMs = 30 * 1000; // REDUCED from 60s to 30s for faster candle finalization
       if (candleEndTime > new Date(now.getTime() - bufferMs)) {
         break;
       }

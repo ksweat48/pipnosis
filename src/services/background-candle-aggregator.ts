@@ -55,7 +55,7 @@ class BackgroundCandleAggregator {
 
   private lastPriceCache: Map<string, number> = new Map();
   private candleFinalizerInterval: NodeJS.Timeout | null = null;
-  private readonly CANDLE_FINALIZER_CHECK_INTERVAL_MS = 60000; // Check every minute
+  private readonly CANDLE_FINALIZER_CHECK_INTERVAL_MS = 30000; // Check every 30 seconds (INCREASED from 60s for faster gap detection)
   private pollingInterval: NodeJS.Timeout | null = null;
 
   private initializeCandleState(symbol: string, timeframe: Timeframe, price: number, timestamp: number): CandleState {
@@ -340,7 +340,7 @@ class BackgroundCandleAggregator {
       clearInterval(this.candleFinalizerInterval);
     }
 
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🕐 Starting candle finalizer (checks every 60s for missing candles)');
+    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🕐 Starting candle finalizer (checks every 30s for missing candles)');
 
     this.candleFinalizerInterval = setInterval(async () => {
       await this.checkAndFinalizeMissingCandles();
@@ -368,8 +368,8 @@ class BackgroundCandleAggregator {
           // There's a gap - we should have a candle but don't
           const missingCandleTime = currentCandleTime - intervalMs;
 
-          // Only fill if the missing candle time is within the last hour (to avoid excessive backfilling)
-          if (now - missingCandleTime < 3600000) {
+          // Only fill if the missing candle time is within the last 2 hours (INCREASED from 1 hour for better coverage)
+          if (now - missingCandleTime < 7200000) {
             logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` 🔧 Detected missing candle for ${symbol} ${timeframe} at ${new Date(missingCandleTime).toISOString()}`);
 
             // Create a flat candle using the last known price
@@ -391,8 +391,8 @@ class BackgroundCandleAggregator {
           }
         }
 
-        // Check if current forming candle should be finalized (1 minute grace period)
-        if (existingState && existingState.startTime < currentCandleTime - 60000) {
+        // Check if current forming candle should be finalized (30 second grace period for faster completion)
+        if (existingState && existingState.startTime < currentCandleTime - 30000) {
           logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` ⏰ Auto-finalizing ${symbol} ${timeframe} candle (grace period expired)`);
           this.queueCandleForSave(symbol, timeframe, existingState);
           this.candleStates.delete(key);
