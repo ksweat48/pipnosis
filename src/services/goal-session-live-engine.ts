@@ -429,6 +429,21 @@ class GoalSessionLiveEngine {
       const snapshot = bestSymbolResult.evaluation.snapshot;
       const latestCandle = snapshot.recentCandles[snapshot.recentCandles.length - 1];
 
+      // FINAL CHECK: Ensure we're not exceeding max trades (prevents race conditions)
+      if (this.openTrades.length >= this.config.maxConcurrentTrades) {
+        console.log(`[Multi-Symbol] BLOCKED: Already at max trades (${this.config.maxConcurrentTrades})`);
+        await this.sendAIMessage(`Max trades (${this.config.maxConcurrentTrades}) limit reached. Pausing new trade scans to preserve credits. Monitoring open positions only.`);
+        return;
+      }
+
+      // Calculate dynamic lot size based on account balance and goal
+      const calculatedLotSize = await this.calculateOptimalLotSize(
+        this.config.initialBalance,
+        decision.entry,
+        decision.stopLoss,
+        this.config.riskMode
+      );
+
       const trade: SimulatedTrade = {
         id: `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         symbol: selectedSymbol,
@@ -438,7 +453,7 @@ class GoalSessionLiveEngine {
         entryPrice: decision.entry,
         stopLoss: decision.stopLoss,
         takeProfit: decision.takeProfit,
-        positionSize: 0.01,
+        positionSize: calculatedLotSize,
         confidence: decision.confidence,
         reasoning: decision.reasoning,
         triggerType: 'multi_symbol_best_opportunity',
@@ -448,6 +463,8 @@ class GoalSessionLiveEngine {
       };
 
       this.openTrades.push(trade);
+
+      console.log(`[Multi-Symbol] Trade ${this.openTrades.length}/${this.config.maxConcurrentTrades} added to queue`);
 
       // Calculate R:R for proper trade signal
       const riskPips = Math.abs(trade.entryPrice - trade.stopLoss) / 0.0001;
@@ -508,10 +525,25 @@ class GoalSessionLiveEngine {
    */
   private async processCandleAutonomous(): Promise<void> {
     try {
+      // STOP SCANNING if max trades reached (saves tokens/credits)
+      if (this.openTrades.length >= this.config.maxConcurrentTrades && !this.allowNewTrades) {
+        console.log(`[Goal Live Engine] ⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - PAUSING scanning to save credits`);
+        // Still monitor open positions but don't scan for new trades
+        const watchlist = this.config.watchlist || getDefaultWatchlist();
+        const symbol = this.config.symbol || watchlist[0];
+        await this.monitorOpenPositionsOnly(symbol);
+        return;
+      }
+
       const watchlist = this.config.watchlist || getDefaultWatchlist();
       const useMultiSymbolMode = watchlist.length > 1;
 
       if (useMultiSymbolMode) {
+        // Double-check before expensive multi-symbol scan
+        if (this.openTrades.length >= this.config.maxConcurrentTrades) {
+          console.log(`[Multi-Symbol] Max trades reached, monitoring only`);
+          return;
+        }
         console.log(`[Multi-Symbol Mode] 🔍 Evaluating ${watchlist.length} symbols...`);
         await this.processMultiSymbolCycle(watchlist);
         return;
@@ -1016,6 +1048,9 @@ class GoalSessionLiveEngine {
         console.error('[Goal Live Engine] Failed to log post-trade analysis conversation:', error);
       }
     }
+
+    // Update goal progress after trade closure
+    await this.updateGoalProgress();
   }
 
   /**
@@ -1870,6 +1905,125 @@ Keep response under 100 words, educational tone.`;
       });
     } catch (error) {
       console.error('[Goal Live Engine] Failed to log trade monitoring conversation:', error);
+    }
+  }
+
+  /**
+   * Calculate optimal lot size based on account balance and risk parameters
+   * Ensures lot sizes are meaningful for the account balance and goal target
+   */
+  private async calculateOptimalLotSize(
+    accountBalance: number,
+    entryPrice: number,
+    stopLoss: number,
+    riskMode: 'low' | 'medium' | 'high'
+  ): Promise<number> {
+    // Risk percentage based on risk mode
+    const riskPercent = riskMode === 'high' ? 2.0 : riskMode === 'medium' ? 1.0 : 0.5;
+
+    // Calculate risk amount in dollars
+    const riskAmount = accountBalance * (riskPercent / 100);
+
+    // Calculate stop loss distance in pips
+    const stopLossPips = Math.abs(entryPrice - stopLoss) / 0.0001;
+
+    // Calculate lot size: Risk Amount / (Stop Loss Pips * $10 per pip per lot)
+    const calculatedLotSize = riskAmount / (stopLossPips * 10);
+
+    // Round to 2 decimal places and apply limits
+    let lotSize = Math.round(calculatedLotSize * 100) / 100;
+
+    // Apply sensible limits based on account size
+    const minLotSize = accountBalance > 10000 ? 0.05 : 0.01;
+    const maxLotSize = Math.min(
+      accountBalance / 1000, // Max 1 lot per $1000
+      10.0 // Absolute max of 10 lots
+    );
+
+    lotSize = Math.max(minLotSize, Math.min(lotSize, maxLotSize));
+
+    console.log(`[Lot Size Calculator] Balance: $${accountBalance}, Risk: ${riskPercent}%, SL: ${stopLossPips.toFixed(1)} pips → Lot Size: ${lotSize}`);
+
+    return lotSize;
+  }
+
+  /**
+   * Monitor open positions only without scanning for new trades
+   * Used when max trades reached to save tokens/credits
+   */
+  private async monitorOpenPositionsOnly(symbol: string): Promise<void> {
+    const dbTimeframe = normalizeTimeframeToDb(this.config.timeframe);
+
+    const { data: candles, error } = await supabase
+      .from('forex_candles')
+      .select('*')
+      .eq('symbol', symbol)
+      .eq('timeframe', dbTimeframe)
+      .order('open_time', { ascending: false })
+      .limit(10);
+
+    if (error || !candles || candles.length === 0) {
+      return;
+    }
+
+    const latestCandle = candles[0];
+
+    // Update open trades status
+    this.openTrades = eventBasedLLMEngine.updateOpenTrades(this.openTrades, latestCandle);
+
+    // Handle closed trades
+    const closedTrades = this.openTrades.filter(t => t.outcome !== 'open');
+    for (const trade of closedTrades) {
+      await this.handleTradeClosure(trade);
+    }
+    this.openTrades = this.openTrades.filter(t => t.outcome === 'open');
+
+    // Update progress after trade closures
+    await this.updateGoalProgress();
+
+    console.log(`[Monitor Only] ${this.openTrades.length} open trades, monitoring...`);
+  }
+
+  /**
+   * Update goal session progress tracking
+   * Updates progress bar and profit tracking in real-time
+   */
+  private async updateGoalProgress(): Promise<void> {
+    if (!this.activeSession || !this.config) return;
+
+    try {
+      // Calculate total P&L from closed trades
+      const { data: closedTrades } = await supabase
+        .from('goal_session_trades')
+        .select('profit_loss')
+        .eq('goal_session_id', this.activeSession)
+        .in('status', ['closed', 'win', 'loss']);
+
+      const totalProfit = closedTrades?.reduce((sum, t) => sum + (parseFloat(t.profit_loss) || 0), 0) || 0;
+
+      // Get goal target
+      const { data: session } = await supabase
+        .from('goal_sessions')
+        .select('target_amount')
+        .eq('id', this.activeSession)
+        .single();
+
+      const targetAmount = parseFloat(session?.target_amount || '0');
+      const progressPercent = targetAmount > 0 ? (totalProfit / targetAmount) * 100 : 0;
+
+      // Update goal_sessions with current progress
+      await supabase
+        .from('goal_sessions')
+        .update({
+          progress_amount: totalProfit,
+          progress_percent: Math.min(progressPercent, 100)
+        })
+        .eq('id', this.activeSession);
+
+      console.log(`[Progress Update] $${totalProfit.toFixed(2)} / $${targetAmount.toFixed(2)} (${progressPercent.toFixed(1)}%)`);
+
+    } catch (error) {
+      console.error('[Progress Update] Error:', error);
     }
   }
 }
