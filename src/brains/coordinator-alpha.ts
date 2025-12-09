@@ -46,12 +46,14 @@ export interface AlphaDecision {
   confidence: number;
   reasoning: string;
   omega_summary: string;
+  omega_votes?: OmegaCouncilVotes;
   omega8_liquidity_bias?: string;
   omega8_direction_support?: string;
   omega9_validation?: Omega9ValidationResult;
   omega10_applied?: boolean;
   symbol?: string;
   timestamp?: Date;
+  risk_pct?: number;
 }
 
 class AlphaCoordinatorBrain {
@@ -67,15 +69,26 @@ class AlphaCoordinatorBrain {
     // Calculate vote weights (with Omega-10 overrides if available)
     const weights = await this.calculateWeights(votes, marketContext, traderScore, userId);
 
-    // Build compressed context
-    const context = this.buildCoordinationContext(votes, weights, marketContext, traderScore);
+    // Calculate weighted consensus score
+    const consensus = this.calculateWeightedConsensus(votes, weights);
+    console.log(`[Alpha Coordinator] 📊 Weighted Consensus: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} Omegas)`);
 
-    const prompt = `You are Alpha, the coordinator. Analyze Omega votes and make final decision.
+    // Build compressed context
+    const context = this.buildCoordinationContext(votes, weights, marketContext, traderScore, consensus);
+
+    const prompt = `You are Alpha, the final decision maker. You have complete authority to accept or override Omega recommendations.
 
 ${context}
 
+WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)
+
+You can override Risk concerns if:
+- 4+ Omegas strongly agree (70%+ confidence)
+- Setup quality is exceptional
+- Risk concerns are about tight stops (can be adjusted dynamically)
+
 Decide: BUY, SELL, or NO_TRADE.
-Calculate entry, SL (ATR*1.5), TP (ATR*2.5).
+Calculate entry, SL (dynamic ATR buffer), TP (appropriate R:R).
 
 Return JSON only:
 {
@@ -84,7 +97,7 @@ Return JSON only:
   "stopLoss": price,
   "takeProfit": price,
   "confidence": 0-100,
-  "reasoning": "brief decision rationale"
+  "reasoning": "brief decision rationale including whether you overrode any concerns"
 }`;
 
     try {
@@ -128,8 +141,9 @@ Return JSON only:
       decision.symbol = marketContext.symbol;
       decision.timestamp = new Date();
 
-      // Add omega summary
+      // Add omega summary and votes for transparency
       decision.omega_summary = this.generateOmegaSummary(votes, weights);
+      decision.omega_votes = votes;
 
       // Check Omega-10 recommendations
       if (userId) {
@@ -226,6 +240,95 @@ Return JSON only:
         omega_summary: 'Error in coordination'
       };
     }
+  }
+
+  /**
+   * Calculate weighted consensus from Omega votes
+   */
+  private calculateWeightedConsensus(
+    votes: OmegaCouncilVotes,
+    weights: Record<string, number>
+  ): {
+    direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED';
+    score: number;
+    agreementCount: number;
+    totalVotes: number;
+    strongAgreement: boolean;
+  } {
+    let buyScore = 0;
+    let sellScore = 0;
+    let noTradeScore = 0;
+    let totalWeight = 0;
+    let buyCount = 0;
+    let sellCount = 0;
+    let noTradeCount = 0;
+    let totalVotes = 0;
+
+    const voteEntries = [
+      { name: 'trend', vote: votes.trend, weight: weights.trend },
+      { name: 'scalper', vote: votes.scalper, weight: weights.scalper },
+      { name: 'swing', vote: votes.swing, weight: weights.swing },
+      { name: 'reversal', vote: votes.reversal, weight: weights.reversal },
+      { name: 'volatility', vote: votes.volatility, weight: weights.volatility },
+      { name: 'risk', vote: votes.risk, weight: weights.risk * 0.5 }, // Reduce Risk weight to advisory level
+      { name: 'omega8', vote: votes.omega8, weight: weights.omega8 }
+    ];
+
+    for (const entry of voteEntries) {
+      if (!entry.vote) continue;
+
+      totalVotes++;
+      const weightedConfidence = entry.weight * entry.vote.confidence;
+      totalWeight += entry.weight;
+
+      if (entry.vote.vote === 'BUY') {
+        buyScore += weightedConfidence;
+        buyCount++;
+      } else if (entry.vote.vote === 'SELL') {
+        sellScore += weightedConfidence;
+        sellCount++;
+      } else {
+        noTradeScore += weightedConfidence;
+        noTradeCount++;
+      }
+    }
+
+    // Normalize scores
+    if (totalWeight > 0) {
+      buyScore = (buyScore / totalWeight);
+      sellScore = (sellScore / totalWeight);
+      noTradeScore = (noTradeScore / totalWeight);
+    }
+
+    // Determine direction
+    let direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED' = 'NO_TRADE';
+    let score = noTradeScore;
+    let agreementCount = noTradeCount;
+
+    if (buyScore > sellScore && buyScore > noTradeScore) {
+      direction = 'BUY';
+      score = buyScore;
+      agreementCount = buyCount;
+    } else if (sellScore > buyScore && sellScore > noTradeScore) {
+      direction = 'SELL';
+      score = sellScore;
+      agreementCount = sellCount;
+    } else if (buyScore > 50 && sellScore > 50) {
+      direction = 'MIXED';
+      score = Math.max(buyScore, sellScore);
+      agreementCount = Math.max(buyCount, sellCount);
+    }
+
+    // Strong agreement = 4+ Omegas agree AND weighted score > 65%
+    const strongAgreement = agreementCount >= 4 && score >= 65;
+
+    return {
+      direction,
+      score,
+      agreementCount,
+      totalVotes,
+      strongAgreement
+    };
   }
 
   /**
@@ -332,7 +435,8 @@ Return JSON only:
     votes: OmegaCouncilVotes,
     weights: Record<string, number>,
     marketContext: MarketContext,
-    traderScore: TraderScore
+    traderScore: TraderScore,
+    consensus: any
   ): string {
     const parts: string[] = [];
 

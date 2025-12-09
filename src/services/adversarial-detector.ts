@@ -548,20 +548,20 @@ class AdversarialDetector {
     const isManipulationSpike = spikeMultiplier > 2.2;
 
     if (isManipulationSpike) {
-      // CRITICAL FIX: Add time-based expiration to prevent infinite blocks
-      const isExtremeSpike = spikeMultiplier > 4.0; // Very extreme spikes
-      const isRecentSpike = candlesAgo <= 5; // Recent = within 5 candles
+      // CRITICAL FIX: Only block VERY recent AND severe spikes
+      const isExtremeSpike = spikeMultiplier > 3.5; // Extreme spikes (raised from 4.0)
+      const isVeryRecentSpike = candlesAgo <= 2; // Very recent = within 2 candles (reduced from 5)
       const isAgedSpike = candlesAgo >= 10; // Aged = 10+ candles old
 
-      // Hard block only for recent OR extreme spikes
-      if (isRecentSpike || isExtremeSpike) {
-        console.warn(`[Adversarial] Manipulation Spike Detected (${spikeMultiplier.toFixed(1)}x, ${candlesAgo} candles ago) → BLOCK`);
+      // Hard block only for very recent AND extreme spikes
+      if (isVeryRecentSpike && isExtremeSpike) {
+        console.warn(`[Adversarial] Extreme Manipulation Spike Detected (${spikeMultiplier.toFixed(1)}x, ${candlesAgo} candles ago) → BLOCK`);
         return {
           type: 'manipulation_spike',
           candles_ago: candlesAgo,
           has_bos: false,
           should_block: true,
-          reasoning: `Extreme volatility spike (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) - block expires in ${Math.max(0, 10 - candlesAgo)} candles`
+          reasoning: `Extreme volatility spike (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) - block expires in ${Math.max(0, 3 - candlesAgo)} candles`
         };
       }
 
@@ -602,8 +602,8 @@ class AdversarialDetector {
       };
     }
 
-    // B) Check if active (within last 1-3 candles)
-    if (candlesAgo <= 3) {
+    // B) Check if active (within last 1-2 candles only - reduced from 3)
+    if (candlesAgo <= 2) {
       console.warn('[Adversarial] Active Stop Run Detected → BLOCK');
       return {
         type: 'active_stop_run',

@@ -197,52 +197,14 @@ class AlphaOmegaOrchestrator {
       }
     }
 
-    // ✅ CRITICAL: Risk Omega is REQUIRED - block trade if Risk fails or says NO_TRADE
+    // ✅ NEW: Risk Omega is ADVISORY, not blocking
+    // Log Risk concerns but let Alpha decide final action
     if (!riskVote) {
-      console.error('[Alpha+Omega] 🚫 TRADE BLOCKED - Risk Omega failed to provide vote');
-      return {
-        action: 'NO_TRADE',
-        confidence: 0,
-        reasoning: 'Risk Omega system failure - cannot proceed without risk validation',
-        entry: proposedSL,
-        stopLoss: proposedSL,
-        takeProfit: proposedTP,
-        risk_pct: 0,
-        omega_summary: 'Risk Omega unavailable - trade blocked for safety',
-        omega_votes: {
-          trend: trendVote,
-          scalper: scalperVote,
-          swing: swingVote,
-          reversal: reversalVote,
-          volatility: volatilityVote,
-          risk: null,
-          omega8: omega8Vote
-        }
-      };
-    }
-
-    if (riskVote.vote === 'NO_TRADE' && riskVote.confidence >= 70) {
-      console.error('[Alpha+Omega] 🚫 TRADE BLOCKED - Risk Omega strongly recommends NO_TRADE');
-      console.error(`[Alpha+Omega] Risk reasoning: ${riskVote.reasoning}`);
-      return {
-        action: 'NO_TRADE',
-        confidence: riskVote.confidence,
-        reasoning: `Risk Omega blocked trade: ${riskVote.reasoning}`,
-        entry: proposedSL,
-        stopLoss: proposedSL,
-        takeProfit: proposedTP,
-        risk_pct: 0,
-        omega_summary: `Risk Omega veto: ${riskVote.reasoning}`,
-        omega_votes: {
-          trend: trendVote,
-          scalper: scalperVote,
-          swing: swingVote,
-          reversal: reversalVote,
-          volatility: volatilityVote,
-          risk: riskVote,
-          omega8: omega8Vote
-        }
-      };
+      console.warn('[Alpha+Omega] ⚠️ Risk Omega failed - proceeding with caution');
+    } else if (riskVote.vote === 'NO_TRADE' && riskVote.confidence >= 70) {
+      console.warn('[Alpha+Omega] ⚠️ Risk Omega concerns (advisory only):');
+      console.warn(`[Alpha+Omega] Risk reasoning: ${riskVote.reasoning}`);
+      console.warn('[Alpha+Omega] Alpha will consider this input in final decision');
     }
 
     // Build market context for Alpha
@@ -303,8 +265,13 @@ class AlphaOmegaOrchestrator {
 
     const evaluationPromises = marketStates.map(async (marketState) => {
       try {
-        const proposedSL = marketState.price - (marketState.atr * 1.5);
-        const proposedTP = marketState.price + (marketState.atr * 2.5);
+        // Calculate dynamic stop loss based on volatility regime
+        const { stopLossMultiplier, takeProfitMultiplier } = this.calculateDynamicMultipliers(marketState);
+
+        const proposedSL = marketState.price - (marketState.atr * stopLossMultiplier);
+        const proposedTP = marketState.price + (marketState.atr * takeProfitMultiplier);
+
+        console.log(`[Alpha+Omega] Dynamic SL/TP for ${marketState.symbol}: ${stopLossMultiplier.toFixed(2)}x / ${takeProfitMultiplier.toFixed(2)}x ATR`);
 
         const decision = await this.makeTradeDecision(
           marketState,
@@ -406,6 +373,64 @@ class AlphaOmegaOrchestrator {
       console.log(`[MidTrade] ℹ️ SOFT check @ ${(drawdownPct * 100).toFixed(0)}% drawdown`);
       return await midTradeMonitor.evaluateSoft(snapshot, traderScore);
     }
+  }
+
+  /**
+   * Calculate dynamic stop loss and take profit multipliers based on market conditions
+   */
+  private calculateDynamicMultipliers(marketState: FullMarketState): {
+    stopLossMultiplier: number;
+    takeProfitMultiplier: number;
+  } {
+    let slMultiplier = 1.8; // Base: 1.8x ATR (increased from 1.5x for more breathing room)
+    let tpMultiplier = 3.0; // Base: 3.0x ATR (increased from 2.5x for better R:R)
+
+    // Adjust for volatility
+    if (marketState.volatility === 'low') {
+      slMultiplier = 1.5; // Tighter stops in low volatility
+      tpMultiplier = 2.5;
+    } else if (marketState.volatility === 'high') {
+      slMultiplier = 2.5; // Wider stops in high volatility
+      tpMultiplier = 4.0;
+    }
+
+    // Adjust for regime if available
+    if (marketState.regime) {
+      // High risk regime = wider stops
+      if (marketState.regime.is_high_risk_regime) {
+        slMultiplier *= 1.3;
+        tpMultiplier *= 1.2;
+      }
+
+      // ATR expansion = wider stops
+      if (marketState.regime.atr_expansion > 1.5) {
+        slMultiplier *= 1.2;
+      }
+
+      // Wick risk = wider stops
+      if (marketState.regime.wick_risk === 'high') {
+        slMultiplier *= 1.2;
+      }
+    }
+
+    // Adjust for adversarial conditions
+    if (marketState.adversarial) {
+      if (marketState.adversarial.level === 'moderate') {
+        slMultiplier *= 1.15;
+      } else if (marketState.adversarial.level === 'severe') {
+        slMultiplier *= 1.3;
+      }
+    }
+
+    // Ensure minimum R:R ratio of 1.5:1
+    if (tpMultiplier / slMultiplier < 1.5) {
+      tpMultiplier = slMultiplier * 1.5;
+    }
+
+    return {
+      stopLossMultiplier: slMultiplier,
+      takeProfitMultiplier: tpMultiplier
+    };
   }
 
   /**

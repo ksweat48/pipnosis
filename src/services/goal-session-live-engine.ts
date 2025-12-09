@@ -389,7 +389,14 @@ class GoalSessionLiveEngine {
 
       if (!bestSymbolResult.selected || !bestSymbolResult.symbol || !bestSymbolResult.evaluation) {
         console.log('[Multi-Symbol] 🚫 No symbols passed selection criteria');
-        await this.sendAIMessage('All symbols evaluated. No high-quality setups detected. Continuing scan.');
+
+        // Build detailed explanation of why no symbols were selected
+        const detailedMessage = this.buildDetailedEvaluationMessage(
+          snapshotsBySymbol,
+          omegaDecisions
+        );
+
+        await this.sendAIMessage(detailedMessage);
         return;
       }
 
@@ -1320,6 +1327,73 @@ This learning will carry forward to improve future sessions!
   /**
    * Send a simple AI message to the user
    */
+  /**
+   * Build detailed evaluation message explaining why symbols were blocked or rejected
+   */
+  private buildDetailedEvaluationMessage(
+    snapshots: Map<string, SymbolSnapshot>,
+    decisions: Map<string, AlphaDecision>
+  ): string {
+    const parts: string[] = [];
+    const evaluated = Array.from(snapshots.keys());
+
+    parts.push(`Evaluated ${evaluated.length} symbols: ${evaluated.join(', ')}`);
+    parts.push('');
+
+    let blockedCount = 0;
+    let noTradeCount = 0;
+
+    for (const [symbol, snapshot] of snapshots) {
+      // Check if blocked by adversarial
+      if (!snapshot.tradeable) {
+        blockedCount++;
+        const reason = snapshot.blockReason || 'Unknown';
+        parts.push(`❌ ${symbol}: BLOCKED - ${reason}`);
+
+        // Add specific adversarial details if available
+        if (snapshot.adversarial && snapshot.adversarial.stop_run_classification) {
+          const stopRun = snapshot.adversarial.stop_run_classification;
+          if (stopRun.type !== 'none') {
+            parts.push(`   → ${stopRun.reasoning}`);
+          }
+        }
+        continue;
+      }
+
+      // Check Alpha decision
+      const decision = decisions.get(symbol);
+      if (!decision || decision.action === 'NO_TRADE') {
+        noTradeCount++;
+
+        if (decision && decision.omega_votes) {
+          const votes = decision.omega_votes;
+          const buyVotes = [votes.trend, votes.scalper, votes.swing, votes.reversal, votes.volatility, votes.omega8]
+            .filter(v => v?.vote === 'BUY').length;
+          const sellVotes = [votes.trend, votes.scalper, votes.swing, votes.reversal, votes.volatility, votes.omega8]
+            .filter(v => v?.vote === 'SELL').length;
+          const noTrade = 7 - buyVotes - sellVotes;
+
+          parts.push(`⚠️ ${symbol}: Alpha declined - ${decision.reasoning}`);
+          parts.push(`   → Omega Council: ${buyVotes} BUY, ${sellVotes} SELL, ${noTrade} NO_TRADE`);
+
+          // Highlight Risk concerns if present
+          if (votes.risk && votes.risk.vote === 'NO_TRADE') {
+            parts.push(`   → Risk Advisory: ${votes.risk.reasoning}`);
+          }
+        } else {
+          parts.push(`⚠️ ${symbol}: No tradeable setup detected`);
+        }
+      }
+    }
+
+    parts.push('');
+    if (blockedCount + noTradeCount === evaluated.length) {
+      parts.push('No high-quality setups found. Continuing to scan for opportunities...');
+    }
+
+    return parts.join('\n');
+  }
+
   private async sendAIMessage(message: string): Promise<void> {
     if (!this.activeSession || !this.config) {
       return;
