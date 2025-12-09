@@ -22,7 +22,7 @@ class AutomaticGapBackfillService {
     cooldownMs: 5 * 60 * 1000 // 5 minutes cooldown between runs for same symbol/timeframe
   };
 
-  private readonly NETLIFY_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL?.replace('/supabase', '')}/.netlify/functions/historical-backfill`;
+  private readonly NETLIFY_FUNCTION_URL = '/.netlify/functions/historical-backfill';
   private readonly MAX_DAYS_BACK = 30; // Maximum days to backfill automatically
   private readonly GAP_THRESHOLD_MINUTES = 15; // Only backfill if gaps are > 15 minutes
 

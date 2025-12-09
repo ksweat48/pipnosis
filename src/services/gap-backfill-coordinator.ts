@@ -53,7 +53,7 @@ export interface BackfillOptions {
 }
 
 class GapBackfillCoordinator {
-  private readonly NETLIFY_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL?.replace('/supabase', '')}/.netlify/functions/historical-backfill`;
+  private readonly NETLIFY_FUNCTION_URL = '/.netlify/functions/historical-backfill';
 
   /**
    * Analyze gaps in forex_candles table
