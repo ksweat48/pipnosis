@@ -96,7 +96,7 @@ class MultiSymbolSnapshotBuilder {
       .select('*')
       .eq('symbol', symbol)
       .eq('timeframe', this.TIMEFRAME)
-      .order('time', { ascending: false })
+      .order('open_time', { ascending: false })
       .limit(this.CANDLE_LOOKBACK);
 
     if (error || !candles || candles.length < 50) {
