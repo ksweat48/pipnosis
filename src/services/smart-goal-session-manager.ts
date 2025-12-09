@@ -482,6 +482,7 @@ class SmartGoalSessionManager {
 
   async getSessionConversations(sessionId: string, limit: number = 50): Promise<any[]> {
     try {
+      // Try to select all columns including optional ones
       const { data, error } = await supabase
         .from('goal_ai_conversations')
         .select('*')
@@ -491,12 +492,29 @@ class SmartGoalSessionManager {
 
       if (error) {
         console.error('[Smart Goal] Error fetching conversations:', error);
-        return [];
+        console.error('[Smart Goal] Error details:', JSON.stringify(error));
+
+        // Try fallback with only core columns if error occurs
+        console.log('[Smart Goal] Attempting fallback query without optional columns...');
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('goal_ai_conversations')
+          .select('id, goal_session_id, user_id, role, message, context, sentiment, created_at')
+          .eq('goal_session_id', sessionId)
+          .order('created_at', { ascending: true })
+          .limit(limit);
+
+        if (fallbackError) {
+          console.error('[Smart Goal] Fallback query also failed:', fallbackError);
+          return [];
+        }
+
+        console.log('[Smart Goal] Fallback query succeeded, returning data');
+        return fallbackData || [];
       }
 
       return data || [];
     } catch (error) {
-      console.error('[Smart Goal] Error in getSessionConversations:', error);
+      console.error('[Smart Goal] Exception in getSessionConversations:', error);
       return [];
     }
   }

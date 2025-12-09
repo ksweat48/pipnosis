@@ -64,18 +64,33 @@ export const GoalSessionDashboard: React.FC = () => {
       setActiveSession(session);
 
       if (session) {
-        const [progressData, convos, notifs] = await Promise.all([
-          smartGoalSessionManager.getSessionProgress(session.sessionId),
-          smartGoalSessionManager.getSessionConversations(session.sessionId, 20),
-          goalNotificationSystem.getUnacknowledgedNotifications(user.id),
-        ]);
+        // Load data separately with individual error handling
+        try {
+          const progressData = await smartGoalSessionManager.getSessionProgress(session.sessionId);
+          setProgress(progressData);
+        } catch (error) {
+          console.error('[GoalSessionDashboard] Error loading progress:', error);
+          setProgress(null);
+        }
 
-        setProgress(progressData);
-        setConversations(convos);
-        setNotifications(notifs);
+        try {
+          const convos = await smartGoalSessionManager.getSessionConversations(session.sessionId, 20);
+          setConversations(convos || []);
+        } catch (error) {
+          console.error('[GoalSessionDashboard] Error loading conversations:', error);
+          setConversations([]);
+        }
+
+        try {
+          const notifs = await goalNotificationSystem.getUnacknowledgedNotifications(user.id);
+          setNotifications(notifs || []);
+        } catch (error) {
+          console.error('[GoalSessionDashboard] Error loading notifications:', error);
+          setNotifications([]);
+        }
       }
     } catch (error) {
-      console.error('Error loading session data:', error);
+      console.error('[GoalSessionDashboard] Error loading session data:', error);
     } finally {
       setLoading(false);
     }
@@ -449,7 +464,7 @@ export const GoalSessionDashboard: React.FC = () => {
                   </span>
                 </div>
 
-                {convo.technical_data && Object.keys(convo.technical_data).length > 0 && (
+                {convo.technical_data && typeof convo.technical_data === 'object' && Object.keys(convo.technical_data).length > 0 && (
                   <div className="mt-3 pt-3 border-t border-gray-700">
                     <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
                       <BarChart2 className="w-3 h-3" />
@@ -484,7 +499,7 @@ export const GoalSessionDashboard: React.FC = () => {
                   </div>
                 )}
 
-                {convo.market_snapshot && Object.keys(convo.market_snapshot).length > 0 && (
+                {convo.market_snapshot && typeof convo.market_snapshot === 'object' && Object.keys(convo.market_snapshot).length > 0 && (
                   <div className="mt-2 pt-2 border-t border-gray-700">
                     <div className="flex items-center gap-4 text-xs">
                       {convo.market_snapshot.trend && (
