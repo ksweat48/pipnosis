@@ -8,7 +8,6 @@ import { ToastContainer } from './components/ToastNotification';
 import { useToast } from './hooks/useToast';
 import { globalToastManager } from './services/global-toast-manager';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
-import { historicalBackfillManager } from './services/historical-backfill-manager';
 import { cacheClearOnRefresh } from './services/cache-clear-on-refresh';
 
 // Lazy load all pages for code splitting
@@ -67,13 +66,6 @@ const AppRoutes: React.FC = () => {
       console.error('[App] Error initializing cache:', error);
     });
   }, []);
-
-  useEffect(() => {
-    if (user) {
-      console.log('[App] User logged in, triggering historical backfill check');
-      historicalBackfillManager.runBackfillInBackground();
-    }
-  }, [user]);
 
   if (loading) {
     return <LoadingFallback />;

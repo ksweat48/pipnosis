@@ -43,7 +43,6 @@ import { chartCircuitBreaker } from '@/services/chart-circuit-breaker';
 import { validateSymbol, type ValidatedSymbol } from '@/types/symbol';
 import { ChartDataGuarantor } from '@/services/chart-data-guarantor';
 import { currentCandleReconstructor } from '@/services/current-candle-reconstructor';
-import { recentCandleBackfill } from '@/services/recent-candle-backfill';
 import { ChartHealthMonitor } from '@/components/ChartHealthMonitor';
 
 interface MarketChartProps {
@@ -1298,15 +1297,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       console.log('[Chart Init] Initialization complete, setting isLoading to false');
       setIsLoading(false);
       setLoadingProgress(null);
-
-      // ALWAYS backfill recent 100 candles in background (silent, no UI)
-      // Fire-and-forget - polling will pick up new candles automatically
-      console.log('[Chart Init] 🔄 Starting silent backfill of recent 100 candles...');
-      recentCandleBackfill.backfillRecent(symbol, timeframe).then(() => {
-        console.log('[Chart Init] ✅ Silent backfill complete - polling will display new candles');
-      }).catch(error => {
-        console.error('[Chart Init] Silent backfill error (non-blocking):', error);
-      });
 
       console.log(`[Chart Init] Priority 2: Starting background loading for remaining pairs...`);
       concurrentBulkLoader.loadAllPairsInBackground(

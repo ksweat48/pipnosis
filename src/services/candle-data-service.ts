@@ -1,7 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
 import { normalizeTimestamp, getCurrentCandleStart, getLastCompletedCandleStart, isTimestampAligned } from '@/utils/timestampNormalizer';
-import { automaticGapBackfill } from '@/services/automatic-gap-backfill';
 import { isMarketOpenAt, getLastMarketCloseTime, getTimeframeLookbackHours } from '@/utils/marketHours';
 
 export interface CandleData {
@@ -641,11 +640,6 @@ export async function fetchCandlesByTimeRange(
   hoursBack: number = 24
 ): Promise<CandleData[]> {
   try {
-    // Trigger automatic gap backfill in background (non-blocking)
-    automaticGapBackfill.checkAndBackfill(symbol, timeframe).catch(err => {
-      console.error('[ChartData] Auto gap backfill failed:', err);
-    });
-
     const dbTimeframe = appTimeframeToDb(timeframe);
 
     // CRITICAL: Use smart lookback hours for lower timeframes
