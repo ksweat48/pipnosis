@@ -34,7 +34,7 @@ export function useUserBalance(userId: string | null) {
 
     try {
       const { data: positions } = await supabase
-        .from('simulated_positions')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', userId)
         .eq('status', 'open');

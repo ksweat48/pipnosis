@@ -8,7 +8,8 @@ import { useToast } from '@/hooks/useToast';
 import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { supabase } from '@/lib/supabase';
-import { simulatedTradingService } from '@/services/simulated-trading';
+import { positionService } from '@/services/position-service';
+import { calculatePnL } from '@/types/position';
 import { pollingConfigService } from '@/services/polling-config-service';
 import { notificationManager } from '@/services/notification-manager';
 import { pageContext } from '@/services/page-context';
@@ -121,8 +122,8 @@ export function PositionsPage() {
       if (!user) return;
 
       const [open, pending, recent, goalPositions] = await Promise.all([
-        simulatedTradingService.getOpenPositions(user.id),
-        simulatedTradingService.getPendingOrders(user.id),
+        positionService.getOpenPositions(user.id),
+        positionService.getPendingOrders(user.id),
         fetchRecentTrades(user.id),
         fetchGoalModePositions(user.id)
       ]);
@@ -222,12 +223,11 @@ export function PositionsPage() {
       ? livePrices[position.symbol].bid
       : livePrices[position.symbol].ask;
 
-    return simulatedTradingService.calculatePnL(
+    return calculatePnL(
       position.position_type,
       position.entry_price,
       currentPrice,
-      position.lot_size,
-      position.symbol
+      position.lot_size
     );
   };
 
@@ -307,10 +307,10 @@ export function PositionsPage() {
         toast.success('Position Closed', 'Goal mode trade closed successfully');
       } else {
         // This is a regular simulated position
-        const result = await simulatedTradingService.closePosition(
+        const result = await positionService.closePosition(
           position.id,
           currentPrice,
-          user!.id
+          'manual'
         );
 
         if (result.success) {
@@ -355,10 +355,10 @@ export function PositionsPage() {
               : livePrices[position.symbol].ask)
           : (position.current_price || position.entry_price || 0);
 
-        const result = await simulatedTradingService.closePosition(
+        const result = await positionService.closePosition(
           position.id,
           currentPrice,
-          user!.id
+          'manual'
         );
 
         if (result.success) {
@@ -411,7 +411,7 @@ export function PositionsPage() {
             : livePrices[position.symbol].ask)
         : (position.current_price || position.entry_price || 0);
 
-      await simulatedTradingService.closePosition(position.id, currentPrice, user!.id);
+      await positionService.closePosition(position.id, currentPrice, 'manual');
     }
 
     notificationManager.playSound('trade_exit');
@@ -433,13 +433,18 @@ export function PositionsPage() {
     if (!confirmed) return;
 
     try {
-      const result = await simulatedTradingService.cancelPendingOrder(orderId, user!.id);
-      if (result.success) {
+      const { error } = await supabase
+        .from('goal_session_trades')
+        .update({ status: 'closed', close_reason: 'manual' })
+        .eq('id', orderId)
+        .eq('user_id', user!.id);
+
+      if (!error) {
         notificationManager.playSound('trade_exit');
-        toast.success('Order Cancelled', result.message || 'Pending order cancelled successfully');
+        toast.success('Order Cancelled', 'Pending order cancelled successfully');
         await fetchAllData();
       } else {
-        toast.error('Failed to Cancel', result.message || 'Could not cancel order');
+        toast.error('Failed to Cancel', 'Could not cancel order');
       }
     } catch (error) {
       console.error('Failed to cancel order:', error);

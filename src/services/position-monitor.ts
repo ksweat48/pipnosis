@@ -1,21 +1,11 @@
 import { supabase } from '@/lib/supabase';
-import { simulatedTradingService } from './simulated-trading';
+import { positionService } from './position-service';
 import { globalPollingCoordinator } from './global-polling-coordinator';
 import { logger, LogCategory } from '@/lib/logger';
+import type { GoalSessionTrade } from '@/types/position';
+import { calculatePnL } from '@/types/position';
 
-interface MonitoredPosition {
-  id: string;
-  user_id: string;
-  symbol: string;
-  position_type: 'buy' | 'sell';
-  order_type: 'market' | 'limit';
-  entry_price: number | null;
-  limit_price: number | null;
-  stop_loss: number;
-  take_profit: number;
-  status: 'pending' | 'open' | 'closed';
-  lot_size: number;
-}
+type MonitoredPosition = GoalSessionTrade;
 
 class PositionMonitorService {
   private intervalId: NodeJS.Timeout | null = null;
@@ -33,7 +23,6 @@ class PositionMonitorService {
     this.isRunning = true;
 
     this.monitorPositions();
-    // Reduced from 500ms to 2000ms to avoid rate limiting and reduce load
     this.criticalPositionIntervalId = setInterval(() => this.monitorCriticalPositions(), 2000);
     this.normalPositionIntervalId = setInterval(() => this.monitorNormalPositions(), 3000);
   }
@@ -63,7 +52,7 @@ class PositionMonitorService {
       if (!user) return;
 
       const { data: positions, error } = await supabase
-        .from('simulated_positions')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', user.id)
         .in('status', ['open', 'pending']);
@@ -107,9 +96,6 @@ class PositionMonitorService {
     this.criticalSymbols = newCriticalSymbols;
   }
 
-  /**
-   * Attempt to update position with retry logic and fallback
-   */
   private async updatePositionWithRetry(
     positionId: string,
     currentPrice: number,
@@ -118,59 +104,36 @@ class PositionMonitorService {
   ): Promise<boolean> {
     const currentRetries = this.updateRetryCount.get(positionId) || 0;
 
-    // Try RPC function with detailed error logging
-    const { error: rpcError } = await supabase.rpc('update_simulated_position_secure', {
-      p_position_id: positionId,
-      p_current_price: currentPrice,
-      p_current_pnl: pnl
-    });
-
-    if (!rpcError) {
-      // Success - reset retry count
-      this.updateRetryCount.delete(positionId);
-      return true;
-    }
-
-    // Log detailed error information
-    console.error(`[PositionMonitor] RPC update failed (attempt ${currentRetries + 1}/${this.maxRetries}):`, {
-      positionId,
-      error: rpcError,
-      code: rpcError.code,
-      message: rpcError.message,
-      details: rpcError.details,
-      hint: rpcError.hint
-    });
-
-    // Try fallback: direct table update
-    const { error: fallbackError } = await supabase
-      .from('simulated_positions')
+    // Direct table update with proper columns
+    const { error: updateError } = await supabase
+      .from('goal_session_trades')
       .update({
         current_price: currentPrice,
-        current_pnl: pnl,
-        updated_at: new Date().toISOString()
+        current_pnl: pnl
       })
       .eq('id', positionId)
       .eq('user_id', userId);
 
-    if (!fallbackError) {
-      console.log(`[PositionMonitor] ✓ Fallback update succeeded for position ${positionId}`);
+    if (!updateError) {
       this.updateRetryCount.delete(positionId);
       return true;
     }
 
-    console.error(`[PositionMonitor] Fallback update also failed:`, fallbackError);
+    console.error(`[PositionMonitor] Update failed (attempt ${currentRetries + 1}/${this.maxRetries}):`, {
+      positionId,
+      error: updateError
+    });
 
     // Increment retry count
     this.updateRetryCount.set(positionId, currentRetries + 1);
 
-    // If max retries exceeded, reset count and give up
     if (currentRetries >= this.maxRetries) {
-      console.error(`[PositionMonitor] Max retries exceeded for position ${positionId}. Resetting retry count.`);
+      console.error(`[PositionMonitor] Max retries exceeded for position ${positionId}`);
       this.updateRetryCount.delete(positionId);
       return false;
     }
 
-    // Wait with exponential backoff before next attempt
+    // Exponential backoff
     const backoffMs = 1000 * (currentRetries + 1);
     await new Promise(resolve => setTimeout(resolve, backoffMs));
 
@@ -185,7 +148,7 @@ class PositionMonitorService {
       if (!user) return;
 
       const { data: positions, error } = await supabase
-        .from('simulated_positions')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', user.id)
         .eq('status', 'open')
@@ -208,7 +171,7 @@ class PositionMonitorService {
       if (!user) return;
 
       const { data: positions, error } = await supabase
-        .from('simulated_positions')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', user.id)
         .in('status', ['open', 'pending']);
@@ -233,7 +196,6 @@ class PositionMonitorService {
     priority: 'critical' | 'high'
   ): Promise<void> {
     try {
-      // Read latest price from database
       const { data, error } = await supabase
         .from('realtime_prices')
         .select('bid, ask')
@@ -249,7 +211,7 @@ class PositionMonitorService {
 
       const bid = parseFloat(data.bid);
       const ask = parseFloat(data.ask);
-      const currentPrice = position.position_type === 'buy' ? bid : ask;
+      const currentPrice = position.direction === 'buy' ? bid : ask;
 
       await this.updateOpenPosition(position, { bid, ask }, currentPrice);
     } catch (error) {
@@ -262,7 +224,6 @@ class PositionMonitorService {
     priority: 'normal'
   ): Promise<void> {
     try {
-      // Read latest price from database
       const { data, error } = await supabase
         .from('realtime_prices')
         .select('bid, ask')
@@ -291,24 +252,21 @@ class PositionMonitorService {
   ) {
     if (!position.entry_price) return;
 
-    const actualCurrentPrice = currentPrice || (position.position_type === 'buy' ? price.bid : price.ask);
+    const actualCurrentPrice = currentPrice || (position.direction === 'buy' ? price.bid : price.ask);
 
-    const pnl = simulatedTradingService.calculatePnL(
-      position.position_type,
+    const pnl = calculatePnL(
+      position.direction,
       position.entry_price,
       actualCurrentPrice,
-      position.lot_size,
-      position.symbol
+      position.lot_size || position.position_size
     );
 
-    // Verify auth state before attempting update
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       console.error('[PositionMonitor] No authenticated user - cannot update position');
       return;
     }
 
-    // Try updating with retry logic
     const updateSuccess = await this.updatePositionWithRetry(
       position.id,
       actualCurrentPrice,
@@ -321,11 +279,11 @@ class PositionMonitorService {
       return;
     }
 
-    const shouldCloseAtStopLoss = position.position_type === 'buy'
+    const shouldCloseAtStopLoss = position.direction === 'buy'
       ? actualCurrentPrice <= position.stop_loss
       : actualCurrentPrice >= position.stop_loss;
 
-    const shouldCloseAtTakeProfit = position.position_type === 'buy'
+    const shouldCloseAtTakeProfit = position.direction === 'buy'
       ? actualCurrentPrice >= position.take_profit
       : actualCurrentPrice <= position.take_profit;
 
@@ -344,7 +302,7 @@ class PositionMonitorService {
 
     let shouldFill = false;
 
-    if (order.position_type === 'buy') {
+    if (order.direction === 'buy') {
       shouldFill = price.ask <= order.limit_price;
     } else {
       shouldFill = price.bid >= order.limit_price;
@@ -360,7 +318,7 @@ class PositionMonitorService {
       logger.debug(LogCategory.POSITION_MONITOR, ` Filling pending order ${order.id} at ${fillPrice}`);
 
       await supabase
-        .from('simulated_positions')
+        .from('goal_session_trades')
         .update({
           status: 'open',
           entry_price: fillPrice,
@@ -369,18 +327,6 @@ class PositionMonitorService {
           opened_at: new Date().toISOString()
         })
         .eq('id', order.id);
-
-      await supabase
-        .from('balance_transactions')
-        .insert({
-          user_id: order.user_id,
-          transaction_type: 'margin_reserve',
-          amount: -order.lot_size * 1000,
-          balance_before: 0,
-          balance_after: 0,
-          position_id: order.id,
-          description: `Limit order filled: ${order.position_type} ${order.symbol} ${order.lot_size} lots at ${fillPrice}`
-        });
 
       logger.debug(LogCategory.POSITION_MONITOR, ` Order ${order.id} filled successfully`);
     } catch (error) {
@@ -396,111 +342,24 @@ class PositionMonitorService {
     try {
       logger.debug(LogCategory.POSITION_MONITOR, ` Auto-closing position ${position.id} due to ${reason}`);
 
-      const pnl = simulatedTradingService.calculatePnL(
-        position.position_type,
-        position.entry_price!,
-        closePrice,
-        position.lot_size,
-        position.symbol
-      );
+      // Use the secure RPC function to close
+      await positionService.closePosition(position.id, closePrice, reason);
 
-      await supabase
-        .from('simulated_positions')
-        .update({
-          status: 'closed',
-          current_price: closePrice,
-          current_pnl: pnl,
-          closed_at: new Date().toISOString(),
-          close_reason: reason
-        })
-        .eq('id', position.id);
-
-      const { data: goalTrade } = await supabase
+      // Update goal session status if no more open trades
+      const { data: otherTrades } = await supabase
         .from('goal_session_trades')
-        .select('id, goal_session_id')
-        .eq('simulated_position_id', position.id)
-        .eq('status', 'open')
-        .maybeSingle();
+        .select('id')
+        .eq('goal_session_id', position.goal_session_id)
+        .eq('status', 'open');
 
-      if (goalTrade) {
-        logger.debug(LogCategory.POSITION_MONITOR, ` Syncing closure to goal_session_trade ${goalTrade.id}`);
+      if (!otherTrades || otherTrades.length === 0) {
         await supabase
-          .from('goal_session_trades')
-          .update({
-            status: 'closed',
-            exit_price: closePrice,
-            profit_loss: pnl,
-            closed_at: new Date().toISOString()
-          })
-          .eq('id', goalTrade.id);
-
-        const { data: otherTrades } = await supabase
-          .from('goal_session_trades')
-          .select('id')
-          .eq('goal_session_id', goalTrade.goal_session_id)
-          .eq('status', 'open');
-
-        if (!otherTrades || otherTrades.length === 0) {
-          await supabase
-            .from('goal_sessions')
-            .update({ status: 'scanning' })
-            .eq('id', goalTrade.goal_session_id);
-        }
+          .from('goal_sessions')
+          .update({ status: 'scanning' })
+          .eq('id', position.goal_session_id);
       }
 
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('demo_balance')
-        .eq('id', position.user_id)
-        .single();
-
-      const currentBalance = parseFloat(profile?.demo_balance || '10000');
-      const newBalance = currentBalance + pnl;
-
-      await supabase
-        .from('user_profiles')
-        .update({ demo_balance: newBalance })
-        .eq('id', position.user_id);
-
-      await supabase
-        .from('balance_transactions')
-        .insert({
-          user_id: position.user_id,
-          transaction_type: 'trade_pnl',
-          amount: pnl,
-          balance_before: currentBalance,
-          balance_after: newBalance,
-          position_id: position.id,
-          description: `Position auto-closed (${reason}): ${position.symbol} ${position.position_type} ${position.lot_size} lots`
-        });
-
-      // Record trade in history for AI learning
-      await supabase
-        .from('trade_history')
-        .insert({
-          user_id: position.user_id,
-          position_id: position.id,
-          symbol: position.symbol,
-          position_type: position.position_type,
-          lot_size: position.lot_size,
-          entry_price: position.entry_price!,
-          exit_price: closePrice,
-          stop_loss: position.stop_loss,
-          take_profit: position.take_profit,
-          profit_loss: pnl,
-          opened_at: position.opened_at,
-          closed_at: new Date().toISOString(),
-          close_reason: reason,
-          strategy_name: (position as any).strategy_name || null,
-          confidence_score: (position as any).confidence_score || 75,
-          setup_type: (position as any).setup_type || 'Auto-closed position',
-          market_conditions: (position as any).market_conditions || {},
-          ai_decision_id: (position as any).ai_decision_id || null,
-          ai_analyzed: false,
-          trade_source: 'live_demo'
-        });
-
-      logger.debug(LogCategory.POSITION_MONITOR, ` Position ${position.id} closed with P&L: $${pnl.toFixed(2)}`);
+      logger.debug(LogCategory.POSITION_MONITOR, ` Position ${position.id} closed successfully via ${reason}`);
     } catch (error) {
       console.error(`[PositionMonitor] Failed to auto-close position ${position.id}:`, error);
     }

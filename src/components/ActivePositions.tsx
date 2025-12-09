@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, TrendingUp, TrendingDown, Clock, AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { simulatedTradingService } from '@/services/simulated-trading';
+import { positionService } from '@/services/position-service';
+import { calculatePnL } from '@/types/position';
 import { pollingConfigService } from '@/services/polling-config-service';
 import { notificationManager } from '@/services/notification-manager';
 import { useToast } from '@/hooks/useToast';
@@ -65,8 +66,8 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
       if (!user) return;
 
       const [open, pending] = await Promise.all([
-        simulatedTradingService.getOpenPositions(user.id),
-        simulatedTradingService.getPendingOrders(user.id)
+        positionService.getOpenPositions(user.id),
+        positionService.getPendingOrders(user.id)
       ]);
 
       setOpenPositions(open);
@@ -120,7 +121,7 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
         ? livePrices[position.symbol].bid
         : livePrices[position.symbol].ask;
 
-      pnl = simulatedTradingService.calculatePnL(
+      pnl = calculatePnL(
         position.position_type,
         position.entry_price || 0,
         currentPrice,
@@ -155,10 +156,10 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
-      const result = await simulatedTradingService.closePosition(
+      const result = await positionService.closePosition(
         position.id,
         currentPrice,
-        user.id
+        'manual'
       );
 
       if (result.success) {
@@ -191,13 +192,18 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
-      const result = await simulatedTradingService.cancelPendingOrder(orderId, user.id);
-      if (result.success) {
+      const { error } = await supabase
+        .from('goal_session_trades')
+        .update({ status: 'closed', close_reason: 'manual' })
+        .eq('id', orderId)
+        .eq('user_id', user.id);
+
+      if (!error) {
         notificationManager.playSound('trade_exit');
-        toast.success('Order Cancelled', result.message || 'Pending order cancelled successfully');
+        toast.success('Order Cancelled', 'Pending order cancelled successfully');
         await fetchPositions();
       } else {
-        toast.error('Failed to Cancel', result.message || 'Could not cancel order');
+        toast.error('Failed to Cancel', 'Could not cancel order');
       }
     } catch (error) {
       console.error('Failed to cancel order:', error);
@@ -212,7 +218,7 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
       ? livePrices[position.symbol].bid
       : livePrices[position.symbol].ask;
 
-    return simulatedTradingService.calculatePnL(
+    return calculatePnL(
       position.position_type,
       position.entry_price,
       currentPrice,
