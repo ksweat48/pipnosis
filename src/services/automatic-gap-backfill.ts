@@ -8,6 +8,7 @@
 import { supabase } from '@/lib/supabase';
 import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
 import { candleCacheManager } from '@/services/candle-cache-manager';
+import { areFunctionsAvailable } from '@/lib/environment';
 
 interface BackfillState {
   isRunning: boolean;
@@ -133,6 +134,12 @@ class AutomaticGapBackfillService {
    */
   private async executeBackfill(symbol: string, timeframe: Timeframe, key: string): Promise<void> {
     try {
+      // Skip in local development - use database data from production scheduled functions
+      if (!areFunctionsAvailable()) {
+        console.log(`[AutoBackfill] 🏠 Local dev mode - using database data for ${key}`);
+        return;
+      }
+
       console.log(`[AutoBackfill] Starting background backfill for ${key}...`);
 
       const response = await fetch(this.NETLIFY_FUNCTION_URL, {

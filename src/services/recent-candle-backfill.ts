@@ -7,6 +7,7 @@
 
 import { Timeframe } from './chart-preferences';
 import { logger, LogCategory } from '@/lib/logger';
+import { areFunctionsAvailable } from '@/lib/environment';
 
 class RecentCandleBackfill {
   private readonly NETLIFY_FUNCTION_URL = '/.netlify/functions/historical-backfill';
@@ -117,6 +118,15 @@ class RecentCandleBackfill {
       );
 
       const daysBack = this.calculateDaysForCandleCount(timeframe, targetCandles);
+
+      // Skip Netlify function calls in local development
+      if (!areFunctionsAvailable()) {
+        logger.info(
+          LogCategory.DATA,
+          `[RecentBackfill] 🏠 Local dev mode - skipping MetaAPI fetch, using ${sufficiency.currentCount} candles from database`
+        );
+        return;
+      }
 
       logger.info(
         LogCategory.DATA,
