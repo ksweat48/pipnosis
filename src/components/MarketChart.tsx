@@ -1440,21 +1440,18 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       }
     });
 
-    // DISABLED: Direct price poller causes conflicts with database polling
-    // const unsubscribeDirectStatus = chartDirectPricePoller.onStatusUpdate((status) => {
-    //   setPriceSource(status.source);
-    //   setDirectPollerActive(status.isActive);
-    //   console.log(`[Chart] 📊 Direct poller status: ${status.source}, active: ${status.isActive}`);
-    // });
-    // chartDirectPricePoller.start();
+    // Enable direct price poller status monitoring
+    const unsubscribeDirectStatus = chartDirectPricePoller.onStatusUpdate((status) => {
+      setPriceSource(status.source);
+      setDirectPollerActive(status.isActive);
+      console.log(`[Chart] 📊 Direct poller status: ${status.source}, active: ${status.isActive}`);
+    });
 
-    // DISABLED: Background aggregator causes conflicts - using database polling only
-    // const unsubscribeTicks = backgroundCandleAggregator.onTickUpdate(symbol, (tick) => {
-    //   if (!directPollerActive) {
-    //     updateCurrentCandleFromTick(tick);
-    //   }
-    // });
-    const unsubscribeTicks = () => {}; // Noop cleanup
+    // ✅ START THE DIRECT PRICE POLLER FOR REALTIME UPDATES
+    chartDirectPricePoller.start();
+
+    // DISABLED: Background aggregator causes conflicts - using direct price poller + database polling
+    const unsubscribeTicks = () => {}; // Noop cleanup (aggregator not used)
 
     // Start database polling for validation and completed candles
     console.log(`[Chart] 💾 Starting database polling (3s interval)...`);
@@ -1501,10 +1498,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     }, 15000);
 
     return () => {
-      console.log(`[Chart] 🛑 Stopping database polling mode for ${symbol} ${timeframe}`);
-      // chartDirectPricePoller.removeSymbol(symbol); // DISABLED
+      console.log(`[Chart] 🛑 Stopping hybrid polling mode for ${symbol} ${timeframe}`);
+      chartDirectPricePoller.removeSymbol(symbol);
       unsubscribeDirectPrice();
-      // unsubscribeDirectStatus(); // DISABLED
+      unsubscribeDirectStatus();
       unsubscribeTicks();
       unsubscribePoller();
       chartCandlePoller.stopPolling(symbol, timeframe);
