@@ -449,21 +449,38 @@ class GoalSessionLiveEngine {
 
       this.openTrades.push(trade);
 
-      await tradeExecutionEngine.executeTradeSignal({
-        goalSessionId: this.activeSession!,
-        symbol: selectedSymbol,
-        direction: trade.direction,
-        entryPrice: trade.entryPrice,
-        stopLoss: trade.stopLoss,
-        takeProfit: trade.takeProfit,
-        positionSize: trade.positionSize,
-        confidence: trade.confidence,
-        reasoning: trade.reasoning,
-        triggerType: trade.triggerType,
-        timestamp: new Date()
-      });
+      // Calculate R:R for proper trade signal
+      const riskPips = Math.abs(trade.entryPrice - trade.stopLoss) / 0.0001;
+      const rewardPips = Math.abs(trade.takeProfit - trade.entryPrice) / 0.0001;
+      const riskReward = rewardPips / riskPips;
+      const expectedProfit = rewardPips * 10 * trade.positionSize;
 
-      logger.info(LogCategory.AI_TRADING, `Trade executed: ${selectedSymbol} ${trade.direction} @ ${trade.entryPrice} (confidence: ${trade.confidence}%)`);
+      const executionResult = await tradeExecutionEngine.executeSignal(
+        {
+          sessionId: this.activeSession!,
+          symbol: selectedSymbol,
+          direction: trade.direction,
+          entryPrice: trade.entryPrice,
+          stopLoss: trade.stopLoss,
+          takeProfit: trade.takeProfit,
+          positionSize: trade.positionSize,
+          confidence: trade.confidence,
+          setupType: trade.triggerType,
+          reasoning: trade.reasoning,
+          riskReward,
+          expectedProfit
+        },
+        this.config.userId,
+        this.config.autoExecute
+      );
+
+      if (executionResult.success) {
+        logger.info(LogCategory.AI_TRADING, `✅ Trade executed: ${selectedSymbol} ${trade.direction} @ ${trade.entryPrice} (confidence: ${trade.confidence}%)`);
+      } else {
+        logger.error(LogCategory.AI_TRADING, `❌ Trade execution failed: ${executionResult.message}`);
+        // Remove from openTrades if execution failed
+        this.openTrades = this.openTrades.filter(t => t.id !== trade.id);
+      }
 
       const selectionSummary = bestSymbolResult.allEvaluations
         .slice(0, 3)
