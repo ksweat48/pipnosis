@@ -1,6 +1,5 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { fetchHistoricalCandles } from '../../src/services/metaapi-service';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -9,6 +8,9 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
+
+// CRITICAL: All timeframes now look back only 24 hours (fillable window)
+const FILLABLE_HOURS = 24;
 
 const TIMEFRAME_SECONDS: Record<string, number> = {
   'M1': 60,
@@ -20,20 +22,6 @@ const TIMEFRAME_SECONDS: Record<string, number> = {
   'D1': 86400
 };
 
-const TIMEFRAME_LOOKBACK_DAYS: Record<string, number> = {
-  'M1': 7,
-  'M5': 14,
-  'M15': 30,
-  'M30': 30,
-  'H1': 30,
-  'H4': 30,
-  'D1': 30
-};
-
-function getLookbackDays(timeframe: string): number {
-  return TIMEFRAME_LOOKBACK_DAYS[timeframe] || 7;
-}
-
 interface GapInfo {
   symbol: string;
   timeframe: string;
@@ -44,11 +32,13 @@ interface GapInfo {
 
 interface GapFillStats {
   totalGapsDetected: number;
+  gapsSkippedTooOld: number;
+  gapsSkippedWeekend: number;
+  gapsSkippedTooLarge: number;
   totalGapsFilled: number;
   filledByRealtimePrices: number;
   filledBySmallerTimeframe: number;
-  filledByMetaAPI: number;
-  failedToFill: number;
+  gapsFailedNoData: number;
 }
 
 function isMarketOpenAt(timestamp: Date): boolean {
@@ -95,11 +85,11 @@ function getGapAgeHours(gap: GapInfo): number {
 }
 
 async function detectGapsForSymbol(symbol: string, timeframe: string): Promise<GapInfo[]> {
-  const lookbackDays = getLookbackDays(timeframe);
+  // Look back only 24 hours (fillable window)
   const endTime = new Date();
-  const startTime = new Date(endTime.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
+  const startTime = new Date(endTime.getTime() - FILLABLE_HOURS * 60 * 60 * 1000);
 
-  console.log(`[AutoGapFiller] Checking ${symbol} ${timeframe} for gaps (${lookbackDays} days back)`);
+  console.log(`[AutoGapFiller] Checking ${symbol} ${timeframe} for gaps (${FILLABLE_HOURS} hours back)`);
 
   const { data: candles, error } = await supabase
     .from('forex_candles')
@@ -143,22 +133,20 @@ async function detectGapsForSymbol(symbol: string, timeframe: string): Promise<G
             gapEnd: new Date(currTime.getTime() - intervalMs),
             missingCandles
           });
-        } else if (missingCandles > 100) {
-          console.warn(`[GapFiller] Skipping large gap: ${missingCandles} candles (too large to fill)`);
         }
       }
     }
   }
 
   if (gaps.length > 0) {
-    console.log(`[GapFiller] Found ${gaps.length} fillable gaps in ${symbol} ${timeframe}`);
+    console.log(`[GapFiller] Found ${gaps.length} gaps in ${symbol} ${timeframe}`);
   }
 
   return gaps;
 }
 
 async function fillGapFromRealtimePrices(gap: GapInfo): Promise<number> {
-  console.log(`[GapFiller] Strategy 1: Trying realtime_prices aggregation (SQL)...`);
+  console.log(`[GapFiller] Strategy 1: Aggregating from realtime_prices (SQL)...`);
 
   const intervalSeconds = TIMEFRAME_SECONDS[gap.timeframe];
   const intervalMs = intervalSeconds * 1000;
@@ -230,7 +218,7 @@ async function fillGapFromRealtimePrices(gap: GapInfo): Promise<number> {
     return 0;
   }
 
-  console.log(`[GapFiller] ✅ Successfully filled ${candlesToInsert.length} candles from realtime_prices (SQL aggregation)`);
+  console.log(`[GapFiller] ✅ Successfully filled ${candlesToInsert.length} candles from realtime_prices`);
   return candlesToInsert.length;
 }
 
@@ -323,91 +311,30 @@ async function fillGapFromSmallerTimeframe(gap: GapInfo): Promise<number> {
   return candlesToInsert.length;
 }
 
-async function fillGapFromMetaAPI(gap: GapInfo): Promise<number> {
-  console.log(`[GapFiller] Strategy 3: Trying MetaAPI historical fetch (fallback)...`);
+async function fillGap(gap: GapInfo, stats: GapFillStats): Promise<number> {
+  const gapAgeHours = getGapAgeHours(gap);
 
-  try {
-    const gapDurationDays = Math.ceil((gap.gapEnd.getTime() - gap.gapStart.getTime()) / (24 * 60 * 60 * 1000));
-    const fetchDays = Math.min(gapDurationDays + 1, 7);
+  console.log(`[GapFiller] Processing gap: ${gap.symbol} ${gap.timeframe} from ${gap.gapStart.toISOString()} to ${gap.gapEnd.toISOString()} (${gap.missingCandles} candles, age: ${gapAgeHours.toFixed(1)}h)`);
 
-    const historicalCandles = await fetchHistoricalCandles(
-      gap.symbol,
-      gap.timeframe,
-      fetchDays
-    );
-
-    if (historicalCandles.length === 0) {
-      console.warn(`[GapFiller] MetaAPI returned no data`);
-      return 0;
-    }
-
-    const gapStartTime = gap.gapStart.getTime();
-    const gapEndTime = gap.gapEnd.getTime();
-
-    const candlesInGapRange = historicalCandles.filter(candle => {
-      const candleTime = new Date(candle.open_time).getTime();
-      return candleTime >= gapStartTime && candleTime <= gapEndTime;
-    });
-
-    if (candlesInGapRange.length === 0) {
-      console.warn(`[GapFiller] No candles in gap range from MetaAPI`);
-      return 0;
-    }
-
-    const candlesToInsert = candlesInGapRange.map(candle => ({
-      symbol: candle.symbol,
-      timeframe: candle.timeframe,
-      open_time: candle.open_time,
-      close_time: candle.close_time,
-      open: candle.open,
-      high: candle.high,
-      low: candle.low,
-      close: candle.close,
-      volume: candle.volume || 0,
-      tick_count: candle.volume || 0,
-      data_source: 'metaapi_backfill',
-      quality_score: 95
-    }));
-
-    const { error: insertError } = await supabase
-      .from('forex_candles')
-      .upsert(candlesToInsert, {
-        onConflict: 'symbol,timeframe,open_time',
-        ignoreDuplicates: false
-      });
-
-    if (insertError) {
-      console.error(`[GapFiller] Error inserting MetaAPI candles: ${insertError.message}`);
-      return 0;
-    }
-
-    console.log(`[GapFiller] ✅ Successfully filled ${candlesToInsert.length} candles from MetaAPI`);
-    return candlesToInsert.length;
-
-  } catch (error) {
-    console.warn(`[GapFiller] MetaAPI failed:`, error instanceof Error ? error.message : 'Unknown error');
+  // Skip gaps older than 24 hours - we don't have source data for them
+  if (gapAgeHours > FILLABLE_HOURS) {
+    console.log(`[GapFiller] ⏭️  Skipping gap - too old (${gapAgeHours.toFixed(1)}h > ${FILLABLE_HOURS}h)`);
+    stats.gapsSkippedTooOld++;
     return 0;
   }
-}
-
-async function fillGap(gap: GapInfo, stats: GapFillStats): Promise<number> {
-  console.log(`[GapFiller] Filling gap: ${gap.symbol} ${gap.timeframe} from ${gap.gapStart.toISOString()} to ${gap.gapEnd.toISOString()} (${gap.missingCandles} candles)`);
-
-  const gapAgeHours = getGapAgeHours(gap);
-  console.log(`[GapFiller] Gap age: ${gapAgeHours.toFixed(1)} hours`);
 
   let candlesFilled = 0;
 
-  if (gapAgeHours < 24) {
-    candlesFilled = await fillGapFromRealtimePrices(gap);
-    if (candlesFilled > 0) {
-      stats.filledByRealtimePrices += candlesFilled;
-      stats.totalGapsFilled++;
-      return candlesFilled;
-    }
-    console.log(`[GapFiller] Strategy 1 failed: No realtime_prices data available`);
+  // Strategy 1: Aggregate from realtime_prices (works for all timeframes within 24 hours)
+  candlesFilled = await fillGapFromRealtimePrices(gap);
+  if (candlesFilled > 0) {
+    stats.filledByRealtimePrices += candlesFilled;
+    stats.totalGapsFilled++;
+    return candlesFilled;
   }
+  console.log(`[GapFiller] Strategy 1 failed: No realtime_prices data available`);
 
+  // Strategy 2: Aggregate from smaller timeframe (only works for M5+)
   candlesFilled = await fillGapFromSmallerTimeframe(gap);
   if (candlesFilled > 0) {
     stats.filledBySmallerTimeframe += candlesFilled;
@@ -416,16 +343,9 @@ async function fillGap(gap: GapInfo, stats: GapFillStats): Promise<number> {
   }
   console.log(`[GapFiller] Strategy 2 failed: No smaller timeframe data available`);
 
-  candlesFilled = await fillGapFromMetaAPI(gap);
-  if (candlesFilled > 0) {
-    stats.filledByMetaAPI += candlesFilled;
-    stats.totalGapsFilled++;
-    return candlesFilled;
-  }
-  console.log(`[GapFiller] Strategy 3 failed: MetaAPI unavailable or returned no data`);
-
-  console.warn(`[GapFiller] ⚠️  Could not fill gap for ${gap.symbol} ${gap.timeframe} - no data available`);
-  stats.failedToFill++;
+  // Both strategies failed - this is a real problem for recent gaps
+  console.warn(`[GapFiller] ⚠️  Failed to fill recent gap for ${gap.symbol} ${gap.timeframe} - no data source available`);
+  stats.gapsFailedNoData++;
   return 0;
 }
 
@@ -439,14 +359,14 @@ async function processSymbolTimeframe(symbol: string, timeframe: string, stats: 
   }
 
   let totalFilled = 0;
-  const maxGapsToFill = (timeframe === 'M1' || timeframe === 'M5') ? 3 : 5;
+  const maxGapsToFill = 10; // Increased since we're only looking at 24 hours now
 
   for (const gap of gaps.slice(0, maxGapsToFill)) {
     const filled = await fillGap(gap, stats);
     totalFilled += filled;
 
-    const delay = (timeframe === 'M1' || timeframe === 'M5') ? 2000 : 1000;
-    await new Promise(resolve => setTimeout(resolve, delay));
+    // Small delay between gaps
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
 
   return totalFilled;
@@ -454,21 +374,26 @@ async function processSymbolTimeframe(symbol: string, timeframe: string, stats: 
 
 export const handler: Handler = async (event, context) => {
   console.log('[AutoGapFiller] Starting automatic gap detection and filling...');
+  console.log(`[AutoGapFiller] Fillable window: ${FILLABLE_HOURS} hours`);
+  console.log(`[AutoGapFiller] Data sources: realtime_prices (24h) + forex_candles`);
   const startTime = Date.now();
 
   const stats: GapFillStats = {
     totalGapsDetected: 0,
+    gapsSkippedTooOld: 0,
+    gapsSkippedWeekend: 0,
+    gapsSkippedTooLarge: 0,
     totalGapsFilled: 0,
     filledByRealtimePrices: 0,
     filledBySmallerTimeframe: 0,
-    filledByMetaAPI: 0,
-    failedToFill: 0
+    gapsFailedNoData: 0
   };
 
   try {
     const results: Record<string, number> = {};
     let totalCandlesFilled = 0;
 
+    // Prioritize M1 and M5 since they're most critical and most likely to have gaps
     const prioritizedTimeframes = ['M1', 'M5', ...TIMEFRAMES.filter(t => t !== 'M1' && t !== 'M5')];
 
     for (const symbol of ACTIVE_SYMBOLS) {
@@ -488,22 +413,22 @@ export const handler: Handler = async (event, context) => {
           results[key] = 0;
         }
 
-        const delay = (timeframe === 'M1' || timeframe === 'M5') ? 1000 : 500;
-        await new Promise(resolve => setTimeout(resolve, delay));
+        // Small delay between symbol/timeframe combinations
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
 
     const duration = Date.now() - startTime;
 
-    console.log('[AutoGapFiller] ===== SUMMARY =====');
+    console.log('[AutoGapFiller] ========== SUMMARY ==========');
     console.log(`Total gaps detected: ${stats.totalGapsDetected}`);
-    console.log(`Total gaps filled: ${stats.totalGapsFilled}`);
+    console.log(`Gaps skipped (too old): ${stats.gapsSkippedTooOld}`);
+    console.log(`Gaps filled successfully: ${stats.totalGapsFilled}`);
     console.log(`  - From realtime_prices: ${stats.filledByRealtimePrices}`);
     console.log(`  - From smaller timeframes: ${stats.filledBySmallerTimeframe}`);
-    console.log(`  - From MetaAPI: ${stats.filledByMetaAPI}`);
-    console.log(`  - Failed to fill: ${stats.failedToFill}`);
+    console.log(`Gaps failed (no data): ${stats.gapsFailedNoData}`);
     console.log(`Completed in ${duration}ms`);
-    console.log('================================');
+    console.log('===================================');
 
     return {
       statusCode: 200,
