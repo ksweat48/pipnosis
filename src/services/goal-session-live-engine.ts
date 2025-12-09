@@ -525,6 +525,22 @@ class GoalSessionLiveEngine {
    */
   private async processCandleAutonomous(): Promise<void> {
     try {
+      // CHECK: Is session awaiting user continuation?
+      const { data: sessionCheck } = await supabase
+        .from('goal_sessions')
+        .select('awaiting_user_continuation')
+        .eq('id', this.activeSession)
+        .single();
+
+      if (sessionCheck?.awaiting_user_continuation) {
+        console.log('[Goal Live Engine] ⏸️ Awaiting user continuation - not scanning for new trades');
+        // Still monitor open positions
+        const watchlist = this.config.watchlist || getDefaultWatchlist();
+        const symbol = this.config.symbol || watchlist[0];
+        await this.monitorOpenPositionsOnly(symbol);
+        return;
+      }
+
       // STOP SCANNING if max trades reached (saves tokens/credits)
       if (this.openTrades.length >= this.config.maxConcurrentTrades && !this.allowNewTrades) {
         console.log(`[Goal Live Engine] ⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - PAUSING scanning to save credits`);
@@ -899,6 +915,10 @@ class GoalSessionLiveEngine {
       } catch (error) {
         console.error('[Goal Live Engine] Failed to log trade execution conversation:', error);
       }
+
+      // CHECK: Should we pause for user review after this trade?
+      await this.checkAndPauseForReview(executionResult.tradeId, trade);
+
     } else {
       console.error(`[Goal Live Engine] ❌ Trade execution failed: ${executionResult.message}`);
 
@@ -915,6 +935,205 @@ class GoalSessionLiveEngine {
       } catch (error) {
         console.error('[Goal Live Engine] Failed to log trade failure conversation:', error);
       }
+    }
+  }
+
+  /**
+   * Check if we should pause scanning after trade execution for user review
+   * Only applies when multi_trade_enabled = false (single-trade default mode)
+   */
+  private async checkAndPauseForReview(tradeId: string, trade: SimulatedTrade): Promise<void> {
+    if (!this.activeSession || !this.config) return;
+
+    try {
+      // Get current session settings
+      const { data: session } = await supabase
+        .from('goal_sessions')
+        .select('multi_trade_enabled, trades_in_session, target_value, current_progress')
+        .eq('id', this.activeSession)
+        .single();
+
+      if (!session) return;
+
+      // If multi-trade mode enabled, don't pause
+      if (session.multi_trade_enabled) {
+        logger.info(LogCategory.AI_TRADING, 'Multi-trade mode enabled - continuing to scan');
+        return;
+      }
+
+      // PAUSE SCANNING - User must review and approve continuation
+      logger.info(LogCategory.AI_TRADING, '🛑 Single-trade mode: Pausing for user review');
+
+      // Generate AI continuation prompt
+      const continuationPrompt = await this.generateContinuationPrompt(trade, session);
+
+      // Update session to awaiting continuation state
+      await supabase
+        .from('goal_sessions')
+        .update({
+          awaiting_user_continuation: true,
+          continuation_prompt: continuationPrompt,
+          last_trade_id: tradeId,
+          trades_in_session: (session.trades_in_session || 0) + 1
+        })
+        .eq('id', this.activeSession);
+
+      // Send continuation prompt to AI conversation
+      try {
+        await supabase.from('goal_ai_conversations').insert({
+          goal_session_id: this.activeSession,
+          user_id: this.config.userId,
+          role: 'ai',
+          message: continuationPrompt,
+          context: {
+            awaiting_continuation: true,
+            trade_id: tradeId,
+            trades_in_session: (session.trades_in_session || 0) + 1
+          },
+          sentiment: 'neutral'
+        });
+      } catch (error) {
+        console.error('[Goal Live Engine] Failed to log continuation prompt:', error);
+      }
+
+      console.log('[Goal Live Engine] 🛑 Scanning paused - awaiting user continuation decision');
+
+    } catch (error) {
+      console.error('[Goal Live Engine] Error checking pause for review:', error);
+    }
+  }
+
+  /**
+   * Generate AI continuation prompt after trade execution
+   * Provides context and asks user whether to continue scanning
+   */
+  private async generateContinuationPrompt(trade: SimulatedTrade, session: any): Promise<string> {
+    const tradesCompleted = (session.trades_in_session || 0) + 1;
+    const currentProgress = session.current_progress || 0;
+    const targetValue = session.target_value || 0;
+    const progressPercent = targetValue > 0 ? (currentProgress / targetValue) * 100 : 0;
+
+    const prompt = `
+🎯 Trade #${tradesCompleted} Executed!
+
+📊 Session Progress:
+• Current: $${currentProgress.toFixed(2)} / $${targetValue.toFixed(2)} (${progressPercent.toFixed(1)}%)
+• Trades Completed: ${tradesCompleted}
+
+💭 This trade is now live and I'll monitor it until it hits TP or SL.
+
+🤔 What would you like to do next?
+
+**Continue Scanning** - I'll look for another high-quality setup while this trade runs
+**Wait & Watch** - Stop scanning and just monitor this position
+**Stop Session** - Close everything and end this goal session
+
+Your decision keeps you in control of your risk and prevents runaway trading.
+    `.trim();
+
+    return prompt;
+  }
+
+  /**
+   * Handle user's continuation response
+   * Called when user decides to continue, wait, or stop after a trade
+   */
+  async handleUserContinuationResponse(
+    response: 'continue' | 'wait' | 'stop'
+  ): Promise<{ success: boolean; message: string }> {
+    if (!this.activeSession || !this.config) {
+      return {
+        success: false,
+        message: 'No active session'
+      };
+    }
+
+    try {
+      switch (response) {
+        case 'continue':
+          // Resume scanning for next trade
+          await supabase
+            .from('goal_sessions')
+            .update({
+              awaiting_user_continuation: false,
+              continuation_prompt: null
+            })
+            .eq('id', this.activeSession);
+
+          logger.info(LogCategory.AI_TRADING, '✅ User chose to continue - resuming scan');
+
+          try {
+            await supabase.from('goal_ai_conversations').insert({
+              goal_session_id: this.activeSession,
+              user_id: this.config.userId,
+              role: 'ai',
+              message: '✅ Resuming scan for next opportunity... I\'ll monitor your open position and look for another high-quality setup.',
+              sentiment: 'encouraging'
+            });
+          } catch (error) {
+            console.error('[Goal Live Engine] Failed to log continuation response:', error);
+          }
+
+          return {
+            success: true,
+            message: 'Scanning resumed'
+          };
+
+        case 'wait':
+          // Stop scanning but keep monitoring open trades
+          this.allowNewTrades = false;
+
+          await supabase
+            .from('goal_sessions')
+            .update({
+              awaiting_user_continuation: false,
+              continuation_prompt: null,
+              status: 'soft_closing'
+            })
+            .eq('id', this.activeSession);
+
+          logger.info(LogCategory.AI_TRADING, '⏸️ User chose to wait - monitoring open trades only');
+
+          try {
+            await supabase.from('goal_ai_conversations').insert({
+              goal_session_id: this.activeSession,
+              user_id: this.config.userId,
+              role: 'ai',
+              message: '⏸️ Got it! I\'ll stop scanning for new trades and just monitor your open position until it closes.',
+              sentiment: 'neutral'
+            });
+          } catch (error) {
+            console.error('[Goal Live Engine] Failed to log wait response:', error);
+          }
+
+          return {
+            success: true,
+            message: 'Now monitoring open trades only'
+          };
+
+        case 'stop':
+          // Stop entire session
+          await this.stopSession();
+
+          logger.info(LogCategory.AI_TRADING, '🛑 User chose to stop - ending session');
+
+          return {
+            success: true,
+            message: 'Session stopped'
+          };
+
+        default:
+          return {
+            success: false,
+            message: 'Invalid response'
+          };
+      }
+    } catch (error) {
+      console.error('[Goal Live Engine] Error handling continuation response:', error);
+      return {
+        success: false,
+        message: `Error: ${(error as Error).message}`
+      };
     }
   }
 

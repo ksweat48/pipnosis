@@ -6,6 +6,9 @@ import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/go
 import { useAuth } from '../hooks/useAuth';
 import { MarketAnalysisStream } from './MarketAnalysisStream';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
+import { ContinuationDialog } from './ContinuationDialog';
+import { goalSessionLiveEngine } from '../services/goal-session-live-engine';
+import { supabase } from '../lib/supabase';
 // GoalScanReadinessIndicator removed - using simple indicator
 
 export const GoalSessionDashboard: React.FC = () => {
@@ -17,6 +20,12 @@ export const GoalSessionDashboard: React.FC = () => {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanStatus, setScanStatus] = useState<ScanStatus>(goalScannerTrigger.getStatus());
+  const [continuationData, setContinuationData] = useState<{
+    isAwaiting: boolean;
+    prompt: string;
+    tradesInSession: number;
+  } | null>(null);
+  const [continuationLoading, setContinuationLoading] = useState(false);
 
   useEffect(() => {
     loadSessionData();
@@ -64,6 +73,27 @@ export const GoalSessionDashboard: React.FC = () => {
       setActiveSession(session);
 
       if (session) {
+        // Check for continuation prompt
+        try {
+          const { data: sessionData } = await supabase
+            .from('goal_sessions')
+            .select('awaiting_user_continuation, continuation_prompt, trades_in_session, current_progress, target_value')
+            .eq('id', session.sessionId)
+            .single();
+
+          if (sessionData?.awaiting_user_continuation) {
+            setContinuationData({
+              isAwaiting: true,
+              prompt: sessionData.continuation_prompt || 'Would you like to continue scanning for more trades?',
+              tradesInSession: sessionData.trades_in_session || 0
+            });
+          } else {
+            setContinuationData(null);
+          }
+        } catch (error) {
+          console.error('[GoalSessionDashboard] Error checking continuation status:', error);
+        }
+
         // Load data separately with individual error handling
         try {
           const progressData = await smartGoalSessionManager.getSessionProgress(session.sessionId);
@@ -93,6 +123,26 @@ export const GoalSessionDashboard: React.FC = () => {
       console.error('[GoalSessionDashboard] Error loading session data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleContinuationResponse = async (response: 'continue' | 'wait' | 'stop') => {
+    if (!activeSession) return;
+
+    setContinuationLoading(true);
+    try {
+      const result = await goalSessionLiveEngine.handleUserContinuationResponse(response);
+
+      if (result.success) {
+        setContinuationData(null);
+        await loadSessionData();
+      } else {
+        console.error('[GoalSessionDashboard] Continuation response failed:', result.message);
+      }
+    } catch (error) {
+      console.error('[GoalSessionDashboard] Error handling continuation response:', error);
+    } finally {
+      setContinuationLoading(false);
     }
   };
 
@@ -558,6 +608,20 @@ export const GoalSessionDashboard: React.FC = () => {
             ))}
           </div>
         </div>
+      )}
+
+      {continuationData && progress && (
+        <ContinuationDialog
+          isOpen={continuationData.isAwaiting}
+          continuationPrompt={continuationData.prompt}
+          tradesInSession={continuationData.tradesInSession}
+          currentProgress={progress.currentProgress || 0}
+          targetValue={progress.goalAmount || 0}
+          onContinue={() => handleContinuationResponse('continue')}
+          onWait={() => handleContinuationResponse('wait')}
+          onStop={() => handleContinuationResponse('stop')}
+          isLoading={continuationLoading}
+        />
       )}
     </div>
   );

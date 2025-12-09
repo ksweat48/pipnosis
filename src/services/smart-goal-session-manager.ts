@@ -48,7 +48,8 @@ class SmartGoalSessionManager {
   async createSmartGoalSession(
     userId: string,
     prompt: string,
-    accountBalance: number
+    accountBalance: number,
+    multiTradeEnabled: boolean = false
   ): Promise<SmartGoalSession> {
     const config = this.parseGoalPrompt(prompt, accountBalance);
     const sessionId = uuidv4();
@@ -95,6 +96,8 @@ class SmartGoalSessionManager {
       scan_interval_minutes: session.strategy.scanIntervalMinutes,
       auto_execute: config.autoExecute,
       watchlist: config.watchlist,
+      multi_trade_enabled: multiTradeEnabled,
+      trades_in_session: 0,
       start_time: session.startTime.toISOString(),
       end_time: endTime.toISOString(),
       next_scan_time: session.nextScanTime.toISOString(),
