@@ -172,8 +172,9 @@ class GlobalPollingCoordinator {
           console.log('✅ Maintaining full polling despite tab visibility');
           console.log('ℹ️ Protected symbols will continue at normal rate');
         } else {
-          console.log('🙈 Tab hidden - polling continues in background');
-          console.log('ℹ️ Note: Browser may throttle timers, heartbeat will detect issues');
+          console.log('🙈 Tab hidden - browser-side polling will be throttled (expected)');
+          console.log('✅ Server-side polling continues normally, reading from database');
+          console.log('ℹ️ System will NOT panic or failover due to throttling');
         }
       }
     };
@@ -197,6 +198,14 @@ class GlobalPollingCoordinator {
       const drift = timeSinceLastHeartbeat - expectedInterval;
 
       if (drift > expectedInterval * 2) {
+        // 🚨 CRITICAL FIX: Don't panic if tab is hidden - browser throttling is EXPECTED
+        if (!this.isTabVisible) {
+          console.log(`ℹ️ Timer throttled (tab hidden) - this is expected behavior (${Math.round(drift)}ms drift)`);
+          this.missedHeartbeats = 0; // Reset counter - tab visibility throttling is normal
+          this.lastHeartbeat = now;
+          return;
+        }
+
         this.missedHeartbeats++;
 
         // Use higher threshold when active sessions exist
@@ -253,6 +262,12 @@ class GlobalPollingCoordinator {
   }
 
   private recoverFromThrottling(): void {
+    // 🚨 CRITICAL FIX: Don't recover if tab is hidden - throttling is EXPECTED behavior
+    if (!this.isTabVisible) {
+      console.log('ℹ️ Tab hidden - accepting browser throttling (server-side polling continues)');
+      return;
+    }
+
     console.log('🔧 Recovering from timer throttling...');
 
     this.pollStatus.forEach((status, symbol) => {

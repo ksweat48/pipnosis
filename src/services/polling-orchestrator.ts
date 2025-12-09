@@ -226,6 +226,12 @@ class PollingOrchestrator {
       return;
     }
 
+    // 🚨 CRITICAL FIX: Don't failover if tab is hidden - browser throttling is EXPECTED
+    if (typeof document !== 'undefined' && document.hidden) {
+      logger.debug(LogCategory.POLLING_COORDINATOR, '🙈 Tab hidden - skipping health check (throttling is expected)');
+      return;
+    }
+
     // Health tracking simplified - no health monitor
     const browserStatus = browserPricePoller.getStatus();
     const globalStatus = globalPollingCoordinator.getCoordinatorStatus();
