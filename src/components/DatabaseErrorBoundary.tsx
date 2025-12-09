@@ -61,7 +61,7 @@ export class DatabaseErrorBoundary extends Component<Props, State> {
                   <p className="text-red-400 text-sm font-mono break-all">
                     {this.state.error.message || 'Unknown error'}
                   </p>
-                  {process.env.NODE_ENV === 'development' && this.state.errorInfo && (
+                  {import.meta.env.DEV && this.state.errorInfo && (
                     <details className="mt-3">
                       <summary className="text-gray-400 text-xs cursor-pointer hover:text-gray-300">
                         Show error details

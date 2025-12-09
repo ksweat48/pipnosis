@@ -82,9 +82,9 @@ function normalizeTimeframe(timeframe: string): string {
 export async function fetchCandlesFromMetaApi(
   options: FetchCandlesOptions
 ): Promise<CandleData[]> {
-  const token = process.env.METAAPI_TOKEN;
-  const accountId = process.env.METAAPI_ACCOUNT_ID;
-  const region = process.env.METAAPI_REGION || 'new-york';
+  const token = import.meta.env.VITE_METAAPI_TOKEN;
+  const accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID;
+  const region = import.meta.env.VITE_METAAPI_REGION || 'new-york';
 
   if (!token || !accountId) {
     throw new Error('MetaAPI credentials not configured. Set METAAPI_TOKEN and METAAPI_ACCOUNT_ID');

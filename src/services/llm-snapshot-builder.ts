@@ -739,7 +739,7 @@ Should you:
     );
 
     // Dev logging for Omega Sensors
-    if (process.env.DEV_MODE === 'true') {
+    if (import.meta.env.DEV_MODE === 'true') {
       console.debug(formatSensorsForLogging(omegaSensors, trend));
     }
 

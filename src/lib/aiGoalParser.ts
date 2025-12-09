@@ -13,9 +13,7 @@ class AIGoalParser {
   private cache: Map<string, AIGoalParsing> = new Map();
 
   constructor() {
-    this.apiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPENAI_API_KEY)
-      ? import.meta.env.VITE_OPENAI_API_KEY
-      : (process.env.VITE_OPENAI_API_KEY || '');
+    this.apiKey = import.meta.env.VITE_OPENAI_API_KEY || '';
   }
 
   private async parseWithAI(prompt: string, currentBalance: number): Promise<AIGoalParsing | null> {

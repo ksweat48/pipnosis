@@ -1,12 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = typeof import.meta !== 'undefined' && import.meta.env
-  ? import.meta.env.VITE_SUPABASE_URL || ''
-  : process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 
-const supabaseAnonKey = typeof import.meta !== 'undefined' && import.meta.env
-  ? import.meta.env.VITE_SUPABASE_ANON_KEY || ''
-  : process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Missing Supabase environment variables');
