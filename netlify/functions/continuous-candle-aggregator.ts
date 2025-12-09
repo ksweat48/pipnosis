@@ -8,14 +8,14 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
 
-// OPTIMIZATION: Only process M1 in this high-frequency function (runs every 5 min)
-// Other timeframes are aggregated from M1 by separate, less frequent functions
-const FAST_TIMEFRAMES = ['M1']; // Process every run (5 min) - CRITICAL FOR SPEED
+// CRITICAL: Process M1, M5, M15 every run to ensure continuous data (runs every 5 min)
+// These are the most commonly used timeframes and must always have fresh data
+const FAST_TIMEFRAMES = ['M1', 'M5', 'M15']; // Process every run (5 min) - CRITICAL FOR PERSISTENCE
 const MEDIUM_TIMEFRAMES = ['M30', 'H1']; // Process every 3rd run (15 min)
 const SLOW_TIMEFRAMES = ['H4', 'D1', 'W1']; // Process every 12th run (60 min)
 const ALL_TIMEFRAMES = [...FAST_TIMEFRAMES, ...MEDIUM_TIMEFRAMES, ...SLOW_TIMEFRAMES];
 
-// SAFETY: Maximum candles to create per timeframe (only last 3 M1 candles)
+// SAFETY: Maximum candles to create per timeframe per run (prevents runaway processing)
 const MAX_CANDLES_PER_TIMEFRAME = 3;
 
 // WICK RECONSTRUCTION: Improve candle quality by adding realistic wicks
