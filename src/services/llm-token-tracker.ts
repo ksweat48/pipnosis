@@ -10,6 +10,9 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { logger, LogCategory, LogLevel } from '@/lib/logger';
+
+logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.ERROR);
 
 type BrainName =
   | 'Alpha'
@@ -89,7 +92,7 @@ class LLMTokenTracker {
 
       // Skip logging if no user context available
       if (!userId) {
-        console.warn('[TokenTracker] No user context available, skipping token log');
+        logger.warn(LogCategory.AI_TRADING, 'No user context available, skipping token log');
         return;
       }
 
@@ -109,10 +112,10 @@ class LLMTokenTracker {
         });
 
       if (error) {
-        console.error('[TokenTracker] Failed to log usage:', error);
+        logger.error(LogCategory.AI_TRADING, 'Failed to log usage:', error);
       }
     } catch (error) {
-      console.error('[TokenTracker] Error logging usage:', error);
+      logger.error(LogCategory.AI_TRADING, 'Error logging usage:', error);
     }
   }
 

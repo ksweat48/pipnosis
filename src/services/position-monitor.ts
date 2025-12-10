@@ -1,10 +1,12 @@
 import { supabase } from '@/lib/supabase';
 import { positionService } from './position-service';
 import { globalPollingCoordinator } from './global-polling-coordinator';
-import { logger, LogCategory } from '@/lib/logger';
+import { logger, LogCategory, LogLevel } from '@/lib/logger';
 import type { GoalSessionTrade } from '@/types/position';
 import { calculatePnL } from '@/types/position';
 import { prodLogger } from '@/lib/production-logger';
+
+logger.setCategoryLevel(LogCategory.POSITION_MONITOR, LogLevel.ERROR);
 
 type MonitoredPosition = GoalSessionTrade;
 
@@ -72,7 +74,7 @@ class PositionMonitorService {
 
       this.updateCriticalSymbols(positions);
     } catch (error) {
-      console.error('[PositionMonitor] Error monitoring positions:', error);
+      logger.error(LogCategory.POSITION_MONITOR, 'Error monitoring positions:', error);
     }
   }
 

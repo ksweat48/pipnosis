@@ -1,4 +1,7 @@
 import { supabase } from '../lib/supabase';
+import { logger, LogCategory, LogLevel } from '@/lib/logger';
+
+logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.ERROR);
 
 export interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant';
@@ -45,7 +48,7 @@ class OpenAIProxyClient {
 
       const startTime = Date.now();
 
-      console.log(`[OpenAI Proxy Client] Calling ${request.requestType || 'unknown'} via ${this.endpoint}`);
+      logger.debug(LogCategory.AI_TRADING, `Calling ${request.requestType || 'unknown'} via ${this.endpoint}`);
 
       const response = await fetch(this.endpoint, {
         method: 'POST',
@@ -67,7 +70,7 @@ class OpenAIProxyClient {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        console.error(`[OpenAI Proxy Client] Error ${response.status}:`, errorData);
+        logger.error(LogCategory.AI_TRADING, `Error ${response.status}:`, errorData);
         throw new Error(`OpenAI Proxy Error: ${errorData.error || response.statusText}`);
       }
 
@@ -75,11 +78,11 @@ class OpenAIProxyClient {
 
       this.callCount++;
 
-      console.log(`[OpenAI Proxy Client] ✅ Success: ${data.usage?.total_tokens || 0} tokens, ${duration}ms`);
+      logger.debug(LogCategory.AI_TRADING, `✅ Success: ${data.usage?.total_tokens || 0} tokens, ${duration}ms`);
 
       return data;
     } catch (error) {
-      console.error('[OpenAI Proxy Client] Request failed:', error);
+      logger.error(LogCategory.AI_TRADING, 'Request failed:', error);
       throw error;
     }
   }

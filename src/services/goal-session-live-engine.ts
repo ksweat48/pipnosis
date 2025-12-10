@@ -13,7 +13,7 @@ import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { tradeExecutionEngine } from './trade-execution-engine';
 import { midTradeTriggerDetector, type MarketConditions } from './mid-trade-trigger-detector';
 import { llmMidTradeEvaluator } from './llm-mid-trade-evaluator';
-import { logger, LogCategory } from '../lib/logger';
+import { logger, LogCategory, LogLevel } from '../lib/logger';
 import { openAIClient } from './openai-client';
 import { normalizeTimeframeToDb } from './chart-preferences';
 import { multiSymbolScanner } from './multi-symbol-scanner';
@@ -22,6 +22,8 @@ import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orch
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
+
+logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.ERROR);
 
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
@@ -312,27 +314,27 @@ class GoalSessionLiveEngine {
    */
   private async processMultiSymbolCycle(watchlist: string[]): Promise<void> {
     try {
-      console.log(`[Multi-Symbol] 📊 Building snapshots for ${watchlist.length} symbols...`);
+      logger.debug(LogCategory.AI_TRADING, `📊 Building snapshots for ${watchlist.length} symbols...`);
 
       const snapshotResult = await multiSymbolSnapshotBuilder.buildSnapshots(watchlist);
 
       if (snapshotResult.snapshots.length === 0) {
-        console.log('[Multi-Symbol] ⚠️ No symbol data available');
+        logger.debug(LogCategory.AI_TRADING, '⚠️ No symbol data available');
         return;
       }
 
-      console.log(`[Multi-Symbol] ✅ ${snapshotResult.tradeableSymbols.length}/${snapshotResult.snapshots.length} symbols tradeable`);
+      logger.debug(LogCategory.AI_TRADING, `✅ ${snapshotResult.tradeableSymbols.length}/${snapshotResult.snapshots.length} symbols tradeable`);
 
       if (snapshotResult.blockedSymbols.size > 0) {
         snapshotResult.blockedSymbols.forEach((reason, symbol) => {
-          console.log(`[Multi-Symbol] ❌ ${symbol}: Blocked (${reason})`);
+          logger.debug(LogCategory.AI_TRADING, `❌ ${symbol}: Blocked (${reason})`);
         });
       }
 
       const tradeableSnapshots = snapshotResult.snapshots.filter(s => s.tradeable);
 
       if (tradeableSnapshots.length === 0) {
-        console.log('[Multi-Symbol] 🚫 No tradeable opportunities - WAIT mode');
+        logger.debug(LogCategory.AI_TRADING, '🚫 No tradeable opportunities - WAIT mode');
         await this.sendAIMessage('Scanning 5 markets... No tradeable opportunities detected. Continuing scan.');
         return;
       }
@@ -372,7 +374,7 @@ class GoalSessionLiveEngine {
         learningProgress: 0
       };
 
-      console.log(`[Multi-Symbol] 🧠 Running Omega Council for ${marketStates.length} symbols...`);
+      logger.debug(LogCategory.AI_TRADING, `🧠 Running Omega Council for ${marketStates.length} symbols...`);
 
       const omegaDecisions = await alphaOmegaOrchestrator.evaluateMultipleSymbols(
         marketStates,
@@ -388,7 +390,7 @@ class GoalSessionLiveEngine {
       bestSymbolSelector.logEvaluationDetails(bestSymbolResult);
 
       if (!bestSymbolResult.selected || !bestSymbolResult.symbol || !bestSymbolResult.evaluation) {
-        console.log('[Multi-Symbol] 🚫 No symbols passed selection criteria');
+        logger.debug(LogCategory.AI_TRADING, '🚫 No symbols passed selection criteria');
 
         // Build detailed explanation of why no symbols were selected
         const detailedMessage = this.buildDetailedEvaluationMessage(
@@ -403,7 +405,7 @@ class GoalSessionLiveEngine {
       const selectedSymbol = bestSymbolResult.symbol;
       const decision = bestSymbolResult.evaluation.omegaDecision;
 
-      console.log(`[Multi-Symbol] 🎯 SELECTED: ${selectedSymbol} | ${decision.action} @ ${decision.confidence}%`);
+      logger.debug(LogCategory.AI_TRADING, `🎯 SELECTED: ${selectedSymbol} | ${decision.action} @ ${decision.confidence}%`);
 
       if (decision.action === 'NO_TRADE') {
         await this.sendAIMessage(`Best symbol: ${selectedSymbol}. Setup detected but confidence threshold not met. Waiting for stronger signals.`);
@@ -411,18 +413,18 @@ class GoalSessionLiveEngine {
       }
 
       if (this.openTrades.length >= this.config.maxConcurrentTrades) {
-        console.log('[Multi-Symbol] Max concurrent trades reached');
+        logger.debug(LogCategory.AI_TRADING, 'Max concurrent trades reached');
         return;
       }
 
       if (!this.allowNewTrades) {
-        console.log('[Multi-Symbol] ⏸️ Timeframe expired - not opening new trades');
+        logger.debug(LogCategory.AI_TRADING, '⏸️ Timeframe expired - not opening new trades');
         return;
       }
 
       const minConfidence = this.config.minConfidence || 70;
       if (decision.confidence < minConfidence) {
-        console.log(`[Multi-Symbol] Confidence ${decision.confidence}% below threshold ${minConfidence}%`);
+        logger.debug(LogCategory.AI_TRADING, `Confidence ${decision.confidence}% below threshold ${minConfidence}%`);
         return;
       }
 
@@ -431,7 +433,7 @@ class GoalSessionLiveEngine {
 
       // FINAL CHECK: Ensure we're not exceeding max trades (prevents race conditions)
       if (this.openTrades.length >= this.config.maxConcurrentTrades) {
-        console.log(`[Multi-Symbol] BLOCKED: Already at max trades (${this.config.maxConcurrentTrades})`);
+        logger.debug(LogCategory.AI_TRADING, `BLOCKED: Already at max trades (${this.config.maxConcurrentTrades})`);
         await this.sendAIMessage(`Max trades (${this.config.maxConcurrentTrades}) limit reached. Pausing new trade scans to preserve credits. Monitoring open positions only.`);
         return;
       }
@@ -491,7 +493,7 @@ class GoalSessionLiveEngine {
         // CRITICAL: Update trade ID to match database UUID before tracking
         trade.id = executionResult.tradeId!;
         this.openTrades.push(trade);
-        console.log(`[Multi-Symbol] Trade ${this.openTrades.length}/${this.config.maxConcurrentTrades} added with DB ID: ${trade.id}`);
+        logger.debug(LogCategory.AI_TRADING, `Trade ${this.openTrades.length}/${this.config.maxConcurrentTrades} added with DB ID: ${trade.id}`);
         logger.info(LogCategory.AI_TRADING, `✅ Trade executed: ${selectedSymbol} ${trade.direction} @ ${trade.entryPrice} (confidence: ${trade.confidence}%)`);
       } else {
         logger.error(LogCategory.AI_TRADING, `❌ Trade execution failed: ${executionResult.message}`);
@@ -531,7 +533,7 @@ class GoalSessionLiveEngine {
         .single();
 
       if (sessionCheck?.awaiting_user_continuation) {
-        console.log('[Goal Live Engine] ⏸️ Awaiting user continuation - not scanning for new trades');
+        logger.debug(LogCategory.AI_TRADING, '⏸️ Awaiting user continuation - not scanning for new trades');
         // Still monitor open positions
         const watchlist = this.config.watchlist || getDefaultWatchlist();
         const symbol = this.config.symbol || watchlist[0];
@@ -541,7 +543,7 @@ class GoalSessionLiveEngine {
 
       // STOP SCANNING if max trades reached (saves tokens/credits)
       if (this.openTrades.length >= this.config.maxConcurrentTrades) {
-        console.log(`[Goal Live Engine] ⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - PAUSING scanning to save credits`);
+        logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - PAUSING scanning to save credits`);
         // Still monitor open positions but don't scan for new trades
         const watchlist = this.config.watchlist || getDefaultWatchlist();
         const symbol = this.config.symbol || watchlist[0];
@@ -555,10 +557,10 @@ class GoalSessionLiveEngine {
       if (useMultiSymbolMode) {
         // Double-check before expensive multi-symbol scan
         if (this.openTrades.length >= this.config.maxConcurrentTrades) {
-          console.log(`[Multi-Symbol] Max trades reached, monitoring only`);
+          logger.debug(LogCategory.AI_TRADING, 'Max trades reached, monitoring only');
           return;
         }
-        console.log(`[Multi-Symbol Mode] 🔍 Evaluating ${watchlist.length} symbols...`);
+        logger.debug(LogCategory.AI_TRADING, `🔍 Evaluating ${watchlist.length} symbols...`);
         await this.processMultiSymbolCycle(watchlist);
         return;
       }
@@ -751,8 +753,8 @@ class GoalSessionLiveEngine {
       // Let AI analyze market independently and make intelligent decisions
       // ====================================================================
 
-      console.log(`[Autonomous Brain] 🧠 Analyzing ${this.config.symbol}...`);
-      console.log(`[Autonomous Brain] Open trades: ${this.openTrades.length}/${this.config.maxConcurrentTrades}`);
+      logger.debug(LogCategory.AI_TRADING, `🧠 Analyzing ${this.config.symbol}...`);
+      logger.debug(LogCategory.AI_TRADING, `Open trades: ${this.openTrades.length}/${this.config.maxConcurrentTrades}`);
 
       const engineConfig: EventBasedEngineConfig = {
         symbol: this.config.symbol,
@@ -772,22 +774,22 @@ class GoalSessionLiveEngine {
 
       // Show AI thought process
       if (result.llmCalled) {
-        console.log('[Autonomous Brain] ✅ LLM called - strategy planned or trade analyzed');
+        logger.debug(LogCategory.AI_TRADING, '✅ LLM called - strategy planned or trade analyzed');
         localSessionMemory.recordLLMCall(`live-${this.activeSession}`, 0, {});
       }
 
       if (result.trigger) {
-        console.log(`[Autonomous Brain] ✅ Conditions met: ${result.trigger.type} (${result.trigger.confidence}% confidence)`);
+        logger.debug(LogCategory.AI_TRADING, `✅ Conditions met: ${result.trigger.type} (${result.trigger.confidence}% confidence)`);
         localSessionMemory.recordTrigger(`live-${this.activeSession}`, result.trigger);
         logger.debug(LogCategory.AI_TRADING, `Trigger detected: ${result.trigger.type} (${result.trigger.confidence}%)`);
         await this.sendTriggerDetectedMessage(result.trigger, latestCandle);
       } else {
-        console.log('[Autonomous Brain] Monitoring conditions... waiting for setup');
+        logger.debug(LogCategory.AI_TRADING, 'Monitoring conditions... waiting for setup');
       }
 
       if (result.trade) {
         if (!this.allowNewTrades) {
-          console.log(`[Autonomous Brain] ⏸️ Valid setup detected but session timeframe expired - not opening new trade`);
+          logger.debug(LogCategory.AI_TRADING, '⏸️ Valid setup detected but session timeframe expired - not opening new trade');
           logger.info(LogCategory.AI_TRADING, `Trade signal blocked: ${result.trade.direction} @ ${result.trade.entryPrice} (timeframe expired)`);
 
           try {
@@ -809,8 +811,8 @@ class GoalSessionLiveEngine {
             console.error('[Goal Live Engine] Failed to log blocked trade:', error);
           }
         } else {
-          console.log(`[Autonomous Brain] 🎯 Trade decision: ${result.trade.direction} @ ${result.trade.entryPrice}`);
-          console.log(`[Autonomous Brain] SL: ${result.trade.stopLoss} | TP: ${result.trade.takeProfit} | R:R 1:${((result.trade.takeProfit - result.trade.entryPrice) / (result.trade.entryPrice - result.trade.stopLoss)).toFixed(2)}`);
+          logger.debug(LogCategory.AI_TRADING, `🎯 Trade decision: ${result.trade.direction} @ ${result.trade.entryPrice}`);
+          logger.debug(LogCategory.AI_TRADING, `SL: ${result.trade.stopLoss} | TP: ${result.trade.takeProfit} | R:R 1:${((result.trade.takeProfit - result.trade.entryPrice) / (result.trade.entryPrice - result.trade.stopLoss)).toFixed(2)}`);
           await this.handleNewTradeSignal(result.trade);
         }
       }
@@ -1529,7 +1531,7 @@ This learning will carry forward to improve future sessions!
     const shouldSendUpdate = hasSignificantChange || timeSinceLastUpdate > 120000 || result.trade || result.trigger;
 
     if (!shouldSendUpdate) {
-      console.log('[Goal Live Engine] Skipping duplicate AI update (no significant changes)');
+      logger.debug(LogCategory.AI_TRADING, 'Skipping duplicate AI update (no significant changes)');
       return;
     }
 
@@ -1557,7 +1559,7 @@ This learning will carry forward to improve future sessions!
       this.lastAIMessageContent = message;
       this.lastAIUpdateTime = Date.now();
 
-      console.log('[Goal Live Engine] AI update sent with changes');
+      logger.debug(LogCategory.AI_TRADING, 'AI update sent with changes');
     } catch (error) {
       console.error('[Goal Live Engine] Failed to log AI thinking update:', error);
     }
@@ -2184,7 +2186,7 @@ Keep response under 100 words, educational tone.`;
 
     lotSize = Math.max(minLotSize, Math.min(lotSize, maxLotSize));
 
-    console.log(`[Lot Size Calculator] Balance: $${accountBalance}, Risk: ${riskPercent}%, SL: ${stopLossPips.toFixed(1)} pips → Lot Size: ${lotSize}`);
+    logger.debug(LogCategory.AI_TRADING, `Lot Size: ${lotSize} (Balance: $${accountBalance}, Risk: ${riskPercent}%, SL: ${stopLossPips.toFixed(1)} pips)`);
 
     return lotSize;
   }
@@ -2223,7 +2225,7 @@ Keep response under 100 words, educational tone.`;
     // Update progress after trade closures
     await this.updateGoalProgress();
 
-    console.log(`[Monitor Only] ${this.openTrades.length} open trades, monitoring...`);
+    logger.debug(LogCategory.AI_TRADING, `Monitoring ${this.openTrades.length} open trades...`);
   }
 
   /**
@@ -2262,7 +2264,7 @@ Keep response under 100 words, educational tone.`;
         })
         .eq('id', this.activeSession);
 
-      console.log(`[Progress Update] $${totalProfit.toFixed(2)} / $${targetAmount.toFixed(2)} (${progressPercent.toFixed(1)}%)`);
+      logger.debug(LogCategory.AI_TRADING, `Progress: $${totalProfit.toFixed(2)} / $${targetAmount.toFixed(2)} (${progressPercent.toFixed(1)}%)`);
 
     } catch (error) {
       console.error('[Progress Update] Error:', error);
