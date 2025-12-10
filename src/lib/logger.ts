@@ -38,11 +38,21 @@ class Logger {
     this.isDev = typeof import.meta !== 'undefined' && import.meta.env?.DEV === true;
     // Default: WARN (only warnings and errors, no verbose polling/tick logs)
     this.globalLevel = LogLevel.WARN;
-    this.loadSettings();
+
+    // In server-side environment (Netlify functions), set AI Trading to INFO by default
+    const isServer = typeof window === 'undefined' || typeof localStorage === 'undefined';
+    if (isServer) {
+      this.categoryLevels.set(LogCategory.AI_TRADING, LogLevel.INFO);
+      console.log('[Logger] Server-side environment detected - AI Trading logs enabled');
+    } else {
+      this.loadSettings();
+    }
   }
 
   private loadSettings(): void {
     try {
+      if (typeof localStorage === 'undefined') return;
+
       const stored = localStorage.getItem('log_settings');
       if (stored) {
         const settings = JSON.parse(stored);
@@ -58,6 +68,8 @@ class Logger {
 
   private saveSettings(): void {
     try {
+      if (typeof localStorage === 'undefined') return;
+
       const settings = {
         globalLevel: this.globalLevel,
         categoryLevels: Object.fromEntries(this.categoryLevels)

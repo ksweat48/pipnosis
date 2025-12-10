@@ -50,8 +50,11 @@ export async function processGoalSessionIteration(
     const client = supabaseClient || supabase;
     const { goalSessionId, userId, watchlist, timeframe } = state;
 
+    logger.info(LogCategory.AI_TRADING, `[Core] 🚀 Starting iteration for session ${goalSessionId}`);
+    logger.info(LogCategory.AI_TRADING, `[Core] Watchlist: ${watchlist.join(', ')} | Timeframe: ${timeframe}`);
+
     if (!watchlist || watchlist.length === 0) {
-      logger.error(LogCategory.AI_TRADING, '[Core] No symbols in watchlist');
+      logger.error(LogCategory.AI_TRADING, '[Core] ❌ No symbols in watchlist');
       return {
         success: false,
         message: 'Session has no symbols to monitor',
@@ -67,7 +70,7 @@ export async function processGoalSessionIteration(
     for (const symbol of watchlist) {
       // Fetch latest candles from database
       const dbTimeframe = normalizeTimeframeToDb(timeframe);
-      logger.debug(LogCategory.AI_TRADING, `[Core] Processing ${symbol} ${timeframe}`);
+      logger.info(LogCategory.AI_TRADING, `[Core] 🔍 Scanning ${symbol} ${timeframe}...`);
 
       const { data: candles, error } = await client
         .from('forex_candles')
@@ -78,22 +81,24 @@ export async function processGoalSessionIteration(
         .limit(100);
 
       if (error || !candles || candles.length < 50) {
-        logger.warn(LogCategory.AI_TRADING, `[Core] Insufficient data for ${symbol}, skipping`);
+        logger.warn(LogCategory.AI_TRADING, `[Core] ⚠️ Insufficient data for ${symbol} (found ${candles?.length || 0} candles, need 50+)`);
         continue;
       }
 
       const sortedCandles = candles.reverse();
       const latestCandle = sortedCandles[sortedCandles.length - 1];
 
-      // Check if this is a new candle
-      if (state.lastProcessedCandleTime &&
-          new Date(latestCandle.open_time).getTime() <= state.lastProcessedCandleTime.getTime()) {
-        continue;
-      }
+      // Check if this is a new candle (for tracking purposes)
+      const isNewCandle = !state.lastProcessedCandleTime ||
+          new Date(latestCandle.open_time).getTime() > state.lastProcessedCandleTime.getTime();
 
-      // Update state
-      state.lastProcessedCandleTime = new Date(latestCandle.open_time);
-      state.scanCount++;
+      if (isNewCandle) {
+        logger.info(LogCategory.AI_TRADING, `[Core] 🆕 New candle detected for ${symbol} at ${latestCandle.open_time}`);
+        state.lastProcessedCandleTime = new Date(latestCandle.open_time);
+        state.scanCount++;
+      } else {
+        logger.info(LogCategory.AI_TRADING, `[Core] ♻️ Processing existing candle for ${symbol} (autonomous scan)`);
+      }
 
       // Update open trades for this symbol with latest price
       const symbolTrades = state.openTrades.filter(t => t.symbol === symbol);
@@ -139,27 +144,74 @@ export async function processGoalSessionIteration(
         .eq('id', goalSessionId)
         .single();
 
-      if (!goalSession) continue;
+      if (!goalSession) {
+        logger.warn(LogCategory.AI_TRADING, `[Core] Goal session ${goalSessionId} not found`);
+        continue;
+      }
 
       const maxConcurrentTrades = 3;
       const allowNewTrades = goalSession.status === 'scanning' || goalSession.status === 'active';
 
-      if (allowNewTrades && state.openTrades.length < maxConcurrentTrades) {
-        const newSignal = await eventBasedLLMEngine.evaluateCandleStream(
-          sortedCandles,
+      logger.info(LogCategory.AI_TRADING, `[Core] Session status: ${goalSession.status}, Open trades: ${state.openTrades.length}/${maxConcurrentTrades}`);
+
+      if (!allowNewTrades) {
+        logger.info(LogCategory.AI_TRADING, `[Core] ⏸️ Not accepting new trades (status: ${goalSession.status})`);
+      } else if (state.openTrades.length >= maxConcurrentTrades) {
+        logger.info(LogCategory.AI_TRADING, `[Core] ⏸️ Max concurrent trades reached (${state.openTrades.length}/${maxConcurrentTrades})`);
+      } else {
+        // ALWAYS call LLM to evaluate opportunities, regardless of new candle
+        logger.info(LogCategory.AI_TRADING, `[Core] 🤖 Calling LLM to evaluate ${symbol} for trade opportunities...`);
+
+        const config = {
           symbol,
-          userId,
-          goalSessionId
+          timeframe: goalSession.timeframe || '15m',
+          useLLM: true,
+          riskMode: goalSession.risk_mode || 'medium',
+          maxConcurrentTrades: maxConcurrentTrades,
+          initialBalance: state.initialBalance,
+          goalContext: {
+            goalSessionId,
+            targetAmount: goalSession.target_value,
+            currentProgress: goalSession.current_progress || 0,
+            remainingAmount: goalSession.target_value - (goalSession.current_progress || 0),
+            tradesCompleted: goalSession.total_trades || 0,
+            tradesPlanned: goalSession.multi_trade_enabled ? 3 : 1
+          }
+        };
+
+        const result = await eventBasedLLMEngine.processCandle(
+          sortedCandles,
+          config,
+          state.openTrades.filter(t => t.symbol === symbol)
         );
 
-        if (newSignal && newSignal.direction) {
+        if (result.llmCalled) {
           llmCallsMade++;
+        }
+
+        if (result.trade) {
+          logger.info(LogCategory.AI_TRADING, `[Core] ✨ LLM found signal: ${result.trade.direction} ${symbol} (confidence: ${result.trade.confidence})`);
           triggersDetected++;
+
+          // Convert the result.trade to our signal format
+          const newSignal = {
+            symbol: result.trade.symbol,
+            direction: result.trade.direction,
+            entryPrice: result.trade.entryPrice,
+            stopLoss: result.trade.stopLoss,
+            takeProfit: result.trade.takeProfit,
+            positionSize: result.trade.positionSize,
+            confidence: result.trade.confidence,
+            reasoning: result.trade.reasoning,
+            triggerType: result.trade.triggerType
+          };
 
           const executed = await executeLiveTrade(newSignal, goalSessionId, userId, state);
           if (executed) {
             tradesExecuted++;
           }
+        } else {
+          logger.info(LogCategory.AI_TRADING, `[Core] 👀 LLM evaluated ${symbol} - no trade signal at this time`);
         }
       }
     }
@@ -253,6 +305,12 @@ export async function processGoalSessionIteration(
       })
       .eq('id', goalSessionId);
 
+    logger.info(LogCategory.AI_TRADING, `[Core] ✅ Iteration complete:`);
+    logger.info(LogCategory.AI_TRADING, `[Core]   - LLM calls made: ${llmCallsMade}`);
+    logger.info(LogCategory.AI_TRADING, `[Core]   - Triggers detected: ${triggersDetected}`);
+    logger.info(LogCategory.AI_TRADING, `[Core]   - Trades executed: ${tradesExecuted}`);
+    logger.info(LogCategory.AI_TRADING, `[Core]   - Current balance: $${state.currentBalance.toFixed(2)}`);
+
     return {
       success: true,
       message: 'Iteration complete',
@@ -332,6 +390,16 @@ export async function initializeGoalSession(
       currentBalance: parseFloat(goalSession.initial_balance || '1000') + parseFloat(goalSession.current_pnl || '0'),
       scanCount: 0
     };
+
+    // Log session configuration for diagnostics
+    logger.info(LogCategory.AI_TRADING, `[Core] 🎯 Session initialized: ${goalSessionId}`);
+    logger.info(LogCategory.AI_TRADING, `[Core]   - Status: ${goalSession.status}`);
+    logger.info(LogCategory.AI_TRADING, `[Core]   - Watchlist: ${state.watchlist.join(', ')}`);
+    logger.info(LogCategory.AI_TRADING, `[Core]   - Timeframe: ${state.timeframe}`);
+    logger.info(LogCategory.AI_TRADING, `[Core]   - Balance: $${state.currentBalance.toFixed(2)}`);
+    logger.info(LogCategory.AI_TRADING, `[Core]   - Open trades: ${openTrades.length}`);
+    logger.info(LogCategory.AI_TRADING, `[Core]   - Server enabled: ${goalSession.server_enabled}`);
+    logger.info(LogCategory.AI_TRADING, `[Core]   - Autonomous enabled: ${goalSession.autonomous_enabled}`);
 
     // Initialize LLM engine (pass client for server-side execution)
     await eventBasedLLMEngine.initialize(state.userId, goalSessionId, client);
