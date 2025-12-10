@@ -92,17 +92,18 @@ export function AnalysisPage() {
       // Fetch from goal_session_trades
       const { data: goalTradesData, error: goalTradesError } = await supabase
         .from('goal_session_trades')
-        .select('symbol, realized_pnl')
+        .select('symbol, profit_loss')
         .eq('user_id', user?.id)
         .eq('status', 'closed')
-        .not('closed_at', 'is', null);
+        .not('closed_at', 'is', null)
+        .not('profit_loss', 'is', null);
 
       if (goalTradesError) throw goalTradesError;
 
       // Combine both trade sources
       const allTrades = [
         ...(tradesData || []).map(t => ({ symbol: t.symbol, profit_loss: t.profit_loss })),
-        ...(goalTradesData || []).map(t => ({ symbol: t.symbol, profit_loss: t.realized_pnl }))
+        ...(goalTradesData || []).map(t => ({ symbol: t.symbol, profit_loss: t.profit_loss }))
       ];
 
       const symbolStats = allTrades.reduce((acc: any, trade) => {
