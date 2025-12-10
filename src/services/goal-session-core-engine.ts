@@ -150,7 +150,9 @@ export async function processGoalSessionIteration(
       }
 
       const maxConcurrentTrades = 3;
-      const allowNewTrades = goalSession.status === 'scanning' || goalSession.status === 'active';
+      const allowNewTrades = goalSession.status === 'scanning' ||
+                             goalSession.status === 'active' ||
+                             goalSession.status === 'initializing';
 
       logger.info(LogCategory.AI_TRADING, `[Core] Session status: ${goalSession.status}, Open trades: ${state.openTrades.length}/${maxConcurrentTrades}`);
 
