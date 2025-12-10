@@ -133,6 +133,9 @@ class GoalSessionManager {
           watchlist: config.watchlist ?? ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD'],
           end_time: endTime,
           next_scan_time: nextScanTime,
+          server_enabled: true,
+          autonomous_enabled: true,
+          execution_mode: 'server'
         })
         .select()
         .single();

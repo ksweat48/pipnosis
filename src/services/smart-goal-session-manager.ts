@@ -108,6 +108,9 @@ class SmartGoalSessionManager {
       start_time: session.startTime.toISOString(),
       end_time: endTime.toISOString(),
       next_scan_time: session.nextScanTime.toISOString(),
+      server_enabled: true,
+      autonomous_enabled: true,
+      execution_mode: 'server',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     });

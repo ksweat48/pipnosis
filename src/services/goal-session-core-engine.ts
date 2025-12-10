@@ -386,8 +386,8 @@ export async function initializeGoalSession(
       openTrades,
       lastProcessedCandleTime: goalSession.last_scan_time ? new Date(goalSession.last_scan_time) : null,
       sessionStartTime: new Date(goalSession.created_at),
-      initialBalance: parseFloat(goalSession.initial_balance || '1000'),
-      currentBalance: parseFloat(goalSession.initial_balance || '1000') + parseFloat(goalSession.current_pnl || '0'),
+      initialBalance: parseFloat(goalSession.starting_balance || '1000'),
+      currentBalance: parseFloat(goalSession.starting_balance || '1000') + parseFloat(goalSession.current_pnl || '0'),
       scanCount: 0
     };
 
