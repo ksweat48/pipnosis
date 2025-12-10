@@ -23,7 +23,9 @@ import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
 
-logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.ERROR);
+// 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
+logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
+console.log('%c[Goal Session Engine] 🔍 AI_TRADING logs set to INFO for autonomous debugging', 'color: #f59e0b; font-weight: bold');
 
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
@@ -390,12 +392,17 @@ class GoalSessionLiveEngine {
       };
 
       logger.debug(LogCategory.AI_TRADING, `🧠 Running Omega Council for ${marketStates.length} symbols...`);
+      console.log('%c[AUTONOMOUS ENGINE] 🔮 Calling Alpha+Omega Orchestrator...', 'color: #8b5cf6; font-weight: bold');
+      console.log('[AUTONOMOUS ENGINE] Market States:', marketStates.length);
+      console.log('[AUTONOMOUS ENGINE] Trader Score:', traderScore);
 
       const omegaDecisions = await alphaOmegaOrchestrator.evaluateMultipleSymbols(
         marketStates,
         traderScore,
         this.config.userId
       );
+
+      console.log('%c[AUTONOMOUS ENGINE] ✅ Omega decisions received:', 'color: #10b981; font-weight: bold', omegaDecisions.size);
 
       const bestSymbolResult = bestSymbolSelector.selectBestSymbol(
         tradeableSnapshots,
@@ -589,6 +596,13 @@ class GoalSessionLiveEngine {
    */
   private async processCandleAutonomous(): Promise<void> {
     try {
+      // 🚨 EMERGENCY DIAGNOSTICS
+      console.log('%c[AUTONOMOUS ENGINE] 🔍 Cycle starting...', 'color: #10b981; font-weight: bold; font-size: 14px');
+      console.log('[AUTONOMOUS ENGINE] Session ID:', this.activeSession);
+      console.log('[AUTONOMOUS ENGINE] Open Trades:', this.openTrades.length);
+      console.log('[AUTONOMOUS ENGINE] Max Concurrent:', this.config.maxConcurrentTrades);
+      console.log('[AUTONOMOUS ENGINE] Allow New Trades:', this.allowNewTrades);
+
       // CHECK: Is session awaiting user continuation?
       const { data: sessionCheck } = await supabase
         .from('goal_sessions')
@@ -596,8 +610,11 @@ class GoalSessionLiveEngine {
         .eq('id', this.activeSession)
         .single();
 
+      console.log('[AUTONOMOUS ENGINE] Awaiting continuation?', sessionCheck?.awaiting_user_continuation);
+
       if (sessionCheck?.awaiting_user_continuation) {
         logger.debug(LogCategory.AI_TRADING, '⏸️ Awaiting user continuation - not scanning for new trades');
+        console.log('%c[AUTONOMOUS ENGINE] ⏸️ BLOCKED: Awaiting user continuation', 'color: #f59e0b; font-weight: bold');
         // Still monitor open positions
         const watchlist = this.config.watchlist || getDefaultWatchlist();
         const symbol = this.config.symbol || watchlist[0];
@@ -618,14 +635,20 @@ class GoalSessionLiveEngine {
       const watchlist = this.config.watchlist || getDefaultWatchlist();
       const useMultiSymbolMode = watchlist.length > 1;
 
+      console.log('[AUTONOMOUS ENGINE] Watchlist:', watchlist);
+      console.log('[AUTONOMOUS ENGINE] Multi-symbol mode?', useMultiSymbolMode);
+
       if (useMultiSymbolMode) {
         // Double-check before expensive multi-symbol scan
         if (this.openTrades.length >= this.config.maxConcurrentTrades) {
           logger.debug(LogCategory.AI_TRADING, 'Max trades reached, monitoring only');
+          console.log('%c[AUTONOMOUS ENGINE] ⏸️ BLOCKED: Max trades reached', 'color: #f59e0b; font-weight: bold');
           return;
         }
+        console.log('%c[AUTONOMOUS ENGINE] 🔮 Starting multi-symbol scan...', 'color: #10b981; font-weight: bold');
         logger.debug(LogCategory.AI_TRADING, `🔍 Evaluating ${watchlist.length} symbols...`);
         await this.processMultiSymbolCycle(watchlist);
+        console.log('%c[AUTONOMOUS ENGINE] ✅ Multi-symbol scan complete', 'color: #10b981; font-weight: bold');
         return;
       }
 
