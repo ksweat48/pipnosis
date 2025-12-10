@@ -273,9 +273,13 @@ export async function processGoalSessionIteration(
 /**
  * Initialize a goal session for processing
  */
-export async function initializeGoalSession(goalSessionId: string): Promise<GoalSessionState | null> {
+export async function initializeGoalSession(
+  goalSessionId: string,
+  supabaseClient?: any
+): Promise<GoalSessionState | null> {
   try {
-    const { data: goalSession, error } = await supabase
+    const client = supabaseClient || supabase;
+    const { data: goalSession, error } = await client
       .from('goal_sessions')
       .select('*')
       .eq('id', goalSessionId)
@@ -287,7 +291,7 @@ export async function initializeGoalSession(goalSessionId: string): Promise<Goal
     }
 
     // Get open trades from database
-    const { data: positions } = await supabase
+    const { data: positions } = await client
       .from('simulated_positions')
       .select('*')
       .eq('goal_session_id', goalSessionId)

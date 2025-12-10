@@ -67,8 +67,8 @@ export const handler: Handler = async (event, context) => {
           p_instance_id: 'netlify-autonomous-monitor'
         });
 
-        // Initialize or load session state
-        const state = await initializeGoalSession(session.session_id);
+        // Initialize or load session state (pass supabase client for server-side execution)
+        const state = await initializeGoalSession(session.session_id, supabase);
 
         if (!state) {
           console.error(`[Autonomous Monitor] Failed to initialize session ${session.session_id}`);
