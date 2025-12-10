@@ -85,15 +85,18 @@ interface IndicatorPreferencesCache {
 
 const STORAGE_KEY = 'pipnosis_chart_preferences';
 const INDICATOR_STORAGE_KEY = 'pipnosis_indicator_preferences';
+const SELECTED_SYMBOL_KEY = 'pipnosis_selected_symbol';
 
 class ChartPreferencesService {
   private preferences: ChartPreferences = {};
   private indicatorCache: IndicatorPreferencesCache = { global: null };
   private userId: string | null = null;
+  private selectedSymbol: string = 'EURUSD';
 
   constructor() {
     this.loadPreferences();
     this.loadIndicatorPreferencesFromLocalStorage();
+    this.loadSelectedSymbol();
     this.initializeUser();
   }
 
@@ -314,6 +317,36 @@ class ChartPreferencesService {
   clearIndicatorCache(): void {
     this.indicatorCache = { global: null };
     localStorage.removeItem(INDICATOR_STORAGE_KEY);
+  }
+
+  private loadSelectedSymbol(): void {
+    try {
+      const stored = localStorage.getItem(SELECTED_SYMBOL_KEY);
+      if (stored) {
+        this.selectedSymbol = stored;
+      }
+    } catch (error) {
+      console.error('Failed to load selected symbol:', error);
+      this.selectedSymbol = 'EURUSD';
+    }
+  }
+
+  getSelectedSymbol(): string {
+    return this.selectedSymbol;
+  }
+
+  setSelectedSymbol(symbol: string): void {
+    this.selectedSymbol = symbol;
+    try {
+      localStorage.setItem(SELECTED_SYMBOL_KEY, symbol);
+    } catch (error) {
+      console.error('Failed to save selected symbol:', error);
+    }
+  }
+
+  clearSelectedSymbol(): void {
+    this.selectedSymbol = 'EURUSD';
+    localStorage.removeItem(SELECTED_SYMBOL_KEY);
   }
 }
 

@@ -1,16 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { MarketChart } from '@/components/MarketChart';
 import { supabase } from '@/lib/supabase';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { chartPreferencesService } from '@/services/chart-preferences';
+import { RefreshCw } from 'lucide-react';
+import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 
 export function TradePage() {
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('EURUSD');
+  const [selectedSymbol, setSelectedSymbol] = useState<string>(() => chartPreferencesService.getSelectedSymbol());
   const [tradeLines, setTradeLines] = useState<{
     entry?: number;
     stopLoss?: number;
     takeProfit?: number;
   }>({});
+
+  // Handle symbol change with persistence
+  const handleSymbolChange = useCallback((symbol: string) => {
+    setSelectedSymbol(symbol);
+    chartPreferencesService.setSelectedSymbol(symbol);
+  }, []);
+
+  // Pull-to-refresh functionality
+  const pullToRefresh = usePullToRefresh({
+    onRefresh: async () => {
+      window.location.reload();
+    },
+    enabled: true
+  });
 
   // Fetch open trades for current symbol and display TP/SL lines on chart
   useEffect(() => {
@@ -74,13 +92,20 @@ export function TradePage() {
   }, [selectedSymbol]);
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-gray-950 flex flex-col">
+    <div ref={pullToRefresh.containerRef} className="h-screen w-screen overflow-hidden bg-gray-950 flex flex-col">
+      <PullToRefreshIndicator
+        isPulling={pullToRefresh.isPulling}
+        isRefreshing={pullToRefresh.isRefreshing}
+        pullDistance={pullToRefresh.pullDistance}
+        threshold={pullToRefresh.threshold}
+      />
+
       <NavigationMenu />
 
       <div className="flex-1 overflow-hidden">
         <MarketChart
           symbol={selectedSymbol}
-          onSymbolChange={setSelectedSymbol}
+          onSymbolChange={handleSymbolChange}
           tradeLines={tradeLines}
         />
       </div>

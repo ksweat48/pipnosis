@@ -7,6 +7,8 @@
 import React, { useState } from 'react';
 import { OptimizedCandleDemo } from '@/components/OptimizedCandleDemo';
 import { Timeframe } from '@/services/chart-preferences';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { Zap, TrendingUp, AlertCircle } from 'lucide-react';
 
 const SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US30'];
@@ -17,8 +19,21 @@ export default function OptimizedCandleTestPage() {
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('M5');
   const [multiTabTest, setMultiTabTest] = useState(false);
 
+  const pullToRefresh = usePullToRefresh({
+    onRefresh: async () => {
+      window.location.reload();
+    },
+    enabled: true
+  });
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div ref={pullToRefresh.containerRef} className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <PullToRefreshIndicator
+        isPulling={pullToRefresh.isPulling}
+        isRefreshing={pullToRefresh.isRefreshing}
+        pullDistance={pullToRefresh.pullDistance}
+        threshold={pullToRefresh.threshold}
+      />
       {/* Header */}
       <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white">
         <div className="container mx-auto px-4 py-8">
