@@ -67,7 +67,7 @@ export const SmartGoalPanel: React.FC = () => {
         const { data, error } = await supabase
           .from('user_profiles')
           .select('trading_preferences')
-          .eq('user_id', user.id)
+          .eq('id', user.id)
           .maybeSingle();
 
         if (error) {
