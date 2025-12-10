@@ -35,17 +35,17 @@ import {
 interface Position {
   id: string;
   symbol: string;
-  position_type: 'buy' | 'sell';
-  order_type: 'market' | 'limit';
-  lot_size: number;
-  entry_price: number | null;
-  limit_price: number | null;
-  stop_loss: number;
-  take_profit: number;
+  positionType: 'buy' | 'sell';
+  orderType: 'market' | 'limit';
+  lotSize: number;
+  entryPrice: number | null;
+  limitPrice: number | null;
+  stopLoss: number;
+  takeProfit: number;
   status: 'pending' | 'open' | 'closed';
-  current_price: number | null;
-  current_pnl: number;
-  opened_at: string;
+  currentPrice: number | null;
+  currentPnl: number;
+  openedAt: string;
 }
 
 interface RecentTrade {
@@ -119,12 +119,12 @@ export function PositionsPage() {
   const isValidPosition = (position: Position): boolean => {
     return !!(
       position.symbol &&
-      position.entry_price !== null &&
-      position.entry_price > 0 &&
-      position.lot_size > 0 &&
-      !isNaN(position.lot_size) &&
-      position.stop_loss > 0 &&
-      position.take_profit > 0
+      position.entryPrice !== null &&
+      position.entryPrice > 0 &&
+      position.lotSize > 0 &&
+      !isNaN(position.lotSize) &&
+      position.stopLoss > 0 &&
+      position.takeProfit > 0
     );
   };
 
@@ -149,10 +149,10 @@ export function PositionsPage() {
         for (const invalid of open.filter(p => !isValidPosition(p))) {
           console.warn('Corrupted position:', invalid.id, {
             symbol: invalid.symbol,
-            entry: invalid.entry_price,
-            lots: invalid.lot_size,
-            sl: invalid.stop_loss,
-            tp: invalid.take_profit
+            entry: invalid.entryPrice,
+            lots: invalid.lotSize,
+            sl: invalid.stopLoss,
+            tp: invalid.takeProfit
           });
         }
       }
@@ -240,19 +240,19 @@ export function PositionsPage() {
   };
 
   const calculateCurrentPnL = (position: Position): number => {
-    if (!livePrices[position.symbol] || !position.entry_price) {
-      return position.current_pnl || 0;
+    if (!livePrices[position.symbol] || !position.entryPrice) {
+      return position.currentPnl || 0;
     }
 
-    const currentPrice = position.position_type === 'buy'
+    const currentPrice = position.positionType === 'buy'
       ? livePrices[position.symbol].bid
       : livePrices[position.symbol].ask;
 
     return calculatePnL(
-      position.position_type,
-      position.entry_price,
+      position.positionType,
+      position.entryPrice,
       currentPrice,
-      position.lot_size
+      position.lotSize
     ) || 0;
   };
 
@@ -261,7 +261,7 @@ export function PositionsPage() {
     let pnl = calculateCurrentPnL(position);
 
     if (livePrices[position.symbol]) {
-      currentPrice = position.position_type === 'buy'
+      currentPrice = position.positionType === 'buy'
         ? livePrices[position.symbol].bid
         : livePrices[position.symbol].ask;
     } else {
@@ -273,12 +273,12 @@ export function PositionsPage() {
         .limit(1)
         .maybeSingle();
 
-      currentPrice = data ? parseFloat(data.close) : (position.current_price || position.entry_price || 0);
+      currentPrice = data ? parseFloat(data.close) : (position.currentPrice || position.entryPrice || 0);
     }
 
     const confirmed = await confirm({
       title: 'Close Position',
-      message: `Close ${(position.position_type || 'buy').toUpperCase()} ${position.symbol} ${position.lot_size} lots?\nCurrent P&L: $${pnl.toFixed(2)}`,
+      message: `Close ${(position.positionType || 'buy').toUpperCase()} ${position.symbol} ${position.lotSize} lots?\nCurrent P&L: $${pnl.toFixed(2)}`,
       confirmText: 'Close',
       cancelText: 'Cancel',
       variant: pnl >= 0 ? 'info' : 'warning'
@@ -329,10 +329,10 @@ export function PositionsPage() {
     for (const position of openPositions) {
       try {
         const currentPrice = livePrices[position.symbol]
-          ? (position.position_type === 'buy'
+          ? (position.positionType === 'buy'
               ? livePrices[position.symbol].bid
               : livePrices[position.symbol].ask)
-          : (position.current_price || position.entry_price || 0);
+          : (position.currentPrice || position.entryPrice || 0);
 
         const result = await positionService.closePosition(
           position.id,
@@ -385,10 +385,10 @@ export function PositionsPage() {
 
     for (const position of winningPositions) {
       const currentPrice = livePrices[position.symbol]
-        ? (position.position_type === 'buy'
+        ? (position.positionType === 'buy'
             ? livePrices[position.symbol].bid
             : livePrices[position.symbol].ask)
-        : (position.current_price || position.entry_price || 0);
+        : (position.currentPrice || position.entryPrice || 0);
 
       await positionService.closePosition(position.id, currentPrice, 'manual');
     }
@@ -478,11 +478,11 @@ export function PositionsPage() {
         case 'pnl':
           return calculateCurrentPnL(b) - calculateCurrentPnL(a);
         case 'duration':
-          return new Date(a.opened_at).getTime() - new Date(b.opened_at).getTime();
+          return new Date(a.openedAt).getTime() - new Date(b.openedAt).getTime();
         case 'symbol':
           return a.symbol.localeCompare(b.symbol);
         case 'size':
-          return b.lot_size - a.lot_size;
+          return b.lotSize - a.lotSize;
         default:
           return 0;
       }
@@ -702,21 +702,21 @@ export function PositionsPage() {
                     {filteredPositions.map((position) => {
                       const currentPnL = calculateCurrentPnL(position);
                       const currentPrice = livePrices[position.symbol]
-                        ? (position.position_type === 'buy'
+                        ? (position.positionType === 'buy'
                             ? livePrices[position.symbol].bid
                             : livePrices[position.symbol].ask)
-                        : position.current_price;
+                        : position.currentPrice;
 
-                      const pnlPercent = position.entry_price
-                        ? ((currentPnL / (position.entry_price * position.lot_size * 100000)) * 100)
+                      const pnlPercent = position.entryPrice
+                        ? ((currentPnL / (position.entryPrice * position.lotSize * 100000)) * 100)
                         : 0;
 
-                      const distanceToSL = position.entry_price && currentPrice && position.symbol
-                        ? Math.abs(currentPrice - position.stop_loss) * (position.symbol.includes('JPY') ? 100 : 10000)
+                      const distanceToSL = position.entryPrice && currentPrice && position.symbol
+                        ? Math.abs(currentPrice - position.stopLoss) * (position.symbol.includes('JPY') ? 100 : 10000)
                         : 0;
 
-                      const distanceToTP = position.entry_price && currentPrice && position.symbol
-                        ? Math.abs(currentPrice - position.take_profit) * (position.symbol.includes('JPY') ? 100 : 10000)
+                      const distanceToTP = position.entryPrice && currentPrice && position.symbol
+                        ? Math.abs(currentPrice - position.takeProfit) * (position.symbol.includes('JPY') ? 100 : 10000)
                         : 0;
 
                       return (
@@ -726,7 +726,7 @@ export function PositionsPage() {
                         >
                           <div className="flex items-start justify-between mb-3 sm:mb-4">
                             <div className="flex items-center gap-2 sm:gap-3">
-                              {position.position_type === 'buy' ? (
+                              {position.positionType === 'buy' ? (
                                 <div className="p-1.5 sm:p-2 bg-green-900/30 rounded">
                                   <TrendingUp className="w-4 h-4 sm:w-6 sm:h-6 text-green-400" />
                                 </div>
@@ -739,15 +739,15 @@ export function PositionsPage() {
                                 <div className="flex items-center gap-1.5 sm:gap-2">
                                   <span className="text-base sm:text-xl font-bold text-white">{position.symbol}</span>
                                   <span className={`px-1.5 sm:px-2 py-0.5 rounded text-xs font-semibold ${
-                                    position.position_type === 'buy'
+                                    position.positionType === 'buy'
                                       ? 'bg-green-900/30 text-green-400'
                                       : 'bg-red-900/30 text-red-400'
                                   }`}>
-                                    {(position.position_type || 'buy').toUpperCase()}
+                                    {(position.positionType || 'buy').toUpperCase()}
                                   </span>
                                 </div>
                                 <div className="text-xs sm:text-sm text-gray-400 mt-1">
-                                  {position.lot_size} lots • {getDuration(position.opened_at)}
+                                  {position.lotSize} lots • {getDuration(position.openedAt)}
                                 </div>
                               </div>
                             </div>
@@ -764,7 +764,7 @@ export function PositionsPage() {
                           <div className="grid grid-cols-2 md:grid-cols-5 gap-2 sm:gap-4 mb-3 sm:mb-4">
                             <div>
                               <div className="text-xs text-gray-500 mb-1">Entry</div>
-                              <div className="text-white font-medium text-xs sm:text-sm truncate">{formatPrice(position.entry_price, position.symbol)}</div>
+                              <div className="text-white font-medium text-xs sm:text-sm truncate">{formatPrice(position.entryPrice, position.symbol)}</div>
                             </div>
                             <div>
                               <div className="text-xs text-gray-500 mb-1">Current</div>
@@ -772,17 +772,17 @@ export function PositionsPage() {
                             </div>
                             <div>
                               <div className="text-xs text-gray-500 mb-1">Stop Loss</div>
-                              <div className="text-yellow-400 font-medium text-xs sm:text-sm truncate">{formatPrice(position.stop_loss, position.symbol)}</div>
+                              <div className="text-yellow-400 font-medium text-xs sm:text-sm truncate">{formatPrice(position.stopLoss, position.symbol)}</div>
                               <div className="text-xs text-gray-600">{distanceToSL.toFixed(1)}p</div>
                             </div>
                             <div>
                               <div className="text-xs text-gray-500 mb-1">Take Profit</div>
-                              <div className="text-green-400 font-medium text-xs sm:text-sm truncate">{formatPrice(position.take_profit, position.symbol)}</div>
+                              <div className="text-green-400 font-medium text-xs sm:text-sm truncate">{formatPrice(position.takeProfit, position.symbol)}</div>
                               <div className="text-xs text-gray-600">{distanceToTP.toFixed(1)}p</div>
                             </div>
                             <div className="hidden md:block">
                               <div className="text-xs text-gray-500 mb-1">Opened</div>
-                              <div className="text-white font-medium text-sm">{formatDateTime(position.opened_at)}</div>
+                              <div className="text-white font-medium text-sm">{formatDateTime(position.openedAt)}</div>
                             </div>
                           </div>
 
@@ -818,11 +818,11 @@ export function PositionsPage() {
                   <div className="p-3 sm:p-4 space-y-3">
                     {pendingOrders.map((order) => {
                       const currentPrice = livePrices[order.symbol];
-                      const distanceToPips = currentPrice && order.limit_price && order.symbol
+                      const distanceToPips = currentPrice && order.limitPrice && order.symbol
                         ? Math.abs(
-                            (order.position_type === 'buy'
-                              ? currentPrice.ask - order.limit_price
-                              : order.limit_price - currentPrice.bid) *
+                            (order.positionType === 'buy'
+                              ? currentPrice.ask - order.limitPrice
+                              : order.limitPrice - currentPrice.bid) *
                             (order.symbol.includes('JPY') ? 100 : 10000)
                           ).toFixed(1)
                         : null;
@@ -841,15 +841,15 @@ export function PositionsPage() {
                                 <div className="flex items-center gap-2">
                                   <span className="text-xl font-bold text-white">{order.symbol}</span>
                                   <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                    order.position_type === 'buy'
+                                    order.positionType === 'buy'
                                       ? 'bg-green-900/20 text-green-400'
                                       : 'bg-red-900/20 text-red-400'
                                   }`}>
-                                    {(order.position_type || 'buy').toUpperCase()} LIMIT
+                                    {(order.positionType || 'buy').toUpperCase()} LIMIT
                                   </span>
                                 </div>
                                 <div className="text-sm text-gray-400 mt-1">
-                                  {order.lot_size} lots
+                                  {order.lotSize} lots
                                 </div>
                               </div>
                             </div>
@@ -864,14 +864,14 @@ export function PositionsPage() {
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
                             <div>
                               <div className="text-xs text-gray-500 mb-1">Limit Price</div>
-                              <div className="text-yellow-400 font-medium">{formatPrice(order.limit_price, order.symbol)}</div>
+                              <div className="text-yellow-400 font-medium">{formatPrice(order.limitPrice, order.symbol)}</div>
                             </div>
                             {currentPrice && (
                               <div>
                                 <div className="text-xs text-gray-500 mb-1">Current Price</div>
                                 <div className="text-white font-medium">
                                   {formatPrice(
-                                    order.position_type === 'buy' ? currentPrice.ask : currentPrice.bid,
+                                    order.positionType === 'buy' ? currentPrice.ask : currentPrice.bid,
                                     order.symbol
                                   )}
                                 </div>
@@ -885,7 +885,7 @@ export function PositionsPage() {
                             )}
                             <div>
                               <div className="text-xs text-gray-500 mb-1">Stop Loss</div>
-                              <div className="text-yellow-400 font-medium">{formatPrice(order.stop_loss, order.symbol)}</div>
+                              <div className="text-yellow-400 font-medium">{formatPrice(order.stopLoss, order.symbol)}</div>
                             </div>
                           </div>
                         </div>

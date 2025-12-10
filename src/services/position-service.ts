@@ -177,10 +177,10 @@ class PositionService {
         console.log('[PositionService] First converted position:', {
           id: positions[0].id,
           symbol: positions[0].symbol,
-          position_type: positions[0].position_type,
-          entry_price: positions[0].entry_price,
-          lot_size: positions[0].lot_size,
-          current_pnl: positions[0].current_pnl
+          positionType: positions[0].positionType,
+          entryPrice: positions[0].entryPrice,
+          lotSize: positions[0].lotSize,
+          currentPnl: positions[0].currentPnl
         });
       }
 

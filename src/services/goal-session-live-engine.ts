@@ -495,6 +495,25 @@ class GoalSessionLiveEngine {
         this.openTrades.push(trade);
         logger.debug(LogCategory.AI_TRADING, `Trade ${this.openTrades.length}/${this.config.maxConcurrentTrades} added with DB ID: ${trade.id}`);
         logger.info(LogCategory.AI_TRADING, `✅ Trade executed: ${selectedSymbol} ${trade.direction} @ ${trade.entryPrice} (confidence: ${trade.confidence}%)`);
+
+        // If max trades reached, pause scanning to await user continuation
+        if (this.openTrades.length >= this.config.maxConcurrentTrades) {
+          logger.info(LogCategory.AI_TRADING, '🛑 Max trades reached - setting session to await user continuation');
+          await supabase
+            .from('goal_sessions')
+            .update({ awaiting_user_continuation: true })
+            .eq('id', this.activeSession);
+
+          await this.sendAIMessage(
+            `✅ Trade executed successfully!\n\n` +
+            `🎯 Position opened: ${selectedSymbol} ${decision.action}\n` +
+            `💰 Entry: ${decision.entry.toFixed(5)} | SL: ${decision.stopLoss.toFixed(5)} | TP: ${decision.takeProfit.toFixed(5)}\n\n` +
+            `⏸️ Pausing new scans to monitor this position.\n` +
+            `I'll continue watching price action and alert you to any important developments.\n\n` +
+            `Click "Continue" when ready to look for the next trade.`
+          );
+          return; // Exit early to prevent the summary message below
+        }
       } else {
         logger.error(LogCategory.AI_TRADING, `❌ Trade execution failed: ${executionResult.message}`);
       }
