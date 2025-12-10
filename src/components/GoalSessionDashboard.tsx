@@ -475,13 +475,13 @@ export const GoalSessionDashboard: React.FC = () => {
               </div>
             </div>
           ) : continuationData?.isAwaiting ? (
-            <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-4 text-purple-200">
+            <div className="bg-amber-900/20 border border-amber-500/30 rounded-lg p-4 text-amber-200">
               <div className="flex items-center gap-2">
                 <Pause className="w-5 h-5" />
-                <span>Monitoring open position - Scanning paused</span>
+                <span>Trade closed - Decision required</span>
               </div>
-              <div className="mt-2 text-xs text-purple-200/70">
-                Review your trade results to decide whether to continue scanning
+              <div className="mt-2 text-xs text-amber-200/70">
+                Your trade has closed. Review the dialog below to continue, wait, or stop.
               </div>
             </div>
           ) : (

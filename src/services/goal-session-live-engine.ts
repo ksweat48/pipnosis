@@ -539,29 +539,16 @@ class GoalSessionLiveEngine {
               logger.debug(LogCategory.AI_TRADING, `✅ Trade counter updated: ${newTradeCount} (multi-trade: ${multiTradeEnabled})`);
             }
 
-            // If max trades reached AND multi-trade is DISABLED, pause scanning
+            // If max trades reached AND multi-trade is DISABLED, just monitor (don't show dialog yet)
             if (this.openTrades.length >= this.config.maxConcurrentTrades && !multiTradeEnabled) {
-              logger.info(LogCategory.AI_TRADING, '🛑 Max trades reached in single-trade mode - setting session to await user continuation');
-
-              const { error: continuationError } = await supabase
-                .from('goal_sessions')
-                .update({
-                  awaiting_user_continuation: true,
-                  continuation_prompt: `Trade #${newTradeCount} executed on ${selectedSymbol}. Position is now open and being monitored.`
-                })
-                .eq('id', this.activeSession);
-
-              if (continuationError) {
-                logger.error(LogCategory.AI_TRADING, 'Failed to set awaiting_user_continuation', { continuationError });
-              }
+              logger.info(LogCategory.AI_TRADING, '🛑 Max trades reached in single-trade mode - monitoring position');
 
               await this.sendAIMessage(
                 `✅ Trade executed successfully!\n\n` +
                 `🎯 Position opened: ${selectedSymbol} ${decision.action}\n` +
                 `💰 Entry: ${decision.entry.toFixed(5)} | SL: ${decision.stopLoss.toFixed(5)} | TP: ${decision.takeProfit.toFixed(5)}\n\n` +
-                `⏸️ Pausing new scans to monitor this position.\n` +
-                `I'll continue watching price action and alert you to any important developments.\n\n` +
-                `Click "Continue" when ready to look for the next trade.`
+                `👀 Now monitoring this position until it hits TP or SL.\n` +
+                `I'll let you know when it closes and we can decide on next steps.`
               );
               return; // Exit early to prevent the summary message below
             }
@@ -1372,6 +1359,96 @@ Your decision keeps you in control of your risk and prevents runaway trading.
 
     // Update goal progress after trade closure
     await this.updateGoalProgress();
+
+    // CRITICAL: Check if we should show continuation dialog (single-trade mode only)
+    await this.checkContinuationAfterTradeClose(trade);
+  }
+
+  /**
+   * Check if continuation dialog should be shown after trade closes
+   * Only in single-trade mode and only if goal is NOT met
+   */
+  private async checkContinuationAfterTradeClose(trade: SimulatedTrade): Promise<void> {
+    try {
+      // Fetch current session data
+      const { data: session, error: sessionError } = await supabase
+        .from('goal_sessions')
+        .select('multi_trade_enabled, current_progress, target_value, trades_in_session')
+        .eq('id', this.activeSession)
+        .single();
+
+      if (sessionError || !session) {
+        logger.error(LogCategory.AI_TRADING, 'Failed to fetch session for continuation check', { sessionError });
+        return;
+      }
+
+      // If multi-trade mode enabled, don't show dialog
+      if (session.multi_trade_enabled) {
+        logger.info(LogCategory.AI_TRADING, '✅ Multi-trade mode enabled - continuing to scan automatically');
+        return;
+      }
+
+      // Check if goal is met
+      const currentProgress = session.current_progress || 0;
+      const targetValue = session.target_value || 0;
+      const goalMet = currentProgress >= targetValue;
+
+      if (goalMet) {
+        // Goal achieved! Celebrate and close session
+        logger.info(LogCategory.AI_TRADING, '🎉 GOAL ACHIEVED! Stopping session');
+
+        await supabase
+          .from('goal_sessions')
+          .update({
+            status: 'goal_achieved',
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', this.activeSession);
+
+        await this.sendAIMessage(
+          `🎉🎉🎉 GOAL ACHIEVED! 🎉🎉🎉\n\n` +
+          `💰 Target: $${targetValue.toFixed(2)}\n` +
+          `✅ Achieved: $${currentProgress.toFixed(2)}\n\n` +
+          `🏆 Congratulations! Your goal session is complete!`
+        );
+
+        // Stop the session
+        this.stopSession();
+        return;
+      }
+
+      // Goal NOT met - show continuation dialog in single-trade mode
+      const remainingAmount = targetValue - currentProgress;
+      const isWin = trade.outcome === 'win';
+      const outcome = isWin ? 'WIN' : 'LOSS';
+      const emoji = isWin ? '✅' : '❌';
+
+      const continuationPrompt =
+        `${emoji} Trade #${session.trades_in_session} closed with ${outcome}\n\n` +
+        `💰 P&L: ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}\n` +
+        `📊 Progress: $${currentProgress.toFixed(2)} / $${targetValue.toFixed(2)}\n` +
+        `🎯 Remaining: $${remainingAmount.toFixed(2)} to goal\n\n` +
+        `Would you like to continue scanning for another trade?`;
+
+      // Set awaiting_user_continuation flag
+      const { error: updateError } = await supabase
+        .from('goal_sessions')
+        .update({
+          awaiting_user_continuation: true,
+          continuation_prompt: continuationPrompt
+        })
+        .eq('id', this.activeSession);
+
+      if (updateError) {
+        logger.error(LogCategory.AI_TRADING, 'Failed to set awaiting_user_continuation', { updateError });
+      } else {
+        logger.info(LogCategory.AI_TRADING, '🛑 Single-trade mode: Trade closed, awaiting user decision');
+      }
+
+    } catch (error) {
+      console.error('[Goal Live Engine] Error checking continuation after trade close:', error);
+      logger.error(LogCategory.AI_TRADING, 'Error in checkContinuationAfterTradeClose', { error });
+    }
   }
 
   /**
