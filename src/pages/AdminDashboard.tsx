@@ -30,10 +30,12 @@ import {
   Pause,
   CheckCircle,
   AlertCircle,
-  Clock
+  Clock,
+  Users
 } from 'lucide-react';
+import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
 
-type AdminTab = 'overview' | 'data' | 'api-usage' | 'settings';
+type AdminTab = 'overview' | 'data' | 'api-usage' | 'settings' | 'users';
 
 interface AIMetrics {
   skillLevel: number;
@@ -255,6 +257,17 @@ export function AdminDashboard() {
             <Settings size={18} />
             Settings
           </button>
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+              activeTab === 'users'
+                ? 'bg-amber-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            <Users size={18} />
+            Users
+          </button>
         </div>
 
         {activeTab === 'overview' && (
@@ -413,6 +426,12 @@ export function AdminDashboard() {
             <p className="text-gray-400">
               Advanced system settings and configuration options coming soon
             </p>
+          </div>
+        )}
+
+        {activeTab === 'users' && (
+          <div className="space-y-6">
+            <UserManagementPanel />
           </div>
         )}
       </main>
