@@ -15,7 +15,7 @@ import { midTradeTriggerDetector, type MarketConditions } from './mid-trade-trig
 import { llmMidTradeEvaluator } from './llm-mid-trade-evaluator';
 import { logger, LogCategory, LogLevel } from '../lib/logger';
 import { openAIClient } from './openai-client';
-import { normalizeTimeframeToDb } from './chart-preferences';
+import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 import { multiSymbolScanner } from './multi-symbol-scanner';
 import { multiSymbolSnapshotBuilder, type SymbolSnapshot } from './multi-symbol-snapshot-builder';
 import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';

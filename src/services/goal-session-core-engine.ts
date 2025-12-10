@@ -13,7 +13,7 @@ import { tradeExecutionEngine } from './trade-execution-engine';
 import { midTradeTriggerDetector, type MarketConditions } from './mid-trade-trigger-detector';
 import { llmMidTradeEvaluator } from './llm-mid-trade-evaluator';
 import { logger, LogCategory } from '../lib/logger';
-import { normalizeTimeframeToDb } from './chart-preferences';
+import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 
 export interface GoalSessionProcessResult {
   success: boolean;

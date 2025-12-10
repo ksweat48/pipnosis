@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { normalizeTimeframeToDb } from './chart-preferences';
+import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 
 export interface ScanTriggerResult {
   success: boolean;

@@ -4,7 +4,7 @@ import { goalSessionManager } from './goal-session-manager';
 import { tradeExecutionEngine } from './trade-execution-engine';
 import { eventBasedLLMEngine } from './event-based-llm-engine';
 import { llmContextEnricher } from './llm-context-enricher';
-import { normalizeTimeframeToDb } from './chart-preferences';
+import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 import { calculatePositionSize, getCurrencyPipInfo, calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
 import { positionSafetyValidator } from './position-safety-validator';
 import { getDefaultWatchlist } from '../config/watchlist';
