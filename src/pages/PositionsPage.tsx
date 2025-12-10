@@ -142,19 +142,46 @@ export function PositionsPage() {
   };
 
   const fetchRecentTrades = async (userId: string): Promise<RecentTrade[]> => {
-    const { data, error } = await supabase
-      .from('trade_history')
-      .select('*')
-      .eq('user_id', userId)
-      .order('closed_at', { ascending: false })
-      .limit(10);
+    // Fetch from both trade_history AND goal_session_trades (closed)
+    const [tradeHistoryResult, goalTradesResult] = await Promise.all([
+      supabase
+        .from('trade_history')
+        .select('*')
+        .eq('user_id', userId)
+        .order('closed_at', { ascending: false })
+        .limit(10),
+      supabase
+        .from('goal_session_trades')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'closed')
+        .order('closed_at', { ascending: false })
+        .limit(10)
+    ]);
 
-    if (error) {
-      console.error('Failed to fetch recent trades:', error);
-      return [];
-    }
+    const tradeHistoryData = tradeHistoryResult.data || [];
+    const goalTradesData = (goalTradesResult.data || []).map((trade: any) => ({
+      id: trade.id,
+      user_id: userId,
+      symbol: trade.symbol,
+      direction: trade.direction,
+      lot_size: parseFloat(trade.position_size) || 0,
+      entry_price: parseFloat(trade.entry_price),
+      exit_price: parseFloat(trade.exit_price),
+      stop_loss: parseFloat(trade.stop_loss),
+      take_profit: parseFloat(trade.take_profit),
+      profit_loss: parseFloat(trade.profit_loss),
+      opened_at: trade.opened_at,
+      closed_at: trade.closed_at,
+      close_reason: trade.close_reason || 'unknown'
+    }));
 
-    return data || [];
+    // Combine and sort by closed_at
+    const allTrades = [...tradeHistoryData, ...goalTradesData]
+      .sort((a, b) => new Date(b.closed_at).getTime() - new Date(a.closed_at).getTime())
+      .slice(0, 10);
+
+    return allTrades;
   };
 
   const fetchGoalModePositions = async (userId: string): Promise<Position[]> => {
