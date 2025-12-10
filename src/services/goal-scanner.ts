@@ -8,6 +8,7 @@ import { normalizeTimeframeToDb } from './chart-preferences';
 import { calculatePositionSize, getCurrencyPipInfo, calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
 import { positionSafetyValidator } from './position-safety-validator';
 import { getDefaultWatchlist } from '../config/watchlist';
+import { getRiskPercentage } from '../config/risk-levels';
 
 export interface ScanResult {
   symbol: string;
@@ -341,12 +342,7 @@ class GoalScanner {
 
     // CRITICAL FIX: Use proper position sizing formula
     const balance = sessionConfig.starting_balance || 10000;
-    const riskPercentages = {
-      low: 3,
-      medium: 5,
-      high: 10,
-    };
-    const riskPercent = riskPercentages[sessionConfig.risk_mode as keyof typeof riskPercentages] || 5;
+    const riskPercent = getRiskPercentage(sessionConfig.risk_mode);
 
     // Calculate position size using CORRECT formula
     let positionSize = calculatePositionSize(
@@ -487,13 +483,7 @@ class GoalScanner {
 
   calculateRiskAmount(sessionConfig: any): number {
     const balance = sessionConfig.starting_balance;
-    const riskPercentages = {
-      low: 0.03,
-      medium: 0.05,
-      high: 0.10,
-    };
-
-    const riskPercent = riskPercentages[sessionConfig.risk_mode as keyof typeof riskPercentages] || 0.05;
+    const riskPercent = getRiskPercentage(sessionConfig.risk_mode) / 100;
     return balance * riskPercent;
   }
 }

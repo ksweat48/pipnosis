@@ -1,5 +1,6 @@
 import { GoalSessionConfig } from '@/services/goal-session-manager';
 import { getDefaultWatchlist } from '../config/watchlist';
+import { getRiskPercentage, getRiskModeDescription } from '../config/risk-levels';
 
 interface AIGoalParsing {
   config: GoalSessionConfig;
@@ -166,6 +167,9 @@ Respond with ONLY valid JSON in this format:
 
     const watchlist = getDefaultWatchlist();
 
+    const riskPercent = getRiskPercentage(riskMode);
+    const riskDescription = getRiskModeDescription(riskMode);
+
     return {
       config: {
         goalType,
@@ -174,7 +178,7 @@ Respond with ONLY valid JSON in this format:
         riskMode,
         watchlist
       },
-      interpretation: `I'll help you ${goalType === 'profit_target' ? `earn $${targetValue}` : `grow your account by ${targetValue}%`} over ${timeframe} with ${riskMode === 'low' ? 'conservative' : riskMode === 'high' ? 'aggressive' : 'moderate'} capital exposure (max ${riskMode === 'low' ? '1%' : riskMode === 'high' ? '5%' : '2%'} per trade). AI trades autonomously based on market conditions.`,
+      interpretation: `I'll help you ${goalType === 'profit_target' ? `earn $${targetValue}` : `grow your account by ${targetValue}%`} over ${timeframe} with ${riskDescription} capital exposure (max ${riskPercent}% per trade). AI trades autonomously based on market conditions.`,
       suggestedWatchlist: watchlist,
       estimatedTrades,
       timeline: timeframe
