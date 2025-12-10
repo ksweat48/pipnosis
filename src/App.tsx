@@ -83,7 +83,7 @@ const AppRoutes: React.FC = () => {
         path="/"
         element={
           user ? (
-            <AITradePage />
+            <TradePage />
           ) : (
             <PublicLandingPage />
           )
