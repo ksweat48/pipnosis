@@ -19,7 +19,7 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
   const [showProfileMenu, setShowProfileMenu] = React.useState(false);
 
   const navItems = [
-    { path: '/trade', label: 'Charts', icon: TrendingUp },
+    { path: '/charts', label: 'Charts', icon: TrendingUp },
     { path: '/positions', label: 'Positions', icon: Activity },
     { path: '/ai-trade', label: 'Trade', icon: Zap },
     { path: '/analysis', label: 'Analysis', icon: BarChart3 },
@@ -33,7 +33,7 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
       <div className="max-w-7xl mx-auto px-4 sm:px-6" style={{ paddingLeft: 'max(1rem, var(--safe-area-left))', paddingRight: 'max(1rem, var(--safe-area-right))' }}>
         <div className="flex items-center justify-between h-14 sm:h-16 relative">
           <div className="flex items-center gap-4 sm:gap-8">
-            <Link to="/trade" className="flex items-center gap-2">
+            <Link to="/charts" className="flex items-center gap-2">
               <img src="/Pipnosis icon.png" alt="Pipnosis AI" className="h-10 w-10" />
             </Link>
 

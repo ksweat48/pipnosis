@@ -32,7 +32,7 @@ export function ProtectedRoute({ children, adminOnly = false }: ProtectedRoutePr
     }
 
     if (!isAdmin) {
-      return <Navigate to="/trade" replace />;
+      return <Navigate to="/charts" replace />;
     }
   }
 

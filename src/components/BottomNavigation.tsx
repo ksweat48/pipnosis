@@ -6,7 +6,7 @@ export function BottomNavigation() {
   const location = useLocation();
 
   const navItems = [
-    { path: '/trade', label: 'Charts', icon: TrendingUp },
+    { path: '/charts', label: 'Charts', icon: TrendingUp },
     { path: '/positions', label: 'Positions', icon: Activity },
     { path: '/ai-trade', label: 'Trade', icon: Zap },
     { path: '/analysis', label: 'Analysis', icon: BarChart3 },

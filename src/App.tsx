@@ -90,7 +90,7 @@ const AppRoutes: React.FC = () => {
         }
       />
       <Route
-        path="/trade"
+        path="/charts"
         element={
           <ProtectedRoute>
             <TradePage />
