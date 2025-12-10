@@ -219,7 +219,9 @@ export function PositionsPage() {
   };
 
   const calculateCurrentPnL = (position: Position): number => {
-    if (!livePrices[position.symbol] || !position.entry_price) return position.current_pnl;
+    if (!livePrices[position.symbol] || !position.entry_price) {
+      return position.current_pnl || 0;
+    }
 
     const currentPrice = position.position_type === 'buy'
       ? livePrices[position.symbol].bid
@@ -230,7 +232,7 @@ export function PositionsPage() {
       position.entry_price,
       currentPrice,
       position.lot_size
-    );
+    ) || 0;
   };
 
   const handleClosePosition = async (position: Position) => {
@@ -455,7 +457,8 @@ export function PositionsPage() {
   };
 
   const formatPrice = (price: number | null, symbol: string): string => {
-    if (price === null) return 'N/A';
+    if (price === null || price === undefined) return 'N/A';
+    if (!symbol) return price.toFixed(5);
     return symbol.includes('JPY') ? price.toFixed(3) : price.toFixed(5);
   };
 
@@ -733,11 +736,11 @@ export function PositionsPage() {
                         ? ((currentPnL / (position.entry_price * position.lot_size * 100000)) * 100)
                         : 0;
 
-                      const distanceToSL = position.entry_price && currentPrice
+                      const distanceToSL = position.entry_price && currentPrice && position.symbol
                         ? Math.abs(currentPrice - position.stop_loss) * (position.symbol.includes('JPY') ? 100 : 10000)
                         : 0;
 
-                      const distanceToTP = position.entry_price && currentPrice
+                      const distanceToTP = position.entry_price && currentPrice && position.symbol
                         ? Math.abs(currentPrice - position.take_profit) * (position.symbol.includes('JPY') ? 100 : 10000)
                         : 0;
 
@@ -840,7 +843,7 @@ export function PositionsPage() {
                   <div className="p-3 sm:p-4 space-y-3">
                     {pendingOrders.map((order) => {
                       const currentPrice = livePrices[order.symbol];
-                      const distanceToPips = currentPrice && order.limit_price
+                      const distanceToPips = currentPrice && order.limit_price && order.symbol
                         ? Math.abs(
                             (order.position_type === 'buy'
                               ? currentPrice.ask - order.limit_price
