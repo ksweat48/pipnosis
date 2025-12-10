@@ -116,6 +116,18 @@ export function PositionsPage() {
     }
   }, [openPositions, pendingOrders]);
 
+  const isValidPosition = (position: Position): boolean => {
+    return !!(
+      position.symbol &&
+      position.entry_price !== null &&
+      position.entry_price > 0 &&
+      position.lot_size > 0 &&
+      !isNaN(position.lot_size) &&
+      position.stop_loss > 0 &&
+      position.take_profit > 0
+    );
+  };
+
   const fetchAllData = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -127,7 +139,25 @@ export function PositionsPage() {
         fetchRecentTrades(user.id)
       ]);
 
-      setOpenPositions(open);
+      // Filter out corrupted/invalid positions
+      const validOpenPositions = open.filter(isValidPosition);
+      const invalidCount = open.length - validOpenPositions.length;
+
+      if (invalidCount > 0) {
+        console.warn(`Filtered out ${invalidCount} corrupted position(s) with missing data`);
+        // Optionally auto-close corrupted positions
+        for (const invalid of open.filter(p => !isValidPosition(p))) {
+          console.warn('Corrupted position:', invalid.id, {
+            symbol: invalid.symbol,
+            entry: invalid.entry_price,
+            lots: invalid.lot_size,
+            sl: invalid.stop_loss,
+            tp: invalid.take_profit
+          });
+        }
+      }
+
+      setOpenPositions(validOpenPositions);
       setPendingOrders(pending);
       setRecentTrades(recent);
       setLoading(false);

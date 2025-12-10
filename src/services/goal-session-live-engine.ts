@@ -542,7 +542,7 @@ class GoalSessionLiveEngine {
       }
 
       // STOP SCANNING if max trades reached (saves tokens/credits)
-      if (this.openTrades.length >= this.config.maxConcurrentTrades && !this.allowNewTrades) {
+      if (this.openTrades.length >= this.config.maxConcurrentTrades) {
         console.log(`[Goal Live Engine] ⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - PAUSING scanning to save credits`);
         // Still monitor open positions but don't scan for new trades
         const watchlist = this.config.watchlist || getDefaultWatchlist();
