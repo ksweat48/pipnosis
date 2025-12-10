@@ -160,7 +160,7 @@ export function PositionsPage() {
   const fetchGoalModePositions = async (userId: string): Promise<Position[]> => {
     const { data, error } = await supabase
       .from('goal_session_trades')
-      .select('*, goal_sessions!inner(user_id)')
+      .select('id, symbol, direction, position_size, entry_price, stop_loss, take_profit, current_price, current_pnl, opened_at, simulated_position_id, goal_sessions!inner(user_id)')
       .eq('goal_sessions.user_id', userId)
       .eq('status', 'open');
 
@@ -170,21 +170,23 @@ export function PositionsPage() {
     }
 
     // Normalize goal mode trades to match Position interface
-    return (data || []).map((trade: any) => ({
-      id: trade.id,
-      symbol: trade.symbol,
-      position_type: trade.direction as 'buy' | 'sell',
-      order_type: 'market' as const,
-      lot_size: parseFloat(trade.position_size) || 0,
-      entry_price: parseFloat(trade.entry_price) || null,
-      limit_price: null,
-      stop_loss: parseFloat(trade.stop_loss) || 0,
-      take_profit: parseFloat(trade.take_profit) || 0,
-      status: 'open' as const,
-      current_price: parseFloat(trade.current_price) || null,
-      current_pnl: parseFloat(trade.current_pnl) || 0,
-      opened_at: trade.opened_at
-    }));
+    return (data || [])
+      .filter((trade: any) => trade.symbol && trade.direction) // Filter out invalid trades
+      .map((trade: any) => ({
+        id: trade.id,
+        symbol: trade.symbol || 'UNKNOWN',
+        position_type: (trade.direction || 'buy') as 'buy' | 'sell',
+        order_type: 'market' as const,
+        lot_size: parseFloat(trade.position_size) || 0,
+        entry_price: parseFloat(trade.entry_price) || null,
+        limit_price: null,
+        stop_loss: parseFloat(trade.stop_loss) || 0,
+        take_profit: parseFloat(trade.take_profit) || 0,
+        status: 'open' as const,
+        current_price: parseFloat(trade.current_price) || null,
+        current_pnl: parseFloat(trade.current_pnl) || 0,
+        opened_at: trade.opened_at
+      }));
   };
 
   const fetchLivePrices = async (symbols: string[]) => {
@@ -253,7 +255,7 @@ export function PositionsPage() {
 
     const confirmed = await confirm({
       title: 'Close Position',
-      message: `Close ${position.position_type.toUpperCase()} ${position.symbol} ${position.lot_size} lots?\nCurrent P&L: $${pnl.toFixed(2)}`,
+      message: `Close ${(position.position_type || 'buy').toUpperCase()} ${position.symbol} ${position.lot_size} lots?\nCurrent P&L: $${pnl.toFixed(2)}`,
       confirmText: 'Close',
       cancelText: 'Cancel',
       variant: pnl >= 0 ? 'info' : 'warning'
@@ -763,7 +765,7 @@ export function PositionsPage() {
                                       ? 'bg-green-900/30 text-green-400'
                                       : 'bg-red-900/30 text-red-400'
                                   }`}>
-                                    {position.position_type.toUpperCase()}
+                                    {(position.position_type || 'buy').toUpperCase()}
                                   </span>
                                 </div>
                                 <div className="text-xs sm:text-sm text-gray-400 mt-1">
@@ -865,7 +867,7 @@ export function PositionsPage() {
                                       ? 'bg-green-900/20 text-green-400'
                                       : 'bg-red-900/20 text-red-400'
                                   }`}>
-                                    {order.position_type.toUpperCase()} LIMIT
+                                    {(order.position_type || 'buy').toUpperCase()} LIMIT
                                   </span>
                                 </div>
                                 <div className="text-sm text-gray-400 mt-1">
@@ -947,7 +949,7 @@ export function PositionsPage() {
                                 ? 'bg-green-900/30 text-green-400'
                                 : 'bg-red-900/30 text-red-400'
                             }`}>
-                              {trade.position_type.toUpperCase()}
+                              {(trade.position_type || 'buy').toUpperCase()}
                             </span>
                             <span className="text-xs text-gray-500">{trade.lot_size} lots</span>
                           </div>
