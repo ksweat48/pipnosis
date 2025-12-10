@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, WifiOff, AlertTriangle, Search, Shield, Sparkles } from 'lucide-react';
+import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, WifiOff, AlertTriangle, Search, Shield, Sparkles, Eye } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalNotificationSystem } from '../services/goal-notifications';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
@@ -26,6 +26,7 @@ export const GoalSessionDashboard: React.FC = () => {
     tradesInSession: number;
   } | null>(null);
   const [continuationLoading, setContinuationLoading] = useState(false);
+  const [openTrades, setOpenTrades] = useState<any[]>([]);
 
   useEffect(() => {
     loadSessionData();
@@ -141,6 +142,20 @@ export const GoalSessionDashboard: React.FC = () => {
           console.error('[GoalSessionDashboard] Error loading notifications:', error);
           setNotifications([]);
         }
+
+        try {
+          const { data: trades } = await supabase
+            .from('goal_session_trades')
+            .select('*')
+            .eq('goal_session_id', session.sessionId)
+            .eq('status', 'open')
+            .order('opened_at', { ascending: false });
+
+          setOpenTrades(trades || []);
+        } catch (error) {
+          console.error('[GoalSessionDashboard] Error loading open trades:', error);
+          setOpenTrades([]);
+        }
       }
     } catch (error) {
       console.error('[GoalSessionDashboard] Error loading session data:', error);
@@ -149,7 +164,7 @@ export const GoalSessionDashboard: React.FC = () => {
     }
   };
 
-  const handleContinuationResponse = async (response: 'continue' | 'wait' | 'stop') => {
+  const handleContinuationResponse = async (response: 'continue' | 'stop') => {
     if (!activeSession) return;
 
     setContinuationLoading(true);
@@ -375,6 +390,81 @@ export const GoalSessionDashboard: React.FC = () => {
             <p className="text-xs text-gray-400 mt-2">
               Keep this window open. Session will stop if you close the browser.
             </p>
+          </div>
+        )}
+
+        {openTrades.length > 0 && (
+          <div className="mb-4 relative group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl opacity-30 blur animate-pulse" />
+            <div className="relative bg-gradient-to-br from-blue-900/40 to-cyan-900/40 border border-blue-500/50 rounded-xl p-4">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-blue-500/20 rounded-lg">
+                    <Eye className="w-5 h-5 text-blue-400 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="text-base font-bold text-white flex items-center gap-2">
+                      TRADE {openTrades.length}/{activeSession.config.maxConcurrentTrades || 1} OPEN
+                      <span className="px-2 py-0.5 bg-blue-500/30 rounded text-xs font-semibold text-blue-300">
+                        MONITORING MODE
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      New trade scanning paused - monitoring open position
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {openTrades.map((trade, index) => {
+                const isLong = trade.direction === 'buy';
+                const currentPrice = trade.current_price || trade.entry_price;
+                const priceDiff = isLong
+                  ? (currentPrice - trade.entry_price)
+                  : (trade.entry_price - currentPrice);
+                const pips = priceDiff / 0.0001;
+                const currentPnL = trade.profit_loss || 0;
+
+                return (
+                  <div key={trade.id} className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div>
+                        <div className="text-xs text-gray-500 mb-1">Symbol</div>
+                        <div className="text-sm font-semibold text-white">{trade.symbol}</div>
+                        <div className={`text-xs font-medium ${isLong ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {trade.direction.toUpperCase()}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs text-gray-500 mb-1">Entry Price</div>
+                        <div className="text-sm font-mono text-gray-300">
+                          {trade.entry_price.toFixed(5)}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs text-gray-500 mb-1">Current P&L</div>
+                        <div className={`text-sm font-semibold ${currentPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {currentPnL >= 0 ? '+' : ''}${currentPnL.toFixed(2)}
+                        </div>
+                        <div className={`text-xs ${pips >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {pips >= 0 ? '+' : ''}{pips.toFixed(1)} pips
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs text-gray-500 mb-1">Targets</div>
+                        <div className="text-xs text-gray-300">
+                          <div>TP: {trade.take_profit.toFixed(5)}</div>
+                          <div>SL: {trade.stop_loss.toFixed(5)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -651,7 +741,6 @@ export const GoalSessionDashboard: React.FC = () => {
           currentProgress={progress.currentProgress || 0}
           targetValue={progress.goalAmount || 0}
           onContinue={() => handleContinuationResponse('continue')}
-          onWait={() => handleContinuationResponse('wait')}
           onStop={() => handleContinuationResponse('stop')}
           isLoading={continuationLoading}
         />

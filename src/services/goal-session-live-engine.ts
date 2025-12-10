@@ -1186,10 +1186,10 @@ Your decision keeps you in control of your risk and prevents runaway trading.
 
   /**
    * Handle user's continuation response
-   * Called when user decides to continue, wait, or stop after a trade
+   * Called when user decides to continue or stop after a trade closes
    */
   async handleUserContinuationResponse(
-    response: 'continue' | 'wait' | 'stop'
+    response: 'continue' | 'stop'
   ): Promise<{ success: boolean; message: string }> {
     if (!this.activeSession || !this.config) {
       return {
@@ -1227,38 +1227,6 @@ Your decision keeps you in control of your risk and prevents runaway trading.
           return {
             success: true,
             message: 'Scanning resumed'
-          };
-
-        case 'wait':
-          // Stop scanning but keep monitoring open trades
-          this.allowNewTrades = false;
-
-          await supabase
-            .from('goal_sessions')
-            .update({
-              awaiting_user_continuation: false,
-              continuation_prompt: null,
-              status: 'soft_closing'
-            })
-            .eq('id', this.activeSession);
-
-          logger.info(LogCategory.AI_TRADING, '⏸️ User chose to wait - monitoring open trades only');
-
-          try {
-            await supabase.from('goal_ai_conversations').insert({
-              goal_session_id: this.activeSession,
-              user_id: this.config.userId,
-              role: 'ai',
-              message: '⏸️ Got it! I\'ll stop scanning for new trades and just monitor your open position until it closes.',
-              sentiment: 'neutral'
-            });
-          } catch (error) {
-            console.error('[Goal Live Engine] Failed to log wait response:', error);
-          }
-
-          return {
-            success: true,
-            message: 'Now monitoring open trades only'
           };
 
         case 'stop':
@@ -1396,8 +1364,7 @@ Your decision keeps you in control of your risk and prevents runaway trading.
       const llmAnalysis = await this.generatePostTradeAnalysis(trade, stats);
 
       const progressMessage = `\\n🎯 Goal Progress: ${stats.totalPnL >= 0 ? '+' : ''}$${stats.totalPnL.toFixed(2)} / $${targetValue.toFixed(2)} target (${((stats.totalPnL / targetValue) * 100).toFixed(1)}%)\\n` +
-        `📊 Session Stats: ${stats.totalTrades} trades | ${stats.winningTrades} wins | ${((stats.winningTrades / stats.totalTrades) * 100).toFixed(0)}% win rate\\n` +
-        `💪 Continuing to scan for next high-quality setup...`;
+        `📊 Session Stats: ${stats.totalTrades} trades | ${stats.winningTrades} wins | ${((stats.winningTrades / stats.totalTrades) * 100).toFixed(0)}% win rate`;
 
       try {
         await supabase.from('goal_ai_conversations').insert({
@@ -1468,11 +1435,23 @@ Your decision keeps you in control of your risk and prevents runaway trading.
           })
           .eq('id', this.activeSession);
 
+        // Calculate session stats for celebration message
+        const stats = localSessionMemory.getSessionStatistics(`live-${this.activeSession}`);
+        const duration = stats ? Math.floor((Date.now() - Date.parse(stats.startTime)) / 60000) : 0;
+        const durationText = duration < 60
+          ? `${duration} minutes`
+          : `${Math.floor(duration / 60)}h ${duration % 60}m`;
+
         await this.sendAIMessage(
-          `🎉🎉🎉 GOAL ACHIEVED! 🎉🎉🎉\n\n` +
+          `🎉 🎯 🎉 GOAL ACHIEVED! 🎉 🎯 🎉\n\n` +
+          `✨ Congratulations! You've successfully reached your goal!\n\n` +
           `💰 Target: $${targetValue.toFixed(2)}\n` +
-          `✅ Achieved: $${currentProgress.toFixed(2)}\n\n` +
-          `🏆 Congratulations! Your goal session is complete!`
+          `✅ Achieved: $${currentProgress.toFixed(2)}\n` +
+          `📊 Total Trades: ${stats?.totalTrades || 0}\n` +
+          `🎯 Win Rate: ${stats ? ((stats.winningTrades / stats.totalTrades) * 100).toFixed(0) : 0}%\n` +
+          `⏱️ Duration: ${durationText}\n\n` +
+          `🏆 This achievement has been logged in your records!\n` +
+          `💪 Session complete - great trading!`
         );
 
         // Stop the session

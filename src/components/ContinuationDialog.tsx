@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle, Pause, StopCircle, TrendingUp, Clock } from 'lucide-react';
+import { CheckCircle, StopCircle, TrendingUp, Clock } from 'lucide-react';
 
 interface ContinuationDialogProps {
   isOpen: boolean;
@@ -8,7 +8,6 @@ interface ContinuationDialogProps {
   currentProgress: number;
   targetValue: number;
   onContinue: () => void;
-  onWait: () => void;
   onStop: () => void;
   isLoading?: boolean;
 }
@@ -20,7 +19,6 @@ export const ContinuationDialog: React.FC<ContinuationDialogProps> = ({
   currentProgress,
   targetValue,
   onContinue,
-  onWait,
   onStop,
   isLoading = false
 }) => {
@@ -80,16 +78,7 @@ export const ContinuationDialog: React.FC<ContinuationDialogProps> = ({
               className="w-full flex items-center justify-center gap-3 px-4 py-4 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed rounded-xl text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-emerald-500/25 hover:scale-[1.02] active:scale-[0.98]"
             >
               <CheckCircle className="w-5 h-5" />
-              <span>Continue Scanning</span>
-            </button>
-
-            <button
-              onClick={onWait}
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-gray-700/50 hover:bg-gray-700 disabled:bg-gray-800 disabled:cursor-not-allowed rounded-xl text-white font-medium transition-all duration-300 border border-gray-600 hover:border-gray-500"
-            >
-              <Pause className="w-5 h-5" />
-              <span>Wait & Watch This Trade</span>
+              <span>Continue Scanning for Next Trade</span>
             </button>
 
             <button
@@ -98,7 +87,7 @@ export const ContinuationDialog: React.FC<ContinuationDialogProps> = ({
               className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-red-900/30 hover:bg-red-900/50 disabled:bg-gray-800 disabled:cursor-not-allowed rounded-xl text-red-400 font-medium transition-all duration-300 border border-red-800/50 hover:border-red-700"
             >
               <StopCircle className="w-5 h-5" />
-              <span>Stop Session</span>
+              <span>Close Session</span>
             </button>
           </div>
 
