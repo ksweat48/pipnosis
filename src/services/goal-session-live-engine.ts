@@ -443,6 +443,12 @@ class GoalSessionLiveEngine {
       if (!bestSymbolResult.selected || !bestSymbolResult.symbol || !bestSymbolResult.evaluation) {
         logger.debug(LogCategory.AI_TRADING, '🚫 No symbols passed selection criteria');
 
+        // Convert snapshots array to Map for detailed message generation
+        const snapshotsBySymbol = new Map<string, SymbolSnapshot>();
+        snapshotResult.snapshots.forEach(snapshot => {
+          snapshotsBySymbol.set(snapshot.symbol, snapshot);
+        });
+
         // Build detailed explanation of why no symbols were selected
         const detailedMessage = this.buildDetailedEvaluationMessage(
           snapshotsBySymbol,
