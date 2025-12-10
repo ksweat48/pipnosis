@@ -151,6 +151,43 @@ class TradeExecutionEngine {
     userId: string,
     session: any
   ): Promise<TradeExecutionResult> {
+    // CRITICAL: Validate all required fields before proceeding
+    if (!signal.entryPrice || signal.entryPrice <= 0) {
+      console.error('[Trade Execution] CRITICAL: Invalid entry price:', signal.entryPrice);
+      return {
+        success: false,
+        error: 'Invalid entry price',
+        message: 'Entry price must be greater than 0'
+      };
+    }
+
+    if (!signal.stopLoss || signal.stopLoss <= 0) {
+      console.error('[Trade Execution] CRITICAL: Invalid stop loss:', signal.stopLoss);
+      return {
+        success: false,
+        error: 'Invalid stop loss',
+        message: 'Stop loss must be greater than 0'
+      };
+    }
+
+    if (!signal.takeProfit || signal.takeProfit <= 0) {
+      console.error('[Trade Execution] CRITICAL: Invalid take profit:', signal.takeProfit);
+      return {
+        success: false,
+        error: 'Invalid take profit',
+        message: 'Take profit must be greater than 0'
+      };
+    }
+
+    if (!signal.positionSize || signal.positionSize <= 0 || isNaN(signal.positionSize)) {
+      console.error('[Trade Execution] CRITICAL: Invalid position size:', signal.positionSize);
+      return {
+        success: false,
+        error: 'Invalid position size',
+        message: 'Position size must be greater than 0'
+      };
+    }
+
     // Get playbook context for this trade
     const regimeBucket = signal.regimeSnapshot && signal.adversarialState
       ? getRegimeBucket(signal.regimeSnapshot, signal.adversarialState)
@@ -166,16 +203,27 @@ class TradeExecutionEngine {
     const dollarPerPip = signal.positionSize * 10; // Standard forex calculation
     const riskDollars = riskPips * dollarPerPip;
 
+    console.log('[Trade Execution] Creating pending trade:', {
+      symbol: signal.symbol,
+      direction: signal.direction,
+      entry_price: signal.entryPrice,
+      stop_loss: signal.stopLoss,
+      take_profit: signal.takeProfit,
+      position_size: signal.positionSize
+    });
+
     const { data: trade, error } = await supabase
       .from('goal_session_trades')
       .insert({
         goal_session_id: signal.sessionId,
+        user_id: userId,
         symbol: signal.symbol,
         direction: signal.direction,
         entry_price: signal.entryPrice,
         stop_loss: signal.stopLoss,
         take_profit: signal.takeProfit,
         position_size: signal.positionSize,
+        lot_size: signal.positionSize,
         status: 'pending',
         playbook_id: activePlaybook?.id || null,
         regime_bucket: regimeBucket,
@@ -185,13 +233,25 @@ class TradeExecutionEngine {
       .single();
 
     if (error) {
-      console.error('[Trade Execution] Failed to create pending trade:', error);
+      console.error('[Trade Execution] ❌ Failed to create pending trade:', error);
+      console.error('[Trade Execution] ❌ Error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details
+      });
       return {
         success: false,
         error: error.message,
         message: 'Failed to save trade to database'
       };
     }
+
+    console.log('[Trade Execution] ✅ Pending trade created:', {
+      id: trade.id,
+      symbol: trade.symbol,
+      entry_price: trade.entry_price,
+      status: trade.status
+    });
 
     await supabase
       .from('goal_sessions')
@@ -231,6 +291,45 @@ class TradeExecutionEngine {
   ): Promise<TradeExecutionResult> {
     console.log(`[Trade Execution] Executing live trade for ${signal.symbol}...`);
 
+    // CRITICAL: Validate all required fields before proceeding
+    if (!signal.entryPrice || signal.entryPrice <= 0) {
+      console.error('[Trade Execution] CRITICAL: Invalid entry price:', signal.entryPrice);
+      return {
+        success: false,
+        error: 'Invalid entry price',
+        message: 'Entry price must be greater than 0'
+      };
+    }
+
+    if (!signal.stopLoss || signal.stopLoss <= 0) {
+      console.error('[Trade Execution] CRITICAL: Invalid stop loss:', signal.stopLoss);
+      return {
+        success: false,
+        error: 'Invalid stop loss',
+        message: 'Stop loss must be greater than 0'
+      };
+    }
+
+    if (!signal.takeProfit || signal.takeProfit <= 0) {
+      console.error('[Trade Execution] CRITICAL: Invalid take profit:', signal.takeProfit);
+      return {
+        success: false,
+        error: 'Invalid take profit',
+        message: 'Take profit must be greater than 0'
+      };
+    }
+
+    if (!signal.positionSize || signal.positionSize <= 0 || isNaN(signal.positionSize)) {
+      console.error('[Trade Execution] CRITICAL: Invalid position size:', signal.positionSize);
+      return {
+        success: false,
+        error: 'Invalid position size',
+        message: 'Position size must be greater than 0'
+      };
+    }
+
+    console.log(`[Trade Execution] ✅ Signal validation passed: entry=${signal.entryPrice}, sl=${signal.stopLoss}, tp=${signal.takeProfit}, size=${signal.positionSize}`);
+
     const { data: profile } = await supabase
       .from('user_profiles')
       .select('demo_balance')
@@ -265,27 +364,57 @@ class TradeExecutionEngine {
 
     console.log(`[Playbook] Trade context: bucket=${regimeBucket}, playbook=${activePlaybook?.variant_id || 'none'}, risk=$${riskDollars.toFixed(2)}`);
 
+    // Apply realistic slippage to entry price BEFORE inserting
+    const actualEntryPrice = this.applySlippage(signal.symbol, signal.entryPrice, signal.direction);
+    const slippagePips = Math.abs(actualEntryPrice - signal.entryPrice) / getCurrencyPipInfo(signal.symbol).pipValue;
+
+    console.log(`[Trade Execution] Slippage applied: ${slippagePips.toFixed(1)} pips (${signal.entryPrice.toFixed(5)} → ${actualEntryPrice.toFixed(5)})`);
+
+    // Insert trade with all required fields populated
+    const tradeData = {
+      goal_session_id: signal.sessionId,
+      user_id: userId,
+      symbol: signal.symbol,
+      direction: signal.direction,
+      entry_price: actualEntryPrice,
+      stop_loss: signal.stopLoss,
+      take_profit: signal.takeProfit,
+      position_size: signal.positionSize,
+      lot_size: signal.positionSize,
+      status: 'open',
+      order_type: 'market' as const,
+      current_price: actualEntryPrice,
+      current_pnl: 0,
+      opened_at: new Date().toISOString(),
+      playbook_id: activePlaybook?.id || null,
+      regime_bucket: regimeBucket,
+      risk_dollars: riskDollars
+    };
+
+    console.log('[Trade Execution] Inserting trade with data:', {
+      symbol: tradeData.symbol,
+      direction: tradeData.direction,
+      entry_price: tradeData.entry_price,
+      stop_loss: tradeData.stop_loss,
+      take_profit: tradeData.take_profit,
+      position_size: tradeData.position_size,
+      status: tradeData.status
+    });
+
     const { data: trade, error } = await supabase
       .from('goal_session_trades')
-      .insert({
-        goal_session_id: signal.sessionId,
-        symbol: signal.symbol,
-        direction: signal.direction,
-        entry_price: signal.entryPrice,
-        stop_loss: signal.stopLoss,
-        take_profit: signal.takeProfit,
-        position_size: signal.positionSize,
-        status: 'open',
-        opened_at: new Date().toISOString(),
-        playbook_id: activePlaybook?.id || null,
-        regime_bucket: regimeBucket,
-        risk_dollars: riskDollars
-      })
+      .insert(tradeData)
       .select()
       .single();
 
     if (error) {
-      console.error('[Trade Execution] Failed to create trade:', error);
+      console.error('[Trade Execution] ❌ Failed to create trade:', error);
+      console.error('[Trade Execution] ❌ Error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      });
       return {
         success: false,
         error: error.message,
@@ -293,40 +422,41 @@ class TradeExecutionEngine {
       };
     }
 
-    // Apply realistic slippage to entry price
-    const actualEntryPrice = this.applySlippage(signal.symbol, signal.entryPrice, signal.direction);
-    const slippagePips = Math.abs(actualEntryPrice - signal.entryPrice) / getCurrencyPipInfo(signal.symbol).pipValue;
-
-    // Verbose logs removed - keeping only important trade execution
-
-    // Update goal_session_trade with execution details (direct position creation)
-    const { error: updateError } = await supabase
-      .from('goal_session_trades')
-      .update({
-        entry_price: actualEntryPrice,
-        stop_loss: signal.stopLoss,
-        take_profit: signal.takeProfit,
-        position_size: signal.positionSize,
-        status: 'open',
-        order_type: 'market',
-        current_price: actualEntryPrice,
-        current_pnl: 0,
-        opened_at: new Date().toISOString()
-      })
-      .eq('id', trade.id);
-
-    if (updateError) {
-      console.error('[Trade Execution] ❌ Failed to open position:', updateError);
-      await supabase
-        .from('goal_session_trades')
-        .update({ status: 'rejected' })
-        .eq('id', trade.id);
-
+    if (!trade) {
+      console.error('[Trade Execution] ❌ CRITICAL: Trade created but no data returned');
       return {
         success: false,
-        error: updateError.message,
-        message: 'Failed to open position'
+        error: 'No trade data returned',
+        message: 'Trade creation returned no data'
       };
+    }
+
+    // CRITICAL: Verify trade was created with all required fields
+    console.log('[Trade Execution] ✅ Trade created successfully:', {
+      id: trade.id,
+      symbol: trade.symbol,
+      direction: trade.direction,
+      entry_price: trade.entry_price,
+      stop_loss: trade.stop_loss,
+      take_profit: trade.take_profit,
+      position_size: trade.position_size,
+      status: trade.status
+    });
+
+    if (!trade.entry_price || trade.entry_price <= 0) {
+      console.error('[Trade Execution] ❌ CRITICAL: Trade created with invalid entry_price:', trade.entry_price);
+      // Attempt to fix by updating
+      const { error: fixError } = await supabase
+        .from('goal_session_trades')
+        .update({ entry_price: actualEntryPrice })
+        .eq('id', trade.id);
+
+      if (fixError) {
+        console.error('[Trade Execution] ❌ Failed to fix entry_price:', fixError);
+      } else {
+        console.log('[Trade Execution] ✅ Fixed entry_price to:', actualEntryPrice);
+        trade.entry_price = actualEntryPrice;
+      }
     }
 
     prodLogger.trade('OPENED', signal.symbol, {

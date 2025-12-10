@@ -81,6 +81,13 @@ class SmartGoalSessionManager {
     const timeframeHours = this.convertTimeframeToHours(config.timeframe);
     const endTime = new Date(session.startTime.getTime() + timeframeHours * 3600000);
 
+    console.log('[Smart Goal] Creating session with settings:', {
+      sessionId,
+      multi_trade_enabled: multiTradeEnabled,
+      target: config.goalAmount,
+      risk_mode: config.riskMode
+    });
+
     const { error } = await supabase.from('goal_sessions').insert({
       id: sessionId,
       user_id: userId,

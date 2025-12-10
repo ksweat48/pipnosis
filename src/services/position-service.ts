@@ -96,6 +96,8 @@ class PositionService {
    */
   async getOpenPositions(userId: string): Promise<Position[]> {
     try {
+      console.log('[PositionService] Fetching open positions for user:', userId);
+
       const { data, error } = await supabase
         .from('goal_session_trades')
         .select('*')
@@ -103,11 +105,88 @@ class PositionService {
         .eq('status', 'open')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[PositionService] ❌ Database error fetching positions:', error);
+        throw error;
+      }
 
-      return (data || []).map(dbToPosition);
+      if (!data) {
+        console.log('[PositionService] No data returned from query');
+        return [];
+      }
+
+      console.log(`[PositionService] ✅ Fetched ${data.length} raw position(s) from database`);
+
+      // Log raw data for first position if exists
+      if (data.length > 0) {
+        console.log('[PositionService] First position raw data:', {
+          id: data[0].id,
+          symbol: data[0].symbol,
+          direction: data[0].direction,
+          entry_price: data[0].entry_price,
+          stop_loss: data[0].stop_loss,
+          take_profit: data[0].take_profit,
+          position_size: data[0].position_size,
+          lot_size: data[0].lot_size,
+          status: data[0].status,
+          current_price: data[0].current_price,
+          current_pnl: data[0].current_pnl
+        });
+      }
+
+      // Filter out any positions with null/invalid required fields
+      const validPositions = data.filter(pos => {
+        const isValid = !!(
+          pos.id &&
+          pos.symbol &&
+          pos.entry_price !== null &&
+          pos.entry_price > 0 &&
+          (pos.position_size > 0 || pos.lot_size > 0) &&
+          pos.stop_loss > 0 &&
+          pos.take_profit > 0
+        );
+
+        if (!isValid) {
+          console.warn('[PositionService] ⚠️ Filtering out invalid position:', {
+            id: pos.id,
+            symbol: pos.symbol,
+            entry_price: pos.entry_price,
+            position_size: pos.position_size,
+            lot_size: pos.lot_size,
+            stop_loss: pos.stop_loss,
+            take_profit: pos.take_profit,
+            issues: [
+              !pos.id && 'missing id',
+              !pos.symbol && 'missing symbol',
+              (pos.entry_price === null || pos.entry_price <= 0) && 'invalid entry_price',
+              (pos.position_size <= 0 && pos.lot_size <= 0) && 'invalid position_size',
+              pos.stop_loss <= 0 && 'invalid stop_loss',
+              pos.take_profit <= 0 && 'invalid take_profit'
+            ].filter(Boolean).join(', ')
+          });
+        }
+
+        return isValid;
+      });
+
+      console.log(`[PositionService] ✅ ${validPositions.length} valid position(s) after filtering`);
+
+      const positions = validPositions.map(dbToPosition);
+
+      if (positions.length > 0) {
+        console.log('[PositionService] First converted position:', {
+          id: positions[0].id,
+          symbol: positions[0].symbol,
+          position_type: positions[0].position_type,
+          entry_price: positions[0].entry_price,
+          lot_size: positions[0].lot_size,
+          current_pnl: positions[0].current_pnl
+        });
+      }
+
+      return positions;
     } catch (error) {
-      console.error('[PositionService] Failed to fetch open positions:', error);
+      console.error('[PositionService] ❌ Failed to fetch open positions:', error);
       return [];
     }
   }
@@ -117,6 +196,8 @@ class PositionService {
    */
   async getPendingOrders(userId: string): Promise<Position[]> {
     try {
+      console.log('[PositionService] Fetching pending orders for user:', userId);
+
       const { data, error } = await supabase
         .from('goal_session_trades')
         .select('*')
@@ -124,11 +205,16 @@ class PositionService {
         .eq('status', 'pending')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[PositionService] ❌ Database error fetching pending orders:', error);
+        throw error;
+      }
+
+      console.log(`[PositionService] ✅ Fetched ${data?.length || 0} pending order(s)`);
 
       return (data || []).map(dbToPosition);
     } catch (error) {
-      console.error('[PositionService] Failed to fetch pending orders:', error);
+      console.error('[PositionService] ❌ Failed to fetch pending orders:', error);
       return [];
     }
   }

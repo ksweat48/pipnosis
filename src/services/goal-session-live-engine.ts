@@ -943,25 +943,46 @@ class GoalSessionLiveEngine {
    * Only applies when multi_trade_enabled = false (single-trade default mode)
    */
   private async checkAndPauseForReview(tradeId: string, trade: SimulatedTrade): Promise<void> {
-    if (!this.activeSession || !this.config) return;
+    if (!this.activeSession || !this.config) {
+      console.log('[Goal Live Engine] checkAndPauseForReview: No active session or config');
+      return;
+    }
 
     try {
+      console.log('[Goal Live Engine] 🔍 Checking if should pause for review after trade:', tradeId);
+
       // Get current session settings
-      const { data: session } = await supabase
+      const { data: session, error } = await supabase
         .from('goal_sessions')
         .select('multi_trade_enabled, trades_in_session, target_value, current_progress')
         .eq('id', this.activeSession)
         .single();
 
-      if (!session) return;
+      if (error) {
+        console.error('[Goal Live Engine] ❌ Error fetching session for pause check:', error);
+        return;
+      }
+
+      if (!session) {
+        console.log('[Goal Live Engine] ⚠️ Session not found for pause check');
+        return;
+      }
+
+      console.log('[Goal Live Engine] Session pause check data:', {
+        multi_trade_enabled: session.multi_trade_enabled,
+        trades_in_session: session.trades_in_session,
+        session_id: this.activeSession
+      });
 
       // If multi-trade mode enabled, don't pause
       if (session.multi_trade_enabled) {
+        console.log('[Goal Live Engine] ✅ Multi-trade mode enabled - continuing to scan');
         logger.info(LogCategory.AI_TRADING, 'Multi-trade mode enabled - continuing to scan');
         return;
       }
 
       // PAUSE SCANNING - User must review and approve continuation
+      console.log('[Goal Live Engine] 🛑 Single-trade mode detected - pausing for user review');
       logger.info(LogCategory.AI_TRADING, '🛑 Single-trade mode: Pausing for user review');
 
       // Generate AI continuation prompt
