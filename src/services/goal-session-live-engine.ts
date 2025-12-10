@@ -78,6 +78,7 @@ class GoalSessionLiveEngine {
   private scanCount = 0;
   private lastAIUpdateTime = 0;
   private processingLock = false;
+  private monitoringModeMessageSent = false;
   private lastAIMessageContent = '';
   private lastMarketState = { price: 0, trend: '', rsi: 0 };
   private timeframeExpired = false;
@@ -157,6 +158,7 @@ class GoalSessionLiveEngine {
       this.timeframeExpired = false;
       this.allowNewTrades = true;
       this.tradesOpenAtExpiration = 0;
+      this.monitoringModeMessageSent = false;
 
       // ✅ CRITICAL: Initialize autonomous Pipnosis Alpha brain
       await eventBasedLLMEngine.initialize(config.userId, config.goalSessionId);
@@ -2405,6 +2407,17 @@ Keep response under 100 words, educational tone.`;
    * Used when max trades reached to save tokens/credits
    */
   private async monitorOpenPositionsOnly(symbol: string): Promise<void> {
+    // Send status update to UI on first call to monitoring mode
+    if (!this.monitoringModeMessageSent) {
+      console.log('%c[MONITORING MODE] 👁️ Switched to position monitoring only', 'color: #2196f3; font-weight: bold; font-size: 16px');
+      await this.sendAIMessage(
+        `👁️ Position Monitoring Active\n\n` +
+        `Max trades (${this.config.maxConcurrentTrades}) reached - scanning paused to preserve credits.\n\n` +
+        `Currently monitoring ${this.openTrades.length} open position(s). Will resume scanning after positions close.`
+      );
+      this.monitoringModeMessageSent = true;
+    }
+
     const dbTimeframe = normalizeTimeframeToDb(this.config.timeframe);
 
     const { data: candles, error } = await supabase
@@ -2430,6 +2443,12 @@ Keep response under 100 words, educational tone.`;
       await this.handleTradeClosure(trade);
     }
     this.openTrades = this.openTrades.filter(t => t.outcome === 'open');
+
+    // Reset monitoring flag if no trades are open (will resume scanning)
+    if (this.openTrades.length === 0) {
+      console.log('%c[MONITORING MODE] ✅ All positions closed - will resume scanning', 'color: #4caf50; font-weight: bold');
+      this.monitoringModeMessageSent = false;
+    }
 
     // Update progress after trade closures
     await this.updateGoalProgress();
