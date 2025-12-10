@@ -59,12 +59,19 @@ export interface AlphaDecision {
 class AlphaCoordinatorBrain {
   /**
    * Coordinate Omega votes and make final decision
+   * Alpha has FULL AUTHORITY - can override any Omega recommendation
    */
   async coordinate(
     votes: OmegaCouncilVotes,
     marketContext: MarketContext,
     traderScore: TraderScore,
-    userId?: string
+    userId?: string,
+    conflictInfo?: {
+      hasConflict: boolean;
+      conflictType: 'HARD' | 'SOFT' | 'NONE';
+      severity: string;
+      conflictDescription: string;
+    }
   ): Promise<AlphaDecision> {
     // Calculate vote weights (with Omega-10 overrides if available)
     const weights = await this.calculateWeights(votes, marketContext, traderScore, userId);
@@ -76,16 +83,25 @@ class AlphaCoordinatorBrain {
     // Build compressed context
     const context = this.buildCoordinationContext(votes, weights, marketContext, traderScore, consensus);
 
-    const prompt = `You are Alpha, the final decision maker. You have complete authority to accept or override Omega recommendations.
+    // Build conflict context
+    let conflictContext = '';
+    if (conflictInfo && conflictInfo.hasConflict) {
+      conflictContext = `\n⚠️ OMEGA CONFLICT DETECTED:\nType: ${conflictInfo.conflictType} | Severity: ${conflictInfo.severity}\n${conflictInfo.conflictDescription}\n\nYou have authority to override if justified.\n`;
+    }
+
+    const prompt = `You are Alpha, the final decision maker. You have COMPLETE AUTHORITY to accept or override Omega recommendations.
 
 ${context}
 
-WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)
+WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}
 
-You can override Risk concerns if:
-- 4+ Omegas strongly agree (70%+ confidence)
-- Setup quality is exceptional
-- Risk concerns are about tight stops (can be adjusted dynamically)
+YOUR AUTHORITY:
+- Override Risk Omega if setup quality justifies it
+- Override consensus if you see better opportunity
+- Make contrarian calls if confident
+- Your decision is final (only hard-coded safety rules can block you)
+
+Your job: Make the best trading decision based on all available information.
 
 Decide: BUY, SELL, or NO_TRADE.
 Calculate entry, SL (dynamic ATR buffer), TP (appropriate R:R).
@@ -97,7 +113,7 @@ Return JSON only:
   "stopLoss": price,
   "takeProfit": price,
   "confidence": 0-100,
-  "reasoning": "brief decision rationale including whether you overrode any concerns"
+  "reasoning": "brief decision rationale - state if you overrode Omegas and why"
 }`;
 
     try {

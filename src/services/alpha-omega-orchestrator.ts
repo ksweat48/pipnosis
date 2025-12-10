@@ -150,7 +150,7 @@ class AlphaOmegaOrchestrator {
       omega8: omega8Vote
     });
 
-    // ✅ CRITICAL: Check for high-confidence directional conflicts (respecting trader personality)
+    // ✅ DETECT Omega conflicts but DON'T BLOCK (Alpha has final authority)
     const conflictCheck = this.detectOmegaConflicts({
       trend: trendVote,
       scalper: scalperVote,
@@ -161,41 +161,12 @@ class AlphaOmegaOrchestrator {
       omega8: omega8Vote
     }, traderScore);
 
-    // Store confidence penalty for later application
-    let confidencePenaltyMultiplier = 1.0;
-
+    // Log conflicts for Alpha's awareness (advisory only)
     if (conflictCheck.hasConflict) {
-      console.warn(`[Alpha+Omega] ⚠️  DIRECTIONAL CONFLICT DETECTED!`);
+      console.warn(`[Alpha+Omega] ⚠️  OMEGA CONFLICT DETECTED (ADVISORY)`);
       console.warn(`[Alpha+Omega] Type: ${conflictCheck.conflictType}, Severity: ${conflictCheck.severity}`);
-      console.warn(`[Alpha+Omega] Personality: ${traderScore.personality} | Score: ${traderScore.score} | Risk: ${traderScore.risk_mode || 'MEDIUM'}`);
       console.warn(`[Alpha+Omega] Conflict: ${conflictCheck.conflictDescription}`);
-
-      if (conflictCheck.conflictType === 'HARD') {
-        console.error('[Alpha+Omega] 🚫 TRADE BLOCKED - HARD conflict from opposing domains with high confidence');
-        return {
-          action: 'NO_TRADE',
-          confidence: 0,
-          reasoning: `Hard directional conflict: ${conflictCheck.conflictDescription}`,
-          entry: marketState.price,
-          stopLoss: proposedSL,
-          takeProfit: proposedTP,
-          risk_pct: 0,
-          omega_summary: `Hard Omega conflict: ${conflictCheck.conflictDescription}`,
-          omega_votes: {
-            trend: trendVote,
-            scalper: scalperVote,
-            swing: swingVote,
-            reversal: reversalVote,
-            volatility: volatilityVote,
-            risk: riskVote,
-            omega8: omega8Vote
-          }
-        };
-      } else if (conflictCheck.conflictType === 'SOFT') {
-        // Apply confidence penalty but don't block
-        confidencePenaltyMultiplier = conflictCheck.confidencePenalty;
-        console.warn(`[Alpha+Omega] SOFT conflict detected - applying ${confidencePenaltyMultiplier}x confidence penalty`);
-      }
+      console.warn(`[Alpha+Omega] Alpha has final authority to override`);
     }
 
     // ✅ NEW: Risk Omega is ADVISORY, not blocking
@@ -217,8 +188,8 @@ class AlphaOmegaOrchestrator {
       atr: marketState.atr
     };
 
-    // Alpha coordinates the decision
-    console.log('[Alpha+Omega] 🧠 Alpha coordinating...');
+    // Alpha coordinates the decision (with full authority)
+    console.log('[Alpha+Omega] 🧠 Alpha making final decision...');
     const alphaStart = Date.now();
 
     const decision = await alphaCoordinator.coordinate(
@@ -232,23 +203,17 @@ class AlphaOmegaOrchestrator {
         omega8: omega8Vote
       },
       marketContext,
-      traderScore
+      traderScore,
+      undefined, // userId - will be added if needed
+      conflictCheck // Pass conflict info to Alpha
     );
 
     const alphaTime = Date.now() - alphaStart;
     const totalTime = Date.now() - startTime;
 
-    console.log(`[Alpha+Omega] ⚡ Alpha complete (${alphaTime}ms)`);
+    console.log(`[Alpha+Omega] ⚡ Alpha decision complete (${alphaTime}ms)`);
     console.log(`[Alpha+Omega] 📊 Total pipeline: ${totalTime}ms`);
-
-    // Apply confidence penalty from soft conflicts
-    if (confidencePenaltyMultiplier < 1.0) {
-      const originalConfidence = decision.confidence;
-      decision.confidence = Math.round(decision.confidence * confidencePenaltyMultiplier);
-      console.log(`[Alpha+Omega] ✅ Confidence adjusted: ${originalConfidence}% → ${decision.confidence}% (penalty: ${confidencePenaltyMultiplier}x)`);
-    }
-
-    console.log(`[Alpha+Omega] 🎯 FINAL: ${decision.action} @ ${decision.confidence}%`);
+    console.log(`[Alpha+Omega] 🎯 Alpha decided: ${decision.action} @ ${decision.confidence}%`);
 
     return decision;
   }
