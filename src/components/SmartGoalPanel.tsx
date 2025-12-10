@@ -66,14 +66,14 @@ export const SmartGoalPanel: React.FC = () => {
       try {
         const { data, error } = await supabase
           .from('user_profiles')
-          .select('preferences')
+          .select('trading_preferences')
           .eq('user_id', user.id)
           .maybeSingle();
 
         if (error) {
           console.error('Error loading user preferences:', error);
-        } else if (data?.preferences) {
-          setMultiTradeEnabled(data.preferences.multiTradeMode ?? false);
+        } else if (data?.trading_preferences) {
+          setMultiTradeEnabled(data.trading_preferences.multiTradeMode ?? false);
         }
       } catch (err) {
         console.error('Error loading preferences:', err);
