@@ -119,11 +119,12 @@ class TradeExecutionEngine {
     // R:R validation removed - Safety Enforcer now auto-adjusts TP to meet minimum R:R
     // This allows good setups to execute with optimized parameters instead of rejection
 
+    // Check for BOTH open AND pending trades to prevent race conditions
     const { data: openTrades } = await supabase
       .from('goal_session_trades')
       .select('*')
       .eq('goal_session_id', signal.sessionId)
-      .eq('status', 'open');
+      .in('status', ['open', 'pending']);
 
     const maxConcurrentTrades = session.risk_mode === 'low' ? 1 : session.risk_mode === 'high' ? 3 : 2;
     if (openTrades && openTrades.length >= maxConcurrentTrades) {

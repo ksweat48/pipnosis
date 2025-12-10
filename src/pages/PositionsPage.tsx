@@ -160,7 +160,7 @@ export function PositionsPage() {
   const fetchGoalModePositions = async (userId: string): Promise<Position[]> => {
     const { data, error } = await supabase
       .from('goal_session_trades')
-      .select('id, symbol, direction, position_size, entry_price, stop_loss, take_profit, current_price, current_pnl, opened_at, simulated_position_id, goal_sessions!inner(user_id)')
+      .select('id, symbol, direction, position_size, entry_price, stop_loss, take_profit, current_price, current_pnl, opened_at, goal_sessions!inner(user_id)')
       .eq('goal_sessions.user_id', userId)
       .eq('status', 'open');
 
