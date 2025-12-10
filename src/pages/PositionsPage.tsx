@@ -121,17 +121,13 @@ export function PositionsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const [open, pending, recent, goalPositions] = await Promise.all([
+      const [open, pending, recent] = await Promise.all([
         positionService.getOpenPositions(user.id),
         positionService.getPendingOrders(user.id),
-        fetchRecentTrades(user.id),
-        fetchGoalModePositions(user.id)
+        fetchRecentTrades(user.id)
       ]);
 
-      // Combine simulated and goal mode positions
-      const allOpenPositions = [...open, ...goalPositions];
-
-      setOpenPositions(allOpenPositions);
+      setOpenPositions(open);
       setPendingOrders(pending);
       setRecentTrades(recent);
       setLoading(false);
@@ -182,38 +178,6 @@ export function PositionsPage() {
       .slice(0, 10);
 
     return allTrades;
-  };
-
-  const fetchGoalModePositions = async (userId: string): Promise<Position[]> => {
-    const { data, error } = await supabase
-      .from('goal_session_trades')
-      .select('id, symbol, direction, position_size, entry_price, stop_loss, take_profit, current_price, current_pnl, opened_at, goal_sessions!inner(user_id)')
-      .eq('goal_sessions.user_id', userId)
-      .eq('status', 'open');
-
-    if (error) {
-      console.error('Failed to fetch goal mode positions:', error);
-      return [];
-    }
-
-    // Normalize goal mode trades to match Position interface
-    return (data || [])
-      .filter((trade: any) => trade.symbol && trade.direction) // Filter out invalid trades
-      .map((trade: any) => ({
-        id: trade.id,
-        symbol: trade.symbol || 'UNKNOWN',
-        position_type: (trade.direction || 'buy') as 'buy' | 'sell',
-        order_type: 'market' as const,
-        lot_size: parseFloat(trade.position_size) || 0,
-        entry_price: parseFloat(trade.entry_price) || null,
-        limit_price: null,
-        stop_loss: parseFloat(trade.stop_loss) || 0,
-        take_profit: parseFloat(trade.take_profit) || 0,
-        status: 'open' as const,
-        current_price: parseFloat(trade.current_price) || null,
-        current_pnl: parseFloat(trade.current_pnl) || 0,
-        opened_at: trade.opened_at
-      }));
   };
 
   const fetchLivePrices = async (symbols: string[]) => {
@@ -295,67 +259,21 @@ export function PositionsPage() {
     setClosingPosition(position.id);
 
     try {
-      // Check if this is a goal session trade or simulated position
-      const { data: goalTrade } = await supabase
-        .from('goal_session_trades')
-        .select('id')
-        .eq('id', position.id)
-        .maybeSingle();
+      const result = await positionService.closePosition(
+        position.id,
+        currentPrice,
+        'manual'
+      );
 
-      if (goalTrade) {
-        // This is a goal session trade - close via goal_session_trades table
-        const { error } = await supabase
-          .from('goal_session_trades')
-          .update({
-            status: 'closed',
-            exit_price: currentPrice,
-            profit_loss: pnl,
-            closed_at: new Date().toISOString(),
-            current_pnl: pnl
-          })
-          .eq('id', position.id);
-
-        if (error) throw error;
-
-        // Also close linked simulated position if exists
-        const { data: linkedPos } = await supabase
-          .from('goal_session_trades')
-          .select('simulated_position_id')
-          .eq('id', position.id)
-          .maybeSingle();
-
-        if (linkedPos?.simulated_position_id) {
-          await simulatedTradingService.closePosition(
-            linkedPos.simulated_position_id,
-            currentPrice,
-            user!.id
-          ).catch(() => {
-            // Ignore errors - main goal trade is already closed
-          });
-        }
-
+      if (result.success) {
         notificationManager.playSound('trade_exit');
-        toast.success('Position Closed', 'Goal mode trade closed successfully');
+        toast.success('Position Closed', result.message || 'Position closed successfully');
+        await fetchAllData();
+        await refreshBalance();
+        await refreshPositions();
       } else {
-        // This is a regular simulated position
-        const result = await positionService.closePosition(
-          position.id,
-          currentPrice,
-          'manual'
-        );
-
-        if (result.success) {
-          notificationManager.playSound('trade_exit');
-          toast.success('Position Closed', result.message || 'Position closed successfully');
-        } else {
-          toast.error('Failed to Close', result.message || 'Could not close position');
-          return;
-        }
+        toast.error('Failed to Close', result.message || 'Could not close position');
       }
-
-      await fetchAllData();
-      await refreshBalance();
-      await refreshPositions();
     } catch (error) {
       console.error('Failed to close position:', error);
       toast.error('Error', 'Failed to close position. Please try again.');
