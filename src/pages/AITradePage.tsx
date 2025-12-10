@@ -1,19 +1,31 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { SmartGoalPanel } from '@/components/SmartGoalPanel';
 import { GoalSessionDashboard } from '@/components/GoalSessionDashboard';
-import { TrendingUp } from 'lucide-react';
+import { AchievementsHallOfFame } from '@/components/AchievementsHallOfFame';
+import { Target, Trophy } from 'lucide-react';
+
+type TabType = 'start' | 'achievements';
 
 export function AITradePage() {
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    const saved = localStorage.getItem('ai-trade-tab');
+    return (saved as TabType) || 'start';
+  });
+
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
       window.location.reload();
     },
     enabled: true
   });
+
+  useEffect(() => {
+    localStorage.setItem('ai-trade-tab', activeTab);
+  }, [activeTab]);
 
   return (
     <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative" ref={pullToRefresh.containerRef}>
@@ -31,30 +43,56 @@ export function AITradePage() {
       <NavigationMenu />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 relative z-10">
-        <div className="mb-10">
-          <div className="relative inline-block">
+        <div className="mb-8">
+          <div className="relative inline-block mb-6">
             <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur-sm opacity-5" />
             <h1 className="relative text-3xl sm:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-blue-400 to-emerald-400">
-              Pipnosis
+              Smart Goal Mode
             </h1>
           </div>
 
-          <p className="text-gray-400 text-base mt-1 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-emerald-400" />
-            Your AI Trading Assistant
-          </p>
+          <div className="flex items-center gap-3 bg-gray-800/50 rounded-xl p-1.5 border border-gray-700/50 backdrop-blur-sm max-w-md">
+            <button
+              onClick={() => setActiveTab('start')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-semibold transition-all duration-300 ${
+                activeTab === 'start'
+                  ? 'bg-gradient-to-r from-emerald-600 to-blue-600 text-white shadow-lg shadow-emerald-500/25'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+              }`}
+            >
+              <Target className="w-5 h-5" />
+              <span>Start Session</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('achievements')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-semibold transition-all duration-300 ${
+                activeTab === 'achievements'
+                  ? 'bg-gradient-to-r from-emerald-600 to-blue-600 text-white shadow-lg shadow-emerald-500/25'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+              }`}
+            >
+              <Trophy className="w-5 h-5" />
+              <span>Achievements</span>
+            </button>
+          </div>
         </div>
 
         <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-1">
-              <SmartGoalPanel />
-            </div>
+          {activeTab === 'start' ? (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="lg:col-span-1">
+                <SmartGoalPanel />
+              </div>
 
-            <div className="lg:col-span-2">
-              <GoalSessionDashboard />
+              <div className="lg:col-span-2">
+                <GoalSessionDashboard />
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <AchievementsHallOfFame />
+            </div>
+          )}
         </div>
       </main>
 
