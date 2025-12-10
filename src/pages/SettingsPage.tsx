@@ -5,7 +5,7 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { supabase } from '@/lib/supabase';
-import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity, DollarSign } from 'lucide-react';
+import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity, DollarSign, Zap } from 'lucide-react';
 import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
 import { chartPreferencesService, type IndicatorVisibility } from '@/services/chart-preferences';
 import { useToast } from '@/hooks/useToast';
@@ -21,6 +21,7 @@ export function SettingsPage() {
     tradeNotifications: true,
     goalNotifications: true,
     weeklyReports: false,
+    multiTradeMode: false,
   });
 
   const [passwordData, setPasswordData] = useState({
@@ -85,6 +86,7 @@ export function SettingsPage() {
             tradeNotifications: profileData.preferences.tradeNotifications ?? true,
             goalNotifications: profileData.preferences.goalNotifications ?? true,
             weeklyReports: profileData.preferences.weeklyReports ?? false,
+            multiTradeMode: profileData.preferences.multiTradeMode ?? false,
           });
         }
 
@@ -353,6 +355,84 @@ export function SettingsPage() {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <Zap size={20} className="text-emerald-400" />
+                <h2 className="text-xl font-semibold text-white">Trading Behavior</h2>
+              </div>
+
+              <p className="text-sm text-gray-400 mb-6">
+                Configure how the AI executes trades during Smart Goal Mode sessions.
+              </p>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center gap-3 flex-1">
+                    <Zap size={18} className={preferences.multiTradeMode ? "text-emerald-400" : "text-gray-400"} />
+                    <div className="flex-1">
+                      <div className="text-white font-medium">Multi-Trade Mode</div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {preferences.multiTradeMode ? (
+                          <>
+                            <span className="text-emerald-400 font-semibold">Multiple trades: </span>
+                            AI will continuously scan for opportunities until goal is met or session ends.
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-blue-400 font-semibold">Single trade default: </span>
+                            After each trade, you'll review results and decide whether to continue. Keeps you in control.
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={preferences.multiTradeMode}
+                      onChange={(e) =>
+                        setPreferences({ ...preferences, multiTradeMode: e.target.checked })
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="mt-6 p-4 bg-blue-900/20 border border-blue-700/30 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <AlertCircle size={18} className="text-blue-400 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-blue-300">
+                    <p className="font-medium mb-1">Important Note</p>
+                    <p className="text-blue-300/80">
+                      This setting applies to all new Smart Goal Mode sessions. You can change this preference at any time.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={handleSavePreferences}
+                  disabled={saving}
+                  className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
+                >
+                  {saving ? (
+                    <>
+                      <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save size={18} />
+                      <span>Save Preferences</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
 

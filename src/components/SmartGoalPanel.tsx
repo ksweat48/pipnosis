@@ -5,6 +5,7 @@ import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { aiGoalParser } from '../lib/aiGoalParser';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
+import { supabase } from '../lib/supabase';
 
 interface GoalTemplate {
   label: string;
@@ -53,6 +54,36 @@ export const SmartGoalPanel: React.FC = () => {
   const [parsedGoal, setParsedGoal] = useState<any>(null);
   const [isTradingModeExpanded, setIsTradingModeExpanded] = useState(false);
   const [multiTradeEnabled, setMultiTradeEnabled] = useState(false);
+  const [loadingPreferences, setLoadingPreferences] = useState(true);
+
+  useEffect(() => {
+    const loadUserPreferences = async () => {
+      if (!user) {
+        setLoadingPreferences(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('user_profiles')
+          .select('preferences')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (error) {
+          console.error('Error loading user preferences:', error);
+        } else if (data?.preferences) {
+          setMultiTradeEnabled(data.preferences.multiTradeMode ?? false);
+        }
+      } catch (err) {
+        console.error('Error loading preferences:', err);
+      } finally {
+        setLoadingPreferences(false);
+      }
+    };
+
+    loadUserPreferences();
+  }, [user]);
 
   useEffect(() => {
     const validateGoal = async () => {
@@ -102,9 +133,10 @@ export const SmartGoalPanel: React.FC = () => {
         window.dispatchEvent(new CustomEvent('goal-session-created', { detail: session }));
         setGoalPrompt('');
 
+        const modeText = multiTradeEnabled ? 'Multi-Trade Mode ON' : 'Single-Trade Mode';
         toast.success(
           'Goal Session Started!',
-          `Target: $${session.config.goalAmount} • ${session.strategy.targetTradeCount} trades • Autonomous AI brain with live demo monitoring`,
+          `Target: $${session.config.goalAmount} • ${session.strategy.targetTradeCount} trades • ${modeText}`,
           8000
         );
       } else {
@@ -165,40 +197,6 @@ export const SmartGoalPanel: React.FC = () => {
               </p>
             </div>
           )}
-        </div>
-
-        <div className="bg-gradient-to-br from-gray-700/50 to-gray-800/50 rounded-xl p-4 border border-gray-600/50">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-emerald-400" />
-              <span className="text-sm font-semibold text-white">Multi-Trade Mode</span>
-            </div>
-            <button
-              onClick={() => setMultiTradeEnabled(!multiTradeEnabled)}
-              className={`relative w-12 h-6 rounded-full transition-colors duration-300 ${
-                multiTradeEnabled ? 'bg-emerald-600' : 'bg-gray-600'
-              }`}
-            >
-              <div
-                className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-300 ${
-                  multiTradeEnabled ? 'translate-x-6' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-          <p className="text-xs text-gray-400">
-            {multiTradeEnabled ? (
-              <>
-                <span className="text-emerald-400 font-semibold">Multiple trades: </span>
-                AI will continuously scan for opportunities until goal is met or session ends.
-              </>
-            ) : (
-              <>
-                <span className="text-blue-400 font-semibold">Single trade default: </span>
-                After each trade, you'll review results and decide whether to continue. Keeps you in control.
-              </>
-            )}
-          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -328,13 +326,15 @@ export const SmartGoalPanel: React.FC = () => {
           <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 via-blue-500 to-emerald-500 rounded-xl opacity-70 group-hover:opacity-100 transition duration-300 blur" />
           <button
             onClick={handleCreateSession}
-            disabled={!goalPrompt.trim() || loading || (validation && !validation.isRealistic && showWarning)}
+            disabled={!goalPrompt.trim() || loading || loadingPreferences || (validation && !validation.isRealistic && showWarning)}
             className="relative w-full py-4 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed rounded-xl font-semibold text-white transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:shadow-emerald-500/25 hover:scale-[1.02] active:scale-[0.98]"
           >
-            {loading ? (
+            {loading || loadingPreferences ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                <span className="animate-pulse">Activating AI Goal Mode...</span>
+                <span className="animate-pulse">
+                  {loadingPreferences ? 'Loading preferences...' : 'Activating AI Goal Mode...'}
+                </span>
               </>
             ) : (
               <>
