@@ -134,6 +134,15 @@ class TradeExecutionEngine {
       };
     }
 
+    // CRITICAL: Prevent duplicate trades on the same symbol
+    const existingSymbolTrade = openTrades?.find(trade => trade.symbol === signal.symbol);
+    if (existingSymbolTrade) {
+      return {
+        valid: false,
+        reason: `Already have an open/pending position on ${signal.symbol}`
+      };
+    }
+
     return { valid: true };
   }
 
