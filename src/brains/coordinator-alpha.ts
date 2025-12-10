@@ -9,6 +9,48 @@
  * - Handle conflicts intelligently
  *
  * Uses ultra-compressed prompts for cost efficiency
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ * ALPHA FINAL AUTHORITY PRINCIPLE
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ * Alpha is the ONLY decision-maker. No rule-based system may block trades.
+ *
+ * Authority Hierarchy:
+ * 1. Rule-based modules (Regime Oracle, Adversarial Detector) = ADVISORS ONLY
+ *    - Provide risk modifiers (0.55x - 1.0x confidence)
+ *    - Flag dangerous conditions
+ *    - CANNOT block trades
+ *
+ * 2. Omega Council (6 specialists) = Technical advisors
+ *    - Vote with confidence levels
+ *    - Provide domain expertise
+ *    - CANNOT block trades
+ *
+ * 3. Alpha Coordinator = FINAL AUTHORITY (THIS MODULE)
+ *    - Synthesizes ALL inputs
+ *    - Chooses symbol, direction, SL/TP
+ *    - Decides IF trade should happen
+ *    - Can override any recommendation if justified
+ *
+ * 4. Omega-9 Hallucination = ONLY safety module allowed to block
+ *    - Validates execution parameters
+ *    - Blocks only catastrophic errors
+ *    - Ensures R:R ratios, position sizing
+ *
+ * Dead Zone Example:
+ * - EURUSD at 22:00 UTC (dead zone):
+ *   - Regime Oracle: "55% confidence multiplier (low liquidity)"
+ *   - Omega Risk: "NO_TRADE - spread risk high"
+ *   - Alpha: Sees full context, decides trade is still valid
+ *   - Result: Trade executes with reduced position size
+ *
+ * - USDJPY at 23:00 UTC (Tokyo active):
+ *   - Regime Oracle: "100% confidence (Tokyo session active)"
+ *   - No dead zone penalty applied
+ *   - Alpha proceeds normally
+ *
+ * ═══════════════════════════════════════════════════════════════════
  */
 
 import { openAIClient } from '../services/openai-client';

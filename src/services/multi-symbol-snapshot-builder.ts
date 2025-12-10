@@ -165,12 +165,13 @@ class MultiSymbolSnapshotBuilder {
     const omegaSensors = computeOmegaSensors(sortedCandles, marketState);
 
     // CRITICAL FIX: Use correct method name and parameter order
-    // RegimeOracle.evaluate(marketState, timestamp, candles)
+    // RegimeOracle.evaluate(marketState, timestamp, candles, symbol)
     const latestTimestamp = latestCandle.open_time || latestCandle.time || new Date();
     const regime = regimeOracle.evaluate(
       marketState,
       latestTimestamp,
-      sortedCandles
+      sortedCandles,
+      symbol  // Pass symbol for session-aware risk calculation
     );
 
     const adversarial = adversarialDetector.evaluate(
@@ -179,19 +180,23 @@ class MultiSymbolSnapshotBuilder {
       regime
     );
 
+    // ALPHA HAS FINAL AUTHORITY: Symbol is ALWAYS tradeable
+    // Rule-based systems (regime, adversarial) are ADVISORY ONLY
+    // Only catastrophic conditions block trades before Alpha evaluation
     let tradeable = true;
     let blockReason: string | undefined;
 
-    if (regime.avoid_trading) {
-      tradeable = false;
-      blockReason = regime.reason || 'regime_risk';
-    } else if (adversarial.is_adversarial && adversarial.level === 'severe') {
+    // Only block for catastrophic adversarial conditions
+    if (adversarial.is_adversarial && adversarial.level === 'severe') {
       tradeable = false;
       blockReason = 'severe_manipulation';
     } else if (adversarial.stop_run_classification?.should_block) {
       tradeable = false;
       blockReason = 'active_stop_run';
     }
+
+    // NOTE: regime.avoid_trading is IGNORED - Alpha decides with full context
+    // Dead zone and other regime risks are passed as modifiers, not blocks
 
     return {
       symbol,

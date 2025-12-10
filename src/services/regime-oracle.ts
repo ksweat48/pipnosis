@@ -68,9 +68,11 @@ export interface TrendStructureRegime {
 
 export interface SafetyFlags {
   is_high_risk_regime: boolean;
-  avoid_trading: boolean;
+  avoid_trading: boolean; // DEPRECATED - Alpha has final authority
   risk_reduction_factor: number;
   reason?: string;
+  session_weight?: number;
+  dead_zone_active?: boolean;
 }
 
 export interface RegimeSnapshot {
@@ -102,7 +104,8 @@ class RegimeOracle {
   evaluate(
     marketState: MarketState,
     timestamp: Date | number | string,
-    candles: Candle[]
+    candles: Candle[],
+    symbol?: string
   ): RegimeSnapshot {
     // Convert timestamp to Date object, handling string, number, or Date
     const ts = this.normalizeTimestamp(timestamp);
@@ -110,7 +113,7 @@ class RegimeOracle {
     const timeRegime = this.detectTimeRegime(ts);
     const volatilityRegime = this.detectVolatilityRegime(marketState.atr, candles);
     const trendRegime = this.detectTrendStructureRegime(marketState, candles);
-    const safetyFlags = this.computeSafetyFlags(timeRegime, volatilityRegime, trendRegime);
+    const safetyFlags = this.computeSafetyFlags(timeRegime, volatilityRegime, trendRegime, symbol, ts);
 
     return {
       session: timeRegime.session,
@@ -269,22 +272,48 @@ class RegimeOracle {
   /**
    * D. SAFETY FLAGS COMPUTATION
    *
-   * UPDATED: More nuanced approach to wick risk.
-   * Medium wick risk now only reduces position size, doesn't block trades.
+   * UPDATED: Dead zone is now a RISK MODIFIER, not a trade blocker.
+   * Alpha has final authority - no rule-based system may block trades.
+   *
+   * Symbol-specific session profiles:
+   * - EURUSD/GBPUSD: True dead zone 21:00-00:00 UTC
+   * - XAUUSD: Semi-active in all sessions
+   * - USDJPY: ACTIVE after 23:00 UTC (Tokyo session)
+   * - US30: Low volume after NY close
    */
   private computeSafetyFlags(
     time: TimeRegime,
     volatility: VolatilityRegime,
-    trend: TrendStructureRegime
+    trend: TrendStructureRegime,
+    symbol?: string,
+    timestamp?: Date
   ): SafetyFlags {
     let avoidTrading = false;
     let isHighRisk = false;
     let riskFactor = 1.0;
     let reason: string | undefined;
+    let sessionWeight = 1.0;
+    let deadZoneActive = false;
 
+    // Dead zone is now a risk factor, not a trade blocker
     if (time.is_dead_zone) {
-      avoidTrading = true;
-      reason = 'Dead zone session (21:00-00:00 UTC)';
+      deadZoneActive = true;
+
+      // Get symbol-specific session weight
+      if (symbol && timestamp) {
+        sessionWeight = this.getSymbolSessionWeight(symbol, timestamp.getUTCHours());
+        riskFactor = Math.min(riskFactor, sessionWeight);
+
+        if (sessionWeight < 1.0) {
+          isHighRisk = true;
+          reason = reason || `Low liquidity period (${(sessionWeight * 100).toFixed(0)}% confidence)`;
+        }
+      } else {
+        // Default dead zone penalty if symbol not provided
+        isHighRisk = true;
+        riskFactor = Math.min(riskFactor, 0.65);
+        reason = reason || 'Low liquidity period (21:00-00:00 UTC)';
+      }
     }
 
     if (volatility.volatility_score < 15) {
@@ -333,14 +362,51 @@ class RegimeOracle {
       reason = reason || 'Elevated wick activity (monitor stops)';
     }
 
-    console.log(`[Safety Flags] avoid=${avoidTrading}, highRisk=${isHighRisk}, riskFactor=${riskFactor}, reason=${reason || 'none'}`);
+    console.log(`[Safety Flags] avoid=${avoidTrading}, highRisk=${isHighRisk}, riskFactor=${riskFactor}, sessionWeight=${sessionWeight.toFixed(2)}, reason=${reason || 'none'}`);
 
     return {
       is_high_risk_regime: isHighRisk,
-      avoid_trading: avoidTrading,
+      avoid_trading: avoidTrading, // DEPRECATED - kept for backward compatibility
       risk_reduction_factor: riskFactor,
-      reason
+      reason,
+      session_weight: sessionWeight,
+      dead_zone_active: deadZoneActive
     };
+  }
+
+  /**
+   * Get symbol-specific session weight
+   * Different symbols have different activity levels during various sessions
+   */
+  private getSymbolSessionWeight(symbol: string, hour: number): number {
+    switch(symbol) {
+      case 'EURUSD':
+      case 'GBPUSD':
+        // European pairs - true dead zone during NY close
+        if (hour >= 21 || hour < 0) return 0.55;  // 21:00-00:00 UTC: 45% reduction
+        if (hour < 7) return 0.75;                 // 00:00-07:00 UTC (Asian): 25% reduction
+        return 1.0;
+
+      case 'XAUUSD':
+        // Gold - semi-active in all sessions
+        if (hour >= 21 || hour < 0) return 0.85;  // Still trades but lower liquidity
+        return 1.0;
+
+      case 'USDJPY':
+        // Japanese Yen - ACTIVE after 23:00 UTC (Tokyo session starts)
+        if (hour >= 23 || hour < 7) return 1.0;   // Tokyo active hours - NO penalty!
+        return 0.9;                                // Slightly reduced outside Tokyo
+
+      case 'US30':
+        // US30 - low volume after NY close
+        if (hour >= 21 || hour < 1) return 0.70;  // 30% reduction
+        return 1.0;
+
+      default:
+        // Unknown symbol - apply moderate dead zone penalty
+        if (hour >= 21 || hour < 0) return 0.70;
+        return 1.0;
+    }
   }
 
   /**
