@@ -28,7 +28,7 @@ export interface GoalSessionProcessResult {
 export interface GoalSessionState {
   goalSessionId: string;
   userId: string;
-  symbol: string;
+  watchlist: string[];
   timeframe: string;
   openTrades: SimulatedTrade[];
   lastProcessedCandleTime: Date | null;
@@ -46,72 +46,117 @@ export async function processGoalSessionIteration(
   state: GoalSessionState
 ): Promise<GoalSessionProcessResult> {
   try {
-    const { goalSessionId, userId, symbol, timeframe } = state;
+    const { goalSessionId, userId, watchlist, timeframe } = state;
 
-    // Fetch latest candles from database
-    const dbTimeframe = normalizeTimeframeToDb(timeframe);
-    logger.debug(LogCategory.AI_TRADING, `[Core] Processing ${symbol} ${timeframe}`);
-
-    const { data: candles, error } = await supabase
-      .from('forex_candles')
-      .select('*')
-      .eq('symbol', symbol)
-      .eq('timeframe', dbTimeframe)
-      .order('open_time', { ascending: false })
-      .limit(100);
-
-    if (error || !candles || candles.length < 50) {
+    if (!watchlist || watchlist.length === 0) {
+      logger.error(LogCategory.AI_TRADING, '[Core] No symbols in watchlist');
       return {
         success: false,
-        message: 'Insufficient candle data',
-        shouldContinue: true // Keep trying
+        message: 'Session has no symbols to monitor',
+        shouldContinue: false
       };
     }
-
-    const sortedCandles = candles.reverse();
-    const latestCandle = sortedCandles[sortedCandles.length - 1];
-
-    // Check if this is a new candle
-    if (state.lastProcessedCandleTime &&
-        new Date(latestCandle.open_time).getTime() <= state.lastProcessedCandleTime.getTime()) {
-      return {
-        success: true,
-        message: 'No new candle',
-        shouldContinue: true
-      };
-    }
-
-    // Update state
-    state.lastProcessedCandleTime = new Date(latestCandle.open_time);
-    state.scanCount++;
-
-    // Update open trades with latest price
-    state.openTrades = eventBasedLLMEngine.updateOpenTrades(state.openTrades, latestCandle);
 
     let llmCallsMade = 0;
     let triggersDetected = 0;
+    let tradesExecuted = 0;
 
-    // Check mid-trade triggers for open positions
-    for (const trade of state.openTrades) {
-      if (trade.outcome === 'open') {
-        const conditions = calculateMarketConditions(sortedCandles, latestCandle);
-        const triggers = midTradeTriggerDetector.detectTriggers(trade, conditions, latestCandle);
+    // Process EACH symbol in the watchlist
+    for (const symbol of watchlist) {
+      // Fetch latest candles from database
+      const dbTimeframe = normalizeTimeframeToDb(timeframe);
+      logger.debug(LogCategory.AI_TRADING, `[Core] Processing ${symbol} ${timeframe}`);
 
-        if (triggers.length > 0) {
-          triggersDetected += triggers.length;
+      const { data: candles, error } = await supabase
+        .from('forex_candles')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('timeframe', dbTimeframe)
+        .order('open_time', { ascending: false })
+        .limit(100);
 
-          // Evaluate with LLM
-          const evaluation = await llmMidTradeEvaluator.evaluatePosition(
-            trade,
-            triggers,
-            sortedCandles,
-            userId
-          );
+      if (error || !candles || candles.length < 50) {
+        logger.warn(LogCategory.AI_TRADING, `[Core] Insufficient data for ${symbol}, skipping`);
+        continue;
+      }
 
+      const sortedCandles = candles.reverse();
+      const latestCandle = sortedCandles[sortedCandles.length - 1];
+
+      // Check if this is a new candle
+      if (state.lastProcessedCandleTime &&
+          new Date(latestCandle.open_time).getTime() <= state.lastProcessedCandleTime.getTime()) {
+        continue;
+      }
+
+      // Update state
+      state.lastProcessedCandleTime = new Date(latestCandle.open_time);
+      state.scanCount++;
+
+      // Update open trades for this symbol with latest price
+      const symbolTrades = state.openTrades.filter(t => t.symbol === symbol);
+      for (const trade of symbolTrades) {
+        if (trade.outcome === 'open') {
+          trade.currentPrice = parseFloat(latestCandle.close);
+          trade.profitLoss = trade.direction === 'buy'
+            ? (trade.currentPrice - trade.entryPrice) * trade.positionSize
+            : (trade.entryPrice - trade.currentPrice) * trade.positionSize;
+        }
+      }
+
+      // Check mid-trade triggers for open positions on this symbol
+      for (const trade of symbolTrades) {
+        if (trade.outcome === 'open') {
+          const conditions = calculateMarketConditions(sortedCandles, latestCandle);
+          const triggers = midTradeTriggerDetector.detectTriggers(trade, conditions, latestCandle);
+
+          if (triggers.length > 0) {
+            triggersDetected += triggers.length;
+
+            // Evaluate with LLM
+            const evaluation = await llmMidTradeEvaluator.evaluatePosition(
+              trade,
+              triggers,
+              sortedCandles,
+              userId
+            );
+
+            llmCallsMade++;
+
+            if (evaluation.action !== 'hold') {
+              await handleLLMPositionAction(trade, evaluation, goalSessionId, userId);
+            }
+          }
+        }
+      }
+
+      // Look for new trade opportunities on this symbol
+      const { data: goalSession } = await supabase
+        .from('goal_sessions')
+        .select('*')
+        .eq('id', goalSessionId)
+        .single();
+
+      if (!goalSession) continue;
+
+      const maxConcurrentTrades = 3;
+      const allowNewTrades = goalSession.status === 'scanning' || goalSession.status === 'active';
+
+      if (allowNewTrades && state.openTrades.length < maxConcurrentTrades) {
+        const newSignal = await eventBasedLLMEngine.evaluateCandleStream(
+          sortedCandles,
+          symbol,
+          userId,
+          goalSessionId
+        );
+
+        if (newSignal && newSignal.direction) {
           llmCallsMade++;
+          triggersDetected++;
 
-          if (evaluation.action !== 'hold') {
-            await handleLLMPositionAction(trade, evaluation, goalSessionId, userId);
+          const executed = await executeLiveTrade(newSignal, goalSessionId, userId, state);
+          if (executed) {
+            tradesExecuted++;
           }
         }
       }
@@ -197,31 +242,6 @@ export async function processGoalSessionIteration(
       };
     }
 
-    // Look for new trade opportunities (only if not expired and under max trades)
-    let tradesExecuted = 0;
-    const maxConcurrentTrades = 3;
-    const allowNewTrades = goalSession.status === 'scanning' || goalSession.status === 'active';
-
-    if (allowNewTrades && state.openTrades.length < maxConcurrentTrades) {
-      const newSignal = await eventBasedLLMEngine.evaluateCandleStream(
-        sortedCandles,
-        symbol,
-        userId,
-        goalSessionId
-      );
-
-      if (newSignal && newSignal.direction) {
-        llmCallsMade++;
-        triggersDetected++;
-
-        // Execute the trade
-        const executed = await executeLiveTrade(newSignal, goalSessionId, userId, state);
-        if (executed) {
-          tradesExecuted++;
-        }
-      }
-    }
-
     // Update session status
     await supabase
       .from('goal_sessions')
@@ -292,10 +312,12 @@ export async function initializeGoalSession(goalSessionId: string): Promise<Goal
       triggerType: p.trigger_type || 'unknown'
     }));
 
+    const watchlist = goalSession.watchlist || ['XAUUSD', 'EURUSD', 'GBPUSD'];
+
     const state: GoalSessionState = {
       goalSessionId,
       userId: goalSession.user_id,
-      symbol: goalSession.symbol,
+      watchlist: Array.isArray(watchlist) ? watchlist : [watchlist],
       timeframe: goalSession.timeframe || '15m',
       openTrades,
       lastProcessedCandleTime: goalSession.last_scan_time ? new Date(goalSession.last_scan_time) : null,

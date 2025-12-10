@@ -82,7 +82,7 @@ export const handler: Handler = async (event, context) => {
             user_id: session.user_id,
             last_processed_at: new Date().toISOString(),
             last_tick_price: state.openTrades.length > 0 ? state.openTrades[0].currentPrice : null,
-            current_symbol: state.symbol,
+            current_symbol: state.watchlist.join(','),
             trades_executed: (result.tradesExecuted || 0),
             server_decisions: (result.llmCallsMade || 0),
             consecutive_errors: result.success ? 0 : 1,
