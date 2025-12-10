@@ -16,6 +16,7 @@ const PublicLandingPage = lazy(() => import('./components/PublicLandingPage').th
 const AuthPage = lazy(() => import('./pages/AuthPage').then(m => ({ default: m.AuthPage })));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
 const PositionsPage = lazy(() => import('./pages/PositionsPage').then(m => ({ default: m.PositionsPage })));
+const TradePage = lazy(() => import('./pages/TradePage').then(m => ({ default: m.TradePage })));
 const AITradePage = lazy(() => import('./pages/AITradePage').then(m => ({ default: m.AITradePage })));
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
 const AIJournalPage = lazy(() => import('./pages/AIJournalPage').then(m => ({ default: m.AIJournalPage })));
@@ -92,7 +93,7 @@ const AppRoutes: React.FC = () => {
         path="/trade"
         element={
           <ProtectedRoute>
-            <AITradePage />
+            <TradePage />
           </ProtectedRoute>
         }
       />
