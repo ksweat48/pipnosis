@@ -314,6 +314,21 @@ class GoalSessionLiveEngine {
    */
   private async processMultiSymbolCycle(watchlist: string[]): Promise<void> {
     try {
+      // CRITICAL: Execution lock to prevent race conditions in parallel evaluation
+      if (this.processingLock) {
+        logger.debug(LogCategory.AI_TRADING, '🔒 Already processing cycle - skipping to prevent race condition');
+        return;
+      }
+
+      // CRITICAL: Check max trades BEFORE expensive operations
+      if (this.openTrades.length >= this.config.maxConcurrentTrades) {
+        logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - skipping expensive scan`);
+        return;
+      }
+
+      // Set processing lock
+      this.processingLock = true;
+
       logger.debug(LogCategory.AI_TRADING, `📊 Building snapshots for ${watchlist.length} symbols...`);
 
       const snapshotResult = await multiSymbolSnapshotBuilder.buildSnapshots(watchlist);
@@ -496,23 +511,63 @@ class GoalSessionLiveEngine {
         logger.debug(LogCategory.AI_TRADING, `Trade ${this.openTrades.length}/${this.config.maxConcurrentTrades} added with DB ID: ${trade.id}`);
         logger.info(LogCategory.AI_TRADING, `✅ Trade executed: ${selectedSymbol} ${trade.direction} @ ${trade.entryPrice} (confidence: ${trade.confidence}%)`);
 
-        // If max trades reached, pause scanning to await user continuation
-        if (this.openTrades.length >= this.config.maxConcurrentTrades) {
-          logger.info(LogCategory.AI_TRADING, '🛑 Max trades reached - setting session to await user continuation');
-          await supabase
+        // Increment trade counter in database
+        try {
+          const { data: sessionData, error: fetchError } = await supabase
             .from('goal_sessions')
-            .update({ awaiting_user_continuation: true })
-            .eq('id', this.activeSession);
+            .select('trades_in_session, multi_trade_enabled')
+            .eq('id', this.activeSession)
+            .single();
 
-          await this.sendAIMessage(
-            `✅ Trade executed successfully!\n\n` +
-            `🎯 Position opened: ${selectedSymbol} ${decision.action}\n` +
-            `💰 Entry: ${decision.entry.toFixed(5)} | SL: ${decision.stopLoss.toFixed(5)} | TP: ${decision.takeProfit.toFixed(5)}\n\n` +
-            `⏸️ Pausing new scans to monitor this position.\n` +
-            `I'll continue watching price action and alert you to any important developments.\n\n` +
-            `Click "Continue" when ready to look for the next trade.`
-          );
-          return; // Exit early to prevent the summary message below
+          if (fetchError) {
+            logger.error(LogCategory.AI_TRADING, 'Failed to fetch session data for trade counter', { fetchError });
+          } else {
+            const newTradeCount = (sessionData?.trades_in_session || 0) + 1;
+            const multiTradeEnabled = sessionData?.multi_trade_enabled || false;
+
+            const { error: updateError } = await supabase
+              .from('goal_sessions')
+              .update({
+                trades_in_session: newTradeCount,
+                last_trade_id: trade.id
+              })
+              .eq('id', this.activeSession);
+
+            if (updateError) {
+              logger.error(LogCategory.AI_TRADING, 'Failed to update trade counter', { updateError });
+            } else {
+              logger.debug(LogCategory.AI_TRADING, `✅ Trade counter updated: ${newTradeCount} (multi-trade: ${multiTradeEnabled})`);
+            }
+
+            // If max trades reached AND multi-trade is DISABLED, pause scanning
+            if (this.openTrades.length >= this.config.maxConcurrentTrades && !multiTradeEnabled) {
+              logger.info(LogCategory.AI_TRADING, '🛑 Max trades reached in single-trade mode - setting session to await user continuation');
+
+              const { error: continuationError } = await supabase
+                .from('goal_sessions')
+                .update({
+                  awaiting_user_continuation: true,
+                  continuation_prompt: `Trade #${newTradeCount} executed on ${selectedSymbol}. Position is now open and being monitored.`
+                })
+                .eq('id', this.activeSession);
+
+              if (continuationError) {
+                logger.error(LogCategory.AI_TRADING, 'Failed to set awaiting_user_continuation', { continuationError });
+              }
+
+              await this.sendAIMessage(
+                `✅ Trade executed successfully!\n\n` +
+                `🎯 Position opened: ${selectedSymbol} ${decision.action}\n` +
+                `💰 Entry: ${decision.entry.toFixed(5)} | SL: ${decision.stopLoss.toFixed(5)} | TP: ${decision.takeProfit.toFixed(5)}\n\n` +
+                `⏸️ Pausing new scans to monitor this position.\n` +
+                `I'll continue watching price action and alert you to any important developments.\n\n` +
+                `Click "Continue" when ready to look for the next trade.`
+              );
+              return; // Exit early to prevent the summary message below
+            }
+          }
+        } catch (error) {
+          logger.error(LogCategory.AI_TRADING, 'Error updating trade counter', { error });
         }
       } else {
         logger.error(LogCategory.AI_TRADING, `❌ Trade execution failed: ${executionResult.message}`);
@@ -536,6 +591,9 @@ class GoalSessionLiveEngine {
     } catch (error) {
       console.error('[Multi-Symbol] Error processing cycle:', error);
       logger.error(LogCategory.AI_TRADING, 'Multi-symbol cycle error', { error });
+    } finally {
+      // CRITICAL: Always release the lock
+      this.processingLock = false;
     }
   }
 

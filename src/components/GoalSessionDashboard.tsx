@@ -73,15 +73,16 @@ export const GoalSessionDashboard: React.FC = () => {
       setActiveSession(session);
 
       if (session) {
-        // Check for continuation prompt
+        // Check for continuation prompt (only if multi-trade is disabled)
         try {
           const { data: sessionData } = await supabase
             .from('goal_sessions')
-            .select('awaiting_user_continuation, continuation_prompt, trades_in_session, current_progress, target_value')
+            .select('awaiting_user_continuation, continuation_prompt, trades_in_session, current_progress, target_value, multi_trade_enabled')
             .eq('id', session.sessionId)
             .single();
 
-          if (sessionData?.awaiting_user_continuation) {
+          // Only show continuation dialog if multi-trade is DISABLED
+          if (sessionData?.awaiting_user_continuation && !sessionData?.multi_trade_enabled) {
             setContinuationData({
               isAwaiting: true,
               prompt: sessionData.continuation_prompt || 'Would you like to continue scanning for more trades?',

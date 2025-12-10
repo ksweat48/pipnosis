@@ -116,7 +116,7 @@ class SmartGoalSessionManager {
       console.error('[Smart Goal] Error creating session record:', error);
     }
 
-    await this.startLiveEngine(sessionId, userId, config, accountBalance);
+    await this.startLiveEngine(sessionId, userId, config, accountBalance, multiTradeEnabled);
 
     console.log(`[Smart Goal] Created session ${sessionId}: Target $${config.goalAmount} - Strategy: ${breakDown.targetTradeCount === 1 ? 'ONE premium trade' : `${breakDown.targetTradeCount} trades if needed`}`);
     console.log(`[Smart Goal] ✅ LIVE DEMO MODE - All trades use real price monitoring with visible SL/TP`);
@@ -318,9 +318,14 @@ class SmartGoalSessionManager {
     sessionId: string,
     userId: string,
     config: SmartGoalConfig,
-    accountBalance: number
+    accountBalance: number,
+    multiTradeEnabled: boolean = false
   ): Promise<void> {
     try {
+      // CRITICAL: In single-trade mode, maxConcurrentTrades MUST be 1
+      // Only allow 2+ concurrent trades if multi-trade is explicitly enabled
+      const maxConcurrentTrades = multiTradeEnabled ? 2 : 1;
+
       const liveConfig: GoalSessionLiveConfig = {
         goalSessionId: sessionId,
         userId,
@@ -328,7 +333,7 @@ class SmartGoalSessionManager {
         timeframe: '15m',
         useLLM: true,
         riskMode: config.riskMode,
-        maxConcurrentTrades: 2,
+        maxConcurrentTrades,
         initialBalance: accountBalance,
         autoExecute: config.autoExecute
       };
