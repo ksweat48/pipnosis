@@ -150,7 +150,7 @@ class AlphaOmegaOrchestrator {
       omega8: omega8Vote
     });
 
-    // ✅ CRITICAL: Check for high-confidence directional conflicts
+    // ✅ CRITICAL: Check for high-confidence directional conflicts (respecting trader personality)
     const conflictCheck = this.detectOmegaConflicts({
       trend: trendVote,
       scalper: scalperVote,
@@ -159,7 +159,7 @@ class AlphaOmegaOrchestrator {
       volatility: volatilityVote,
       risk: riskVote,
       omega8: omega8Vote
-    });
+    }, traderScore);
 
     // Store confidence penalty for later application
     let confidencePenaltyMultiplier = 1.0;
@@ -167,6 +167,7 @@ class AlphaOmegaOrchestrator {
     if (conflictCheck.hasConflict) {
       console.warn(`[Alpha+Omega] ⚠️  DIRECTIONAL CONFLICT DETECTED!`);
       console.warn(`[Alpha+Omega] Type: ${conflictCheck.conflictType}, Severity: ${conflictCheck.severity}`);
+      console.warn(`[Alpha+Omega] Personality: ${traderScore.personality} | Score: ${traderScore.score} | Risk: ${traderScore.risk_mode || 'MEDIUM'}`);
       console.warn(`[Alpha+Omega] Conflict: ${conflictCheck.conflictDescription}`);
 
       if (conflictCheck.conflictType === 'HARD') {
@@ -694,8 +695,9 @@ class AlphaOmegaOrchestrator {
   /**
    * Detect high-confidence directional conflicts between Omega brains
    * REFINED: Distinguishes between HARD BLOCK and SOFT WARNING
+   * PERSONALITY-AWARE: Respects trader personality and risk mode
    */
-  private detectOmegaConflicts(votes: OmegaCouncilVotes): {
+  private detectOmegaConflicts(votes: OmegaCouncilVotes, traderScore: TraderScore): {
     hasConflict: boolean;
     conflictType: 'HARD' | 'SOFT' | 'NONE';
     severity: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
@@ -703,6 +705,11 @@ class AlphaOmegaOrchestrator {
     confidencePenalty: number; // Multiplier to apply (0.8 = -20%, 1.0 = no change)
   } {
     const HIGH_CONFIDENCE = 70;
+
+    // Personality settings influence conflict resolution
+    const isAggressive = traderScore.personality === 'AGGRESSIVE';
+    const isHighScore = traderScore.score >= 80;
+    const isAggressiveMode = isAggressive && isHighScore;
 
     // Define conflicting domain pairs
     const conflictingDomains: Record<string, string[]> = {
@@ -774,15 +781,22 @@ class AlphaOmegaOrchestrator {
     const sellBrains = sellVotes.map(v => `${v.brain}(${v.confidence}%)`).join(', ');
     const description = `BUY: [${buyBrains}] vs SELL: [${sellBrains}]`;
 
+    // Check for overwhelming majority (5+ vs 1 or 1 vs 5+)
+    const hasOverwhelmingMajority =
+      (buyVotes.length >= 5 && sellVotes.length === 1) ||
+      (sellVotes.length >= 5 && buyVotes.length === 1);
+
     // HARD BLOCK CONDITIONS:
     // 1. At least 2 Omegas disagree in direction
     // 2. Their disagreement confidence >= 70%
     // 3. They are from conflicting domains
+    // 4. NOT in aggressive mode with overwhelming majority
     const hardBlockCondition1 = highConfBuyVotes.length >= 1 && highConfSellVotes.length >= 1;
     const hardBlockCondition2 = hardBlockCondition1; // Already filtered for >= 70%
     const hardBlockCondition3 = hasConflictingDomains;
+    const hardBlockCondition4 = !(isAggressiveMode && hasOverwhelmingMajority);
 
-    if (hardBlockCondition1 && hardBlockCondition2 && hardBlockCondition3) {
+    if (hardBlockCondition1 && hardBlockCondition2 && hardBlockCondition3 && hardBlockCondition4) {
       console.log('[Omega Conflict] HARD BLOCK: Conflicting high-confidence signals from opposing domains');
       return {
         hasConflict: true,
@@ -790,6 +804,24 @@ class AlphaOmegaOrchestrator {
         severity: 'HIGH',
         conflictDescription: description,
         confidencePenalty: 0.0 // Will block, so penalty doesn't matter
+      };
+    }
+
+    // AGGRESSIVE MODE OVERRIDE: Downgrade HARD to SOFT when overwhelming majority exists
+    if (isAggressiveMode && hasOverwhelmingMajority && hardBlockCondition1 && hardBlockCondition2 && hardBlockCondition3) {
+      const majorityDirection = buyVotes.length > sellVotes.length ? 'BUY' : 'SELL';
+      const majorityCount = Math.max(buyVotes.length, sellVotes.length);
+      const minorityCount = Math.min(buyVotes.length, sellVotes.length);
+
+      console.log(`[Omega Conflict] 🔥 AGGRESSIVE MODE OVERRIDE: ${majorityCount} vs ${minorityCount} - Taking ${majorityDirection} with reduced confidence`);
+      console.log('[Omega Conflict] Personality: AGGRESSIVE | Score: ' + traderScore.score + ' | Respecting majority consensus');
+
+      return {
+        hasConflict: true,
+        conflictType: 'SOFT',
+        severity: 'MEDIUM',
+        conflictDescription: `${description} (Aggressive: Following ${majorityCount}-vote majority)`,
+        confidencePenalty: 0.85 // -15% penalty for aggressive override
       };
     }
 
@@ -805,17 +837,18 @@ class AlphaOmegaOrchestrator {
       let severityLevel: 'LOW' | 'MEDIUM' = 'LOW';
 
       if (lowConfCount > 0) {
-        penalty = 0.9; // -10% for low confidence disagreement
+        penalty = isAggressiveMode ? 0.95 : 0.9; // Aggressive: -5%, Normal: -10%
         severityLevel = 'LOW';
       } else if (!hasConflictingDomains) {
-        penalty = 0.85; // -15% for similar domain disagreement
+        penalty = isAggressiveMode ? 0.92 : 0.85; // Aggressive: -8%, Normal: -15%
         severityLevel = 'LOW';
       } else {
-        penalty = 0.8; // -20% for single high-confidence disagreement
+        penalty = isAggressiveMode ? 0.88 : 0.8; // Aggressive: -12%, Normal: -20%
         severityLevel = 'MEDIUM';
       }
 
-      console.warn(`[Omega Conflict] SOFT conflict, applying ${penalty}x confidence penalty`);
+      const modeLabel = isAggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
+      console.warn(`[Omega Conflict] SOFT conflict (${modeLabel}), applying ${penalty}x confidence penalty`);
       return {
         hasConflict: true,
         conflictType: 'SOFT',
