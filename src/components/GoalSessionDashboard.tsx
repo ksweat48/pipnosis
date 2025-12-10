@@ -46,23 +46,35 @@ export const GoalSessionDashboard: React.FC = () => {
     });
 
     return () => {
+      console.log('[GoalSessionDashboard] Component cleanup - stopping polling');
       clearInterval(interval);
       window.removeEventListener('goal-session-created', handleSessionCreated);
       unsubscribe();
+      // Stop polling on component unmount
       goalScannerTrigger.stopPolling();
     };
-  }, [user]);
+  }, [user?.id]); // Use user.id instead of user to prevent re-runs when user object changes
 
   useEffect(() => {
     if (!activeSession) {
+      // No active session - ensure polling is stopped
+      goalScannerTrigger.stopPolling();
       return;
     }
 
-    if (['scanning', 'initializing', 'trade_pending', 'in_trade', 'soft_closing'].includes(activeSession.status)) {
+    const validStatuses = ['scanning', 'initializing', 'trade_pending', 'in_trade', 'soft_closing'];
+    if (validStatuses.includes(activeSession.status)) {
+      console.log(`[GoalSessionDashboard] Starting polling for session ${activeSession.sessionId} (status: ${activeSession.status})`);
       goalScannerTrigger.startPolling(activeSession.sessionId, 60000);
     } else {
+      console.log(`[GoalSessionDashboard] Stopping polling - session status is ${activeSession.status}`);
       goalScannerTrigger.stopPolling();
     }
+
+    // Cleanup: don't stop polling here, let the next render decide
+    return () => {
+      // No cleanup needed - next render will handle it
+    };
   }, [activeSession?.sessionId, activeSession?.status]);
 
   const loadSessionData = async () => {
