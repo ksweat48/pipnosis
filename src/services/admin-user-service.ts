@@ -21,7 +21,6 @@ export interface UserDetails {
   };
   balances: {
     account_balance: number;
-    demo_balance: number;
     credit_balance: number;
     lifetime_credits_earned: number;
   };

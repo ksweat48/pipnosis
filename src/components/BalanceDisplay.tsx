@@ -25,13 +25,13 @@ export function BalanceDisplay({ refreshTrigger }: BalanceDisplayProps) {
 
       const { data: profile, error: profileError } = await supabase
         .from('user_profiles')
-        .select('demo_balance')
+        .select('account_balance')
         .eq('id', user.id)
         .single();
 
       if (profileError) throw profileError;
 
-      const currentBalance = parseFloat(profile?.demo_balance || '10000');
+      const currentBalance = parseFloat(profile?.account_balance || '10000');
       setBalance(currentBalance);
 
       const { data: positions, error: positionsError } = await supabase

@@ -332,11 +332,11 @@ class TradeExecutionEngine {
 
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('demo_balance')
+      .select('account_balance')
       .eq('id', userId)
       .single();
 
-    const currentBalance = parseFloat(profile?.demo_balance || '10000');
+    const currentBalance = parseFloat(profile?.account_balance || '10000');
     const requiredMargin = signal.positionSize * 1000;
 
     if (currentBalance < requiredMargin) {
@@ -527,11 +527,11 @@ class TradeExecutionEngine {
 
       const { data: profile } = await supabase
         .from('user_profiles')
-        .select('demo_balance')
+        .select('account_balance')
         .eq('id', userId)
         .single();
 
-      const currentBalance = parseFloat(profile?.demo_balance || '10000');
+      const currentBalance = parseFloat(profile?.account_balance || '10000');
       const requiredMargin = trade.position_size * 1000;
 
       if (currentBalance < requiredMargin) {

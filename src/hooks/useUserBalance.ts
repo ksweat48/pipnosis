@@ -15,12 +15,12 @@ export function useUserBalance(userId: string | null) {
 
       const { data: profile } = await supabase
         .from('user_profiles')
-        .select('demo_balance')
+        .select('account_balance')
         .eq('id', userId)
         .maybeSingle();
 
       if (profile) {
-        setBalance(profile.demo_balance || 10000);
+        setBalance(profile.account_balance || 10000);
       }
     } catch (error) {
       console.error('Failed to fetch balance:', error);

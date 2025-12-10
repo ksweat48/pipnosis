@@ -129,18 +129,12 @@ export const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ userId, onCl
             <h3 className="text-lg font-semibold text-white mb-3">Balances</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <div className="text-sm text-gray-400">Trading Account</div>
+                <div className="text-sm text-gray-400">Account Balance</div>
                 <div className={`text-xl font-bold font-mono ${
                   details.balances.account_balance >= 10000 ? 'text-green-400' :
                   details.balances.account_balance > 0 ? 'text-white' : 'text-red-400'
                 }`}>
                   {formatCurrency(details.balances.account_balance)}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-400">Demo Account</div>
-                <div className="text-xl font-bold font-mono text-white">
-                  {formatCurrency(details.balances.demo_balance)}
                 </div>
               </div>
               <div>
