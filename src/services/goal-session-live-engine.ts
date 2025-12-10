@@ -316,30 +316,39 @@ class GoalSessionLiveEngine {
    */
   private async processMultiSymbolCycle(watchlist: string[]): Promise<void> {
     try {
-      // CRITICAL: Execution lock to prevent race conditions in parallel evaluation
-      if (this.processingLock) {
-        logger.debug(LogCategory.AI_TRADING, '🔒 Already processing cycle - skipping to prevent race condition');
-        return;
-      }
+      // 🔍 AGGRESSIVE LOGGING: Entry point
+      console.log('%c[MULTI-SYMBOL] 🚀 ENTERED processMultiSymbolCycle', 'color: #00ff00; font-weight: bold; font-size: 16px');
+      console.log('[MULTI-SYMBOL] Watchlist:', watchlist);
+      console.log('[MULTI-SYMBOL] Open trades:', this.openTrades.length);
+      console.log('[MULTI-SYMBOL] Max concurrent:', this.config.maxConcurrentTrades);
 
       // CRITICAL: Check max trades BEFORE expensive operations
       if (this.openTrades.length >= this.config.maxConcurrentTrades) {
+        console.log('%c[MULTI-SYMBOL] ⏸️ BLOCKED: Max trades reached', 'color: #ff9800; font-weight: bold');
         logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - skipping expensive scan`);
         return;
       }
 
-      // Set processing lock
-      this.processingLock = true;
-
+      console.log('%c[MULTI-SYMBOL] ✅ Lock already held by parent - proceeding', 'color: #00ff00; font-weight: bold');
       logger.debug(LogCategory.AI_TRADING, `📊 Building snapshots for ${watchlist.length} symbols...`);
 
+      console.log('%c[MULTI-SYMBOL] 📊 Building market snapshots...', 'color: #2196f3; font-weight: bold');
+      const snapshotStartTime = Date.now();
       const snapshotResult = await multiSymbolSnapshotBuilder.buildSnapshots(watchlist);
+      console.log('%c[MULTI-SYMBOL] ✅ Snapshots built in ' + (Date.now() - snapshotStartTime) + 'ms', 'color: #4caf50; font-weight: bold');
+      console.log('[MULTI-SYMBOL] Snapshot result:', {
+        totalSnapshots: snapshotResult.snapshots.length,
+        tradeableCount: snapshotResult.tradeableSymbols.length,
+        blockedCount: snapshotResult.blockedSymbols.size
+      });
 
       if (snapshotResult.snapshots.length === 0) {
+        console.log('%c[MULTI-SYMBOL] ❌ FAILED: No snapshot data', 'color: #f44336; font-weight: bold');
         logger.debug(LogCategory.AI_TRADING, '⚠️ No symbol data available');
         return;
       }
 
+      console.log('%c[MULTI-SYMBOL] ✅ Snapshots valid - continuing', 'color: #4caf50; font-weight: bold');
       logger.debug(LogCategory.AI_TRADING, `✅ ${snapshotResult.tradeableSymbols.length}/${snapshotResult.snapshots.length} symbols tradeable`);
 
       if (snapshotResult.blockedSymbols.size > 0) {
@@ -349,12 +358,16 @@ class GoalSessionLiveEngine {
       }
 
       const tradeableSnapshots = snapshotResult.snapshots.filter(s => s.tradeable);
+      console.log('[MULTI-SYMBOL] Tradeable snapshots:', tradeableSnapshots.length);
 
       if (tradeableSnapshots.length === 0) {
+        console.log('%c[MULTI-SYMBOL] 🚫 No tradeable opportunities', 'color: #ff9800; font-weight: bold');
         logger.debug(LogCategory.AI_TRADING, '🚫 No tradeable opportunities - WAIT mode');
         await this.sendAIMessage('Scanning 5 markets... No tradeable opportunities detected. Continuing scan.');
         return;
       }
+
+      console.log('%c[MULTI-SYMBOL] ✅ Found ' + tradeableSnapshots.length + ' tradeable symbols', 'color: #4caf50; font-weight: bold');
 
       const marketStates: FullMarketState[] = tradeableSnapshots.map(snapshot => ({
         symbol: snapshot.symbol,
@@ -392,17 +405,31 @@ class GoalSessionLiveEngine {
       };
 
       logger.debug(LogCategory.AI_TRADING, `🧠 Running Omega Council for ${marketStates.length} symbols...`);
-      console.log('%c[AUTONOMOUS ENGINE] 🔮 Calling Alpha+Omega Orchestrator...', 'color: #8b5cf6; font-weight: bold');
-      console.log('[AUTONOMOUS ENGINE] Market States:', marketStates.length);
-      console.log('[AUTONOMOUS ENGINE] Trader Score:', traderScore);
+      console.log('%c[MULTI-SYMBOL] 🧠 Preparing to call AI Orchestrator', 'color: #9c27b0; font-weight: bold; font-size: 18px');
+      console.log('[MULTI-SYMBOL] Market States:', marketStates.length);
+      console.log('[MULTI-SYMBOL] Trader Score:', traderScore);
+      console.log('[MULTI-SYMBOL] User ID:', this.config.userId);
 
-      const omegaDecisions = await alphaOmegaOrchestrator.evaluateMultipleSymbols(
+      console.log('%c[MULTI-SYMBOL] 🚀 CALLING ORCHESTRATOR NOW...', 'color: #ff0000; font-weight: bold; font-size: 20px; background: yellow');
+      const orchestratorStartTime = Date.now();
+
+      // Add timeout protection (30 seconds max)
+      const orchestratorPromise = alphaOmegaOrchestrator.evaluateMultipleSymbols(
         marketStates,
         traderScore,
         this.config.userId
       );
 
-      console.log('%c[AUTONOMOUS ENGINE] ✅ Omega decisions received:', 'color: #10b981; font-weight: bold', omegaDecisions.size);
+      const timeoutPromise = new Promise<Map<string, any>>((_, reject) => {
+        setTimeout(() => reject(new Error('Orchestrator timeout after 30s')), 30000);
+      });
+
+      const omegaDecisions = await Promise.race([orchestratorPromise, timeoutPromise]);
+
+      const orchestratorDuration = Date.now() - orchestratorStartTime;
+      console.log('%c[MULTI-SYMBOL] ✅ ORCHESTRATOR RETURNED in ' + orchestratorDuration + 'ms', 'color: #4caf50; font-weight: bold; font-size: 18px');
+      console.log('[MULTI-SYMBOL] Decisions received:', omegaDecisions.size);
+      console.log('[MULTI-SYMBOL] Decision details:', Array.from(omegaDecisions.entries()));
 
       const bestSymbolResult = bestSymbolSelector.selectBestSymbol(
         tradeableSnapshots,
@@ -583,12 +610,17 @@ class GoalSessionLiveEngine {
       );
 
     } catch (error) {
-      console.error('[Multi-Symbol] Error processing cycle:', error);
+      console.log('%c[MULTI-SYMBOL] ❌ ERROR CAUGHT', 'color: #f44336; font-weight: bold; font-size: 18px');
+      console.error('[MULTI-SYMBOL] Error details:', error);
+      console.error('[MULTI-SYMBOL] Error stack:', error instanceof Error ? error.stack : 'No stack');
       logger.error(LogCategory.AI_TRADING, 'Multi-symbol cycle error', { error });
-    } finally {
-      // CRITICAL: Always release the lock
-      this.processingLock = false;
+
+      // Send error notification to user
+      await this.sendAIMessage(`⚠️ Error during market scan: ${error instanceof Error ? error.message : 'Unknown error'}. Will retry on next cycle.`).catch(e => {
+        console.error('[MULTI-SYMBOL] Failed to send error message:', e);
+      });
     }
+    // NOTE: Parent function manages the lock - do not modify it here
   }
 
   /**
