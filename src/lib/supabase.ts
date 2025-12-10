@@ -1,8 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+// Support both browser (Vite) and Node.js (Netlify Functions) environments
+const getEnvVar = (name: string): string => {
+  // Try import.meta.env first (Vite/browser)
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    return import.meta.env[name] || '';
+  }
+  // Fall back to process.env (Node.js/Netlify)
+  if (typeof process !== 'undefined' && process.env) {
+    // Try with VITE_ prefix first, then without
+    return process.env[name] || process.env[name.replace('VITE_', '')] || '';
+  }
+  return '';
+};
 
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseUrl = getEnvVar('VITE_SUPABASE_URL');
+const supabaseAnonKey = getEnvVar('VITE_SUPABASE_ANON_KEY');
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Missing Supabase environment variables');
