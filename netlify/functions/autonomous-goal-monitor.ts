@@ -76,8 +76,8 @@ export const handler: Handler = async (event, context) => {
           continue;
         }
 
-        // Process one iteration
-        const result = await processGoalSessionIteration(state);
+        // Process one iteration (pass supabase client for server-side execution)
+        const result = await processGoalSessionIteration(state, supabase);
 
         // Update server state in database
         await supabase

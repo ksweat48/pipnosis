@@ -107,15 +107,15 @@ class EventBasedLLMEngine {
   /**
    * Initialize Pipnosis Alpha Brain with user context
    */
-  async initialize(userId: string, sessionId: string | null = null): Promise<void> {
+  async initialize(userId: string, sessionId: string | null = null, supabaseClient?: any): Promise<void> {
     this.userId = userId;
     this.sessionId = sessionId;
     this.sessionTokenUsage = 0;
     this.tokenWindowStart = Date.now();
     await developerModeLogger.initialize(userId);
 
-    // Load trader score
-    this.traderScore = await rewardEngine.loadTraderScore(userId);
+    // Load trader score (use provided client for server-side execution)
+    this.traderScore = await rewardEngine.loadTraderScore(userId, supabaseClient);
     console.log(`[Event Engine] 🧠 Autonomous Pipnosis Alpha initialized`);
     console.log(`[Event Engine] 📊 Trader Score: ${this.traderScore.current_score}/100`);
     console.log(`[Event Engine] 🎭 Personality: ${this.traderScore.confidence_level}`);

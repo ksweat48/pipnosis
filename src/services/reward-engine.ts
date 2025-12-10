@@ -43,8 +43,9 @@ class RewardEngine {
   /**
    * Load trader score for user
    */
-  async loadTraderScore(userId: string): Promise<TraderScore> {
-    const { data, error } = await supabase
+  async loadTraderScore(userId: string, supabaseClient?: any): Promise<TraderScore> {
+    const client = supabaseClient || supabase;
+    const { data, error } = await client
       .from('ai_trader_score')
       .select('*')
       .eq('user_id', userId)
@@ -54,7 +55,7 @@ class RewardEngine {
 
     if (!data) {
       // Initialize new trader score
-      const { data: newScore, error: insertError } = await supabase
+      const { data: newScore, error: insertError } = await client
         .from('ai_trader_score')
         .insert({
           user_id: userId,

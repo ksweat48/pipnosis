@@ -43,9 +43,11 @@ export interface GoalSessionState {
  * This is the core logic that both client and server can call
  */
 export async function processGoalSessionIteration(
-  state: GoalSessionState
+  state: GoalSessionState,
+  supabaseClient?: any
 ): Promise<GoalSessionProcessResult> {
   try {
+    const client = supabaseClient || supabase;
     const { goalSessionId, userId, watchlist, timeframe } = state;
 
     if (!watchlist || watchlist.length === 0) {
@@ -67,7 +69,7 @@ export async function processGoalSessionIteration(
       const dbTimeframe = normalizeTimeframeToDb(timeframe);
       logger.debug(LogCategory.AI_TRADING, `[Core] Processing ${symbol} ${timeframe}`);
 
-      const { data: candles, error } = await supabase
+      const { data: candles, error } = await client
         .from('forex_candles')
         .select('*')
         .eq('symbol', symbol)
@@ -131,7 +133,7 @@ export async function processGoalSessionIteration(
       }
 
       // Look for new trade opportunities on this symbol
-      const { data: goalSession } = await supabase
+      const { data: goalSession } = await client
         .from('goal_sessions')
         .select('*')
         .eq('id', goalSessionId)
@@ -165,7 +167,7 @@ export async function processGoalSessionIteration(
     // Handle closed trades
     const closedTrades = state.openTrades.filter(t => t.outcome !== 'open');
     for (const trade of closedTrades) {
-      await handleTradeClosure(trade, goalSessionId, userId, state.initialBalance);
+      await handleTradeClosure(trade, goalSessionId, userId, state.initialBalance, client);
     }
     state.openTrades = state.openTrades.filter(t => t.outcome === 'open');
 
@@ -176,7 +178,7 @@ export async function processGoalSessionIteration(
     const maxLossPercent = 10;
     const maxLossAmount = -(state.initialBalance * (maxLossPercent / 100));
     if (state.currentBalance <= state.initialBalance + maxLossAmount) {
-      await stopGoalSession(goalSessionId, 'Daily loss limit reached');
+      await stopGoalSession(goalSessionId, 'Daily loss limit reached', client);
       return {
         success: true,
         message: 'Session stopped - daily loss limit reached',
@@ -185,7 +187,7 @@ export async function processGoalSessionIteration(
     }
 
     // Check if goal achieved
-    const { data: goalSession } = await supabase
+    const { data: goalSession } = await client
       .from('goal_sessions')
       .select('*')
       .eq('id', goalSessionId)
@@ -205,7 +207,7 @@ export async function processGoalSessionIteration(
       const now = new Date();
 
       if (now >= endTime && goalSession.status !== 'soft_closing') {
-        await supabase
+        await client
           .from('goal_sessions')
           .update({
             status: 'soft_closing',
@@ -220,7 +222,7 @@ export async function processGoalSessionIteration(
 
     // Check if goal achieved
     if (goalSession.current_progress >= goalSession.target_value && goalSession.status !== 'goal_achieved') {
-      await supabase
+      await client
         .from('goal_sessions')
         .update({
           status: 'goal_achieved',
@@ -234,7 +236,7 @@ export async function processGoalSessionIteration(
 
     // If soft closing and no open trades, complete the session
     if (goalSession.status === 'soft_closing' && state.openTrades.length === 0) {
-      await stopGoalSession(goalSessionId, 'All positions closed after timeframe expiration');
+      await stopGoalSession(goalSessionId, 'All positions closed after timeframe expiration', client);
       return {
         success: true,
         message: 'Session completed',
@@ -243,7 +245,7 @@ export async function processGoalSessionIteration(
     }
 
     // Update session status
-    await supabase
+    await client
       .from('goal_sessions')
       .update({
         last_scan_time: new Date().toISOString(),
@@ -331,8 +333,8 @@ export async function initializeGoalSession(
       scanCount: 0
     };
 
-    // Initialize LLM engine
-    await eventBasedLLMEngine.initialize(state.userId, goalSessionId);
+    // Initialize LLM engine (pass client for server-side execution)
+    await eventBasedLLMEngine.initialize(state.userId, goalSessionId, client);
     eventBasedLLMEngine.setAutonomousBrain(true);
 
     return state;
@@ -421,15 +423,17 @@ async function handleTradeClosure(
   trade: SimulatedTrade,
   goalSessionId: string,
   userId: string,
-  initialBalance: number
+  initialBalance: number,
+  supabaseClient?: any
 ): Promise<void> {
+  const client = supabaseClient || supabase;
   logger.info(LogCategory.AI_TRADING, `[Core] Trade closed: ${trade.outcome} | P&L: $${trade.profitLoss.toFixed(2)}`);
 
   // Save to trade history
   await tradeExecutionEngine.saveTradeToHistory(trade, goalSessionId, userId);
 
   // Update goal session progress
-  const { data: goalSession } = await supabase
+  const { data: goalSession } = await client
     .from('goal_sessions')
     .select('*')
     .eq('id', goalSessionId)
@@ -440,7 +444,7 @@ async function handleTradeClosure(
     const totalTrades = (goalSession.total_trades || 0) + 1;
     const winningTrades = trade.profitLoss > 0 ? (goalSession.winning_trades || 0) + 1 : (goalSession.winning_trades || 0);
 
-    await supabase
+    await client
       .from('goal_sessions')
       .update({
         current_progress: newProgress,
@@ -496,8 +500,9 @@ async function executeLiveTrade(
 /**
  * Stop goal session
  */
-async function stopGoalSession(goalSessionId: string, reason: string): Promise<void> {
-  await supabase
+async function stopGoalSession(goalSessionId: string, reason: string, supabaseClient?: any): Promise<void> {
+  const client = supabaseClient || supabase;
+  await client
     .from('goal_sessions')
     .update({
       status: 'completed',
