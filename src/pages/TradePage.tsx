@@ -1,58 +1,21 @@
 import React, { useState } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
-import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
-import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { MarketChart } from '@/components/MarketChart';
-import { TrendingUp } from 'lucide-react';
 
 export function TradePage() {
   const [selectedSymbol, setSelectedSymbol] = useState<string>('EURUSD');
 
-  const pullToRefresh = usePullToRefresh({
-    onRefresh: async () => {
-      window.location.reload();
-    },
-    enabled: true
-  });
-
   return (
-    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative" ref={pullToRefresh.containerRef}>
-      <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-blue-500/5 pointer-events-none" />
-
-      <div className="absolute top-20 left-10 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl animate-pulse" />
-      <div className="absolute bottom-20 right-10 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
-
-      <PullToRefreshIndicator
-        isPulling={pullToRefresh.isPulling}
-        isRefreshing={pullToRefresh.isRefreshing}
-        pullDistance={pullToRefresh.pullDistance}
-        threshold={pullToRefresh.threshold}
-      />
+    <div className="h-screen w-screen overflow-hidden bg-gray-950 flex flex-col">
       <NavigationMenu />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 relative z-10">
-        <div className="mb-10">
-          <div className="relative inline-block">
-            <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur-sm opacity-5" />
-            <h1 className="relative text-3xl sm:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-blue-400 to-emerald-400">
-              Trade
-            </h1>
-          </div>
-
-          <p className="text-gray-400 text-base mt-1 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-emerald-400" />
-            Live Market Charts
-          </p>
-        </div>
-
-        <div className="space-y-6">
-          <MarketChart
-            symbol={selectedSymbol}
-            onSymbolChange={setSelectedSymbol}
-          />
-        </div>
-      </main>
+      <div className="flex-1 overflow-hidden">
+        <MarketChart
+          symbol={selectedSymbol}
+          onSymbolChange={setSelectedSymbol}
+        />
+      </div>
 
       <BottomNavigation />
     </div>
