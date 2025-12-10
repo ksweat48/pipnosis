@@ -462,10 +462,6 @@ class GoalSessionLiveEngine {
         outcome: 'open'
       };
 
-      this.openTrades.push(trade);
-
-      console.log(`[Multi-Symbol] Trade ${this.openTrades.length}/${this.config.maxConcurrentTrades} added to queue`);
-
       // Calculate R:R for proper trade signal
       const riskPips = Math.abs(trade.entryPrice - trade.stopLoss) / 0.0001;
       const rewardPips = Math.abs(trade.takeProfit - trade.entryPrice) / 0.0001;
@@ -492,11 +488,13 @@ class GoalSessionLiveEngine {
       );
 
       if (executionResult.success) {
+        // CRITICAL: Update trade ID to match database UUID before tracking
+        trade.id = executionResult.tradeId!;
+        this.openTrades.push(trade);
+        console.log(`[Multi-Symbol] Trade ${this.openTrades.length}/${this.config.maxConcurrentTrades} added with DB ID: ${trade.id}`);
         logger.info(LogCategory.AI_TRADING, `✅ Trade executed: ${selectedSymbol} ${trade.direction} @ ${trade.entryPrice} (confidence: ${trade.confidence}%)`);
       } else {
         logger.error(LogCategory.AI_TRADING, `❌ Trade execution failed: ${executionResult.message}`);
-        // Remove from openTrades if execution failed
-        this.openTrades = this.openTrades.filter(t => t.id !== trade.id);
       }
 
       const selectionSummary = bestSymbolResult.allEvaluations
@@ -882,6 +880,8 @@ class GoalSessionLiveEngine {
       logger.debug(LogCategory.AI_TRADING, 'simulated_positions table updated');
 
       if (this.config.autoExecute) {
+        // CRITICAL: Update trade ID to match database UUID before tracking
+        trade.id = executionResult.tradeId!;
         this.openTrades.push(trade);
       }
 
@@ -1155,18 +1155,20 @@ Your decision keeps you in control of your risk and prevents runaway trading.
 
     localSessionMemory.recordTradeClosure(`live-${this.activeSession}`, trade);
 
+    // CRITICAL: Use trade.id to ensure we only close THIS specific trade
+    // Using symbol + entry_price could close multiple positions!
     const { error } = await supabase
       .from('goal_session_trades')
       .update({
         exit_price: trade.exitPrice,
         profit_loss: trade.pnl,
         status: 'closed',
-        closed_at: new Date().toISOString()
+        closed_at: new Date().toISOString(),
+        close_reason: trade.outcome === 'win' ? 'take_profit' : 'stop_loss'
       })
+      .eq('id', trade.id)
       .eq('goal_session_id', this.activeSession)
-      .eq('symbol', trade.symbol)
-      .eq('entry_price', trade.entryPrice)
-      .is('closed_at', null);
+      .eq('status', 'open');
 
     if (error) {
       console.error('[Goal Live Engine] Error updating closed trade:', error);
