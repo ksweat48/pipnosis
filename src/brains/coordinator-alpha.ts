@@ -167,6 +167,14 @@ Decide: BUY, SELL, or NO_TRADE.
 Calculate entry, SL (dynamic ATR buffer), TP (appropriate R:R).
 ${goalContext && goalContext.hasGoal ? `\nIMPORTANT: Set TP to capture ~${goalContext.pipsNeededEstimate.toFixed(0)} pips if market structure supports it.` : ''}
 
+CRITICAL POSITIONING RULES:
+- BUY trades: stopLoss MUST be BELOW entry, takeProfit MUST be ABOVE entry
+- SELL trades: stopLoss MUST be ABOVE entry, takeProfit MUST be BELOW entry
+- Example BUY: entry=1.2000, stopLoss=1.1950 (below), takeProfit=1.2100 (above)
+- Example SELL: entry=1.2000, stopLoss=1.2050 (above), takeProfit=1.1900 (below)
+- Minimum R:R ratio: 1.5:1 (TP distance should be 1.5x SL distance)
+- VERIFY your prices match the trade direction before returning
+
 Return JSON only:
 {
   "action": "BUY|SELL|NO_TRADE",
@@ -594,7 +602,7 @@ Return JSON only:
   }
 
   /**
-   * Parse Alpha decision
+   * Parse Alpha decision with validation and automatic correction
    */
   private parseDecision(response: string, currentPrice: number, atr: number): AlphaDecision {
     try {
@@ -605,19 +613,84 @@ Return JSON only:
 
       const parsed = JSON.parse(cleaned);
 
-      // Validate and sanitize
+      // Validate and sanitize action
       let action = parsed.action || 'NO_TRADE';
       if (!['BUY', 'SELL', 'NO_TRADE'].includes(action)) {
         action = 'NO_TRADE';
       }
 
+      // If NO_TRADE, return simple response
+      if (action === 'NO_TRADE') {
+        return {
+          action,
+          entry: currentPrice,
+          stopLoss: currentPrice,
+          takeProfit: currentPrice,
+          confidence: Math.min(100, Math.max(0, parsed.confidence || 0)),
+          reasoning: parsed.reasoning || 'No reasoning provided',
+          omega_summary: ''
+        };
+      }
+
+      // Get LLM values or use defaults
+      let entry = parsed.entry || currentPrice;
+      let stopLoss = parsed.stopLoss;
+      let takeProfit = parsed.takeProfit;
+      let correctionsMade = false;
+
+      // Validate SL/TP positioning
+      const isBuy = action === 'BUY';
+
+      // Check if stopLoss is valid
+      const slValid = stopLoss && (
+        (isBuy && stopLoss < entry) ||
+        (!isBuy && stopLoss > entry)
+      );
+
+      // Check if takeProfit is valid
+      const tpValid = takeProfit && (
+        (isBuy && takeProfit > entry) ||
+        (!isBuy && takeProfit < entry)
+      );
+
+      // Check for zero distance
+      const slZeroDistance = stopLoss && Math.abs(entry - stopLoss) < 0.00001;
+      const tpZeroDistance = takeProfit && Math.abs(entry - takeProfit) < 0.00001;
+
+      // Auto-correct invalid values
+      if (!slValid || slZeroDistance) {
+        const oldSL = stopLoss;
+        stopLoss = isBuy ? entry - atr * 1.5 : entry + atr * 1.5;
+        console.log(`[Alpha Coordinator] 🔧 Corrected invalid SL: ${oldSL} → ${stopLoss} (${action})`);
+        correctionsMade = true;
+      }
+
+      if (!tpValid || tpZeroDistance) {
+        const oldTP = takeProfit;
+        takeProfit = isBuy ? entry + atr * 2.5 : entry - atr * 2.5;
+        console.log(`[Alpha Coordinator] 🔧 Corrected invalid TP: ${oldTP} → ${takeProfit} (${action})`);
+        correctionsMade = true;
+      }
+
+      // Validate R:R ratio
+      const slDistance = Math.abs(entry - stopLoss);
+      const tpDistance = Math.abs(takeProfit - entry);
+      const rr = slDistance > 0 ? tpDistance / slDistance : 0;
+
+      if (rr < 1.5) {
+        // Adjust TP to achieve minimum 1.5:1 R:R
+        takeProfit = isBuy ? entry + slDistance * 1.5 : entry - slDistance * 1.5;
+        console.log(`[Alpha Coordinator] 🔧 Adjusted TP for R:R 1.5:1 → ${takeProfit}`);
+        correctionsMade = true;
+      }
+
       return {
         action,
-        entry: parsed.entry || currentPrice,
-        stopLoss: parsed.stopLoss || (action === 'BUY' ? currentPrice - atr * 1.5 : currentPrice + atr * 1.5),
-        takeProfit: parsed.takeProfit || (action === 'BUY' ? currentPrice + atr * 2.5 : currentPrice - atr * 2.5),
+        entry,
+        stopLoss,
+        takeProfit,
         confidence: Math.min(100, Math.max(0, parsed.confidence || 0)),
-        reasoning: parsed.reasoning || 'No reasoning provided',
+        reasoning: parsed.reasoning || 'No reasoning provided' + (correctionsMade ? ' [Auto-corrected SL/TP]' : ''),
         omega_summary: ''
       };
     } catch (error) {

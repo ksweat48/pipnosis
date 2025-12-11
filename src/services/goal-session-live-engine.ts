@@ -750,7 +750,7 @@ class GoalSessionLiveEngine {
       // 🚨 CRITICAL: Sync with database before checking max trades
       // Prevents memory desync from losing track of open positions
       const { data: dbPositions, error: dbSyncError } = await supabase
-        .from('simulated_positions')
+        .from('goal_session_trades')
         .select('id, symbol, direction, entry_price, stop_loss, take_profit, position_size')
         .eq('goal_session_id', this.activeSession!)
         .eq('status', 'open');
@@ -2624,7 +2624,7 @@ Keep response under 100 words, educational tone.`;
 
     // 🚨 CRITICAL: Sync with database to prevent memory loss
     const { data: dbPositions, error: dbError } = await supabase
-      .from('simulated_positions')
+      .from('goal_session_trades')
       .select('id, symbol, direction, entry_price, stop_loss, take_profit, position_size, status')
       .eq('goal_session_id', this.activeSession!)
       .eq('status', 'open');
@@ -2731,7 +2731,7 @@ Keep response under 100 words, educational tone.`;
     if (this.openTrades.length === 0) {
       // Double-check database before resetting
       const { data: finalCheck } = await supabase
-        .from('simulated_positions')
+        .from('goal_session_trades')
         .select('id', { count: 'exact', head: true })
         .eq('goal_session_id', this.activeSession!)
         .eq('status', 'open');
