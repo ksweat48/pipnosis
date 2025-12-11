@@ -57,6 +57,8 @@ export default defineConfig({
       },
       mangle: {
         safari10: true,
+        // Preserve lightweight-charts methods from mangling
+        reserved: ['addLineSeries', 'addAreaSeries', 'addBarSeries', 'addCandlestickSeries', 'createChart']
       },
       // CRITICAL: Ensure no eval is generated
       format: {
