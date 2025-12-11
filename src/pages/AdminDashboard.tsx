@@ -129,10 +129,11 @@ export function AdminDashboard() {
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const { data: recentTrades } = await supabase
         .from('goal_session_trades')
-        .select('outcome')
-        .gte('created_at', oneDayAgo);
+        .select('profit_loss, status')
+        .gte('created_at', oneDayAgo)
+        .eq('status', 'closed');
 
-      const winningTrades = recentTrades?.filter(t => t.outcome === 'win').length || 0;
+      const winningTrades = recentTrades?.filter(t => (t.profit_loss || 0) > 0).length || 0;
       const totalTrades = recentTrades?.length || 0;
       const avgWinRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
 
@@ -257,7 +258,7 @@ export function AdminDashboard() {
         {activeTab === 'overview' && (
           <div className="space-y-6">
             {/* Pipnosis Mastery Curve - TOP PRIORITY */}
-            <PipnosisMasteryCurve userId={user?.id || null} />
+            <PipnosisMasteryCurve userId={null} />
 
             {/* AI Training Status Banner */}
             {aiMetrics?.isAutoRunning && (

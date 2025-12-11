@@ -323,59 +323,37 @@ class MasteryCurveService {
   }
 
   private async fetchEVData(userId: string | null, startDate: Date) {
-    // Primary: Fetch from goal_session_trades
-    let goalTradesQuery = supabase
+    // Fetch from goal_session_trades with join to goal_sessions for user_id
+    let query = supabase
       .from('goal_session_trades')
-      .select('created_at, outcome, pnl, user_id')
+      .select(`
+        created_at,
+        profit_loss,
+        goal_sessions!inner(user_id)
+      `)
       .gte('created_at', startDate.toISOString())
       .order('created_at', { ascending: true });
 
     if (userId) {
-      goalTradesQuery = goalTradesQuery.eq('user_id', userId);
+      query = query.eq('goal_sessions.user_id', userId);
     }
 
-    const { data: goalData, error: goalError } = await goalTradesQuery;
+    const { data: goalData, error: goalError } = await query;
 
-    if (!goalError && goalData && goalData.length > 0) {
+    if (goalError) {
+      console.warn('[Mastery Curve] Goal session trades not available:', goalError.message);
+      return [];
+    }
+
+    if (goalData && goalData.length > 0) {
       const aggregated = new Map<string, any>();
-      goalData.forEach(trade => {
+      goalData.forEach((trade: any) => {
         const date = trade.created_at.split('T')[0];
         if (!aggregated.has(date)) {
           aggregated.set(date, { date, totalEV: 0, count: 0 });
         }
         const agg = aggregated.get(date);
-        agg.totalEV += trade.pnl || 0;
-        agg.count++;
-      });
-
-      return Array.from(aggregated.values()).map(agg => ({
-        date: agg.date,
-        dailyEV: agg.count > 0 ? agg.totalEV / agg.count : 0
-      }));
-    }
-
-    // Fallback: Fetch from trade_history
-    let tradeHistoryQuery = supabase
-      .from('trade_history')
-      .select('created_at, outcome, pnl, user_id')
-      .gte('created_at', startDate.toISOString())
-      .order('created_at', { ascending: true });
-
-    if (userId) {
-      tradeHistoryQuery = tradeHistoryQuery.eq('user_id', userId);
-    }
-
-    const { data: liveData, error: liveError } = await tradeHistoryQuery;
-
-    if (!liveError && liveData && liveData.length > 0) {
-      const aggregated = new Map<string, any>();
-      liveData.forEach(trade => {
-        const date = trade.created_at.split('T')[0];
-        if (!aggregated.has(date)) {
-          aggregated.set(date, { date, totalEV: 0, count: 0 });
-        }
-        const agg = aggregated.get(date);
-        agg.totalEV += trade.pnl || 0;
+        agg.totalEV += trade.profit_loss || 0;
         agg.count++;
       });
 
