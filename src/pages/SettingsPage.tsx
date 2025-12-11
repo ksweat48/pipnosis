@@ -360,6 +360,90 @@ export function SettingsPage() {
 
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
               <div className="flex items-center gap-3 mb-6">
+                <DollarSign size={20} className="text-emerald-400" />
+                <h2 className="text-xl font-semibold text-white">Account Management</h2>
+              </div>
+
+              <p className="text-sm text-gray-400 mb-6">
+                Configure your trading account parameters. This affects position sizing and risk calculations for all trades.
+              </p>
+
+              {balanceMessage && (
+                <div
+                  className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
+                    balanceMessage.type === 'success'
+                      ? 'bg-green-900/20 border border-green-700/30 text-green-400'
+                      : 'bg-red-900/20 border border-red-700/30 text-red-400'
+                  }`}
+                >
+                  {balanceMessage.type === 'success' ? (
+                    <CheckCircle size={20} />
+                  ) : (
+                    <AlertCircle size={20} />
+                  )}
+                  <span>{balanceMessage.text}</span>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Starting Account Balance
+                  </label>
+                  <div className="relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-medium">
+                      $
+                    </div>
+                    <input
+                      type="text"
+                      value={accountBalance}
+                      onChange={(e) => setAccountBalance(formatBalanceInput(e.target.value))}
+                      disabled={savingBalance}
+                      className="w-full pl-8 pr-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-white text-lg font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                      placeholder="10000.00"
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-gray-400">
+                    Enter an amount between $100 and $1,000,000. This will be used for position sizing calculations.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 p-4 bg-blue-900/20 border border-blue-700/30 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <AlertCircle size={18} className="text-blue-400 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-blue-300">
+                    <p className="font-medium mb-1">Important Note</p>
+                    <p className="text-blue-300/80">
+                      This setting only affects future trade calculations. Historical trade data and KPIs will not be modified.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={handleSaveAccountBalance}
+                  disabled={savingBalance}
+                  className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
+                >
+                  {savingBalance ? (
+                    <>
+                      <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save size={18} />
+                      <span>Save Account Settings</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
                 <Zap size={20} className="text-emerald-400" />
                 <h2 className="text-xl font-semibold text-white">Trading Behavior</h2>
               </div>
@@ -681,90 +765,6 @@ export function SettingsPage() {
                     <>
                       <Save size={18} />
                       <span>Save Display Settings</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-6">
-                <DollarSign size={20} className="text-emerald-400" />
-                <h2 className="text-xl font-semibold text-white">Account Management</h2>
-              </div>
-
-              <p className="text-sm text-gray-400 mb-6">
-                Configure your trading account parameters. This affects position sizing and risk calculations for all trades.
-              </p>
-
-              {balanceMessage && (
-                <div
-                  className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
-                    balanceMessage.type === 'success'
-                      ? 'bg-green-900/20 border border-green-700/30 text-green-400'
-                      : 'bg-red-900/20 border border-red-700/30 text-red-400'
-                  }`}
-                >
-                  {balanceMessage.type === 'success' ? (
-                    <CheckCircle size={20} />
-                  ) : (
-                    <AlertCircle size={20} />
-                  )}
-                  <span>{balanceMessage.text}</span>
-                </div>
-              )}
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Starting Account Balance
-                  </label>
-                  <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-medium">
-                      $
-                    </div>
-                    <input
-                      type="text"
-                      value={accountBalance}
-                      onChange={(e) => setAccountBalance(formatBalanceInput(e.target.value))}
-                      disabled={savingBalance}
-                      className="w-full pl-8 pr-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-white text-lg font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
-                      placeholder="10000.00"
-                    />
-                  </div>
-                  <p className="mt-2 text-xs text-gray-400">
-                    Enter an amount between $100 and $1,000,000. This will be used for position sizing calculations.
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-6 p-4 bg-blue-900/20 border border-blue-700/30 rounded-lg">
-                <div className="flex items-start gap-3">
-                  <AlertCircle size={18} className="text-blue-400 mt-0.5 flex-shrink-0" />
-                  <div className="text-sm text-blue-300">
-                    <p className="font-medium mb-1">Important Note</p>
-                    <p className="text-blue-300/80">
-                      This setting only affects future trade calculations. Historical trade data and KPIs will not be modified.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={handleSaveAccountBalance}
-                  disabled={savingBalance}
-                  className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
-                >
-                  {savingBalance ? (
-                    <>
-                      <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
-                      <span>Saving...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save size={18} />
-                      <span>Save Account Settings</span>
                     </>
                   )}
                 </button>
