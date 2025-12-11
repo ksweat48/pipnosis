@@ -679,6 +679,14 @@ class GoalSessionLiveEngine {
       console.log('[AUTONOMOUS ENGINE] Max Concurrent:', this.config.maxConcurrentTrades);
       console.log('[AUTONOMOUS ENGINE] Allow New Trades:', this.allowNewTrades);
 
+      // 🔍 DEFENSIVE: Log trade array contents for desync detection
+      if (this.openTrades.length > 0) {
+        console.log('%c[AUTONOMOUS ENGINE] 📊 Current Trade Array:', 'color: #9c27b0; font-weight: bold');
+        this.openTrades.forEach((trade, idx) => {
+          console.log(`  [${idx}] ${trade.symbol} ${trade.direction.toUpperCase()} | ID: ${trade.id.substring(0, 8)} | Status: ${trade.outcome}`);
+        });
+      }
+
       // CHECK: Is session awaiting user continuation?
       const { data: sessionCheck } = await supabase
         .from('goal_sessions')
@@ -691,20 +699,64 @@ class GoalSessionLiveEngine {
       if (sessionCheck?.awaiting_user_continuation) {
         logger.debug(LogCategory.AI_TRADING, '⏸️ Awaiting user continuation - not scanning for new trades');
         console.log('%c[AUTONOMOUS ENGINE] ⏸️ BLOCKED: Awaiting user continuation', 'color: #f59e0b; font-weight: bold');
-        // Still monitor open positions
-        const watchlist = this.config.watchlist || getDefaultWatchlist();
-        const symbol = this.config.symbol || watchlist[0];
-        await this.monitorOpenPositionsOnly(symbol);
+        // Still monitor open positions (no symbol param needed - fetches all trade symbols)
+        await this.monitorOpenPositionsOnly();
         return;
+      }
+
+      // 🚨 CRITICAL: Sync with database before checking max trades
+      // Prevents memory desync from losing track of open positions
+      const { data: dbPositions, error: dbSyncError } = await supabase
+        .from('simulated_positions')
+        .select('id, symbol, direction, entry_price, stop_loss, take_profit, position_size')
+        .eq('goal_session_id', this.activeSession!)
+        .eq('status', 'open');
+
+      if (!dbSyncError && dbPositions) {
+        const dbCount = dbPositions.length;
+        const memoryCount = this.openTrades.length;
+
+        console.log('%c[AUTONOMOUS ENGINE] 📊 Position counts:', 'color: #9c27b0; font-weight: bold', {
+          database: dbCount,
+          memory: memoryCount,
+          match: dbCount === memoryCount
+        });
+
+        // If database has more positions than memory, we have desync!
+        if (dbCount > memoryCount) {
+          console.error('%c[AUTONOMOUS ENGINE] 🚨 MEMORY DESYNC!', 'color: #f44336; font-weight: bold; font-size: 16px');
+          console.error(`[AUTONOMOUS ENGINE] Database has ${dbCount} positions but memory has ${memoryCount}. Resyncing...`);
+
+          // Reconstruct missing trades
+          const memoryTradeIds = new Set(this.openTrades.map(t => t.id));
+          const missingPositions = dbPositions.filter(p => !memoryTradeIds.has(p.id));
+
+          for (const pos of missingPositions) {
+            this.openTrades.push({
+              id: pos.id,
+              symbol: pos.symbol,
+              direction: pos.direction as 'buy' | 'sell',
+              entryPrice: pos.entry_price,
+              stopLoss: pos.stop_loss,
+              takeProfit: pos.take_profit,
+              positionSize: pos.position_size,
+              outcome: 'open' as const,
+              confidence: 0,
+              reasoning: 'Resynced from database',
+              triggerType: 'resync'
+            });
+          }
+
+          console.log('%c[AUTONOMOUS ENGINE] ✅ Resynced ' + missingPositions.length + ' missing positions',
+            'color: #4caf50; font-weight: bold');
+        }
       }
 
       // STOP SCANNING if max trades reached (saves tokens/credits)
       if (this.openTrades.length >= this.config.maxConcurrentTrades) {
         logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - PAUSING scanning to save credits`);
         // Still monitor open positions but don't scan for new trades
-        const watchlist = this.config.watchlist || getDefaultWatchlist();
-        const symbol = this.config.symbol || watchlist[0];
-        await this.monitorOpenPositionsOnly(symbol);
+        await this.monitorOpenPositionsOnly();
         return;
       }
 
@@ -2426,8 +2478,57 @@ Keep response under 100 words, educational tone.`;
   /**
    * Monitor open positions only without scanning for new trades
    * Used when max trades reached to save tokens/credits
+   *
+   * CRITICAL FIX: Fetches candles for ALL symbols with open positions
    */
-  private async monitorOpenPositionsOnly(symbol: string): Promise<void> {
+  private async monitorOpenPositionsOnly(): Promise<void> {
+    // 🔍 DEFENSIVE: Log memory state for diagnostics
+    console.log('%c[MONITORING MODE] 🔍 Memory state:', 'color: #9c27b0; font-weight: bold', {
+      openTradesInMemory: this.openTrades.length,
+      tradeSymbols: this.openTrades.map(t => `${t.symbol}:${t.id.substring(0, 8)}`),
+      sessionId: this.activeSession
+    });
+
+    // 🚨 CRITICAL: Sync with database to prevent memory loss
+    const { data: dbPositions, error: dbError } = await supabase
+      .from('simulated_positions')
+      .select('id, symbol, direction, entry_price, stop_loss, take_profit, position_size, status')
+      .eq('goal_session_id', this.activeSession!)
+      .eq('status', 'open');
+
+    if (dbError) {
+      console.error('[MONITORING MODE] ❌ Database sync failed:', dbError);
+      return;
+    }
+
+    const dbOpenCount = dbPositions?.length || 0;
+    console.log('%c[MONITORING MODE] 📊 Database shows ' + dbOpenCount + ' open positions',
+      'color: #2196f3; font-weight: bold');
+
+    // 🚨 CRITICAL: If database has positions but memory doesn't, resync!
+    if (dbOpenCount > 0 && this.openTrades.length === 0) {
+      console.error('%c[MONITORING MODE] 🚨 MEMORY DESYNC DETECTED!', 'color: #f44336; font-weight: bold; font-size: 16px');
+      console.error('[MONITORING MODE] Database has positions but memory array is empty. Resyncing...');
+
+      // Reconstruct openTrades from database
+      this.openTrades = dbPositions.map(pos => ({
+        id: pos.id,
+        symbol: pos.symbol,
+        direction: pos.direction as 'buy' | 'sell',
+        entryPrice: pos.entry_price,
+        stopLoss: pos.stop_loss,
+        takeProfit: pos.take_profit,
+        positionSize: pos.position_size,
+        outcome: 'open' as const,
+        confidence: 0, // Unknown
+        reasoning: 'Resynced from database',
+        triggerType: 'resync'
+      }));
+
+      console.log('%c[MONITORING MODE] ✅ Resynced ' + this.openTrades.length + ' positions from database',
+        'color: #4caf50; font-weight: bold');
+    }
+
     // Send status update to UI on first call to monitoring mode
     if (!this.monitoringModeMessageSent) {
       console.log('%c[MONITORING MODE] 👁️ Switched to position monitoring only', 'color: #2196f3; font-weight: bold; font-size: 16px');
@@ -2439,24 +2540,52 @@ Keep response under 100 words, educational tone.`;
       this.monitoringModeMessageSent = true;
     }
 
-    const dbTimeframe = normalizeTimeframeToDb(this.config.timeframe);
+    // 🚨 CRITICAL FIX: Get unique symbols from ACTUAL open trades, not config
+    const tradeSymbols = [...new Set(this.openTrades.map(t => t.symbol))];
+    console.log('%c[MONITORING MODE] 📡 Fetching candles for symbols:', 'color: #ff9800; font-weight: bold', tradeSymbols);
 
-    const { data: candles, error } = await supabase
-      .from('forex_candles')
-      .select('*')
-      .eq('symbol', symbol)
-      .eq('timeframe', dbTimeframe)
-      .order('open_time', { ascending: false })
-      .limit(10);
-
-    if (error || !candles || candles.length === 0) {
+    if (tradeSymbols.length === 0) {
+      console.log('%c[MONITORING MODE] ⚠️ No symbols to monitor (empty array)', 'color: #ff9800; font-weight: bold');
       return;
     }
 
-    const latestCandle = candles[0];
+    const dbTimeframe = normalizeTimeframeToDb(this.config.timeframe);
 
-    // Update open trades status
-    this.openTrades = eventBasedLLMEngine.updateOpenTrades(this.openTrades, latestCandle);
+    // Fetch latest candle for each symbol with open positions
+    for (const symbol of tradeSymbols) {
+      const { data: candles, error } = await supabase
+        .from('forex_candles')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('timeframe', dbTimeframe)
+        .order('open_time', { ascending: false })
+        .limit(10);
+
+      if (error || !candles || candles.length === 0) {
+        console.warn(`[MONITORING MODE] ⚠️ No candles for ${symbol} - skipping`);
+        continue;
+      }
+
+      const latestCandle = candles[0];
+      console.log(`[MONITORING MODE] 🕯️ ${symbol} latest: ${latestCandle.close} @ ${latestCandle.open_time}`);
+
+      // Update trades for this symbol only
+      const tradesForSymbol = this.openTrades.filter(t => t.symbol === symbol);
+      for (const trade of tradesForSymbol) {
+        const updatedTrades = eventBasedLLMEngine.updateOpenTrades([trade], latestCandle);
+        const updatedTrade = updatedTrades[0];
+
+        if (updatedTrade.outcome !== 'open') {
+          console.log(`[MONITORING MODE] 🎯 ${symbol} trade ${trade.id.substring(0, 8)} closed: ${updatedTrade.outcome}`);
+
+          // Update in main array
+          const idx = this.openTrades.findIndex(t => t.id === trade.id);
+          if (idx !== -1) {
+            this.openTrades[idx] = updatedTrade;
+          }
+        }
+      }
+    }
 
     // Handle closed trades
     const closedTrades = this.openTrades.filter(t => t.outcome !== 'open');
@@ -2465,10 +2594,25 @@ Keep response under 100 words, educational tone.`;
     }
     this.openTrades = this.openTrades.filter(t => t.outcome === 'open');
 
-    // Reset monitoring flag if no trades are open (will resume scanning)
+    // 🚨 CRITICAL FIX: Only reset monitoring flag if BOTH memory AND database confirm zero positions
     if (this.openTrades.length === 0) {
-      console.log('%c[MONITORING MODE] ✅ All positions closed - will resume scanning', 'color: #4caf50; font-weight: bold');
-      this.monitoringModeMessageSent = false;
+      // Double-check database before resetting
+      const { data: finalCheck } = await supabase
+        .from('simulated_positions')
+        .select('id', { count: 'exact', head: true })
+        .eq('goal_session_id', this.activeSession!)
+        .eq('status', 'open');
+
+      const dbStillHasPositions = (finalCheck as any)?.count > 0;
+
+      if (dbStillHasPositions) {
+        console.error('%c[MONITORING MODE] 🚨 BLOCKED RESET: Database still has open positions!',
+          'color: #f44336; font-weight: bold; font-size: 16px');
+      } else {
+        console.log('%c[MONITORING MODE] ✅ All positions closed (verified with DB) - will resume scanning',
+          'color: #4caf50; font-weight: bold');
+        this.monitoringModeMessageSent = false;
+      }
     }
 
     // Update progress after trade closures
