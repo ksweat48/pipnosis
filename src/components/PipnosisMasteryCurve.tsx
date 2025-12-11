@@ -135,32 +135,32 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
 
       chartRef.current = chart;
 
-      seriesRefs.current.mastery = chart.addSeries('Line', {
+      seriesRefs.current.mastery = chart.addLineSeries({
         color: '#f59e0b',
         lineWidth: 3
       });
 
-      seriesRefs.current.winRate = chart.addSeries('Line', {
+      seriesRefs.current.winRate = chart.addLineSeries({
         color: '#3b82f6',
         lineWidth: 2
       });
 
-      seriesRefs.current.evScore = chart.addSeries('Line', {
+      seriesRefs.current.evScore = chart.addLineSeries({
         color: '#14b8a6',
         lineWidth: 2
       });
 
-      seriesRefs.current.calibration = chart.addSeries('Line', {
+      seriesRefs.current.calibration = chart.addLineSeries({
         color: '#a855f7',
         lineWidth: 2
       });
 
-      seriesRefs.current.llmPassRate = chart.addSeries('Line', {
+      seriesRefs.current.llmPassRate = chart.addLineSeries({
         color: '#22c55e',
         lineWidth: 2
       });
 
-      seriesRefs.current.avoidPattern = chart.addSeries('Line', {
+      seriesRefs.current.avoidPattern = chart.addLineSeries({
         color: '#ef4444',
         lineWidth: 2
       });
