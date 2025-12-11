@@ -74,10 +74,10 @@ class SessionReportGenerator {
 
       // Get session trades with comeback info
       const { data: trades } = await supabase
-        .from('session_trades')
+        .from('goal_session_trades')
         .select('*')
-        .eq('session_id', sessionId)
-        .order('trade_number', { ascending: true });
+        .eq('goal_session_id', sessionId)
+        .order('created_at', { ascending: true });
 
       // Get cumulative SPC before and after
       const cumulativeSPCBefore = await this.getCumulativeSPCBefore(userId, session.session_start);

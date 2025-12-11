@@ -192,7 +192,7 @@ class SmartGoalSessionManager {
   // This ensures:
   // - Real price monitoring (not random simulation)
   // - Visible SL/TP on charts
-  // - Proper simulated_positions creation
+  // - Proper goal_session_trades creation
   // - 5-layer LLM pipeline validation
 
   async completeSession(sessionId: string): Promise<void> {

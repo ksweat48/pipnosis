@@ -215,12 +215,13 @@ class SessionLearningGenerator {
     endOfDay: Date
   ): Promise<any[]> {
     const { data: trades, error } = await supabase
-      .from('trade_history')
+      .from('goal_session_trades')
       .select('*')
       .eq('user_id', userId)
-      .gte('closed_at', startOfDay.toISOString())
-      .lte('closed_at', endOfDay.toISOString())
-      .order('closed_at', { ascending: true });
+      .eq('status', 'closed')
+      .gte('close_time', startOfDay.toISOString())
+      .lte('close_time', endOfDay.toISOString())
+      .order('close_time', { ascending: true });
 
     if (error) {
       console.error('[Session Learning] Error fetching trades:', error);
@@ -639,12 +640,12 @@ class SessionLearningGenerator {
     console.log(`\n[Session Learning] 🧠 Generating 10-session rolling window learning (Sessions ${startSession}-${endSession})`);
 
     try {
-      // Fetch all synthetic backtest sessions from this 10-session window
+      // Fetch all goal sessions from this 10-session window
       const { data: sessions, error } = await supabase
-        .from('synthetic_backtest_sessions')
-        .select('*, synthetic_backtest_trades(*)')
+        .from('goal_sessions')
+        .select('id, user_id, session_name, status, created_at, ended_at, win_rate, profit_factor, total_trades')
         .eq('user_id', userId)
-        .eq('execution_mode', 'AUTO')
+        .eq('status', 'completed')
         .order('created_at', { ascending: true })
         .limit(10);
 
@@ -661,8 +662,13 @@ class SessionLearningGenerator {
       // Aggregate all trades from the 10 sessions
       const allTrades: any[] = [];
       for (const session of sessions) {
-        if (session.synthetic_backtest_trades) {
-          allTrades.push(...session.synthetic_backtest_trades);
+        const { data: trades } = await supabase
+          .from('goal_session_trades')
+          .select('*')
+          .eq('goal_session_id', session.id)
+          .eq('status', 'closed');
+        if (trades) {
+          allTrades.push(...trades);
         }
       }
 

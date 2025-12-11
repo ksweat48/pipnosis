@@ -173,11 +173,11 @@ class AIConfidenceTracker {
     try {
       // First, get the most recent session
       const { data: recentSession } = await supabase
-        .from('synthetic_backtest_sessions')
-        .select('id, session_name, total_trades, completed_at')
+        .from('goal_sessions')
+        .select('id, session_name, total_trades, ended_at')
         .eq('user_id', userId)
-        .not('completed_at', 'is', null)
-        .order('completed_at', { ascending: false })
+        .not('ended_at', 'is', null)
+        .order('ended_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -210,11 +210,11 @@ class AIConfidenceTracker {
 
       // Fetch previous session for comparison
       const { data: previousSession } = await supabase
-        .from('synthetic_backtest_sessions')
+        .from('goal_sessions')
         .select('id')
         .eq('user_id', userId)
-        .not('completed_at', 'is', null)
-        .order('completed_at', { ascending: false })
+        .not('ended_at', 'is', null)
+        .order('ended_at', { ascending: false })
         .range(1, 1)
         .maybeSingle();
 
@@ -483,11 +483,11 @@ class AIConfidenceTracker {
       console.log(`[Confidence Tracker] Processing synthetic backtest session: ${sessionId}`);
 
       const { data: trades, error } = await supabase
-        .from('synthetic_backtest_trades')
+        .from('goal_session_trades')
         .select('*')
-        .eq('session_id', sessionId)
+        .eq('goal_session_id', sessionId)
         .eq('user_id', userId)
-        .not('outcome', 'is', null);
+        .eq('status', 'closed');
 
       if (error) throw error;
       if (!trades || trades.length === 0) {

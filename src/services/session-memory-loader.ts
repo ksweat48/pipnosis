@@ -193,13 +193,13 @@ class SessionMemoryLoader {
     limit: number
   ): Promise<SessionMemorySummary | null> {
     try {
-      // Try loading from synthetic_backtest_sessions
+      // Try loading from goal_sessions
       const { data: sessions, error } = await supabase
-        .from('synthetic_backtest_sessions')
+        .from('goal_sessions')
         .select('*')
         .eq('user_id', userId)
         .eq('status', 'completed')
-        .order('completed_at', { ascending: false })
+        .order('ended_at', { ascending: false })
         .limit(limit);
 
       if (error || !sessions || sessions.length === 0) {
@@ -209,11 +209,11 @@ class SessionMemoryLoader {
 
       console.log(`[Session Memory] ✅ Loaded ${sessions.length} sessions from alternative source`);
 
-      // Transform backtest sessions
+      // Transform goal sessions
       const recentSessions: SessionLearning[] = sessions.map(session => ({
         sessionId: session.id,
-        sessionDate: new Date(session.completed_at),
-        sessionType: 'synthetic_backtest',
+        sessionDate: new Date(session.ended_at),
+        sessionType: 'goal_session',
         bestSetup: null,
         worstSetup: null,
         keyLearnings: [],
@@ -347,9 +347,8 @@ class SessionMemoryLoader {
     // Session breakdown
     const goalSessions = memory.recentSessions.filter(s => s.sessionType === 'goal_session').length;
     const liveSessions = memory.recentSessions.filter(s => s.sessionType === 'live_trading').length;
-    const backtestSessions = memory.recentSessions.filter(s => s.sessionType === 'synthetic_backtest').length;
 
-    formatted += `📊 Sessions: ${goalSessions} Goal Mode | ${liveSessions} Live | ${backtestSessions} Backtest\n\n`;
+    formatted += `📊 Sessions: ${goalSessions} Goal Mode | ${liveSessions} Live\n\n`;
 
     // Overall trends
     formatted += `📈 PROGRESSION: ${memory.overallTrends.improvementDirection.toUpperCase()}\n`;

@@ -68,11 +68,12 @@ class ContinuousLearningLoop {
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60000).toISOString();
 
       const { data: trades, error } = await supabase
-        .from('trade_history')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', userId)
-        .gte('closed_at', fiveMinutesAgo)
-        .eq('ai_validated', false)
+        .eq('status', 'closed')
+        .gte('close_time', fiveMinutesAgo)
+        .is('ai_validated', false)
         .limit(10);
 
       if (error) {
@@ -97,7 +98,7 @@ class ContinuousLearningLoop {
       }
 
       await supabase
-        .from('trade_history')
+        .from('goal_session_trades')
         .update({ ai_validated: true })
         .eq('id', trade.id);
 
@@ -308,7 +309,7 @@ class ContinuousLearningLoop {
         .single();
 
       const { data: trade } = await supabase
-        .from('trade_history')
+        .from('goal_session_trades')
         .select('*')
         .eq('id', tradeId)
         .single();

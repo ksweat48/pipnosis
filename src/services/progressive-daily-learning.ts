@@ -136,12 +136,13 @@ class ProgressiveDailyLearning {
     endOfDay.setHours(23, 59, 59, 999);
 
     const { data: trades, error } = await supabase
-      .from('trade_history')
+      .from('goal_session_trades')
       .select('*')
       .eq('user_id', userId)
-      .gte('closed_at', startOfDay.toISOString())
-      .lte('closed_at', endOfDay.toISOString())
-      .order('closed_at', { ascending: true });
+      .eq('status', 'closed')
+      .gte('close_time', startOfDay.toISOString())
+      .lte('close_time', endOfDay.toISOString())
+      .order('close_time', { ascending: true });
 
     if (error) {
       console.error('[Progressive Daily Learning] Error fetching daily trades:', error);
@@ -422,10 +423,11 @@ class ProgressiveDailyLearning {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const { data: recentTrades } = await supabase
-      .from('synthetic_backtest_trades')
-      .select('confidence, outcome')
-      .gte('entry_time', thirtyDaysAgo.toISOString())
-      .order('entry_time', { ascending: false })
+      .from('goal_session_trades')
+      .select('confidence, profit_loss')
+      .eq('status', 'closed')
+      .gte('created_at', thirtyDaysAgo.toISOString())
+      .order('created_at', { ascending: false })
       .limit(100);
 
     if (!recentTrades || recentTrades.length === 0) {
@@ -439,7 +441,7 @@ class ProgressiveDailyLearning {
     }
 
     const highConfTrades = recentTrades.filter(t => (t.confidence || 0) >= 75);
-    const highConfWins = highConfTrades.filter(t => t.outcome === 'win');
+    const highConfWins = highConfTrades.filter(t => parseFloat(t.profit_loss) > 0);
     const currentAccuracy = highConfTrades.length > 0
       ? (highConfWins.length / highConfTrades.length) * 100
       : 70;

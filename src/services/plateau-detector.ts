@@ -117,15 +117,15 @@ class PlateauDetector {
 
   private async getRecentBacktestSessions(userId: string, limit: number): Promise<PerformanceWindow[]> {
     const { data, error } = await supabase
-      .from('synthetic_backtest_sessions')
-      .select('id, win_rate, profit_factor, completed_at, total_trades')
+      .from('goal_sessions')
+      .select('id, win_rate, profit_factor, ended_at, total_trades')
       .eq('user_id', userId)
       .eq('status', 'completed')
       .not('win_rate', 'is', null)
       .not('profit_factor', 'is', null)
       .not('total_trades', 'is', null)
       .gt('total_trades', 0)
-      .order('completed_at', { ascending: false })
+      .order('ended_at', { ascending: false })
       .limit(limit * 2);
 
     if (error || !data) {
@@ -145,7 +145,7 @@ class PlateauDetector {
         sessionId: s.id,
         winRate: parseFloat(s.win_rate?.toString() || '0'),
         profitFactor: parseFloat(s.profit_factor?.toString() || '0'),
-        completedAt: new Date(s.completed_at),
+        completedAt: new Date(s.ended_at),
         totalTrades: s.total_trades || 0
       }));
 

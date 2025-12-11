@@ -92,9 +92,9 @@ class SPCCalculator {
     try {
       // Get session trades
       const { data: trades, error } = await supabase
-        .from('session_trades')
+        .from('goal_session_trades')
         .select('*')
-        .eq('session_id', sessionId);
+        .eq('goal_session_id', sessionId);
 
       if (error || !trades || trades.length === 0) {
         console.error('[SPC Calculator] Error fetching session trades:', error);
@@ -102,17 +102,17 @@ class SPCCalculator {
       }
 
       // Calculate session metrics
-      const wins = trades.filter(t => t.trade_outcome === 'win').length;
-      const losses = trades.filter(t => t.trade_outcome === 'loss').length;
+      const wins = trades.filter(t => parseFloat(t.profit_loss) > 0).length;
+      const losses = trades.filter(t => parseFloat(t.profit_loss) < 0).length;
 
       const totalWinsPnl = trades
-        .filter(t => t.trade_outcome === 'win')
-        .reduce((sum, t) => sum + parseFloat(t.pnl), 0);
+        .filter(t => parseFloat(t.profit_loss) > 0)
+        .reduce((sum, t) => sum + parseFloat(t.profit_loss), 0);
 
       const totalLossesPnl = Math.abs(
         trades
-          .filter(t => t.trade_outcome === 'loss')
-          .reduce((sum, t) => sum + parseFloat(t.pnl), 0)
+          .filter(t => parseFloat(t.profit_loss) < 0)
+          .reduce((sum, t) => sum + parseFloat(t.profit_loss), 0)
       );
 
       const profitFactor = totalLossesPnl > 0

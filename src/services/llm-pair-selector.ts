@@ -132,11 +132,12 @@ class LLMPairSelector {
 
     for (const symbol of pairs) {
       const { data: trades } = await supabase
-        .from('synthetic_backtest_trades')
-        .select('outcome, pnl')
+        .from('goal_session_trades')
+        .select('profit_loss')
         .eq('symbol', symbol)
-        .gte('entry_time', thirtyDaysAgo.toISOString())
-        .order('entry_time', { ascending: false })
+        .eq('status', 'closed')
+        .gte('created_at', thirtyDaysAgo.toISOString())
+        .order('created_at', { ascending: false })
         .limit(100);
 
       if (!trades || trades.length === 0) {
@@ -151,20 +152,20 @@ class LLMPairSelector {
         continue;
       }
 
-      const wins = trades.filter(t => t.outcome === 'win');
-      const losses = trades.filter(t => t.outcome === 'loss');
+      const wins = trades.filter(t => parseFloat(t.profit_loss) > 0);
+      const losses = trades.filter(t => parseFloat(t.profit_loss) < 0);
       const winRate = (wins.length / trades.length) * 100;
 
-      const totalWin = wins.reduce((sum, t) => sum + (t.pnl || 0), 0);
-      const totalLoss = Math.abs(losses.reduce((sum, t) => sum + (t.pnl || 0), 0));
+      const totalWin = wins.reduce((sum, t) => sum + parseFloat(t.profit_loss), 0);
+      const totalLoss = Math.abs(losses.reduce((sum, t) => sum + parseFloat(t.profit_loss), 0));
       const profitFactor = totalLoss > 0 ? totalWin / totalLoss : totalWin > 0 ? 2.0 : 1.0;
 
-      const avgEV = trades.reduce((sum, t) => sum + (t.pnl || 0), 0) / trades.length;
+      const avgEV = trades.reduce((sum, t) => sum + parseFloat(t.profit_loss), 0) / trades.length;
 
       const recentTrades = trades.slice(0, 10);
       const olderTrades = trades.slice(10, 20);
-      const recentWR = recentTrades.length > 0 ? (recentTrades.filter(t => t.outcome === 'win').length / recentTrades.length) * 100 : 50;
-      const olderWR = olderTrades.length > 0 ? (olderTrades.filter(t => t.outcome === 'win').length / olderTrades.length) * 100 : 50;
+      const recentWR = recentTrades.length > 0 ? (recentTrades.filter(t => parseFloat(t.profit_loss) > 0).length / recentTrades.length) * 100 : 50;
+      const olderWR = olderTrades.length > 0 ? (olderTrades.filter(t => parseFloat(t.profit_loss) > 0).length / olderTrades.length) * 100 : 50;
 
       let recentTrend: 'improving' | 'declining' | 'stable' = 'stable';
       if (recentWR > olderWR + 5) recentTrend = 'improving';

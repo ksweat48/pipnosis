@@ -1097,7 +1097,7 @@ class GoalSessionLiveEngine {
   }
 
   /**
-   * Handle new trade signal - Routes through trade-execution-engine for proper simulated_positions creation
+   * Handle new trade signal - Routes through trade-execution-engine for proper goal_session_trades creation
    */
   private async handleNewTradeSignal(trade: SimulatedTrade): Promise<void> {
     if (!this.config || !this.activeSession) {
@@ -1137,7 +1137,7 @@ class GoalSessionLiveEngine {
 
     if (executionResult.success) {
       logger.info(LogCategory.AI_TRADING, `✅ Trade created: ID ${executionResult.tradeId} - SL/TP visible on chart`);
-      logger.debug(LogCategory.AI_TRADING, 'simulated_positions table updated');
+      logger.debug(LogCategory.AI_TRADING, 'goal_session_trades table updated');
 
       if (this.config.autoExecute) {
         // CRITICAL: Update trade ID to match database UUID before tracking

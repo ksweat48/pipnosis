@@ -234,21 +234,22 @@ class CSSCalculator {
     endDate: Date
   ): Promise<TradeData[]> {
     try {
-      // Query trade_history for period
-      const { data: tradeHistory, error: historyError } = await supabase
-        .from('trade_history')
+      // Query goal_session_trades for period
+      const { data: trades, error } = await supabase
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', userId)
-        .gte('closed_at', startDate.toISOString())
-        .lte('closed_at', endDate.toISOString())
-        .order('closed_at', { ascending: true });
+        .eq('status', 'closed')
+        .gte('close_time', startDate.toISOString())
+        .lte('close_time', endDate.toISOString())
+        .order('close_time', { ascending: true });
 
-      if (historyError) {
-        console.error('[CSS Calculator] Error fetching trade history:', historyError);
+      if (error) {
+        console.error('[CSS Calculator] Error fetching trades:', error);
         return [];
       }
 
-      const liveTradesData: TradeData[] = (tradeHistory || []).map(t => ({
+      const tradesData: TradeData[] = (trades || []).map(t => ({
         outcome: parseFloat(t.profit_loss.toString()) > 0 ? 'win' : (parseFloat(t.profit_loss.toString()) < 0 ? 'loss' : 'breakeven'),
         pnl: parseFloat(t.profit_loss.toString()),
         entryPrice: parseFloat(t.entry_price.toString()),
@@ -257,29 +258,7 @@ class CSSCalculator {
         takeProfit: parseFloat(t.take_profit.toString())
       }));
 
-      // Also query synthetic trades if any
-      const { data: syntheticTrades, error: syntheticError } = await supabase
-        .from('synthetic_trades')
-        .select('*')
-        .eq('user_id', userId)
-        .gte('exit_time', startDate.toISOString())
-        .lte('exit_time', endDate.toISOString())
-        .order('exit_time', { ascending: true });
-
-      if (!syntheticError && syntheticTrades && syntheticTrades.length > 0) {
-        const syntheticTradesData: TradeData[] = syntheticTrades.map(t => ({
-          outcome: t.outcome as 'win' | 'loss' | 'breakeven',
-          pnl: parseFloat(t.profit_loss.toString()),
-          entryPrice: parseFloat(t.entry_price.toString()),
-          exitPrice: parseFloat(t.exit_price.toString()),
-          stopLoss: parseFloat(t.stop_loss.toString()),
-          takeProfit: parseFloat(t.take_profit.toString())
-        }));
-
-        return [...liveTradesData, ...syntheticTradesData].sort((a, b) => a.pnl - b.pnl);
-      }
-
-      return liveTradesData;
+      return tradesData.sort((a, b) => a.pnl - b.pnl);
     } catch (error) {
       console.error('[CSS Calculator] Exception fetching trades:', error);
       return [];

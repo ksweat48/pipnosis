@@ -193,9 +193,6 @@ class AISkillTracker {
         last10SessionPFAverage: data.last_10_session_pf_average ? parseFloat(data.last_10_session_pf_average.toString()) : undefined,
         consistencyValidationPassed: data.consistency_validation_passed,
         consistencyFailureReason: data.consistency_failure_reason,
-        totalBacktestsCompleted: data.total_backtests_completed || 0,
-        totalSyntheticBacktests: data.total_synthetic_backtests || 0,
-        totalRealBacktests: data.total_real_backtests || 0,
         totalTradesForPFCalc: data.total_trades_for_pf_calc || data.total_trades_analyzed,
         last10SessionWRAvg: data.last_10_session_wr_avg ? parseFloat(data.last_10_session_wr_avg.toString()) : undefined,
         last10SessionPFAvg: data.last_10_session_pf_avg ? parseFloat(data.last_10_session_pf_avg.toString()) : undefined,
@@ -632,9 +629,6 @@ class AISkillTracker {
           last_10_session_wr_avg: tenSessionAverages.avgWinRate,
           last_10_session_pf_avg: tenSessionAverages.avgProfitFactor,
           last_10_session_consistency_pct: tenSessionAverages.consistencyPct,
-          total_backtests_completed: sessionCounters.total,
-          total_synthetic_backtests: sessionCounters.synthetic,
-          total_real_backtests: sessionCounters.real,
           current_confidence_accuracy: confidenceAccuracy,
           // PnL tracking fields
           current_balance: newCurrentBalance,
@@ -695,14 +689,14 @@ class AISkillTracker {
   }> {
     try {
       const { data: sessions, error } = await supabase
-        .from('synthetic_backtest_sessions')
+        .from('goal_sessions')
         .select('win_rate, profit_factor, total_trades, winning_trades')
         .eq('user_id', userId)
         .eq('status', 'completed')
         .not('win_rate', 'is', null)
         .not('profit_factor', 'is', null)
         .gt('total_trades', 0)
-        .order('completed_at', { ascending: false })
+        .order('ended_at', { ascending: false })
         .limit(10);
 
       if (error || !sessions || sessions.length === 0) {
@@ -1225,10 +1219,11 @@ class AISkillTracker {
   private async getRecentTrades(userId: string, limit: number): Promise<TradeData[]> {
     try {
       const { data: trades, error } = await supabase
-        .from('trade_history')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', userId)
-        .order('closed_at', { ascending: false })
+        .eq('status', 'closed')
+        .order('close_time', { ascending: false })
         .limit(limit);
 
       if (error || !trades) {

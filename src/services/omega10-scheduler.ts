@@ -207,11 +207,11 @@ class Omega10Scheduler {
   private async getTradeHistory(userId: string): Promise<TradeRecord[]> {
     try {
       const { data, error } = await supabase
-        .from('trade_history')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', userId)
-        .not('exit_time', 'is', null)
-        .order('exit_time', { ascending: false })
+        .eq('status', 'closed')
+        .order('close_time', { ascending: false })
         .limit(100);
 
       if (error) throw error;
@@ -222,13 +222,13 @@ class Omega10Scheduler {
         direction: t.direction as 'buy' | 'sell',
         entryPrice: t.entry_price,
         exitPrice: t.exit_price,
-        pnl: t.pnl,
-        outcome: t.pnl > 0 ? 'win' : t.pnl < 0 ? 'loss' : 'breakeven',
+        pnl: t.profit_loss,
+        outcome: t.profit_loss > 0 ? 'win' : t.profit_loss < 0 ? 'loss' : 'breakeven',
         stopLossType: t.close_reason,
         pattern: t.pattern,
         alphaConfidence: t.alpha_confidence,
         marketRegime: t.market_regime,
-        timestamp: new Date(t.exit_time)
+        timestamp: new Date(t.close_time)
       }));
     } catch (error) {
       console.error('[Omega-10 Scheduler] Error fetching trade history:', error);
