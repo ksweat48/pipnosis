@@ -29,8 +29,36 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
     avoidPattern: null
   });
 
+  // Handle resize
+  useEffect(() => {
+    if (!chartRef.current || !chartContainerRef.current) return;
+
+    const handleResize = () => {
+      if (chartContainerRef.current && chartRef.current) {
+        const newWidth = chartContainerRef.current.clientWidth;
+        if (newWidth > 100) {
+          chartRef.current.applyOptions({ width: newWidth });
+        }
+      }
+    };
+
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(chartContainerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [chartRef.current]);
+
   useEffect(() => {
     if (!chartContainerRef.current || loading || chartData.length === 0) return;
+
+    // Ensure container has valid dimensions before creating chart
+    const containerWidth = chartContainerRef.current.clientWidth;
+    if (!containerWidth || containerWidth < 100) {
+      console.warn('[Mastery Curve] Container not ready yet, width:', containerWidth);
+      return;
+    }
 
     // Clean up existing chart first
     if (chartRef.current) {
@@ -40,7 +68,7 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
 
     try {
       const chart = createChart(chartContainerRef.current, {
-        width: chartContainerRef.current.clientWidth,
+        width: containerWidth,
         height: 400,
         layout: {
           background: { color: 'transparent' },
@@ -295,7 +323,7 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
         <div className="lg:col-span-3">
-          <div ref={chartContainerRef} className="w-full" />
+          <div ref={chartContainerRef} className="w-full" style={{ minHeight: '400px' }} />
 
           <div className="mt-4 flex flex-wrap gap-4 items-center justify-center text-sm">
             <div className="flex items-center gap-2">
