@@ -22,7 +22,8 @@ import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orch
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
-import { calculateGoalBasedTakeProfit } from '../utils/currencyHelpers';
+import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionSize } from '../utils/currencyHelpers';
+import { getRiskPercentage } from '../config/risk-levels';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -425,8 +426,24 @@ class GoalSessionLiveEngine {
       const remainingGoal = targetGoal - currentProgress;
       const goalPercentage = (remainingGoal / this.config.initialBalance) * 100;
 
-      // Estimate pips needed for typical lot size (0.1 for forex)
-      const estimatedDollarPerPip = 1.0; // 0.1 lot on forex = $1/pip
+      // Calculate realistic pip estimate based on actual risk-based position sizing
+      // Use typical values: 30 pip stop loss for forex, assume EURUSD-like for estimation
+      const riskPercent = getRiskPercentage(this.config.riskMode);
+      const typicalStopLossPips = 30;
+      const typicalEntryPrice = 1.1000; // EURUSD-like for calculation
+      const typicalStopLoss = typicalEntryPrice - (typicalStopLossPips * 0.0001);
+
+      // Calculate expected lot size using our actual risk formula
+      const estimatedLotSize = calculatePositionSize(
+        this.config.symbol || 'EURUSD',
+        this.config.initialBalance,
+        riskPercent,
+        typicalEntryPrice,
+        typicalStopLoss
+      );
+
+      // Calculate dollar per pip for this lot size
+      const estimatedDollarPerPip = calculateDollarPerPip(this.config.symbol || 'EURUSD', estimatedLotSize);
       const pipsNeededEstimate = Math.abs(remainingGoal / estimatedDollarPerPip);
 
       const goalContext: import('../brains/coordinator-alpha').GoalContext = {
@@ -2472,8 +2489,8 @@ Keep response under 100 words, educational tone.`;
     stopLoss: number,
     riskMode: 'low' | 'medium' | 'high'
   ): Promise<number> {
-    // Risk percentage based on risk mode
-    const riskPercent = riskMode === 'high' ? 2.0 : riskMode === 'medium' ? 1.0 : 0.5;
+    // Risk percentage based on risk mode - USE CENTRALIZED CONFIG
+    const riskPercent = getRiskPercentage(riskMode);
 
     // Calculate risk amount in dollars
     const riskAmount = accountBalance * (riskPercent / 100);

@@ -5,6 +5,8 @@
  * Particularly important for JPY pairs which use different pip values
  */
 
+import { getRiskPercentage } from '../config/risk-levels';
+
 export interface CurrencyPipInfo {
   pipValue: number;
   pipMultiplier: number;
@@ -433,8 +435,8 @@ export function calculateGoalOptimalPosition(
 
   console.log(`  Pip Ranges: Min=${minReasonablePips}, Optimal=${optimalPips}, Max=${maxReasonablePips}`);
 
-  // Calculate standard risk-based position size as MAX CAP
-  const riskPercent = riskMode === 'high' ? 2.0 : riskMode === 'medium' ? 1.0 : 0.5;
+  // Calculate standard risk-based position size as MAX CAP - USE CENTRALIZED CONFIG
+  const riskPercent = getRiskPercentage(riskMode);
   const maxPositionSize = calculatePositionSize(symbol, accountBalance, riskPercent, entryPrice, stopLoss);
 
   console.log(`  Max Position Size (risk-based): ${maxPositionSize.toFixed(3)} lots`);
