@@ -12,6 +12,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['lucide-react'],
+    include: ['lightweight-charts'],
   },
   build: {
     // Production optimizations
@@ -23,7 +24,8 @@ export default defineConfig({
           vendor: ['react', 'react-dom'],
           router: ['react-router-dom'],
           ui: ['lucide-react'],
-          supabase: ['@supabase/supabase-js']
+          supabase: ['@supabase/supabase-js'],
+          'lightweight-charts': ['lightweight-charts']
         }
       }
     },
