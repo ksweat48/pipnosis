@@ -798,9 +798,9 @@ class AILearningEngine {
     const startTime = Date.now();
 
     try {
-      // Fetch the trade from trade_history
+      // Fetch the trade from goal_session_trades
       const { data: trade, error: fetchError } = await supabase
-        .from('trade_history')
+        .from('goal_session_trades')
         .select('*')
         .eq('id', tradeId)
         .eq('user_id', userId)
@@ -821,7 +821,7 @@ class AILearningEngine {
       const tradeForAnalysis: TradeForAnalysis = {
         id: trade.id,
         symbol: trade.symbol,
-        direction: trade.position_type as 'buy' | 'sell',
+        direction: trade.direction as 'buy' | 'sell',
         outcome: trade.profit_loss > 0 ? 'win' : (trade.profit_loss < 0 ? 'loss' : 'breakeven'),
         pnl: parseFloat(trade.profit_loss.toString()),
         entryTime: new Date(trade.opened_at),
@@ -837,16 +837,17 @@ class AILearningEngine {
 
       // Fetch historical trades for context
       const { data: historicalTrades } = await supabase
-        .from('trade_history')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', userId)
         .eq('symbol', trade.symbol)
+        .eq('status', 'closed')
         .limit(100);
 
       const allTrades = (historicalTrades || []).map(t => ({
         id: t.id,
         symbol: t.symbol,
-        direction: t.position_type as 'buy' | 'sell',
+        direction: t.direction as 'buy' | 'sell',
         outcome: t.profit_loss > 0 ? 'win' : (t.profit_loss < 0 ? 'loss' : 'breakeven'),
         pnl: parseFloat(t.profit_loss.toString()),
         entryTime: new Date(t.opened_at),
@@ -942,8 +943,8 @@ class AILearningEngine {
 
       // Mark trade as analyzed
       await supabase
-        .from('trade_history')
-        .update({ ai_analyzed: true, ai_analyzed_at: new Date().toISOString() })
+        .from('goal_session_trades')
+        .update({ ai_analyzed: true })
         .eq('id', tradeId);
 
       console.log(`[AI Learning Engine] ✅ Live trade analyzed! Extracted ${insightsCreated} insights (2x weighted)`);
@@ -962,9 +963,10 @@ class AILearningEngine {
 
     try {
       const { data: unanalyzedTrades, error } = await supabase
-        .from('trade_history')
+        .from('goal_session_trades')
         .select('id')
         .eq('user_id', userId)
+        .eq('status', 'closed')
         .eq('ai_analyzed', false)
         .order('closed_at', { ascending: true })
         .limit(50);
