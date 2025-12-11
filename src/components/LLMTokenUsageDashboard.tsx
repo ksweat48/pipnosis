@@ -75,10 +75,10 @@ export function LLMTokenUsageDashboard() {
         <div>
           <h2 className="text-2xl font-bold text-white flex items-center gap-3">
             <Brain className="text-blue-400" size={28} />
-            LLM Token Usage Dashboard
+            LLM Token Usage Dashboard (Platform-Wide)
           </h2>
           <p className="text-gray-400 text-sm mt-1">
-            Real-time cost tracking for all Alpha & Omega brains
+            Real-time cost tracking for all Alpha & Omega brains across all users
           </p>
         </div>
       </div>

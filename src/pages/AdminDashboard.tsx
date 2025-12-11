@@ -79,78 +79,74 @@ export function AdminDashboard() {
     try {
       setLoading(true);
 
-      // Backtest system removed - using goal sessions only
+      // Platform-wide metrics - aggregate ALL users
 
-      // Get skill tracking
+      // Get platform-wide skill tracking
       const { data: skillData } = await supabase
         .from('ai_skill_tracking')
-        .select('skill_level')
-        .eq('user_id', user.id)
-        .order('updated_at', { ascending: false })
-        .limit(2);
+        .select('skill_level, updated_at')
+        .order('updated_at', { ascending: false });
 
-      const currentSkillLevel = skillData?.[0]?.skill_level || 0;
-      const previousSkillLevel = skillData?.[1]?.skill_level || 0;
+      // Calculate average skill level across all users (latest entry per user)
+      const userSkillMap = new Map();
+      skillData?.forEach(skill => {
+        if (!userSkillMap.has(skill.updated_at)) {
+          userSkillMap.set(skill.updated_at, skill.skill_level);
+        }
+      });
 
-      // Get backtest counts
-      const { count: realCount } = await supabase
-        .from('backtest_sessions')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id);
+      const skillLevels = Array.from(userSkillMap.values());
+      const currentSkillLevel = skillLevels.length > 0
+        ? skillLevels.reduce((sum, level) => sum + level, 0) / skillLevels.length
+        : 0;
 
-      const { count: syntheticCount } = await supabase
-        .from('synthetic_backtest_sessions')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id);
+      const previousSkillLevels = skillLevels.slice(0, Math.min(skillLevels.length, 10));
+      const previousSkillLevel = previousSkillLevels.length > 0
+        ? previousSkillLevels.reduce((sum, level) => sum + level, 0) / previousSkillLevels.length
+        : 0;
 
-      // Get auto-backtest count
-      const { data: autoSessions } = await supabase
-        .from('backtest_sessions')
-        .select('session_name')
-        .eq('user_id', user.id)
-        .like('session_name', 'Auto-BT-%');
+      // Get total goal sessions across all users
+      const { count: goalSessionsCount } = await supabase
+        .from('goal_sessions')
+        .select('id', { count: 'exact', head: true });
 
-      const { data: autoSynthetic } = await supabase
-        .from('synthetic_backtest_sessions')
-        .select('session_name')
-        .eq('user_id', user.id)
-        .like('session_name', 'Auto-BT-%');
+      // Get total goal session trades
+      const { count: goalTradesCount } = await supabase
+        .from('goal_session_trades')
+        .select('id', { count: 'exact', head: true });
 
-      // Get learning insights
+      // Get learning insights from all users
       const { count: insightsCount } = await supabase
         .from('ai_learning_insights')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id);
+        .select('id', { count: 'exact', head: true });
 
-      // Get pattern discoveries
+      // Get pattern discoveries from all users
       const { count: patternsCount } = await supabase
         .from('ai_pattern_discoveries')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id);
+        .select('id', { count: 'exact', head: true });
 
-      // Get recent sessions (last 24 hours)
+      // Get recent goal trades (last 24 hours) for win rate calculation
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const { data: recentSessions } = await supabase
-        .from('backtest_sessions')
-        .select('win_rate')
-        .eq('user_id', user.id)
+      const { data: recentTrades } = await supabase
+        .from('goal_session_trades')
+        .select('outcome')
         .gte('created_at', oneDayAgo);
 
-      const avgWinRate = recentSessions && recentSessions.length > 0
-        ? recentSessions.reduce((sum, s) => sum + s.win_rate, 0) / recentSessions.length
-        : 0;
+      const winningTrades = recentTrades?.filter(t => t.outcome === 'win').length || 0;
+      const totalTrades = recentTrades?.length || 0;
+      const avgWinRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
 
       setAIMetrics({
         skillLevel: currentSkillLevel,
-        totalBacktests: (realCount || 0) + (syntheticCount || 0),
-        autoBacktests: (autoSessions?.length || 0) + (autoSynthetic?.length || 0),
+        totalBacktests: goalSessionsCount || 0,
+        autoBacktests: goalTradesCount || 0,
         learningInsights: insightsCount || 0,
         patternDiscoveries: patternsCount || 0,
         avgWinRate,
         isAutoRunning: false,
         currentBacktestNumber: 0,
         skillLevelChange: currentSkillLevel - previousSkillLevel,
-        recentSessionsCount: recentSessions?.length || 0
+        recentSessionsCount: totalTrades
       });
     } catch (error) {
       console.error('[Admin Dashboard] Error loading AI metrics:', error);
@@ -291,19 +287,19 @@ export function AdminDashboard() {
             {!loading && aiMetrics && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <MetricCard
-                  title="AI Skill Level"
-                  value={`${aiMetrics.skillLevel}%`}
+                  title="Platform Skill Level"
+                  value={`${aiMetrics.skillLevel.toFixed(1)}%`}
                   icon={Brain}
                   color="blue"
                   trend={aiMetrics.skillLevelChange > 0 ? 'up' : aiMetrics.skillLevelChange < 0 ? 'down' : 'neutral'}
                   subtitle={`${aiMetrics.skillLevelChange >= 0 ? '+' : ''}${aiMetrics.skillLevelChange.toFixed(1)}% change`}
                 />
                 <MetricCard
-                  title="Training Sessions"
+                  title="Total Goal Sessions"
                   value={aiMetrics.totalBacktests.toString()}
                   icon={Activity}
                   color="green"
-                  subtitle={`${aiMetrics.autoBacktests} automated`}
+                  subtitle={`${aiMetrics.autoBacktests} total trades`}
                 />
                 <MetricCard
                   title="Learning Insights"
@@ -313,11 +309,11 @@ export function AdminDashboard() {
                   subtitle={`${aiMetrics.patternDiscoveries} patterns found`}
                 />
                 <MetricCard
-                  title="24h Win Rate"
+                  title="24h Win Rate (All Users)"
                   value={`${aiMetrics.avgWinRate.toFixed(1)}%`}
                   icon={Target}
                   color={aiMetrics.avgWinRate >= 55 ? 'green' : 'amber'}
-                  subtitle={`${aiMetrics.recentSessionsCount} sessions`}
+                  subtitle={`${aiMetrics.recentSessionsCount} trades`}
                 />
               </div>
             )}

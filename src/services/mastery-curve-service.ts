@@ -45,8 +45,8 @@ class MasteryCurveService {
     this.cache.set(key, { data, timestamp: Date.now() });
   }
 
-  async getMasteryCurveData(userId: string): Promise<MasteryScoreData[]> {
-    const cacheKey = `mastery-curve-${userId}`;
+  async getMasteryCurveData(userId: string | null): Promise<MasteryScoreData[]> {
+    const cacheKey = `mastery-curve-${userId || 'all-users'}`;
     const cached = this.getCachedData(cacheKey);
     if (cached) return cached;
 
@@ -92,45 +92,120 @@ class MasteryCurveService {
     }
   }
 
-  private async fetchPerformanceEvolution(userId: string, startDate: Date) {
-    const { data, error } = await supabase
+  private async fetchPerformanceEvolution(userId: string | null, startDate: Date) {
+    let query = supabase
       .from('ai_performance_evolution')
-      .select('measurement_date, win_rate, profit_factor, total_trades, insights_applied')
-      .eq('user_id', userId)
+      .select('measurement_date, win_rate, profit_factor, total_trades, insights_applied, user_id')
       .eq('period_type', 'daily')
       .gte('measurement_date', startDate.toISOString().split('T')[0])
       .order('measurement_date', { ascending: true });
+
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.warn('[Mastery Curve] Performance Evolution not available:', error.message);
       return [];
     }
+
+    // If fetching all users, aggregate by date
+    if (!userId && data) {
+      const aggregated = new Map<string, any>();
+      data.forEach(record => {
+        const date = record.measurement_date;
+        if (!aggregated.has(date)) {
+          aggregated.set(date, {
+            measurement_date: date,
+            win_rate: 0,
+            profit_factor: 0,
+            total_trades: 0,
+            insights_applied: 0,
+            count: 0
+          });
+        }
+        const agg = aggregated.get(date);
+        agg.win_rate += record.win_rate || 0;
+        agg.profit_factor += record.profit_factor || 0;
+        agg.total_trades += record.total_trades || 0;
+        agg.insights_applied += record.insights_applied || 0;
+        agg.count++;
+      });
+
+      return Array.from(aggregated.values()).map(agg => ({
+        measurement_date: agg.measurement_date,
+        win_rate: agg.count > 0 ? agg.win_rate / agg.count : 50,
+        profit_factor: agg.count > 0 ? agg.profit_factor / agg.count : 1.0,
+        total_trades: agg.total_trades,
+        insights_applied: agg.insights_applied
+      }));
+    }
+
     return data || [];
   }
 
-  private async fetchCalibrationData(userId: string, startDate: Date) {
-    const { data, error } = await supabase
+  private async fetchCalibrationData(userId: string | null, startDate: Date) {
+    let query = supabase
       .from('ai_confidence_performance')
-      .select('window_end_time, accuracy_percentage, overall_calibration_score')
-      .eq('user_id', userId)
+      .select('window_end_time, accuracy_percentage, overall_calibration_score, user_id')
       .in('window_type', ['last_100', 'daily'])
       .gte('window_end_time', startDate.toISOString())
       .order('window_end_time', { ascending: true });
+
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.warn('[Mastery Curve] Confidence Performance not available:', error.message);
       return [];
     }
+
+    // If fetching all users, aggregate by date
+    if (!userId && data) {
+      const aggregated = new Map<string, any>();
+      data.forEach(record => {
+        const date = record.window_end_time.split('T')[0];
+        if (!aggregated.has(date)) {
+          aggregated.set(date, {
+            window_end_time: record.window_end_time,
+            accuracy_percentage: 0,
+            overall_calibration_score: 0,
+            count: 0
+          });
+        }
+        const agg = aggregated.get(date);
+        agg.accuracy_percentage += record.accuracy_percentage || 0;
+        agg.overall_calibration_score += record.overall_calibration_score || 0;
+        agg.count++;
+      });
+
+      return Array.from(aggregated.values()).map(agg => ({
+        window_end_time: agg.window_end_time,
+        accuracy_percentage: agg.count > 0 ? agg.accuracy_percentage / agg.count : 70,
+        overall_calibration_score: agg.count > 0 ? agg.overall_calibration_score / agg.count : 0
+      }));
+    }
+
     return data || [];
   }
 
-  private async fetchInsightsData(userId: string, startDate: Date) {
-    const { data, error } = await supabase
+  private async fetchInsightsData(userId: string | null, startDate: Date) {
+    let query = supabase
       .from('ai_learning_insights')
-      .select('created_at, insight_type, times_applied, confidence_score')
-      .eq('user_id', userId)
+      .select('created_at, insight_type, times_applied, confidence_score, user_id')
       .gte('created_at', startDate.toISOString())
       .order('created_at', { ascending: true });
+
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.warn('[Mastery Curve] AI Learning Insights not available:', error.message);
@@ -159,13 +234,18 @@ class MasteryCurveService {
     return Array.from(aggregated.values());
   }
 
-  private async fetchAvoidPatternsData(userId: string, startDate: Date) {
-    const { data, error } = await supabase
+  private async fetchAvoidPatternsData(userId: string | null, startDate: Date) {
+    let query = supabase
       .from('avoid_pattern_enforcement_log')
-      .select('timestamp, was_blocked, highest_similarity_score')
-      .eq('user_id', userId)
+      .select('timestamp, was_blocked, highest_similarity_score, user_id')
       .gte('timestamp', startDate.toISOString())
       .order('timestamp', { ascending: true });
+
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.warn('[Mastery Curve] Avoid Pattern Log not available:', error.message);
@@ -197,13 +277,18 @@ class MasteryCurveService {
     return Array.from(aggregated.values());
   }
 
-  private async fetchLLMLayerData(userId: string, startDate: Date) {
-    const { data, error } = await supabase
+  private async fetchLLMLayerData(userId: string | null, startDate: Date) {
+    let query = supabase
       .from('llm_layer_kpis')
-      .select('date, pass_rate, pass_count, reject_count')
-      .eq('user_id', userId)
+      .select('date, pass_rate, pass_count, reject_count, user_id')
       .gte('date', startDate.toISOString().split('T')[0])
       .order('date', { ascending: true });
+
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.warn('[Mastery Curve] LLM Layer KPIs not available:', error.message);
@@ -237,24 +322,52 @@ class MasteryCurveService {
     }));
   }
 
-  private async fetchEVData(userId: string, startDate: Date) {
-    const { data, error } = await supabase
-      .from('synthetic_backtest_trades')
-      .select('entry_time, outcome, pnl')
-      .eq('user_id', userId)
-      .gte('entry_time', startDate.toISOString())
-      .order('entry_time', { ascending: true });
+  private async fetchEVData(userId: string | null, startDate: Date) {
+    // Primary: Fetch from goal_session_trades
+    let goalTradesQuery = supabase
+      .from('goal_session_trades')
+      .select('created_at, outcome, pnl, user_id')
+      .gte('created_at', startDate.toISOString())
+      .order('created_at', { ascending: true });
 
-    if (error) {
-      const { data: liveData } = await supabase
-        .from('trade_history')
-        .select('created_at, outcome, pnl')
-        .eq('user_id', userId)
-        .gte('created_at', startDate.toISOString())
-        .order('created_at', { ascending: true });
+    if (userId) {
+      goalTradesQuery = goalTradesQuery.eq('user_id', userId);
+    }
 
-      if (!liveData) return [];
+    const { data: goalData, error: goalError } = await goalTradesQuery;
 
+    if (!goalError && goalData && goalData.length > 0) {
+      const aggregated = new Map<string, any>();
+      goalData.forEach(trade => {
+        const date = trade.created_at.split('T')[0];
+        if (!aggregated.has(date)) {
+          aggregated.set(date, { date, totalEV: 0, count: 0 });
+        }
+        const agg = aggregated.get(date);
+        agg.totalEV += trade.pnl || 0;
+        agg.count++;
+      });
+
+      return Array.from(aggregated.values()).map(agg => ({
+        date: agg.date,
+        dailyEV: agg.count > 0 ? agg.totalEV / agg.count : 0
+      }));
+    }
+
+    // Fallback: Fetch from trade_history
+    let tradeHistoryQuery = supabase
+      .from('trade_history')
+      .select('created_at, outcome, pnl, user_id')
+      .gte('created_at', startDate.toISOString())
+      .order('created_at', { ascending: true });
+
+    if (userId) {
+      tradeHistoryQuery = tradeHistoryQuery.eq('user_id', userId);
+    }
+
+    const { data: liveData, error: liveError } = await tradeHistoryQuery;
+
+    if (!liveError && liveData && liveData.length > 0) {
       const aggregated = new Map<string, any>();
       liveData.forEach(trade => {
         const date = trade.created_at.split('T')[0];
@@ -272,21 +385,7 @@ class MasteryCurveService {
       }));
     }
 
-    const aggregated = new Map<string, any>();
-    (data || []).forEach(trade => {
-      const date = trade.entry_time.split('T')[0];
-      if (!aggregated.has(date)) {
-        aggregated.set(date, { date, totalEV: 0, count: 0 });
-      }
-      const agg = aggregated.get(date);
-      agg.totalEV += trade.pnl || 0;
-      agg.count++;
-    });
-
-    return Array.from(aggregated.values()).map(agg => ({
-      date: agg.date,
-      dailyEV: agg.count > 0 ? agg.totalEV / agg.count : 0
-    }));
+    return [];
   }
 
   private mergeDataByDate(
@@ -389,7 +488,7 @@ class MasteryCurveService {
     return ((evValue + 50) / 150) * 100;
   }
 
-  async getMasteryStats(userId: string): Promise<MasteryCurveStats> {
+  async getMasteryStats(userId: string | null): Promise<MasteryCurveStats> {
     try {
       const data = await this.getMasteryCurveData(userId);
 

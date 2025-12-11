@@ -40,11 +40,6 @@ export function useMasteryCurve(userId: string | null, autoRefresh: boolean = fa
   const [error, setError] = useState<string | null>(null);
 
   const loadData = async () => {
-    if (!userId) {
-      setLoading(false);
-      return;
-    }
-
     try {
       setError(null);
 

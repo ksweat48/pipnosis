@@ -258,7 +258,7 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
           No Mastery Data Yet
         </h3>
         <p className="text-gray-400">
-          Start running auto-backtest sessions to build your AI mastery curve.
+          {userId ? 'Start running goal sessions to build your AI mastery curve.' : 'Waiting for users to run goal sessions to build platform-wide mastery data.'}
         </p>
       </div>
     );
@@ -279,7 +279,9 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Brain className="w-6 h-6 text-amber-400" />
-          <h2 className="text-xl font-bold text-white">Pipnosis Mastery Curve (AI Evolution Score)</h2>
+          <h2 className="text-xl font-bold text-white">
+            {userId ? 'Pipnosis Mastery Curve (AI Evolution Score)' : 'Platform-Wide Pipnosis Evolution (All Users)'}
+          </h2>
         </div>
         <button
           onClick={handleRefresh}

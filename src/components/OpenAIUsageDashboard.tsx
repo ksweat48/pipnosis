@@ -76,35 +76,75 @@ export function OpenAIUsageDashboard() {
     try {
       setLoading(true);
 
-      const { data: summary } = await supabase
+      // Aggregate cost summary across ALL users
+      const { data: allSummaries } = await supabase
         .from('openai_cost_summary')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+        .select('*');
 
-      setCostSummary(summary);
+      if (allSummaries && allSummaries.length > 0) {
+        const aggregatedSummary: CostSummary = {
+          today_cost: 0,
+          this_week_cost: 0,
+          this_month_cost: 0,
+          all_time_cost: 0,
+          today_calls: 0,
+          this_week_calls: 0,
+          this_month_calls: 0,
+          all_time_calls: 0
+        };
 
-      const { data: limits } = await supabase
+        allSummaries.forEach(summary => {
+          aggregatedSummary.today_cost += summary.today_cost || 0;
+          aggregatedSummary.this_week_cost += summary.this_week_cost || 0;
+          aggregatedSummary.this_month_cost += summary.this_month_cost || 0;
+          aggregatedSummary.all_time_cost += summary.all_time_cost || 0;
+          aggregatedSummary.today_calls += summary.today_calls || 0;
+          aggregatedSummary.this_week_calls += summary.this_week_calls || 0;
+          aggregatedSummary.this_month_calls += summary.this_month_calls || 0;
+          aggregatedSummary.all_time_calls += summary.all_time_calls || 0;
+        });
+
+        setCostSummary(aggregatedSummary);
+      }
+
+      // Aggregate rate limits across ALL users
+      const { data: allLimits } = await supabase
         .from('openai_rate_limits')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+        .select('*');
 
-      setRateLimits(limits);
+      if (allLimits && allLimits.length > 0) {
+        const aggregatedLimits: RateLimitInfo = {
+          hourly_count: 0,
+          daily_count: 0,
+          hourly_limit: allLimits[0].hourly_limit || 10000,
+          daily_limit: allLimits[0].daily_limit || 100000,
+          hourly_reset_at: allLimits[0].hourly_reset_at || '',
+          daily_reset_at: allLimits[0].daily_reset_at || '',
+          is_blocked: false
+        };
 
+        allLimits.forEach(limit => {
+          aggregatedLimits.hourly_count += limit.hourly_count || 0;
+          aggregatedLimits.daily_count += limit.daily_count || 0;
+          if (limit.is_blocked) aggregatedLimits.is_blocked = true;
+        });
+
+        setRateLimits(aggregatedLimits);
+      }
+
+      // Get recent logs from ALL users
       const { data: logs } = await supabase
         .from('openai_usage_log')
         .select('*')
-        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(10);
 
       setRecentLogs(logs || []);
 
+      // Aggregate model usage across ALL users
       const { data: usage } = await supabase
         .from('openai_usage_log')
         .select('model, total_tokens, cost_usd')
-        .eq('user_id', user.id)
         .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
 
       if (usage) {
@@ -167,8 +207,8 @@ export function OpenAIUsageDashboard() {
       <div className="flex items-center gap-3 mb-6">
         <Brain className="w-8 h-8 text-blue-400" />
         <div>
-          <h2 className="text-2xl font-bold text-white">OpenAI Usage Dashboard</h2>
-          <p className="text-gray-400">Monitor API costs, rate limits, and usage patterns</p>
+          <h2 className="text-2xl font-bold text-white">OpenAI Usage Dashboard (Platform-Wide)</h2>
+          <p className="text-gray-400">Monitor API costs, rate limits, and usage patterns across all users</p>
         </div>
       </div>
 

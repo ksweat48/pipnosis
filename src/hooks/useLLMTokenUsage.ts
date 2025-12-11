@@ -77,11 +77,10 @@ export function useLLMTokenUsage(): LLMTokenUsageData {
       monthAgo.setDate(monthAgo.getDate() - 30);
       const monthStart = monthAgo.toISOString();
 
-      // Fetch today's cost and call count
+      // Fetch today's cost and call count (ALL USERS)
       const { data: todayData, error: todayError } = await supabase
         .from('llm_token_usage')
         .select('estimated_cost_usd')
-        .eq('user_id', user.id)
         .gte('timestamp', todayStart);
 
       if (todayError) throw todayError;
@@ -89,43 +88,39 @@ export function useLLMTokenUsage(): LLMTokenUsageData {
       const todayCost = todayData?.reduce((sum, row) => sum + (row.estimated_cost_usd || 0), 0) || 0;
       const todayCallCount = todayData?.length || 0;
 
-      // Fetch week cost
+      // Fetch week cost (ALL USERS)
       const { data: weekData, error: weekError } = await supabase
         .from('llm_token_usage')
         .select('estimated_cost_usd')
-        .eq('user_id', user.id)
         .gte('timestamp', weekStart);
 
       if (weekError) throw weekError;
 
       const weekCost = weekData?.reduce((sum, row) => sum + (row.estimated_cost_usd || 0), 0) || 0;
 
-      // Fetch month cost
+      // Fetch month cost (ALL USERS)
       const { data: monthData, error: monthError } = await supabase
         .from('llm_token_usage')
         .select('estimated_cost_usd')
-        .eq('user_id', user.id)
         .gte('timestamp', monthStart);
 
       if (monthError) throw monthError;
 
       const monthCost = monthData?.reduce((sum, row) => sum + (row.estimated_cost_usd || 0), 0) || 0;
 
-      // Fetch all-time cost
+      // Fetch all-time cost (ALL USERS)
       const { data: allTimeData, error: allTimeError } = await supabase
         .from('llm_token_usage')
-        .select('estimated_cost_usd')
-        .eq('user_id', user.id);
+        .select('estimated_cost_usd');
 
       if (allTimeError) throw allTimeError;
 
       const allTimeCost = allTimeData?.reduce((sum, row) => sum + (row.estimated_cost_usd || 0), 0) || 0;
 
-      // Fetch cost by brain (last 30 days)
+      // Fetch cost by brain (last 30 days, ALL USERS)
       const { data: brainData, error: brainError } = await supabase
         .from('llm_token_usage')
         .select('brain_name, estimated_cost_usd, total_tokens')
-        .eq('user_id', user.id)
         .gte('timestamp', monthStart);
 
       if (brainError) throw brainError;
@@ -155,11 +150,10 @@ export function useLLMTokenUsage(): LLMTokenUsageData {
         }))
         .sort((a, b) => b.totalCost - a.totalCost);
 
-      // Fetch daily trend (last 30 days)
+      // Fetch daily trend (last 30 days, ALL USERS)
       const { data: dailySummary, error: dailyError } = await supabase
         .from('llm_daily_token_summary')
         .select('date, total_cost_usd, total_calls')
-        .eq('user_id', user.id)
         .gte('date', monthStart.split('T')[0])
         .order('date', { ascending: true });
 
