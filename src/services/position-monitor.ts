@@ -477,6 +477,10 @@ class PositionMonitorService {
           .from('goal_sessions')
           .update({ status: newStatus })
           .eq('id', position.goal_session_id);
+
+        // Clear mid-trade notifications when session completes
+        const { midTradeNotificationQueue } = await import('./mid-trade-notification-queue');
+        await midTradeNotificationQueue.clearSessionNotifications(position.goal_session_id);
       }
     } catch (error) {
       console.error(`[PositionMonitor] Failed to auto-close position ${position.id}:`, error);

@@ -516,6 +516,9 @@ class GoalSessionManager {
         })
         .eq('id', goalSessionId);
 
+      // Clear mid-trade notifications for this session
+      await midTradeNotificationQueue.clearSessionNotifications(goalSessionId);
+
       // Update achievement record
       const { data: achievement } = await supabase
         .from('goal_achievements')
