@@ -198,11 +198,15 @@ class TradeExecutionEngine {
       ? await strategyPlaybookManager.getActivePlaybook(signal.symbol, regimeBucket)
       : null;
 
+    // Round lot size to broker standard precision (0.01 lots)
+    const { roundLotSize, roundPnL } = await import('../utils/currencyHelpers');
+    const roundedLotSize = roundLotSize(signal.positionSize);
+
     // Calculate risk dollars for R-normalized metrics
     const pipInfo = getCurrencyPipInfo(signal.symbol);
     const riskPips = Math.abs(signal.entryPrice - signal.stopLoss) / pipInfo.pipValue;
-    const dollarPerPip = signal.positionSize * 10; // Standard forex calculation
-    const riskDollars = riskPips * dollarPerPip;
+    const dollarPerPip = roundedLotSize * 10; // Standard forex calculation
+    const riskDollars = roundPnL(riskPips * dollarPerPip);
 
     console.log('[Trade Execution] Creating pending trade:', {
       symbol: signal.symbol,
@@ -210,7 +214,7 @@ class TradeExecutionEngine {
       entry_price: signal.entryPrice,
       stop_loss: signal.stopLoss,
       take_profit: signal.takeProfit,
-      position_size: signal.positionSize
+      position_size: roundedLotSize
     });
 
     const { data: trade, error } = await supabase
@@ -223,8 +227,8 @@ class TradeExecutionEngine {
         entry_price: signal.entryPrice,
         stop_loss: signal.stopLoss,
         take_profit: signal.takeProfit,
-        position_size: signal.positionSize,
-        lot_size: signal.positionSize,
+        position_size: roundedLotSize,
+        lot_size: roundedLotSize,
         status: 'pending',
         playbook_id: activePlaybook?.id || null,
         regime_bucket: regimeBucket,

@@ -16,7 +16,7 @@ import {
   dbToPosition,
   calculatePnL
 } from '@/types/position';
-import { getCurrencyPipInfo } from '@/utils/currencyHelpers';
+import { getCurrencyPipInfo, roundLotSize, roundPnL } from '@/utils/currencyHelpers';
 
 export interface OpenPositionParams {
   goalSessionId: string;
@@ -45,11 +45,14 @@ class PositionService {
    */
   async openPosition(params: OpenPositionParams): Promise<{ success: boolean; message: string; position?: GoalSessionTrade }> {
     try {
-      // Calculate risk dollars
+      // Round lot size to broker standard precision (0.01 lots)
+      const roundedLotSize = roundLotSize(params.lotSize);
+
+      // Calculate risk dollars with rounded values
       const pipInfo = getCurrencyPipInfo(params.symbol);
       const riskPips = Math.abs(params.entryPrice - params.stopLoss) / pipInfo.pipValue;
-      const dollarPerPip = params.lotSize * 10;
-      const riskDollars = riskPips * dollarPerPip;
+      const dollarPerPip = roundedLotSize * 10;
+      const riskDollars = roundPnL(riskPips * dollarPerPip);
 
       const insert: GoalSessionTradeInsert = {
         goal_session_id: params.goalSessionId,
@@ -59,7 +62,7 @@ class PositionService {
         entry_price: params.entryPrice,
         stop_loss: params.stopLoss,
         take_profit: params.takeProfit,
-        position_size: params.lotSize,
+        position_size: roundedLotSize,
         status: 'open',
         order_type: 'market',
         current_price: params.entryPrice,
@@ -279,17 +282,18 @@ class PositionService {
         return false;
       }
 
-      // Calculate current P&L
+      // Calculate current P&L (already rounded by calculatePnL function)
       const currentPnl = calculatePnL(
         position.direction,
         position.entry_price,
         currentPrice,
-        position.lot_size || position.position_size
+        position.lot_size || position.position_size,
+        position.symbol
       );
 
-      // Update MAE and MFE
-      const mae = Math.min(position.mae || 0, currentPnl);
-      const mfe = Math.max(position.mfe || 0, currentPnl);
+      // Update MAE and MFE (round to 2 decimals)
+      const mae = roundPnL(Math.min(position.mae || 0, currentPnl));
+      const mfe = roundPnL(Math.max(position.mfe || 0, currentPnl));
 
       const update: GoalSessionTradeUpdate = {
         current_price: currentPrice,

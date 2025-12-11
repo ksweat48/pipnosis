@@ -197,7 +197,7 @@ export function calculatePnL(
   symbol: string
 ): number {
   // Lazy import to avoid circular dependencies
-  const { calculateDollarPerPip, calculatePipDistance } = require('../utils/currencyHelpers');
+  const { calculateDollarPerPip, calculatePipDistance, roundPnL } = require('../utils/currencyHelpers');
 
   // Calculate pip distance between entry and current price
   const pipDistance = calculatePipDistance(symbol, entryPrice, currentPrice);
@@ -215,5 +215,6 @@ export function calculatePnL(
     ? pipDistance * dollarPerPip
     : -pipDistance * dollarPerPip;
 
-  return pnl;
+  // Round to 2 decimal places to prevent floating point precision issues
+  return roundPnL(pnl);
 }

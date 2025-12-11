@@ -3,6 +3,7 @@ import { X, TrendingUp, TrendingDown, Clock, AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { positionService } from '@/services/position-service';
 import { calculatePnL } from '@/types/position';
+import { formatLotSize } from '@/utils/currencyHelpers';
 import { pollingConfigService } from '@/services/polling-config-service';
 import { notificationManager } from '@/services/notification-manager';
 import { useToast } from '@/hooks/useToast';
@@ -380,7 +381,7 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
                             }`}>
                               {position.position_type.toUpperCase()}
                             </span>
-                            <span className="text-gray-400 text-sm">{position.lot_size} lots</span>
+                            <span className="text-gray-400 text-sm">{formatLotSize(position.lot_size)} lots</span>
                           </div>
 
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">

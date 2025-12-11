@@ -121,6 +121,40 @@ export function getCurrencyPipInfo(symbol: string): CurrencyPipInfo {
 }
 
 /**
+ * Round lot size to broker standard precision (0.01 lots)
+ * Prevents ugly repeating decimals like 0.666666...
+ */
+export function roundLotSize(lotSize: number): number {
+  return Math.round(lotSize * 100) / 100;
+}
+
+/**
+ * Round PnL to cents (2 decimal places)
+ * Prevents floating point precision issues in currency display
+ */
+export function roundPnL(pnl: number): number {
+  return Math.round(pnl * 100) / 100;
+}
+
+/**
+ * Format lot size for display (always 2 decimals)
+ * Example: 0.01, 0.15, 1.00
+ */
+export function formatLotSize(lotSize: number): string {
+  return roundLotSize(lotSize).toFixed(2);
+}
+
+/**
+ * Format PnL for display (always 2 decimals with $ sign)
+ * Example: $10.00, -$5.50, $125.75
+ */
+export function formatPnL(pnl: number): string {
+  const rounded = roundPnL(pnl);
+  const sign = rounded >= 0 ? '+' : '';
+  return `${sign}$${rounded.toFixed(2)}`;
+}
+
+/**
  * Calculate position size adjusted for currency type
  */
 export function calculateAdjustedPositionSize(
@@ -226,13 +260,16 @@ export function calculatePositionSize(
 
   positionSize = Math.max(minSize, Math.min(maxSize, positionSize));
 
+  // Round to broker standard precision (0.01 lots)
+  positionSize = roundLotSize(positionSize);
+
   // Log calculation for verification
   console.log(`[Position Sizing] ${symbol}:`);
   console.log(`  Account: $${accountBalance.toFixed(2)}`);
   console.log(`  Risk: ${riskPercentage}% = $${riskAmount.toFixed(2)}`);
   console.log(`  Stop Distance: ${stopDistancePips.toFixed(1)} pips`);
   console.log(`  Dollar/Pip/Lot: $${pipInfo.dollarPerPipPerLot.toFixed(2)}`);
-  console.log(`  Position Size: ${positionSize.toFixed(3)} lots`);
+  console.log(`  Position Size: ${formatLotSize(positionSize)} lots`);
   console.log(`  Actual Risk: $${(stopDistancePips * calculateDollarPerPip(symbol, positionSize)).toFixed(2)}`);
 
   return positionSize;
@@ -379,7 +416,7 @@ export function calculateAutonomousPositionSize(
   console.log(`  LLM Desired Risk: ${llmDesiredRiskPercent.toFixed(2)}%`);
   console.log(`  Actual Risk: ${actualRiskPercent.toFixed(2)}%`);
 
-  // Use standard position sizing with calculated risk
+  // Use standard position sizing with calculated risk (already rounded in calculatePositionSize)
   return calculatePositionSize(symbol, accountBalance, actualRiskPercent, entryPrice, stopLoss);
 }
 
@@ -455,7 +492,10 @@ export function calculateGoalOptimalPosition(
   const maxLotSize = isXAUUSD(symbol) ? 10.0 : isIndex(symbol) ? 1.0 : 5.0;
   actualLotSize = Math.max(minLotSize, Math.min(maxLotSize, actualLotSize));
 
-  console.log(`  Final Lot Size: ${actualLotSize.toFixed(3)} lots`);
+  // Round to broker standard precision (0.01 lots)
+  actualLotSize = roundLotSize(actualLotSize);
+
+  console.log(`  Final Lot Size: ${formatLotSize(actualLotSize)} lots`);
 
   // Calculate actual pips needed with this lot size
   const dollarPerPip = calculateDollarPerPip(symbol, actualLotSize);
@@ -473,14 +513,14 @@ export function calculateGoalOptimalPosition(
     // Goal achievable in single trade!
     goalFeasibility = 'single_trade';
     finalPips = pipsNeededForGoal;
-    reasoning = `Goal achievable in ONE trade: ${actualLotSize.toFixed(3)} lots × ${finalPips.toFixed(1)} pips = $${remainingGoal.toFixed(2)}`;
+    reasoning = `Goal achievable in ONE trade: ${formatLotSize(actualLotSize)} lots × ${finalPips.toFixed(1)} pips = $${remainingGoal.toFixed(2)}`;
   } else if (pipsNeededForGoal > maxReasonablePips) {
     // Need multiple trades
     goalFeasibility = 'multiple_trades';
     finalPips = optimalPips; // Use optimal, not max
     const partialProfit = finalPips * dollarPerPip;
     const tradesNeeded = Math.ceil(remainingGoal / partialProfit);
-    reasoning = `Goal requires ~${tradesNeeded} trades. This trade: ${actualLotSize.toFixed(3)} lots × ${finalPips.toFixed(1)} pips = $${partialProfit.toFixed(2)} toward $${remainingGoal.toFixed(2)}`;
+    reasoning = `Goal requires ~${tradesNeeded} trades. This trade: ${formatLotSize(actualLotSize)} lots × ${finalPips.toFixed(1)} pips = $${partialProfit.toFixed(2)} toward $${remainingGoal.toFixed(2)}`;
   } else {
     // Pips too small - increase lot size or unrealistic
     goalFeasibility = 'unrealistic';
