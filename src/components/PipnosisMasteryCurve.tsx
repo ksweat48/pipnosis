@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineData, LineSeriesPartialOptions } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, LineData } from 'lightweight-charts';
 import { useMasteryCurve } from '../hooks/useMasteryCurve';
 import { Brain, RefreshCw, TrendingUp, TrendingDown, Minus, AlertCircle } from 'lucide-react';
 
@@ -138,44 +138,38 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
       seriesRefs.current.mastery = chart.addSeries('Line', {
         color: '#f59e0b',
         lineWidth: 3,
-        title: 'Mastery Score',
         priceLineVisible: false
-      } as LineSeriesPartialOptions);
+      });
 
       seriesRefs.current.winRate = chart.addSeries('Line', {
         color: '#3b82f6',
         lineWidth: 2,
-        title: 'Win Rate',
         priceLineVisible: false
-      } as LineSeriesPartialOptions);
+      });
 
       seriesRefs.current.evScore = chart.addSeries('Line', {
         color: '#14b8a6',
         lineWidth: 2,
-        title: 'EV Score',
         priceLineVisible: false
-      } as LineSeriesPartialOptions);
+      });
 
       seriesRefs.current.calibration = chart.addSeries('Line', {
         color: '#a855f7',
         lineWidth: 2,
-        title: 'Confidence Accuracy',
         priceLineVisible: false
-      } as LineSeriesPartialOptions);
+      });
 
       seriesRefs.current.llmPassRate = chart.addSeries('Line', {
         color: '#22c55e',
         lineWidth: 2,
-        title: 'LLM Layer Pass Rate',
         priceLineVisible: false
-      } as LineSeriesPartialOptions);
+      });
 
       seriesRefs.current.avoidPattern = chart.addSeries('Line', {
         color: '#ef4444',
         lineWidth: 2,
-        title: 'Avoid Pattern Success',
         priceLineVisible: false
-      } as LineSeriesPartialOptions);
+      });
 
     } catch (error) {
       console.error('[Mastery Curve] Error initializing chart:', error);
