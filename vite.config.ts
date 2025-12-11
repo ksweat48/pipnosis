@@ -15,8 +15,8 @@ export default defineConfig({
     include: ['lightweight-charts'],
   },
   build: {
-    // Production optimizations
-    minify: 'terser',
+    // Production optimizations - using esbuild for better library compatibility
+    minify: 'esbuild',
     sourcemap: false,
     rollupOptions: {
       output: {
@@ -39,32 +39,6 @@ export default defineConfig({
     assetsInlineLimit: 4096,
     // Ignore TypeScript errors during build
     emptyOutDir: true,
-    // CRITICAL FIX: CSP-compatible terser options to prevent eval usage
-    terserOptions: {
-      compress: {
-        drop_console: false,
-        drop_debugger: true,
-        // CRITICAL: Disable eval-based optimizations
-        unsafe: false,
-        unsafe_comps: false,
-        unsafe_Function: false,
-        unsafe_math: false,
-        unsafe_symbols: false,
-        unsafe_methods: false,
-        unsafe_proto: false,
-        unsafe_regexp: false,
-        unsafe_undefined: false,
-      },
-      mangle: {
-        safari10: true,
-        // Preserve lightweight-charts methods from mangling
-        reserved: ['addLineSeries', 'addAreaSeries', 'addBarSeries', 'addCandlestickSeries', 'createChart']
-      },
-      // CRITICAL: Ensure no eval is generated
-      format: {
-        comments: false,
-      },
-    },
   },
   server: {
     // CRITICAL: Proper host configuration for Bolt preview
@@ -110,7 +84,7 @@ export default defineConfig({
     logOverride: { 'this-is-undefined-in-esm': 'silent' },
     // CRITICAL: Ensure no eval is used in esbuild
     legalComments: 'none',
-    minifyIdentifiers: true,
+    minifyIdentifiers: false,
     minifySyntax: true,
     minifyWhitespace: true,
   }
