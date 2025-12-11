@@ -380,3 +380,148 @@ export function calculateAutonomousPositionSize(
   // Use standard position sizing with calculated risk
   return calculatePositionSize(symbol, accountBalance, actualRiskPercent, entryPrice, stopLoss);
 }
+
+/**
+ * Calculate Take Profit constrained by goal target amount
+ *
+ * CRITICAL: This ensures TP is set to reach the user's goal, not arbitrary technical levels
+ *
+ * @param symbol Currency pair
+ * @param direction Trade direction ('buy' or 'sell')
+ * @param entryPrice Entry price
+ * @param stopLoss Stop loss price
+ * @param positionSize Position size in lots
+ * @param currentProgress Current P&L progress toward goal
+ * @param targetGoal Total goal target amount (e.g., $200)
+ * @param aiSuggestedTP AI's suggested TP based on technical analysis
+ * @returns Adjusted TP price that aligns with goal
+ */
+export function calculateGoalBasedTakeProfit(
+  symbol: string,
+  direction: 'buy' | 'sell',
+  entryPrice: number,
+  stopLoss: number,
+  positionSize: number,
+  currentProgress: number,
+  targetGoal: number,
+  aiSuggestedTP?: number
+): { takeProfit: number; reasoning: string } {
+  const pipInfo = getCurrencyPipInfo(symbol);
+
+  // Calculate remaining amount needed to reach goal
+  const remainingGoal = targetGoal - currentProgress;
+
+  console.log(`[Goal-Based TP] ${symbol}:`);
+  console.log(`  Current Progress: $${currentProgress.toFixed(2)}`);
+  console.log(`  Target Goal: $${targetGoal.toFixed(2)}`);
+  console.log(`  Remaining: $${remainingGoal.toFixed(2)}`);
+  console.log(`  Position Size: ${positionSize} lots`);
+
+  // If goal is already reached or exceeded, use AI's TP
+  if (remainingGoal <= 0) {
+    console.log(`  ✅ Goal already reached! Using AI TP: ${aiSuggestedTP?.toFixed(5)}`);
+    return {
+      takeProfit: aiSuggestedTP || (direction === 'buy' ? entryPrice * 1.01 : entryPrice * 0.99),
+      reasoning: 'Goal already reached, using technical TP'
+    };
+  }
+
+  // Calculate dollar per pip for this position
+  const dollarPerPip = calculateDollarPerPip(symbol, positionSize);
+
+  // Calculate pips needed to reach goal
+  const pipsNeeded = remainingGoal / dollarPerPip;
+
+  console.log(`  Dollar/Pip: $${dollarPerPip.toFixed(2)}`);
+  console.log(`  Pips Needed for Goal: ${pipsNeeded.toFixed(1)}`);
+
+  // Calculate TP price from pips
+  const pipPriceDistance = pipsNeeded * pipInfo.pipValue;
+  let goalBasedTP: number;
+
+  if (direction === 'buy') {
+    goalBasedTP = entryPrice + pipPriceDistance;
+  } else {
+    goalBasedTP = entryPrice - pipPriceDistance;
+  }
+
+  console.log(`  Goal-Based TP: ${goalBasedTP.toFixed(5)}`);
+  if (aiSuggestedTP) {
+    console.log(`  AI Suggested TP: ${aiSuggestedTP.toFixed(5)}`);
+  }
+
+  // Validate against stop loss (ensure TP is in profit direction)
+  const slDistance = Math.abs(entryPrice - stopLoss);
+  const tpDistance = Math.abs(goalBasedTP - entryPrice);
+  const riskReward = tpDistance / slDistance;
+
+  console.log(`  Risk:Reward: 1:${riskReward.toFixed(2)}`);
+
+  // Check if goal-based TP is reasonable
+  const maxReasonablePips = isXAUUSD(symbol) ? 500 : isJPYPair(symbol) ? 300 : 150;
+
+  if (pipsNeeded > maxReasonablePips) {
+    console.log(`  ⚠️ Goal TP too far (${pipsNeeded.toFixed(1)} pips > ${maxReasonablePips} max)`);
+
+    // Calculate partial goal: use reasonable TP, will need multiple trades
+    const maxPipDistance = maxReasonablePips * pipInfo.pipValue;
+    const partialGoalTP = direction === 'buy'
+      ? entryPrice + maxPipDistance
+      : entryPrice - maxPipDistance;
+
+    const partialProfit = maxReasonablePips * dollarPerPip;
+    const tradesNeeded = Math.ceil(remainingGoal / partialProfit);
+
+    console.log(`  Using partial goal: $${partialProfit.toFixed(2)} (~${tradesNeeded} trades needed)`);
+
+    // Compare with AI TP if provided
+    if (aiSuggestedTP) {
+      const aiTPPips = calculatePipDistance(symbol, entryPrice, aiSuggestedTP);
+      const aiTPProfit = aiTPPips * dollarPerPip;
+
+      console.log(`  AI TP would give: $${aiTPProfit.toFixed(2)}`);
+
+      // Use whichever gets us closer to goal without being unrealistic
+      if (aiTPPips <= maxReasonablePips && aiTPProfit >= partialProfit * 0.8) {
+        console.log(`  ✅ Using AI TP (within reasonable range)`);
+        return {
+          takeProfit: aiSuggestedTP,
+          reasoning: `AI TP provides $${aiTPProfit.toFixed(2)} progress toward $${remainingGoal.toFixed(2)} goal (~${tradesNeeded} trades needed)`
+        };
+      }
+    }
+
+    return {
+      takeProfit: partialGoalTP,
+      reasoning: `Goal requires multiple trades. This TP targets $${partialProfit.toFixed(2)} of $${remainingGoal.toFixed(2)} remaining (~${tradesNeeded} trades total)`
+    };
+  }
+
+  // Check if goal TP has minimum 1:1 R:R
+  if (riskReward < 1.0) {
+    console.log(`  ⚠️ Goal TP has poor R:R (${riskReward.toFixed(2)})`);
+
+    // Adjust TP to at least 1:1 R:R
+    const minTPDistance = slDistance;
+    const minTP = direction === 'buy'
+      ? entryPrice + minTPDistance
+      : entryPrice - minTPDistance;
+
+    const minTPPips = minTPDistance / pipInfo.pipValue;
+    const minTPProfit = minTPPips * dollarPerPip;
+
+    console.log(`  Adjusted to 1:1 R:R: $${minTPProfit.toFixed(2)}`);
+
+    return {
+      takeProfit: minTP,
+      reasoning: `Adjusted TP for 1:1 R:R (will reach goal in multiple trades, this one targets $${minTPProfit.toFixed(2)})`
+    };
+  }
+
+  // Goal-based TP is reasonable and achievable
+  console.log(`  ✅ Using goal-based TP (achievable in this trade)`);
+  return {
+    takeProfit: goalBasedTP,
+    reasoning: `TP set to reach $${remainingGoal.toFixed(2)} goal target (${pipsNeeded.toFixed(1)} pips, R:R 1:${riskReward.toFixed(2)})`
+  };
+}

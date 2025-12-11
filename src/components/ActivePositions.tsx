@@ -28,9 +28,10 @@ interface ActivePositionsProps {
   refreshTrigger?: number;
   onPositionClick?: (position: Position) => void;
   currentSymbol?: string;
+  goalSessionId?: string; // Optional: filter positions by goal session
 }
 
-export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol }: ActivePositionsProps) {
+export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol, goalSessionId }: ActivePositionsProps) {
   const [openPositions, setOpenPositions] = useState<Position[]>([]);
   const [pendingOrders, setPendingOrders] = useState<Position[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,7 +44,7 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
     fetchPositions();
     const interval = setInterval(fetchPositions, 3000);
     return () => clearInterval(interval);
-  }, [refreshTrigger]);
+  }, [refreshTrigger, goalSessionId]);
 
   useEffect(() => {
     const symbols = Array.from(new Set([
@@ -65,13 +66,69 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const [open, pending] = await Promise.all([
-        positionService.getOpenPositions(user.id),
-        positionService.getPendingOrders(user.id)
+      let openQuery = supabase
+        .from('goal_session_trades')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'open')
+        .order('created_at', { ascending: false });
+
+      let pendingQuery = supabase
+        .from('goal_session_trades')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false });
+
+      // Filter by goalSessionId if provided
+      if (goalSessionId) {
+        openQuery = openQuery.eq('goal_session_id', goalSessionId);
+        pendingQuery = pendingQuery.eq('goal_session_id', goalSessionId);
+      }
+
+      const [openResult, pendingResult] = await Promise.all([
+        openQuery,
+        pendingQuery
       ]);
 
-      setOpenPositions(open);
-      setPendingOrders(pending);
+      if (openResult.error) throw openResult.error;
+      if (pendingResult.error) throw pendingResult.error;
+
+      // Convert database records to Position objects
+      const openPositions = (openResult.data || []).map(trade => ({
+        id: trade.id,
+        symbol: trade.symbol,
+        position_type: trade.direction || trade.position_type,
+        order_type: trade.order_type || 'market',
+        lot_size: trade.lot_size || trade.position_size,
+        entry_price: trade.entry_price,
+        limit_price: trade.limit_price,
+        stop_loss: trade.stop_loss,
+        take_profit: trade.take_profit,
+        status: trade.status,
+        current_price: trade.current_price,
+        current_pnl: trade.current_pnl || 0,
+        opened_at: trade.created_at
+      } as Position));
+
+      const pendingPositions = (pendingResult.data || []).map(trade => ({
+        id: trade.id,
+        symbol: trade.symbol,
+        position_type: trade.direction || trade.position_type,
+        order_type: trade.order_type || 'limit',
+        lot_size: trade.lot_size || trade.position_size,
+        entry_price: trade.entry_price,
+        limit_price: trade.limit_price,
+        stop_loss: trade.stop_loss,
+        take_profit: trade.take_profit,
+        status: trade.status,
+        current_price: trade.current_price,
+        current_pnl: trade.current_pnl || 0,
+        opened_at: trade.created_at
+      } as Position));
+
+      setOpenPositions(openPositions);
+      setPendingOrders(pendingPositions);
       setLoading(false);
     } catch (error) {
       console.error('Failed to fetch positions:', error);
@@ -159,7 +216,9 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
       const result = await positionService.closePosition(
         position.id,
         currentPrice,
-        'manual'
+        'manual',
+        user.id,
+        goalSessionId
       );
 
       if (result.success) {

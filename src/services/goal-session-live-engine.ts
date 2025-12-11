@@ -22,6 +22,7 @@ import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orch
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
+import { calculateGoalBasedTakeProfit } from '../utils/currencyHelpers';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -503,6 +504,41 @@ class GoalSessionLiveEngine {
         this.config.riskMode
       );
 
+      // ✅ CRITICAL FIX: Calculate goal-based take profit
+      // Get current session progress to determine remaining goal
+      const { data: sessionData } = await supabase
+        .from('goal_sessions')
+        .select('target_value, initial_balance')
+        .eq('id', this.activeSession)
+        .single();
+
+      // Calculate current progress (sum of closed trades)
+      const { data: closedTrades } = await supabase
+        .from('goal_session_trades')
+        .select('profit_loss')
+        .eq('goal_session_id', this.activeSession)
+        .eq('status', 'closed');
+
+      const currentProgress = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
+      const targetGoal = sessionData?.target_value || 200; // Default to $200 if not set
+
+      // Calculate TP constrained by goal
+      const goalTPResult = calculateGoalBasedTakeProfit(
+        selectedSymbol,
+        decision.action.toLowerCase() as 'buy' | 'sell',
+        decision.entry,
+        decision.stopLoss,
+        calculatedLotSize,
+        currentProgress,
+        targetGoal,
+        decision.takeProfit // AI's suggested TP
+      );
+
+      console.log(`[Goal Session] 🎯 TP Calculation:`);
+      console.log(`  AI Suggested: ${decision.takeProfit.toFixed(5)}`);
+      console.log(`  Goal-Based: ${goalTPResult.takeProfit.toFixed(5)}`);
+      console.log(`  Reasoning: ${goalTPResult.reasoning}`);
+
       const trade: SimulatedTrade = {
         id: `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         symbol: selectedSymbol,
@@ -511,10 +547,10 @@ class GoalSessionLiveEngine {
         entryTime: new Date(),
         entryPrice: decision.entry,
         stopLoss: decision.stopLoss,
-        takeProfit: decision.takeProfit,
+        takeProfit: goalTPResult.takeProfit, // ✅ Use goal-based TP instead of AI TP
         positionSize: calculatedLotSize,
         confidence: decision.confidence,
-        reasoning: decision.reasoning,
+        reasoning: decision.reasoning + `\n\nTP Strategy: ${goalTPResult.reasoning}`, // Include TP reasoning
         triggerType: 'multi_symbol_best_opportunity',
         maxHoldMinutes: 240,
         pnl: 0,

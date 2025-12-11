@@ -319,15 +319,24 @@ class PositionService {
     positionId: string,
     closePrice: number,
     closeReason: CloseReason = 'manual',
-    userId?: string
+    userId?: string,
+    goalSessionId?: string
   ): Promise<ClosePositionResult> {
     try {
-      // Use the secure RPC function
+      console.log('[PositionService] Closing position:', {
+        positionId,
+        closePrice,
+        closeReason,
+        goalSessionId
+      });
+
+      // Use the secure RPC function with session verification
       const { data, error } = await supabase
         .rpc('close_goal_session_trade', {
           p_trade_id: positionId,
           p_close_price: closePrice,
-          p_close_reason: closeReason
+          p_close_reason: closeReason,
+          p_goal_session_id: goalSessionId || null
         });
 
       if (error) {
@@ -337,6 +346,8 @@ class PositionService {
           message: error.message || 'Failed to close position'
         };
       }
+
+      console.log('[PositionService] Position closed successfully:', data);
 
       return {
         success: true,
