@@ -111,7 +111,7 @@ class MasteryCurveService {
   private async fetchCalibrationData(userId: string, startDate: Date) {
     const { data, error } = await supabase
       .from('ai_confidence_performance')
-      .select('window_end_time, accuracy_percentage, calibration_score_avg')
+      .select('window_end_time, accuracy_percentage, overall_calibration_score')
       .eq('user_id', userId)
       .in('window_type', ['last_100', 'daily'])
       .gte('window_end_time', startDate.toISOString())

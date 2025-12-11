@@ -147,8 +147,8 @@ export function AdminDashboard() {
         learningInsights: insightsCount || 0,
         patternDiscoveries: patternsCount || 0,
         avgWinRate,
-        isAutoRunning: autoState.isRunning,
-        currentBacktestNumber: autoState.currentBacktestNumber,
+        isAutoRunning: false,
+        currentBacktestNumber: 0,
         skillLevelChange: currentSkillLevel - previousSkillLevel,
         recentSessionsCount: recentSessions?.length || 0
       });
