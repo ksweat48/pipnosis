@@ -32,6 +32,12 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
   useEffect(() => {
     if (!chartContainerRef.current || loading || chartData.length === 0) return;
 
+    // Clean up existing chart first
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+    }
+
     try {
       const chart = createChart(chartContainerRef.current, {
         width: chartContainerRef.current.clientWidth,
@@ -70,6 +76,12 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
           }
         }
       });
+
+      // Verify chart was created successfully
+      if (!chart || typeof chart.addLineSeries !== 'function') {
+        console.error('[Mastery Curve] Chart creation failed - invalid chart object');
+        return;
+      }
 
       chartRef.current = chart;
 
