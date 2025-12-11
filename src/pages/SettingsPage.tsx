@@ -72,7 +72,7 @@ export function SettingsPage() {
       const { data: profileData, error: profileError } = await supabase
         .from('user_profiles')
         .select('*')
-        .eq('user_id', user?.id)
+        .eq('id', user?.id)
         .maybeSingle();
 
       if (profileError) {
@@ -121,7 +121,7 @@ export function SettingsPage() {
           preferences: preferences,
           updated_at: new Date().toISOString(),
         })
-        .eq('user_id', user?.id);
+        .eq('id', user?.id);
 
       if (error) {
         console.error('Error saving preferences:', error);
