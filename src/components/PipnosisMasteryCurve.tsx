@@ -127,14 +127,7 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
           }
         });
 
-        console.log('[Mastery Curve] createChart returned:', {
-          chart,
-          type: typeof chart,
-          hasAddLineSeries: chart && typeof chart.addLineSeries === 'function',
-          chartKeys: chart ? Object.keys(chart).slice(0, 10) : [],
-          chartPrototype: chart ? Object.getPrototypeOf(chart) : null,
-          allMethods: chart ? Object.getOwnPropertyNames(Object.getPrototypeOf(chart)).slice(0, 15) : []
-        });
+        console.log('[Mastery Curve] createChart returned successfully');
 
         // Verify chart was created successfully
         if (!chart) {
@@ -142,19 +135,8 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
           return;
         }
 
-        // Check if addLineSeries exists, log extensive info if not
-        if (typeof chart.addLineSeries !== 'function') {
-          console.error('[Mastery Curve] Chart object missing addLineSeries method', {
-            chart,
-            chartType: typeof chart,
-            addLineSeriesType: typeof chart.addLineSeries,
-            allPropertiesAndMethods: Object.getOwnPropertyNames(chart),
-            prototypeChain: Object.getOwnPropertyNames(Object.getPrototypeOf(chart))
-          });
-          return;
-        }
-
       chartRef.current = chart;
+      console.log('[Mastery Curve] Attempting to create line series...');
 
       seriesRefs.current.mastery = chart.addLineSeries({
         color: '#f59e0b',
