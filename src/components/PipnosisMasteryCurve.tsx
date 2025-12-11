@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, LineSeries, IChartApi, ISeriesApi, LineData } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, LineData } from 'lightweight-charts';
 import { useMasteryCurve } from '../hooks/useMasteryCurve';
 import { Brain, RefreshCw, TrendingUp, TrendingDown, Minus, AlertCircle } from 'lucide-react';
 
@@ -135,32 +135,32 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
 
       chartRef.current = chart;
 
-      seriesRefs.current.mastery = chart.addSeries(LineSeries, {
+      seriesRefs.current.mastery = chart.addLineSeries({
         color: '#f59e0b',
         lineWidth: 3
       });
 
-      seriesRefs.current.winRate = chart.addSeries(LineSeries, {
+      seriesRefs.current.winRate = chart.addLineSeries({
         color: '#3b82f6',
         lineWidth: 2
       });
 
-      seriesRefs.current.evScore = chart.addSeries(LineSeries, {
+      seriesRefs.current.evScore = chart.addLineSeries({
         color: '#14b8a6',
         lineWidth: 2
       });
 
-      seriesRefs.current.calibration = chart.addSeries(LineSeries, {
+      seriesRefs.current.calibration = chart.addLineSeries({
         color: '#a855f7',
         lineWidth: 2
       });
 
-      seriesRefs.current.llmPassRate = chart.addSeries(LineSeries, {
+      seriesRefs.current.llmPassRate = chart.addLineSeries({
         color: '#22c55e',
         lineWidth: 2
       });
 
-      seriesRefs.current.avoidPattern = chart.addSeries(LineSeries, {
+      seriesRefs.current.avoidPattern = chart.addLineSeries({
         color: '#ef4444',
         lineWidth: 2
       });
