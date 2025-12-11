@@ -35,15 +35,15 @@ export function BalanceDisplay({ refreshTrigger }: BalanceDisplayProps) {
       setBalance(currentBalance);
 
       const { data: positions, error: positionsError } = await supabase
-        .from('simulated_positions')
-        .select('lot_size, current_pnl, status')
+        .from('goal_session_trades')
+        .select('position_size, current_pnl, status')
         .eq('user_id', user.id)
         .eq('status', 'open');
 
       if (positionsError) throw positionsError;
 
       if (positions && positions.length > 0) {
-        const totalMargin = positions.reduce((sum, pos) => sum + (pos.lot_size * 1000), 0);
+        const totalMargin = positions.reduce((sum, pos) => sum + (pos.position_size * 1000), 0);
         const totalPnL = positions.reduce((sum, pos) => sum + (pos.current_pnl || 0), 0);
 
         setUsedMargin(totalMargin);

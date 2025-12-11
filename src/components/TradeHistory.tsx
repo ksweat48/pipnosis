@@ -39,7 +39,6 @@ export function TradeHistory() {
   const [loading, setLoading] = useState(true);
   const [filterSymbol, setFilterSymbol] = useState<string>('all');
   const [filterOutcome, setFilterOutcome] = useState<string>('all');
-  const [filterSource, setFilterSource] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'date' | 'profit'>('date');
   const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
 
@@ -54,90 +53,36 @@ export function TradeHistory() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Fetch from trade_history table (manual trades)
-      const { data: manualTrades, error: manualError } = await supabase
-        .from('trade_history')
-        .select('*')
-        .eq('user_id', user.id);
-
-      if (manualError) throw manualError;
-
-      // Fetch from simulated_positions (demo trades)
-      const { data: demoTrades, error: demoError } = await supabase
-        .from('simulated_positions')
+      // IMPORTANT: All trades are now goal-based only
+      // Single source of truth: goal_session_trades
+      const { data: trades, error } = await supabase
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', user.id)
-        .eq('status', 'closed');
+        .eq('status', 'closed')
+        .order('closed_at', { ascending: false });
 
-      if (demoError) throw demoError;
+      if (error) throw error;
 
-      // Fetch from goal_session_trades (goal mode trades)
-      const { data: goalTrades, error: goalError } = await supabase
-        .from('goal_session_trades')
-        .select('*, goal_sessions!inner(user_id)')
-        .eq('goal_sessions.user_id', user.id)
-        .eq('status', 'closed');
-
-      if (goalError) throw goalError;
-
-      // Normalize manual trades
-      const normalizedManual: Trade[] = (manualTrades || []).map((trade: any) => ({
+      // Normalize trades
+      const normalizedTrades: Trade[] = (trades || []).map((trade: any) => ({
         id: trade.id,
         symbol: trade.symbol,
-        position_type: trade.position_type,
-        lot_size: parseFloat(trade.lot_size),
+        position_type: trade.direction,
+        lot_size: parseFloat(trade.position_size),
         entry_price: parseFloat(trade.entry_price),
-        exit_price: parseFloat(trade.exit_price),
+        exit_price: parseFloat(trade.exit_price || trade.current_price),
         profit_loss: parseFloat(trade.profit_loss),
         opened_at: trade.opened_at,
         closed_at: trade.closed_at,
         close_reason: trade.close_reason || 'manual',
         stop_loss: parseFloat(trade.stop_loss) || 0,
         take_profit: parseFloat(trade.take_profit) || 0,
-        trade_source: 'manual' as const
-      }));
-
-      // Normalize demo trades
-      const normalizedDemo: Trade[] = (demoTrades || []).map((trade: any) => ({
-        id: trade.id,
-        symbol: trade.symbol,
-        position_type: trade.position_type,
-        lot_size: parseFloat(trade.lot_size),
-        entry_price: parseFloat(trade.entry_price),
-        exit_price: parseFloat(trade.current_price) || parseFloat(trade.entry_price),
-        profit_loss: parseFloat(trade.current_pnl) || 0,
-        opened_at: trade.opened_at,
-        closed_at: trade.closed_at,
-        close_reason: trade.close_reason || 'manual',
-        stop_loss: parseFloat(trade.stop_loss) || 0,
-        take_profit: parseFloat(trade.take_profit) || 0,
-        trade_source: 'demo' as const
-      }));
-
-      // Normalize goal mode trades
-      const normalizedGoal: Trade[] = (goalTrades || []).map((trade: any) => ({
-        id: trade.id,
-        symbol: trade.symbol,
-        position_type: trade.direction,
-        lot_size: parseFloat(trade.position_size),
-        entry_price: parseFloat(trade.entry_price),
-        exit_price: parseFloat(trade.exit_price) || parseFloat(trade.entry_price),
-        profit_loss: parseFloat(trade.profit_loss) || 0,
-        opened_at: trade.opened_at,
-        closed_at: trade.closed_at,
-        close_reason: 'manual',
-        stop_loss: parseFloat(trade.stop_loss) || 0,
-        take_profit: parseFloat(trade.take_profit) || 0,
         trade_source: 'goal_mode' as const,
         goal_session_id: trade.goal_session_id
       }));
 
-      // Combine and sort all trades by closed_at
-      const allTrades = [...normalizedManual, ...normalizedDemo, ...normalizedGoal]
-        .filter(trade => trade.closed_at)
-        .sort((a, b) => new Date(b.closed_at).getTime() - new Date(a.closed_at).getTime());
-
-      setTrades(allTrades);
+      setTrades(normalizedTrades);
       setLoading(false);
     } catch (error) {
       console.error('Failed to fetch trade history:', error);
@@ -257,7 +202,6 @@ export function TradeHistory() {
       if (filterSymbol !== 'all' && trade.symbol !== filterSymbol) return false;
       if (filterOutcome === 'winning' && trade.profit_loss <= 0) return false;
       if (filterOutcome === 'losing' && trade.profit_loss >= 0) return false;
-      if (filterSource !== 'all' && trade.trade_source !== filterSource) return false;
       return true;
     })
     .sort((a, b) => {
@@ -382,15 +326,6 @@ export function TradeHistory() {
             <option value="all">All Outcomes</option>
             <option value="winning">Winning Trades</option>
             <option value="losing">Losing Trades</option>
-          </select>
-
-          <select
-            value={filterSource}
-            onChange={(e) => setFilterSource(e.target.value)}
-            className="bg-gray-800 text-white text-sm px-3 py-1 rounded border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          >
-            <option value="all">All Sources</option>
-            <option value="goal_mode">Goal Mode</option>
           </select>
 
           <select

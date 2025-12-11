@@ -73,7 +73,7 @@ Deno.serve(async (req: Request) => {
 
         if (expiredCheck && new Date(expiredCheck.end_time) < new Date()) {
           const { data: openTrades } = await supabase
-            .from('simulated_positions')
+            .from('goal_session_trades')
             .select('id')
             .eq('goal_session_id', session.id)
             .eq('status', 'open');
@@ -124,7 +124,7 @@ Deno.serve(async (req: Request) => {
 
         if (session.status === 'soft_closing') {
           const { data: openTrades } = await supabase
-            .from('simulated_positions')
+            .from('goal_session_trades')
             .select('id')
             .eq('goal_session_id', session.id)
             .eq('status', 'open');
