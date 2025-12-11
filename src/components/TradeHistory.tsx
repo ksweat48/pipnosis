@@ -17,6 +17,9 @@ interface Trade {
   take_profit: number;
   trade_source: 'manual' | 'demo' | 'goal_mode';
   goal_session_id?: string;
+  max_drawdown?: number;
+  max_profit?: number;
+  total_pips?: number;
 }
 
 interface TradeStatistics {
@@ -31,6 +34,12 @@ interface TradeStatistics {
   average_loss: number;
   best_trade: number;
   worst_trade: number;
+  profit_factor: number;
+  average_max_drawdown: number;
+  average_max_profit: number;
+  average_pips: number;
+  best_pips: number;
+  worst_pips: number;
 }
 
 export function TradeHistory() {
@@ -79,7 +88,10 @@ export function TradeHistory() {
         stop_loss: parseFloat(trade.stop_loss) || 0,
         take_profit: parseFloat(trade.take_profit) || 0,
         trade_source: 'goal_mode' as const,
-        goal_session_id: trade.goal_session_id
+        goal_session_id: trade.goal_session_id,
+        max_drawdown: trade.max_drawdown ? parseFloat(trade.max_drawdown) : 0,
+        max_profit: trade.max_profit ? parseFloat(trade.max_profit) : 0,
+        total_pips: trade.total_pips ? parseFloat(trade.total_pips) : 0
       }));
 
       setTrades(normalizedTrades);
@@ -152,6 +164,9 @@ export function TradeHistory() {
       'Entry Price',
       'Exit Price',
       'P&L',
+      'Max Drawdown',
+      'Max Profit (MFE)',
+      'Total Pips',
       'Opened At',
       'Closed At',
       'Duration',
@@ -169,6 +184,9 @@ export function TradeHistory() {
         trade.entry_price,
         trade.exit_price,
         trade.profit_loss,
+        trade.max_drawdown || 0,
+        trade.max_profit || 0,
+        trade.total_pips || 0,
         new Date(trade.opened_at).toLocaleString(),
         new Date(trade.closed_at).toLocaleString(),
         `${durationMinutes}m`,
@@ -279,31 +297,65 @@ export function TradeHistory() {
         </div>
 
         {statistics && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <div className="bg-gray-800/50 rounded-lg p-3">
-              <div className="text-gray-400 text-xs mb-1">Total Trades</div>
-              <div className="text-white text-xl font-bold">{statistics.total_trades}</div>
-            </div>
-            <div className="bg-gray-800/50 rounded-lg p-3">
-              <div className="text-gray-400 text-xs mb-1">Win Rate</div>
-              <div className={`text-xl font-bold ${statistics.win_rate >= 50 ? 'text-green-400' : 'text-red-400'}`}>
-                {statistics.win_rate.toFixed(1)}%
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+              <div className="bg-gray-800/50 rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-1">Total Trades</div>
+                <div className="text-white text-xl font-bold">{statistics.total_trades}</div>
+              </div>
+              <div className="bg-gray-800/50 rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-1">Win Rate</div>
+                <div className={`text-xl font-bold ${statistics.win_rate >= 50 ? 'text-green-400' : 'text-red-400'}`}>
+                  {statistics.win_rate.toFixed(1)}%
+                </div>
+              </div>
+              <div className="bg-gray-800/50 rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-1">Net P&L</div>
+                <div className={`text-xl font-bold ${statistics.net_profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  ${statistics.net_profit.toFixed(2)}
+                </div>
+              </div>
+              <div className="bg-gray-800/50 rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-1">Best Trade</div>
+                <div className="text-green-400 text-xl font-bold flex items-center gap-1">
+                  <Award className="w-4 h-4" />
+                  ${statistics.best_trade.toFixed(2)}
+                </div>
               </div>
             </div>
-            <div className="bg-gray-800/50 rounded-lg p-3">
-              <div className="text-gray-400 text-xs mb-1">Net P&L</div>
-              <div className={`text-xl font-bold ${statistics.net_profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                ${statistics.net_profit.toFixed(2)}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+              <div className="bg-gray-800/50 rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-1">Avg Drawdown</div>
+                <div className={`text-lg font-bold ${statistics.average_max_drawdown >= 0 ? 'text-yellow-400' : 'text-red-400'}`}>
+                  ${Math.abs(statistics.average_max_drawdown).toFixed(2)}
+                </div>
+              </div>
+              <div className="bg-gray-800/50 rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-1">Avg Max Profit</div>
+                <div className="text-emerald-400 text-lg font-bold">
+                  ${statistics.average_max_profit.toFixed(2)}
+                </div>
+              </div>
+              <div className="bg-gray-800/50 rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-1">Avg Pips</div>
+                <div className={`text-lg font-bold ${statistics.average_pips >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {statistics.average_pips >= 0 ? '+' : ''}{statistics.average_pips.toFixed(1)}
+                </div>
+              </div>
+              <div className="bg-gray-800/50 rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-1">Best Pips</div>
+                <div className="text-green-400 text-lg font-bold">
+                  +{statistics.best_pips.toFixed(1)}
+                </div>
+              </div>
+              <div className="bg-gray-800/50 rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-1">Worst Pips</div>
+                <div className="text-red-400 text-lg font-bold">
+                  {statistics.worst_pips.toFixed(1)}
+                </div>
               </div>
             </div>
-            <div className="bg-gray-800/50 rounded-lg p-3">
-              <div className="text-gray-400 text-xs mb-1">Best Trade</div>
-              <div className="text-green-400 text-xl font-bold flex items-center gap-1">
-                <Award className="w-4 h-4" />
-                ${statistics.best_trade.toFixed(2)}
-              </div>
-            </div>
-          </div>
+          </>
         )}
 
         <div className="flex flex-wrap gap-2">
@@ -389,7 +441,7 @@ export function TradeHistory() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm mt-3 pt-3 border-t border-gray-700">
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-sm mt-3 pt-3 border-t border-gray-700">
                   <div>
                     <div className="text-gray-500 text-xs">Entry</div>
                     <div className="text-white">{formatPrice(trade.entry_price, trade.symbol)}</div>
@@ -406,7 +458,25 @@ export function TradeHistory() {
                     <div className="text-gray-500 text-xs">Take Profit</div>
                     <div className="text-green-400">{formatPrice(trade.take_profit, trade.symbol)}</div>
                   </div>
+                  <div>
+                    <div className="text-gray-500 text-xs">Max Drawdown</div>
+                    <div className="text-red-400 font-semibold">
+                      ${Math.abs(trade.max_drawdown || 0).toFixed(2)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-gray-500 text-xs">Pips</div>
+                    <div className={`font-semibold ${(trade.total_pips || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {(trade.total_pips || 0) >= 0 ? '+' : ''}{(trade.total_pips || 0).toFixed(1)}
+                    </div>
+                  </div>
                 </div>
+                {(trade.max_profit || 0) > 0 && (
+                  <div className="text-xs text-emerald-400 mt-2 flex items-center gap-2">
+                    <span className="text-gray-500">Peak Profit (MFE):</span>
+                    <span className="font-semibold">${(trade.max_profit || 0).toFixed(2)}</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
