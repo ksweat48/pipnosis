@@ -225,17 +225,32 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
       console.log('[Mastery Curve] Data prepared:', {
         masteryPoints: masteryData.length,
         winRatePoints: winRateData.length,
+        allMasteryData: JSON.stringify(masteryData),
+        allWinRateData: JSON.stringify(winRateData),
         sampleMastery: masteryData[0],
         sampleWinRate: winRateData[0]
+      });
+
+      console.log('[Mastery Curve] Series refs status:', {
+        hasMastery: !!seriesRefs.current.mastery,
+        hasWinRate: !!seriesRefs.current.winRate,
+        hasEvScore: !!seriesRefs.current.evScore,
+        hasCalibration: !!seriesRefs.current.calibration,
+        hasLlmPassRate: !!seriesRefs.current.llmPassRate,
+        hasAvoidPattern: !!seriesRefs.current.avoidPattern
       });
 
       if (seriesRefs.current.mastery) {
         seriesRefs.current.mastery.setData(masteryData);
         console.log('[Mastery Curve] Set mastery data');
+      } else {
+        console.warn('[Mastery Curve] No mastery series ref!');
       }
       if (seriesRefs.current.winRate) {
         seriesRefs.current.winRate.setData(winRateData);
         console.log('[Mastery Curve] Set win rate data');
+      } else {
+        console.warn('[Mastery Curve] No win rate series ref!');
       }
       if (seriesRefs.current.evScore) {
         seriesRefs.current.evScore.setData(evData);
