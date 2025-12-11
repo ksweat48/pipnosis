@@ -122,7 +122,7 @@ class MidTradeNotificationQueue extends TinyEmitter {
       .from('goal_notifications')
       .delete()
       .eq('goal_session_id', sessionId)
-      .in('type', ['mid_trade_trigger', 'mid_trade_evaluation', 'mid_trade_action']);
+      .in('notification_type', ['mid_trade_trigger', 'mid_trade_evaluation', 'mid_trade_action']);
 
     this.unviewedCount = 0;
     this.emit('badge-update', 0);
@@ -141,7 +141,7 @@ class MidTradeNotificationQueue extends TinyEmitter {
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
       .eq('viewed', false)
-      .in('type', ['mid_trade_trigger', 'mid_trade_evaluation', 'mid_trade_action']);
+      .in('notification_type', ['mid_trade_trigger', 'mid_trade_evaluation', 'mid_trade_action']);
 
     if (!error && data) {
       this.unviewedCount = (data as any).count || 0;
