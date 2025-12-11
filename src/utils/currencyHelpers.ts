@@ -382,6 +382,137 @@ export function calculateAutonomousPositionSize(
 }
 
 /**
+ * Calculate optimal position size and TP for achieving a goal in ONE trade
+ *
+ * CRITICAL: This is the REVERSE CALCULATION - work backward from goal
+ *
+ * Strategy:
+ * 1. Calculate remaining goal amount
+ * 2. Find optimal lot size that reaches goal with realistic pip target
+ * 3. Balance between goal achievement and market feasibility
+ *
+ * @param symbol Currency pair
+ * @param direction Trade direction
+ * @param accountBalance Current account balance
+ * @param entryPrice Entry price
+ * @param stopLoss Stop loss price
+ * @param currentProgress Current P&L toward goal
+ * @param targetGoal Total goal amount
+ * @param riskMode Risk tolerance
+ * @returns Optimal position size, TP, and reasoning
+ */
+export function calculateGoalOptimalPosition(
+  symbol: string,
+  direction: 'buy' | 'sell',
+  accountBalance: number,
+  entryPrice: number,
+  stopLoss: number,
+  currentProgress: number,
+  targetGoal: number,
+  riskMode: 'low' | 'medium' | 'high' = 'medium'
+): {
+  lotSize: number;
+  takeProfit: number;
+  pipsNeeded: number;
+  reasoning: string;
+  goalFeasibility: 'single_trade' | 'multiple_trades' | 'unrealistic';
+} {
+  const pipInfo = getCurrencyPipInfo(symbol);
+  const remainingGoal = targetGoal - currentProgress;
+
+  console.log(`[Goal Optimal Position] ${symbol}:`);
+  console.log(`  Balance: $${accountBalance.toFixed(2)}`);
+  console.log(`  Goal Target: $${targetGoal.toFixed(2)}`);
+  console.log(`  Current Progress: $${currentProgress.toFixed(2)}`);
+  console.log(`  Remaining: $${remainingGoal.toFixed(2)}`);
+
+  // Define reasonable pip ranges by asset type
+  const maxReasonablePips = isXAUUSD(symbol) ? 400 : isJPYPair(symbol) ? 250 : 120;
+  const minReasonablePips = isXAUUSD(symbol) ? 20 : isJPYPair(symbol) ? 15 : 10;
+  const optimalPips = isXAUUSD(symbol) ? 80 : isJPYPair(symbol) ? 50 : 30;
+
+  console.log(`  Pip Ranges: Min=${minReasonablePips}, Optimal=${optimalPips}, Max=${maxReasonablePips}`);
+
+  // Calculate standard risk-based position size as MAX CAP
+  const riskPercent = riskMode === 'high' ? 2.0 : riskMode === 'medium' ? 1.0 : 0.5;
+  const maxPositionSize = calculatePositionSize(symbol, accountBalance, riskPercent, entryPrice, stopLoss);
+
+  console.log(`  Max Position Size (risk-based): ${maxPositionSize.toFixed(3)} lots`);
+
+  // REVERSE CALCULATION: What lot size gives us goal profit at optimal pips?
+  const dollarPerPipAtOneLot = isXAUUSD(symbol) ? 100 : isIndex(symbol) ? 100 : 10;
+  const requiredLotSizeForOptimal = remainingGoal / (optimalPips * dollarPerPipAtOneLot);
+
+  console.log(`  Required Lot Size for ${optimalPips} pips: ${requiredLotSizeForOptimal.toFixed(3)}`);
+
+  // Cap at max risk-based position size
+  let actualLotSize = Math.min(requiredLotSizeForOptimal, maxPositionSize);
+
+  // Apply absolute minimums and maximums
+  const minLotSize = 0.01;
+  const maxLotSize = isXAUUSD(symbol) ? 10.0 : isIndex(symbol) ? 1.0 : 5.0;
+  actualLotSize = Math.max(minLotSize, Math.min(maxLotSize, actualLotSize));
+
+  console.log(`  Final Lot Size: ${actualLotSize.toFixed(3)} lots`);
+
+  // Calculate actual pips needed with this lot size
+  const dollarPerPip = calculateDollarPerPip(symbol, actualLotSize);
+  const pipsNeededForGoal = remainingGoal / dollarPerPip;
+
+  console.log(`  Dollar/Pip: $${dollarPerPip.toFixed(2)}`);
+  console.log(`  Pips Needed for Goal: ${pipsNeededForGoal.toFixed(1)}`);
+
+  // Determine feasibility
+  let goalFeasibility: 'single_trade' | 'multiple_trades' | 'unrealistic';
+  let finalPips: number;
+  let reasoning: string;
+
+  if (pipsNeededForGoal <= maxReasonablePips && pipsNeededForGoal >= minReasonablePips) {
+    // Goal achievable in single trade!
+    goalFeasibility = 'single_trade';
+    finalPips = pipsNeededForGoal;
+    reasoning = `Goal achievable in ONE trade: ${actualLotSize.toFixed(3)} lots × ${finalPips.toFixed(1)} pips = $${remainingGoal.toFixed(2)}`;
+  } else if (pipsNeededForGoal > maxReasonablePips) {
+    // Need multiple trades
+    goalFeasibility = 'multiple_trades';
+    finalPips = optimalPips; // Use optimal, not max
+    const partialProfit = finalPips * dollarPerPip;
+    const tradesNeeded = Math.ceil(remainingGoal / partialProfit);
+    reasoning = `Goal requires ~${tradesNeeded} trades. This trade: ${actualLotSize.toFixed(3)} lots × ${finalPips.toFixed(1)} pips = $${partialProfit.toFixed(2)} toward $${remainingGoal.toFixed(2)}`;
+  } else {
+    // Pips too small - increase lot size or unrealistic
+    goalFeasibility = 'unrealistic';
+    finalPips = minReasonablePips;
+    const achievableProfit = finalPips * dollarPerPip;
+    reasoning = `Min pip target (${finalPips.toFixed(1)}) gives $${achievableProfit.toFixed(2)}. Goal may need position size adjustment or multiple trades.`;
+  }
+
+  // Calculate TP price
+  const pipPriceDistance = finalPips * pipInfo.pipValue;
+  const takeProfit = direction === 'buy'
+    ? entryPrice + pipPriceDistance
+    : entryPrice - pipPriceDistance;
+
+  // Validate R:R
+  const slDistance = Math.abs(entryPrice - stopLoss);
+  const tpDistance = Math.abs(takeProfit - entryPrice);
+  const riskReward = tpDistance / slDistance;
+
+  console.log(`  Take Profit: ${takeProfit.toFixed(pipInfo.decimalPlaces)}`);
+  console.log(`  Risk:Reward: 1:${riskReward.toFixed(2)}`);
+  console.log(`  Feasibility: ${goalFeasibility}`);
+  console.log(`  Reasoning: ${reasoning}`);
+
+  return {
+    lotSize: actualLotSize,
+    takeProfit,
+    pipsNeeded: finalPips,
+    reasoning,
+    goalFeasibility
+  };
+}
+
+/**
  * Calculate Take Profit constrained by goal target amount
  *
  * CRITICAL: This ensures TP is set to reach the user's goal, not arbitrary technical levels

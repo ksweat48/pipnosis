@@ -407,11 +407,51 @@ class GoalSessionLiveEngine {
         learningProgress: 0
       };
 
+      // 🎯 BUILD GOAL CONTEXT for Alpha's awareness
+      const { data: sessionData } = await supabase
+        .from('goal_sessions')
+        .select('target_value, initial_balance')
+        .eq('id', this.activeSession)
+        .single();
+
+      const { data: closedTrades } = await supabase
+        .from('goal_session_trades')
+        .select('profit_loss')
+        .eq('goal_session_id', this.activeSession)
+        .eq('status', 'closed');
+
+      const currentProgress = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
+      const targetGoal = sessionData?.target_value || 200;
+      const remainingGoal = targetGoal - currentProgress;
+      const goalPercentage = (remainingGoal / this.config.initialBalance) * 100;
+
+      // Estimate pips needed for typical lot size (0.1 for forex)
+      const estimatedDollarPerPip = 1.0; // 0.1 lot on forex = $1/pip
+      const pipsNeededEstimate = Math.abs(remainingGoal / estimatedDollarPerPip);
+
+      const goalContext: import('../brains/coordinator-alpha').GoalContext = {
+        hasGoal: true,
+        currentBalance: this.config.initialBalance,
+        targetGoal,
+        currentProgress,
+        remainingGoal,
+        goalPercentage,
+        pipsNeededEstimate
+      };
+
+      console.log('%c[GOAL CONTEXT] 🎯 Calculated:', 'color: #ff6b6b; font-weight: bold');
+      console.log(`  Balance: $${goalContext.currentBalance.toFixed(2)}`);
+      console.log(`  Target: +$${goalContext.targetGoal.toFixed(2)}`);
+      console.log(`  Progress: $${goalContext.currentProgress.toFixed(2)}`);
+      console.log(`  Remaining: $${goalContext.remainingGoal.toFixed(2)} (${goalContext.goalPercentage.toFixed(3)}%)`);
+      console.log(`  Estimated Pips Needed: ~${goalContext.pipsNeededEstimate.toFixed(0)}`);
+
       logger.debug(LogCategory.AI_TRADING, `🧠 Running Omega Council for ${marketStates.length} symbols...`);
       console.log('%c[MULTI-SYMBOL] 🧠 Preparing to call AI Orchestrator', 'color: #9c27b0; font-weight: bold; font-size: 18px');
       console.log('[MULTI-SYMBOL] Market States:', marketStates.length);
       console.log('[MULTI-SYMBOL] Trader Score:', traderScore);
       console.log('[MULTI-SYMBOL] User ID:', this.config.userId);
+      console.log('[MULTI-SYMBOL] Goal Context:', goalContext);
 
       console.log('%c[MULTI-SYMBOL] 🚀 CALLING ORCHESTRATOR NOW...', 'color: #ff0000; font-weight: bold; font-size: 20px; background: yellow');
       const orchestratorStartTime = Date.now();
@@ -420,7 +460,8 @@ class GoalSessionLiveEngine {
       const orchestratorPromise = alphaOmegaOrchestrator.evaluateMultipleSymbols(
         marketStates,
         traderScore,
-        this.config.userId
+        this.config.userId,
+        goalContext // Pass goal context to orchestrator
       );
 
       const timeoutPromise = new Promise<Map<string, any>>((_, reject) => {
@@ -496,48 +537,33 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      // Calculate dynamic lot size based on account balance and goal
-      const calculatedLotSize = await this.calculateOptimalLotSize(
+      // ✅ NEW: Smart goal-based position sizing + TP calculation
+      // Reuse goal context data from orchestrator call above
+      // 🎯 CRITICAL: Use reverse calculation to optimize for goal
+      const { calculateGoalOptimalPosition } = await import('../utils/currencyHelpers');
+      const goalOptimal = calculateGoalOptimalPosition(
+        selectedSymbol,
+        decision.action.toLowerCase() as 'buy' | 'sell',
         this.config.initialBalance,
         decision.entry,
         decision.stopLoss,
+        goalContext.currentProgress,
+        goalContext.targetGoal,
         this.config.riskMode
       );
 
-      // ✅ CRITICAL FIX: Calculate goal-based take profit
-      // Get current session progress to determine remaining goal
-      const { data: sessionData } = await supabase
-        .from('goal_sessions')
-        .select('target_value, initial_balance')
-        .eq('id', this.activeSession)
-        .single();
+      console.log(`[Goal Session] 🎯 GOAL-OPTIMIZED TRADE:`);
+      console.log(`  Position Size: ${goalOptimal.lotSize.toFixed(3)} lots (goal-optimized)`);
+      console.log(`  Take Profit: ${goalOptimal.takeProfit.toFixed(5)} (${goalOptimal.pipsNeeded.toFixed(1)} pips)`);
+      console.log(`  AI Suggested TP: ${decision.takeProfit.toFixed(5)}`);
+      console.log(`  Feasibility: ${goalOptimal.goalFeasibility}`);
+      console.log(`  Reasoning: ${goalOptimal.reasoning}`);
 
-      // Calculate current progress (sum of closed trades)
-      const { data: closedTrades } = await supabase
-        .from('goal_session_trades')
-        .select('profit_loss')
-        .eq('goal_session_id', this.activeSession)
-        .eq('status', 'closed');
-
-      const currentProgress = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
-      const targetGoal = sessionData?.target_value || 200; // Default to $200 if not set
-
-      // Calculate TP constrained by goal
-      const goalTPResult = calculateGoalBasedTakeProfit(
-        selectedSymbol,
-        decision.action.toLowerCase() as 'buy' | 'sell',
-        decision.entry,
-        decision.stopLoss,
-        calculatedLotSize,
-        currentProgress,
-        targetGoal,
-        decision.takeProfit // AI's suggested TP
-      );
-
-      console.log(`[Goal Session] 🎯 TP Calculation:`);
-      console.log(`  AI Suggested: ${decision.takeProfit.toFixed(5)}`);
-      console.log(`  Goal-Based: ${goalTPResult.takeProfit.toFixed(5)}`);
-      console.log(`  Reasoning: ${goalTPResult.reasoning}`);
+      const calculatedLotSize = goalOptimal.lotSize;
+      const goalTPResult = {
+        takeProfit: goalOptimal.takeProfit,
+        reasoning: goalOptimal.reasoning
+      };
 
       const trade: SimulatedTrade = {
         id: `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,

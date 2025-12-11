@@ -70,7 +70,8 @@ class AlphaOmegaOrchestrator {
     marketState: FullMarketState,
     traderScore: TraderScore,
     proposedSL: number,
-    proposedTP: number
+    proposedTP: number,
+    goalContext?: import('../brains/coordinator-alpha').GoalContext
   ): Promise<AlphaDecision> {
     console.log('[Alpha+Omega] 🎯 Starting decision pipeline...');
 
@@ -205,7 +206,8 @@ class AlphaOmegaOrchestrator {
       marketContext,
       traderScore,
       undefined, // userId - will be added if needed
-      conflictCheck // Pass conflict info to Alpha
+      conflictCheck, // Pass conflict info to Alpha
+      goalContext // Pass goal context for smart position sizing
     );
 
     const alphaTime = Date.now() - alphaStart;
@@ -224,7 +226,8 @@ class AlphaOmegaOrchestrator {
   async evaluateMultipleSymbols(
     marketStates: FullMarketState[],
     traderScore: TraderScore,
-    userId?: string
+    userId?: string,
+    goalContext?: import('../brains/coordinator-alpha').GoalContext
   ): Promise<Map<string, AlphaDecision>> {
     console.log(`[Alpha+Omega] 🔍 Evaluating ${marketStates.length} symbols in parallel...`);
     const startTime = Date.now();
@@ -243,7 +246,8 @@ class AlphaOmegaOrchestrator {
           marketState,
           traderScore,
           proposedSL,
-          proposedTP
+          proposedTP,
+          goalContext
         );
 
         return {

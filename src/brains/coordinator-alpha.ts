@@ -79,6 +79,16 @@ export interface MarketContext {
   atr: number;
 }
 
+export interface GoalContext {
+  hasGoal: boolean;
+  currentBalance: number;
+  targetGoal: number;
+  currentProgress: number;
+  remainingGoal: number;
+  goalPercentage: number; // e.g., 0.077% for $200 from $258k
+  pipsNeededEstimate: number; // Rough estimate for context
+}
+
 export interface AlphaDecision {
   action: 'BUY' | 'SELL' | 'NO_TRADE';
   decision: 'BUY' | 'SELL' | 'NO_TRADE';
@@ -96,6 +106,7 @@ export interface AlphaDecision {
   symbol?: string;
   timestamp?: Date;
   risk_pct?: number;
+  goal_context?: GoalContext;
 }
 
 class AlphaCoordinatorBrain {
@@ -113,7 +124,8 @@ class AlphaCoordinatorBrain {
       conflictType: 'HARD' | 'SOFT' | 'NONE';
       severity: string;
       conflictDescription: string;
-    }
+    },
+    goalContext?: GoalContext
   ): Promise<AlphaDecision> {
     // Calculate vote weights (with Omega-10 overrides if available)
     const weights = await this.calculateWeights(votes, marketContext, traderScore, userId);
@@ -131,11 +143,17 @@ class AlphaCoordinatorBrain {
       conflictContext = `\n⚠️ OMEGA CONFLICT DETECTED:\nType: ${conflictInfo.conflictType} | Severity: ${conflictInfo.severity}\n${conflictInfo.conflictDescription}\n\nYou have authority to override if justified.\n`;
     }
 
+    // Build goal context (if trading with a goal)
+    let goalContextText = '';
+    if (goalContext && goalContext.hasGoal) {
+      goalContextText = `\n🎯 GOAL TRADING MODE:\nBalance: $${goalContext.currentBalance.toFixed(2)} | Target: +$${goalContext.targetGoal.toFixed(2)}\nProgress: $${goalContext.currentProgress.toFixed(2)} | Remaining: $${goalContext.remainingGoal.toFixed(2)} (${goalContext.goalPercentage.toFixed(3)}%)\nEstimate: ~${goalContext.pipsNeededEstimate.toFixed(0)} pips needed\n\n🔍 FIND A TRADE THAT CAN CAPTURE ${goalContext.pipsNeededEstimate.toFixed(0)} PIPS:\n- Look for symbols with momentum to reach this pip target\n- Balance goal achievement with realistic technical levels\n- Consider if market is offering this opportunity NOW\n`;
+    }
+
     const prompt = `You are Alpha, the final decision maker. You have COMPLETE AUTHORITY to accept or override Omega recommendations.
 
 ${context}
 
-WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}
+WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${goalContextText}
 
 YOUR AUTHORITY:
 - Override Risk Omega if setup quality justifies it
@@ -147,6 +165,7 @@ Your job: Make the best trading decision based on all available information.
 
 Decide: BUY, SELL, or NO_TRADE.
 Calculate entry, SL (dynamic ATR buffer), TP (appropriate R:R).
+${goalContext && goalContext.hasGoal ? `\nIMPORTANT: Set TP to capture ~${goalContext.pipsNeededEstimate.toFixed(0)} pips if market structure supports it.` : ''}
 
 Return JSON only:
 {
@@ -202,6 +221,11 @@ Return JSON only:
       // Add omega summary and votes for transparency
       decision.omega_summary = this.generateOmegaSummary(votes, weights);
       decision.omega_votes = votes;
+
+      // Add goal context if provided
+      if (goalContext) {
+        decision.goal_context = goalContext;
+      }
 
       // Check Omega-10 recommendations
       if (userId) {
