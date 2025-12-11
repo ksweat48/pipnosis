@@ -22,7 +22,7 @@ import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orch
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
-import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionSize } from '../utils/currencyHelpers';
+import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionSize, calculatePipDistance } from '../utils/currencyHelpers';
 import { getRiskPercentage } from '../config/risk-levels';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
@@ -411,7 +411,7 @@ class GoalSessionLiveEngine {
       // 🎯 BUILD GOAL CONTEXT for Alpha's awareness
       const { data: sessionData } = await supabase
         .from('goal_sessions')
-        .select('target_value, initial_balance')
+        .select('target_value, starting_balance')
         .eq('id', this.activeSession)
         .single();
 
@@ -601,8 +601,8 @@ class GoalSessionLiveEngine {
       };
 
       // Calculate R:R for proper trade signal
-      const riskPips = Math.abs(trade.entryPrice - trade.stopLoss) / 0.0001;
-      const rewardPips = Math.abs(trade.takeProfit - trade.entryPrice) / 0.0001;
+      const riskPips = calculatePipDistance(selectedSymbol, trade.entryPrice, trade.stopLoss);
+      const rewardPips = calculatePipDistance(selectedSymbol, trade.entryPrice, trade.takeProfit);
       const riskReward = rewardPips / riskPips;
       const dollarPerPip = calculateDollarPerPip(selectedSymbol, trade.positionSize);
       const expectedProfit = rewardPips * dollarPerPip;
@@ -1111,8 +1111,8 @@ class GoalSessionLiveEngine {
     localSessionMemory.recordTrade(`live-${this.activeSession}`, trade);
 
     // Calculate risk/reward for validation
-    const riskPips = Math.abs(trade.entryPrice - trade.stopLoss) / 0.0001;
-    const rewardPips = Math.abs(trade.takeProfit - trade.entryPrice) / 0.0001;
+    const riskPips = calculatePipDistance(trade.symbol, trade.entryPrice, trade.stopLoss);
+    const rewardPips = calculatePipDistance(trade.symbol, trade.entryPrice, trade.takeProfit);
     const riskReward = rewardPips / riskPips;
     const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.positionSize);
     const expectedProfit = rewardPips * dollarPerPip;

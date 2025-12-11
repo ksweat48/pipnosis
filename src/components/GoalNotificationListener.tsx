@@ -16,7 +16,7 @@ export function GoalNotificationListener() {
         .from('goal_notifications')
         .select('*')
         .eq('user_id', user.id)
-        .eq('notification_type', 'goal_achieved')
+        .eq('notification_type', 'completion')
         .is('action_taken', null)
         .is('acknowledged_at', null)
         .order('created_at', { ascending: false })
@@ -47,8 +47,8 @@ export function GoalNotificationListener() {
 
           const notification = payload.new;
 
-          // Only show goal_achieved notifications
-          if (notification.notification_type === 'goal_achieved') {
+          // Only show completion (goal achieved) notifications
+          if (notification.notification_type === 'completion') {
             setActiveNotification(notification);
 
             // Play a notification sound (optional)
