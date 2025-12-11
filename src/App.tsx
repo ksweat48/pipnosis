@@ -133,9 +133,18 @@ const AppRoutes: React.FC = () => {
               return;
             }
 
+            // Calculate cumulative profit from all closed trades
+            const { data: closedTrades } = await supabase
+              .from('goal_session_trades')
+              .select('profit_loss')
+              .eq('goal_session_id', trade.goal_session_id)
+              .eq('status', 'closed');
+
+            const cumulativeProfit = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
+
             const { data: session } = await supabase
               .from('goal_sessions')
-              .select('current_value, target_value')
+              .select('target_value')
               .eq('id', trade.goal_session_id)
               .maybeSingle();
 
@@ -144,6 +153,14 @@ const AppRoutes: React.FC = () => {
               .select('id', { count: 'exact' })
               .eq('goal_session_id', trade.goal_session_id);
 
+            console.log('[App] Trade closed dialog data:', {
+              symbol: trade.symbol,
+              profitLoss: trade.profit_loss,
+              cumulativeProfit,
+              targetValue: session?.target_value,
+              tradesCount: tradesCount?.length
+            });
+
             globalDialogManager.showTradeClosed({
               symbol: trade.symbol,
               direction: trade.direction,
@@ -151,7 +168,7 @@ const AppRoutes: React.FC = () => {
               exitPrice: trade.exit_price,
               profitLoss: trade.profit_loss,
               closeReason: closeReason,
-              currentProgress: session?.current_value || 0,
+              currentProgress: cumulativeProfit,
               targetValue: session?.target_value || 0,
               tradesInSession: tradesCount?.length || 0,
               onStartNewSession: () => {

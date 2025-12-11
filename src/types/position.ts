@@ -187,17 +187,33 @@ export function isClosedPosition(position: GoalSessionTrade | Position): boolean
 
 /**
  * Calculate P&L for a position given current price
+ * CRITICAL: Uses currency-specific pip values for accurate calculations
  */
 export function calculatePnL(
   direction: PositionDirection,
   entryPrice: number,
   currentPrice: number,
-  lotSize: number
+  lotSize: number,
+  symbol: string
 ): number {
-  const pipValue = 100000; // Standard forex calculation
+  // Lazy import to avoid circular dependencies
+  const { calculateDollarPerPip, calculatePipDistance } = require('../utils/currencyHelpers');
+
+  // Calculate pip distance between entry and current price
+  const pipDistance = calculatePipDistance(symbol, entryPrice, currentPrice);
+
+  // Calculate dollar value per pip for this lot size
+  const dollarPerPip = calculateDollarPerPip(symbol, lotSize);
+
+  // Calculate P&L based on direction
   const priceDiff = direction === 'buy'
     ? currentPrice - entryPrice
     : entryPrice - currentPrice;
 
-  return priceDiff * lotSize * pipValue;
+  // If price moved in favorable direction, profit; otherwise loss
+  const pnl = priceDiff >= 0
+    ? pipDistance * dollarPerPip
+    : -pipDistance * dollarPerPip;
+
+  return pnl;
 }

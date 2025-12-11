@@ -1,13 +1,16 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { globalDialogManager, DialogData } from '../services/global-dialog-manager';
+import { audioAlertService } from '../services/audio-alert-service';
 import { GoalAchievedDialog } from '../components/GoalAchievedDialog';
 import { TradeClosedActionDialog } from '../components/TradeClosedActionDialog';
 import { TradeSignalNotificationBar } from '../components/TradeSignalNotificationBar';
+import { TradeEntryModal } from '../components/TradeEntryModal';
 
 interface GlobalDialogContextType {
   showGoalAchieved: (data: any) => void;
   showTradeClosed: (data: any) => void;
   showTradeSignal: (data: any, priority?: 'low' | 'medium' | 'high') => void;
+  showTradeEntry: (data: any, priority?: 'low' | 'medium' | 'high' | 'urgent') => void;
   closeDialog: () => void;
 }
 
@@ -19,6 +22,32 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     const handleDialog = (dialog: DialogData | null) => {
       setCurrentDialog(dialog);
+
+      // Play audio alert when dialog appears
+      if (dialog) {
+        const playAudio = async () => {
+          switch (dialog.type) {
+            case 'goal_achieved':
+              await audioAlertService.play('critical');
+              break;
+            case 'trade_entry':
+              await audioAlertService.play('attention');
+              break;
+            case 'trade_closed':
+              // Play success or warning based on profit/loss
+              const profitLoss = dialog.data?.profitLoss || 0;
+              await audioAlertService.play(profitLoss >= 0 ? 'success' : 'warning');
+              break;
+            case 'trade_signal':
+              await audioAlertService.play('attention');
+              break;
+          }
+        };
+
+        playAudio().catch((error) => {
+          console.error('[GlobalDialog] Failed to play audio:', error);
+        });
+      }
     };
 
     globalDialogManager.onDialog(handleDialog);
@@ -40,6 +69,10 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
     globalDialogManager.showTradeSignal(data, priority);
   }, []);
 
+  const showTradeEntry = useCallback((data: any, priority: 'low' | 'medium' | 'high' | 'urgent' = 'urgent') => {
+    globalDialogManager.showTradeEntry(data, priority);
+  }, []);
+
   const closeDialog = useCallback(() => {
     globalDialogManager.closeDialog();
   }, []);
@@ -50,6 +83,7 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
         showGoalAchieved,
         showTradeClosed,
         showTradeSignal,
+        showTradeEntry,
         closeDialog
       }}
     >
@@ -93,6 +127,26 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
           signal={currentDialog.data}
           onDismiss={closeDialog}
           position="top"
+        />
+      )}
+
+      {currentDialog?.type === 'trade_entry' && (
+        <TradeEntryModal
+          isOpen={true}
+          symbol={currentDialog.data.symbol}
+          direction={currentDialog.data.direction}
+          entryPrice={currentDialog.data.entryPrice}
+          stopLoss={currentDialog.data.stopLoss}
+          takeProfit={currentDialog.data.takeProfit}
+          lotSize={currentDialog.data.lotSize}
+          confidence={currentDialog.data.confidence}
+          priority={currentDialog.data.priority || 'urgent'}
+          setupType={currentDialog.data.setupType}
+          reasoning={currentDialog.data.reasoning}
+          expectedProfit={currentDialog.data.expectedProfit}
+          riskReward={currentDialog.data.riskReward}
+          autoExecuted={currentDialog.data.autoExecuted}
+          onDismiss={closeDialog}
         />
       )}
     </GlobalDialogContext.Provider>

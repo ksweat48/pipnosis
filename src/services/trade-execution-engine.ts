@@ -5,6 +5,7 @@ import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { strategyPlaybookManager } from './strategy-playbook-manager';
 import { getRegimeBucket } from './regime-bucketing';
 import { prodLogger } from '../lib/production-logger';
+import { globalDialogManager } from './global-dialog-manager';
 
 export interface TradeSignal {
   sessionId: string;
@@ -492,6 +493,23 @@ class TradeExecutionEngine {
       data: { signal, tradeId: trade.id },
       channels: ['in_app', 'email']
     });
+
+    // Trigger immediate trade entry modal
+    globalDialogManager.showTradeEntry({
+      symbol: signal.symbol,
+      direction: signal.direction,
+      entryPrice: actualEntryPrice,
+      stopLoss: signal.stopLoss,
+      takeProfit: signal.takeProfit,
+      lotSize: signal.positionSize,
+      confidence: signal.confidence,
+      priority: signal.confidence >= 85 ? 'urgent' : signal.confidence >= 75 ? 'high' : 'medium',
+      setupType: signal.setupType,
+      reasoning: signal.reasoning,
+      expectedProfit: signal.expectedProfit,
+      riskReward: signal.riskReward,
+      autoExecuted: true
+    }, signal.confidence >= 85 ? 'urgent' : signal.confidence >= 75 ? 'high' : 'medium');
 
     return {
       success: true,

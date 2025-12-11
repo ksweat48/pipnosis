@@ -1,11 +1,11 @@
 import TinyEmitter from 'tiny-emitter';
 
-export type DialogType = 'goal_achieved' | 'trade_closed' | 'trade_signal';
+export type DialogType = 'goal_achieved' | 'trade_closed' | 'trade_signal' | 'trade_entry';
 
 export interface DialogData {
   type: DialogType;
   data: any;
-  priority?: 'low' | 'medium' | 'high';
+  priority?: 'low' | 'medium' | 'high' | 'urgent';
   timestamp: number;
 }
 
@@ -40,6 +40,10 @@ class GlobalDialogManager {
 
   showTradeSignal(data: any, priority: 'low' | 'medium' | 'high' = 'high') {
     this.showDialog('trade_signal', data, priority);
+  }
+
+  showTradeEntry(data: any, priority: 'low' | 'medium' | 'high' | 'urgent' = 'urgent') {
+    this.showDialog('trade_entry', data, priority);
   }
 
   closeDialog() {

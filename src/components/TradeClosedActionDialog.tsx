@@ -69,7 +69,10 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+      {/* Blocking overlay - prevents all interactions */}
+      <div className="absolute inset-0" onClick={(e) => e.stopPropagation()} />
+
       <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-300">
         <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl opacity-50 blur-xl" />
 

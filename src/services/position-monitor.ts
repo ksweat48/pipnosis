@@ -261,8 +261,17 @@ class PositionMonitorService {
       position.direction,
       position.entry_price,
       actualCurrentPrice,
-      position.lot_size || position.position_size
+      position.lot_size || position.position_size,
+      position.symbol
     );
+
+    console.log(`[PositionMonitor] PnL Calculation for ${position.symbol}:`, {
+      direction: position.direction,
+      entry: position.entry_price,
+      current: actualCurrentPrice,
+      lotSize: position.lot_size || position.position_size,
+      calculatedPnL: pnl.toFixed(2)
+    });
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -410,19 +419,45 @@ class PositionMonitorService {
           result.pnl
         );
 
-        // If goal was met, send special notification
-        if (reason === 'goal_met') {
+        // Send notification for all close types
+        const notificationConfig = {
+          goal_met: {
+            type: 'goal_achieved' as const,
+            priority: 'urgent' as const,
+            title: '🎯 Goal Achieved!',
+            message: `Your goal has been reached! Trade closed at $${result.pnl.toFixed(2)} profit.`
+          },
+          take_profit: {
+            type: 'trade_closed' as const,
+            priority: 'high' as const,
+            title: '✅ Take Profit Hit!',
+            message: `Trade on ${position.symbol} closed at take profit. Profit: $${result.pnl.toFixed(2)}`
+          },
+          stop_loss: {
+            type: 'trade_closed' as const,
+            priority: 'urgent' as const,
+            title: '⚠️ Stop Loss Hit',
+            message: `Trade on ${position.symbol} closed at stop loss. Loss: $${result.pnl.toFixed(2)}`
+          }
+        };
+
+        const config = notificationConfig[reason];
+        if (config) {
           await supabase.from('goal_notifications').insert({
             goal_session_id: position.goal_session_id,
             user_id: position.user_id,
-            notification_type: 'goal_achieved',
-            priority: 'urgent',
-            title: '🎯 Goal Achieved!',
-            message: `Your $${position.target_value || 0} goal has been reached! Trade closed at $${result.pnl.toFixed(2)} profit.`,
-            data: {
+            notification_type: config.type,
+            priority: config.priority,
+            title: config.title,
+            message: config.message,
+            notification_data: {
               trade_id: position.id,
-              profit: result.pnl,
-              close_reason: 'goal_met'
+              symbol: position.symbol,
+              direction: position.direction,
+              entry_price: position.entry_price,
+              exit_price: closePrice,
+              profit_loss: result.pnl,
+              close_reason: reason
             },
             channels: ['in_app']
           });
