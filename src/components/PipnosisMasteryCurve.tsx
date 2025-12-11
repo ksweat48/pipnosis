@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineData } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, LineData, LineSeriesPartialOptions } from 'lightweight-charts';
 import { useMasteryCurve } from '../hooks/useMasteryCurve';
 import { Brain, RefreshCw, TrendingUp, TrendingDown, Minus, AlertCircle } from 'lucide-react';
 
@@ -127,15 +127,6 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
           }
         });
 
-        console.log('[Mastery Curve] createChart returned:', chart);
-        console.log('[Mastery Curve] Chart type:', typeof chart);
-        console.log('[Mastery Curve] Chart constructor:', chart?.constructor?.name);
-        console.log('[Mastery Curve] Available methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(chart || {})));
-
-        // Check what createChart is
-        console.log('[Mastery Curve] createChart function:', createChart);
-        console.log('[Mastery Curve] createChart type:', typeof createChart);
-
         // Verify chart was created successfully
         if (!chart) {
           console.error('[Mastery Curve] Chart creation failed - chart is null/undefined');
@@ -143,49 +134,48 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
         }
 
       chartRef.current = chart;
-      console.log('[Mastery Curve] Attempting to create line series...');
 
-      seriesRefs.current.mastery = chart.addLineSeries({
+      seriesRefs.current.mastery = chart.addSeries('Line', {
         color: '#f59e0b',
         lineWidth: 3,
         title: 'Mastery Score',
         priceLineVisible: false
-      });
+      } as LineSeriesPartialOptions);
 
-      seriesRefs.current.winRate = chart.addLineSeries({
+      seriesRefs.current.winRate = chart.addSeries('Line', {
         color: '#3b82f6',
         lineWidth: 2,
         title: 'Win Rate',
         priceLineVisible: false
-      });
+      } as LineSeriesPartialOptions);
 
-      seriesRefs.current.evScore = chart.addLineSeries({
+      seriesRefs.current.evScore = chart.addSeries('Line', {
         color: '#14b8a6',
         lineWidth: 2,
         title: 'EV Score',
         priceLineVisible: false
-      });
+      } as LineSeriesPartialOptions);
 
-      seriesRefs.current.calibration = chart.addLineSeries({
+      seriesRefs.current.calibration = chart.addSeries('Line', {
         color: '#a855f7',
         lineWidth: 2,
         title: 'Confidence Accuracy',
         priceLineVisible: false
-      });
+      } as LineSeriesPartialOptions);
 
-      seriesRefs.current.llmPassRate = chart.addLineSeries({
+      seriesRefs.current.llmPassRate = chart.addSeries('Line', {
         color: '#22c55e',
         lineWidth: 2,
         title: 'LLM Layer Pass Rate',
         priceLineVisible: false
-      });
+      } as LineSeriesPartialOptions);
 
-      seriesRefs.current.avoidPattern = chart.addLineSeries({
+      seriesRefs.current.avoidPattern = chart.addSeries('Line', {
         color: '#ef4444',
         lineWidth: 2,
         title: 'Avoid Pattern Success',
         priceLineVisible: false
-      });
+      } as LineSeriesPartialOptions);
 
     } catch (error) {
       console.error('[Mastery Curve] Error initializing chart:', error);
