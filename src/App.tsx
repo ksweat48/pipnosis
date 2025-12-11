@@ -4,11 +4,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
 import { ConfirmDialogProvider } from './hooks/useConfirmDialog';
+import { GlobalDialogProvider } from './hooks/useGlobalDialog';
 import { ToastContainer } from './components/ToastNotification';
 import { useToast } from './hooks/useToast';
 import { globalToastManager } from './services/global-toast-manager';
+import { globalDialogManager } from './services/global-dialog-manager';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { cacheClearOnRefresh } from './services/cache-clear-on-refresh';
+import { supabase } from './lib/supabase';
 
 // Lazy load all pages for code splitting
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -66,6 +69,173 @@ const AppRoutes: React.FC = () => {
       console.error('[App] Error initializing cache:', error);
     });
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    console.log('[App] Setting up global event listeners for user:', user.id);
+
+    const goalAchievementChannel = supabase
+      .channel('global-goal-achievements')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'goal_achievements',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('[App] Goal achievement detected!', payload);
+
+          const achievement = payload.new;
+          globalDialogManager.showGoalAchieved({
+            goalAmount: achievement.goal_amount || 0,
+            achievedProfit: achievement.achieved_pnl || 0,
+            symbol: achievement.symbol || 'Unknown',
+            timeElapsed: formatTimeElapsed(achievement.created_at),
+            tradesExecuted: 1,
+            onStartNewSession: () => {
+              window.location.href = '/ai-trade';
+            },
+            onViewAchievements: () => {
+              window.location.href = '/ai-trade';
+            }
+          });
+
+          globalToastManager.success(
+            'Goal Achieved!',
+            `Congratulations! You've achieved your goal of $${achievement.goal_amount}`,
+            10000
+          );
+        }
+      )
+      .subscribe();
+
+    const tradeClosureChannel = supabase
+      .channel('global-trade-closures')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'goal_session_trades',
+          filter: `user_id=eq.${user.id}`
+        },
+        async (payload) => {
+          if (payload.new.status === 'closed' && payload.old.status === 'open') {
+            console.log('[App] Trade closed!', payload);
+
+            const trade = payload.new;
+            const closeReason = trade.close_reason || 'manual';
+
+            if (closeReason === 'goal_met') {
+              return;
+            }
+
+            const { data: session } = await supabase
+              .from('goal_sessions')
+              .select('current_value, target_value')
+              .eq('id', trade.goal_session_id)
+              .maybeSingle();
+
+            const { data: tradesCount } = await supabase
+              .from('goal_session_trades')
+              .select('id', { count: 'exact' })
+              .eq('goal_session_id', trade.goal_session_id);
+
+            globalDialogManager.showTradeClosed({
+              symbol: trade.symbol,
+              direction: trade.direction,
+              entryPrice: trade.entry_price,
+              exitPrice: trade.exit_price,
+              profitLoss: trade.profit_loss,
+              closeReason: closeReason,
+              currentProgress: session?.current_value || 0,
+              targetValue: session?.target_value || 0,
+              tradesInSession: tradesCount?.length || 0,
+              onStartNewSession: () => {
+                window.location.href = '/ai-trade';
+              },
+              onContinueSession: () => {
+                window.location.href = '/ai-trade';
+              }
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    const tradeSignalChannel = supabase
+      .channel('global-trade-signals')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'goal_notifications',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          const notification = payload.new;
+
+          if (notification.notification_type === 'signal') {
+            console.log('[App] Trade signal received!', notification);
+
+            const notificationData = notification.notification_data || {};
+            const priority = notification.priority || 'high';
+
+            const executionUrgency = priority === 'high'
+              ? Date.now()
+              : priority === 'medium'
+                ? Date.now() + (60 * 1000)
+                : Date.now() + (5 * 60 * 1000);
+
+            globalDialogManager.showTradeSignal({
+              symbol: notificationData.symbol || 'Unknown',
+              direction: notificationData.direction || 'BUY',
+              entryPrice: notificationData.entryPrice || notificationData.entry_price || 0,
+              stopLoss: notificationData.stopLoss || notificationData.stop_loss || 0,
+              takeProfit: notificationData.takeProfit || notificationData.take_profit || 0,
+              confidence: notificationData.confidence || 0,
+              setupType: notificationData.setupType || notificationData.setup_type || 'Unknown',
+              reasoning: notificationData.reasoning || notification.message || '',
+              priority: priority,
+              executionUrgency: executionUrgency,
+              expectedProfit: notificationData.expectedProfit || notificationData.expected_profit,
+              riskReward: notificationData.riskReward || notificationData.risk_reward
+            }, priority);
+
+            globalToastManager.info(
+              'Trade Signal',
+              `${priority.toUpperCase()} priority signal on ${notificationData.symbol}`,
+              priority === 'high' ? 0 : 5000
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(goalAchievementChannel);
+      supabase.removeChannel(tradeClosureChannel);
+      supabase.removeChannel(tradeSignalChannel);
+    };
+  }, [user]);
+
+  const formatTimeElapsed = (startTime: string): string => {
+    const start = new Date(startTime).getTime();
+    const now = Date.now();
+    const diff = now - start;
+
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
+  };
 
   if (loading) {
     return <LoadingFallback />;
@@ -275,7 +445,9 @@ export default function App() {
   return (
     <DatabaseErrorBoundary>
       <ConfirmDialogProvider>
-        <AppRoutes />
+        <GlobalDialogProvider>
+          <AppRoutes />
+        </GlobalDialogProvider>
       </ConfirmDialogProvider>
     </DatabaseErrorBoundary>
   );

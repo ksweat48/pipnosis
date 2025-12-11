@@ -1,0 +1,76 @@
+import TinyEmitter from 'tiny-emitter';
+
+export type DialogType = 'goal_achieved' | 'trade_closed' | 'trade_signal';
+
+export interface DialogData {
+  type: DialogType;
+  data: any;
+  priority?: 'low' | 'medium' | 'high';
+  timestamp: number;
+}
+
+class GlobalDialogManager {
+  private emitter = new TinyEmitter();
+  private dialogQueue: DialogData[] = [];
+  private currentDialog: DialogData | null = null;
+
+  showDialog(type: DialogType, data: any, priority: 'low' | 'medium' | 'high' = 'medium') {
+    const dialogData: DialogData = {
+      type,
+      data,
+      priority,
+      timestamp: Date.now()
+    };
+
+    if (this.currentDialog) {
+      this.dialogQueue.push(dialogData);
+    } else {
+      this.currentDialog = dialogData;
+      this.emitter.emit('dialog', dialogData);
+    }
+  }
+
+  showGoalAchieved(data: any) {
+    this.showDialog('goal_achieved', data, 'high');
+  }
+
+  showTradeClosed(data: any) {
+    this.showDialog('trade_closed', data, 'medium');
+  }
+
+  showTradeSignal(data: any, priority: 'low' | 'medium' | 'high' = 'high') {
+    this.showDialog('trade_signal', data, priority);
+  }
+
+  closeDialog() {
+    this.currentDialog = null;
+
+    if (this.dialogQueue.length > 0) {
+      const nextDialog = this.dialogQueue.shift();
+      if (nextDialog) {
+        this.currentDialog = nextDialog;
+        this.emitter.emit('dialog', nextDialog);
+      }
+    } else {
+      this.emitter.emit('dialog', null);
+    }
+  }
+
+  onDialog(callback: (dialog: DialogData | null) => void) {
+    this.emitter.on('dialog', callback);
+  }
+
+  offDialog(callback: (dialog: DialogData | null) => void) {
+    this.emitter.off('dialog', callback);
+  }
+
+  getCurrentDialog(): DialogData | null {
+    return this.currentDialog;
+  }
+
+  getQueueLength(): number {
+    return this.dialogQueue.length;
+  }
+}
+
+export const globalDialogManager = new GlobalDialogManager();

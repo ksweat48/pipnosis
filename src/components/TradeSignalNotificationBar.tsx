@@ -1,0 +1,225 @@
+import { useState, useEffect } from 'react';
+import { TrendingUp, TrendingDown, X, Eye, Clock, AlertCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+interface TradeSignalData {
+  symbol: string;
+  direction: 'BUY' | 'SELL';
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit: number;
+  confidence: number;
+  setupType: string;
+  reasoning: string;
+  priority: 'low' | 'medium' | 'high';
+  executionUrgency?: number;
+  expectedProfit?: number;
+  riskReward?: number;
+}
+
+interface TradeSignalNotificationBarProps {
+  signal: TradeSignalData;
+  onDismiss: () => void;
+  position?: 'top' | 'bottom';
+}
+
+export function TradeSignalNotificationBar({
+  signal,
+  onDismiss,
+  position = 'top'
+}: TradeSignalNotificationBarProps) {
+  const navigate = useNavigate();
+  const [timeRemaining, setTimeRemaining] = useState<string>('');
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    setIsVisible(true);
+
+    if (signal.executionUrgency) {
+      const interval = setInterval(() => {
+        const now = Date.now();
+        const diff = signal.executionUrgency! - now;
+
+        if (diff <= 0) {
+          setTimeRemaining('Execute now!');
+          clearInterval(interval);
+        } else {
+          const seconds = Math.floor(diff / 1000);
+          const minutes = Math.floor(seconds / 60);
+
+          if (minutes > 0) {
+            setTimeRemaining(`Execute within ${minutes}m ${seconds % 60}s`);
+          } else {
+            setTimeRemaining(`Execute within ${seconds}s`);
+          }
+        }
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [signal.executionUrgency]);
+
+  useEffect(() => {
+    if (signal.priority === 'high') {
+      try {
+        const audio = new Audio('/notification-sound.mp3');
+        audio.volume = 0.5;
+        audio.play().catch(() => {});
+      } catch (error) {
+        console.log('[TradeSignal] Could not play notification sound');
+      }
+    }
+
+    if (signal.priority === 'low') {
+      const timer = setTimeout(() => {
+        handleDismiss();
+      }, 30000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [signal.priority]);
+
+  const handleDismiss = () => {
+    setIsVisible(false);
+    setTimeout(onDismiss, 300);
+  };
+
+  const handleViewTrade = () => {
+    navigate('/ai-trade');
+    handleDismiss();
+  };
+
+  const priorityConfig = {
+    high: {
+      bg: 'bg-red-600',
+      border: 'border-red-500',
+      text: 'text-red-100',
+      glow: 'shadow-red-500/50',
+      badge: 'bg-red-500 text-white',
+      urgency: 'Market Execution',
+      pulse: true
+    },
+    medium: {
+      bg: 'bg-yellow-600',
+      border: 'border-yellow-500',
+      text: 'text-yellow-100',
+      glow: 'shadow-yellow-500/50',
+      badge: 'bg-yellow-500 text-gray-900',
+      urgency: timeRemaining || 'Execute within 1 minute',
+      pulse: false
+    },
+    low: {
+      bg: 'bg-blue-600',
+      border: 'border-blue-500',
+      text: 'text-blue-100',
+      glow: 'shadow-blue-500/50',
+      badge: 'bg-blue-500 text-white',
+      urgency: timeRemaining || 'Execute within 5 minutes',
+      pulse: false
+    }
+  };
+
+  const config = priorityConfig[signal.priority];
+  const directionIcon = signal.direction === 'BUY' ? TrendingUp : TrendingDown;
+  const DirectionIcon = directionIcon;
+
+  const positionClass = position === 'top' ? 'top-0' : 'bottom-0';
+  const slideAnimation = position === 'top'
+    ? 'animate-slide-in-from-top'
+    : 'animate-slide-in-from-bottom';
+
+  return (
+    <div
+      className={`
+        fixed ${positionClass} left-0 right-0 z-[9999]
+        ${isVisible ? slideAnimation : 'translate-y-[-100%]'}
+        transition-transform duration-300
+      `}
+    >
+      <div
+        className={`
+          ${config.bg} ${config.text} ${config.border}
+          border-b-4 shadow-2xl ${config.glow}
+          ${config.pulse ? 'animate-pulse-glow' : ''}
+          px-4 py-3 sm:px-6
+        `}
+      >
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <DirectionIcon className="w-8 h-8 flex-shrink-0" />
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="text-lg font-bold">
+                    {signal.direction} {signal.symbol}
+                  </h3>
+                  <span className={`${config.badge} px-2 py-0.5 rounded text-xs font-bold`}>
+                    {signal.priority.toUpperCase()} PRIORITY
+                  </span>
+                  <span className="text-sm opacity-90">
+                    {signal.confidence}% Confidence
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <div className="flex items-center gap-1">
+                    <Clock className="w-4 h-4" />
+                    <span className="font-semibold">{config.urgency}</span>
+                  </div>
+                  <span>Entry: {signal.entryPrice.toFixed(5)}</span>
+                  <span>SL: {signal.stopLoss.toFixed(5)}</span>
+                  <span>TP: {signal.takeProfit.toFixed(5)}</span>
+                  {signal.riskReward && (
+                    <span className="font-semibold">R:R 1:{signal.riskReward.toFixed(2)}</span>
+                  )}
+                </div>
+
+                {signal.setupType && (
+                  <div className="text-xs opacity-90 mt-1 truncate">
+                    Setup: {signal.setupType}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={handleViewTrade}
+                className="
+                  bg-white text-gray-900 hover:bg-gray-100
+                  px-4 py-2 rounded-lg font-semibold
+                  flex items-center gap-2
+                  transition-colors
+                  shadow-lg
+                "
+              >
+                <Eye className="w-4 h-4" />
+                <span className="hidden sm:inline">View Trade</span>
+              </button>
+
+              <button
+                onClick={handleDismiss}
+                className="
+                  bg-white/20 hover:bg-white/30
+                  p-2 rounded-lg
+                  transition-colors
+                "
+                aria-label="Dismiss notification"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {signal.priority === 'high' && (
+            <div className="mt-2 flex items-start gap-2 text-sm bg-white/10 rounded p-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <p className="opacity-90">{signal.reasoning}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

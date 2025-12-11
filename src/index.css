@@ -185,6 +185,39 @@
   }
 }
 
+@keyframes slideInFromTop {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInFromBottom {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 20px currentColor;
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 40px currentColor;
+    opacity: 0.9;
+  }
+}
+
 @layer utilities {
   .animate-slide-in-right {
     animation: slideInRight 0.3s ease-out;
@@ -200,6 +233,18 @@
 
   .animate-subtle-zoom {
     animation: subtleZoom 20s ease-in-out infinite;
+  }
+
+  .animate-slide-in-from-top {
+    animation: slideInFromTop 0.4s ease-out;
+  }
+
+  .animate-slide-in-from-bottom {
+    animation: slideInFromBottom 0.4s ease-out;
+  }
+
+  .animate-pulse-glow {
+    animation: pulseGlow 2s ease-in-out infinite;
   }
 
   /* Safe area utilities for mobile notch/home indicator */
