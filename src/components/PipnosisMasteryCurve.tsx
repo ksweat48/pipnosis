@@ -184,9 +184,14 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
   }, [loading, chartData.length]);
 
   useEffect(() => {
-    if (!chartRef.current || chartData.length === 0) return;
+    if (!chartRef.current || chartData.length === 0) {
+      console.log('[Mastery Curve] Skipping data update:', { hasChart: !!chartRef.current, dataLength: chartData.length });
+      return;
+    }
 
     try {
+      console.log('[Mastery Curve] Setting chart data:', { dataPoints: chartData.length, sampleData: chartData[0] });
+
       const masteryData: LineData[] = chartData.map(d => ({
         time: d.date as any,
         value: d.masteryScore
@@ -217,11 +222,20 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
         value: d.avoidPatternSuccess
       }));
 
+      console.log('[Mastery Curve] Data prepared:', {
+        masteryPoints: masteryData.length,
+        winRatePoints: winRateData.length,
+        sampleMastery: masteryData[0],
+        sampleWinRate: winRateData[0]
+      });
+
       if (seriesRefs.current.mastery) {
         seriesRefs.current.mastery.setData(masteryData);
+        console.log('[Mastery Curve] Set mastery data');
       }
       if (seriesRefs.current.winRate) {
         seriesRefs.current.winRate.setData(winRateData);
+        console.log('[Mastery Curve] Set win rate data');
       }
       if (seriesRefs.current.evScore) {
         seriesRefs.current.evScore.setData(evData);
@@ -237,6 +251,7 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
       }
 
       chartRef.current.timeScale().fitContent();
+      console.log('[Mastery Curve] Chart data set and fitted');
     } catch (error) {
       console.error('[Mastery Curve] Error updating chart data:', error);
     }
