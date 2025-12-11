@@ -691,7 +691,7 @@ export const GoalSessionDashboard: React.FC = () => {
             <div className="absolute inset-0 bg-gradient-to-r from-gray-700 to-gray-800" />
             <div
               className="relative bg-gradient-to-r from-emerald-500 via-blue-500 to-emerald-400 h-full transition-all duration-500 shadow-lg"
-              style={{ width: `${Math.min(progress?.session?.progress_percentage || 0, 100)}%` }}
+              style={{ width: `${Math.max(0, Math.min(progress?.session?.progress_percentage || 0, 100))}%` }}
             >
               <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/20 to-transparent" />
             </div>

@@ -5,6 +5,8 @@
  * and provide compile-time safety for all position operations.
  */
 
+import { calculateDollarPerPip, calculatePipDistance, roundPnL } from '../utils/currencyHelpers';
+
 export type PositionStatus = 'pending' | 'open' | 'closed' | 'rejected' | 'soft_closing';
 export type PositionDirection = 'buy' | 'sell';
 export type OrderType = 'market' | 'limit';
@@ -196,9 +198,6 @@ export function calculatePnL(
   lotSize: number,
   symbol: string
 ): number {
-  // Lazy import to avoid circular dependencies
-  const { calculateDollarPerPip, calculatePipDistance, roundPnL } = require('../utils/currencyHelpers');
-
   // Calculate pip distance between entry and current price
   const pipDistance = calculatePipDistance(symbol, entryPrice, currentPrice);
 

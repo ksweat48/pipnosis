@@ -604,7 +604,8 @@ class GoalSessionLiveEngine {
       const riskPips = Math.abs(trade.entryPrice - trade.stopLoss) / 0.0001;
       const rewardPips = Math.abs(trade.takeProfit - trade.entryPrice) / 0.0001;
       const riskReward = rewardPips / riskPips;
-      const expectedProfit = rewardPips * 10 * trade.positionSize;
+      const dollarPerPip = calculateDollarPerPip(selectedSymbol, trade.positionSize);
+      const expectedProfit = rewardPips * dollarPerPip;
 
       const executionResult = await tradeExecutionEngine.executeSignal(
         {
@@ -1113,7 +1114,9 @@ class GoalSessionLiveEngine {
     const riskPips = Math.abs(trade.entryPrice - trade.stopLoss) / 0.0001;
     const rewardPips = Math.abs(trade.takeProfit - trade.entryPrice) / 0.0001;
     const riskReward = rewardPips / riskPips;
-    const expectedProfit = rewardPips * 10 * trade.positionSize;
+    const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.positionSize);
+    const expectedProfit = rewardPips * dollarPerPip;
+    const riskDollars = riskPips * dollarPerPip;
 
     // Route through trade-execution-engine to create simulated_positions
     const executionResult = await tradeExecutionEngine.executeSignal(
@@ -1148,7 +1151,7 @@ class GoalSessionLiveEngine {
       // Send detailed trade execution message to AI conversation
       const message = `🎯 Trade Executed: ${trade.symbol} ${trade.direction.toUpperCase()} @ ${trade.entryPrice.toFixed(5)}\n` +
         `📊 Entry: ${trade.entryPrice.toFixed(5)} | SL: ${trade.stopLoss.toFixed(5)} | TP: ${trade.takeProfit.toFixed(5)}\n` +
-        `💰 Risk: $${(riskPips * 10 * trade.positionSize).toFixed(2)} | Reward: $${expectedProfit.toFixed(2)} | R:R ${riskReward.toFixed(2)}\n` +
+        `💰 Risk: $${riskDollars.toFixed(2)} | Reward: $${expectedProfit.toFixed(2)} | R:R ${riskReward.toFixed(2)}\n` +
         `🎲 Confidence: ${trade.confidence}% | Setup: ${trade.triggerType}\n` +
         `🔄 Monitoring every 15 seconds for TP/SL hit...`;
 
@@ -2774,11 +2777,11 @@ Keep response under 100 words, educational tone.`;
       // Get goal target
       const { data: session } = await supabase
         .from('goal_sessions')
-        .select('target_amount')
+        .select('target_value')
         .eq('id', this.activeSession)
         .single();
 
-      const targetAmount = parseFloat(session?.target_amount || '0');
+      const targetAmount = parseFloat(session?.target_value || '0');
       const progressPercent = targetAmount > 0 ? (totalProfit / targetAmount) * 100 : 0;
 
       // Update goal_sessions with current progress
