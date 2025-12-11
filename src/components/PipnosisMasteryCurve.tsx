@@ -137,38 +137,32 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
 
       seriesRefs.current.mastery = chart.addSeries('Line', {
         color: '#f59e0b',
-        lineWidth: 3,
-        priceLineVisible: false
+        lineWidth: 3
       });
 
       seriesRefs.current.winRate = chart.addSeries('Line', {
         color: '#3b82f6',
-        lineWidth: 2,
-        priceLineVisible: false
+        lineWidth: 2
       });
 
       seriesRefs.current.evScore = chart.addSeries('Line', {
         color: '#14b8a6',
-        lineWidth: 2,
-        priceLineVisible: false
+        lineWidth: 2
       });
 
       seriesRefs.current.calibration = chart.addSeries('Line', {
         color: '#a855f7',
-        lineWidth: 2,
-        priceLineVisible: false
+        lineWidth: 2
       });
 
       seriesRefs.current.llmPassRate = chart.addSeries('Line', {
         color: '#22c55e',
-        lineWidth: 2,
-        priceLineVisible: false
+        lineWidth: 2
       });
 
       seriesRefs.current.avoidPattern = chart.addSeries('Line', {
         color: '#ef4444',
-        lineWidth: 2,
-        priceLineVisible: false
+        lineWidth: 2
       });
 
     } catch (error) {
