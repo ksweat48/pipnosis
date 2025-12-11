@@ -352,9 +352,9 @@ export async function initializeGoalSession(
       return null;
     }
 
-    // Get open trades from database
+    // Get open trades from database (goal_session_trades table)
     const { data: positions } = await client
-      .from('simulated_positions')
+      .from('goal_session_trades')
       .select('*')
       .eq('goal_session_id', goalSessionId)
       .eq('status', 'open');

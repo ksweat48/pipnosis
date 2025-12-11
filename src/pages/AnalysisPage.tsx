@@ -81,15 +81,7 @@ export function AnalysisPage() {
         });
       }
 
-      // Fetch from trade_history
-      const { data: tradesData, error: tradesError } = await supabase
-        .from('trade_history')
-        .select('symbol, profit_loss')
-        .eq('user_id', user?.id);
-
-      if (tradesError) throw tradesError;
-
-      // Fetch from goal_session_trades
+      // Fetch from goal_session_trades (single source of truth)
       const { data: goalTradesData, error: goalTradesError } = await supabase
         .from('goal_session_trades')
         .select('symbol, profit_loss')
@@ -100,11 +92,11 @@ export function AnalysisPage() {
 
       if (goalTradesError) throw goalTradesError;
 
-      // Combine both trade sources
-      const allTrades = [
-        ...(tradesData || []).map(t => ({ symbol: t.symbol, profit_loss: t.profit_loss })),
-        ...(goalTradesData || []).map(t => ({ symbol: t.symbol, profit_loss: t.profit_loss }))
-      ];
+      // Use only goal_session_trades (no legacy trade_history)
+      const allTrades = (goalTradesData || []).map(t => ({
+        symbol: t.symbol,
+        profit_loss: t.profit_loss
+      }));
 
       const symbolStats = allTrades.reduce((acc: any, trade) => {
         if (!acc[trade.symbol]) {

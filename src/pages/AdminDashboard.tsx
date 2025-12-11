@@ -15,7 +15,6 @@ import { ServerSidePollingMonitor } from '@/components/ServerSidePollingMonitor'
 import { LLMTokenUsageDashboard } from '@/components/LLMTokenUsageDashboard';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
-import { simpleAutoBacktestService } from '@/services/simple-auto-backtest-service';
 import {
   Database,
   BarChart3,
@@ -80,8 +79,7 @@ export function AdminDashboard() {
     try {
       setLoading(true);
 
-      // Get auto-backtest status
-      const autoState = await simpleAutoBacktestService.getState();
+      // Backtest system removed - using goal sessions only
 
       // Get skill tracking
       const { data: skillData } = await supabase
@@ -162,18 +160,8 @@ export function AdminDashboard() {
   };
 
   const handleToggleAutoBacktest = async () => {
-    if (!aiMetrics) return;
-
-    try {
-      if (aiMetrics.isAutoRunning) {
-        await simpleAutoBacktestService.stop();
-      } else {
-        await simpleAutoBacktestService.start();
-      }
-      await loadAIMetrics();
-    } catch (error) {
-      console.error('[Admin Dashboard] Error toggling auto-backtest:', error);
-    }
+    // Backtest system removed - using goal sessions only
+    console.log('[Admin Dashboard] Auto-backtest system removed');
   };
 
   return (

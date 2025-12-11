@@ -452,24 +452,18 @@ class SmartGoalSessionManager {
       const openTrades = trades.filter(t => t.status === 'open');
       const winningTrades = closedTrades.filter(t => t.profit_loss > 0);
 
-      // Get current P&L from open trades via simulated_positions
+      // Get current P&L from open trades (directly from goal_session_trades)
       let openTradesPnL = 0;
       if (openTrades.length > 0) {
-        const positionIds = openTrades
-          .map(t => t.simulated_position_id)
-          .filter(id => id != null);
-
-        if (positionIds.length > 0) {
-          const { data: positions } = await supabase
-            .from('simulated_positions')
-            .select('current_pnl')
-            .in('id', positionIds)
-            .eq('status', 'open');
-
-          if (positions && positions.length > 0) {
-            openTradesPnL = positions.reduce((sum, p) => sum + (p.current_pnl || 0), 0);
+        // Calculate unrealized P&L from open trades
+        openTradesPnL = openTrades.reduce((sum, t) => {
+          // If the trade has current_pnl field, use it
+          if (t.current_pnl !== null && t.current_pnl !== undefined) {
+            return sum + t.current_pnl;
           }
-        }
+          // Otherwise calculate from profit_loss if available
+          return sum + (t.profit_loss || 0);
+        }, 0);
       }
 
       const closedProfit = closedTrades.reduce((sum, t) => sum + (t.profit_loss || 0), 0);

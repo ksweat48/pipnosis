@@ -7,7 +7,6 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { supabase } from '../lib/supabase';
-import { simpleAutoBacktestService } from '../services/simple-auto-backtest-service';
 import {
   Activity,
   AlertCircle,
@@ -26,7 +25,6 @@ export default function SystemDiagnosticsPage() {
   const [testRunning, setTestRunning] = useState(false);
   const [testResults, setTestResults] = useState<any>(null);
   const [trainingLabHealth, setTrainingLabHealth] = useState<any>(null);
-  const [autoBacktestState, setAutoBacktestState] = useState<any>(null);
   const [healthLoading, setHealthLoading] = useState(true);
 
   const pullToRefresh = usePullToRefresh({
@@ -52,10 +50,6 @@ export default function SystemDiagnosticsPage() {
 
     setHealthLoading(true);
     try {
-      // Check auto-backtest service state
-      const state = await simpleAutoBacktestService.getState();
-      setAutoBacktestState(state);
-
       // Check database tables exist and have data
       const checks = await Promise.all([
         supabase.from('backtest_sessions').select('id', { count: 'exact', head: true }),
@@ -379,25 +373,7 @@ export default function SystemDiagnosticsPage() {
           Learning pipeline monitoring removed
         </div>
 
-        {/* Cross-Device Training Status */}
-        {autoBacktestState && autoBacktestState.startedFromDevice && (
-          <div className="bg-blue-900/20 border-l-4 border-blue-400 rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <Activity className="w-5 h-5 text-blue-400 mt-0.5" />
-              <div>
-                <h3 className="text-white font-semibold mb-1">Cross-Device Training Active</h3>
-                <p className="text-sm text-blue-200">
-                  Auto-backtest started from: <strong>{autoBacktestState.startedFromDevice}</strong>
-                </p>
-                {autoBacktestState.sessionId && (
-                  <p className="text-xs text-blue-300 mt-1">
-                    Session ID: {autoBacktestState.sessionId.slice(-12)}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Backtest system removed - goal sessions only */}
 
         {/* Info Section */}
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-6">

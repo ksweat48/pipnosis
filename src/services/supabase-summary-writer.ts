@@ -146,7 +146,7 @@ class SupabaseSummaryWriter {
 
     const tradeRecords = trades.map(trade => ({
       user_id: userId,
-      session_id: sessionId,
+      goal_session_id: sessionId,
       symbol: trade.symbol,
       timeframe: trade.timeframe,
       direction: trade.direction,
@@ -155,20 +155,18 @@ class SupabaseSummaryWriter {
       position_size: trade.positionSize,
       stop_loss: trade.stopLoss,
       take_profit: trade.takeProfit,
-      pnl: trade.pnl,
-      pnl_percent: trade.pnlPercent,
-      outcome: trade.outcome,
-      entry_time: trade.entryTime,
-      exit_time: trade.exitTime,
-      exit_reason: trade.exitReason,
+      profit_loss: trade.pnl,
+      status: trade.outcome === 'win' || trade.outcome === 'loss' ? 'closed' : trade.outcome,
+      opened_at: trade.entryTime,
+      closed_at: trade.exitTime,
+      close_reason: trade.exitReason,
       setup_type: trade.setupType,
-      confidence: trade.confidence,
-      ai_reasoning: trade.aiReasoning,
-      duration_minutes: trade.durationMinutes
+      confidence_score: trade.confidence,
+      ai_reasoning: trade.aiReasoning
     }));
 
     const { data, error } = await supabase
-      .from('trade_history')
+      .from('goal_session_trades')
       .insert(tradeRecords)
       .select();
 
@@ -177,7 +175,7 @@ class SupabaseSummaryWriter {
       throw error;
     }
 
-    console.log(`[Summary Writer] Wrote ${tradeRecords.length} trade records`);
+    console.log(`[Summary Writer] Wrote ${tradeRecords.length} trade records to goal_session_trades`);
     return data || [];
   }
 
@@ -305,7 +303,7 @@ class SupabaseSummaryWriter {
   ): Promise<void> {
     const tradeRecord = {
       user_id: userId,
-      session_id: sessionId,
+      goal_session_id: sessionId,
       symbol: trade.symbol,
       timeframe: trade.timeframe,
       direction: trade.direction,
@@ -314,20 +312,18 @@ class SupabaseSummaryWriter {
       position_size: trade.positionSize,
       stop_loss: trade.stopLoss,
       take_profit: trade.takeProfit,
-      pnl: trade.pnl,
-      pnl_percent: trade.pnlPercent,
-      outcome: trade.outcome,
-      entry_time: trade.entryTime,
-      exit_time: trade.exitTime,
-      exit_reason: trade.exitReason,
+      profit_loss: trade.pnl,
+      status: trade.outcome === 'win' || trade.outcome === 'loss' ? 'closed' : trade.outcome,
+      opened_at: trade.entryTime,
+      closed_at: trade.exitTime,
+      close_reason: trade.exitReason,
       setup_type: trade.setupType,
-      confidence: trade.confidence,
-      ai_reasoning: trade.aiReasoning,
-      duration_minutes: trade.durationMinutes
+      confidence_score: trade.confidence,
+      ai_reasoning: trade.aiReasoning
     };
 
     const { error } = await supabase
-      .from('trade_history')
+      .from('goal_session_trades')
       .insert(tradeRecord);
 
     if (error) {
@@ -335,7 +331,7 @@ class SupabaseSummaryWriter {
       throw error;
     }
 
-    console.log(`[Summary Writer] Wrote trade ${trade.tradeNumber} for session ${sessionId}`);
+    console.log(`[Summary Writer] Wrote trade ${trade.tradeNumber} for session ${sessionId} to goal_session_trades`);
   }
 
   getWriteStats(): {

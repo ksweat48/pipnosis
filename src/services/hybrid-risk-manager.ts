@@ -119,6 +119,7 @@ class HybridRiskManager {
 
   /**
    * Get current session exposure state
+   * CRITICAL: Only counts trades from the ACTIVE goal session
    */
   async getSessionExposure(userId: string, sessionId: string, isBacktest: boolean = false): Promise<SessionExposureState> {
     // In backtest mode, skip database queries (use backtest engine's state instead)
@@ -127,16 +128,18 @@ class HybridRiskManager {
     }
 
     try {
-      // Query all open trades for this user in current session
+      // CRITICAL: Query only trades from the ACTIVE goal session
+      // This ensures risk limits apply only to current session, not historical sessions
       const { data: openTrades, error } = await supabase
-        .from('trade_history')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', userId)
+        .eq('goal_session_id', sessionId)
         .eq('status', 'open')
         .order('opened_at', { ascending: false });
 
       if (error) {
-        // Gracefully fallback - don't spam errors in backtest
+        console.error('[Hybrid Risk] Error querying goal_session_trades:', error);
         return this.getEmptyExposureState(userId);
       }
 
@@ -425,7 +428,7 @@ class HybridRiskManager {
   }
 
   /**
-   * Get recent performance metrics
+   * Get recent performance metrics from closed goal trades
    */
   private async getRecentPerformance(userId: string, isBacktest: boolean = false): Promise<{
     winRate: number;
@@ -446,12 +449,13 @@ class HybridRiskManager {
     }
 
     try {
-      // Get last 50 trades
+      // Get last 50 closed trades from goal_session_trades
       const { data: trades } = await supabase
-        .from('trade_history')
-        .select('pnl, status')
+        .from('goal_session_trades')
+        .select('profit_loss, status')
         .eq('user_id', userId)
-        .in('status', ['closed', 'stopped', 'target_hit'])
+        .eq('status', 'closed')
+        .not('closed_at', 'is', null)
         .order('closed_at', { ascending: false })
         .limit(50);
 
@@ -465,22 +469,22 @@ class HybridRiskManager {
         };
       }
 
-      const wins = trades.filter(t => t.pnl > 0);
-      const losses = trades.filter(t => t.pnl < 0);
+      const wins = trades.filter(t => t.profit_loss > 0);
+      const losses = trades.filter(t => t.profit_loss < 0);
       const winRate = (wins.length / trades.length) * 100;
 
-      const totalWins = wins.reduce((sum, t) => sum + t.pnl, 0);
-      const totalLosses = Math.abs(losses.reduce((sum, t) => sum + t.pnl, 0));
+      const totalWins = wins.reduce((sum, t) => sum + t.profit_loss, 0);
+      const totalLosses = Math.abs(losses.reduce((sum, t) => sum + t.profit_loss, 0));
       const profitFactor = totalLosses > 0 ? totalWins / totalLosses : 1.0;
 
       // Calculate streaks
       let winStreak = 0;
       let lossStreak = 0;
       for (const trade of trades) {
-        if (trade.pnl > 0) {
+        if (trade.profit_loss > 0) {
           winStreak++;
           lossStreak = 0;
-        } else if (trade.pnl < 0) {
+        } else if (trade.profit_loss < 0) {
           lossStreak++;
           winStreak = 0;
         }
@@ -489,7 +493,7 @@ class HybridRiskManager {
 
       // Last 10 trades win rate
       const last10 = trades.slice(0, 10);
-      const last10Wins = last10.filter(t => t.pnl > 0).length;
+      const last10Wins = last10.filter(t => t.profit_loss > 0).length;
       const last10TradesWinRate = last10.length > 0 ? (last10Wins / last10.length) * 100 : 50;
 
       return {

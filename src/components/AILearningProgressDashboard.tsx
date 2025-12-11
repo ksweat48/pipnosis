@@ -92,9 +92,8 @@ function AILearningProgressDashboard() {
             : 0
         };
 
-        // Fetch auto-backtest state for 30-day progress
-        const { simpleAutoBacktestService } = await import('../services/simple-auto-backtest-service');
-        const state = await simpleAutoBacktestService.getState();
+        // Backtest system removed - using goal sessions only
+        const state = null;
 
         // Create a snapshot of all data for deep equality check
         const newDataSnapshot = JSON.stringify({
