@@ -53,63 +53,96 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
   useEffect(() => {
     if (!chartContainerRef.current || loading || chartData.length === 0) return;
 
-    // Ensure container has valid dimensions before creating chart
-    const containerWidth = chartContainerRef.current.clientWidth;
-    if (!containerWidth || containerWidth < 100) {
-      console.warn('[Mastery Curve] Container not ready yet, width:', containerWidth);
-      return;
-    }
-
-    // Clean up existing chart first
-    if (chartRef.current) {
-      chartRef.current.remove();
-      chartRef.current = null;
-    }
-
-    try {
-      const chart = createChart(chartContainerRef.current, {
-        width: containerWidth,
-        height: 400,
-        layout: {
-          background: { color: 'transparent' },
-          textColor: '#9ca3af'
-        },
-        grid: {
-          vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
-          horzLines: { color: 'rgba(255, 255, 255, 0.05)' }
-        },
-        timeScale: {
-          borderColor: '#374151',
-          timeVisible: true
-        },
-        rightPriceScale: {
-          borderColor: '#374151',
-          scaleMargins: {
-            top: 0.1,
-            bottom: 0.1
-          }
-        },
-        crosshair: {
-          vertLine: {
-            color: '#9ca3af',
-            width: 1,
-            style: 1,
-            labelBackgroundColor: '#1f2937'
-          },
-          horzLine: {
-            color: '#9ca3af',
-            width: 1,
-            style: 1,
-            labelBackgroundColor: '#1f2937'
-          }
-        }
-      });
-
-      // Verify chart was created successfully
-      if (!chart || typeof chart.addLineSeries !== 'function') {
-        console.error('[Mastery Curve] Chart creation failed - invalid chart object');
+    // Use a small delay to ensure DOM is fully rendered and stable
+    const timeoutId = setTimeout(() => {
+      if (!chartContainerRef.current) {
+        console.warn('[Mastery Curve] Container ref lost during timeout');
         return;
       }
+
+      // Ensure container has valid dimensions before creating chart
+      const containerWidth = chartContainerRef.current.clientWidth;
+      const containerHeight = chartContainerRef.current.clientHeight;
+
+      console.log('[Mastery Curve] Attempting chart creation:', {
+        width: containerWidth,
+        height: containerHeight,
+        parentWidth: chartContainerRef.current.parentElement?.clientWidth,
+        offsetWidth: chartContainerRef.current.offsetWidth,
+        dataPoints: chartData.length
+      });
+
+      if (!containerWidth || containerWidth < 100) {
+        console.warn('[Mastery Curve] Container not ready, dimensions:', { containerWidth, containerHeight });
+        return;
+      }
+
+      // Clean up existing chart first
+      if (chartRef.current) {
+        try {
+          chartRef.current.remove();
+        } catch (e) {
+          console.warn('[Mastery Curve] Error removing old chart:', e);
+        }
+        chartRef.current = null;
+      }
+
+      try {
+        console.log('[Mastery Curve] Calling createChart with width:', containerWidth);
+        const chart = createChart(chartContainerRef.current, {
+          width: containerWidth,
+          height: 400,
+          layout: {
+            background: { color: 'transparent' },
+            textColor: '#9ca3af'
+          },
+          grid: {
+            vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
+            horzLines: { color: 'rgba(255, 255, 255, 0.05)' }
+          },
+          timeScale: {
+            borderColor: '#374151',
+            timeVisible: true
+          },
+          rightPriceScale: {
+            borderColor: '#374151',
+            scaleMargins: {
+              top: 0.1,
+              bottom: 0.1
+            }
+          },
+          crosshair: {
+            vertLine: {
+              color: '#9ca3af',
+              width: 1,
+              style: 1,
+              labelBackgroundColor: '#1f2937'
+            },
+            horzLine: {
+              color: '#9ca3af',
+              width: 1,
+              style: 1,
+              labelBackgroundColor: '#1f2937'
+            }
+          }
+        });
+
+        console.log('[Mastery Curve] createChart returned:', {
+          chart,
+          type: typeof chart,
+          hasAddLineSeries: chart && typeof chart.addLineSeries === 'function',
+          chartKeys: chart ? Object.keys(chart).slice(0, 5) : []
+        });
+
+        // Verify chart was created successfully
+        if (!chart || typeof chart.addLineSeries !== 'function') {
+          console.error('[Mastery Curve] Chart creation failed - invalid chart object', {
+            chart,
+            chartType: typeof chart,
+            hasAddLineSeries: chart && typeof chart.addLineSeries
+          });
+          return;
+        }
 
       chartRef.current = chart;
 
@@ -155,26 +188,22 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
         priceLineVisible: false
       });
 
-      const handleResize = () => {
-        if (chartRef.current && chartContainerRef.current) {
-          chartRef.current.applyOptions({
-            width: chartContainerRef.current.clientWidth
-          });
-        }
-      };
-
-      window.addEventListener('resize', handleResize);
-
-      return () => {
-        window.removeEventListener('resize', handleResize);
-        if (chartRef.current) {
-          chartRef.current.remove();
-          chartRef.current = null;
-        }
-      };
     } catch (error) {
       console.error('[Mastery Curve] Error initializing chart:', error);
     }
+    }, 100); // 100ms delay to ensure DOM is ready
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (chartRef.current) {
+        try {
+          chartRef.current.remove();
+        } catch (e) {
+          console.warn('[Mastery Curve] Error cleaning up chart:', e);
+        }
+        chartRef.current = null;
+      }
+    };
   }, [loading, chartData.length]);
 
   useEffect(() => {
