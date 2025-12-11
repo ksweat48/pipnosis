@@ -13,6 +13,10 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
     include: ['lightweight-charts'],
+    esbuildOptions: {
+      // Preserve lightweight-charts structure
+      keepNames: true
+    }
   },
   build: {
     // Production optimizations - using esbuild for better library compatibility
@@ -26,7 +30,9 @@ export default defineConfig({
           ui: ['lucide-react'],
           supabase: ['@supabase/supabase-js'],
           'lightweight-charts': ['lightweight-charts']
-        }
+        },
+        // Preserve function/class names for lightweight-charts
+        preserveModules: false
       }
     },
     // Increase chunk size warning limit
