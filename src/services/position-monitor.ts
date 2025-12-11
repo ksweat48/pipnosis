@@ -282,6 +282,62 @@ class PositionMonitorService {
       return;
     }
 
+    // CRITICAL: Check if goal is reached FIRST (before SL/TP check)
+    let shouldCloseForGoal = false;
+    if (position.goal_session_id) {
+      const { data: goalSession } = await supabase
+        .from('goal_sessions')
+        .select('target_value, auto_close_on_goal, goal_achieved_at')
+        .eq('id', position.goal_session_id)
+        .maybeSingle();
+
+      if (goalSession && !goalSession.goal_achieved_at && pnl >= goalSession.target_value) {
+        console.log(`[PositionMonitor] 🎯 GOAL REACHED! Target: $${goalSession.target_value}, Current P&L: $${pnl.toFixed(2)}`);
+
+        // Mark goal as met (even if auto-close is disabled, we track this)
+        await supabase
+          .from('goal_session_trades')
+          .update({
+            goal_met_at: new Date().toISOString(),
+            goal_met_price: actualCurrentPrice,
+            unrealized_goal_achievement: true
+          })
+          .eq('id', position.id);
+
+        await supabase
+          .from('goal_sessions')
+          .update({
+            goal_achieved_at: new Date().toISOString(),
+            goal_achieved_pnl: pnl
+          })
+          .eq('id', position.goal_session_id);
+
+        // Create permanent achievement record
+        await supabase.from('goal_achievements').insert({
+          user_id: user.id,
+          goal_session_id: position.goal_session_id,
+          achieved_pnl: pnl,
+          target_amount: goalSession.target_value,
+          trade_id: position.id,
+          symbol: position.symbol,
+          entry_price: position.entry_price,
+          current_price_at_achievement: actualCurrentPrice,
+          take_profit: position.take_profit,
+          stop_loss_before: position.stop_loss
+        });
+
+        if (goalSession.auto_close_on_goal !== false) {
+          console.log(`[PositionMonitor] Auto-close enabled - closing position at goal`);
+          shouldCloseForGoal = true;
+        }
+      }
+    }
+
+    if (shouldCloseForGoal) {
+      await this.autoClosePosition(position, actualCurrentPrice, 'goal_met');
+      return;
+    }
+
     const shouldCloseAtStopLoss = position.direction === 'buy'
       ? actualCurrentPrice <= position.stop_loss
       : actualCurrentPrice >= position.stop_loss;
@@ -340,18 +396,37 @@ class PositionMonitorService {
   private async autoClosePosition(
     position: MonitoredPosition,
     closePrice: number,
-    reason: 'stop_loss' | 'take_profit'
+    reason: 'stop_loss' | 'take_profit' | 'goal_met'
   ) {
     try {
       // Use the secure RPC function to close
       const result = await positionService.closePosition(position.id, closePrice, reason);
 
       if (result.success && result.pnl !== undefined) {
+        const displayReason = reason === 'stop_loss' ? 'SL' : reason === 'take_profit' ? 'TP' : 'GOAL MET';
         prodLogger.position(
-          `AUTO-CLOSED (${reason === 'stop_loss' ? 'SL' : 'TP'})`,
+          `AUTO-CLOSED (${displayReason})`,
           position.symbol,
           result.pnl
         );
+
+        // If goal was met, send special notification
+        if (reason === 'goal_met') {
+          await supabase.from('goal_notifications').insert({
+            goal_session_id: position.goal_session_id,
+            user_id: position.user_id,
+            notification_type: 'goal_achieved',
+            priority: 'urgent',
+            title: '🎯 Goal Achieved!',
+            message: `Your $${position.target_value || 0} goal has been reached! Trade closed at $${result.pnl.toFixed(2)} profit.`,
+            data: {
+              trade_id: position.id,
+              profit: result.pnl,
+              close_reason: 'goal_met'
+            },
+            channels: ['in_app']
+          });
+        }
       }
 
       // Update goal session status if no more open trades
@@ -362,9 +437,10 @@ class PositionMonitorService {
         .eq('status', 'open');
 
       if (!otherTrades || otherTrades.length === 0) {
+        const newStatus = reason === 'goal_met' ? 'goal_achieved' : 'scanning';
         await supabase
           .from('goal_sessions')
-          .update({ status: 'scanning' })
+          .update({ status: newStatus })
           .eq('id', position.goal_session_id);
       }
     } catch (error) {

@@ -7,6 +7,8 @@ import { useAuth } from '../hooks/useAuth';
 import { MarketAnalysisStream } from './MarketAnalysisStream';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { ContinuationDialog } from './ContinuationDialog';
+import { GoalAchievedDialog } from './GoalAchievedDialog';
+import { TradeClosedActionDialog } from './TradeClosedActionDialog';
 import { goalSessionLiveEngine } from '../services/goal-session-live-engine';
 import { supabase } from '../lib/supabase';
 // GoalScanReadinessIndicator removed - using simple indicator
@@ -27,11 +29,16 @@ export const GoalSessionDashboard: React.FC = () => {
   } | null>(null);
   const [continuationLoading, setContinuationLoading] = useState(false);
   const [openTrades, setOpenTrades] = useState<any[]>([]);
+  const [showGoalAchieved, setShowGoalAchieved] = useState(false);
+  const [showTradeClosedAction, setShowTradeClosedAction] = useState(false);
+  const [goalAchievementData, setGoalAchievementData] = useState<any>(null);
+  const [tradeClosedData, setTradeClosedData] = useState<any>(null);
 
   useEffect(() => {
     loadSessionData();
 
-    const interval = setInterval(loadSessionData, 10000);
+    // More frequent updates for real-time progress (every 3 seconds)
+    const interval = setInterval(loadSessionData, 3000);
 
     const handleSessionCreated = () => {
       loadSessionData();
@@ -55,6 +62,86 @@ export const GoalSessionDashboard: React.FC = () => {
       goalScannerTrigger.stopPolling();
     };
   }, [user?.id]); // Use user.id instead of user to prevent re-runs when user object changes
+
+  // Listen for goal achievement notifications
+  useEffect(() => {
+    if (!user || !activeSession) return;
+
+    const channel = supabase
+      .channel('goal-achievements')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'goal_achievements',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('[GoalSessionDashboard] Goal achievement detected!', payload);
+          loadSessionData();
+          // Show goal achieved dialog
+          setGoalAchievementData({
+            goalAmount: activeSession.config.goalAmount,
+            achievedProfit: payload.new.achieved_pnl,
+            symbol: payload.new.symbol,
+            timeElapsed: calculateTimeElapsed(activeSession.startTime),
+            tradesExecuted: 1
+          });
+          setShowGoalAchieved(true);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, activeSession]);
+
+  // Listen for trade closures
+  useEffect(() => {
+    if (!user || !activeSession) return;
+
+    const channel = supabase
+      .channel('trade-closures')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'goal_session_trades',
+          filter: `goal_session_id=eq.${activeSession.sessionId}`
+        },
+        (payload) => {
+          if (payload.new.status === 'closed' && payload.old.status === 'open') {
+            console.log('[GoalSessionDashboard] Trade closed!', payload);
+            const closeReason = payload.new.close_reason || 'manual';
+
+            // Don't show action dialog if goal was met (already showing goal achieved)
+            if (closeReason !== 'goal_met' && !showGoalAchieved) {
+              loadSessionData().then(() => {
+                setTradeClosedData({
+                  symbol: payload.new.symbol,
+                  direction: payload.new.direction,
+                  entryPrice: payload.new.entry_price,
+                  exitPrice: payload.new.exit_price,
+                  profitLoss: payload.new.profit_loss,
+                  closeReason
+                });
+                setShowTradeClosedAction(true);
+              });
+            } else {
+              loadSessionData();
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, activeSession, showGoalAchieved]);
 
   useEffect(() => {
     if (!activeSession) {
@@ -164,6 +251,20 @@ export const GoalSessionDashboard: React.FC = () => {
     }
   };
 
+  const calculateTimeElapsed = (startTime: string): string => {
+    const start = new Date(startTime).getTime();
+    const now = Date.now();
+    const diffMs = now - start;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMins / 60);
+
+    if (diffHours > 0) {
+      const mins = diffMins % 60;
+      return `${diffHours}h ${mins}m`;
+    }
+    return `${diffMins}m`;
+  };
+
   const handleContinuationResponse = async (response: 'continue' | 'stop') => {
     if (!activeSession) return;
 
@@ -182,6 +283,77 @@ export const GoalSessionDashboard: React.FC = () => {
     } finally {
       setContinuationLoading(false);
     }
+  };
+
+  const handleStartNewSession = async () => {
+    if (!user) return;
+
+    // Stop current session
+    if (activeSession) {
+      await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
+    }
+
+    setShowGoalAchieved(false);
+    setShowTradeClosedAction(false);
+
+    // Navigate to start new session (user will use the SmartGoalPanel)
+    await loadSessionData();
+  };
+
+  const handleContinueCurrentSession = async () => {
+    if (!user || !activeSession) return;
+
+    try {
+      // Record user's choice
+      if (tradeClosedData) {
+        await supabase.from('goal_trade_actions').insert({
+          user_id: user.id,
+          goal_session_id: activeSession.sessionId,
+          action_type: 'continue_current',
+          trade_close_reason: tradeClosedData.closeReason,
+          profit_loss: tradeClosedData.profitLoss,
+          cumulative_progress: progress?.stats?.totalProfit || 0,
+          target_value: activeSession.config.goalAmount
+        });
+      }
+
+      setShowTradeClosedAction(false);
+      await loadSessionData();
+    } catch (error) {
+      console.error('[GoalSessionDashboard] Error continuing session:', error);
+    }
+  };
+
+  const handleCloseForNow = async () => {
+    if (!user || !activeSession) return;
+
+    try {
+      // Record user's choice
+      if (tradeClosedData) {
+        await supabase.from('goal_trade_actions').insert({
+          user_id: user.id,
+          goal_session_id: activeSession.sessionId,
+          action_type: 'close_for_now',
+          trade_close_reason: tradeClosedData.closeReason,
+          profit_loss: tradeClosedData.profitLoss,
+          cumulative_progress: progress?.stats?.totalProfit || 0,
+          target_value: activeSession.config.goalAmount
+        });
+      }
+
+      // Stop the session
+      await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
+
+      setShowTradeClosedAction(false);
+      await loadSessionData();
+    } catch (error) {
+      console.error('[GoalSessionDashboard] Error closing session:', error);
+    }
+  };
+
+  const handleViewAchievements = () => {
+    setShowGoalAchieved(false);
+    // The user can switch to the achievements tab in AITradePage
   };
 
 
@@ -743,6 +915,38 @@ export const GoalSessionDashboard: React.FC = () => {
           onContinue={() => handleContinuationResponse('continue')}
           onStop={() => handleContinuationResponse('stop')}
           isLoading={continuationLoading}
+        />
+      )}
+
+      {goalAchievementData && (
+        <GoalAchievedDialog
+          isOpen={showGoalAchieved}
+          goalAmount={goalAchievementData.goalAmount}
+          achievedProfit={goalAchievementData.achievedProfit}
+          symbol={goalAchievementData.symbol}
+          timeElapsed={goalAchievementData.timeElapsed}
+          tradesExecuted={goalAchievementData.tradesExecuted}
+          onStartNewSession={handleStartNewSession}
+          onViewAchievements={handleViewAchievements}
+          onClose={() => setShowGoalAchieved(false)}
+        />
+      )}
+
+      {tradeClosedData && activeSession && progress && (
+        <TradeClosedActionDialog
+          isOpen={showTradeClosedAction}
+          symbol={tradeClosedData.symbol}
+          direction={tradeClosedData.direction}
+          entryPrice={tradeClosedData.entryPrice}
+          exitPrice={tradeClosedData.exitPrice}
+          profitLoss={tradeClosedData.profitLoss}
+          closeReason={tradeClosedData.closeReason}
+          currentProgress={progress?.stats?.totalProfit || 0}
+          targetValue={activeSession.config.goalAmount}
+          tradesInSession={progress?.stats?.totalTrades || 0}
+          onStartNewSession={handleStartNewSession}
+          onContinueSession={handleContinueCurrentSession}
+          onCloseForNow={handleCloseForNow}
         />
       )}
     </div>

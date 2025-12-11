@@ -301,7 +301,7 @@ class TradeLifecycleManager {
       if (trade.goal_session_id) {
         const { data: goalSession } = await supabase
           .from('goal_sessions')
-          .select('target_value, starting_balance, goal_achieved_at, user_id, auto_execute')
+          .select('target_value, starting_balance, goal_achieved_at, user_id, auto_execute, auto_close_on_goal')
           .eq('id', trade.goal_session_id)
           .maybeSingle();
 
@@ -309,6 +309,16 @@ class TradeLifecycleManager {
           // Check if we've already notified about this goal achievement
           if (!goalSession.goal_achieved_at) {
             console.log(`[Trade Lifecycle] 🎯 GOAL ACHIEVED! Target: $${goalSession.target_value}, Current: $${unrealizedPnL.toFixed(2)}`);
+
+            // Mark goal as met in the trade record
+            await supabase
+              .from('goal_session_trades')
+              .update({
+                goal_met_at: new Date().toISOString(),
+                goal_met_price: price,
+                unrealized_goal_achievement: true
+              })
+              .eq('id', trade.id);
 
             // Mark goal as achieved (PERMANENT WIN)
             await supabase
@@ -372,20 +382,20 @@ class TradeLifecycleManager {
               }
             }
 
-            // Check if auto-close is enabled
-            if (goalSession.auto_close_on_goal === true) {
-              console.log(`[Trade Lifecycle] Auto-close enabled - closing position now`);
+            // Auto-close is now the default behavior unless explicitly disabled
+            if (goalSession.auto_close_on_goal !== false) {
+              console.log(`[Trade Lifecycle] Auto-close enabled (default) - closing position now`);
               shouldClose = true;
-              closeReason = 'Goal target reached (auto-close)';
+              closeReason = 'goal_met';
               profitLoss = unrealizedPnL;
             } else {
-              // Create notification with action buttons
+              // Create notification with action buttons (only if auto-close is explicitly disabled)
               await this.createGoalAchievedNotification(
                 goalSession.user_id,
                 trade.goal_session_id,
                 trade,
                 unrealizedPnL,
-                goalSession.target_amount,
+                goalSession.target_value,
                 price,
                 achievement?.id
               );

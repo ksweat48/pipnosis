@@ -27,14 +27,17 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
   const [loading, setLoading] = useState(true);
   const [nextScanTime, setNextScanTime] = useState<Date | null>(null);
   const [countdown, setCountdown] = useState<string>('Calculating...');
+  const [hasOpenTrades, setHasOpenTrades] = useState(false);
 
   useEffect(() => {
     loadMarketData();
     loadSessionInfo();
+    checkOpenTrades();
 
     const interval = setInterval(() => {
       loadMarketData();
       loadSessionInfo();
+      checkOpenTrades();
     }, 30000);
 
     return () => clearInterval(interval);
@@ -70,6 +73,21 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
 
     if (data?.next_scan_time) {
       setNextScanTime(new Date(data.next_scan_time));
+    }
+  };
+
+  const checkOpenTrades = async () => {
+    try {
+      const { data: openTrades } = await supabase
+        .from('goal_session_trades')
+        .select('id')
+        .eq('goal_session_id', sessionId)
+        .eq('status', 'open');
+
+      setHasOpenTrades((openTrades?.length || 0) > 0);
+    } catch (error) {
+      console.error('Error checking open trades:', error);
+      setHasOpenTrades(false);
     }
   };
 
@@ -256,11 +274,18 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
             <Activity className="w-5 h-5 text-blue-400 animate-pulse" />
             <h4 className="text-lg font-bold text-white">Live Market Analysis</h4>
           </div>
-          <div className="flex items-center gap-2 text-sm">
-            <Clock className="w-4 h-4 text-gray-400" />
-            <span className="text-gray-400">Next scan in:</span>
-            <span className="text-blue-400 font-mono font-semibold">{countdown}</span>
-          </div>
+          {hasOpenTrades ? (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/20 rounded-lg border border-blue-500/50">
+              <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
+              <span className="text-sm font-semibold text-blue-300">MONITORING</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-sm">
+              <Clock className="w-4 h-4 text-gray-400" />
+              <span className="text-gray-400">Next scan in:</span>
+              <span className="text-blue-400 font-mono font-semibold">{countdown}</span>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-4">

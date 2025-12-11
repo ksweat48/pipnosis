@@ -264,11 +264,15 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
     if (setup.hasValidSetup) {
       console.log(`[Goal Scanner] ✅ Valid setup found: ${setup.setupType} on ${symbol} (${setup.confidence}% confidence)`);
 
-      const riskAmount = calculateRiskAmount(session);
       const stopDistance = Math.abs(setup.entry - setup.stopLoss);
-      const positionSize = stopDistance > 0 ? riskAmount / stopDistance : 0.01;
-      const riskReward = Math.abs(setup.takeProfit - setup.entry) / stopDistance;
-      const expectedProfit = Math.abs((setup.takeProfit - setup.entry) * positionSize);
+      const tpDistance = Math.abs(setup.takeProfit - setup.entry);
+
+      // Use goal-aware position sizing
+      const positionSize = calculateGoalAwarePositionSize(session, tpDistance, stopDistance);
+
+      const riskReward = tpDistance / stopDistance;
+      const expectedProfit = tpDistance * positionSize;
+      const expectedLoss = stopDistance * positionSize;
 
       const tradeResult = await supabase.from('goal_session_trades').insert({
         goal_session_id: session.id,
@@ -278,13 +282,14 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
         stop_loss: setup.stopLoss,
         take_profit: setup.takeProfit,
         position_size: positionSize,
+        expected_profit_at_entry: expectedProfit,
         status: session.auto_execute ? 'open' : 'pending',
         opened_at: session.auto_execute ? new Date().toISOString() : null,
       }).select().single();
 
       const tradeMessage = session.auto_execute
-        ? `Trade executed on ${symbol}! ${setup.direction?.toUpperCase()} at ${setup.entry.toFixed(5)}. ${setup.setupType} with ${setup.confidence}% confidence. Stop Loss: ${setup.stopLoss.toFixed(5)}, Take Profit: ${setup.takeProfit.toFixed(5)}. R:R = ${riskReward.toFixed(2)}`
-        : `Trade signal detected on ${symbol}! ${setup.setupType} setup with ${setup.confidence}% confidence. ${setup.reasoning}. Awaiting your confirmation to execute.`;
+        ? `Trade executed on ${symbol}! ${setup.direction?.toUpperCase()} at ${setup.entry.toFixed(5)}. ${setup.setupType} with ${setup.confidence}% confidence. Stop Loss: ${setup.stopLoss.toFixed(5)}, Take Profit: ${setup.takeProfit.toFixed(5)}. R:R = ${riskReward.toFixed(2)}. Expected profit: $${expectedProfit.toFixed(2)} (targeting your $${session.target_value} goal).`
+        : `Trade signal detected on ${symbol}! ${setup.setupType} setup with ${setup.confidence}% confidence. ${setup.reasoning}. Expected profit if TP hit: $${expectedProfit.toFixed(2)} (your goal: $${session.target_value}). Awaiting your confirmation to execute.`;
 
       await supabase.from('goal_ai_conversations').insert({
         goal_session_id: session.id,
@@ -478,13 +483,48 @@ function determineVolatility(atr: number, price: number): string {
   return 'medium';
 }
 
-function calculateRiskAmount(session: any): number {
+/**
+ * Calculate position size that is goal-aware
+ * Primary consideration: Goal amount (not just account risk)
+ * This prevents oversized positions that could turn $200 goals into $5000 profits
+ */
+function calculateGoalAwarePositionSize(
+  session: any,
+  tpDistance: number,
+  slDistance: number
+): number {
   const balance = session.starting_balance || 10000;
+  const goalAmount = session.target_value || 200;
+
+  // STEP 1: Calculate position size based on goal amount
+  // We want TP profit to be approximately 1.15x the goal (15% buffer for spread/slippage)
+  const idealTPProfit = goalAmount * 1.15;
+  const goalBasedPosition = tpDistance > 0 ? idealTPProfit / tpDistance : 0.01;
+
+  // STEP 2: Calculate max position size based on account risk
   const riskPercentages: Record<string, number> = {
     low: 0.01,
     medium: 0.02,
     high: 0.03,
   };
   const riskPercent = riskPercentages[session.risk_mode] || 0.02;
-  return balance * riskPercent;
+  const maxRiskAmount = balance * riskPercent;
+  const riskBasedPosition = slDistance > 0 ? maxRiskAmount / slDistance : 0.01;
+
+  // STEP 3: Use the SMALLER of the two (more conservative)
+  const finalPosition = Math.min(goalBasedPosition, riskBasedPosition);
+
+  // STEP 4: Safety cap - prevent position from being too small
+  const minPosition = 0.01;
+  const cappedPosition = Math.max(finalPosition, minPosition);
+
+  // Log the calculation for transparency
+  const expectedTPProfit = tpDistance * cappedPosition;
+  const expectedSLLoss = slDistance * cappedPosition;
+
+  console.log(`[Position Sizing] Goal: $${goalAmount}, Balance: $${balance}`);
+  console.log(`[Position Sizing] Goal-based: ${goalBasedPosition.toFixed(2)}, Risk-based: ${riskBasedPosition.toFixed(2)}`);
+  console.log(`[Position Sizing] Final: ${cappedPosition.toFixed(2)} (Expected TP: $${expectedTPProfit.toFixed(2)}, Expected SL: $${expectedSLLoss.toFixed(2)})`);
+
+  return cappedPosition;
 }
