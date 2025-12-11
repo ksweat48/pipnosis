@@ -131,15 +131,25 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
           chart,
           type: typeof chart,
           hasAddLineSeries: chart && typeof chart.addLineSeries === 'function',
-          chartKeys: chart ? Object.keys(chart).slice(0, 5) : []
+          chartKeys: chart ? Object.keys(chart).slice(0, 10) : [],
+          chartPrototype: chart ? Object.getPrototypeOf(chart) : null,
+          allMethods: chart ? Object.getOwnPropertyNames(Object.getPrototypeOf(chart)).slice(0, 15) : []
         });
 
         // Verify chart was created successfully
-        if (!chart || typeof chart.addLineSeries !== 'function') {
-          console.error('[Mastery Curve] Chart creation failed - invalid chart object', {
+        if (!chart) {
+          console.error('[Mastery Curve] Chart creation failed - chart is null/undefined');
+          return;
+        }
+
+        // Check if addLineSeries exists, log extensive info if not
+        if (typeof chart.addLineSeries !== 'function') {
+          console.error('[Mastery Curve] Chart object missing addLineSeries method', {
             chart,
             chartType: typeof chart,
-            hasAddLineSeries: chart && typeof chart.addLineSeries
+            addLineSeriesType: typeof chart.addLineSeries,
+            allPropertiesAndMethods: Object.getOwnPropertyNames(chart),
+            prototypeChain: Object.getOwnPropertyNames(Object.getPrototypeOf(chart))
           });
           return;
         }
