@@ -89,11 +89,11 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto">
       {/* Blocking overlay - prevents all interactions */}
       <div className="absolute inset-0" onClick={(e) => e.stopPropagation()} />
 
-      <div className="relative w-full max-w-2xl animate-in zoom-in-95 duration-300">
+      <div className="relative w-full max-w-2xl my-8 animate-in zoom-in-95 duration-300">
         {/* Glowing border effect */}
         <div className={`absolute -inset-1 bg-gradient-to-r ${getPriorityColor()} rounded-2xl opacity-75 blur-xl animate-pulse`} />
 
@@ -113,7 +113,7 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
             </h2>
             <p className="text-gray-300 text-center mb-3">
               {autoExecuted
-                ? 'Position opened and now monitoring for exit'
+                ? 'Trade automatically executed and now monitoring. You have 30 seconds to mirror this trade on your own platform if desired.'
                 : 'Review this trade signal carefully'}
             </p>
 
@@ -227,10 +227,15 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
             )}
 
             {/* Auto-dismiss countdown */}
-            <div className="bg-gray-800/40 rounded-xl p-4 mb-6 border border-gray-700/20">
-              <div className="flex items-center justify-center gap-3 text-gray-400">
+            <div className="bg-blue-900/20 rounded-xl p-4 mb-6 border border-blue-500/30">
+              <div className="flex items-center justify-center gap-3 text-blue-300">
                 <Clock className="w-4 h-4" />
-                <span className="text-sm">Auto-dismiss in <span className="font-bold text-white">{countdown}</span> seconds</span>
+                <span className="text-sm font-medium">
+                  {autoExecuted
+                    ? `Time to mirror on your platform: ${countdown} seconds remaining`
+                    : `Auto-dismiss in ${countdown} seconds`
+                  }
+                </span>
               </div>
             </div>
 
