@@ -127,7 +127,14 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
           }
         });
 
-        console.log('[Mastery Curve] createChart returned successfully');
+        console.log('[Mastery Curve] createChart returned:', chart);
+        console.log('[Mastery Curve] Chart type:', typeof chart);
+        console.log('[Mastery Curve] Chart constructor:', chart?.constructor?.name);
+        console.log('[Mastery Curve] Available methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(chart || {})));
+
+        // Check what createChart is
+        console.log('[Mastery Curve] createChart function:', createChart);
+        console.log('[Mastery Curve] createChart type:', typeof createChart);
 
         // Verify chart was created successfully
         if (!chart) {
