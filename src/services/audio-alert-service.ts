@@ -231,6 +231,14 @@ class AudioAlertService {
   }
 
   /**
+   * Play mid-trade alert (attention-grabbing) - 2 seconds
+   * Used for: Mid-trade updates, recommendations, trigger events
+   */
+  async playMidTradeAlert(): Promise<void> {
+    await this.playAttention();
+  }
+
+  /**
    * Play alert based on type
    */
   async play(type: AlertType): Promise<void> {

@@ -1,14 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { LogOut, User } from 'lucide-react';
+import { LogOut, User, Bell } from 'lucide-react';
 import { BalanceDisplay } from './BalanceDisplay';
 import { ServerSideAggregatorStatus } from './ServerSideAggregatorStatus';
 import { useUserBalance } from '@/hooks/useUserBalance';
+import { midTradeNotificationQueue } from '@/services/mid-trade-notification-queue';
+import NotificationHistoryPanel from './NotificationHistoryPanel';
 
 export function Header() {
   const { user, signOut } = useAuth();
   const [balanceRefresh, setBalanceRefresh] = useState(0);
   const { balance = 10000, totalPnL = 0 } = useUserBalance(user?.id || null);
+  const [unviewedCount, setUnviewedCount] = useState(0);
+  const [showNotificationPanel, setShowNotificationPanel] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
   // AGGRESSIVE DEBUGGING
   console.log('🔴 HEADER RENDER:', {
@@ -18,6 +23,41 @@ export function Header() {
     timestamp: new Date().toLocaleTimeString(),
     windowWidth: typeof window !== 'undefined' ? window.innerWidth : 'N/A'
   });
+
+  useEffect(() => {
+    const handleBadgeUpdate = (count: number) => {
+      setUnviewedCount(count);
+    };
+
+    midTradeNotificationQueue.on('badge-update', handleBadgeUpdate);
+
+    if (user?.id) {
+      midTradeNotificationQueue.loadUnviewedCount(user.id);
+    }
+
+    return () => {
+      midTradeNotificationQueue.off('badge-update', handleBadgeUpdate);
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    const loadCurrentSession = async () => {
+      if (!user?.id) return;
+
+      const { data } = await import('@/lib/supabase').then(m => m.supabase)
+        .from('goal_sessions')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      if (data) {
+        setCurrentSessionId(data.id);
+      }
+    };
+
+    loadCurrentSession();
+  }, [user?.id]);
 
   // Force render on mobile - check if element exists
   useEffect(() => {
@@ -129,14 +169,27 @@ export function Header() {
               </div>
             </div>
 
-            {/* Right: User Menu */}
+            {/* Right: Notification Bell + User Menu */}
             {user && (
-              <button
-                onClick={() => signOut()}
-                className="w-10 h-10 bg-green-600 hover:bg-green-700 rounded-full flex items-center justify-center shrink-0 transition-colors"
-              >
-                <User size={20} className="text-white" />
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setShowNotificationPanel(true)}
+                  className="relative w-10 h-10 bg-slate-700 hover:bg-slate-600 rounded-full flex items-center justify-center transition-colors"
+                >
+                  <Bell size={20} className="text-white" />
+                  {unviewedCount > 0 && (
+                    <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1">
+                      {unviewedCount > 9 ? '9+' : unviewedCount}
+                    </div>
+                  )}
+                </button>
+                <button
+                  onClick={() => signOut()}
+                  className="w-10 h-10 bg-green-600 hover:bg-green-700 rounded-full flex items-center justify-center transition-colors"
+                >
+                  <User size={20} className="text-white" />
+                </button>
+              </div>
             )}
           </div>
 
@@ -146,6 +199,17 @@ export function Header() {
             {user && (
               <div className="flex items-center gap-2 sm:gap-6">
                 <BalanceDisplay refreshTrigger={balanceRefresh} />
+                <button
+                  onClick={() => setShowNotificationPanel(true)}
+                  className="relative p-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
+                >
+                  <Bell size={20} className="text-white" />
+                  {unviewedCount > 0 && (
+                    <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1">
+                      {unviewedCount > 9 ? '9+' : unviewedCount}
+                    </div>
+                  )}
+                </button>
                 <button
                   onClick={() => signOut()}
                   className="flex items-center gap-2 px-3 py-2 sm:px-4 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors shrink-0"
@@ -159,6 +223,15 @@ export function Header() {
           {user && <ServerSideAggregatorStatus />}
         </div>
       </div>
+
+      {user && (
+        <NotificationHistoryPanel
+          isOpen={showNotificationPanel}
+          onClose={() => setShowNotificationPanel(false)}
+          userId={user.id}
+          sessionId={currentSessionId}
+        />
+      )}
     </header>
   );
 }

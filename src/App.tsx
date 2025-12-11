@@ -12,6 +12,8 @@ import { globalDialogManager } from './services/global-dialog-manager';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { cacheClearOnRefresh } from './services/cache-clear-on-refresh';
 import { supabase } from './lib/supabase';
+import { midTradeNotificationQueue } from './services/mid-trade-notification-queue';
+import MidTradeUpdateModal from './components/MidTradeUpdateModal';
 
 // Lazy load all pages for code splitting
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -46,6 +48,7 @@ const LoadingFallback = () => (
 const AppRoutes: React.FC = () => {
   const { user, loading } = useAuth();
   const toast = useToast();
+  const [showMidTradeModal, setShowMidTradeModal] = useState(false);
 
   useEffect(() => {
     const handleGlobalToast = (toastData: any) => {
@@ -58,6 +61,24 @@ const AppRoutes: React.FC = () => {
       globalToastManager.offToast(handleGlobalToast);
     };
   }, [toast]);
+
+  useEffect(() => {
+    const handleShowNotification = () => {
+      setShowMidTradeModal(true);
+    };
+
+    const handleHideNotification = () => {
+      setShowMidTradeModal(false);
+    };
+
+    midTradeNotificationQueue.on('show-notification', handleShowNotification);
+    midTradeNotificationQueue.on('hide-notification', handleHideNotification);
+
+    return () => {
+      midTradeNotificationQueue.off('show-notification', handleShowNotification);
+      midTradeNotificationQueue.off('hide-notification', handleHideNotification);
+    };
+  }, []);
 
   useEffect(() => {
     const initCache = async () => {
@@ -233,10 +254,33 @@ const AppRoutes: React.FC = () => {
       )
       .subscribe();
 
+    // Listen for mid-trade notifications
+    const midTradeChannel = supabase
+      .channel('mid-trade-notifications')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'goal_notifications',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          const notification = payload.new;
+
+          if (['mid_trade_trigger', 'mid_trade_evaluation', 'mid_trade_action'].includes(notification.type)) {
+            console.log('[App] Mid-trade notification received!', notification);
+            midTradeNotificationQueue.addNotification(notification as any);
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(goalAchievementChannel);
       supabase.removeChannel(tradeClosureChannel);
       supabase.removeChannel(tradeSignalChannel);
+      supabase.removeChannel(midTradeChannel);
     };
   }, [user]);
 
@@ -383,6 +427,10 @@ const AppRoutes: React.FC = () => {
       />
         </Routes>
       </Suspense>
+      <MidTradeUpdateModal
+        isOpen={showMidTradeModal}
+        onClose={() => setShowMidTradeModal(false)}
+      />
     </>
   );
 };

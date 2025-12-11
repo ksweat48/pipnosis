@@ -2094,6 +2094,13 @@ This learning will carry forward to improve future sessions!
       // Send trigger notification to AI conversation
       await this.sendMidTradeTriggerMessage(triggerResult, trade, latestCandle);
 
+      // Insert mid-trade trigger notification
+      await this.insertMidTradeNotification('mid_trade_trigger', trade, latestCandle, {
+        trigger_type: triggerResult.triggerType,
+        trigger_reason: triggerResult.triggerReason,
+        confidence: triggerResult.confidence
+      }, 'high');
+
       // Get goal context
       const goalContext = {
         goalSessionId: this.activeSession,
@@ -2119,6 +2126,15 @@ This learning will carry forward to improve future sessions!
 
       // Send LLM evaluation to AI conversation
       await this.sendMidTradeEvaluationMessage(evaluation, trade, latestCandle);
+
+      // Insert mid-trade evaluation notification
+      await this.insertMidTradeNotification('mid_trade_evaluation', trade, latestCandle, {
+        trigger_type: triggerResult.triggerType,
+        trigger_reason: triggerResult.triggerReason,
+        llm_recommendation: evaluation.recommendation,
+        llm_reasoning: evaluation.reasoning,
+        confidence: evaluation.confidence
+      }, evaluation.recommendation === 'EXIT_IMMEDIATELY' ? 'urgent' : 'medium');
 
       // Validate and apply recommendation
       await this.applyMidTradeRecommendation(evaluation, trade);
@@ -2229,6 +2245,17 @@ This learning will carry forward to improve future sessions!
       console.error('[Goal Live Engine] Failed to log mid-trade action conversation:', error);
     }
 
+    // Insert mid-trade action notification
+    const latestPrice = evaluation.suggestedActions?.exitPrice || trade.entryPrice;
+    await this.insertMidTradeNotification('mid_trade_action', trade, { close: latestPrice }, {
+      trigger_type: 'Action Applied',
+      trigger_reason: actionMessage,
+      llm_recommendation: evaluation.recommendation,
+      llm_reasoning: evaluation.reasoning,
+      action_taken: evaluation.recommendation,
+      confidence: evaluation.confidence
+    }, evaluation.recommendation === 'EXIT_IMMEDIATELY' ? 'urgent' : 'medium');
+
     logger.info(LogCategory.AI_TRADING, `Mid-trade action: ${evaluation.recommendation}`);
   }
 
@@ -2291,6 +2318,69 @@ This learning will carry forward to improve future sessions!
       });
     } catch (error) {
       console.error('[Goal Live Engine] Failed to log mid-trade evaluation conversation:', error);
+    }
+  }
+
+  /**
+   * Insert mid-trade notification for real-time alerts
+   */
+  private async insertMidTradeNotification(
+    type: 'mid_trade_trigger' | 'mid_trade_evaluation' | 'mid_trade_action',
+    trade: SimulatedTrade,
+    candle: any,
+    recommendationData: any,
+    priority: 'urgent' | 'high' | 'medium' | 'low'
+  ): Promise<void> {
+    if (!this.config || !this.activeSession) return;
+
+    const currentPrice = candle.close;
+    const pnl = trade.direction === 'buy'
+      ? (currentPrice - trade.entryPrice) * trade.positionSize
+      : (trade.entryPrice - currentPrice) * trade.positionSize;
+    const pnlPercentage = ((pnl / (trade.entryPrice * trade.positionSize)) * 100);
+    const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.positionSize);
+    const pipsToRisk = Math.abs(trade.entryPrice - trade.stopLoss) / 0.0001;
+    const riskAmount = dollarPerPip * pipsToRisk;
+    const rMultiple = riskAmount > 0 ? pnl / riskAmount : 0;
+    const timeInTrade = Date.now() - new Date(trade.entryTime).getTime();
+    const timeInTradeMinutes = Math.floor(timeInTrade / 60000);
+
+    const notification = {
+      user_id: this.config.userId,
+      goal_session_id: this.activeSession,
+      type,
+      message: recommendationData.trigger_reason || recommendationData.llm_recommendation || 'Mid-trade update',
+      viewed: false,
+      priority,
+      trade_context: {
+        trade_id: trade.id,
+        symbol: trade.symbol,
+        direction: trade.direction,
+        entry_price: trade.entryPrice,
+        current_price: currentPrice,
+        stop_loss: trade.stopLoss,
+        take_profit: trade.takeProfit,
+        pnl: parseFloat(pnl.toFixed(2)),
+        pnl_percentage: parseFloat(pnlPercentage.toFixed(2)),
+        r_multiple: parseFloat(rMultiple.toFixed(2)),
+        time_in_trade_minutes: timeInTradeMinutes
+      },
+      recommendation_data: {
+        trigger_type: recommendationData.trigger_type,
+        trigger_reason: recommendationData.trigger_reason,
+        llm_recommendation: recommendationData.llm_recommendation || 'Evaluating',
+        llm_reasoning: recommendationData.llm_reasoning || '',
+        action_taken: recommendationData.action_taken || 'Pending',
+        confidence: recommendationData.confidence || 0
+      },
+      trigger_type: recommendationData.trigger_type
+    };
+
+    try {
+      await supabase.from('goal_notifications').insert(notification);
+      logger.debug(LogCategory.AI_TRADING, `Inserted ${type} notification for trade ${trade.id}`);
+    } catch (error) {
+      console.error(`[Goal Live Engine] Failed to insert ${type} notification:`, error);
     }
   }
 

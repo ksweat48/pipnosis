@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { midTradeNotificationQueue } from './mid-trade-notification-queue';
 
 export interface GoalSessionConfig {
   goalType: 'profit_target' | 'percentage_gain' | 'account_growth';
@@ -288,6 +289,9 @@ class GoalSessionManager {
         'neutral'
       );
 
+      // Clear mid-trade notifications for this session
+      await midTradeNotificationQueue.clearSessionNotifications(sessionId);
+
       return true;
     } catch (error) {
       console.error('Error in stopSession:', error);
@@ -311,6 +315,9 @@ class GoalSessionManager {
             {},
             'neutral'
           );
+
+          // Clear mid-trade notifications for expired session
+          await midTradeNotificationQueue.clearSessionNotifications(session.id);
         }
       }
     } catch (error) {
