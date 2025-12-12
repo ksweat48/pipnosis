@@ -473,6 +473,74 @@ async function aggregateFromM1Candles(
   }
 }
 
+/**
+ * BREAKTHROUGH: Aggregate higher timeframes (M15, M30, H1) from M5 candles
+ * This inherits the beautiful wick quality from M5 instead of using sparse tick data
+ */
+async function aggregateFromM5Candles(
+  symbol: string,
+  timeframe: string,
+  startTime: Date,
+  endTime: Date
+): Promise<CandleData | null> {
+  try {
+    // Fetch M5 candles that fall within this timeframe period
+    const { data, error } = await supabase
+      .from('forex_candles')
+      .select('open, high, low, close, volume, open_time')
+      .eq('symbol', symbol)
+      .eq('timeframe', 'M5')
+      .gte('open_time', startTime.toISOString())
+      .lt('open_time', endTime.toISOString())
+      .order('open_time', { ascending: true });
+
+    if (error) {
+      console.error(`[CandleAggregator] Error fetching M5 candles for ${timeframe} aggregation:`, error.message);
+      return null;
+    }
+
+    if (!data || data.length === 0) {
+      return null;
+    }
+
+    // Calculate expected M5 candles for this timeframe
+    const timeframeMinutes = TIMEFRAME_MINUTES[timeframe];
+    const expectedM5Candles = timeframeMinutes / 5;
+
+    // Only create higher timeframe candle if we have at least 50% of expected M5 candles
+    // This prevents creating poor quality candles from incomplete data
+    if (data.length < expectedM5Candles * 0.5) {
+      console.log(`[CandleAggregator] Insufficient M5 candles for ${symbol} ${timeframe}: ${data.length}/${expectedM5Candles} (need ${Math.ceil(expectedM5Candles * 0.5)}+)`);
+      return null;
+    }
+
+    // Aggregate M5 candles into higher timeframe
+    // Take first open, last close, highest high, lowest low
+    const open = data[0].open;
+    const close = data[data.length - 1].close;
+    const high = Math.max(...data.map(c => c.high));
+    const low = Math.min(...data.map(c => c.low));
+    const totalVolume = data.reduce((sum, c) => sum + (c.volume || 0), 0);
+
+    console.log(`[CandleAggregator]   🔧 Aggregated ${data.length} M5 candles into ${timeframe} for ${symbol}`);
+
+    return {
+      symbol,
+      timeframe,
+      open_time: startTime,
+      close_time: endTime,
+      open,
+      high,
+      low,
+      close,
+      volume: totalVolume
+    };
+  } catch (error) {
+    console.error(`[CandleAggregator] M5 aggregation error for ${timeframe}:`, error);
+    return null;
+  }
+}
+
 async function aggregateCandlesForSymbol(
   symbol: string,
   timeframesToProcess: string[],
@@ -582,14 +650,24 @@ async function aggregateCandlesForSymbol(
 
       let candle: CandleData | null = null;
 
-      // FAST PATH: For M1, use in-memory aggregation from prices (no database queries)
-      const candlePrices = prices.filter(p => {
-        const priceTime = new Date(p.created_at);
-        return priceTime >= currentCandleToCreate && priceTime < candleEndTime;
-      });
+      // BREAKTHROUGH: Use different aggregation strategies based on timeframe
+      // M1, M5: Build from tick data (fast, works great)
+      // M15, M30, H1: Aggregate from M5 candles (inherits M5's quality)
+      // H4, D1, W1: Still use tick data (processed less frequently)
 
-      if (candlePrices.length > 0) {
-        candle = calculateCandleFromPrices(candlePrices, symbol, timeframe, currentCandleToCreate);
+      if (timeframe === 'M15' || timeframe === 'M30' || timeframe === 'H1') {
+        // QUALITY PATH: Aggregate from M5 candles for beautiful wicks
+        candle = await aggregateFromM5Candles(symbol, timeframe, currentCandleToCreate, candleEndTime);
+      } else {
+        // FAST PATH: Build from tick data for M1, M5, and slow timeframes
+        const candlePrices = prices.filter(p => {
+          const priceTime = new Date(p.created_at);
+          return priceTime >= currentCandleToCreate && priceTime < candleEndTime;
+        });
+
+        if (candlePrices.length > 0) {
+          candle = calculateCandleFromPrices(candlePrices, symbol, timeframe, currentCandleToCreate);
+        }
       }
 
       if (candle) {
