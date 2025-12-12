@@ -1,5 +1,5 @@
-import React from 'react';
-import { AlertCircle, TrendingUp, TrendingDown, Target, PlayCircle, PauseCircle, RotateCcw } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { AlertCircle, TrendingUp, TrendingDown, Target, PlayCircle, PauseCircle, RotateCcw, Clock } from 'lucide-react';
 
 interface TradeClosedActionDialogProps {
   isOpen: boolean;
@@ -18,6 +18,8 @@ interface TradeClosedActionDialogProps {
   isLoading?: boolean;
 }
 
+const TIMEOUT_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+
 export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = ({
   isOpen,
   symbol,
@@ -34,7 +36,55 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   onCloseForNow,
   isLoading = false
 }) => {
+  const [timeRemaining, setTimeRemaining] = useState(TIMEOUT_DURATION);
+
+  // Reset timer when dialog opens
+  useEffect(() => {
+    if (isOpen) {
+      setTimeRemaining(TIMEOUT_DURATION);
+    }
+  }, [isOpen]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const interval = setInterval(() => {
+      setTimeRemaining((prev) => {
+        if (prev <= 1000) {
+          clearInterval(interval);
+          onContinueSession(); // Auto-continue session
+          return 0;
+        }
+        return prev - 1000;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isOpen, onContinueSession]);
+
+  // Escape key handler
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onContinueSession(); // Default action on escape
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isOpen, onContinueSession]);
+
   if (!isOpen) return null;
+
+  const formatTime = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   const isProfit = profitLoss > 0;
   const isLoss = profitLoss < 0;
@@ -93,9 +143,17 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
             <h2 className="text-2xl font-bold text-white text-center mb-1">
               {getReasonText()}
             </h2>
-            <p className="text-gray-400 text-sm text-center">
+            <p className="text-gray-400 text-sm text-center mb-2">
               What would you like to do next?
             </p>
+
+            {/* Countdown Timer */}
+            <div className="flex items-center justify-center gap-2 text-xs">
+              <Clock className="w-3 h-3 text-gray-500" />
+              <span className="text-gray-500">
+                Auto-continue in <span className="font-semibold text-gray-400">{formatTime(timeRemaining)}</span>
+              </span>
+            </div>
           </div>
 
           {/* Trade Summary */}

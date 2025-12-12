@@ -96,42 +96,8 @@ const AppRoutes: React.FC = () => {
 
     console.log('[App] Setting up global event listeners for user:', user.id);
 
-    const goalAchievementChannel = supabase
-      .channel('global-goal-achievements')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'goal_achievements',
-          filter: `user_id=eq.${user.id}`
-        },
-        (payload) => {
-          console.log('[App] Goal achievement detected!', payload);
-
-          const achievement = payload.new;
-          globalDialogManager.showGoalAchieved({
-            goalAmount: achievement.goal_amount || 0,
-            achievedProfit: achievement.achieved_pnl || 0,
-            symbol: achievement.symbol || 'Unknown',
-            timeElapsed: formatTimeElapsed(achievement.created_at),
-            tradesExecuted: 1,
-            onStartNewSession: () => {
-              window.location.href = '/ai-trade';
-            },
-            onViewAchievements: () => {
-              window.location.href = '/ai-trade';
-            }
-          });
-
-          globalToastManager.success(
-            'Goal Achieved!',
-            `Congratulations! You've achieved your goal of $${achievement.goal_amount}`,
-            10000
-          );
-        }
-      )
-      .subscribe();
+    // Note: Goal achievement notifications are handled by GoalNotificationListener component
+    // on SmartGoalModePage to prevent duplicate dialogs
 
     const tradeClosureChannel = supabase
       .channel('global-trade-closures')
@@ -277,7 +243,6 @@ const AppRoutes: React.FC = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(goalAchievementChannel);
       supabase.removeChannel(tradeClosureChannel);
       supabase.removeChannel(tradeSignalChannel);
       supabase.removeChannel(midTradeChannel);
