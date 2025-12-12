@@ -76,6 +76,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
   const validatedSymbol = validationResult.symbol!;
   const currentSymbolRef = useRef<ValidatedSymbol>(validatedSymbol);
+  const isMountedRef = useRef<boolean>(true);
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -157,20 +158,28 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       setForexMarketStatus(newStatus);
 
       // Market just closed - freeze time range
-      if (wasOpen && !isNowOpen && chartRef.current) {
+      if (wasOpen && !isNowOpen && isMountedRef.current && chartRef.current) {
         console.log('[Chart] 🔒 Market closed - freezing time range');
-        const timeScale = chartRef.current.timeScale();
-        const currentRange = timeScale.getVisibleLogicalRange();
+        try {
+          const timeScale = chartRef.current.timeScale();
+          const currentRange = timeScale.getVisibleLogicalRange();
 
-        if (currentRange) {
-          timeScale.setVisibleLogicalRange(currentRange);
+          if (currentRange) {
+            timeScale.setVisibleLogicalRange(currentRange);
+          }
+        } catch (error) {
+          console.warn('[Chart] timeScale operation error (chart may be disposed)');
         }
       }
 
       // Market just opened - resume real-time scrolling
-      if (!wasOpen && isNowOpen && chartRef.current) {
+      if (!wasOpen && isNowOpen && isMountedRef.current && chartRef.current) {
         console.log('[Chart] 🔓 Market opened - resuming updates');
-        chartRef.current.timeScale().scrollToRealTime();
+        try {
+          chartRef.current.timeScale().scrollToRealTime();
+        } catch (error) {
+          console.warn('[Chart] scrollToRealTime error (chart may be disposed)');
+        }
       }
 
       previousMarketStatus = isNowOpen;
@@ -502,19 +511,39 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     timeScale.subscribeVisibleLogicalRangeChange(handleUserInteraction);
 
     const handleResize = () => {
-      if (chartContainerRef.current) {
+      if (!isMountedRef.current || !chartContainerRef.current) {
+        return;
+      }
+      try {
         chart.applyOptions({
           width: chartContainerRef.current.clientWidth,
           height: chartContainerRef.current.clientHeight
         });
+      } catch (error) {
+        console.warn('[Chart] Resize error (chart may be disposed):', error);
       }
     };
 
     window.addEventListener('resize', handleResize);
 
     return () => {
+      isMountedRef.current = false;
       window.removeEventListener('resize', handleResize);
-      chart.remove();
+
+      // Clear all refs before disposing chart
+      chartRef.current = null;
+      candlestickSeriesRef.current = null;
+      vwapSeriesRef.current = null;
+      ema20SeriesRef.current = null;
+      ema50SeriesRef.current = null;
+      ema200SeriesRef.current = null;
+
+      // Safely dispose chart
+      try {
+        chart.remove();
+      } catch (error) {
+        console.warn('[Chart] Error disposing chart:', error);
+      }
     };
   }, []);
 
@@ -604,7 +633,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
   const updateCurrentCandleFromTick = (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => {
     // CRITICAL: Check if chart is still mounted
-    if (!candlestickSeriesRef.current || !chartRef.current) {
+    if (!isMountedRef.current || !candlestickSeriesRef.current || !chartRef.current) {
       return;
     }
 
@@ -945,8 +974,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         return;
       }
 
-      if (chartRef.current && !userInteractedRef.current) {
-        chartRef.current.timeScale().scrollToRealTime();
+      if (isMountedRef.current && chartRef.current && !userInteractedRef.current) {
+        try {
+          chartRef.current.timeScale().scrollToRealTime();
+        } catch (error) {
+          console.warn('[Chart] scrollToRealTime error (chart may be disposed)');
+        }
       }
 
       const allCandles = [...historicalCandlesRef.current, latestCandle];
@@ -1288,8 +1321,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         requestAnimationFrame(() => {
           updateIndicators(allCandles);
-          if (chartRef.current && !userInteractedRef.current) {
-            chartRef.current.timeScale().scrollToRealTime();
+          if (isMountedRef.current && chartRef.current && !userInteractedRef.current) {
+            try {
+              chartRef.current.timeScale().scrollToRealTime();
+            } catch (error) {
+              console.warn('[Chart] scrollToRealTime error (chart may be disposed)');
+            }
           }
         });
       }
