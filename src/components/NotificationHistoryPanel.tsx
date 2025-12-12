@@ -29,12 +29,13 @@ export default function NotificationHistoryPanel({
     if (!sessionId) return;
 
     setLoading(true);
+    // Query ALL notifications for this session (not just mid-trade ones)
     const { data, error } = await supabase
       .from('goal_notifications')
       .select('*')
       .eq('user_id', userId)
       .eq('goal_session_id', sessionId)
-      .in('type', ['mid_trade_trigger', 'mid_trade_evaluation', 'mid_trade_action'])
+      // Don't filter by type - show ALL notifications
       .order('created_at', { ascending: false });
 
     if (!error && data) {
@@ -89,7 +90,7 @@ export default function NotificationHistoryPanel({
       <div className="bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-4xl max-h-[80vh] flex flex-col shadow-2xl">
         <div className="flex items-center justify-between p-6 border-b border-slate-700">
           <div>
-            <h2 className="text-2xl font-bold text-white">Mid-Trade Notifications</h2>
+            <h2 className="text-2xl font-bold text-white">Trade Notifications</h2>
             <p className="text-slate-400 text-sm mt-1">
               {notifications.length} notification{notifications.length !== 1 ? 's' : ''} from this session
             </p>
@@ -110,7 +111,8 @@ export default function NotificationHistoryPanel({
           ) : notifications.length === 0 ? (
             <div className="text-center py-12">
               <AlertTriangle size={48} className="text-slate-600 mx-auto mb-4" />
-              <p className="text-slate-400">No mid-trade notifications yet</p>
+              <p className="text-slate-400">No notifications logged for this session yet</p>
+              <p className="text-slate-500 text-sm mt-2">Notifications will appear here during and after trades</p>
             </div>
           ) : (
             <div className="space-y-4">

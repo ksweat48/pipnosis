@@ -508,6 +508,21 @@ export function calculateGoalOptimalPosition(
 
   console.log(`  Final Lot Size: ${formatLotSize(actualLotSize)} lots`);
 
+  // 🚨 CRITICAL SAFETY CHECK: Prevent catastrophic position sizing errors
+  // If account is < $50k, lot size should NEVER exceed 1.0
+  // If account is < $10k, lot size should NEVER exceed 0.5
+  const safeMaxLotSize = accountBalance < 10000 ? 0.5 : accountBalance < 50000 ? 1.0 : 5.0;
+
+  if (actualLotSize > safeMaxLotSize) {
+    console.error('%c🚨 POSITION SIZE SAFETY LIMIT EXCEEDED!', 'color: #ff0000; font-weight: bold; font-size: 16px');
+    console.error(`  Calculated: ${actualLotSize.toFixed(3)} lots`);
+    console.error(`  Account Balance: $${accountBalance.toFixed(2)}`);
+    console.error(`  Safe Maximum: ${safeMaxLotSize.toFixed(2)} lots`);
+    console.error(`  CAPPING TO SAFE LIMIT!`);
+
+    actualLotSize = safeMaxLotSize;
+  }
+
   // Calculate actual pips needed with this lot size
   const dollarPerPip = calculateDollarPerPip(symbol, actualLotSize);
   const pipsNeededForGoal = remainingGoal / dollarPerPip;
@@ -555,6 +570,35 @@ export function calculateGoalOptimalPosition(
   console.log(`  Risk:Reward: 1:${riskReward.toFixed(2)}`);
   console.log(`  Feasibility: ${goalFeasibility}`);
   console.log(`  Reasoning: ${reasoning}`);
+
+  // 🚨 FINAL VALIDATION: Calculate expected risk and profit
+  const stopDistance = Math.abs(entryPrice - stopLoss);
+  const stopPips = stopDistance / pipInfo.pipValue;
+  const expectedRisk = stopPips * dollarPerPip;
+  const expectedProfit = finalPips * dollarPerPip;
+
+  console.log('%c[POSITION SIZING VALIDATION]', 'color: #00ff00; font-weight: bold');
+  console.log(`  Lot Size: ${formatLotSize(actualLotSize)}`);
+  console.log(`  Expected Risk (SL): $${expectedRisk.toFixed(2)}`);
+  console.log(`  Expected Profit (TP): $${expectedProfit.toFixed(2)}`);
+  console.log(`  Max Risk Allowed: $${(accountBalance * 0.05).toFixed(2)} (5% cap)`);
+
+  // ABSOLUTE SAFETY: If expected risk > 5% of balance, something is VERY wrong
+  const maxRiskAllowed = accountBalance * 0.05;
+  if (expectedRisk > maxRiskAllowed) {
+    console.error('%c🚨 RISK TOO HIGH! REJECTING POSITION!', 'color: #ff0000; font-weight: bold; font-size: 18px');
+    console.error(`  Expected Risk: $${expectedRisk.toFixed(2)}`);
+    console.error(`  Max Allowed: $${maxRiskAllowed.toFixed(2)}`);
+
+    // Return minimum safe position
+    return {
+      lotSize: 0.01,
+      takeProfit,
+      pipsNeeded: finalPips,
+      reasoning: `⚠️ SAFETY OVERRIDE: Original calculation too risky. Using minimum position size.`,
+      goalFeasibility: 'unrealistic'
+    };
+  }
 
   return {
     lotSize: actualLotSize,

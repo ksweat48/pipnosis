@@ -183,13 +183,11 @@ export const GoalSessionDashboard: React.FC = () => {
 
           // Only show continuation dialog if:
           // 1. Multi-trade is DISABLED
-          // 2. Session is in valid continuation state (not scanning/initializing)
-          // 3. Awaiting continuation is true
-          const validContinuationStates = ['trade_pending', 'in_trade', 'paused'];
+          // 2. Awaiting continuation flag is set
+          // NOTE: Status doesn't matter - if flag is set, dialog should block until user responds
           const shouldShowDialog =
             sessionData?.awaiting_user_continuation &&
-            !sessionData?.multi_trade_enabled &&
-            validContinuationStates.includes(sessionData?.status);
+            !sessionData?.multi_trade_enabled;
 
           if (shouldShowDialog) {
             setContinuationData({

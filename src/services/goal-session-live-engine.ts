@@ -591,11 +591,44 @@ class GoalSessionLiveEngine {
       console.log(`  Feasibility: ${goalOptimal.goalFeasibility}`);
       console.log(`  Reasoning: ${goalOptimal.reasoning}`);
 
-      const calculatedLotSize = goalOptimal.lotSize;
+      let calculatedLotSize = goalOptimal.lotSize;
       const goalTPResult = {
         takeProfit: goalOptimal.takeProfit,
         reasoning: goalOptimal.reasoning
       };
+
+      // 🚨 CRITICAL PRE-EXECUTION SAFETY CHECK
+      const { calculateDollarPerPip, calculatePipDistance } = await import('../utils/currencyHelpers');
+      const stopPips = calculatePipDistance(selectedSymbol, decision.entry, decision.stopLoss);
+      const dollarPerPipCalc = calculateDollarPerPip(selectedSymbol, calculatedLotSize);
+      const calculatedRisk = stopPips * dollarPerPipCalc;
+      const maxSafeRisk = this.config.initialBalance * 0.05; // 5% absolute maximum
+
+      console.log('%c[PRE-EXECUTION VALIDATION]', 'color: #ff9800; font-weight: bold; font-size: 14px');
+      console.log(`  Position Size: ${calculatedLotSize.toFixed(3)} lots`);
+      console.log(`  Stop Loss Distance: ${stopPips.toFixed(1)} pips`);
+      console.log(`  Dollar Per Pip: $${dollarPerPipCalc.toFixed(2)}`);
+      console.log(`  Calculated Risk: $${calculatedRisk.toFixed(2)}`);
+      console.log(`  Max Safe Risk: $${maxSafeRisk.toFixed(2)}`);
+
+      if (calculatedRisk > maxSafeRisk) {
+        console.error('%c🚨 EXECUTION BLOCKED: RISK TOO HIGH!', 'color: #ff0000; font-weight: bold; font-size: 16px');
+        console.error(`  Risk: $${calculatedRisk.toFixed(2)} > Max: $${maxSafeRisk.toFixed(2)}`);
+
+        // Reduce lot size to safe level
+        const safeLotSize = maxSafeRisk / (stopPips * 10); // Conservative recalculation
+        calculatedLotSize = Math.max(0.01, Math.round(safeLotSize * 100) / 100);
+
+        console.error(`  🛡️ SAFETY OVERRIDE: Reducing to ${calculatedLotSize.toFixed(2)} lots`);
+
+        await this.sendAIMessage(
+          `⚠️ Position size safety override activated!\n\n` +
+          `Original calculation would risk $${calculatedRisk.toFixed(2)} (too high).\n` +
+          `Reduced to ${calculatedLotSize.toFixed(2)} lots for safe risk of ~$${maxSafeRisk.toFixed(2)}.`
+        );
+      } else {
+        console.log('%c✅ Position size validated - safe to execute', 'color: #4caf50; font-weight: bold');
+      }
 
       const trade: SimulatedTrade = {
         id: `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -680,13 +713,32 @@ class GoalSessionLiveEngine {
             if (this.openTrades.length >= this.config.maxConcurrentTrades && !multiTradeEnabled) {
               logger.info(LogCategory.AI_TRADING, '🛑 Max trades reached in single-trade mode - monitoring position');
 
-              await this.sendAIMessage(
-                `✅ Trade executed successfully!\n\n` +
+              const entryMessage = `✅ Trade executed successfully!\n\n` +
                 `🎯 Position opened: ${selectedSymbol} ${decision.action}\n` +
                 `💰 Entry: ${decision.entry.toFixed(5)} | SL: ${decision.stopLoss.toFixed(5)} | TP: ${decision.takeProfit.toFixed(5)}\n\n` +
                 `👀 Now monitoring this position until it hits TP or SL.\n` +
-                `I'll let you know when it closes and we can decide on next steps.`
+                `I'll let you know when it closes and we can decide on next steps.`;
+
+              await this.sendAIMessage(entryMessage);
+
+              // Log notification for audit trail
+              await this.logNotification(
+                'signal',
+                `Trade Opened: ${selectedSymbol} ${decision.action}`,
+                entryMessage,
+                'high',
+                {
+                  trade_id: trade.id,
+                  symbol: selectedSymbol,
+                  direction: decision.action,
+                  entry: decision.entry,
+                  stop_loss: decision.stopLoss,
+                  take_profit: decision.takeProfit,
+                  position_size: trade.positionSize,
+                  confidence: decision.confidence
+                }
               );
+
               return; // Exit early to prevent the summary message below
             }
           }
@@ -888,6 +940,31 @@ class GoalSessionLiveEngine {
       this.scanCount++;
 
       // Update open trades and check for closures
+      // 🛡️ CRITICAL: Log current price vs SL/TP before updating
+      for (const trade of this.openTrades) {
+        if (trade.outcome === 'open') {
+          const currentPrice = latestCandle.close;
+          const isBuy = trade.direction === 'buy';
+
+          console.log(`[SL/TP CHECK] ${trade.symbol} ${trade.direction.toUpperCase()}:`);
+          console.log(`  Current: ${currentPrice.toFixed(5)}`);
+          console.log(`  Entry: ${trade.entryPrice.toFixed(5)}`);
+          console.log(`  SL: ${trade.stopLoss.toFixed(5)}`);
+          console.log(`  TP: ${trade.takeProfit.toFixed(5)}`);
+
+          // Check if SL or TP hit
+          const slHit = isBuy ? currentPrice <= trade.stopLoss : currentPrice >= trade.stopLoss;
+          const tpHit = isBuy ? currentPrice >= trade.takeProfit : currentPrice <= trade.takeProfit;
+
+          if (slHit) {
+            console.warn(`%c⚠️ STOP LOSS HIT! Price: ${currentPrice.toFixed(5)} vs SL: ${trade.stopLoss.toFixed(5)}`, 'color: #ff9800; font-weight: bold');
+          }
+          if (tpHit) {
+            console.log(`%c✅ TAKE PROFIT HIT! Price: ${currentPrice.toFixed(5)} vs TP: ${trade.takeProfit.toFixed(5)}`, 'color: #4caf50; font-weight: bold');
+          }
+        }
+      }
+
       this.openTrades = eventBasedLLMEngine.updateOpenTrades(this.openTrades, latestCandle);
 
       // Check for mid-trade triggers and evaluate with LLM if needed
@@ -1479,9 +1556,9 @@ Your decision keeps you in control of your risk and prevents runaway trading.
     const exitReason = trade.exitReason || (isWin ? 'Take profit hit' : 'Stop loss hit');
 
     // Send trade closure message
-    const closureMessage = `${emoji} Trade Closed: ${trade.symbol} ${trade.direction.toUpperCase()}\\n` +
-      `📊 Exit: ${trade.exitPrice?.toFixed(5)} | Reason: ${exitReason}\\n` +
-      `⏱️ Duration: ${durationText}\\n` +
+    const closureMessage = `${emoji} Trade Closed: ${trade.symbol} ${trade.direction.toUpperCase()}\n` +
+      `📊 Exit: ${trade.exitPrice?.toFixed(5)} | Reason: ${exitReason}\n` +
+      `⏱️ Duration: ${durationText}\n` +
       `💰 P&L: ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)} (${pips >= 0 ? '+' : ''}${pips.toFixed(1)} pips)`;
 
     try {
@@ -1503,6 +1580,26 @@ Your decision keeps you in control of your risk and prevents runaway trading.
         },
         sentiment: isWin ? 'encouraging' : 'educational'
       });
+
+      // Log notification for audit trail
+      await this.logNotification(
+        trade.outcome === 'win' ? 'completion' : 'alert',
+        `Trade Closed: ${isWin ? 'WIN' : 'LOSS'}`,
+        closureMessage,
+        trade.outcome === 'loss' ? 'urgent' : 'medium',
+        {
+          trade_id: trade.id,
+          symbol: trade.symbol,
+          direction: trade.direction,
+          outcome: trade.outcome,
+          entry_price: trade.entryPrice,
+          exit_price: trade.exitPrice,
+          pnl: trade.pnl,
+          pips,
+          duration_minutes: tradeDuration,
+          exit_reason: exitReason
+        }
+      );
     } catch (error) {
       console.error('[Goal Live Engine] Failed to log trade closure conversation:', error);
     }
@@ -1640,12 +1737,14 @@ Your decision keeps you in control of your risk and prevents runaway trading.
         `🎯 Remaining: $${remainingAmount.toFixed(2)} to goal\n\n` +
         `Would you like to continue scanning for another trade?`;
 
-      // Set awaiting_user_continuation flag
+      // Set awaiting_user_continuation flag and pause session
+      // CRITICAL: Set status to 'paused' so scanning doesn't resume automatically
       const { error: updateError } = await supabase
         .from('goal_sessions')
         .update({
           awaiting_user_continuation: true,
-          continuation_prompt: continuationPrompt
+          continuation_prompt: continuationPrompt,
+          status: 'paused' // Block scanning until user responds
         })
         .eq('id', this.activeSession);
 
@@ -2069,6 +2168,40 @@ This learning will carry forward to improve future sessions!
       });
     } catch (error) {
       console.error('[Goal Live Engine] Failed to send AI message:', error);
+    }
+  }
+
+  /**
+   * Log notification to goal_notifications table for audit trail
+   * This creates a permanent record of all trade-related events
+   */
+  private async logNotification(
+    type: 'forecast' | 'signal' | 'progress' | 'alert' | 'completion',
+    title: string,
+    message: string,
+    priority: 'low' | 'medium' | 'high' | 'urgent' = 'medium',
+    data?: any
+  ): Promise<void> {
+    if (!this.activeSession || !this.config) {
+      return;
+    }
+
+    try {
+      await supabase.from('goal_notifications').insert({
+        goal_session_id: this.activeSession,
+        user_id: this.config.userId,
+        notification_type: type,
+        priority,
+        title,
+        message,
+        data: data || {},
+        delivered_at: new Date().toISOString(),
+        channels: ['in_app']
+      });
+
+      console.log(`[Notification Logged] ${type.toUpperCase()}: ${title}`);
+    } catch (error) {
+      console.error('[Goal Live Engine] Failed to log notification:', error);
     }
   }
 
