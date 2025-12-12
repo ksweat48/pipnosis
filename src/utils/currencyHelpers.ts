@@ -17,10 +17,21 @@ export interface CurrencyPipInfo {
 }
 
 /**
+ * Safely normalize symbol to uppercase, handling undefined/null
+ */
+function safeNormalizeSymbol(symbol: string | undefined | null): string {
+  if (!symbol || typeof symbol !== 'string') {
+    console.warn('[Currency Helpers] Invalid symbol provided:', symbol);
+    return '';
+  }
+  return symbol.toUpperCase();
+}
+
+/**
  * Check if a symbol is a JPY pair
  */
 export function isJPYPair(symbol: string): boolean {
-  const normalized = symbol.toUpperCase();
+  const normalized = safeNormalizeSymbol(symbol);
   return normalized.includes('JPY');
 }
 
@@ -28,7 +39,7 @@ export function isJPYPair(symbol: string): boolean {
  * Check if a symbol is XAUUSD (Gold)
  */
 export function isXAUUSD(symbol: string): boolean {
-  const normalized = symbol.toUpperCase();
+  const normalized = safeNormalizeSymbol(symbol);
   return normalized.includes('XAU') || normalized === 'GOLD';
 }
 
@@ -36,7 +47,7 @@ export function isXAUUSD(symbol: string): boolean {
  * Check if a symbol is an index (US30, NAS100, SPX500, etc.)
  */
 export function isIndex(symbol: string): boolean {
-  const normalized = symbol.toUpperCase();
+  const normalized = safeNormalizeSymbol(symbol);
   return normalized.includes('US30') ||
          normalized.includes('NAS') ||
          normalized.includes('SPX') ||
@@ -49,7 +60,7 @@ export function isIndex(symbol: string): boolean {
  * Check if symbol is a crypto pair
  */
 export function isCrypto(symbol: string): boolean {
-  const normalized = symbol.toUpperCase();
+  const normalized = safeNormalizeSymbol(symbol);
   return normalized.includes('BTC') ||
          normalized.includes('ETH') ||
          normalized.includes('USDT');
@@ -59,7 +70,7 @@ export function isCrypto(symbol: string): boolean {
  * Get pip information for a currency pair, metal, index, or crypto
  */
 export function getCurrencyPipInfo(symbol: string): CurrencyPipInfo {
-  const normalized = symbol.toUpperCase();
+  const normalized = safeNormalizeSymbol(symbol);
 
   // XAUUSD (Gold) - Most critical for proper calculation
   if (isXAUUSD(symbol)) {

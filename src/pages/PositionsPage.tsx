@@ -241,7 +241,8 @@ export function PositionsPage() {
       position.positionType,
       position.entryPrice,
       currentPrice,
-      position.lotSize
+      position.lotSize,
+      position.symbol
     ) || 0;
   };
 
