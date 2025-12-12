@@ -26,6 +26,7 @@ const AITradePage = lazy(() => import('./pages/AITradePage').then(m => ({ defaul
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
 const AIJournalPage = lazy(() => import('./pages/AIJournalPage').then(m => ({ default: m.AIJournalPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const GetAppPage = lazy(() => import('./pages/GetAppPage'));
 
 // Admin pages - only loaded when needed
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
@@ -330,6 +331,14 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute>
             <SettingsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/get-app"
+        element={
+          <ProtectedRoute>
+            <GetAppPage />
           </ProtectedRoute>
         }
       />

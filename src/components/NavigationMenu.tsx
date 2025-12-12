@@ -1,6 +1,6 @@
 import React, { memo, useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity, Coins, Layers, Bell } from 'lucide-react';
+import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity, Coins, Layers, Bell, Smartphone } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 import { useTokenBalance } from '@/hooks/useTokenBalance';
@@ -192,6 +192,15 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                         >
                           <Settings size={18} />
                           <span>Settings</span>
+                        </Link>
+
+                        <Link
+                          to="/get-app"
+                          onClick={() => setShowProfileMenu(false)}
+                          className="w-full flex items-center gap-3 px-3 py-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                        >
+                          <Smartphone size={18} />
+                          <span>Get App</span>
                         </Link>
 
                         {!adminLoading && isAdmin && (
