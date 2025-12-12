@@ -326,9 +326,24 @@ class GoalSessionLiveEngine {
       console.log('[MULTI-SYMBOL] Open trades:', this.openTrades.length);
       console.log('[MULTI-SYMBOL] Max concurrent:', this.config.maxConcurrentTrades);
 
-      // CRITICAL: Check max trades BEFORE expensive operations
-      if (this.openTrades.length >= this.config.maxConcurrentTrades) {
-        console.log('%c[MULTI-SYMBOL] ⏸️ BLOCKED: Max trades reached', 'color: #ff9800; font-weight: bold');
+      // CRITICAL: Verify with DB before expensive operations (prevents memory desync bugs)
+      const { data: verifyTrades } = await supabase
+        .from('goal_session_trades')
+        .select('id', { count: 'exact', head: true })
+        .eq('goal_session_id', this.activeSession!)
+        .eq('status', 'open');
+
+      const dbCount = (verifyTrades as any)?.count || 0;
+
+      console.log('%c[MULTI-SYMBOL] 🔐 Trade count verification:', 'color: #ff9800; font-weight: bold', {
+        memory: this.openTrades.length,
+        database: dbCount,
+        maxAllowed: this.config.maxConcurrentTrades
+      });
+
+      // Use DB as source of truth
+      if (dbCount >= this.config.maxConcurrentTrades) {
+        console.log('%c[MULTI-SYMBOL] ⏸️ BLOCKED: Max trades reached (DB verified)', 'color: #ff9800; font-weight: bold');
         logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - skipping expensive scan`);
         return;
       }
@@ -797,8 +812,27 @@ class GoalSessionLiveEngine {
       }
 
       // STOP SCANNING if max trades reached (saves tokens/credits)
-      if (this.openTrades.length >= this.config.maxConcurrentTrades) {
+      // 🚨 CRITICAL: Always verify with database before scanning (prevents desync bugs)
+      const { data: verifyOpenTrades } = await supabase
+        .from('goal_session_trades')
+        .select('id', { count: 'exact', head: true })
+        .eq('goal_session_id', this.activeSession!)
+        .eq('status', 'open');
+
+      const dbOpenTradeCount = (verifyOpenTrades as any)?.count || 0;
+      const memoryOpenTradeCount = this.openTrades.length;
+
+      console.log('%c[AUTONOMOUS ENGINE] 🔐 Scan authorization check:', 'color: #ff9800; font-weight: bold', {
+        memoryTrades: memoryOpenTradeCount,
+        dbTrades: dbOpenTradeCount,
+        maxAllowed: this.config.maxConcurrentTrades,
+        scanAllowed: dbOpenTradeCount < this.config.maxConcurrentTrades
+      });
+
+      // Use DB count as source of truth (memory can desync)
+      if (dbOpenTradeCount >= this.config.maxConcurrentTrades) {
         logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - PAUSING scanning to save credits`);
+        console.log('%c[AUTONOMOUS ENGINE] ⏸️ SCAN BLOCKED: DB confirms max trades reached', 'color: #f44336; font-weight: bold');
         // Still monitor open positions but don't scan for new trades
         await this.monitorOpenPositionsOnly();
         return;
@@ -811,8 +845,8 @@ class GoalSessionLiveEngine {
       console.log('[AUTONOMOUS ENGINE] Multi-symbol mode?', useMultiSymbolMode);
 
       if (useMultiSymbolMode) {
-        // Double-check before expensive multi-symbol scan
-        if (this.openTrades.length >= this.config.maxConcurrentTrades) {
+        // Double-check before expensive multi-symbol scan (use DB count as already verified above)
+        if (dbOpenTradeCount >= this.config.maxConcurrentTrades) {
           logger.debug(LogCategory.AI_TRADING, 'Max trades reached, monitoring only');
           console.log('%c[AUTONOMOUS ENGINE] ⏸️ BLOCKED: Max trades reached', 'color: #f59e0b; font-weight: bold');
           return;
