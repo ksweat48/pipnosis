@@ -33,6 +33,27 @@ const TIMEFRAME_MINUTES: Record<string, number> = {
   'W1': 10080
 };
 
+// CASCADING QUALITY HIERARCHY: Each timeframe aggregates from its optimal lower timeframe
+// This ensures M5's high quality flows through the entire hierarchy
+const AGGREGATION_HIERARCHY: Record<string, string> = {
+  'M15': 'M5',  // 3 M5 candles
+  'M30': 'M5',  // 6 M5 candles
+  'H1': 'M5',   // 12 M5 candles
+  'H4': 'H1',   // 4 H1 candles
+  'D1': 'H4',   // 6 H4 candles (24 hours / 4 hours)
+  'W1': 'D1'    // 5 D1 candles (trading week Mon-Fri)
+};
+
+// QUALITY THRESHOLDS: Minimum percentage of lower timeframe candles required
+const QUALITY_THRESHOLDS: Record<string, number> = {
+  'M15': 0.66,  // Need 2+ of 3 M5 candles (66%)
+  'M30': 0.50,  // Need 3+ of 6 M5 candles (50%)
+  'H1': 0.50,   // Need 6+ of 12 M5 candles (50%)
+  'H4': 0.50,   // Need 2+ of 4 H1 candles (50%)
+  'D1': 0.50,   // Need 3+ of 6 H4 candles (50%)
+  'W1': 0.60    // Need 3+ of 5 D1 candles (60% - trading week)
+};
+
 interface RealtimePrice {
   symbol: string;
   bid: number;
@@ -474,28 +495,29 @@ async function aggregateFromM1Candles(
 }
 
 /**
- * BREAKTHROUGH: Aggregate higher timeframes (M15, M30, H1) from M5 candles
- * This inherits the beautiful wick quality from M5 instead of using sparse tick data
+ * BREAKTHROUGH: Generic aggregation from any lower timeframe
+ * This creates a cascading quality hierarchy: M5 → H1 → H4 → D1 → W1
  */
-async function aggregateFromM5Candles(
+async function aggregateFromLowerTimeframe(
   symbol: string,
-  timeframe: string,
+  targetTimeframe: string,
+  sourceTimeframe: string,
   startTime: Date,
   endTime: Date
 ): Promise<CandleData | null> {
   try {
-    // Fetch M5 candles that fall within this timeframe period
+    // Fetch source candles that fall within this target timeframe period
     const { data, error } = await supabase
       .from('forex_candles')
       .select('open, high, low, close, volume, open_time')
       .eq('symbol', symbol)
-      .eq('timeframe', 'M5')
+      .eq('timeframe', sourceTimeframe)
       .gte('open_time', startTime.toISOString())
       .lt('open_time', endTime.toISOString())
       .order('open_time', { ascending: true });
 
     if (error) {
-      console.error(`[CandleAggregator] Error fetching M5 candles for ${timeframe} aggregation:`, error.message);
+      console.error(`[CandleAggregator] Error fetching ${sourceTimeframe} candles for ${targetTimeframe} aggregation:`, error.message);
       return null;
     }
 
@@ -503,18 +525,22 @@ async function aggregateFromM5Candles(
       return null;
     }
 
-    // Calculate expected M5 candles for this timeframe
-    const timeframeMinutes = TIMEFRAME_MINUTES[timeframe];
-    const expectedM5Candles = timeframeMinutes / 5;
+    // Calculate expected source candles for this target timeframe
+    const targetMinutes = TIMEFRAME_MINUTES[targetTimeframe];
+    const sourceMinutes = TIMEFRAME_MINUTES[sourceTimeframe];
+    const expectedCandles = targetMinutes / sourceMinutes;
 
-    // Only create higher timeframe candle if we have at least 50% of expected M5 candles
-    // This prevents creating poor quality candles from incomplete data
-    if (data.length < expectedM5Candles * 0.5) {
-      console.log(`[CandleAggregator] Insufficient M5 candles for ${symbol} ${timeframe}: ${data.length}/${expectedM5Candles} (need ${Math.ceil(expectedM5Candles * 0.5)}+)`);
+    // Get quality threshold for this timeframe
+    const qualityThreshold = QUALITY_THRESHOLDS[targetTimeframe] || 0.5;
+    const minimumCandles = Math.ceil(expectedCandles * qualityThreshold);
+
+    // Only create target candle if we have enough source candles
+    if (data.length < minimumCandles) {
+      console.log(`[CandleAggregator] Insufficient ${sourceTimeframe} candles for ${symbol} ${targetTimeframe}: ${data.length}/${expectedCandles} (need ${minimumCandles}+)`);
       return null;
     }
 
-    // Aggregate M5 candles into higher timeframe
+    // Aggregate source candles into target timeframe
     // Take first open, last close, highest high, lowest low
     const open = data[0].open;
     const close = data[data.length - 1].close;
@@ -522,11 +548,11 @@ async function aggregateFromM5Candles(
     const low = Math.min(...data.map(c => c.low));
     const totalVolume = data.reduce((sum, c) => sum + (c.volume || 0), 0);
 
-    console.log(`[CandleAggregator]   🔧 Aggregated ${data.length} M5 candles into ${timeframe} for ${symbol}`);
+    console.log(`[CandleAggregator]   🔧 Aggregated ${data.length} ${sourceTimeframe} candles into ${targetTimeframe} for ${symbol}`);
 
     return {
       symbol,
-      timeframe,
+      timeframe: targetTimeframe,
       open_time: startTime,
       close_time: endTime,
       open,
@@ -536,9 +562,22 @@ async function aggregateFromM5Candles(
       volume: totalVolume
     };
   } catch (error) {
-    console.error(`[CandleAggregator] M5 aggregation error for ${timeframe}:`, error);
+    console.error(`[CandleAggregator] ${sourceTimeframe} → ${targetTimeframe} aggregation error:`, error);
     return null;
   }
+}
+
+/**
+ * LEGACY: Kept for backwards compatibility
+ * Now calls the generic aggregateFromLowerTimeframe function
+ */
+async function aggregateFromM5Candles(
+  symbol: string,
+  timeframe: string,
+  startTime: Date,
+  endTime: Date
+): Promise<CandleData | null> {
+  return aggregateFromLowerTimeframe(symbol, timeframe, 'M5', startTime, endTime);
 }
 
 async function aggregateCandlesForSymbol(
@@ -650,16 +689,38 @@ async function aggregateCandlesForSymbol(
 
       let candle: CandleData | null = null;
 
-      // BREAKTHROUGH: Use different aggregation strategies based on timeframe
-      // M1, M5: Build from tick data (fast, works great)
+      // CASCADING QUALITY HIERARCHY: Use optimal aggregation strategy based on timeframe
+      // M1, M5: Build from tick data (foundation layer)
       // M15, M30, H1: Aggregate from M5 candles (inherits M5's quality)
-      // H4, D1, W1: Still use tick data (processed less frequently)
+      // H4: Aggregate from H1 candles (inherits M5's quality via H1)
+      // D1: Aggregate from H4 candles (inherits M5's quality via H1 → H4)
+      // W1: Aggregate from D1 candles (inherits M5's quality via H1 → H4 → D1)
 
-      if (timeframe === 'M15' || timeframe === 'M30' || timeframe === 'H1') {
-        // QUALITY PATH: Aggregate from M5 candles for beautiful wicks
-        candle = await aggregateFromM5Candles(symbol, timeframe, currentCandleToCreate, candleEndTime);
+      const sourceTimeframe = AGGREGATION_HIERARCHY[timeframe];
+
+      if (sourceTimeframe) {
+        // QUALITY PATH: Aggregate from lower timeframe for cascading quality
+        candle = await aggregateFromLowerTimeframe(
+          symbol,
+          timeframe,
+          sourceTimeframe,
+          currentCandleToCreate,
+          candleEndTime
+        );
+
+        // FALLBACK: If lower timeframe aggregation fails, try tick data
+        if (!candle && (timeframe === 'M1' || timeframe === 'M5')) {
+          const candlePrices = prices.filter(p => {
+            const priceTime = new Date(p.created_at);
+            return priceTime >= currentCandleToCreate && priceTime < candleEndTime;
+          });
+
+          if (candlePrices.length > 0) {
+            candle = calculateCandleFromPrices(candlePrices, symbol, timeframe, currentCandleToCreate);
+          }
+        }
       } else {
-        // FAST PATH: Build from tick data for M1, M5, and slow timeframes
+        // FOUNDATION PATH: Build M1 and M5 from tick data
         const candlePrices = prices.filter(p => {
           const priceTime = new Date(p.created_at);
           return priceTime >= currentCandleToCreate && priceTime < candleEndTime;
