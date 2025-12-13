@@ -920,7 +920,7 @@ class GoalSessionLiveEngine {
         .eq('symbol', symbol)
         .eq('timeframe', dbTimeframe)
         .order('open_time', { ascending: false })
-        .limit(100);
+        .limit(300);
 
       if (error || !candles || candles.length < 50) {
         console.warn('[Goal Live Engine] Insufficient candle data');

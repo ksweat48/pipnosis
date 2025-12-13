@@ -52,7 +52,7 @@ class MarketSnapshotBuilder {
         .eq('symbol', symbol)
         .eq('timeframe', timeframe.toLowerCase())
         .order('open_time', { ascending: false })
-        .limit(100);
+        .limit(300);
 
       if (error || !candles || candles.length < 50) {
         console.warn(`[Snapshot Builder] Insufficient data for ${symbol} ${timeframe}`);

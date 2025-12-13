@@ -54,7 +54,7 @@ export interface MultiSymbolSnapshotResult {
 }
 
 class MultiSymbolSnapshotBuilder {
-  private readonly CANDLE_LOOKBACK = 100;
+  private readonly CANDLE_LOOKBACK = 300;
   private readonly TIMEFRAME = 'M5'; // Database uses uppercase format: M5, M15, H1, etc.
 
   async buildSnapshots(symbols: string[]): Promise<MultiSymbolSnapshotResult> {

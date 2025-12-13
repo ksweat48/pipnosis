@@ -26,29 +26,44 @@ type ProgressCallback = (progress: FetchProgress) => void;
 
 const PRIORITY_BATCHES: CandleFetchTask[][] = [
   [
-    { symbol: 'XAUUSD', timeframe: 'M1', candleCount: 300, priority: 1 },
-    { symbol: 'XAUUSD', timeframe: 'M5', candleCount: 500, priority: 1 },
-    { symbol: 'XAUUSD', timeframe: 'H1', candleCount: 200, priority: 1 }
+    { symbol: 'XAUUSD', timeframe: 'M1', candleCount: 400, priority: 1 },
+    { symbol: 'XAUUSD', timeframe: 'M5', candleCount: 600, priority: 1 },
+    { symbol: 'XAUUSD', timeframe: 'H1', candleCount: 300, priority: 1 },
+    { symbol: 'XAUUSD', timeframe: 'H4', candleCount: 300, priority: 1 },
+    { symbol: 'XAUUSD', timeframe: 'D1', candleCount: 300, priority: 1 },
+    { symbol: 'XAUUSD', timeframe: 'W1', candleCount: 200, priority: 1 }
   ],
   [
-    { symbol: 'US30', timeframe: 'M1', candleCount: 300, priority: 2 },
-    { symbol: 'US30', timeframe: 'M5', candleCount: 500, priority: 2 },
-    { symbol: 'US30', timeframe: 'H1', candleCount: 200, priority: 2 }
+    { symbol: 'US30', timeframe: 'M1', candleCount: 400, priority: 2 },
+    { symbol: 'US30', timeframe: 'M5', candleCount: 600, priority: 2 },
+    { symbol: 'US30', timeframe: 'H1', candleCount: 300, priority: 2 },
+    { symbol: 'US30', timeframe: 'H4', candleCount: 300, priority: 2 },
+    { symbol: 'US30', timeframe: 'D1', candleCount: 300, priority: 2 },
+    { symbol: 'US30', timeframe: 'W1', candleCount: 200, priority: 2 }
   ],
   [
-    { symbol: 'EURUSD', timeframe: 'M1', candleCount: 300, priority: 3 },
-    { symbol: 'EURUSD', timeframe: 'M5', candleCount: 500, priority: 3 },
-    { symbol: 'EURUSD', timeframe: 'H1', candleCount: 200, priority: 3 }
+    { symbol: 'EURUSD', timeframe: 'M1', candleCount: 400, priority: 3 },
+    { symbol: 'EURUSD', timeframe: 'M5', candleCount: 600, priority: 3 },
+    { symbol: 'EURUSD', timeframe: 'H1', candleCount: 300, priority: 3 },
+    { symbol: 'EURUSD', timeframe: 'H4', candleCount: 300, priority: 3 },
+    { symbol: 'EURUSD', timeframe: 'D1', candleCount: 300, priority: 3 },
+    { symbol: 'EURUSD', timeframe: 'W1', candleCount: 200, priority: 3 }
   ],
   [
-    { symbol: 'GBPUSD', timeframe: 'M1', candleCount: 300, priority: 4 },
-    { symbol: 'GBPUSD', timeframe: 'M5', candleCount: 500, priority: 4 },
-    { symbol: 'GBPUSD', timeframe: 'H1', candleCount: 200, priority: 4 }
+    { symbol: 'GBPUSD', timeframe: 'M1', candleCount: 400, priority: 4 },
+    { symbol: 'GBPUSD', timeframe: 'M5', candleCount: 600, priority: 4 },
+    { symbol: 'GBPUSD', timeframe: 'H1', candleCount: 300, priority: 4 },
+    { symbol: 'GBPUSD', timeframe: 'H4', candleCount: 300, priority: 4 },
+    { symbol: 'GBPUSD', timeframe: 'D1', candleCount: 300, priority: 4 },
+    { symbol: 'GBPUSD', timeframe: 'W1', candleCount: 200, priority: 4 }
   ],
   [
-    { symbol: 'USDJPY', timeframe: 'M1', candleCount: 300, priority: 5 },
-    { symbol: 'USDJPY', timeframe: 'M5', candleCount: 500, priority: 5 },
-    { symbol: 'USDJPY', timeframe: 'H1', candleCount: 200, priority: 5 }
+    { symbol: 'USDJPY', timeframe: 'M1', candleCount: 400, priority: 5 },
+    { symbol: 'USDJPY', timeframe: 'M5', candleCount: 600, priority: 5 },
+    { symbol: 'USDJPY', timeframe: 'H1', candleCount: 300, priority: 5 },
+    { symbol: 'USDJPY', timeframe: 'H4', candleCount: 300, priority: 5 },
+    { symbol: 'USDJPY', timeframe: 'D1', candleCount: 300, priority: 5 },
+    { symbol: 'USDJPY', timeframe: 'W1', candleCount: 200, priority: 5 }
   ]
 ];
 
@@ -368,12 +383,12 @@ class ConcurrentBulkLoader {
 
   private getCandleCountForTimeframe(timeframe: string): number {
     switch (timeframe) {
-      case 'M1': return 300;
-      case 'M5': return 500;
-      case 'H1': return 200;
-      case 'H4': return 168;
-      case 'D1': return 90;
-      case 'W1': return 52; // ~1 year of weekly data
+      case 'M1': return 400;
+      case 'M5': return 600;
+      case 'H1': return 300;
+      case 'H4': return 300;
+      case 'D1': return 300;
+      case 'W1': return 200; // ~4 years of weekly data for trend analysis
       default: return 300;
     }
   }
