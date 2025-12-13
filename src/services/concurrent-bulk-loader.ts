@@ -373,6 +373,7 @@ class ConcurrentBulkLoader {
       case 'H1': return 200;
       case 'H4': return 168;
       case 'D1': return 90;
+      case 'W1': return 52; // ~1 year of weekly data
       default: return 300;
     }
   }
