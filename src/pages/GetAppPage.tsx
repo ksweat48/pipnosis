@@ -1,16 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Smartphone, Monitor, Download, CheckCircle, Zap, Wifi, Bell } from 'lucide-react';
+import { Smartphone, Monitor, Download, CheckCircle, Zap, Wifi, Bell, Share2, AlertCircle, ArrowDown } from 'lucide-react';
 
 export default function GetAppPage() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [platform, setPlatform] = useState<'ios' | 'android' | 'desktop'>('desktop');
+  const [isIosSafari, setIsIosSafari] = useState(false);
 
   useEffect(() => {
     const userAgent = navigator.userAgent.toLowerCase();
+    const isIos = /iphone|ipad|ipod/.test(userAgent);
+    const isSafari = /safari/.test(userAgent) && !/chrome|crios|fxios|edgios/.test(userAgent);
 
-    if (/iphone|ipad|ipod/.test(userAgent)) {
+    if (isIos) {
       setPlatform('ios');
+      setIsIosSafari(isSafari);
     } else if (/android/.test(userAgent)) {
       setPlatform('android');
     } else {
@@ -49,7 +53,7 @@ export default function GetAppPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900 text-white pt-20 pb-12 px-4">
       <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-12">
+        <div className="text-center mb-8">
           <div className="flex justify-center mb-6">
             <div className="p-4 bg-gradient-to-br from-emerald-500 to-green-600 rounded-3xl shadow-2xl">
               <Smartphone size={48} className="text-white" />
@@ -73,6 +77,52 @@ export default function GetAppPage() {
             </p>
           </div>
         ) : null}
+
+        {platform === 'ios' && !isIosSafari && !isInstalled && (
+          <div className="bg-orange-900/30 border-2 border-orange-500 rounded-xl p-6 mb-8 animate-pulse">
+            <div className="flex items-start gap-4">
+              <AlertCircle className="text-orange-400 flex-shrink-0 mt-1" size={32} />
+              <div>
+                <h3 className="text-xl font-bold text-orange-400 mb-2">Please Open in Safari</h3>
+                <p className="text-gray-300 mb-3">
+                  iPhone apps can only be installed from Safari browser. Please copy this URL and open it in Safari:
+                </p>
+                <div className="bg-gray-800 rounded-lg p-3 font-mono text-sm text-emerald-400 break-all">
+                  {window.location.href}
+                </div>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(window.location.href);
+                    alert('URL copied! Now paste it in Safari browser.');
+                  }}
+                  className="mt-3 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+                >
+                  Copy URL
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {platform === 'ios' && isIosSafari && !isInstalled && (
+          <div className="bg-gradient-to-r from-emerald-600 to-green-600 rounded-xl p-6 mb-8 shadow-2xl border-2 border-emerald-400">
+            <div className="flex items-start gap-4">
+              <div className="bg-white rounded-full p-3 flex-shrink-0">
+                <Share2 className="text-emerald-600" size={32} />
+              </div>
+              <div className="flex-1">
+                <h2 className="text-2xl font-bold mb-2 text-white">Ready to Install on iPhone</h2>
+                <p className="text-emerald-50 mb-3 text-lg">
+                  Tap the Share button below and select "Add to Home Screen"
+                </p>
+                <div className="flex items-center gap-2 text-emerald-100 font-semibold">
+                  <ArrowDown className="animate-bounce" size={24} />
+                  <span>Look for the share icon at the bottom of your screen</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid md:grid-cols-3 gap-6 mb-12">
           <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
@@ -118,42 +168,60 @@ export default function GetAppPage() {
 
         <div className="space-y-8">
           {platform === 'ios' && (
-            <div className="bg-gray-800 rounded-xl p-8 border border-gray-700">
-              <div className="flex items-center gap-3 mb-6">
-                <Smartphone className="text-emerald-400" size={32} />
-                <h2 className="text-2xl font-bold">Install on iPhone/iPad</h2>
+            <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-8 border-2 border-emerald-500 shadow-2xl">
+              <div className="flex items-center gap-3 mb-8">
+                <div className="bg-emerald-600 p-3 rounded-2xl">
+                  <Smartphone className="text-white" size={36} />
+                </div>
+                <div>
+                  <h2 className="text-3xl font-bold text-emerald-400">iPhone/iPad Installation</h2>
+                  <p className="text-gray-400 text-sm">Follow these 4 simple steps</p>
+                </div>
               </div>
 
-              <ol className="space-y-4 text-gray-300">
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0 w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center text-sm font-bold">1</span>
-                  <div>
-                    <p className="font-semibold mb-1">Open in Safari</p>
-                    <p className="text-sm text-gray-400">Make sure you're using Safari browser (not Chrome or other browsers)</p>
+              <ol className="space-y-6">
+                <li className="flex gap-4 bg-gray-900/50 rounded-xl p-5 border border-emerald-600/30 hover:border-emerald-500/50 transition-colors">
+                  <span className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">1</span>
+                  <div className="flex-1">
+                    <p className="font-bold text-lg mb-2 text-white">Open in Safari Browser</p>
+                    <p className="text-gray-300 leading-relaxed">Make sure you're using Safari browser, not Chrome or other browsers. iOS apps can only be installed from Safari.</p>
                   </div>
                 </li>
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0 w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center text-sm font-bold">2</span>
-                  <div>
-                    <p className="font-semibold mb-1">Tap the Share button</p>
-                    <p className="text-sm text-gray-400">Look for the share icon at the bottom of the screen (square with arrow pointing up)</p>
+                <li className="flex gap-4 bg-gray-900/50 rounded-xl p-5 border border-emerald-600/30 hover:border-emerald-500/50 transition-colors">
+                  <span className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">2</span>
+                  <div className="flex-1">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <p className="font-bold text-lg text-white">Tap the Share Button</p>
+                      <Share2 className="text-emerald-400 flex-shrink-0" size={28} />
+                    </div>
+                    <p className="text-gray-300 leading-relaxed">Look for the share icon at the bottom center of your screen (square with an arrow pointing up).</p>
                   </div>
                 </li>
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0 w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center text-sm font-bold">3</span>
-                  <div>
-                    <p className="font-semibold mb-1">Select "Add to Home Screen"</p>
-                    <p className="text-sm text-gray-400">Scroll down in the share menu and tap "Add to Home Screen"</p>
+                <li className="flex gap-4 bg-gray-900/50 rounded-xl p-5 border border-emerald-600/30 hover:border-emerald-500/50 transition-colors">
+                  <span className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">3</span>
+                  <div className="flex-1">
+                    <p className="font-bold text-lg mb-2 text-white">Select "Add to Home Screen"</p>
+                    <p className="text-gray-300 leading-relaxed">Scroll down in the share menu and tap the "Add to Home Screen" option. You'll see the Pipnosis icon.</p>
                   </div>
                 </li>
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0 w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center text-sm font-bold">4</span>
-                  <div>
-                    <p className="font-semibold mb-1">Tap "Add"</p>
-                    <p className="text-sm text-gray-400">Confirm by tapping "Add" in the top right corner</p>
+                <li className="flex gap-4 bg-gray-900/50 rounded-xl p-5 border border-emerald-600/30 hover:border-emerald-500/50 transition-colors">
+                  <span className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">4</span>
+                  <div className="flex-1">
+                    <p className="font-bold text-lg mb-2 text-white">Tap "Add" to Confirm</p>
+                    <p className="text-gray-300 leading-relaxed">Tap the "Add" button in the top right corner. The Pipnosis app will appear on your home screen!</p>
                   </div>
                 </li>
               </ol>
+
+              <div className="mt-8 bg-emerald-900/30 border border-emerald-500/50 rounded-xl p-5">
+                <div className="flex items-start gap-3">
+                  <CheckCircle className="text-emerald-400 flex-shrink-0 mt-1" size={24} />
+                  <div>
+                    <p className="font-semibold text-emerald-400 mb-1">Once Installed</p>
+                    <p className="text-gray-300 text-sm">The Pipnosis app will appear on your home screen with a green icon. Tap it to launch the full app experience!</p>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
