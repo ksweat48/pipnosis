@@ -22,7 +22,7 @@ import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orch
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
-import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionSize, calculatePipDistance } from '../utils/currencyHelpers';
+import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalOptimalPosition } from '../utils/currencyHelpers';
 import { getRiskPercentage } from '../config/risk-levels';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
@@ -572,7 +572,6 @@ class GoalSessionLiveEngine {
       // ✅ NEW: Smart goal-based position sizing + TP calculation
       // Reuse goal context data from orchestrator call above
       // 🎯 CRITICAL: Use reverse calculation to optimize for goal
-      const { calculateGoalOptimalPosition } = await import('../utils/currencyHelpers');
       const goalOptimal = calculateGoalOptimalPosition(
         selectedSymbol,
         decision.action.toLowerCase() as 'buy' | 'sell',
@@ -598,7 +597,6 @@ class GoalSessionLiveEngine {
       };
 
       // 🚨 CRITICAL PRE-EXECUTION SAFETY CHECK
-      const { calculateDollarPerPip, calculatePipDistance } = await import('../utils/currencyHelpers');
       const stopPips = calculatePipDistance(selectedSymbol, decision.entry, decision.stopLoss);
       const dollarPerPipCalc = calculateDollarPerPip(selectedSymbol, calculatedLotSize);
       const calculatedRisk = stopPips * dollarPerPipCalc;

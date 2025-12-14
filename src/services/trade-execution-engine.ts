@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { goalSessionManager } from './goal-session-manager';
 import { positionService } from './position-service';
-import { getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { getCurrencyPipInfo, roundLotSize, roundPnL } from '../utils/currencyHelpers';
 import { strategyPlaybookManager } from './strategy-playbook-manager';
 import { getRegimeBucket } from './regime-bucketing';
 import { prodLogger } from '../lib/production-logger';
@@ -199,7 +199,6 @@ class TradeExecutionEngine {
       : null;
 
     // Round lot size to broker standard precision (0.01 lots)
-    const { roundLotSize, roundPnL } = await import('../utils/currencyHelpers');
     const roundedLotSize = roundLotSize(signal.positionSize);
 
     // Calculate risk dollars for R-normalized metrics

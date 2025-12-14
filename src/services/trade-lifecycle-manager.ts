@@ -3,6 +3,7 @@ import { goalSessionManager } from './goal-session-manager';
 import { counterfactualEngine } from './counterfactual-engine';
 import { CandleData } from './candle-data-service';
 import { strategyPlaybookManager } from './strategy-playbook-manager';
+import { calculateDollarPerPip, calculatePipDistance } from '../utils/currencyHelpers';
 
 export interface PriceUpdate {
   symbol: string;
@@ -290,7 +291,6 @@ class TradeLifecycleManager {
       let profitLoss = 0;
 
       // Calculate current P&L using proper dollar per pip calculation
-      const { calculateDollarPerPip, calculatePipDistance } = await import('../utils/currencyHelpers');
       const pipDistance = calculatePipDistance(trade.symbol, trade.entry_price, price);
       const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.position_size);
       const unrealizedPnL = trade.direction === 'buy'
@@ -816,8 +816,6 @@ class TradeLifecycleManager {
     achievementId?: string
   ): Promise<void> {
     try {
-      const { calculatePipDistance } = await import('../utils/currencyHelpers');
-
       // Calculate potential additional profit to TP
       const tpDistance = calculatePipDistance(trade.symbol, currentPrice, trade.take_profit);
       const tpPotential = currentPnL * (Math.abs(trade.take_profit - trade.entry_price) / Math.abs(currentPrice - trade.entry_price));

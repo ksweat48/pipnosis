@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { midTradeNotificationQueue } from './mid-trade-notification-queue';
+import { calculateDollarPerPip, calculatePipDistance, getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 export interface GoalSessionConfig {
   goalType: 'profit_target' | 'percentage_gain' | 'account_growth';
@@ -490,7 +491,6 @@ class GoalSessionManager {
       const exitPrice = priceData ? parseFloat(priceData.close) : trade.entry_price;
 
       // Calculate final P&L
-      const { calculateDollarPerPip, calculatePipDistance } = await import('../utils/currencyHelpers');
       const pipDistance = calculatePipDistance(trade.symbol, trade.entry_price, exitPrice);
       const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.position_size);
       const finalPnL = trade.direction === 'buy' ? pipDistance * dollarPerPip : -pipDistance * dollarPerPip;
@@ -615,11 +615,9 @@ class GoalSessionManager {
       const currentPrice = priceData ? parseFloat(priceData.close) : trade.entry_price;
 
       // Calculate safety price (50% of current profit)
-      const { calculatePipDistance } = await import('../utils/currencyHelpers');
       const pipDistance = calculatePipDistance(trade.symbol, trade.entry_price, currentPrice);
       const safetyPips = pipDistance * 0.5;
 
-      const { getCurrencyPipInfo } = await import('../utils/currencyHelpers');
       const pipInfo = getCurrencyPipInfo(trade.symbol);
 
       const safetyPrice = trade.direction === 'buy'
