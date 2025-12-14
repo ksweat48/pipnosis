@@ -1068,8 +1068,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         console.error('[Chart Init] Checking database directly...');
 
         // EMERGENCY: Try direct database query
+        // 🎯 Uses forex_candles_best for quality-filtered data
         const { data: directCandles, error: directError } = await supabase
-          .from('forex_candles')
+          .from('forex_candles_best')
           .select('*')
           .eq('symbol', symbol)
           .eq('timeframe', timeframe)

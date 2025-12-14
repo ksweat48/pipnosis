@@ -76,9 +76,12 @@ export class ChartDataGuarantor {
       // Order by descending to get the NEWEST candles first (fixes issue where
       // browser aggregator creates 500+ candles but we only fetch oldest 250)
       // Wrapped with database resilience for retry and caching
+      //
+      // 🎯 QUALITY SYSTEM: Using forex_candles_best view for automatic
+      // data source prioritization and flat candle filtering
       const { data: candles, error } = await databaseResilienceWrapper.query(
         () => supabase
-          .from('forex_candles')
+          .from('forex_candles_best')  // ✨ Uses quality-filtered view
           .select('*')
           .eq('symbol', symbol)
           .eq('timeframe', timeframe)

@@ -199,7 +199,7 @@ function transformCandles(
         low: candle.low,
         close: candle.close,
         volume: candle.volume,
-        data_source: 'dukascopy'
+        data_source: 'dukascopy_historical'  // Highest priority in quality system
       };
     });
 }
