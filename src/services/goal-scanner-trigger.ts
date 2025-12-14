@@ -95,11 +95,13 @@ class GoalScannerTrigger {
 
   async checkAndTriggerIfNeeded(sessionId: string): Promise<boolean> {
     try {
+      // Only scan for new opportunities when NOT in an active trade
+      // When status is 'in_trade', monitorOpenPositionsOnly() handles position monitoring
       const { data: session, error } = await supabase
         .from('goal_sessions')
         .select('id, next_scan_time, status, last_scan_time')
         .eq('id', sessionId)
-        .in('status', ['scanning', 'trade_pending', 'in_trade'])
+        .in('status', ['scanning', 'trade_pending'])
         .maybeSingle();
 
       if (error || !session) {

@@ -42,10 +42,12 @@ Deno.serve(async (req: Request) => {
 
     const now = new Date().toISOString();
 
+    // Only scan sessions actively looking for trades, NOT those with open positions
+    // Sessions with status 'in_trade' use position monitoring instead to save credits
     const { data: activeSessions, error: sessionsError } = await supabase
       .from('goal_sessions')
       .select('*')
-      .in('status', ['scanning', 'trade_pending', 'in_trade', 'soft_closing'])
+      .in('status', ['scanning', 'trade_pending'])
       .lte('next_scan_time', now);
 
     if (sessionsError) {
