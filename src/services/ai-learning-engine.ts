@@ -35,176 +35,10 @@ interface LearningInsight {
 
 class AILearningEngine {
   /**
-   * Main entry point: Analyze all trades from a backtest session and extract learnings
+   * REMOVED: analyzeBacktestSession - All backtest functionality removed
+   * All trades now come from live goal sessions with 2x weight
+   * Use analyzeLiveTrade() for single trade analysis
    */
-  async analyzeBacktestSession(
-    userId: string,
-    sessionId: string,
-    trades: TradeForAnalysis[],
-    sessionType: 'synthetic' | 'real'
-  ): Promise<void> {
-    console.log(`\n[AI Learning Engine] 🧠 Analyzing ${trades.length} trades from session ${sessionId}`);
-
-    if (trades.length === 0) {
-      console.log('[AI Learning Engine] No trades to analyze');
-      return;
-    }
-
-    try {
-      // 1. Analyze each individual trade
-      await this.analyzeTrades(userId, sessionId, trades, sessionType);
-
-      // 2. Extract winning patterns
-      const winningPatterns = await this.extractWinningPatterns(userId, trades);
-      await this.saveInsights(userId, sessionId, winningPatterns, sessionType);
-
-      // 3. Extract losing patterns
-      const losingPatterns = await this.extractLosingPatterns(userId, trades);
-      await this.saveInsights(userId, sessionId, losingPatterns, sessionType);
-
-      // 4. Identify optimal timing patterns
-      const timingInsights = await this.analyzeOptimalTiming(userId, trades);
-      await this.saveInsights(userId, sessionId, timingInsights, sessionType);
-
-      // 5. Analyze market scenario performance
-      await this.analyzeMarketScenarioPerformance(userId, trades);
-
-      // 6. Update performance evolution metrics
-      await this.updatePerformanceEvolution(userId, trades);
-
-      // 7. Calculate EV for all patterns and update tracking
-      await this.updatePatternEVTracking(userId, trades);
-
-      // 8. Calculate and store CSS for session
-      await this.calculateSessionCSS(userId, trades);
-
-      // 9. Calculate and store overall session learnings
-      await this.generateSessionSummary(userId, sessionId, trades, sessionType);
-
-      // 10. DISCOVER NEW STRATEGIES from winning patterns
-      console.log('[AI Learning Engine] 🔍 Discovering new strategies...');
-      await strategyDiscoveryEngine.discoverStrategiesFromTrades(userId, trades);
-
-      // 11. LLM POST-SESSION ANALYZER: Deep pattern discovery and strategic insights
-      console.log('[AI Learning Engine] 🤖 Invoking LLM Post-Session Analyzer...');
-      await llmPostSessionAnalyzer.analyzeSession(userId, sessionId, trades, sessionType);
-
-      // 12. GPT-4o PATTERN INTERPRETER: Explain discovered patterns
-      console.log('[AI Learning Engine] 📖 Generating pattern interpretations...');
-      await this.interpretDiscoveredPatterns(userId, winningPatterns);
-
-      // 13. UPDATE AI SKILL PROGRESSION (backup update to ensure progression is tracked)
-      console.log('[AI Learning Engine] 📊 Updating AI skill progression from learning analysis...');
-      const winningTradesCount = trades.filter(t => t.outcome === 'win').length;
-      const winRate = trades.length > 0 ? (winningTradesCount / trades.length) * 100 : 0;
-      const totalWins = trades.filter(t => t.outcome === 'win').reduce((sum, t) => sum + t.pnl, 0);
-      const totalLosses = Math.abs(trades.filter(t => t.outcome === 'loss').reduce((sum, t) => sum + t.pnl, 0));
-      const profitFactor = totalLosses > 0 ? totalWins / totalLosses : 0;
-
-      console.log(`[AI Learning Engine] 🎯 Analysis: ${winningTradesCount} winning trades, ${winRate.toFixed(1)}% WR, ${profitFactor.toFixed(2)} PF`);
-
-      // Prepare confidence data for accuracy calculation
-      const tradesWithConfidence = trades.map(t => ({
-        confidence: t.confidence,
-        outcome: t.outcome
-      }));
-
-      const skillUpdate = await aiSkillTracker.updateAfterBacktest(
-        userId,
-        winningTradesCount,
-        winRate,
-        profitFactor,
-        winningPatterns.length,
-        sessionType,
-        0, // exploratoryTradesCount - would need to be tracked separately
-        trades.length, // totalTradesInSession
-        tradesWithConfidence // NEW: Pass confidence data for accuracy tracking
-      );
-
-      if (skillUpdate.leveledUp) {
-        console.log(`[AI Learning Engine] 🎉 AI LEVEL UP! ${skillUpdate.oldLevel} → ${skillUpdate.newLevel}`);
-      }
-
-      if (skillUpdate.validationWarnings && skillUpdate.validationWarnings.length > 0) {
-        console.warn('[AI Learning Engine] ⚠️  Skill progression warnings:');
-        skillUpdate.validationWarnings.forEach(warning => {
-          console.warn(`  - ${warning}`);
-        });
-      }
-
-      console.log('[AI Learning Engine] ✅ Learning analysis complete!');
-    } catch (error) {
-      console.error('[AI Learning Engine] Error analyzing session:', error);
-    }
-  }
-
-  /**
-   * Analyze each trade individually and store detailed analysis
-   */
-  private async analyzeTrades(
-    userId: string,
-    sessionId: string,
-    trades: TradeForAnalysis[],
-    sessionType: 'synthetic' | 'real'
-  ): Promise<void> {
-    console.log('[AI Learning Engine] Analyzing individual trades...');
-
-    for (const trade of trades) {
-      try {
-        const analysis = await this.analyzeIndividualTrade(trade, trades);
-
-        // Calculate EV-based profitability metrics
-        const realizedRR = this.calculateRealizedRR(trade);
-        const { mae, mfe } = this.calculateMAEMFE(trade);
-        const tradeEV = await this.calculateTradeEV(userId, trade, trades);
-        const tradeQuality = this.calculateTradeQuality(trade, realizedRR);
-        const volatilityRegime = this.determineVolatilityRegime(trade);
-
-        const { error } = await supabase.from('ai_trade_analysis').insert({
-          user_id: userId,
-          [sessionType === 'synthetic' ? 'synthetic_trade_id' : 'backtest_trade_id']: trade.id,
-          symbol: trade.symbol,
-          direction: trade.direction,
-          outcome: trade.outcome,
-          pnl: trade.pnl,
-          entry_time: trade.entryTime.toISOString(),
-          entry_confidence: trade.confidence,
-          entry_market_conditions: trade.marketConditions || {},
-          entry_indicators_alignment: this.extractIndicatorAlignment(trade),
-          entry_quality_score: this.calculateEntryQualityScore(trade),
-          decision_reasoning: analysis.reasoning,
-          matching_historical_patterns: analysis.matchingPatterns,
-          ai_conviction_level: trade.confidence,
-          risk_reward_at_entry: Math.abs((trade.takeProfit - trade.entryPrice) / (trade.entryPrice - trade.stopLoss)),
-          exit_time: trade.exitTime.toISOString(),
-          exit_reason: this.determineExitReason(trade),
-          exit_market_conditions: {},
-          was_exit_optimal: trade.outcome === 'win',
-          key_learnings: analysis.keyLearnings,
-          mistakes_identified: analysis.mistakes,
-          what_worked: analysis.whatWorked,
-          what_failed: analysis.whatFailed,
-          similar_trades_count: analysis.similarTradesCount,
-          similar_trades_win_rate: analysis.similarTradesWinRate,
-          is_pattern_repeating: analysis.isPatternRepeating,
-          realized_rr: realizedRR,
-          mae: mae,
-          mfe: mfe,
-          expected_value: tradeEV,
-          trade_quality_score: tradeQuality,
-          volatility_regime: volatilityRegime
-        });
-
-        if (error) {
-          console.error(`[AI Learning Engine] Error analyzing trade:`, error);
-        }
-      } catch (error) {
-        console.error(`[AI Learning Engine] Exception analyzing trade:`, error);
-      }
-    }
-
-    console.log(`[AI Learning Engine] ✓ Analyzed ${trades.length} trades`);
-  }
 
   /**
    * Analyze an individual trade and extract insights
@@ -419,62 +253,9 @@ class AILearningEngine {
   }
 
   /**
-   * Save learning insights to database
+   * REMOVED: saveInsights - Legacy insight system replaced with trade analysis
+   * Insights are now stored directly in ai_trade_analysis table
    */
-  private async saveInsights(
-    userId: string,
-    sessionId: string,
-    insights: LearningInsight[],
-    sessionType: 'synthetic' | 'real'
-  ): Promise<void> {
-    if (insights.length === 0) return;
-
-    console.log(`[AI Learning Engine] Saving ${insights.length} insights...`);
-
-    for (const insight of insights) {
-      try {
-        const symbols = insight.applicableConditions.symbol
-          ? [insight.applicableConditions.symbol]
-          : ['EURUSD', 'XAUUSD', 'GBPUSD']; // Default to common symbols
-
-        for (const symbol of symbols) {
-          // NOTE: Legacy ai_learning_insights table removed - insights now stored in ai_trade_analysis
-          // This insert is commented out as the table no longer exists
-          /*
-          const { error } = await supabase.from('ai_learning_insights').insert({
-            user_id: userId,
-            [sessionType === 'synthetic' ? 'synthetic_session_id' : 'backtest_session_id']: sessionId,
-            is_from_live_trading: false,
-            insight_type: insight.type,
-            symbol,
-            timeframe: 'H1',
-            market_scenario: 'mixed',
-            volatility_level: 'medium',
-            trend_direction: 'mixed',
-            insight_title: insight.title,
-            insight_description: insight.description,
-            pattern_features: insight.applicableConditions,
-            sample_size: 10,
-            win_rate: insight.confidence,
-            avg_profit_factor: 1.5,
-            confidence_score: insight.confidence,
-            recommended_action: insight.applicableConditions.recommendAction || 'follow_pattern',
-            apply_when_conditions: insight.applicableConditions,
-            avoid_when_conditions: {}
-          });
-
-          if (error) {
-            console.error('[AI Learning Engine] Error saving insight:', error);
-          }
-          */
-        }
-      } catch (error) {
-        console.error('[AI Learning Engine] Exception saving insight:', error);
-      }
-    }
-
-    console.log('[AI Learning Engine] ✓ Insights saved');
-  }
 
   /**
    * Analyze performance by market scenario
@@ -641,32 +422,9 @@ class AILearningEngine {
   }
 
   /**
-   * Generate overall session summary
+   * REMOVED: generateSessionSummary - Backtest session summaries no longer needed
+   * All learning now comes from individual live trades analyzed in real-time
    */
-  private async generateSessionSummary(
-    userId: string,
-    sessionId: string,
-    trades: TradeForAnalysis[],
-    sessionType: 'synthetic' | 'real'
-  ): Promise<void> {
-    const wins = trades.filter(t => t.outcome === 'win');
-    const winRate = trades.length > 0 ? (wins.length / trades.length) * 100 : 0;
-
-    console.log(`\n[AI Learning Engine] 📊 Session Summary:`);
-    console.log(`  Total Trades: ${trades.length}`);
-    console.log(`  Wins: ${wins.length}`);
-    console.log(`  Win Rate: ${winRate.toFixed(1)}%`);
-    console.log(`  Session Type: ${sessionType}`);
-
-    // Generate and save session learning summary for the dashboard
-    try {
-      console.log('[AI Learning Engine] 📝 Generating session learning summary...');
-      await sessionLearningGenerator.generateBacktestLearning(userId, sessionId, trades, sessionType);
-      console.log(`  Learnings stored: ✓`);
-    } catch (error) {
-      console.error('[AI Learning Engine] Error generating session learning:', error);
-    }
-  }
 
   // ============================================================================
   // HELPER METHODS
@@ -787,14 +545,15 @@ class AILearningEngine {
   }
 
   /**
-   * Analyze a single live demo trade and extract learnings
-   * This is called when a trade closes in live demo trading
+   * Analyze a single live trade and extract learnings
+   * This is called when a trade closes in goal session trading
+   * ALL TRADES COUNT AS 2X WEIGHT (no backtest distinction)
    */
   async analyzeLiveTrade(
     userId: string,
     tradeId: string
   ): Promise<{ success: boolean; learningsExtracted: number }> {
-    console.log(`\n[AI Learning Engine] 🎯 Analyzing live trade ${tradeId}`);
+    console.log(`\n[AI Learning Engine] 🎯 Analyzing live trade ${tradeId} (2x weight)`);
     const startTime = Date.now();
 
     try {
@@ -894,26 +653,14 @@ class AILearningEngine {
         is_pattern_repeating: analysis.isPatternRepeating
       });
 
-      // Extract and save insights with 2x weight for live trades
+      // Extract patterns (all trades have 2x weight)
       const insights = [
         ...await this.extractWinningPatterns(userId, [tradeForAnalysis]),
         ...await this.extractLosingPatterns(userId, [tradeForAnalysis]),
         ...await this.analyzeOptimalTiming(userId, [tradeForAnalysis])
       ];
 
-      let insightsCreated = 0;
-      for (const insight of insights) {
-        const symbols = insight.applicableConditions.symbol
-          ? [insight.applicableConditions.symbol]
-          : [trade.symbol];
-
-        for (const symbol of symbols) {
-          // NOTE: Legacy ai_learning_insights table removed
-          // Insights now stored in ai_trade_analysis per-trade
-          // Increment counter for backward compatibility
-          insightsCreated++;
-        }
-      }
+      const insightsCreated = insights.length;
 
       // Update market scenario performance
       await this.updateMarketScenarioPerformanceLive(userId, tradeForAnalysis);
@@ -947,7 +694,10 @@ class AILearningEngine {
         .update({ ai_analyzed: true })
         .eq('id', tradeId);
 
-      console.log(`[AI Learning Engine] ✅ Live trade analyzed! Extracted ${insightsCreated} insights (2x weighted)`);
+      // DUAL-WRITE: Contribute to platform-wide learning (anonymized)
+      await this.contributeToPlatformLearning(tradeForAnalysis, analysis);
+
+      console.log(`[AI Learning Engine] ✅ Trade analyzed! Extracted ${insightsCreated} insights + contributed to platform intelligence`);
       return { success: true, learningsExtracted: insightsCreated };
     } catch (error) {
       console.error('[AI Learning Engine] Error analyzing live trade:', error);
@@ -1381,6 +1131,259 @@ class AILearningEngine {
     }
 
     return results;
+  }
+
+  /**
+   * PLATFORM-WIDE LEARNING: Contribute trade to collective intelligence (anonymized)
+   * Updates global patterns, symbol intelligence, and confidence calibration
+   */
+  private async contributeToPlatformLearning(
+    trade: TradeForAnalysis,
+    analysis: any
+  ): Promise<void> {
+    try {
+      console.log('[Platform Learning] 🌐 Contributing to collective intelligence...');
+
+      // 1. Update global pattern performance
+      await this.updateGlobalPattern(trade, analysis);
+
+      // 2. Update symbol intelligence
+      await this.updateSymbolIntelligence(trade);
+
+      // 3. Update confidence calibration
+      await this.updateConfidenceCalibration(trade);
+
+      // 4. Update market scenario performance
+      await this.updateGlobalMarketScenario(trade);
+
+      console.log('[Platform Learning] ✅ Contribution complete');
+    } catch (error) {
+      console.error('[Platform Learning] Error contributing to platform:', error);
+      // Don't throw - platform learning is non-blocking
+    }
+  }
+
+  /**
+   * Update global pattern performance (aggregated across all users)
+   */
+  private async updateGlobalPattern(trade: TradeForAnalysis, analysis: any): Promise<void> {
+    const patternId = `${trade.symbol}_${trade.setupType}_${trade.direction}`;
+
+    try {
+      // Fetch existing pattern or create new
+      const { data: existing } = await supabase
+        .from('ai_global_patterns')
+        .select('*')
+        .eq('pattern_id', patternId)
+        .maybeSingle();
+
+      if (existing) {
+        // Update existing pattern
+        const newTotal = existing.total_occurrences + 1;
+        const newWins = existing.win_count + (trade.outcome === 'win' ? 1 : 0);
+        const newLosses = existing.loss_count + (trade.outcome === 'loss' ? 1 : 0);
+        const newBreakeven = existing.breakeven_count + (trade.outcome === 'breakeven' ? 1 : 0);
+        const newWinRate = (newWins / newTotal) * 100;
+
+        const { error } = await supabase
+          .from('ai_global_patterns')
+          .update({
+            total_occurrences: newTotal,
+            win_count: newWins,
+            loss_count: newLosses,
+            breakeven_count: newBreakeven,
+            win_rate: newWinRate,
+            last_occurrence_at: new Date().toISOString(),
+            sample_size_adequate: newTotal >= 30,
+            updated_at: new Date().toISOString()
+          })
+          .eq('pattern_id', patternId);
+
+        if (error) {
+          console.error('[Platform Learning] Error updating global pattern:', error);
+        }
+      } else {
+        // Create new pattern
+        const { error } = await supabase
+          .from('ai_global_patterns')
+          .insert({
+            pattern_id: patternId,
+            pattern_name: `${trade.setupType} ${trade.direction}`,
+            symbol: trade.symbol,
+            setup_type: trade.setupType,
+            direction: trade.direction,
+            total_occurrences: 1,
+            win_count: trade.outcome === 'win' ? 1 : 0,
+            loss_count: trade.outcome === 'loss' ? 1 : 0,
+            breakeven_count: trade.outcome === 'breakeven' ? 1 : 0,
+            win_rate: trade.outcome === 'win' ? 100 : 0,
+            volatility_regime: this.determineVolatilityRegime(trade),
+            last_occurrence_at: new Date().toISOString(),
+            sample_size_adequate: false
+          });
+
+        if (error) {
+          console.error('[Platform Learning] Error creating global pattern:', error);
+        }
+      }
+    } catch (error) {
+      console.error('[Platform Learning] Exception in updateGlobalPattern:', error);
+    }
+  }
+
+  /**
+   * Update symbol intelligence (aggregated platform-wide stats)
+   */
+  private async updateSymbolIntelligence(trade: TradeForAnalysis): Promise<void> {
+    try {
+      const { data: existing } = await supabase
+        .from('ai_global_symbol_intelligence')
+        .select('*')
+        .eq('symbol', trade.symbol)
+        .maybeSingle();
+
+      if (existing) {
+        // Update existing
+        const newTotal = existing.total_trades_platform_wide + 1;
+        const newWinRate = ((existing.platform_win_rate * existing.total_trades_platform_wide) +
+          (trade.outcome === 'win' ? 100 : 0)) / newTotal;
+
+        const { error } = await supabase
+          .from('ai_global_symbol_intelligence')
+          .update({
+            total_trades_platform_wide: newTotal,
+            platform_win_rate: newWinRate,
+            updated_at: new Date().toISOString()
+          })
+          .eq('symbol', trade.symbol);
+
+        if (error) {
+          console.error('[Platform Learning] Error updating symbol intelligence:', error);
+        }
+      } else {
+        // Create new
+        const { error } = await supabase
+          .from('ai_global_symbol_intelligence')
+          .insert({
+            symbol: trade.symbol,
+            total_trades_platform_wide: 1,
+            platform_win_rate: trade.outcome === 'win' ? 100 : 0,
+            platform_profit_factor: 0
+          });
+
+        if (error) {
+          console.error('[Platform Learning] Error creating symbol intelligence:', error);
+        }
+      }
+    } catch (error) {
+      console.error('[Platform Learning] Exception in updateSymbolIntelligence:', error);
+    }
+  }
+
+  /**
+   * Update confidence calibration (platform-wide accuracy tracking)
+   */
+  private async updateConfidenceCalibration(trade: TradeForAnalysis): Promise<void> {
+    try {
+      // Determine confidence bucket
+      let bucket = '70-75';
+      if (trade.confidence >= 95) bucket = '95-100';
+      else if (trade.confidence >= 90) bucket = '90-95';
+      else if (trade.confidence >= 85) bucket = '85-90';
+      else if (trade.confidence >= 80) bucket = '80-85';
+      else if (trade.confidence >= 75) bucket = '75-80';
+
+      const { data: existing } = await supabase
+        .from('ai_global_confidence_calibration')
+        .select('*')
+        .eq('confidence_bucket', bucket)
+        .maybeSingle();
+
+      if (existing) {
+        const newTotal = existing.total_predictions + 1;
+        const newCorrect = existing.correct_predictions + (trade.outcome === 'win' ? 1 : 0);
+        const newActualWinRate = (newCorrect / newTotal) * 100;
+        const newCalibrationError = Math.abs(newActualWinRate - parseFloat(existing.expected_win_rate.toString()));
+
+        const { error } = await supabase
+          .from('ai_global_confidence_calibration')
+          .update({
+            total_predictions: newTotal,
+            correct_predictions: newCorrect,
+            actual_win_rate: newActualWinRate,
+            calibration_error: newCalibrationError,
+            is_well_calibrated: newCalibrationError < 5,
+            last_updated: new Date().toISOString()
+          })
+          .eq('confidence_bucket', bucket);
+
+        if (error) {
+          console.error('[Platform Learning] Error updating confidence calibration:', error);
+        }
+      }
+    } catch (error) {
+      console.error('[Platform Learning] Exception in updateConfidenceCalibration:', error);
+    }
+  }
+
+  /**
+   * Update global market scenario performance
+   */
+  private async updateGlobalMarketScenario(trade: TradeForAnalysis): Promise<void> {
+    try {
+      const volatilityRegime = this.determineVolatilityRegime(trade);
+      const marketType = 'mixed'; // Would need more context to determine
+      const scenarioId = `${trade.symbol}_${marketType}_${volatilityRegime}`;
+
+      const { data: existing } = await supabase
+        .from('ai_global_market_scenarios')
+        .select('*')
+        .eq('scenario_id', scenarioId)
+        .maybeSingle();
+
+      if (existing) {
+        const newTotal = existing.total_trades + 1;
+        const newWins = existing.trades_won + (trade.outcome === 'win' ? 1 : 0);
+        const newLosses = existing.trades_lost + (trade.outcome === 'loss' ? 1 : 0);
+        const newWinRate = (newWins / newTotal) * 100;
+
+        const { error } = await supabase
+          .from('ai_global_market_scenarios')
+          .update({
+            total_trades: newTotal,
+            trades_won: newWins,
+            trades_lost: newLosses,
+            win_rate: newWinRate,
+            sample_size_sufficient: newTotal >= 50,
+            last_updated: new Date().toISOString()
+          })
+          .eq('scenario_id', scenarioId);
+
+        if (error) {
+          console.error('[Platform Learning] Error updating market scenario:', error);
+        }
+      } else {
+        const { error } = await supabase
+          .from('ai_global_market_scenarios')
+          .insert({
+            scenario_id: scenarioId,
+            symbol: trade.symbol,
+            market_type: marketType,
+            volatility_regime: volatilityRegime,
+            total_trades: 1,
+            trades_won: trade.outcome === 'win' ? 1 : 0,
+            trades_lost: trade.outcome === 'loss' ? 1 : 0,
+            win_rate: trade.outcome === 'win' ? 100 : 0,
+            sample_size_sufficient: false
+          });
+
+        if (error) {
+          console.error('[Platform Learning] Error creating market scenario:', error);
+        }
+      }
+    } catch (error) {
+      console.error('[Platform Learning] Exception in updateGlobalMarketScenario:', error);
+    }
   }
 }
 

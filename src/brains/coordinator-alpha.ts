@@ -60,6 +60,7 @@ import type { TraderScore } from '../services/ai-identity';
 import { omega9Hallucination, type Omega9Input } from './omega9-hallucination-brain';
 import { omega10Scheduler } from '../services/omega10-scheduler';
 import { llmTokenTracker } from '../services/llm-token-tracker';
+import { globalIntelligenceProvider } from '../services/global-intelligence-provider';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -134,8 +135,11 @@ class AlphaCoordinatorBrain {
     const consensus = this.calculateWeightedConsensus(votes, weights);
     console.log(`[Alpha Coordinator] 📊 Weighted Consensus: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} Omegas)`);
 
+    // Fetch platform-wide intelligence for this symbol
+    const platformIntelligence = await this.fetchPlatformIntelligence(marketContext.symbol);
+
     // Build compressed context
-    const context = this.buildCoordinationContext(votes, weights, marketContext, traderScore, consensus);
+    const context = this.buildCoordinationContext(votes, weights, marketContext, traderScore, consensus, platformIntelligence);
 
     // Build conflict context
     let conflictContext = '';
@@ -521,18 +525,68 @@ Return JSON only:
   /**
    * Build compressed coordination context
    */
+  /**
+   * Fetch platform-wide intelligence for symbol
+   */
+  private async fetchPlatformIntelligence(symbol: string): Promise<string> {
+    try {
+      const [symbolIntel, topPatterns, platformStats] = await Promise.all([
+        globalIntelligenceProvider.getSymbolIntelligence(symbol),
+        globalIntelligenceProvider.getGlobalPatternsForSymbol(symbol, 20),
+        globalIntelligenceProvider.getPlatformStats()
+      ]);
+
+      const parts: string[] = [];
+      parts.push('📊 PLATFORM INTELLIGENCE (Collective Learning from All Users):');
+
+      if (symbolIntel && symbolIntel.total_trades_platform_wide >= 30) {
+        parts.push(`${symbol}: ${symbolIntel.total_trades_platform_wide} trades platform-wide | WR: ${symbolIntel.platform_win_rate.toFixed(1)}% | PF: ${symbolIntel.platform_profit_factor.toFixed(2)}`);
+
+        if (symbolIntel.intelligence_quality_score >= 70) {
+          parts.push(`✅ High-quality intelligence (Score: ${symbolIntel.intelligence_quality_score})`);
+        }
+      } else {
+        parts.push(`${symbol}: Limited platform data (new symbol or low volume)`);
+      }
+
+      if (topPatterns && topPatterns.length > 0) {
+        const validated = topPatterns.filter(p => p.sample_size_adequate);
+        if (validated.length > 0) {
+          const best = validated[0];
+          parts.push(`Top Pattern: ${best.pattern_name} | WR: ${best.win_rate.toFixed(1)}% | PF: ${best.profit_factor.toFixed(2)} (${best.total_occurrences} samples)`);
+        }
+      }
+
+      if (platformStats) {
+        parts.push(`Platform: ${platformStats.total_trades_analyzed} trades analyzed | ${platformStats.total_patterns_discovered} patterns discovered`);
+      }
+
+      return parts.join('\n');
+    } catch (error) {
+      console.error('[Alpha] Error fetching platform intelligence:', error);
+      return '📊 Platform intelligence unavailable';
+    }
+  }
+
   private buildCoordinationContext(
     votes: OmegaCouncilVotes,
     weights: Record<string, number>,
     marketContext: MarketContext,
     traderScore: TraderScore,
-    consensus: any
+    consensus: any,
+    platformIntelligence?: string
   ): string {
     const parts: string[] = [];
 
     parts.push(`Market: ${marketContext.symbol} | ${marketContext.regime} | ${marketContext.volatility} vol`);
     parts.push(`Price: ${marketContext.price} | ATR: ${marketContext.atr}`);
     parts.push(`Trader: ${traderScore.confidence_level} (Score: ${traderScore.current_score}, Streak: ${traderScore.win_streak})`);
+
+    if (platformIntelligence) {
+      parts.push('');
+      parts.push(platformIntelligence);
+    }
+
     parts.push('');
     parts.push('Omega Votes (weighted):');
 
