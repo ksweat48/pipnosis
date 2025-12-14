@@ -12,7 +12,7 @@ const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
 // These are the most commonly used timeframes and must always have fresh data
 const FAST_TIMEFRAMES = ['M1', 'M5', 'M15']; // Process every run (5 min) - CRITICAL FOR PERSISTENCE
 const MEDIUM_TIMEFRAMES = ['M30', 'H1']; // Process every 3rd run (15 min)
-const SLOW_TIMEFRAMES = ['H4', 'D1', 'W1']; // Process every 12th run (60 min)
+const SLOW_TIMEFRAMES = ['H4', 'D1']; // Process every 12th run (60 min)
 const ALL_TIMEFRAMES = [...FAST_TIMEFRAMES, ...MEDIUM_TIMEFRAMES, ...SLOW_TIMEFRAMES];
 
 // SAFETY: Maximum candles to create per timeframe per run (prevents runaway processing)
@@ -29,8 +29,7 @@ const TIMEFRAME_MINUTES: Record<string, number> = {
   'M30': 30,
   'H1': 60,
   'H4': 240,
-  'D1': 1440,
-  'W1': 10080
+  'D1': 1440
 };
 
 // CASCADING QUALITY HIERARCHY: Each timeframe aggregates from its optimal lower timeframe
@@ -40,8 +39,7 @@ const AGGREGATION_HIERARCHY: Record<string, string> = {
   'M30': 'M5',  // 6 M5 candles
   'H1': 'M5',   // 12 M5 candles
   'H4': 'H1',   // 4 H1 candles
-  'D1': 'H4',   // 6 H4 candles (24 hours / 4 hours)
-  'W1': 'D1'    // 5 D1 candles (trading week Mon-Fri)
+  'D1': 'H4'    // 6 H4 candles (24 hours / 4 hours)
 };
 
 // QUALITY THRESHOLDS: Minimum percentage of lower timeframe candles required
@@ -50,8 +48,7 @@ const QUALITY_THRESHOLDS: Record<string, number> = {
   'M30': 0.50,  // Need 3+ of 6 M5 candles (50%)
   'H1': 0.50,   // Need 6+ of 12 M5 candles (50%)
   'H4': 0.50,   // Need 2+ of 4 H1 candles (50%)
-  'D1': 0.50,   // Need 3+ of 6 H4 candles (50%)
-  'W1': 0.60    // Need 3+ of 5 D1 candles (60% - trading week)
+  'D1': 0.50    // Need 3+ of 6 H4 candles (50%)
 };
 
 interface RealtimePrice {
@@ -496,7 +493,7 @@ async function aggregateFromM1Candles(
 
 /**
  * BREAKTHROUGH: Generic aggregation from any lower timeframe
- * This creates a cascading quality hierarchy: M5 → H1 → H4 → D1 → W1
+ * This creates a cascading quality hierarchy: M5 → H1 → H4 → D1
  */
 async function aggregateFromLowerTimeframe(
   symbol: string,
@@ -694,7 +691,6 @@ async function aggregateCandlesForSymbol(
       // M15, M30, H1: Aggregate from M5 candles (inherits M5's quality)
       // H4: Aggregate from H1 candles (inherits M5's quality via H1)
       // D1: Aggregate from H4 candles (inherits M5's quality via H1 → H4)
-      // W1: Aggregate from D1 candles (inherits M5's quality via H1 → H4 → D1)
 
       const sourceTimeframe = AGGREGATION_HIERARCHY[timeframe];
 

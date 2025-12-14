@@ -243,8 +243,7 @@ class CandlePersistenceService {
       M30: 30,
       H1: 60,
       H4: 240,
-      D1: 1440,
-      W1: 10080
+      D1: 1440
     };
     return map[timeframe] || 15;
   }

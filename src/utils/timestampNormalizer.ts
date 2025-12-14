@@ -7,7 +7,7 @@
  * Purpose: Eliminate timing overlaps and ensure perfect candle alignment.
  */
 
-export type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'W1';
+export type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1';
 
 const TIMEFRAME_MINUTES: Record<Timeframe, number> = {
   M1: 1,
@@ -17,7 +17,6 @@ const TIMEFRAME_MINUTES: Record<Timeframe, number> = {
   H1: 60,
   H4: 240,
   D1: 1440,
-  W1: 10080,
 };
 
 /**

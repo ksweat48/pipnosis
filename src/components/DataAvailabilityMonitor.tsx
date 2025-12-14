@@ -18,7 +18,7 @@ import {
 import { Timeframe } from '@/services/chart-preferences';
 
 const MONITORED_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
-const ALL_TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
+const ALL_TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
 
 export function DataAvailabilityMonitor() {
   const [loading, setLoading] = useState(true);

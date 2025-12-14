@@ -570,8 +570,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       'M30': 75,   // 2250 minutes = 37.5 hours (~1.5 days)
       'H1': 50,    // 50 hours = ~2 days
       'H4': 30,    // 120 hours = 5 days
-      'D1': 20,    // 20 days
-      'W1': 12     // 12 weeks = ~3 months
+      'D1': 20     // 20 days
     };
     return lookbackMap[tf] || 100;
   };
@@ -582,13 +581,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     // HYBRID VWAP APPROACH: Use different calculation methods based on timeframe
     // M1-H1: Rolling VWAP (responsive to current price action)
     // H4-D1: Session-based VWAP (resets daily, more meaningful for intraday)
-    // W1: Weekly session VWAP (resets weekly)
     let vwap: IndicatorResult[];
 
-    if (timeframe === 'W1') {
-      // Weekly session VWAP for W1 timeframe
-      vwap = calculateWeeklySessionVWAP(candles);
-    } else if (timeframe === 'H4' || timeframe === 'D1') {
+    if (timeframe === 'H4' || timeframe === 'D1') {
       // Daily session VWAP for H4 and D1 timeframes
       vwap = calculateSessionVWAP(candles);
     } else {
@@ -1664,7 +1659,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'
   ];
 
-  const TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
+  const TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
 
   const handleTimeframeChange = (newTimeframe: Timeframe) => {
     setTimeframe(newTimeframe);

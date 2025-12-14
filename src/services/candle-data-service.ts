@@ -33,7 +33,6 @@ const TIMEFRAME_MINUTES_MAP: Record<Timeframe, number> = {
   H1: 60,
   H4: 240,
   D1: 1440,
-  W1: 10080,
 };
 
 const MAX_PRICE_DEVIATION_PERCENT = 10;

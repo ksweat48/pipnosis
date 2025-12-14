@@ -49,10 +49,7 @@ function getTimeframeMinutes(timeframe: string): number {
     '4h': 240,
     'D1': 1440,
     'd1': 1440,
-    '1d': 1440,
-    'W1': 10080,
-    'w1': 10080,
-    '1w': 10080
+    '1d': 1440
   };
   return map[timeframe] || 15;
 }
@@ -72,9 +69,7 @@ function normalizeTimeframe(timeframe: string): string {
     '4h': 'H4',
     'h4': 'H4',
     '1d': 'D1',
-    'd1': 'D1',
-    '1w': 'W1',
-    'w1': 'W1'
+    'd1': 'D1'
   };
   return map[timeframe.toLowerCase()] || timeframe.toUpperCase();
 }

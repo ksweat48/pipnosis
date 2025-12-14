@@ -53,10 +53,6 @@ const TIMEFRAME_MAP: Record<string, TimeframeInfo> = {
   '1440m': { standard: '1d', metatrader: 'D1', minutes: 1440, displayName: '1 day' },
   '1440': { standard: '1d', metatrader: 'D1', minutes: 1440, displayName: '1 day' },
 
-  // 1 week
-  '1w': { standard: '1w', metatrader: 'W1', minutes: 10080, displayName: '1 week' },
-  'W1': { standard: '1w', metatrader: 'W1', minutes: 10080, displayName: '1 week' },
-
   // 1 month
   '1M': { standard: '1M', metatrader: 'MN1', minutes: 43200, displayName: '1 month' },
   'MN1': { standard: '1M', metatrader: 'MN1', minutes: 43200, displayName: '1 month' }

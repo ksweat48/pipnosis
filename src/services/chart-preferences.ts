@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 
-type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'W1';
-type DbTimeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'W1';
+type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1';
+type DbTimeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1';
 
 interface ChartPreferences {
   [symbol: string]: Timeframe;
@@ -19,7 +19,7 @@ export function dbTimeframeToApp(dbTimeframe: string): Timeframe {
   const normalized = dbTimeframe.toUpperCase();
 
   // Validate and return
-  const validTimeframes: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
+  const validTimeframes: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
   if (validTimeframes.includes(normalized as Timeframe)) {
     return normalized as Timeframe;
   }
@@ -43,7 +43,7 @@ export function normalizeTimeframeToDb(timeframe: string): string {
   const upper = timeframe.toUpperCase();
 
   // Already in correct format (M1, M5, M15, etc.)
-  const validTimeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
+  const validTimeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
   if (validTimeframes.includes(upper)) {
     return upper;
   }
@@ -57,7 +57,6 @@ export function normalizeTimeframeToDb(timeframe: string): string {
     '1H': 'H1',
     '4H': 'H4',
     '1D': 'D1',
-    '1W': 'W1',
     // Support lowercase variants
     '1m': 'M1',
     '5m': 'M5',
@@ -65,8 +64,7 @@ export function normalizeTimeframeToDb(timeframe: string): string {
     '30m': 'M30',
     '1h': 'H1',
     '4h': 'H4',
-    '1d': 'D1',
-    '1w': 'W1'
+    '1d': 'D1'
   };
 
   return conversionMap[timeframe] || conversionMap[upper] || 'M15';
@@ -155,8 +153,7 @@ class ChartPreferencesService {
       'M30': 30,
       'H1': 60,
       'H4': 240,
-      'D1': 1440,
-      'W1': 10080
+      'D1': 1440
     };
     return timeframeMap[timeframe];
   }
@@ -169,8 +166,7 @@ class ChartPreferencesService {
       'M30': 500,
       'H1': 500,
       'H4': 500,
-      'D1': 365,
-      'W1': 260
+      'D1': 365
     };
     return limitMap[timeframe];
   }
@@ -183,8 +179,7 @@ class ChartPreferencesService {
       'M30': 60000,
       'H1': 120000,
       'H4': 240000,
-      'D1': 600000,
-      'W1': 1800000
+      'D1': 600000
     };
     return intervalMap[timeframe];
   }

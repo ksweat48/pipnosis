@@ -199,8 +199,7 @@ export function getTimeframeLookbackHours(timeframe: string): number {
     'M30': 2160, // 90 days = 4,320 candles (increased from 120h to show backfill data)
     'H1': 4320,  // 180 days = 4,320 candles (increased to match other timeframes)
     'H4': 8760,  // 365 days = 2,190 candles (1 year of data)
-    'D1': 8760,  // 365 days = 365 candles (1 year of data)
-    'W1': 17520  // 2 years = 104 weeks (increased for more historical context)
+    'D1': 8760   // 365 days = 365 candles (1 year of data)
   };
 
   return lookbackMap[timeframe] || 720; // Default to 30 days

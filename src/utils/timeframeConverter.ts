@@ -7,8 +7,8 @@
  * This utility ensures consistent conversion between app and database formats.
  */
 
-export type AppTimeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'W1' | 'MN';
-export type DatabaseTimeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'W1' | 'MN';
+export type AppTimeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'MN';
+export type DatabaseTimeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'MN';
 
 /**
  * Convert application timeframe to database timeframe format
@@ -29,7 +29,6 @@ export function appToDbTimeframe(appTimeframe: string): string {
     'h1': 'H1',
     'h4': 'H4',
     'd1': 'D1',
-    'w1': 'W1',
     'mn': 'MN',
 
     // Numeric-only variations
@@ -40,7 +39,6 @@ export function appToDbTimeframe(appTimeframe: string): string {
     '1h': 'H1',
     '4h': 'H4',
     '1d': 'D1',
-    '1w': 'W1',
     '1mo': 'MN',
 
     // Already correct format
@@ -51,7 +49,6 @@ export function appToDbTimeframe(appTimeframe: string): string {
     'H1': 'H1',
     'H4': 'H4',
     'D1': 'D1',
-    'W1': 'W1',
     'MN': 'MN'
   };
 
@@ -78,7 +75,7 @@ export function dbToAppTimeframe(dbTimeframe: string): string {
  * Validate if a timeframe string is in the correct format
  */
 export function isValidTimeframe(timeframe: string): boolean {
-  const valid = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
+  const valid = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'MN'];
   return valid.includes(timeframe.toUpperCase());
 }
 
@@ -96,7 +93,6 @@ export function timeframeToMinutes(timeframe: string): number {
     'H1': 60,
     'H4': 240,
     'D1': 1440,
-    'W1': 10080,
     'MN': 43200
   };
 
@@ -117,7 +113,6 @@ export function timeframeToLabel(timeframe: string): string {
     'H1': '1 Hour',
     'H4': '4 Hours',
     'D1': '1 Day',
-    'W1': '1 Week',
     'MN': '1 Month'
   };
 

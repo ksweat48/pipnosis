@@ -125,7 +125,7 @@ export async function checkDataAvailability(
  */
 export async function checkAllDataAvailability(
   symbols: string[] = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'],
-  timeframes: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1']
+  timeframes: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1']
 ): Promise<DataAvailability[]> {
   const results: DataAvailability[] = [];
 
@@ -344,8 +344,7 @@ export function estimateBackfillDuration(
     M30: 48,
     H1: 24,
     H4: 6,
-    D1: 1,
-    W1: 0.14
+    D1: 1
   };
 
   const candlesEstimate = Math.round(candlesPerDay[timeframe] * daysBack);

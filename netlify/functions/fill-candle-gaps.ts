@@ -29,8 +29,7 @@ const TIMEFRAMES = [
   { name: 'M30', minutes: 30 },
   { name: 'H1', minutes: 60 },
   { name: 'H4', minutes: 240 },
-  { name: 'D1', minutes: 1440 },
-  { name: 'W1', minutes: 10080 }
+  { name: 'D1', minutes: 1440 }
 ];
 
 interface GapFillResult {

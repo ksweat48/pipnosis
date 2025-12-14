@@ -23,7 +23,7 @@ interface SymbolTimeframeKey {
 
 type CandleStateMap = Map<string, CandleState>;
 
-const ALL_TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
+const ALL_TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
 
 const FOREX_PAIRS = [
   'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'

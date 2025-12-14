@@ -30,40 +30,35 @@ const PRIORITY_BATCHES: CandleFetchTask[][] = [
     { symbol: 'XAUUSD', timeframe: 'M5', candleCount: 600, priority: 1 },
     { symbol: 'XAUUSD', timeframe: 'H1', candleCount: 300, priority: 1 },
     { symbol: 'XAUUSD', timeframe: 'H4', candleCount: 300, priority: 1 },
-    { symbol: 'XAUUSD', timeframe: 'D1', candleCount: 300, priority: 1 },
-    { symbol: 'XAUUSD', timeframe: 'W1', candleCount: 200, priority: 1 }
+    { symbol: 'XAUUSD', timeframe: 'D1', candleCount: 300, priority: 1 }
   ],
   [
     { symbol: 'US30', timeframe: 'M1', candleCount: 400, priority: 2 },
     { symbol: 'US30', timeframe: 'M5', candleCount: 600, priority: 2 },
     { symbol: 'US30', timeframe: 'H1', candleCount: 300, priority: 2 },
     { symbol: 'US30', timeframe: 'H4', candleCount: 300, priority: 2 },
-    { symbol: 'US30', timeframe: 'D1', candleCount: 300, priority: 2 },
-    { symbol: 'US30', timeframe: 'W1', candleCount: 200, priority: 2 }
+    { symbol: 'US30', timeframe: 'D1', candleCount: 300, priority: 2 }
   ],
   [
     { symbol: 'EURUSD', timeframe: 'M1', candleCount: 400, priority: 3 },
     { symbol: 'EURUSD', timeframe: 'M5', candleCount: 600, priority: 3 },
     { symbol: 'EURUSD', timeframe: 'H1', candleCount: 300, priority: 3 },
     { symbol: 'EURUSD', timeframe: 'H4', candleCount: 300, priority: 3 },
-    { symbol: 'EURUSD', timeframe: 'D1', candleCount: 300, priority: 3 },
-    { symbol: 'EURUSD', timeframe: 'W1', candleCount: 200, priority: 3 }
+    { symbol: 'EURUSD', timeframe: 'D1', candleCount: 300, priority: 3 }
   ],
   [
     { symbol: 'GBPUSD', timeframe: 'M1', candleCount: 400, priority: 4 },
     { symbol: 'GBPUSD', timeframe: 'M5', candleCount: 600, priority: 4 },
     { symbol: 'GBPUSD', timeframe: 'H1', candleCount: 300, priority: 4 },
     { symbol: 'GBPUSD', timeframe: 'H4', candleCount: 300, priority: 4 },
-    { symbol: 'GBPUSD', timeframe: 'D1', candleCount: 300, priority: 4 },
-    { symbol: 'GBPUSD', timeframe: 'W1', candleCount: 200, priority: 4 }
+    { symbol: 'GBPUSD', timeframe: 'D1', candleCount: 300, priority: 4 }
   ],
   [
     { symbol: 'USDJPY', timeframe: 'M1', candleCount: 400, priority: 5 },
     { symbol: 'USDJPY', timeframe: 'M5', candleCount: 600, priority: 5 },
     { symbol: 'USDJPY', timeframe: 'H1', candleCount: 300, priority: 5 },
     { symbol: 'USDJPY', timeframe: 'H4', candleCount: 300, priority: 5 },
-    { symbol: 'USDJPY', timeframe: 'D1', candleCount: 300, priority: 5 },
-    { symbol: 'USDJPY', timeframe: 'W1', candleCount: 200, priority: 5 }
+    { symbol: 'USDJPY', timeframe: 'D1', candleCount: 300, priority: 5 }
   ]
 ];
 
@@ -388,7 +383,6 @@ class ConcurrentBulkLoader {
       case 'H1': return 300;
       case 'H4': return 300;
       case 'D1': return 300;
-      case 'W1': return 200; // ~4 years of weekly data for trend analysis
       default: return 300;
     }
   }

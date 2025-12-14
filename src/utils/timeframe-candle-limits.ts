@@ -136,19 +136,6 @@ const TIMEFRAME_LIMITS: Record<Timeframe, TimeframeLimits> = {
     minRequired: 200,
     lookbackHours: 8760, // 365 days (1 year)
     historicalStorage: 365
-  },
-
-  /**
-   * W1 (Weekly): Macro trend analysis
-   * - Display: 104 candles = 2 years of price action
-   * - Historical: 104 candles = 2 years
-   * - Reason: W1 charts need multi-year context for cycle analysis
-   */
-  W1: {
-    displayLimit: 104,
-    minRequired: 52,
-    lookbackHours: 17520, // 2 years
-    historicalStorage: 104
   }
 };
 
