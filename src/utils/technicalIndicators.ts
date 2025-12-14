@@ -55,7 +55,7 @@ export function calculateVWAP(candles: CandleData[], lookbackPeriod: number = 20
 
 /**
  * Calculate Session-Based VWAP - resets at the start of each trading day
- * Useful for intraday trading strategies
+ * Useful for intraday trading strategies and higher timeframes (H4, D1)
  * @param candles - Array of candle data
  */
 export function calculateSessionVWAP(candles: CandleData[]): IndicatorResult[] {
@@ -89,6 +89,95 @@ export function calculateSessionVWAP(candles: CandleData[]): IndicatorResult[] {
     results.push({
       time: candle.time,
       value: vwap
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Calculate Weekly Session-Based VWAP - resets at the start of each trading week (Monday)
+ * Useful for W1 timeframe analysis
+ * @param candles - Array of candle data
+ */
+export function calculateWeeklySessionVWAP(candles: CandleData[]): IndicatorResult[] {
+  if (candles.length === 0) return [];
+
+  const results: IndicatorResult[] = [];
+  let cumulativeTPV = 0;
+  let cumulativeVolume = 0;
+  let currentWeek = '';
+
+  for (const candle of candles) {
+    // Get the week identifier (year-week format)
+    const candleDate = new Date(candle.time * 1000);
+    const year = candleDate.getUTCFullYear();
+    const weekNumber = getWeekNumber(candleDate);
+    const weekString = `${year}-W${weekNumber}`;
+
+    // Reset VWAP at the start of a new trading week
+    if (weekString !== currentWeek) {
+      currentWeek = weekString;
+      cumulativeTPV = 0;
+      cumulativeVolume = 0;
+    }
+
+    const typicalPrice = (candle.high + candle.low + candle.close) / 3;
+    const volume = candle.volume || 1;
+
+    cumulativeTPV += typicalPrice * volume;
+    cumulativeVolume += volume;
+
+    const vwap = cumulativeTPV / cumulativeVolume;
+
+    results.push({
+      time: candle.time,
+      value: vwap
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Helper function to get ISO week number
+ */
+function getWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+/**
+ * Apply EMA smoothing to VWAP data for visual display
+ * This eliminates jagged lines on higher timeframes without changing the underlying calculation
+ * @param vwapData - Raw VWAP indicator results
+ * @param period - EMA smoothing period (default: 5)
+ * @returns Smoothed VWAP data for chart display
+ */
+export function smoothVWAPForDisplay(vwapData: IndicatorResult[], period: number = 5): IndicatorResult[] {
+  if (vwapData.length < period) return vwapData;
+
+  const results: IndicatorResult[] = [];
+  const multiplier = 2 / (period + 1);
+
+  // Initialize with SMA of first 'period' values
+  let ema = vwapData.slice(0, period).reduce((sum, item) => sum + item.value, 0) / period;
+
+  // Add the first smoothed value
+  results.push({
+    time: vwapData[period - 1].time,
+    value: ema
+  });
+
+  // Calculate EMA for remaining values
+  for (let i = period; i < vwapData.length; i++) {
+    ema = (vwapData[i].value - ema) * multiplier + ema;
+    results.push({
+      time: vwapData[i].time,
+      value: ema
     });
   }
 

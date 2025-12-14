@@ -26,6 +26,9 @@ import { chartDirectPricePoller } from '@/services/chart-direct-price-poller';
 import { candleCacheManager } from '@/services/candle-cache-manager';
 import {
   calculateVWAP,
+  calculateSessionVWAP,
+  calculateWeeklySessionVWAP,
+  smoothVWAPForDisplay,
   calculateEMA,
   calculateRSI,
   calculateATR,
@@ -576,8 +579,31 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const updateIndicators = (candles: CandleData[]) => {
     if (candles.length === 0) return;
 
-    const vwapLookback = getVWAPLookbackPeriod(timeframe);
-    const vwap = calculateVWAP(candles, vwapLookback);
+    // HYBRID VWAP APPROACH: Use different calculation methods based on timeframe
+    // M1-H1: Rolling VWAP (responsive to current price action)
+    // H4-D1: Session-based VWAP (resets daily, more meaningful for intraday)
+    // W1: Weekly session VWAP (resets weekly)
+    let vwap: IndicatorResult[];
+
+    if (timeframe === 'W1') {
+      // Weekly session VWAP for W1 timeframe
+      vwap = calculateWeeklySessionVWAP(candles);
+    } else if (timeframe === 'H4' || timeframe === 'D1') {
+      // Daily session VWAP for H4 and D1 timeframes
+      vwap = calculateSessionVWAP(candles);
+    } else {
+      // Rolling VWAP for M1, M5, M15, M30, H1
+      const vwapLookback = getVWAPLookbackPeriod(timeframe);
+      vwap = calculateVWAP(candles, vwapLookback);
+    }
+
+    // Apply EMA smoothing for higher timeframes to eliminate visual jaggedness
+    // This is cosmetic only - doesn't affect AI analysis
+    let vwapForDisplay = vwap;
+    if (timeframe === 'H4' || timeframe === 'D1' || timeframe === 'W1') {
+      vwapForDisplay = smoothVWAPForDisplay(vwap, 5);
+    }
+
     const ema20 = calculateEMA(candles, 20);
     const ema50 = calculateEMA(candles, 50);
     const ema200 = calculateEMA(candles, 200);
@@ -587,9 +613,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     const patterns = detectCandlePatterns(candles, vwap);
 
     if (vwapSeriesRef.current) {
-      if (indicatorVisibility.vwap && vwap.length > 0) {
-        vwapSeriesRef.current.setData(vwap);
-        setVwapValue(vwap[vwap.length - 1].value);
+      if (indicatorVisibility.vwap && vwapForDisplay.length > 0) {
+        vwapSeriesRef.current.setData(vwapForDisplay);
+        // Use raw VWAP value for indicator display (not smoothed)
+        setVwapValue(vwap.length > 0 ? vwap[vwap.length - 1].value : null);
       } else {
         vwapSeriesRef.current.setData([]);
         setVwapValue(null);
