@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Globe, TrendingUp, Target, Activity, Users, Zap, Award, BarChart3,
+  Globe, TrendingUp, Target, Activity, Zap, Award, BarChart3,
   TrendingDown, Brain, Package
 } from 'lucide-react';
 import {
   platformIntelligenceService,
   PlatformStats,
-  SymbolIntelligence,
-  UserContribution
+  SymbolIntelligence
 } from '../services/platform-intelligence-service';
 
 interface PlatformIntelligenceDashboardProps {
@@ -17,7 +16,6 @@ interface PlatformIntelligenceDashboardProps {
 export function PlatformIntelligenceDashboard({ userId }: PlatformIntelligenceDashboardProps) {
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [topSymbols, setTopSymbols] = useState<SymbolIntelligence[]>([]);
-  const [userContribution, setUserContribution] = useState<UserContribution | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -26,15 +24,13 @@ export function PlatformIntelligenceDashboard({ userId }: PlatformIntelligenceDa
 
   const loadPlatformData = async () => {
     try {
-      const [platformStats, symbols, contribution] = await Promise.all([
+      const [platformStats, symbols] = await Promise.all([
         platformIntelligenceService.fetchPlatformStats(),
-        platformIntelligenceService.fetchTopSymbols(6),
-        platformIntelligenceService.fetchUserContribution(userId)
+        platformIntelligenceService.fetchTopSymbols(6)
       ]);
 
       setStats(platformStats);
       setTopSymbols(symbols);
-      setUserContribution(contribution);
     } catch (error) {
       console.error('[Platform Intelligence] Error loading data:', error);
     } finally {
@@ -134,36 +130,6 @@ export function PlatformIntelligenceDashboard({ userId }: PlatformIntelligenceDa
           />
         </div>
       </div>
-
-      {/* Your Contribution Card */}
-      {userContribution && (
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-4">
-          <div className="flex items-center gap-3 mb-3">
-            <Users className="w-5 h-5 text-blue-400" />
-            <h3 className="text-lg font-semibold text-white">Your Platform Impact</h3>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <div className="text-2xl font-bold text-white">
-                {userContribution.totalTradesContributed}
-              </div>
-              <div className="text-xs text-gray-400">Trades Contributed</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-emerald-400">
-                {userContribution.patternsDiscovered}
-              </div>
-              <div className="text-xs text-gray-400">Patterns Discovered</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-blue-400">
-                {userContribution.contributionPercentage.toFixed(2)}%
-              </div>
-              <div className="text-xs text-gray-400">Contribution</div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Top Performing Symbols */}
       <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-4">
