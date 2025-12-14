@@ -287,6 +287,34 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
         opened_at: session.auto_execute ? new Date().toISOString() : null,
       }).select().single();
 
+      // Create journal entry for this trade
+      if (tradeResult.data && session.auto_execute) {
+        try {
+          await supabase.from('ai_trade_journal').insert({
+            user_id: session.user_id,
+            trade_id: tradeResult.data.id,
+            session_id: session.id,
+            symbol,
+            direction: setup.direction || 'buy',
+            entry_time: new Date().toISOString(),
+            entry_price: setup.entry,
+            stop_loss: setup.stopLoss,
+            take_profit: setup.takeProfit,
+            llm_reasoning: `I took this trade because I identified a ${setup.setupType} pattern on ${symbol}. ${setup.reasoning}`,
+            market_read: `Market analysis: ${setup.trend} trend with ${setup.volatility} volatility. Current price is ${setup.currentPrice.toFixed(5)}, EMA20: ${setup.ema20?.toFixed(5)}, EMA50: ${setup.ema50?.toFixed(5)}, VWAP: ${setup.vwap?.toFixed(5)}. Distance from VWAP: ${(setup.distanceFromVWAP * 100).toFixed(2)}%.`,
+            expected_outcome: `I expect ${symbol} to move ${setup.direction === 'buy' ? 'upward' : 'downward'} to hit my take profit at ${setup.takeProfit.toFixed(5)}. Risk/Reward ratio is ${riskReward.toFixed(2)}:1. Expected profit: $${expectedProfit.toFixed(2)} if TP hit, expected loss: $${expectedLoss.toFixed(2)} if SL hit.`,
+            pattern_identified: setup.setupType,
+            conviction_level: setup.confidence || 70,
+            rank_at_time: 'AI Goal Scanner',
+            outcome: 'open',
+            journal_entry_type: 'trade'
+          });
+          console.log(`[Goal Scanner] ✅ Journal entry created for trade ${tradeResult.data.id}`);
+        } catch (journalError) {
+          console.error('[Goal Scanner] Failed to create journal entry:', journalError);
+        }
+      }
+
       const tradeMessage = session.auto_execute
         ? `Trade executed on ${symbol}! ${setup.direction?.toUpperCase()} at ${setup.entry.toFixed(5)}. ${setup.setupType} with ${setup.confidence}% confidence. Stop Loss: ${setup.stopLoss.toFixed(5)}, Take Profit: ${setup.takeProfit.toFixed(5)}. R:R = ${riskReward.toFixed(2)}. Expected profit: $${expectedProfit.toFixed(2)} (targeting your $${session.target_value} goal).`
         : `Trade signal detected on ${symbol}! ${setup.setupType} setup with ${setup.confidence}% confidence. ${setup.reasoning}. Expected profit if TP hit: $${expectedProfit.toFixed(2)} (your goal: $${session.target_value}). Awaiting your confirmation to execute.`;

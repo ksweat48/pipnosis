@@ -247,7 +247,7 @@ class PostTradeAnalyzer {
       mistakes.push('I traded in high volatility without proper risk adjustment');
     }
 
-    return mistakes.length > 0 ? mistakes.join('. ') : 'Trade setup didn't materialize as expected';
+    return mistakes.length > 0 ? mistakes.join('. ') : 'Trade setup did not materialize as expected';
   }
 
   /**
