@@ -11,10 +11,11 @@ import { openAIClient } from '@/services/openai-client';
 import { llmTokenTracker } from '@/services/llm-token-tracker';
 
 export interface SentimentInput {
-  googleNews: string[];
-  fxStreetNews: string[];
-  twitterSignals: string[];
+  finnhubNews: string[];
+  fmpNews: string[];
   redditSignals: string[];
+  fearGreedSignals: string[];
+  coinGeckoTrending: string[];
 }
 
 export interface SentimentOutput {
@@ -110,24 +111,29 @@ class OmegaSentimentBrain {
   private buildCompressedPrompt(input: SentimentInput): string {
     const sections: string[] = [];
 
-    // Google News (most important)
-    if (input.googleNews.length > 0) {
-      sections.push(`GN: ${input.googleNews.slice(0, 5).join(' | ')}`);
+    // Finnhub News (30% weight - professional financial news)
+    if (input.finnhubNews.length > 0) {
+      sections.push(`FH: ${input.finnhubNews.slice(0, 6).join(' | ')}`);
     }
 
-    // FXStreet (professional forex news)
-    if (input.fxStreetNews.length > 0) {
-      sections.push(`FX: ${input.fxStreetNews.slice(0, 4).join(' | ')}`);
+    // FMP News (30% weight - financial market headlines)
+    if (input.fmpNews.length > 0) {
+      sections.push(`FMP: ${input.fmpNews.slice(0, 6).join(' | ')}`);
     }
 
-    // Twitter signals (social buzz)
-    if (input.twitterSignals.length > 0) {
-      sections.push(`TW: ${input.twitterSignals.slice(0, 3).join(' | ')}`);
-    }
-
-    // Reddit signals (retail sentiment)
+    // Reddit signals (20% weight - retail sentiment)
     if (input.redditSignals.length > 0) {
-      sections.push(`RD: ${input.redditSignals.slice(0, 3).join(' | ')}`);
+      sections.push(`RD: ${input.redditSignals.slice(0, 4).join(' | ')}`);
+    }
+
+    // Fear & Greed Index (15% weight - market sentiment gauge)
+    if (input.fearGreedSignals.length > 0) {
+      sections.push(`FG: ${input.fearGreedSignals.join(' | ')}`);
+    }
+
+    // CoinGecko Trending (5% weight - risk appetite indicator)
+    if (input.coinGeckoTrending.length > 0) {
+      sections.push(`CG: ${input.coinGeckoTrending.slice(0, 3).join(' | ')}`);
     }
 
     return sections.join('\n\n');
@@ -147,7 +153,7 @@ Detect:
 - Upcoming catalysts
 - Market bias
 
-Sources: GN=Google, FX=FXStreet, TW=Twitter, RD=Reddit
+Sources: FH=Finnhub (30%), FMP=Financial Modeling Prep (30%), RD=Reddit (20%), FG=Fear&Greed Index (15%), CG=CoinGecko (5%)
 
 Return JSON only:
 {
@@ -167,6 +173,7 @@ Rules:
 - USD weak: risk-on, commodities up
 - High vol: panic, uncertainty, news
 - Warnings: flag catalysts, rumors, spikes
+- Fear&Greed >75=extreme greed, <25=extreme fear
 
 Compressed output only.`;
   }
