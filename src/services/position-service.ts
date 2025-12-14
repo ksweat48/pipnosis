@@ -17,6 +17,8 @@ import {
   calculatePnL
 } from '@/types/position';
 import { getCurrencyPipInfo, roundLotSize, roundPnL } from '@/utils/currencyHelpers';
+import { llmReasoningLogger } from './llm-reasoning-logger';
+import { postTradeAnalyzer } from './post-trade-analyzer';
 
 export interface OpenPositionParams {
   goalSessionId: string;
@@ -30,6 +32,11 @@ export interface OpenPositionParams {
   strategy?: string;
   playbookId?: string | null;
   regimeBucket?: string | null;
+  reasoning?: string;
+  marketAnalysis?: string;
+  expectedOutcome?: string;
+  patternIdentified?: string;
+  confidence?: number;
 }
 
 export interface ClosePositionResult {
@@ -79,6 +86,29 @@ class PositionService {
         .single();
 
       if (error) throw error;
+
+      // Create journal entry for this trade
+      const journalEntryId = await llmReasoningLogger.logTradeEntry({
+        userId: params.userId,
+        tradeId: data.id,
+        sessionId: params.goalSessionId,
+        symbol: params.symbol,
+        direction: params.direction,
+        entryTime: new Date(),
+        entryPrice: params.entryPrice,
+        stopLoss: params.stopLoss,
+        takeProfit: params.takeProfit,
+        llmReasoning: params.reasoning || `Opened ${params.direction.toUpperCase()} position on ${params.symbol} using ${params.strategy || 'goal session strategy'}.`,
+        marketRead: params.marketAnalysis || `Market conditions evaluated for ${params.symbol}. Entry at ${params.entryPrice.toFixed(5)}.`,
+        expectedOutcome: params.expectedOutcome || `Expecting price to move to ${params.takeProfit.toFixed(5)} (TP) with stop loss at ${params.stopLoss.toFixed(5)}.`,
+        patternIdentified: params.patternIdentified || params.strategy || 'Manual Entry',
+        convictionLevel: params.confidence || 70,
+        rankAtTime: 'Active Trader'
+      });
+
+      if (journalEntryId) {
+        console.log(`[PositionService] ✅ Journal entry created: ${journalEntryId}`);
+      }
 
       return {
         success: true,
@@ -352,6 +382,28 @@ class PositionService {
       }
 
       console.log('[PositionService] Position closed successfully:', data);
+
+      // Trigger post-trade analysis for journal entry
+      if (data && userId) {
+        try {
+          await postTradeAnalyzer.analyzeClosedTrade({
+            id: data.id,
+            userId: userId,
+            symbol: data.symbol,
+            direction: data.direction,
+            entryPrice: data.entry_price,
+            exitPrice: closePrice,
+            stopLoss: data.stop_loss,
+            takeProfit: data.take_profit,
+            pnl: data.profit_loss || 0,
+            entryTime: new Date(data.opened_at || data.created_at),
+            exitTime: new Date()
+          });
+        } catch (analysisError) {
+          console.error('[PositionService] Post-trade analysis failed:', analysisError);
+          // Don't fail the close operation if analysis fails
+        }
+      }
 
       return {
         success: true,
