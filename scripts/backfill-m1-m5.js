@@ -6,18 +6,32 @@
  * This script triggers historical backfill for M1 and M5 timeframes
  * to ensure they have sufficient data for chart display.
  *
+ * Uses Dukascopy's FREE data to backfill with proper OHLC candles including wicks.
+ *
  * Run: node scripts/backfill-m1-m5.js
  */
 
+import dotenv from 'dotenv';
+dotenv.config();
+
 const SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US30'];
-const M1_DAYS = 7;
-const M5_DAYS = 14;
+const M1_DAYS = 10;  // 10 days of M1 data
+const M5_DAYS = 30;  // 30 days of M5 data
+
+const ADMIN_KEY = process.env.ADMIN_REFRESH_KEY;
+const SITE_URL = process.env.VITE_NETLIFY_SITE_URL || 'https://pipnosis.netlify.app';
 
 async function backfillTimeframe(symbol, timeframe, daysBack) {
   console.log(`\n📊 Backfilling ${symbol} ${timeframe} (${daysBack} days)...`);
 
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - daysBack);
+
+  console.log(`   Range: ${startDate.toISOString().split('T')[0]} → ${endDate.toISOString().split('T')[0]}`);
+
   try {
-    const response = await fetch('https://pipnosis.netlify.app/.netlify/functions/historical-backfill', {
+    const response = await fetch(`${SITE_URL}/.netlify/functions/dukascopy-historical-backfill`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -25,8 +39,10 @@ async function backfillTimeframe(symbol, timeframe, daysBack) {
       body: JSON.stringify({
         symbol,
         timeframe,
-        daysBack,
-        dryRun: false
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        overwrite: false,  // Don't delete existing data, just fill gaps
+        adminKey: ADMIN_KEY
       })
     });
 
@@ -37,7 +53,11 @@ async function backfillTimeframe(symbol, timeframe, daysBack) {
     }
 
     const result = await response.json();
-    console.log(`✅ Success: ${result.candlesInserted || 0} candles inserted`);
+    console.log(`✅ Success:`);
+    console.log(`   Fetched: ${result.candlesFetched || 0}`);
+    console.log(`   Inserted: ${result.candlesInserted || 0}`);
+    console.log(`   Skipped: ${result.candlesSkipped || 0}`);
+    console.log(`   Duration: ${((result.duration || 0) / 1000).toFixed(2)}s`);
     return true;
   } catch (error) {
     console.error(`❌ Error: ${error.message}`);
@@ -46,10 +66,12 @@ async function backfillTimeframe(symbol, timeframe, daysBack) {
 }
 
 async function main() {
-  console.log('🚀 Starting M1 and M5 Historical Backfill...\n');
+  console.log('🚀 Starting M1 and M5 Historical Backfill via Dukascopy...\n');
+  console.log(`Site URL: ${SITE_URL}`);
   console.log(`Symbols: ${SYMBOLS.join(', ')}`);
-  console.log(`M1: ${M1_DAYS} days back`);
-  console.log(`M5: ${M5_DAYS} days back`);
+  console.log(`M1: ${M1_DAYS} days back (~${M1_DAYS * 1440} candles per symbol)`);
+  console.log(`M5: ${M5_DAYS} days back (~${M5_DAYS * 288} candles per symbol)`);
+  console.log(`Mode: Gap-fill (overwrite=false, preserves existing data)\n`);
 
   let successCount = 0;
   let failCount = 0;

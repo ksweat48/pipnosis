@@ -6,7 +6,10 @@
  * Uses FREE Dukascopy forex data to backfill all timeframes with proper OHLC candles.
  * Dukascopy provides native candlestick data with accurate high/low wicks.
  *
- * Timeframes covered:
+ * NOTE: Dukascopy does NOT support M1/M5 timeframes.
+ * For M1/M5 backfill, use: node scripts/twelve-data-m1-m5-backfill.cjs
+ *
+ * Timeframes covered by this script:
  * - M15: ~7 days
  * - M30: ~14 days
  * - H1: ~30 days
