@@ -13,6 +13,7 @@ import { optimizedCandleManager } from '@/services/optimized-candle-manager';
 import { Timeframe } from '@/services/chart-preferences';
 import { CandleData } from '@/services/candle-data-service';
 import { logger, LogCategory } from '@/lib/logger';
+import { getDisplayLimit } from '@/utils/timeframe-candle-limits';
 
 interface UseOptimizedCandlesOptions {
   symbol: string;
@@ -69,13 +70,14 @@ export function useOptimizedCandles({
         return;
       }
 
-      // Fetch from database if not cached
-      const historical = await optimizedCandleManager.getHistoricalCandles(symbol, timeframe, 500);
+      // Fetch from database if not cached - use dynamic limit per timeframe
+      const limit = getDisplayLimit(timeframe);
+      const historical = await optimizedCandleManager.getHistoricalCandles(symbol, timeframe, limit);
       setCandles(historical);
       setLastUpdate(new Date());
       setIsLoading(false);
 
-      logger.info(LogCategory.CHART_POLLER, `Loaded ${historical.length} historical candles for ${symbol} ${timeframe}`);
+      logger.info(LogCategory.CHART_POLLER, `Loaded ${historical.length}/${limit} historical candles for ${symbol} ${timeframe}`);
     } catch (err) {
       logger.error(LogCategory.CHART_POLLER, 'Error loading historical data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load candle data');

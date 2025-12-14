@@ -17,6 +17,7 @@ import { logger, LogCategory } from '@/lib/logger';
 import { validateSymbol, ValidatedSymbol } from '@/types/symbol';
 import { priceValidationService } from './price-validation-service';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { getLookbackHours } from '@/utils/timeframe-candle-limits';
 
 interface CompletedCandle extends CandleData {
   isComplete: true;
@@ -475,6 +476,7 @@ class OptimizedCandleManager {
   }
 
   // Get all candles for initial chart load
+  // ENHANCED: Uses time-based queries for proper historical data loading
   async getHistoricalCandles(
     symbol: string,
     timeframe: Timeframe,
@@ -487,27 +489,50 @@ class OptimizedCandleManager {
 
     const dbTimeframe = appTimeframeToDb(timeframe);
 
+    // Use time-based query to ensure we get historical data across market closures
+    const lookbackHours = getLookbackHours(timeframe);
+    const now = new Date();
+    const startTime = new Date(now.getTime() - lookbackHours * 60 * 60 * 1000);
+
+    logger.debug(LogCategory.CHART_POLLER,
+      `Fetching ${symbol} ${timeframe}: last ${lookbackHours}h (${limit} candle limit)`);
+
     const { data, error } = await supabase
       .from('forex_candles')
       .select('*')
       .eq('symbol', symbol)
       .eq('timeframe', dbTimeframe)
-      .order('open_time', { ascending: false })
-      .limit(limit);
+      .gte('open_time', startTime.toISOString())
+      .order('open_time', { ascending: true });
 
     if (error) {
       logger.error(LogCategory.CHART_POLLER, `Error fetching historical candles:`, error);
       throw error;
     }
 
-    const candles = (data || []).map(row => ({
-      time: Math.floor(new Date(row.open_time).getTime() / 1000),
-      open: row.open,
-      high: row.high,
-      low: row.low,
-      close: row.close,
-      volume: row.volume || 0
-    })).reverse();
+    // Convert and deduplicate candles
+    const candleMap = new Map<number, CandleData>();
+
+    (data || []).forEach(row => {
+      const timestamp = Math.floor(new Date(row.open_time).getTime() / 1000);
+
+      // Only keep first occurrence of each timestamp
+      if (!candleMap.has(timestamp)) {
+        candleMap.set(timestamp, {
+          time: timestamp,
+          open: row.open,
+          high: row.high,
+          low: row.low,
+          close: row.close,
+          volume: row.volume || 0
+        });
+      }
+    });
+
+    // Sort by time and apply limit (keep most recent N candles)
+    const candles = Array.from(candleMap.values())
+      .sort((a, b) => a.time - b.time)
+      .slice(-limit); // Keep last N candles
 
     // Cache completed candles
     const key = this.getCacheKey(symbol, timeframe);
@@ -527,6 +552,9 @@ class OptimizedCandleManager {
     candles.forEach(candle => {
       cache!.completedCandles.set(candle.time, { ...candle, isComplete: true });
     });
+
+    logger.info(LogCategory.CHART_POLLER,
+      `✓ Loaded ${candles.length} candles for ${symbol} ${timeframe} from ${lookbackHours}h lookback`);
 
     return candles;
   }
