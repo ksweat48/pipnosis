@@ -35,6 +35,9 @@
 [functions."finnhub-import"]
   timeout = 120
 
+[functions."twelve-data-import"]
+  timeout = 120
+
 [functions."verify-metaapi-connection"]
   timeout = 10
 
