@@ -1,23 +1,26 @@
 /**
  * Sentiment Aggregator + Weighting Engine
  *
- * Combines sentiment from multiple sources using weighted averages:
- * - Google News: 40% (most reliable, broad coverage)
- * - FXStreet: 30% (professional forex analysis)
- * - Twitter: 20% (real-time social buzz)
- * - Reddit: 10% (retail sentiment)
+ * Combines sentiment from multiple reliable API sources:
+ * - Finnhub: 30% (professional financial news, no CORS issues)
+ * - FMP: 30% (financial market headlines, 250 calls/day)
+ * - Reddit: 20% (retail sentiment, no key required)
+ * - Fear & Greed: 15% (sentiment gauge, no key required)
+ * - CoinGecko: 5% (risk appetite indicator, 30 calls/min)
  *
- * Produces unified sentiment signal cached for 10 minutes.
+ * All sources use proper APIs to avoid CORS issues.
+ * 10-minute cache = ~144 calls/day maximum.
  */
 
 import { supabase } from '@/lib/supabase';
 import { omegaSentimentBrain, SentimentInput, SentimentOutput } from '@/brains/omega-sentiment-brain';
 
 interface SourceWeights {
-  google: number;
-  fxstreet: number;
-  twitter: number;
+  finnhub: number;
+  fmp: number;
   reddit: number;
+  feargreed: number;
+  coingecko: number;
 }
 
 interface AggregatedSentiment {
@@ -34,10 +37,11 @@ interface AggregatedSentiment {
 
 class SentimentAggregator {
   private readonly WEIGHTS: SourceWeights = {
-    google: 0.40,
-    fxstreet: 0.30,
-    twitter: 0.20,
-    reddit: 0.10
+    finnhub: 0.30,
+    fmp: 0.30,
+    reddit: 0.20,
+    feargreed: 0.15,
+    coingecko: 0.05
   };
 
   private readonly CACHE_DURATION_MINUTES = 10;
@@ -81,10 +85,11 @@ class SentimentAggregator {
   private async generateFreshSentiment(input: SentimentInput): Promise<AggregatedSentiment> {
     const sourcesUsed: string[] = [];
 
-    if (input.googleNews.length > 0) sourcesUsed.push('google');
-    if (input.fxStreetNews.length > 0) sourcesUsed.push('fxstreet');
-    if (input.twitterSignals.length > 0) sourcesUsed.push('twitter');
+    if (input.finnhubNews.length > 0) sourcesUsed.push('finnhub');
+    if (input.fmpNews.length > 0) sourcesUsed.push('fmp');
     if (input.redditSignals.length > 0) sourcesUsed.push('reddit');
+    if (input.fearGreedSignals.length > 0) sourcesUsed.push('feargreed');
+    if (input.coinGeckoTrending.length > 0) sourcesUsed.push('coingecko');
 
     // Call Omega-7 for analysis
     const rawSentiment = await omegaSentimentBrain.evaluateSentiment(input);
@@ -113,17 +118,20 @@ class SentimentAggregator {
 
     sourcesUsed.forEach(source => {
       switch (source) {
-        case 'google':
-          totalWeight += this.WEIGHTS.google;
+        case 'finnhub':
+          totalWeight += this.WEIGHTS.finnhub;
           break;
-        case 'fxstreet':
-          totalWeight += this.WEIGHTS.fxstreet;
-          break;
-        case 'twitter':
-          totalWeight += this.WEIGHTS.twitter;
+        case 'fmp':
+          totalWeight += this.WEIGHTS.fmp;
           break;
         case 'reddit':
           totalWeight += this.WEIGHTS.reddit;
+          break;
+        case 'feargreed':
+          totalWeight += this.WEIGHTS.feargreed;
+          break;
+        case 'coingecko':
+          totalWeight += this.WEIGHTS.coingecko;
           break;
       }
     });
