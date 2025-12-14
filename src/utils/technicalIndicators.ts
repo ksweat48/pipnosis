@@ -163,10 +163,18 @@ export function smoothVWAPForDisplay(vwapData: IndicatorResult[], period: number
   const results: IndicatorResult[] = [];
   const multiplier = 2 / (period + 1);
 
-  // Initialize with SMA of first 'period' values
+  // Backfill early candles with progressive SMA to extend line to the start
+  for (let i = 0; i < period - 1; i++) {
+    const sma = vwapData.slice(0, i + 1).reduce((sum, item) => sum + item.value, 0) / (i + 1);
+    results.push({
+      time: vwapData[i].time,
+      value: sma
+    });
+  }
+
+  // Initialize EMA with SMA of first 'period' values
   let ema = vwapData.slice(0, period).reduce((sum, item) => sum + item.value, 0) / period;
 
-  // Add the first smoothed value
   results.push({
     time: vwapData[period - 1].time,
     value: ema
@@ -190,6 +198,16 @@ export function calculateEMA(candles: CandleData[], period: number): IndicatorRe
   const results: IndicatorResult[] = [];
   const multiplier = 2 / (period + 1);
 
+  // Backfill early candles with progressive SMA to extend line to the start
+  for (let i = 0; i < period - 1; i++) {
+    const sma = candles.slice(0, i + 1).reduce((sum, candle) => sum + candle.close, 0) / (i + 1);
+    results.push({
+      time: candles[i].time,
+      value: sma
+    });
+  }
+
+  // Initialize EMA with SMA of first 'period' values
   let ema = candles.slice(0, period).reduce((sum, candle) => sum + candle.close, 0) / period;
 
   results.push({
@@ -197,6 +215,7 @@ export function calculateEMA(candles: CandleData[], period: number): IndicatorRe
     value: ema
   });
 
+  // Calculate true EMA for remaining values
   for (let i = period; i < candles.length; i++) {
     ema = (candles[i].close - ema) * multiplier + ema;
     results.push({
