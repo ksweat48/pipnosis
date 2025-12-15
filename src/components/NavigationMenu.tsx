@@ -128,10 +128,11 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
               <button
                 onClick={() => setShowNotificationPanel(true)}
                 className="relative w-9 h-9 bg-gray-800 hover:bg-gray-700 rounded-full flex items-center justify-center transition-colors min-h-[44px] min-w-[44px]"
+                aria-label="Notifications"
               >
                 <Bell size={18} className="text-white" />
                 {unviewedCount > 0 && (
-                  <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1">
+                  <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1 animate-pulse shadow-lg shadow-red-500/50">
                     {unviewedCount > 9 ? '9+' : unviewedCount}
                   </div>
                 )}

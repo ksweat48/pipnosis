@@ -2576,10 +2576,16 @@ This learning will carry forward to improve future sessions!
     };
 
     try {
-      await supabase.from('goal_notifications').insert(notification);
-      logger.debug(LogCategory.AI_TRADING, `Inserted ${type} notification for trade ${trade.id}`);
+      const { data, error } = await supabase.from('goal_notifications').insert(notification).select().single();
+      if (error) {
+        console.error(`[Goal Live Engine] Failed to insert ${type} notification:`, error);
+        console.error('[Goal Live Engine] Notification data:', notification);
+      } else {
+        logger.debug(LogCategory.AI_TRADING, `✓ Inserted ${type} notification for trade ${trade.id}`, data);
+      }
     } catch (error) {
-      console.error(`[Goal Live Engine] Failed to insert ${type} notification:`, error);
+      console.error(`[Goal Live Engine] Exception inserting ${type} notification:`, error);
+      console.error('[Goal Live Engine] Notification data:', notification);
     }
   }
 

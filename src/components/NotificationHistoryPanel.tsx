@@ -29,6 +29,8 @@ export default function NotificationHistoryPanel({
     if (!sessionId) return;
 
     setLoading(true);
+    console.log('[NotificationHistoryPanel] Loading notifications for session:', sessionId);
+
     // Query ALL notifications for this session (not just mid-trade ones)
     const { data, error } = await supabase
       .from('goal_notifications')
@@ -39,6 +41,7 @@ export default function NotificationHistoryPanel({
       .order('created_at', { ascending: false });
 
     if (!error && data) {
+      console.log('[NotificationHistoryPanel] Loaded notifications:', data.length);
       setNotifications(data as MidTradeNotification[]);
 
       data.forEach((notification) => {
@@ -46,6 +49,8 @@ export default function NotificationHistoryPanel({
           midTradeNotificationQueue.markAsViewed(notification.id);
         }
       });
+    } else if (error) {
+      console.error('[NotificationHistoryPanel] Error loading notifications:', error);
     }
     setLoading(false);
   };

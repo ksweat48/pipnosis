@@ -235,10 +235,13 @@ const AppRoutes: React.FC = () => {
         },
         (payload) => {
           const notification = payload.new;
+          console.log('[App] Notification received:', { type: notification.type, id: notification.id });
 
           if (['mid_trade_trigger', 'mid_trade_evaluation', 'mid_trade_action'].includes(notification.type)) {
-            console.log('[App] Mid-trade notification received!', notification);
+            console.log('[App] Mid-trade notification added to queue!');
             midTradeNotificationQueue.addNotification(notification as any);
+          } else {
+            console.log('[App] Notification type not handled:', notification.type);
           }
         }
       )
