@@ -10,6 +10,7 @@ import { useToast } from './hooks/useToast';
 import { globalToastManager } from './services/global-toast-manager';
 import { globalDialogManager } from './services/global-dialog-manager';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
+import { UpdateBanner } from './components/UpdateBanner';
 import { cacheClearOnRefresh } from './services/cache-clear-on-refresh';
 import { supabase } from './lib/supabase';
 import { midTradeNotificationQueue } from './services/mid-trade-notification-queue';
@@ -270,6 +271,7 @@ const AppRoutes: React.FC = () => {
 
   return (
     <>
+      <UpdateBanner />
       <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
       <PWAInstallPrompt />
       <Suspense fallback={<LoadingFallback />}>

@@ -4,8 +4,9 @@ import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { usePWAUpdate } from '@/hooks/usePWAUpdate';
 import { supabase } from '@/lib/supabase';
-import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity, DollarSign, Zap } from 'lucide-react';
+import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity, DollarSign, Zap, RefreshCw, Smartphone } from 'lucide-react';
 import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
 import { chartPreferencesService, type IndicatorVisibility } from '@/services/chart-preferences';
 import { useToast } from '@/hooks/useToast';
@@ -13,6 +14,7 @@ import { useToast } from '@/hooks/useToast';
 export function SettingsPage() {
   const { user, updatePassword } = useAuth();
   const toast = useToast();
+  const { currentVersion, checkForUpdates, isChecking, updateAvailable, applyUpdate } = usePWAUpdate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<any>(null);
@@ -296,6 +298,15 @@ export function SettingsPage() {
     medium: 'bg-yellow-500',
     strong: 'bg-green-500',
   }[passwordValidation.strength];
+
+  const handleCheckForUpdates = async () => {
+    const hasUpdate = await checkForUpdates();
+    if (hasUpdate) {
+      toast.success('Update Available', 'A new version is ready to install!');
+    } else {
+      toast.success('Up to Date', 'You are running the latest version');
+    }
+  };
 
   return (
     <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950" ref={pullToRefresh.containerRef}>
@@ -978,6 +989,65 @@ export function SettingsPage() {
                   </button>
                 </div>
               </form>
+            </div>
+
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
+                  <Smartphone size={20} className="text-white" />
+                </div>
+                <h2 className="text-xl font-semibold text-white">App Information</h2>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg">
+                  <div>
+                    <div className="text-sm text-gray-400 mb-1">App Version</div>
+                    <div className="text-lg font-medium text-white">{currentVersion}</div>
+                  </div>
+                  {updateAvailable && (
+                    <button
+                      onClick={applyUpdate}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+                    >
+                      <RefreshCw size={16} />
+                      Update Now
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  onClick={handleCheckForUpdates}
+                  disabled={isChecking}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800/50 hover:bg-gray-800 border border-gray-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {isChecking ? (
+                    <>
+                      <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
+                      <span>Checking for updates...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw size={18} />
+                      <span>Check for Updates</span>
+                    </>
+                  )}
+                </button>
+
+                <div className="p-4 bg-blue-900/20 border border-blue-700/30 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle size={18} className="text-blue-400 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-blue-300">
+                      <p className="font-medium mb-1">Auto-Update Behavior</p>
+                      <ul className="text-blue-300/80 space-y-1 list-disc list-inside text-xs">
+                        <li>Updates apply automatically when you close and reopen the app</li>
+                        <li>When you resume from background, you'll be prompted to update</li>
+                        <li>You can always postpone updates - they'll never be forced</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}

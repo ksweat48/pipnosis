@@ -56,21 +56,18 @@ if (typeof window !== 'undefined') {
     }, 10);
   }, 100);
 
-  // Register service worker for PWA functionality
+  // Register service worker for PWA functionality with smart update management
   if ('serviceWorker' in navigator && import.meta.env.PROD) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js')
-        .then((registration) => {
-          console.log('PWA: Service Worker registered successfully');
+    window.addEventListener('load', async () => {
+      try {
+        const registration = await navigator.serviceWorker.register('/sw.js');
+        console.log('PWA: Service Worker registered successfully');
 
-          // Check for updates periodically
-          setInterval(() => {
-            registration.update();
-          }, 60000);
-        })
-        .catch((error) => {
-          console.log('PWA: Service Worker registration failed:', error);
-        });
+        const { pwaUpdateManager } = await import('./services/pwa-update-manager');
+        await pwaUpdateManager.initialize(registration);
+      } catch (error) {
+        console.log('PWA: Service Worker registration failed:', error);
+      }
     });
   }
 }
