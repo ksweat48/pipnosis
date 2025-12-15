@@ -26,33 +26,55 @@ export default function NotificationHistoryPanel({
   }, [isOpen, sessionId]);
 
   const loadNotifications = async () => {
-    if (!sessionId) return;
-
-    setLoading(true);
-    console.log('[NotificationHistoryPanel] Loading notifications for session:', sessionId);
-
-    // Query ALL notifications for this session (not just mid-trade ones)
-    const { data, error } = await supabase
-      .from('goal_notifications')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('goal_session_id', sessionId)
-      // Don't filter by type - show ALL notifications
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      console.log('[NotificationHistoryPanel] Loaded notifications:', data.length);
-      setNotifications(data as MidTradeNotification[]);
-
-      data.forEach((notification) => {
-        if (!notification.viewed) {
-          midTradeNotificationQueue.markAsViewed(notification.id);
-        }
-      });
-    } else if (error) {
-      console.error('[NotificationHistoryPanel] Error loading notifications:', error);
+    if (!sessionId) {
+      console.log('[NotificationHistoryPanel] No sessionId, skipping load');
+      setLoading(false);
+      return;
     }
-    setLoading(false);
+
+    try {
+      setLoading(true);
+      console.log('[NotificationHistoryPanel] Loading notifications for session:', sessionId);
+      console.log('[NotificationHistoryPanel] User ID:', userId);
+
+      // Query ALL notifications for this session (not just mid-trade ones)
+      const { data, error } = await supabase
+        .from('goal_notifications')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('goal_session_id', sessionId)
+        // Don't filter by type - show ALL notifications
+        .order('created_at', { ascending: false });
+
+      console.log('[NotificationHistoryPanel] Query completed:', {
+        success: !error,
+        count: data?.length || 0,
+        error: error?.message
+      });
+
+      if (error) {
+        console.error('[NotificationHistoryPanel] Database error:', error);
+        setNotifications([]);
+      } else if (data) {
+        console.log('[NotificationHistoryPanel] Loaded notifications:', data);
+        setNotifications(data as MidTradeNotification[]);
+
+        data.forEach((notification) => {
+          if (!notification.viewed) {
+            midTradeNotificationQueue.markAsViewed(notification.id);
+          }
+        });
+      } else {
+        console.log('[NotificationHistoryPanel] No data returned');
+        setNotifications([]);
+      }
+    } catch (err) {
+      console.error('[NotificationHistoryPanel] Unexpected error:', err);
+      setNotifications([]);
+    } finally {
+      console.log('[NotificationHistoryPanel] Setting loading to false');
+      setLoading(false);
+    }
   };
 
   const formatTime = (timestamp: string) => {
