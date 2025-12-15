@@ -2219,7 +2219,7 @@ This learning will carry forward to improve future sessions!
       await supabase.from('goal_notifications').insert({
         goal_session_id: this.activeSession,
         user_id: this.config.userId,
-        notification_type: type,
+        type: type,
         priority,
         title,
         message,

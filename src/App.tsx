@@ -185,10 +185,10 @@ const AppRoutes: React.FC = () => {
         (payload) => {
           const notification = payload.new;
 
-          if (notification.notification_type === 'signal') {
+          if (notification.type === 'signal') {
             console.log('[App] Trade signal received!', notification);
 
-            const notificationData = notification.notification_data || {};
+            const notificationData = notification.data || {};
             const priority = notification.priority || 'high';
 
             const executionUrgency = priority === 'high'

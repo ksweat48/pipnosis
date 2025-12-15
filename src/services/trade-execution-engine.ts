@@ -276,7 +276,7 @@ class TradeExecutionEngine {
     await supabase.from('goal_notifications').insert({
       goal_session_id: signal.sessionId,
       user_id: userId,
-      notification_type: 'signal',
+      type: 'signal',
       priority: 'urgent',
       title: `Trade Signal: ${signal.symbol}`,
       message: `${signal.setupType} detected. Confidence: ${signal.confidence}%. Entry: ${signal.entryPrice}, SL: ${signal.stopLoss}, TP: ${signal.takeProfit}`,
@@ -495,7 +495,7 @@ class TradeExecutionEngine {
     await supabase.from('goal_notifications').insert({
       goal_session_id: signal.sessionId,
       user_id: userId,
-      notification_type: 'signal',
+      type: 'signal',
       priority: 'urgent',
       title: `Trade Executed: ${signal.symbol}`,
       message: `${signal.direction.toUpperCase()} trade opened at ${signal.entryPrice}. Monitoring position...`,

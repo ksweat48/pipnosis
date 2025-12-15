@@ -446,11 +446,11 @@ class PositionMonitorService {
           await supabase.from('goal_notifications').insert({
             goal_session_id: position.goal_session_id,
             user_id: position.user_id,
-            notification_type: config.type,
+            type: config.type,
             priority: config.priority,
             title: config.title,
             message: config.message,
-            notification_data: {
+            data: {
               trade_id: position.id,
               symbol: position.symbol,
               direction: position.direction,

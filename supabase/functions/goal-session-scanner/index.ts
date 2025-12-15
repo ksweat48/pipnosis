@@ -335,7 +335,7 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
       const notificationResult = await supabase.from('goal_notifications').insert({
         goal_session_id: session.id,
         user_id: session.user_id,
-        notification_type: 'signal',
+        type: 'signal',
         priority: 'urgent',
         title: `${session.auto_execute ? 'Trade Executed' : 'Trade Signal'}: ${symbol}`,
         message: `${setup.setupType}: Entry ${setup.entry.toFixed(5)}, SL ${setup.stopLoss.toFixed(5)}, TP ${setup.takeProfit.toFixed(5)}`,

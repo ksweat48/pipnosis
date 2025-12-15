@@ -192,7 +192,7 @@ ${signal.reasoning}`;
         .insert({
           goal_session_id: notification.sessionId,
           user_id: notification.userId,
-          notification_type: notification.type,
+          type: notification.type,
           priority: notification.priority,
           title: notification.title,
           message: notification.message,

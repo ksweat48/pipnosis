@@ -176,7 +176,7 @@ class TradeLifecycleManager {
       await supabase.from('goal_notifications').insert({
         goal_session_id: goalSessionId,
         user_id: userId,
-        notification_type: 'completion',
+        type: 'completion',
         priority: 'high',
         title: '🎯 Goal Achieved!',
         message: `Congratulations! You've reached your $${targetValue} goal with cumulative profit of $${cumulativeProfit.toFixed(2)} across multiple trades!`,
@@ -616,7 +616,7 @@ class TradeLifecycleManager {
       await supabase.from('goal_notifications').insert({
         goal_session_id: trade.goal_session_id,
         user_id: userId,
-        notification_type: 'progress',
+        type: 'progress',
         priority: isProfit ? 'high' : 'medium',
         title: `Trade Closed: ${trade.symbol}`,
         message: `${reason}. ${isProfit ? 'Profit' : 'Loss'}: $${Math.abs(profitLoss).toFixed(2)}`,
@@ -830,7 +830,7 @@ class TradeLifecycleManager {
       const notification = {
         user_id: userId,
         goal_session_id: goalSessionId,
-        notification_type: 'completion',
+        type: 'completion',
         priority: 'high',
         title: '🎯 Goal Achieved!',
         message: `Congratulations! Your $${targetAmount} goal has been reached with current P&L of $${currentPnL.toFixed(2)}. This win is now permanently logged. What would you like to do?`,
@@ -913,7 +913,7 @@ class TradeLifecycleManager {
           .insert({
             user_id: goalSession.user_id,
             goal_session_id: goalSession.id,
-            notification_type: 'alert',
+            type: 'alert',
             priority: 'medium',
             title: '🛡️ Breakeven Protection Applied',
             message: 'No action was taken within 5 minutes, so we automatically moved your stop loss to breakeven to protect your profits.',
@@ -935,7 +935,7 @@ class TradeLifecycleManager {
           .insert({
             user_id: goalSession.user_id,
             goal_session_id: goalSession.id,
-            notification_type: 'alert',
+            type: 'alert',
             priority: 'urgent',
             title: '⚠️ Profit Fading!',
             message: `Your profit has dropped from $${goalSession.goal_achieved_pnl.toFixed(2)} to $${currentPnL.toFixed(2)}. Consider closing or protecting your position!`,
