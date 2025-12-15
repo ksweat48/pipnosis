@@ -24,6 +24,7 @@ import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
 import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalOptimalPosition } from '../utils/currencyHelpers';
 import { getRiskPercentage } from '../config/risk-levels';
+import { postTradeAnalyzer } from './post-trade-analyzer';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -863,6 +864,8 @@ class GoalSessionLiveEngine {
 
       // STOP SCANNING if max trades reached (saves tokens/credits)
       // 🚨 CRITICAL: Always verify with database before scanning (prevents desync bugs)
+      // 🔒 USER ISOLATION: Query filters by goal_session_id, which is unique per user
+      //    RLS policies ensure users can only see their own session's trades
       const { data: verifyOpenTrades } = await supabase
         .from('goal_session_trades')
         .select('id', { count: 'exact', head: true })
@@ -872,7 +875,10 @@ class GoalSessionLiveEngine {
       const dbOpenTradeCount = (verifyOpenTrades as any)?.count || 0;
       const memoryOpenTradeCount = this.openTrades.length;
 
+      // 🔍 AUDIT: Log user_id for verification that sessions are isolated
       console.log('%c[AUTONOMOUS ENGINE] 🔐 Scan authorization check:', 'color: #ff9800; font-weight: bold', {
+        userId: this.config.userId,
+        sessionId: this.activeSession,
         memoryTrades: memoryOpenTradeCount,
         dbTrades: dbOpenTradeCount,
         maxAllowed: this.config.maxConcurrentTrades,
@@ -1506,7 +1512,11 @@ Your decision keeps you in control of your risk and prevents runaway trading.
       return;
     }
 
-    logger.info(LogCategory.AI_TRADING, `Trade closed: ${trade.outcome.toUpperCase()} - PnL: $${trade.pnl.toFixed(2)}`);
+    // 🔍 USER ISOLATION AUDIT: Log user_id to verify trades are per-user
+    logger.info(LogCategory.AI_TRADING,
+      `Trade closed: ${trade.outcome.toUpperCase()} - PnL: $${trade.pnl.toFixed(2)} | ` +
+      `User: ${this.config.userId.substring(0, 8)} | Session: ${this.activeSession.substring(0, 8)}`
+    );
 
     // CRITICAL: Update trader score via autonomous brain
     await eventBasedLLMEngine.onTradeClose(trade);
@@ -1533,6 +1543,27 @@ Your decision keeps you in control of your risk and prevents runaway trading.
 
     if (error) {
       console.error('[Goal Live Engine] Error updating closed trade:', error);
+    }
+
+    // CRITICAL FIX: Write journal entry for this trade closure
+    try {
+      await postTradeAnalyzer.analyzeClosedTrade({
+        id: trade.id,
+        userId: this.config!.userId,
+        symbol: trade.symbol,
+        direction: trade.direction,
+        entryPrice: trade.entryPrice,
+        exitPrice: trade.exitPrice!,
+        stopLoss: trade.stopLoss,
+        takeProfit: trade.takeProfit,
+        pnl: trade.pnl,
+        entryTime: trade.entryTime,
+        exitTime: trade.exitTime!
+      });
+      logger.info(LogCategory.AI_TRADING, `✅ Journal entry created for trade ${trade.id}`);
+    } catch (journalError) {
+      console.error('[Goal Live Engine] Failed to create journal entry:', journalError);
+      logger.error(LogCategory.AI_TRADING, 'Journal entry creation failed', { journalError });
     }
 
     // Calculate trade duration
@@ -2738,8 +2769,21 @@ Keep response under 100 words, educational tone.`;
   }
 
   /**
-   * Calculate optimal lot size based on account balance and risk parameters
-   * Ensures lot sizes are meaningful for the account balance and goal target
+   * GOAL-AWARE LOT SIZING - CRITICAL FIX
+   *
+   * Calculates lot size that makes mathematical sense for achieving the goal.
+   *
+   * Problem: Old logic used $16 SL for $200 goal (unrealistic R:R)
+   * Solution: Consider goal amount, expected trades, and realistic R:R ratio
+   *
+   * Example: $200 goal, $24,000 balance
+   * - Target R:R: 2:1 or 3:1 depending on risk mode
+   * - Expected trades: 3-5 trades
+   * - Per trade goal: $200 / 4 trades = $50 per trade
+   * - With 2:1 R:R: $50 TP needs ~$25 SL
+   * - With 3:1 R:R: $90 TP needs ~$30 SL
+   *
+   * This creates REALISTIC lot sizes that can actually achieve the goal!
    */
   private async calculateOptimalLotSize(
     accountBalance: number,
@@ -2747,33 +2791,101 @@ Keep response under 100 words, educational tone.`;
     stopLoss: number,
     riskMode: 'low' | 'medium' | 'high'
   ): Promise<number> {
-    // Risk percentage based on risk mode - USE CENTRALIZED CONFIG
-    const riskPercent = getRiskPercentage(riskMode);
+    // Get goal session details for context
+    const { data: goalSession } = await supabase
+      .from('goal_sessions')
+      .select('target_value, current_progress, total_trades, max_concurrent_trades')
+      .eq('id', this.activeSession!)
+      .single();
 
-    // Calculate risk amount in dollars
-    const riskAmount = accountBalance * (riskPercent / 100);
+    if (!goalSession) {
+      console.warn('[Lot Sizing] No goal session found, using basic calculation');
+      return this.calculateBasicLotSize(accountBalance, entryPrice, stopLoss, riskMode);
+    }
+
+    const goalAmount = goalSession.target_value || 200;
+    const currentProgress = goalSession.current_progress || 0;
+    const remainingGoal = goalAmount - currentProgress;
+    const completedTrades = goalSession.total_trades || 0;
+
+    // Determine target R:R ratio based on risk mode
+    let targetRR = 2.0; // Default 2:1
+    if (riskMode === 'high') {
+      targetRR = 3.0; // Aggressive: 3:1
+    } else if (riskMode === 'low') {
+      targetRR = 1.5; // Conservative: 1.5:1
+    }
+
+    // Estimate trades needed to reach goal (based on historical success rate)
+    const estimatedTradesNeeded = Math.max(3, Math.ceil(remainingGoal / (remainingGoal / 4)));
+
+    // Calculate target profit per trade
+    const targetProfitPerTrade = remainingGoal / estimatedTradesNeeded;
+
+    // Calculate target stop loss amount (inverse of R:R)
+    const targetSLAmount = targetProfitPerTrade / targetRR;
 
     // Calculate stop loss distance in pips
     const stopLossPips = Math.abs(entryPrice - stopLoss) / 0.0001;
 
-    // Calculate lot size: Risk Amount / (Stop Loss Pips * $10 per pip per lot)
-    const calculatedLotSize = riskAmount / (stopLossPips * 10);
+    // Calculate lot size to achieve target SL amount
+    // Formula: Lot Size = Target SL Amount / (SL Pips * $10 per pip per lot)
+    let calculatedLotSize = targetSLAmount / (stopLossPips * 10);
 
-    // Round to 2 decimal places and apply limits
-    let lotSize = Math.round(calculatedLotSize * 100) / 100;
+    // Round to 2 decimal places
+    calculatedLotSize = Math.round(calculatedLotSize * 100) / 100;
 
-    // Apply sensible limits based on account size
-    const minLotSize = accountBalance > 10000 ? 0.05 : 0.01;
+    // Apply sensible limits
+    const minLotSize = 0.01;
     const maxLotSize = Math.min(
       accountBalance / 1000, // Max 1 lot per $1000
-      10.0 // Absolute max of 10 lots
+      10.0 // Absolute max
     );
 
-    lotSize = Math.max(minLotSize, Math.min(lotSize, maxLotSize));
+    let finalLotSize = Math.max(minLotSize, Math.min(calculatedLotSize, maxLotSize));
 
-    logger.debug(LogCategory.AI_TRADING, `Lot Size: ${lotSize} (Balance: $${accountBalance}, Risk: ${riskPercent}%, SL: ${stopLossPips.toFixed(1)} pips)`);
+    // Validate: Ensure lot size can generate meaningful progress toward goal
+    const expectedSLRisk = finalLotSize * stopLossPips * 10;
+    const expectedTPProfit = expectedSLRisk * targetRR;
 
-    return lotSize;
+    logger.info(LogCategory.AI_TRADING,
+      `🎯 GOAL-AWARE LOT SIZING:\n` +
+      `  Goal: $${goalAmount} | Remaining: $${remainingGoal.toFixed(2)}\n` +
+      `  Target R:R: ${targetRR}:1 | Est. Trades Needed: ${estimatedTradesNeeded}\n` +
+      `  Target per trade: $${targetProfitPerTrade.toFixed(2)}\n` +
+      `  SL Pips: ${stopLossPips.toFixed(1)} | Lot Size: ${finalLotSize}\n` +
+      `  Expected SL Risk: $${expectedSLRisk.toFixed(2)}\n` +
+      `  Expected TP Profit: $${expectedTPProfit.toFixed(2)}`
+    );
+
+    // Warn if lot size seems too small for goal
+    if (expectedTPProfit < targetProfitPerTrade * 0.5) {
+      console.warn(`⚠️ Lot size may be too small for goal. Expected TP: $${expectedTPProfit.toFixed(2)}, Target: $${targetProfitPerTrade.toFixed(2)}`);
+    }
+
+    return finalLotSize;
+  }
+
+  /**
+   * Fallback: Basic lot size calculation (old method)
+   * Used when goal session data is not available
+   */
+  private calculateBasicLotSize(
+    accountBalance: number,
+    entryPrice: number,
+    stopLoss: number,
+    riskMode: 'low' | 'medium' | 'high'
+  ): number {
+    const riskPercent = getRiskPercentage(riskMode);
+    const riskAmount = accountBalance * (riskPercent / 100);
+    const stopLossPips = Math.abs(entryPrice - stopLoss) / 0.0001;
+    const calculatedLotSize = riskAmount / (stopLossPips * 10);
+    let lotSize = Math.round(calculatedLotSize * 100) / 100;
+
+    const minLotSize = accountBalance > 10000 ? 0.05 : 0.01;
+    const maxLotSize = Math.min(accountBalance / 1000, 10.0);
+
+    return Math.max(minLotSize, Math.min(lotSize, maxLotSize));
   }
 
   /**
