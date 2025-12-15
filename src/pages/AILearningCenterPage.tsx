@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { Brain, Globe, Package } from 'lucide-react';
+import { Brain, Globe, Package, Sparkles } from 'lucide-react';
 import { NavigationMenu } from '../components/NavigationMenu';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { PlatformIntelligenceDashboard } from '../components/PlatformIntelligenceDashboard';
 import { GlobalPatternsList } from '../components/GlobalPatternsList';
+import { AlphaBrainDashboard } from '../components/AlphaBrainDashboard';
 
-type TabId = 'platform-intelligence' | 'pattern-discovery';
+type TabId = 'alpha-brain' | 'platform-intelligence' | 'pattern-discovery';
 
 function AILearningCenterPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabId>('platform-intelligence');
+  const [activeTab, setActiveTab] = useState<TabId>('alpha-brain');
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -38,6 +39,7 @@ function AILearningCenterPage() {
   }
 
   const tabs = [
+    { id: 'alpha-brain', label: 'Alpha Brain', icon: Sparkles },
     { id: 'platform-intelligence', label: 'Platform Intelligence', icon: Globe },
     { id: 'pattern-discovery', label: 'Pattern Discovery', icon: Package }
   ];
@@ -88,6 +90,10 @@ function AILearningCenterPage() {
           </div>
 
           <div className="space-y-6">
+            {activeTab === 'alpha-brain' && (
+              <AlphaBrainDashboard userId={user.id} />
+            )}
+
             {activeTab === 'platform-intelligence' && (
               <PlatformIntelligenceDashboard userId={user.id} />
             )}
