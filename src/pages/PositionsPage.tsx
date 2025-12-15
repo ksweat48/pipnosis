@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
@@ -19,7 +19,6 @@ import {
   X,
   Clock,
   AlertCircle,
-  Filter,
   DollarSign,
   Target,
   Activity,
@@ -28,7 +27,6 @@ import {
   XCircle,
   Percent,
   History,
-  ArrowUpDown,
   Sparkles
 } from 'lucide-react';
 
@@ -61,9 +59,6 @@ interface RecentTrade {
   close_reason: string;
 }
 
-type FilterType = 'all' | 'winning' | 'losing' | 'breakeven';
-type SortType = 'pnl' | 'duration' | 'symbol' | 'size';
-
 export function PositionsPage() {
   const { user } = useAuth();
   const { balance, totalPnL, openPositionsCount, refreshBalance, refreshPositions } = useUserBalance(user?.id || null);
@@ -76,10 +71,6 @@ export function PositionsPage() {
   const [loading, setLoading] = useState(true);
   const [closingPosition, setClosingPosition] = useState<string | null>(null);
   const [livePrices, setLivePrices] = useState<Record<string, { bid: number; ask: number }>>({});
-
-  const [filterType, setFilterType] = useState<FilterType>('all');
-  const [sortBy, setSortBy] = useState<SortType>('pnl');
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('all');
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -448,41 +439,6 @@ export function PositionsPage() {
     return `${Math.floor(diffMins / 1440)}d ${Math.floor((diffMins % 1440) / 60)}h`;
   };
 
-  const getFilteredAndSortedPositions = () => {
-    let filtered = [...openPositions];
-
-    if (selectedSymbol !== 'all') {
-      filtered = filtered.filter(p => p.symbol === selectedSymbol);
-    }
-
-    if (filterType === 'winning') {
-      filtered = filtered.filter(p => calculateCurrentPnL(p) > 0);
-    } else if (filterType === 'losing') {
-      filtered = filtered.filter(p => calculateCurrentPnL(p) < 0);
-    } else if (filterType === 'breakeven') {
-      filtered = filtered.filter(p => Math.abs(calculateCurrentPnL(p)) < 1);
-    }
-
-    filtered.sort((a, b) => {
-      switch (sortBy) {
-        case 'pnl':
-          return calculateCurrentPnL(b) - calculateCurrentPnL(a);
-        case 'duration':
-          return new Date(a.openedAt).getTime() - new Date(b.openedAt).getTime();
-        case 'symbol':
-          return a.symbol.localeCompare(b.symbol);
-        case 'size':
-          return b.lotSize - a.lotSize;
-        default:
-          return 0;
-      }
-    });
-
-    return filtered;
-  };
-
-  const uniqueSymbols = Array.from(new Set(openPositions.map(p => p.symbol)));
-  const filteredPositions = getFilteredAndSortedPositions();
   const largestWinner = openPositions.reduce((max, p) => {
     const pnl = calculateCurrentPnL(p);
     return pnl > max ? pnl : max;
@@ -603,79 +559,31 @@ export function PositionsPage() {
         </div>
 
         {openPositions.length > 0 && (
-          <div className="relative group">
+          <div className="relative group mb-6">
             <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
-            <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl border border-gray-700/50 rounded-xl p-3 sm:p-4 mb-6 shadow-xl">
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4">
-                  <div className="flex items-center gap-2">
-                    <Filter className="w-4 h-4 text-gray-400 hidden sm:block" />
-                    <span className="text-xs sm:text-sm text-gray-400">Filter:</span>
-                    <select
-                      value={filterType}
-                      onChange={(e) => setFilterType(e.target.value as FilterType)}
-                      className="flex-1 bg-gray-700/50 backdrop-blur-sm text-white text-xs sm:text-sm border border-gray-600/50 rounded-lg px-2 sm:px-3 py-1.5 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
-                    >
-                      <option value="all">All Positions</option>
-                      <option value="winning">Winning</option>
-                      <option value="losing">Losing</option>
-                      <option value="breakeven">Breakeven</option>
-                    </select>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs sm:text-sm text-gray-400">Symbol:</span>
-                    <select
-                      value={selectedSymbol}
-                      onChange={(e) => setSelectedSymbol(e.target.value)}
-                      className="flex-1 bg-gray-700/50 backdrop-blur-sm text-white text-xs sm:text-sm border border-gray-600/50 rounded-lg px-2 sm:px-3 py-1.5 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
-                    >
-                      <option value="all">All Symbols</option>
-                      {uniqueSymbols.map(symbol => (
-                        <option key={symbol} value={symbol}>{symbol}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <ArrowUpDown className="w-4 h-4 text-gray-400 hidden sm:block" />
-                    <span className="text-xs sm:text-sm text-gray-400">Sort:</span>
-                    <select
-                      value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value as SortType)}
-                      className="flex-1 bg-gray-700/50 backdrop-blur-sm text-white text-xs sm:text-sm border border-gray-600/50 rounded-lg px-2 sm:px-3 py-1.5 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
-                    >
-                      <option value="pnl">P&L</option>
-                      <option value="duration">Duration</option>
-                      <option value="symbol">Symbol</option>
-                      <option value="size">Lot Size</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleCloseWinningPositions}
-                    disabled={openPositions.filter(p => calculateCurrentPnL(p) > 0).length === 0}
-                    className="flex-1 px-3 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-medium rounded-lg transition-all shadow-lg hover:shadow-green-500/25 hover:scale-105 active:scale-95 disabled:scale-100"
-                  >
-                    Close Winners
-                  </button>
-                  <button
-                    onClick={handleCloseAllPositions}
-                    disabled={openPositions.length === 0}
-                    className="flex-1 px-3 py-2 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-medium rounded-lg transition-all shadow-lg hover:shadow-red-500/25 hover:scale-105 active:scale-95 disabled:scale-100"
-                  >
-                    Close All
-                  </button>
-                </div>
+            <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl border border-gray-700/50 rounded-xl p-3 sm:p-4 shadow-xl">
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCloseWinningPositions}
+                  disabled={openPositions.filter(p => calculateCurrentPnL(p) > 0).length === 0}
+                  className="flex-1 px-3 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-medium rounded-lg transition-all shadow-lg hover:shadow-green-500/25 hover:scale-105 active:scale-95 disabled:scale-100"
+                >
+                  Close Winners
+                </button>
+                <button
+                  onClick={handleCloseAllPositions}
+                  disabled={openPositions.length === 0}
+                  className="flex-1 px-3 py-2 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-medium rounded-lg transition-all shadow-lg hover:shadow-red-500/25 hover:scale-105 active:scale-95 disabled:scale-100"
+                >
+                  Close All
+                </button>
               </div>
             </div>
           </div>
         )}
 
         <div className="space-y-6">
-          {filteredPositions.length === 0 && pendingOrders.length === 0 ? (
+          {openPositions.length === 0 && pendingOrders.length === 0 ? (
             <div className="bg-gray-900 border border-gray-700 rounded-lg p-12 text-center">
               <AlertCircle className="w-16 h-16 mx-auto mb-4 text-gray-600" />
               <h3 className="text-xl font-semibold text-white mb-2">No Active Positions</h3>
@@ -683,13 +591,13 @@ export function PositionsPage() {
             </div>
           ) : (
             <>
-              {filteredPositions.length > 0 && (
+              {openPositions.length > 0 && (
                 <div className="bg-gray-900 border border-gray-700 rounded-lg">
                   <div className="p-3 sm:p-4 border-b border-gray-700">
-                    <h3 className="text-base sm:text-lg font-bold text-white">Open Positions ({filteredPositions.length})</h3>
+                    <h3 className="text-base sm:text-lg font-bold text-white">Open Positions ({openPositions.length})</h3>
                   </div>
                   <div className="p-3 sm:p-4 space-y-3">
-                    {filteredPositions.map((position) => {
+                    {openPositions.map((position) => {
                       const currentPnL = calculateCurrentPnL(position);
                       const currentPrice = livePrices[position.symbol]
                         ? (position.positionType === 'buy'
