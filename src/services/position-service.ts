@@ -365,6 +365,7 @@ class PositionService {
       });
 
       // Use the secure RPC function with session verification
+      // Note: Function returns SETOF so data will be an array
       const { data, error } = await supabase
         .rpc('close_goal_session_trade', {
           p_trade_id: positionId,
@@ -381,22 +382,33 @@ class PositionService {
         };
       }
 
-      console.log('[PositionService] Position closed successfully:', data);
+      // Extract first record from array (SETOF returns array)
+      const closedTrade = Array.isArray(data) ? data[0] : data;
+
+      if (!closedTrade) {
+        console.error('[PositionService] No trade data returned after close');
+        return {
+          success: false,
+          message: 'Position closed but no data returned'
+        };
+      }
+
+      console.log('[PositionService] Position closed successfully:', closedTrade);
 
       // Trigger post-trade analysis for journal entry
-      if (data && userId) {
+      if (closedTrade && userId) {
         try {
           await postTradeAnalyzer.analyzeClosedTrade({
-            id: data.id,
+            id: closedTrade.id,
             userId: userId,
-            symbol: data.symbol,
-            direction: data.direction,
-            entryPrice: data.entry_price,
+            symbol: closedTrade.symbol,
+            direction: closedTrade.direction,
+            entryPrice: closedTrade.entry_price,
             exitPrice: closePrice,
-            stopLoss: data.stop_loss,
-            takeProfit: data.take_profit,
-            pnl: data.profit_loss || 0,
-            entryTime: new Date(data.opened_at || data.created_at),
+            stopLoss: closedTrade.stop_loss,
+            takeProfit: closedTrade.take_profit,
+            pnl: closedTrade.profit_loss || 0,
+            entryTime: new Date(closedTrade.opened_at || closedTrade.created_at),
             exitTime: new Date()
           });
         } catch (analysisError) {
@@ -407,9 +419,9 @@ class PositionService {
 
       return {
         success: true,
-        message: `Position closed with P&L: $${data.profit_loss?.toFixed(2) || '0.00'}`,
-        position: data,
-        pnl: data.profit_loss
+        message: `Position closed with P&L: $${closedTrade.profit_loss?.toFixed(2) || '0.00'}`,
+        position: closedTrade,
+        pnl: closedTrade.profit_loss
       };
     } catch (error: any) {
       console.error('[PositionService] Failed to close position:', error);

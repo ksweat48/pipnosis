@@ -231,7 +231,10 @@ class TradeExecutionEngine {
         status: 'pending',
         playbook_id: activePlaybook?.id || null,
         regime_bucket: regimeBucket,
-        risk_dollars: riskDollars
+        risk_dollars: riskDollars,
+        ai_confidence: signal.confidence,
+        ai_reasoning: signal.reasoning,
+        ai_strategy_used: signal.setupType
       })
       .select()
       .single();
@@ -392,7 +395,10 @@ class TradeExecutionEngine {
       opened_at: new Date().toISOString(),
       playbook_id: activePlaybook?.id || null,
       regime_bucket: regimeBucket,
-      risk_dollars: riskDollars
+      risk_dollars: riskDollars,
+      ai_confidence: signal.confidence,
+      ai_reasoning: signal.reasoning,
+      ai_strategy_used: signal.setupType
     };
 
     console.log('[Trade Execution] Inserting trade with data:', {
