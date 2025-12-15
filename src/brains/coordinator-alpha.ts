@@ -61,6 +61,7 @@ import { omega9Hallucination, type Omega9Input } from './omega9-hallucination-br
 import { omega10Scheduler } from '../services/omega10-scheduler';
 import { llmTokenTracker } from '../services/llm-token-tracker';
 import { globalIntelligenceProvider } from '../services/global-intelligence-provider';
+import { professionalRiskManager } from '../services/professional-risk-manager';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -138,6 +139,41 @@ class AlphaCoordinatorBrain {
     // Fetch platform-wide intelligence for this symbol
     const platformIntelligence = await this.fetchPlatformIntelligence(marketContext.symbol);
 
+    // Get professional risk assessment (advisory only - Alpha has final authority)
+    let riskAssessment = null;
+    let riskContext = '';
+    if (userId && goalContext) {
+      try {
+        const preliminaryAssessment = await professionalRiskManager.evaluateTrade({
+          userId,
+          symbol: marketContext.symbol,
+          direction: consensus.direction === 'BUY' ? 'long' : 'short',
+          currentBalance: goalContext.currentBalance,
+          baseRiskPercent: 0.01,
+          currentATR: marketContext.atr,
+          goalSessionId: undefined
+        });
+        riskAssessment = preliminaryAssessment;
+
+        // Build risk context string
+        riskContext = `\n📊 PROFESSIONAL RISK ASSESSMENT (Advisory):\n`;
+        riskContext += `Risk Score: ${preliminaryAssessment.riskScore.toFixed(0)}/100 | Confidence: ${preliminaryAssessment.confidenceScore.toFixed(0)}/100\n`;
+        riskContext += `Recommended Lot Size: ${preliminaryAssessment.recommendedLotSize.toFixed(2)} lots\n`;
+        riskContext += `Adjusted Risk: ${(preliminaryAssessment.adjustedRiskPercent * 100).toFixed(2)}%\n`;
+
+        if (preliminaryAssessment.criticalWarnings.length > 0) {
+          riskContext += `⚠️ WARNINGS:\n`;
+          preliminaryAssessment.criticalWarnings.slice(0, 3).forEach(w => {
+            riskContext += `  - ${w}\n`;
+          });
+        }
+
+        riskContext += `Reasoning: ${preliminaryAssessment.overallReasoning}\n`;
+      } catch (error) {
+        console.error('[Alpha Coordinator] Failed to get risk assessment:', error);
+      }
+    }
+
     // Build compressed context
     const context = this.buildCoordinationContext(votes, weights, marketContext, traderScore, consensus, platformIntelligence);
 
@@ -157,7 +193,7 @@ class AlphaCoordinatorBrain {
 
 ${context}
 
-WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${goalContextText}
+WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${riskContext}${goalContextText}
 
 YOUR AUTHORITY:
 - Override Risk Omega if setup quality justifies it
