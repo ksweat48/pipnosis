@@ -79,6 +79,12 @@ class PositionService {
         risk_dollars: riskDollars
       };
 
+      console.log('[PositionService] Opening position with lot_size:', {
+        symbol: params.symbol,
+        lotSize: roundedLotSize,
+        riskDollars: riskDollars
+      });
+
       const { data, error } = await supabase
         .from('goal_session_trades')
         .insert(insert)

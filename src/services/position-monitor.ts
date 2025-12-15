@@ -257,19 +257,51 @@ class PositionMonitorService {
 
     const actualCurrentPrice = currentPrice || (position.direction === 'buy' ? price.bid : price.ask);
 
+    // CRITICAL: Validate lot_size before P&L calculation
+    const lotSize = position.lot_size || position.position_size;
+
+    // Safety check: lot_size should be reasonable (0.01 to 100 lots)
+    if (!lotSize || lotSize <= 0 || lotSize > 100) {
+      console.error(`[PositionMonitor] ❌ INVALID LOT SIZE for position ${position.id}:`, {
+        symbol: position.symbol,
+        lot_size: position.lot_size,
+        position_size: position.position_size,
+        used: lotSize
+      });
+      return;
+    }
+
     const pnl = calculatePnL(
       position.direction,
       position.entry_price,
       actualCurrentPrice,
-      position.lot_size || position.position_size,
+      lotSize,
       position.symbol
     );
+
+    // Safety check: detect unrealistic P&L values (>$10,000 on a single position)
+    if (Math.abs(pnl) > 10000) {
+      console.error(`[PositionMonitor] ⚠️ UNREALISTIC P&L DETECTED for ${position.symbol}:`, {
+        direction: position.direction,
+        entry: position.entry_price,
+        current: actualCurrentPrice,
+        lotSize: lotSize,
+        lot_size_column: position.lot_size,
+        position_size_column: position.position_size,
+        calculatedPnL: pnl.toFixed(2),
+        warning: 'P&L exceeds $10,000 - possible lot_size error'
+      });
+      // Don't update with unrealistic values
+      return;
+    }
 
     console.log(`[PositionMonitor] PnL Calculation for ${position.symbol}:`, {
       direction: position.direction,
       entry: position.entry_price,
       current: actualCurrentPrice,
-      lotSize: position.lot_size || position.position_size,
+      lotSize: lotSize,
+      lot_size_column: position.lot_size,
+      position_size_column: position.position_size,
       calculatedPnL: pnl.toFixed(2)
     });
 

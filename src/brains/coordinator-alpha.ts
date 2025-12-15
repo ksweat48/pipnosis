@@ -245,15 +245,20 @@ ${regimeSnapshot ? `- Regime: Risk factor ${(regimeSnapshot.risk_reduction_facto
 Your job: Synthesize ALL intelligence and make the BEST decision. You can override any safety recommendation if statistically justified.
 
 Decide: BUY, SELL, or NO_TRADE.
-Calculate entry, SL (dynamic ATR buffer), TP (appropriate R:R).
-${goalContext && goalContext.hasGoal ? `\nIMPORTANT: Set TP to capture ~${goalContext.pipsNeededEstimate.toFixed(0)} pips if market structure supports it.` : ''}
+Calculate entry, SL (dynamic ATR buffer), TP (dynamic R:R based on context).
+${goalContext && goalContext.hasGoal ? `\n🎯 GOAL-AWARE TRADING MODE:
+- Goal: $${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}% of balance)
+- Progress: $${goalContext.currentProgress.toFixed(0)} (${(goalContext.currentProgress / goalContext.targetGoal * 100).toFixed(1)}% complete)
+- Remaining: $${goalContext.remainingGoal.toFixed(0)}
+- Est. pips needed: ~${goalContext.pipsNeededEstimate.toFixed(0)} pips
+DIRECTIVE: Calculate TP dynamically to reach the goal efficiently. If goal is small (${goalContext.goalPercentage.toFixed(3)}%), you can use TIGHTER TP (1.5R-2.5R) for quicker fills. If goal is large, use standard TP (2.0R-3.0R). Balance probability of fill vs profit target.` : ''}
 
 CRITICAL POSITIONING RULES:
 - BUY trades: stopLoss MUST be BELOW entry, takeProfit MUST be ABOVE entry
 - SELL trades: stopLoss MUST be ABOVE entry, takeProfit MUST be BELOW entry
 - Example BUY: entry=1.2000, stopLoss=1.1950 (below), takeProfit=1.2100 (above)
 - Example SELL: entry=1.2000, stopLoss=1.2050 (above), takeProfit=1.1900 (below)
-- Minimum R:R ratio: 1.5:1 (TP distance should be 1.5x SL distance)
+- Dynamic R:R: Use 1.5R-3.0R based on goal size, market structure, and probability of fill
 - VERIFY your prices match the trade direction before returning
 
 If you override any safety recommendation, include your statistical justification in reasoning.
