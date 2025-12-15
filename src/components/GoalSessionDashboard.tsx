@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, WifiOff, AlertTriangle, Search, Shield, Sparkles, Eye } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
-import { goalNotificationSystem } from '../services/goal-notifications';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
 import { useAuth } from '../hooks/useAuth';
 import { MarketAnalysisStream } from './MarketAnalysisStream';
@@ -19,7 +18,6 @@ export const GoalSessionDashboard: React.FC = () => {
   const [activeSession, setActiveSession] = useState<SmartGoalSession | null>(null);
   const [progress, setProgress] = useState<any>(null);
   const [conversations, setConversations] = useState<any[]>([]);
-  const [notifications, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanStatus, setScanStatus] = useState<ScanStatus>(goalScannerTrigger.getStatus());
   const [continuationData, setContinuationData] = useState<{
@@ -239,14 +237,6 @@ export const GoalSessionDashboard: React.FC = () => {
         } catch (error) {
           console.error('[GoalSessionDashboard] Error loading conversations:', error);
           setConversations([]);
-        }
-
-        try {
-          const notifs = await goalNotificationSystem.getUnacknowledgedNotifications(user.id);
-          setNotifications(notifs || []);
-        } catch (error) {
-          console.error('[GoalSessionDashboard] Error loading notifications:', error);
-          setNotifications([]);
         }
 
         try {
@@ -736,7 +726,7 @@ export const GoalSessionDashboard: React.FC = () => {
         </div>
       </div>
 
-      {activeSession && activeSession.status === 'scanning' && (
+      {activeSession && activeSession.status === 'scanning' && openTrades.length === 0 && (
         <div>
           {/* Show block status if system is blocked by adversarial conditions */}
           {activeSession.block_state ? (
@@ -890,34 +880,6 @@ export const GoalSessionDashboard: React.FC = () => {
                     </div>
                   </div>
                 )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {notifications.length > 0 && (
-        <div className="bg-gray-800 rounded-lg p-6 border border-yellow-600">
-          <h4 className="text-lg font-bold text-white mb-4">Notifications ({notifications.length})</h4>
-          <div className="space-y-2">
-            {notifications.slice(0, 5).map((notif) => (
-              <div
-                key={notif.id}
-                className="p-3 bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-600"
-                onClick={() => goalNotificationSystem.acknowledgeNotification(notif.id)}
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="text-sm font-medium text-white">{notif.title}</div>
-                    <div className="text-xs text-gray-400 mt-1">{notif.message.substring(0, 100)}...</div>
-                  </div>
-                  <span className={`text-xs px-2 py-1 rounded ${
-                    notif.priority === 'urgent' ? 'bg-red-600' :
-                    notif.priority === 'high' ? 'bg-orange-600' : 'bg-blue-600'
-                  }`}>
-                    {notif.priority}
-                  </span>
-                </div>
               </div>
             ))}
           </div>
