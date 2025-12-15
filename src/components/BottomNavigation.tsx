@@ -49,11 +49,12 @@ export function BottomNavigation() {
         .from('goal_sessions')
         .select('id')
         .eq('user_id', user.id)
-        .eq('status', 'active')
-        .maybeSingle();
+        .in('status', ['active', 'scanning'])
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      if (data) {
-        setCurrentSessionId(data.id);
+      if (data && data.length > 0) {
+        setCurrentSessionId(data[0].id);
       }
     };
 

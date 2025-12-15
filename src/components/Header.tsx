@@ -44,15 +44,22 @@ export function Header() {
     const loadCurrentSession = async () => {
       if (!user?.id) return;
 
-      const { data } = await import('@/lib/supabase').then(m => m.supabase)
+      const { data, error } = await import('@/lib/supabase').then(m => m.supabase)
         .from('goal_sessions')
         .select('id')
         .eq('user_id', user.id)
-        .eq('status', 'active')
-        .maybeSingle();
+        .in('status', ['active', 'scanning'])
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      if (data) {
-        setCurrentSessionId(data.id);
+      console.log('[Header] Active session query:', { data, error, hasData: !!data, count: data?.length });
+
+      if (data && data.length > 0) {
+        console.log('[Header] Setting currentSessionId to:', data[0].id);
+        setCurrentSessionId(data[0].id);
+      } else {
+        console.log('[Header] No active session found - currentSessionId will be null');
+        setCurrentSessionId(null);
       }
     };
 

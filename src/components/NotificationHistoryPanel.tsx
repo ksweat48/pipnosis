@@ -20,10 +20,14 @@ export default function NotificationHistoryPanel({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    console.log('[NotificationHistoryPanel] useEffect triggered:', { isOpen, sessionId, userId });
     if (isOpen && sessionId) {
       loadNotifications();
+    } else if (isOpen && !sessionId) {
+      console.log('[NotificationHistoryPanel] Panel opened but sessionId is null!');
+      setLoading(false);
     }
-  }, [isOpen, sessionId]);
+  }, [isOpen, sessionId, userId]);
 
   const loadNotifications = async () => {
     if (!sessionId) {
