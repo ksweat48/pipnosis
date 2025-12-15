@@ -102,6 +102,9 @@ export const GoalSessionDashboard: React.FC = () => {
   useEffect(() => {
     if (!user || !activeSession) return;
 
+    console.log('[GoalSessionDashboard] 🔌 Setting up realtime subscription for trade closures');
+    console.log('[GoalSessionDashboard] Session ID:', activeSession.sessionId);
+
     const channel = supabase
       .channel('trade-closures')
       .on(
@@ -113,12 +116,20 @@ export const GoalSessionDashboard: React.FC = () => {
           filter: `goal_session_id=eq.${activeSession.sessionId}`
         },
         (payload) => {
+          console.log('[GoalSessionDashboard] 📡 Realtime UPDATE event received:', {
+            old_status: payload.old?.status,
+            new_status: payload.new?.status,
+            close_reason: payload.new?.close_reason,
+            profit_loss: payload.new?.profit_loss
+          });
+
           if (payload.new.status === 'closed' && payload.old.status === 'open') {
-            console.log('[GoalSessionDashboard] Trade closed!', payload);
+            console.log('[GoalSessionDashboard] ✅ Trade closed! Preparing popup...');
             const closeReason = payload.new.close_reason || 'manual';
 
             // Don't show action dialog if goal was met (already showing goal achieved)
             if (closeReason !== 'goal_met' && !showGoalAchieved) {
+              console.log('[GoalSessionDashboard] 🎯 Showing TradeClosedActionDialog');
               loadSessionData().then(() => {
                 setTradeClosedData({
                   symbol: payload.new.symbol,
@@ -129,16 +140,26 @@ export const GoalSessionDashboard: React.FC = () => {
                   closeReason
                 });
                 setShowTradeClosedAction(true);
+                console.log('[GoalSessionDashboard] ✅ TradeClosedActionDialog state updated');
               });
             } else {
+              console.log('[GoalSessionDashboard] ℹ️ Skipping popup (goal_met or goal achieved dialog already shown)');
               loadSessionData();
             }
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[GoalSessionDashboard] 📊 Realtime subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('[GoalSessionDashboard] ✅ Successfully subscribed to trade closures');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('[GoalSessionDashboard] ❌ Realtime subscription error');
+        }
+      });
 
     return () => {
+      console.log('[GoalSessionDashboard] 🔌 Cleaning up realtime subscription');
       supabase.removeChannel(channel);
     };
   }, [user, activeSession, showGoalAchieved]);
