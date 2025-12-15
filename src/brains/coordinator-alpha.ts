@@ -62,6 +62,10 @@ import { omega10Scheduler } from '../services/omega10-scheduler';
 import { llmTokenTracker } from '../services/llm-token-tracker';
 import { globalIntelligenceProvider } from '../services/global-intelligence-provider';
 import { professionalRiskManager } from '../services/professional-risk-manager';
+import { alphaIntelligenceAggregator, type AlphaIntelligenceSnapshot } from '../services/alpha-intelligence-aggregator';
+import { supabase } from '../lib/supabase';
+import type { AdversarialSignal } from '../services/adversarial-detector';
+import type { RegimeSnapshot } from '../services/regime-oracle';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -91,6 +95,14 @@ export interface GoalContext {
   pipsNeededEstimate: number; // Rough estimate for context
 }
 
+export interface AlphaOverride {
+  override_type: 'adversarial_block' | 'regime_avoid' | 'risk_limit' | 'drawdown_stop' | 'correlation_limit' | 'manipulation_block';
+  original_recommendation: string;
+  alpha_decision: string;
+  statistical_justification: string;
+  expected_edge: number;
+}
+
 export interface AlphaDecision {
   action: 'BUY' | 'SELL' | 'NO_TRADE';
   decision: 'BUY' | 'SELL' | 'NO_TRADE';
@@ -109,6 +121,10 @@ export interface AlphaDecision {
   timestamp?: Date;
   risk_pct?: number;
   goal_context?: GoalContext;
+  override?: AlphaOverride;
+  intelligence_snapshot?: Partial<AlphaIntelligenceSnapshot>;
+  adversarial_advisory?: AdversarialSignal;
+  regime_advisory?: RegimeSnapshot;
 }
 
 class AlphaCoordinatorBrain {
@@ -127,8 +143,21 @@ class AlphaCoordinatorBrain {
       severity: string;
       conflictDescription: string;
     },
-    goalContext?: GoalContext
+    goalContext?: GoalContext,
+    adversarialSignal?: AdversarialSignal,
+    regimeSnapshot?: RegimeSnapshot,
+    fullCandles?: any[]
   ): Promise<AlphaDecision> {
+    // Load full intelligence snapshot for comprehensive decision-making
+    let intelligenceSnapshot: AlphaIntelligenceSnapshot | null = null;
+    if (userId) {
+      try {
+        intelligenceSnapshot = await alphaIntelligenceAggregator.getFullIntelligenceSnapshot(userId, marketContext.symbol);
+        console.log('[Alpha Coordinator] 🧠 Loaded full intelligence snapshot');
+      } catch (error) {
+        console.error('[Alpha Coordinator] Failed to load intelligence snapshot:', error);
+      }
+    }
     // Calculate vote weights (with Omega-10 overrides if available)
     const weights = await this.calculateWeights(votes, marketContext, traderScore, userId);
 
@@ -183,25 +212,37 @@ class AlphaCoordinatorBrain {
       conflictContext = `\n⚠️ OMEGA CONFLICT DETECTED:\nType: ${conflictInfo.conflictType} | Severity: ${conflictInfo.severity}\n${conflictInfo.conflictDescription}\n\nYou have authority to override if justified.\n`;
     }
 
+    // Build advisory context (Adversarial Detector + Regime Oracle)
+    let advisoryContext = this.buildAdvisoryContext(adversarialSignal, regimeSnapshot);
+
     // Build goal context (if trading with a goal)
     let goalContextText = '';
     if (goalContext && goalContext.hasGoal) {
       goalContextText = `\n🎯 GOAL TRADING MODE:\nBalance: $${goalContext.currentBalance.toFixed(2)} | Target: +$${goalContext.targetGoal.toFixed(2)}\nProgress: $${goalContext.currentProgress.toFixed(2)} | Remaining: $${goalContext.remainingGoal.toFixed(2)} (${goalContext.goalPercentage.toFixed(3)}%)\nEstimate: ~${goalContext.pipsNeededEstimate.toFixed(0)} pips needed\n\n🔍 FIND A TRADE THAT CAN CAPTURE ${goalContext.pipsNeededEstimate.toFixed(0)} PIPS:\n- Look for symbols with momentum to reach this pip target\n- Balance goal achievement with realistic technical levels\n- Consider if market is offering this opportunity NOW\n`;
     }
 
-    const prompt = `You are Alpha, the final decision maker. You have COMPLETE AUTHORITY to accept or override Omega recommendations.
+    // Build intelligence context
+    let intelligenceContext = this.buildIntelligenceContext(intelligenceSnapshot);
+
+    const prompt = `You are Alpha, the final decision maker. You have COMPLETE AUTHORITY to accept or override ANY recommendation.
 
 ${context}
 
-WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${riskContext}${goalContextText}
+WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${intelligenceContext}${goalContextText}
 
-YOUR AUTHORITY:
+YOUR FULL AUTHORITY:
+- Override Adversarial blocks when statistical edge is strong (manipulation resolved, BOS confirmed)
+- Override Regime avoid_trading when symbol-specific conditions justify it
 - Override Risk Omega if setup quality justifies it
 - Override consensus if you see better opportunity
-- Make contrarian calls if confident
-- Your decision is final (only hard-coded safety rules can block you)
+- Make contrarian calls based on platform intelligence
+- Request mental timeout if confidence borderline (45-55%)
 
-Your job: Make the best trading decision based on all available information.
+ADVISORY SIGNALS (NOT BLOCKERS):
+${adversarialSignal ? `- Adversarial: ${adversarialSignal.recommended_action} (${adversarialSignal.level} level, score: ${adversarialSignal.suspicion_score})` : '- Adversarial: No concerns'}
+${regimeSnapshot ? `- Regime: Risk factor ${(regimeSnapshot.risk_reduction_factor * 100).toFixed(0)}% ${regimeSnapshot.avoid_trading ? '(AVOID recommended but you can override)' : ''}` : '- Regime: Normal'}
+
+Your job: Synthesize ALL intelligence and make the BEST decision. You can override any safety recommendation if statistically justified.
 
 Decide: BUY, SELL, or NO_TRADE.
 Calculate entry, SL (dynamic ATR buffer), TP (appropriate R:R).
@@ -215,6 +256,8 @@ CRITICAL POSITIONING RULES:
 - Minimum R:R ratio: 1.5:1 (TP distance should be 1.5x SL distance)
 - VERIFY your prices match the trade direction before returning
 
+If you override any safety recommendation, include your statistical justification in reasoning.
+
 Return JSON only:
 {
   "action": "BUY|SELL|NO_TRADE",
@@ -222,7 +265,11 @@ Return JSON only:
   "stopLoss": price,
   "takeProfit": price,
   "confidence": 0-100,
-  "reasoning": "brief decision rationale - state if you overrode Omegas and why"
+  "reasoning": "brief decision rationale - state if you overrode any recommendations and why",
+  "override": {
+    "type": "adversarial_block|regime_avoid|risk_limit|none",
+    "justification": "statistical reasoning if override occurred"
+  }
 }`;
 
     try {
@@ -273,6 +320,57 @@ Return JSON only:
       // Add goal context if provided
       if (goalContext) {
         decision.goal_context = goalContext;
+      }
+
+      // Add advisory signals to decision
+      if (adversarialSignal) {
+        decision.adversarial_advisory = adversarialSignal;
+      }
+      if (regimeSnapshot) {
+        decision.regime_advisory = regimeSnapshot;
+      }
+
+      // Add intelligence snapshot summary
+      if (intelligenceSnapshot) {
+        decision.intelligence_snapshot = {
+          overrideHistory: intelligenceSnapshot.overrideHistory,
+          calibrationData: intelligenceSnapshot.calibrationData,
+          reasoningPatterns: intelligenceSnapshot.reasoningPatterns.slice(0, 3),
+          executionQuality: intelligenceSnapshot.executionQuality
+        };
+      }
+
+      // Check if Alpha overrode any recommendations
+      const parsed = response.choices[0]?.message?.content || '{}';
+      try {
+        const rawDecision = JSON.parse(parsed.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim());
+        if (rawDecision.override && rawDecision.override.type && rawDecision.override.type !== 'none') {
+          const overrideInfo: AlphaOverride = {
+            override_type: rawDecision.override.type,
+            original_recommendation: adversarialSignal?.recommended_action || regimeSnapshot?.reason || 'Unknown',
+            alpha_decision: decision.action,
+            statistical_justification: rawDecision.override.justification || decision.reasoning,
+            expected_edge: 0 // Will be calculated based on outcome
+          };
+          decision.override = overrideInfo;
+
+          // Log override for learning
+          if (userId) {
+            await this.logOverride(
+              userId,
+              `decision_${Date.now()}`,
+              overrideInfo,
+              votes,
+              marketContext,
+              goalContext?.hasGoal ? 'goal_session_id' : undefined
+            );
+          }
+
+          console.log(`[Alpha Coordinator] ⚡ OVERRIDE DETECTED: ${overrideInfo.override_type}`);
+          console.log(`[Alpha Coordinator] Justification: ${overrideInfo.statistical_justification}`);
+        }
+      } catch (parseError) {
+        // Override parsing failed, continue without it
       }
 
       // Check Omega-10 recommendations
@@ -794,6 +892,129 @@ Return JSON only:
         reasoning: 'Parse failed',
         omega_summary: ''
       };
+    }
+  }
+
+  /**
+   * Build advisory context from Adversarial Detector and Regime Oracle
+   */
+  private buildAdvisoryContext(adversarial?: AdversarialSignal, regime?: RegimeSnapshot): string {
+    if (!adversarial && !regime) {
+      return '';
+    }
+
+    const parts: string[] = ['\n📡 ADVISORY SIGNALS (Your authority to override):'];
+
+    if (adversarial) {
+      parts.push(`\nAdversarial Detector:`);
+      parts.push(`  Level: ${adversarial.level} (Score: ${adversarial.suspicion_score}/100)`);
+      parts.push(`  Recommendation: ${adversarial.recommended_action}`);
+      if (adversarial.patterns.length > 0) {
+        parts.push(`  Patterns: ${adversarial.patterns.join(', ')}`);
+      }
+      if (adversarial.stop_run_classification && adversarial.stop_run_classification.type !== 'none') {
+        parts.push(`  Stop-Run: ${adversarial.stop_run_classification.type} (${adversarial.stop_run_classification.candles_ago} candles ago)`);
+        parts.push(`  BOS: ${adversarial.stop_run_classification.has_bos ? 'Yes ✓' : 'No'}`);
+      }
+    }
+
+    if (regime) {
+      parts.push(`\nRegime Oracle:`);
+      parts.push(`  Session: ${regime.session} ${regime.session_open ? '(open)' : ''}`);
+      parts.push(`  Structure: ${regime.structure} | Bias: ${regime.market_bias}`);
+      parts.push(`  Volatility: ${regime.volatility_score}/100 (${regime.atr_compression ? 'compressed' : regime.atr_expansion ? 'expanding' : 'normal'})`);
+      parts.push(`  Risk Factor: ${(regime.risk_reduction_factor * 100).toFixed(0)}%`);
+      if (regime.avoid_trading) {
+        parts.push(`  ⚠️ AVOID recommended (but you can override): ${regime.reason || 'No specific reason'}`);
+      }
+    }
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Build intelligence context from platform-wide learning
+   */
+  private buildIntelligenceContext(intelligence?: AlphaIntelligenceSnapshot | null): string {
+    if (!intelligence) {
+      return '';
+    }
+
+    const parts: string[] = ['\n🧠 ALPHA INTELLIGENCE (Platform Learning):'];
+
+    // Platform patterns
+    if (intelligence.platformPatterns.topPerformingPatterns.length > 0) {
+      const top = intelligence.platformPatterns.topPerformingPatterns[0];
+      parts.push(`  Top Pattern: ${top.patternId} (WR: ${top.winRate.toFixed(1)}%, R: ${top.avgRMultiple.toFixed(2)}, n=${top.sampleSize})`);
+    }
+
+    // Override history
+    if (intelligence.overrideHistory.totalOverrides > 0) {
+      parts.push(`  Override History: ${intelligence.overrideHistory.totalOverrides} total, ${intelligence.overrideHistory.successRate.toFixed(1)}% success rate`);
+    }
+
+    // Confidence calibration
+    const calibrationKeys = Object.keys(intelligence.calibrationData);
+    if (calibrationKeys.length > 0) {
+      parts.push(`  Confidence Calibration: ${calibrationKeys.length} buckets tracked`);
+    }
+
+    // Reasoning patterns
+    if (intelligence.reasoningPatterns.length > 0) {
+      const topPattern = intelligence.reasoningPatterns[0];
+      parts.push(`  Top Reasoning: ${topPattern.description.substring(0, 50)}... (${topPattern.effectiveness.toFixed(1)}% effective)`);
+    }
+
+    // Meta insights
+    if (intelligence.metaInsights.length > 0) {
+      const topInsight = intelligence.metaInsights[0];
+      parts.push(`  Key Insight: ${topInsight.description.substring(0, 60)}...`);
+    }
+
+    // Execution quality
+    if (intelligence.executionQuality.avgSlippage > 0) {
+      parts.push(`  Execution: ${intelligence.executionQuality.avgSlippage.toFixed(2)} pips avg slippage`);
+      if (intelligence.executionQuality.slHuntingSuspected) {
+        parts.push(`    ⚠️ SL hunting suspected in recent executions`);
+      }
+    }
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Log Alpha's override decision to database for learning
+   */
+  private async logOverride(
+    userId: string,
+    decisionId: string,
+    override: AlphaOverride,
+    votes: OmegaCouncilVotes,
+    marketContext: MarketContext,
+    goalSessionId?: string
+  ): Promise<void> {
+    try {
+      await supabase.from('alpha_authority_overrides').insert({
+        user_id: userId,
+        goal_session_id: goalSessionId,
+        decision_id: decisionId,
+        override_type: override.override_type,
+        original_recommendation: override.original_recommendation,
+        alpha_override_decision: override.alpha_decision,
+        statistical_justification: {
+          reasoning: override.statistical_justification,
+          expected_edge: override.expected_edge
+        },
+        expected_edge: override.expected_edge,
+        confidence_level: 0, // Will be updated when decision result is known
+        omega_votes: votes,
+        market_context: marketContext,
+        actual_outcome: 'pending'
+      });
+
+      console.log('[Alpha Coordinator] 📊 Logged override decision for learning');
+    } catch (error) {
+      console.error('[Alpha Coordinator] Failed to log override:', error);
     }
   }
 }
