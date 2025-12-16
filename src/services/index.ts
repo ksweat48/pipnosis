@@ -14,6 +14,9 @@ export * from './performance-analyzer';
 // Platform Intelligence Services
 export * from './platform-intelligence-service';
 
+// Scanning Cycle Services
+export * from './scanning-state-machine';
+
 // Existing Services
 export * from './openai-client';
 export * from './database-service';

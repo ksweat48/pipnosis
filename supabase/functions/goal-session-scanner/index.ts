@@ -67,6 +67,37 @@ Deno.serve(async (req: Request) => {
 
     for (const session of activeSessions) {
       try {
+        // STEP 1: Check if scanning is allowed for this session
+        const { data: scanPermission, error: scanCheckError } = await supabase
+          .rpc('can_scan_now', { p_session_id: session.id });
+
+        if (scanCheckError) {
+          console.error(`[Goal Scanner] Error checking scan permission for ${session.id}:`, scanCheckError);
+          continue;
+        }
+
+        if (!scanPermission?.allowed) {
+          console.log(`[Goal Scanner] ⏸️  Session ${session.id} - ${scanPermission.reason}: ${scanPermission.message}`);
+
+          // Add AI message explaining the block
+          await supabase.from('goal_ai_conversations').insert({
+            goal_session_id: session.id,
+            user_id: session.user_id,
+            role: 'ai',
+            message: scanPermission.message,
+            context: {
+              scanning_blocked: true,
+              reason: scanPermission.reason,
+              seconds_remaining: scanPermission.seconds_remaining
+            },
+            sentiment: 'neutral',
+          });
+
+          continue;
+        }
+
+        console.log(`[Goal Scanner] ✅ Session ${session.id} - Scanning allowed`);
+
         const { data: expiredCheck } = await supabase
           .from('goal_sessions')
           .select('end_time')
@@ -169,8 +200,23 @@ Deno.serve(async (req: Request) => {
 
         const scanResults = await scanSession(supabase, session);
 
+        // Check if any trade was found and executed
+        const tradeFound = scanResults.some(r => r.hasValidSetup);
+
+        // STEP 2: Record scan completion
+        await supabase.rpc('record_scan_completion', {
+          p_session_id: session.id,
+          p_trade_found: tradeFound
+        });
+
+        if (tradeFound) {
+          console.log(`[Goal Scanner] 🎉 Trade found in session ${session.id} - cycle counters reset`);
+        } else {
+          console.log(`[Goal Scanner] ⏭️  Scan completed for session ${session.id} - no trades found`);
+        }
+
         const lastScanTime = new Date();
-        const nextScanTime = new Date(lastScanTime.getTime() + session.scan_interval_minutes * 60 * 1000);
+        const nextScanTime = new Date(lastScanTime.getTime() + (session.scan_interval_seconds || session.scan_interval_minutes * 60) * 1000);
 
         await supabase
           .from('goal_sessions')
@@ -185,6 +231,7 @@ Deno.serve(async (req: Request) => {
           sessionId: session.id,
           scanResults,
           nextScanTime: nextScanTime.toISOString(),
+          tradeFound,
         });
 
       } catch (sessionError) {

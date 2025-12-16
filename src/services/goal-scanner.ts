@@ -9,6 +9,7 @@ import { calculatePositionSize, getCurrencyPipInfo, calculatePipDistance, calcul
 import { positionSafetyValidator } from './position-safety-validator';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { getRiskPercentage } from '../config/risk-levels';
+import { scanningStateMachine } from './scanning-state-machine';
 
 export interface ScanResult {
   symbol: string;
@@ -40,6 +41,30 @@ export interface TradeSignal {
 class GoalScanner {
   async scanMarket(sessionId: string, userId: string): Promise<ScanResult[]> {
     try {
+      // STEP 1: Check if scanning is allowed
+      const scanPermission = await scanningStateMachine.canScanNow(sessionId);
+
+      if (!scanPermission.allowed) {
+        console.log(`[Goal Scanner] ⏸️  Scanning blocked: ${scanPermission.message}`);
+
+        // Add AI message explaining why scanning is blocked
+        await goalSessionManager.addAIMessage(
+          sessionId,
+          userId,
+          scanPermission.message,
+          {
+            scanningState: scanPermission.status,
+            reason: scanPermission.reason,
+            secondsRemaining: scanPermission.secondsRemaining
+          },
+          'warning'
+        );
+
+        return [];
+      }
+
+      console.log(`[Goal Scanner] ✅ Scanning allowed: ${scanPermission.message}`);
+
       const session = await supabase
         .from('goal_sessions')
         .select('*')
@@ -51,8 +76,11 @@ class GoalScanner {
         return [];
       }
 
+      // STEP 2: Perform the market scan
       const watchlist = session.data.watchlist || getDefaultWatchlist();
       const results: ScanResult[] = [];
+
+      console.log(`[Goal Scanner] 🔍 Scanning ${watchlist.length} symbols...`);
 
       for (const symbol of watchlist) {
         const scanResult = await this.scanSymbol(symbol, session.data);
@@ -60,14 +88,16 @@ class GoalScanner {
       }
 
       const lastScanTime = new Date();
-      const nextScanTime = new Date(lastScanTime.getTime() + session.data.scan_interval_minutes * 60 * 1000);
+      const nextScanTime = new Date(lastScanTime.getTime() + (session.data.scan_interval_seconds || 300) * 1000);
 
       await goalSessionManager.updateScanTime(sessionId, lastScanTime, nextScanTime);
 
       const validSetups = results.filter(r => r.hasValidSetup);
+      let tradeExecuted = false;
 
+      // STEP 3: Execute any valid setups found
       if (validSetups.length > 0) {
-        console.log(`[Goal Scanner] Found ${validSetups.length} valid setup(s), evaluating for execution...`);
+        console.log(`[Goal Scanner] 🎯 Found ${validSetups.length} valid setup(s), evaluating for execution...`);
 
         for (const setup of validSetups) {
           const signal = await this.evaluateSignal(sessionId, setup, session.data);
@@ -79,20 +109,37 @@ class GoalScanner {
             );
 
             if (executionResult.success) {
-              console.log(`[Goal Scanner] Trade signal processed: ${executionResult.message}`);
+              console.log(`[Goal Scanner] ✅ Trade signal executed: ${executionResult.message}`);
+              tradeExecuted = true;
+              break; // Stop after first successful trade
             } else {
-              console.warn(`[Goal Scanner] Signal execution failed: ${executionResult.error}`);
+              console.warn(`[Goal Scanner] ❌ Signal execution failed: ${executionResult.error}`);
             }
           }
         }
       }
 
+      // STEP 4: Record scan completion
+      await scanningStateMachine.recordScanCompletion(sessionId, tradeExecuted);
+
+      if (tradeExecuted) {
+        console.log('[Goal Scanner] 🎉 Trade found - scanning cycle counters reset');
+      } else {
+        console.log('[Goal Scanner] ⏭️  Scan completed - no trades found');
+      }
+
+      // STEP 5: Add AI summary message
       await goalSessionManager.addAIMessage(
         sessionId,
         userId,
-        this.generateScanSummary(results),
-        { scanResults: results },
-        'neutral'
+        this.generateScanSummary(results, scanPermission),
+        {
+          scanResults: results,
+          tradeExecuted,
+          sessionNumber: scanPermission.sessionNumber,
+          scansRemaining: scanPermission.scansRemaining
+        },
+        tradeExecuted ? 'positive' : 'neutral'
       );
 
       return results;
@@ -315,20 +362,26 @@ class GoalScanner {
     return 'reversal';
   }
 
-  generateScanSummary(results: ScanResult[]): string {
+  generateScanSummary(results: ScanResult[], scanPermission?: any): string {
     const validSetups = results.filter(r => r.hasValidSetup);
+
+    // Add scanning cycle context
+    let cycleInfo = '';
+    if (scanPermission?.sessionNumber && scanPermission?.scansRemaining !== undefined) {
+      cycleInfo = ` [Session ${scanPermission.sessionNumber}/2, ${scanPermission.scansRemaining} scans remaining]`;
+    }
 
     if (validSetups.length > 0) {
       const setupList = validSetups.map(s => `${s.symbol} (${s.setupType}, ${s.confidence}%)`).join(', ');
-      return `Found ${validSetups.length} valid setup${validSetups.length > 1 ? 's' : ''}: ${setupList}. Preparing trade signals...`;
+      return `Found ${validSetups.length} valid setup${validSetups.length > 1 ? 's' : ''}: ${setupList}. Preparing trade signals...${cycleInfo}`;
     }
 
     const highConfidenceForecasts = results.filter(r => r.marketConditions.momentum > 60);
     if (highConfidenceForecasts.length > 0) {
-      return `No valid setups yet, but monitoring ${highConfidenceForecasts[0].symbol} — setup potentially forming soon. Will re-scan shortly.`;
+      return `No valid setups yet, but monitoring ${highConfidenceForecasts[0].symbol} — setup potentially forming soon. Will re-scan shortly.${cycleInfo}`;
     }
 
-    return `Markets currently quiet across watchlist. No valid setups meeting risk criteria. Continuing scheduled scans...`;
+    return `Markets currently quiet across watchlist. No valid setups meeting risk criteria. Continuing scheduled scans...${cycleInfo}`;
   }
 
   async evaluateSignal(
