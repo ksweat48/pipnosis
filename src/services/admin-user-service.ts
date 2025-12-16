@@ -9,6 +9,7 @@ export interface AdminUser {
   credit_balance: number;
   total_trades: number;
   active_trades: number;
+  scanning_sessions: number;
   last_activity: string;
 }
 
