@@ -533,9 +533,43 @@ class SmartGoalSessionManager {
 
   async stopSession(sessionId: string, userId: string): Promise<boolean> {
     try {
-      const session = this.activeSessions.get(sessionId);
+      console.log(`[Smart Goal] 🛑 Attempting to stop session ${sessionId} for user ${userId}`);
 
-      const { error } = await supabase
+      // First, verify session exists and get current status
+      const { data: existingSession, error: fetchError } = await supabase
+        .from('goal_sessions')
+        .select('id, status, user_id')
+        .eq('id', sessionId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (fetchError) {
+        console.error('[Smart Goal] ❌ Error fetching session:', fetchError);
+        return false;
+      }
+
+      if (!existingSession) {
+        console.error(`[Smart Goal] ❌ Session ${sessionId} not found for user ${userId}`);
+        return false;
+      }
+
+      console.log(`[Smart Goal] 📊 Current session status: ${existingSession.status}`);
+
+      // Check for open trades
+      const { data: openTrades } = await supabase
+        .from('goal_session_trades')
+        .select('id, symbol, status')
+        .eq('goal_session_id', sessionId)
+        .eq('status', 'open');
+
+      if (openTrades && openTrades.length > 0) {
+        console.warn(`[Smart Goal] ⚠️ Session has ${openTrades.length} open trade(s):`);
+        openTrades.forEach(t => console.warn(`  - ${t.symbol} (ID: ${t.id})`));
+        console.warn('[Smart Goal] Proceeding with stop, but trades remain open');
+      }
+
+      // Update session to user_stopped
+      const { data: updated, error: updateError } = await supabase
         .from('goal_sessions')
         .update({
           status: 'user_stopped',
@@ -543,33 +577,62 @@ class SmartGoalSessionManager {
           updated_at: new Date().toISOString()
         })
         .eq('id', sessionId)
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .select()
+        .single();
 
-      if (error) {
-        console.error('[Smart Goal] Error stopping session:', error);
+      if (updateError) {
+        console.error('[Smart Goal] ❌ Error updating session:', updateError);
+        console.error('[Smart Goal] Error details:', {
+          code: updateError.code,
+          message: updateError.message,
+          details: updateError.details,
+          hint: updateError.hint
+        });
         return false;
       }
 
+      if (!updated) {
+        console.error('[Smart Goal] ❌ Update returned no data - session may not exist or update failed');
+        return false;
+      }
+
+      console.log(`[Smart Goal] ✅ Session ${sessionId} database status updated to: ${updated.status}`);
+
+      // Clean up memory and timers
+      const session = this.activeSessions.get(sessionId);
       if (session) {
         session.status = 'user_stopped';
+        console.log('[Smart Goal] Updated session in memory');
       }
 
       this.activeSessions.delete(sessionId);
+      console.log('[Smart Goal] Removed session from active sessions map');
 
       const timer = this.scanTimers.get(sessionId);
       if (timer) {
         clearTimeout(timer);
         this.scanTimers.delete(sessionId);
+        console.log('[Smart Goal] Cleared scan timer');
       }
 
+      // Stop live engine
       if (goalSessionLiveEngine.getActiveSessionId() === sessionId) {
-        await goalSessionLiveEngine.stopSession();
+        console.log(`[Smart Goal] 🔌 Stopping live engine for session ${sessionId}`);
+        const stopResult = await goalSessionLiveEngine.stopSession();
+        if (stopResult.success) {
+          console.log('[Smart Goal] ✅ Live engine stopped successfully');
+        } else {
+          console.error('[Smart Goal] ⚠️ Live engine stop returned error:', stopResult.message);
+        }
+      } else {
+        console.log('[Smart Goal] Live engine not active for this session');
       }
 
-      console.log(`[Smart Goal] Session ${sessionId} stopped by user`);
+      console.log(`[Smart Goal] ✅ Session ${sessionId} stopped successfully by user`);
       return true;
     } catch (error) {
-      console.error('[Smart Goal] Error in stopSession:', error);
+      console.error('[Smart Goal] ❌ Exception in stopSession:', error);
       return false;
     }
   }
