@@ -6,6 +6,7 @@ import { strategyPlaybookManager } from './strategy-playbook-manager';
 import { getRegimeBucket } from './regime-bucketing';
 import { prodLogger } from '../lib/production-logger';
 import { globalDialogManager } from './global-dialog-manager';
+import { llmReasoningLogger } from './llm-reasoning-logger';
 
 export interface TradeSignal {
   sessionId: string;
@@ -260,6 +261,35 @@ class TradeExecutionEngine {
       status: trade.status
     });
 
+    // CRITICAL FIX: Create journal entry for pending trade
+    try {
+      const journalEntryId = await llmReasoningLogger.logTradeEntry({
+        userId: userId,
+        tradeId: trade.id,
+        sessionId: signal.sessionId,
+        symbol: signal.symbol,
+        direction: signal.direction,
+        entryTime: new Date(),
+        entryPrice: signal.entryPrice,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        llmReasoning: signal.reasoning || `AI detected ${signal.direction.toUpperCase()} opportunity on ${signal.symbol} with ${signal.confidence}% confidence. Setup: ${signal.setupType}. Awaiting user confirmation to execute.`,
+        marketRead: `Market conditions evaluated for ${signal.symbol}. Pending entry at ${signal.entryPrice.toFixed(5)}. ${signal.setupType} setup identified.`,
+        expectedOutcome: `Expecting price to move to take profit at ${signal.takeProfit.toFixed(5)} (${signal.riskReward.toFixed(2)}:1 R:R) once trade is confirmed. Stop loss will be placed at ${signal.stopLoss.toFixed(5)}.`,
+        patternIdentified: signal.setupType || 'AI Setup',
+        convictionLevel: signal.confidence,
+        rankAtTime: 'Autonomous AI'
+      });
+
+      if (journalEntryId) {
+        console.log(`[Trade Execution] ✅ Journal entry created for pending trade: ${journalEntryId}`);
+      } else {
+        console.warn(`[Trade Execution] ⚠️ Failed to create journal entry for pending trade ${trade.id}`);
+      }
+    } catch (journalError) {
+      console.error(`[Trade Execution] ❌ Exception creating journal entry for pending trade:`, journalError);
+    }
+
     await supabase
       .from('goal_sessions')
       .update({ status: 'trade_pending' })
@@ -452,6 +482,35 @@ class TradeExecutionEngine {
       position_size: trade.position_size,
       status: trade.status
     });
+
+    // CRITICAL FIX: Create journal entry for autonomous trading
+    try {
+      const journalEntryId = await llmReasoningLogger.logTradeEntry({
+        userId: userId,
+        tradeId: trade.id,
+        sessionId: signal.sessionId,
+        symbol: signal.symbol,
+        direction: signal.direction,
+        entryTime: new Date(),
+        entryPrice: actualEntryPrice,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        llmReasoning: signal.reasoning || `AI took ${signal.direction.toUpperCase()} trade on ${signal.symbol} with ${signal.confidence}% confidence. Setup: ${signal.setupType}`,
+        marketRead: `Market conditions evaluated for ${signal.symbol}. Entry at ${actualEntryPrice.toFixed(5)} with ${slippagePips.toFixed(1)} pips slippage. ${signal.setupType} setup identified.`,
+        expectedOutcome: `Expecting price to move to take profit at ${signal.takeProfit.toFixed(5)} (${signal.riskReward.toFixed(2)}:1 R:R). Stop loss placed at ${signal.stopLoss.toFixed(5)}.`,
+        patternIdentified: signal.setupType || 'AI Setup',
+        convictionLevel: signal.confidence,
+        rankAtTime: 'Autonomous AI'
+      });
+
+      if (journalEntryId) {
+        console.log(`[Trade Execution] ✅ Journal entry created: ${journalEntryId}`);
+      } else {
+        console.warn(`[Trade Execution] ⚠️ Failed to create journal entry for trade ${trade.id}`);
+      }
+    } catch (journalError) {
+      console.error(`[Trade Execution] ❌ Exception creating journal entry:`, journalError);
+    }
 
     if (!trade.entry_price || trade.entry_price <= 0) {
       console.error('[Trade Execution] ❌ CRITICAL: Trade created with invalid entry_price:', trade.entry_price);

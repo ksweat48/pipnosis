@@ -43,11 +43,20 @@ class PostTradeAnalyzer {
       const outcome = this.determineOutcome(tradeData.pnl);
 
       // Get journal entry if exists
-      const journalEntry = await this.getJournalEntry(tradeData.id);
+      let journalEntry = await this.getJournalEntry(tradeData.id);
 
       if (!journalEntry) {
-        console.warn(`[Post-Trade Analyzer] No journal entry found for trade ${tradeData.id}`);
-        return;
+        console.warn(`[Post-Trade Analyzer] No journal entry found for trade ${tradeData.id} - creating retroactive entry`);
+
+        // FALLBACK: Create retroactive journal entry from trade data
+        journalEntry = await this.createRetroactiveJournalEntry(tradeData);
+
+        if (!journalEntry) {
+          console.error(`[Post-Trade Analyzer] Failed to create retroactive journal entry for trade ${tradeData.id}`);
+          return;
+        }
+
+        console.log(`[Post-Trade Analyzer] ✅ Retroactive journal entry created for trade ${tradeData.id}`);
       }
 
       // Analyze prediction accuracy
@@ -109,6 +118,52 @@ class PostTradeAnalyzer {
     }
 
     return data;
+  }
+
+  /**
+   * Create retroactive journal entry for trades that were opened without one
+   * This is a safety net for legacy trades or system failures
+   */
+  private async createRetroactiveJournalEntry(tradeData: TradeData): Promise<any | null> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_trade_journal')
+        .insert({
+          user_id: tradeData.userId,
+          trade_id: tradeData.id,
+          symbol: tradeData.symbol,
+          direction: tradeData.direction,
+          entry_time: tradeData.entryTime.toISOString(),
+          entry_price: tradeData.entryPrice,
+          stop_loss: tradeData.stopLoss,
+          take_profit: tradeData.takeProfit,
+          llm_reasoning: `Retroactive entry: ${tradeData.direction.toUpperCase()} trade on ${tradeData.symbol}. This journal entry was created after trade closure due to missing entry data.`,
+          market_read: `Trade opened at ${tradeData.entryPrice.toFixed(5)}. Market conditions and setup details were not captured at entry time.`,
+          expected_outcome: `Expected to reach take profit at ${tradeData.takeProfit.toFixed(5)}. Stop loss placed at ${tradeData.stopLoss.toFixed(5)}.`,
+          pattern_identified: tradeData.patternIdentified || 'System Trade',
+          conviction_level: tradeData.convictionLevel || 70,
+          rank_at_time: 'System',
+          outcome: 'open',
+          journal_entry_type: 'trade',
+          // Immediately add closure data since we're doing this retroactively
+          exit_time: tradeData.exitTime.toISOString(),
+          exit_price: tradeData.exitPrice,
+          pnl: tradeData.pnl
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[Post-Trade Analyzer] Error creating retroactive journal:', error);
+        return null;
+      }
+
+      console.log(`[Post-Trade Analyzer] ✅ Retroactive journal entry created: ${data.id}`);
+      return data;
+    } catch (error) {
+      console.error('[Post-Trade Analyzer] Exception creating retroactive journal:', error);
+      return null;
+    }
   }
 
   /**
