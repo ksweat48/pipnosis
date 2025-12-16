@@ -225,6 +225,57 @@ export async function processGoalSessionIteration(
     }
     state.openTrades = state.openTrades.filter(t => t.outcome === 'open');
 
+    // SINGLE-TRADE MODE: Check if we need to pause after trade closure
+    if (closedTrades.length > 0) {
+      const { data: goalSession } = await client
+        .from('goal_sessions')
+        .select('multi_trade_enabled, user_id, target_value, current_progress, trades_completed')
+        .eq('id', goalSessionId)
+        .single();
+
+      if (goalSession && !goalSession.multi_trade_enabled) {
+        const isGoalAchieved = goalSession.current_progress >= goalSession.target_value;
+
+        if (!isGoalAchieved) {
+          // Import continuation handler dynamically
+          const { continuationHandler } = await import('./continuation-handler');
+
+          // Get the most recent closed trade
+          const recentTrade = closedTrades[closedTrades.length - 1];
+
+          await continuationHandler.handleTradeClose({
+            goalSessionId,
+            userId: goalSession.user_id,
+            tradeResult: {
+              symbol: recentTrade.symbol,
+              direction: recentTrade.direction,
+              entryPrice: recentTrade.entryPrice,
+              exitPrice: recentTrade.closePrice!,
+              profitLoss: recentTrade.profitLoss,
+              outcome: recentTrade.profitLoss > 0 ? 'win' : recentTrade.profitLoss < 0 ? 'loss' : 'breakeven'
+            },
+            sessionProgress: {
+              targetAmount: goalSession.target_value,
+              currentProgress: goalSession.current_progress,
+              tradesCompleted: goalSession.trades_completed || 0
+            }
+          });
+
+          // STOP processing - wait for user decision
+          logger.info(LogCategory.AI_TRADING, '[Core] Single-trade mode: Paused for user continuation decision');
+          return {
+            success: true,
+            message: 'Trade closed - awaiting user continuation decision',
+            tradesExecuted,
+            triggersDetected,
+            llmCallsMade,
+            currentBalance: state.currentBalance,
+            shouldContinue: false
+          };
+        }
+      }
+    }
+
     // Calculate current balance
     state.currentBalance = calculateCurrentBalance(state);
 

@@ -275,18 +275,23 @@ export const GoalSessionDashboard: React.FC = () => {
   };
 
   const handleContinuationResponse = async (response: 'continue' | 'stop') => {
-    if (!activeSession) return;
+    if (!activeSession || !user) return;
 
     setContinuationLoading(true);
     try {
-      const result = await goalSessionLiveEngine.handleUserContinuationResponse(response);
+      // Import continuation handler
+      const { continuationHandler } = await import('../services/continuation-handler');
 
-      if (result.success) {
-        setContinuationData(null);
-        await loadSessionData();
+      if (response === 'continue') {
+        await continuationHandler.handleContinue(activeSession.sessionId);
+        console.log('[GoalSessionDashboard] User chose to continue - session resumed');
       } else {
-        console.error('[GoalSessionDashboard] Continuation response failed:', result.message);
+        await continuationHandler.handleStop(activeSession.sessionId, user.id);
+        console.log('[GoalSessionDashboard] User chose to stop - session ended');
       }
+
+      setContinuationData(null);
+      await loadSessionData();
     } catch (error) {
       console.error('[GoalSessionDashboard] Error handling continuation response:', error);
     } finally {
@@ -886,13 +891,13 @@ export const GoalSessionDashboard: React.FC = () => {
         </div>
       )}
 
-      {continuationData && progress && (
+      {continuationData && progress && activeSession && (
         <ContinuationDialog
           isOpen={continuationData.isAwaiting}
           continuationPrompt={continuationData.prompt}
           tradesInSession={continuationData.tradesInSession}
-          currentProgress={progress.currentProgress || 0}
-          targetValue={progress.goalAmount || 0}
+          currentProgress={progress.stats?.totalProfit || 0}
+          targetValue={activeSession.config?.goalAmount || 0}
           onContinue={() => handleContinuationResponse('continue')}
           onStop={() => handleContinuationResponse('stop')}
           isLoading={continuationLoading}

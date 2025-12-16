@@ -199,6 +199,84 @@ export const SmartGoalPanel: React.FC = () => {
           )}
         </div>
 
+        {/* Trading Mode Selector */}
+        <div className="bg-gray-700/30 rounded-lg p-4 mb-4 border border-gray-600/50">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Zap className="w-5 h-5 text-emerald-400" />
+              <span className="text-sm font-semibold text-white">Execution Mode</span>
+            </div>
+            <button
+              onClick={async () => {
+                const newMode = !multiTradeEnabled;
+                setMultiTradeEnabled(newMode);
+
+                // Save to user preferences
+                if (user) {
+                  try {
+                    await supabase
+                      .from('user_profiles')
+                      .update({
+                        trading_preferences: {
+                          multiTradeMode: newMode
+                        }
+                      })
+                      .eq('id', user.id);
+
+                    toast.success(
+                      'Mode Updated',
+                      `Switched to ${newMode ? 'Multi-Trade' : 'Single-Trade'} Mode`
+                    );
+                  } catch (err) {
+                    console.error('Error updating mode:', err);
+                  }
+                }
+              }}
+              disabled={loadingPreferences}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                multiTradeEnabled ? 'bg-emerald-600' : 'bg-gray-600'
+              } ${loadingPreferences ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  multiTradeEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Mode Explanation */}
+          <div className="space-y-2">
+            {!multiTradeEnabled ? (
+              <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-3">
+                <div className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                  <div className="text-xs text-gray-300">
+                    <strong className="text-blue-400">Single-Trade Mode (Active)</strong>
+                    <p className="mt-1">
+                      Alpha executes ONE trade at a time. After each trade closes, you decide whether to continue.
+                      Lower risk, full control between trades.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-emerald-900/20 border border-emerald-700/50 rounded-lg p-3">
+                <div className="flex items-start gap-2">
+                  <Zap className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
+                  <div className="text-xs text-gray-300">
+                    <strong className="text-emerald-400">Multi-Trade Mode (Active)</strong>
+                    <p className="mt-1">
+                      Alpha can execute multiple trades SIMULTANEOUSLY. Faster goal achievement, higher exposure.
+                      Best for experienced traders comfortable with concurrent positions.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           {GOAL_TEMPLATES.map((template, index) => (
             <button
