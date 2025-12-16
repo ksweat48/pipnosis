@@ -188,16 +188,30 @@ Keep it brief and motivating.
    */
   async handleStop(goalSessionId: string, userId: string): Promise<void> {
     try {
-      logger.info(LogCategory.AI_TRADING, `[Continuation] User chose to stop session ${goalSessionId}`);
+      logger.info(LogCategory.AI_TRADING, `[Continuation] 🛑 User chose to stop session ${goalSessionId}`);
 
-      // Get final stats
-      const { data: session } = await supabase
+      // Get current session and verify it exists
+      const { data: session, error: fetchError } = await supabase
         .from('goal_sessions')
         .select('*')
         .eq('id', goalSessionId)
-        .single();
+        .eq('user_id', userId)
+        .maybeSingle();
 
-      await supabase
+      if (fetchError) {
+        logger.error(LogCategory.AI_TRADING, '[Continuation] ❌ Error fetching session:', fetchError);
+        return;
+      }
+
+      if (!session) {
+        logger.error(LogCategory.AI_TRADING, `[Continuation] ❌ Session ${goalSessionId} not found for user ${userId}`);
+        return;
+      }
+
+      logger.info(LogCategory.AI_TRADING, `[Continuation] 📊 Current session status: ${session.status}`);
+
+      // Update session to stopped with verification
+      const { data: updated, error: updateError } = await supabase
         .from('goal_sessions')
         .update({
           status: 'user_stopped',
@@ -206,32 +220,49 @@ Keep it brief and motivating.
           continuation_prompt: null,
           updated_at: new Date().toISOString()
         })
-        .eq('id', goalSessionId);
+        .eq('id', goalSessionId)
+        .eq('user_id', userId)
+        .select()
+        .single();
 
-      // Log session end to conversations
-      if (session) {
-        const finalMessage = session.current_progress >= session.target_value
-          ? `Goal achieved! Congratulations on reaching $${session.target_value}! 🎯`
-          : `Session ended. You achieved $${session.current_progress || 0} out of $${session.target_value} goal. Great effort! 💪`;
-
-        await supabase.from('goal_ai_conversations').insert({
-          goal_session_id: goalSessionId,
-          user_id: userId,
-          role: 'ai',
-          message: finalMessage,
-          context: {
-            action: 'stop',
-            final_progress: session.current_progress,
-            goal: session.target_value,
-            trades_completed: session.trades_completed
-          },
-          sentiment: session.current_progress >= session.target_value ? 'celebratory' : 'neutral'
+      if (updateError) {
+        logger.error(LogCategory.AI_TRADING, '[Continuation] ❌ Error updating session:', {
+          error: updateError,
+          code: updateError.code,
+          message: updateError.message
         });
+        return;
       }
 
-      logger.info(LogCategory.AI_TRADING, '[Continuation] Session stopped successfully');
+      if (!updated) {
+        logger.error(LogCategory.AI_TRADING, '[Continuation] ❌ Update returned no data - session may not exist or update failed');
+        return;
+      }
+
+      logger.info(LogCategory.AI_TRADING, `[Continuation] ✅ Session ${goalSessionId} status updated to: ${updated.status}`);
+
+      // Log session end to conversations
+      const finalMessage = session.current_progress >= session.target_value
+        ? `Goal achieved! Congratulations on reaching $${session.target_value}! 🎯`
+        : `Session ended. You achieved $${session.current_progress || 0} out of $${session.target_value} goal. Great effort! 💪`;
+
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: goalSessionId,
+        user_id: userId,
+        role: 'ai',
+        message: finalMessage,
+        context: {
+          action: 'stop',
+          final_progress: session.current_progress,
+          goal: session.target_value,
+          trades_completed: session.trades_completed
+        },
+        sentiment: session.current_progress >= session.target_value ? 'celebratory' : 'neutral'
+      });
+
+      logger.info(LogCategory.AI_TRADING, '[Continuation] ✅ Session stopped successfully');
     } catch (error) {
-      logger.error(LogCategory.AI_TRADING, '[Continuation] Error handling stop:', error);
+      logger.error(LogCategory.AI_TRADING, '[Continuation] ❌ Exception handling stop:', error);
     }
   }
 }
