@@ -103,6 +103,22 @@ export const UserManagementPanel: React.FC = () => {
     });
   };
 
+  const formatScanDuration = (minutes: number | null): string => {
+    if (!minutes) return '';
+
+    if (minutes < 60) {
+      return `${Math.round(minutes)}m`;
+    } else if (minutes < 1440) {
+      const hours = Math.floor(minutes / 60);
+      const mins = Math.round(minutes % 60);
+      return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+    } else {
+      const days = Math.floor(minutes / 1440);
+      const hours = Math.floor((minutes % 1440) / 60);
+      return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -203,13 +219,20 @@ export const UserManagementPanel: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 text-sm text-center">
                       {user.scanning_sessions > 0 ? (
-                        <span className="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded flex items-center justify-center gap-1">
-                          <svg className="w-3 h-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          {user.scanning_sessions}
-                        </span>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded flex items-center justify-center gap-1">
+                            <svg className="w-3 h-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            {user.scanning_sessions}
+                          </span>
+                          {user.scanning_duration_minutes && (
+                            <span className="text-xs text-gray-400">
+                              {formatScanDuration(user.scanning_duration_minutes)}
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-gray-500">0</span>
                       )}

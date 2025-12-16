@@ -10,6 +10,7 @@ export interface AdminUser {
   total_trades: number;
   active_trades: number;
   scanning_sessions: number;
+  scanning_duration_minutes: number | null;
   last_activity: string;
 }
 
