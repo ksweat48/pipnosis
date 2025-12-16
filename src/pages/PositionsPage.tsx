@@ -27,7 +27,9 @@ import {
   XCircle,
   Percent,
   History,
-  Sparkles
+  Sparkles,
+  ArrowDown,
+  ArrowUp
 } from 'lucide-react';
 
 interface Position {
@@ -57,6 +59,9 @@ interface RecentTrade {
   opened_at: string;
   closed_at: string;
   close_reason: string;
+  max_drawdown?: number;
+  max_profit?: number;
+  total_pips?: number;
 }
 
 export function PositionsPage() {
@@ -184,7 +189,10 @@ export function PositionsPage() {
       profit_loss: parseFloat(trade.profit_loss) || 0,
       opened_at: trade.opened_at,
       closed_at: trade.closed_at,
-      close_reason: trade.close_reason || 'unknown'
+      close_reason: trade.close_reason || 'unknown',
+      max_drawdown: trade.max_drawdown ? parseFloat(trade.max_drawdown) : 0,
+      max_profit: trade.max_profit ? parseFloat(trade.max_profit) : 0,
+      total_pips: trade.total_pips ? parseFloat(trade.total_pips) : 0
     }));
 
     return mappedTrades;
@@ -809,38 +817,79 @@ export function PositionsPage() {
                   {recentTrades.map((trade) => (
                     <div
                       key={trade.id}
-                      className="flex items-center justify-between p-3 bg-gray-800 rounded border border-gray-700"
+                      className="p-3 sm:p-4 bg-gray-800 rounded-lg border border-gray-700 hover:border-gray-600 transition-all"
                     >
-                      <div className="flex items-center gap-3">
-                        {trade.profit_loss >= 0 ? (
-                          <CheckCircle className="w-5 h-5 text-green-400" />
-                        ) : (
-                          <XCircle className="w-5 h-5 text-red-400" />
-                        )}
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-white">{trade.symbol}</span>
-                            <span className={`text-xs px-2 py-0.5 rounded ${
-                              trade.position_type === 'buy'
-                                ? 'bg-green-900/30 text-green-400'
-                                : 'bg-red-900/30 text-red-400'
-                            }`}>
-                              {(trade.position_type || 'buy').toUpperCase()}
-                            </span>
-                            <span className="text-xs text-gray-500">{trade.lot_size} lots</span>
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          {trade.profit_loss >= 0 ? (
+                            <CheckCircle className="w-5 h-5 text-green-400" />
+                          ) : (
+                            <XCircle className="w-5 h-5 text-red-400" />
+                          )}
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-white">{trade.symbol}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded ${
+                                trade.position_type === 'buy'
+                                  ? 'bg-green-900/30 text-green-400'
+                                  : 'bg-red-900/30 text-red-400'
+                              }`}>
+                                {(trade.position_type || 'buy').toUpperCase()}
+                              </span>
+                              <span className="text-xs text-gray-500">{trade.lot_size} lots</span>
+                            </div>
+                            <div className="text-xs text-gray-400 mt-1">
+                              Closed {formatDateTime(trade.closed_at)} • {trade.close_reason}
+                            </div>
                           </div>
-                          <div className="text-xs text-gray-400 mt-1">
-                            Closed {formatDateTime(trade.closed_at)} • {trade.close_reason}
+                        </div>
+                        <div className="text-right">
+                          <div className={`text-lg font-bold ${trade.profit_loss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {trade.profit_loss >= 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            Final P&L
                           </div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className={`font-bold ${trade.profit_loss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          {trade.profit_loss >= 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 pt-3 border-t border-gray-700/50">
+                        <div>
+                          <div className="text-xs text-gray-500 mb-1">Entry → Exit</div>
+                          <div className="text-xs text-white font-medium">
+                            {formatPrice(trade.entry_price, trade.symbol)} → {formatPrice(trade.exit_price, trade.symbol)}
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-500">
-                          {formatPrice(trade.entry_price, trade.symbol)} → {formatPrice(trade.exit_price, trade.symbol)}
+                        <div>
+                          <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                            <ArrowDown className="w-3 h-3" />
+                            Max Drawdown
+                          </div>
+                          <div className="text-xs font-semibold text-red-400">
+                            {trade.max_drawdown !== undefined && trade.max_drawdown !== 0
+                              ? `${trade.max_drawdown < 0 ? '' : '-'}$${Math.abs(trade.max_drawdown).toFixed(2)}`
+                              : 'N/A'}
+                          </div>
                         </div>
+                        {(trade.max_profit || 0) > 0 && (
+                          <div>
+                            <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                              <ArrowUp className="w-3 h-3" />
+                              Peak Profit
+                            </div>
+                            <div className="text-xs font-semibold text-emerald-400">
+                              +${trade.max_profit?.toFixed(2)}
+                            </div>
+                          </div>
+                        )}
+                        {trade.total_pips !== undefined && trade.total_pips !== 0 && (
+                          <div>
+                            <div className="text-xs text-gray-500 mb-1">Pips</div>
+                            <div className={`text-xs font-semibold ${(trade.total_pips || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {(trade.total_pips || 0) >= 0 ? '+' : ''}{trade.total_pips?.toFixed(1)}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

@@ -107,18 +107,46 @@ class PositionMonitorService {
   ): Promise<boolean> {
     const currentRetries = this.updateRetryCount.get(positionId) || 0;
 
-    // Direct table update with proper columns
+    // First, get current max_drawdown and max_profit values
+    const { data: currentPosition } = await supabase
+      .from('goal_session_trades')
+      .select('max_drawdown, max_profit')
+      .eq('id', positionId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    const currentMaxDrawdown = currentPosition?.max_drawdown || 0;
+    const currentMaxProfit = currentPosition?.max_profit || 0;
+
+    // Update max_drawdown if current PnL is more negative
+    const newMaxDrawdown = pnl < currentMaxDrawdown ? pnl : currentMaxDrawdown;
+
+    // Update max_profit if current PnL is more positive
+    const newMaxProfit = pnl > currentMaxProfit ? pnl : currentMaxProfit;
+
+    // Direct table update with proper columns including max tracking
     const { error: updateError } = await supabase
       .from('goal_session_trades')
       .update({
         current_price: currentPrice,
-        current_pnl: pnl
+        current_pnl: pnl,
+        max_drawdown: newMaxDrawdown,
+        max_profit: newMaxProfit
       })
       .eq('id', positionId)
       .eq('user_id', userId);
 
     if (!updateError) {
       this.updateRetryCount.delete(positionId);
+
+      // Log when we update max values for visibility
+      if (newMaxDrawdown < currentMaxDrawdown) {
+        console.log(`[PositionMonitor] 📉 New max drawdown: ${newMaxDrawdown.toFixed(2)} (was ${currentMaxDrawdown.toFixed(2)})`);
+      }
+      if (newMaxProfit > currentMaxProfit) {
+        console.log(`[PositionMonitor] 📈 New peak profit: ${newMaxProfit.toFixed(2)} (was ${currentMaxProfit.toFixed(2)})`);
+      }
+
       return true;
     }
 
