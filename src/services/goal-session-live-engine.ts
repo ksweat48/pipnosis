@@ -866,13 +866,9 @@ class GoalSessionLiveEngine {
       // 🚨 CRITICAL: Always verify with database before scanning (prevents desync bugs)
       // 🔒 USER ISOLATION: Query filters by goal_session_id, which is unique per user
       //    RLS policies ensure users can only see their own session's trades
-      const { data: verifyOpenTrades } = await supabase
-        .from('goal_session_trades')
-        .select('id', { count: 'exact', head: true })
-        .eq('goal_session_id', this.activeSession!)
-        .eq('status', 'open');
-
-      const dbOpenTradeCount = (verifyOpenTrades as any)?.count || 0;
+      // ✅ FIX: Reuse dbPositions array already fetched above (lines 819-823)
+      //    The duplicate query with { count: 'exact', head: true } was buggy and always returned 0
+      const dbOpenTradeCount = dbPositions ? dbPositions.length : 0;
       const memoryOpenTradeCount = this.openTrades.length;
 
       // 🔍 AUDIT: Log user_id for verification that sessions are isolated
