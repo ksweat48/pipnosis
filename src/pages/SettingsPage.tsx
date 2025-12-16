@@ -464,37 +464,53 @@ export function SettingsPage() {
               </p>
 
               <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
-                  <div className="flex items-center gap-3 flex-1">
-                    <Zap size={18} className={preferences.multiTradeMode ? "text-emerald-400" : "text-gray-400"} />
-                    <div className="flex-1">
-                      <div className="text-white font-medium">Multi-Trade Mode</div>
-                      <div className="text-xs text-gray-400 mt-1">
-                        {preferences.multiTradeMode ? (
-                          <>
-                            <span className="text-emerald-400 font-semibold">Multiple trades: </span>
-                            AI will continuously scan for opportunities until goal is met or session ends.
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-blue-400 font-semibold">Single trade default: </span>
-                            After each trade, you'll review results and decide whether to continue. Keeps you in control.
-                          </>
-                        )}
+                <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <Zap size={18} className={preferences.multiTradeMode ? "text-emerald-400" : "text-blue-400"} />
+                      <div className="text-white font-medium">Execution Mode</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={preferences.multiTradeMode}
+                        onChange={(e) =>
+                          setPreferences({ ...preferences, multiTradeMode: e.target.checked })
+                        }
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Mode Explanation */}
+                  {!preferences.multiTradeMode ? (
+                    <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-3">
+                      <div className="flex items-start gap-2">
+                        <CheckCircle size={16} className="text-blue-400 mt-0.5 flex-shrink-0" />
+                        <div className="text-xs text-gray-300">
+                          <strong className="text-blue-400">Single-Trade Mode (Active)</strong>
+                          <p className="mt-1">
+                            Alpha executes ONE trade at a time. After each trade closes, you decide whether to continue.
+                            Lower risk, full control between trades.
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={preferences.multiTradeMode}
-                      onChange={(e) =>
-                        setPreferences({ ...preferences, multiTradeMode: e.target.checked })
-                      }
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                  </label>
+                  ) : (
+                    <div className="bg-emerald-900/20 border border-emerald-700/50 rounded-lg p-3">
+                      <div className="flex items-start gap-2">
+                        <Zap size={16} className="text-emerald-400 mt-0.5 flex-shrink-0" />
+                        <div className="text-xs text-gray-300">
+                          <strong className="text-emerald-400">Multi-Trade Mode (Active)</strong>
+                          <p className="mt-1">
+                            Alpha can execute multiple trades SIMULTANEOUSLY. Faster goal achievement, higher exposure.
+                            Best for experienced traders comfortable with concurrent positions.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
