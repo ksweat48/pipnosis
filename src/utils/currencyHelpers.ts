@@ -753,3 +753,136 @@ export function calculateGoalBasedTakeProfit(
     reasoning: `TP set to reach $${remainingGoal.toFixed(2)} goal target (${pipsNeeded.toFixed(1)} pips, R:R 1:${riskReward.toFixed(2)})`
   };
 }
+
+/**
+ * Calculate and validate R:R ratio with detailed logging
+ * This function provides comprehensive validation to catch any discrepancies
+ * between calculated RR and what's displayed to the user
+ */
+export function calculateAndValidateRR(
+  symbol: string,
+  entryPrice: number,
+  stopLoss: number,
+  takeProfit: number,
+  direction: 'buy' | 'sell'
+): {
+  riskReward: number;
+  riskPips: number;
+  rewardPips: number;
+  validation: {
+    isValid: boolean;
+    warnings: string[];
+    details: any;
+  };
+} {
+  const pipInfo = getCurrencyPipInfo(symbol);
+
+  console.log(`%c[RR Validation] ${symbol}`, 'color: #00ff00; font-weight: bold');
+  console.log(`  Direction: ${direction}`);
+  console.log(`  Entry:  ${entryPrice.toFixed(pipInfo.decimalPlaces)}`);
+  console.log(`  SL:     ${stopLoss.toFixed(pipInfo.decimalPlaces)}`);
+  console.log(`  TP:     ${takeProfit.toFixed(pipInfo.decimalPlaces)}`);
+
+  // Calculate distances using price difference
+  const slDistance = Math.abs(entryPrice - stopLoss);
+  const tpDistance = Math.abs(entryPrice - takeProfit);
+
+  console.log(`  SL Distance (price): ${slDistance.toFixed(pipInfo.decimalPlaces)}`);
+  console.log(`  TP Distance (price): ${tpDistance.toFixed(pipInfo.decimalPlaces)}`);
+
+  // Convert to pips
+  const riskPips = calculatePipDistance(symbol, entryPrice, stopLoss);
+  const rewardPips = calculatePipDistance(symbol, entryPrice, takeProfit);
+
+  console.log(`  Risk Pips:   ${riskPips.toFixed(1)}`);
+  console.log(`  Reward Pips: ${rewardPips.toFixed(1)}`);
+
+  // Calculate RR
+  const riskReward = rewardPips / riskPips;
+
+  console.log(`  R:R Ratio: 1:${riskReward.toFixed(2)}`);
+
+  // Validation checks
+  const warnings: string[] = [];
+
+  // Check 1: SL and TP are on correct sides of entry
+  if (direction === 'buy') {
+    if (stopLoss >= entryPrice) {
+      warnings.push(`Buy trade has SL >= entry (SL should be below entry)`);
+    }
+    if (takeProfit <= entryPrice) {
+      warnings.push(`Buy trade has TP <= entry (TP should be above entry)`);
+    }
+  } else {
+    if (stopLoss <= entryPrice) {
+      warnings.push(`Sell trade has SL <= entry (SL should be above entry)`);
+    }
+    if (takeProfit >= entryPrice) {
+      warnings.push(`Sell trade has TP >= entry (TP should be below entry)`);
+    }
+  }
+
+  // Check 2: RR is reasonable
+  if (riskReward < 0.5) {
+    warnings.push(`Extremely poor R:R (${riskReward.toFixed(2)})`);
+  } else if (riskReward < 1.0) {
+    warnings.push(`Poor R:R (${riskReward.toFixed(2)} - risk exceeds reward)`);
+  } else if (riskReward > 10.0) {
+    warnings.push(`Suspiciously high R:R (${riskReward.toFixed(2)} - may indicate calculation error)`);
+  }
+
+  // Check 3: Pip distances are reasonable
+  if (riskPips < 5) {
+    warnings.push(`Very tight stop loss (${riskPips.toFixed(1)} pips)`);
+  }
+  if (riskPips > 500) {
+    warnings.push(`Extremely wide stop loss (${riskPips.toFixed(1)} pips)`);
+  }
+
+  // Check 4: Price precision validation
+  const reconstructedSL = direction === 'buy'
+    ? entryPrice - (riskPips * pipInfo.pipValue)
+    : entryPrice + (riskPips * pipInfo.pipValue);
+
+  const reconstructedTP = direction === 'buy'
+    ? entryPrice + (rewardPips * pipInfo.pipValue)
+    : entryPrice - (rewardPips * pipInfo.pipValue);
+
+  const slPrecisionError = Math.abs(reconstructedSL - stopLoss);
+  const tpPrecisionError = Math.abs(reconstructedTP - takeProfit);
+
+  if (slPrecisionError > pipInfo.pipValue * 0.1) {
+    warnings.push(`SL precision error: ${slPrecisionError.toFixed(pipInfo.decimalPlaces)} (reconstructed: ${reconstructedSL.toFixed(pipInfo.decimalPlaces)})`);
+  }
+
+  if (tpPrecisionError > pipInfo.pipValue * 0.1) {
+    warnings.push(`TP precision error: ${tpPrecisionError.toFixed(pipInfo.decimalPlaces)} (reconstructed: ${reconstructedTP.toFixed(pipInfo.decimalPlaces)})`);
+  }
+
+  if (warnings.length > 0) {
+    console.warn('%c[RR Validation] Warnings:', 'color: #ff9900; font-weight: bold');
+    warnings.forEach(w => console.warn(`  - ${w}`));
+  } else {
+    console.log(`%c  ✅ All validations passed`, 'color: #00ff00');
+  }
+
+  return {
+    riskReward,
+    riskPips,
+    rewardPips,
+    validation: {
+      isValid: warnings.length === 0,
+      warnings,
+      details: {
+        slDistance,
+        tpDistance,
+        reconstructedSL,
+        reconstructedTP,
+        slPrecisionError,
+        tpPrecisionError,
+        pipValue: pipInfo.pipValue,
+        decimalPlaces: pipInfo.decimalPlaces
+      }
+    }
+  };
+}

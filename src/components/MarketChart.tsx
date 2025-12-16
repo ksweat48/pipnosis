@@ -1607,6 +1607,20 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     const { entry, stopLoss, takeProfit } = tradeLines;
 
+    console.log(`%c[Chart Lines] Creating trade lines for ${symbol}`, 'color: #00aaff; font-weight: bold');
+    console.log(`  Entry Price: ${entry?.toFixed(5) || 'none'}`);
+    console.log(`  Stop Loss:   ${stopLoss?.toFixed(5) || 'none'}`);
+    console.log(`  Take Profit: ${takeProfit?.toFixed(5) || 'none'}`);
+
+    if (entry && stopLoss && takeProfit) {
+      const slDistance = Math.abs(entry - stopLoss);
+      const tpDistance = Math.abs(entry - takeProfit);
+      const chartRR = tpDistance / slDistance;
+      console.log(`  Chart calculated R:R: 1:${chartRR.toFixed(2)}`);
+      console.log(`  SL Distance: ${slDistance.toFixed(5)} (${(slDistance / 0.00001).toFixed(1)} pips for standard pairs)`);
+      console.log(`  TP Distance: ${tpDistance.toFixed(5)} (${(tpDistance / 0.00001).toFixed(1)} pips for standard pairs)`);
+    }
+
     if (entry) {
       tradeLineRefs.current.entry = candlestickSeriesRef.current.createPriceLine({
         price: entry,

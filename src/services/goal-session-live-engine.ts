@@ -22,7 +22,7 @@ import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orch
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
-import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalOptimalPosition } from '../utils/currencyHelpers';
+import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalOptimalPosition, calculateAndValidateRR } from '../utils/currencyHelpers';
 import { getRiskPercentage } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
 
@@ -647,12 +647,24 @@ class GoalSessionLiveEngine {
         outcome: 'open'
       };
 
-      // Calculate R:R for proper trade signal
-      const riskPips = calculatePipDistance(selectedSymbol, trade.entryPrice, trade.stopLoss);
-      const rewardPips = calculatePipDistance(selectedSymbol, trade.entryPrice, trade.takeProfit);
-      const riskReward = rewardPips / riskPips;
+      // Calculate R:R for proper trade signal with validation
+      const rrValidation = calculateAndValidateRR(
+        selectedSymbol,
+        trade.entryPrice,
+        trade.stopLoss,
+        trade.takeProfit,
+        trade.direction
+      );
+
+      const { riskReward, riskPips, rewardPips } = rrValidation;
       const dollarPerPip = calculateDollarPerPip(selectedSymbol, trade.positionSize);
       const expectedProfit = rewardPips * dollarPerPip;
+
+      // Log any validation warnings
+      if (!rrValidation.validation.isValid) {
+        logger.warn(LogCategory.AI_TRADING, `R:R validation warnings for ${selectedSymbol}:`);
+        rrValidation.validation.warnings.forEach(w => logger.warn(LogCategory.AI_TRADING, `  - ${w}`));
+      }
 
       const executionResult = await tradeExecutionEngine.executeSignal(
         {
@@ -1230,13 +1242,25 @@ class GoalSessionLiveEngine {
 
     localSessionMemory.recordTrade(`live-${this.activeSession}`, trade);
 
-    // Calculate risk/reward for validation
-    const riskPips = calculatePipDistance(trade.symbol, trade.entryPrice, trade.stopLoss);
-    const rewardPips = calculatePipDistance(trade.symbol, trade.entryPrice, trade.takeProfit);
-    const riskReward = rewardPips / riskPips;
+    // Calculate risk/reward for validation with detailed logging
+    const rrValidation = calculateAndValidateRR(
+      trade.symbol,
+      trade.entryPrice,
+      trade.stopLoss,
+      trade.takeProfit,
+      trade.direction
+    );
+
+    const { riskReward, riskPips, rewardPips } = rrValidation;
     const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.positionSize);
     const expectedProfit = rewardPips * dollarPerPip;
     const riskDollars = riskPips * dollarPerPip;
+
+    // Log any validation warnings
+    if (!rrValidation.validation.isValid) {
+      logger.warn(LogCategory.AI_TRADING, `R:R validation warnings for ${trade.symbol}:`);
+      rrValidation.validation.warnings.forEach(w => logger.warn(LogCategory.AI_TRADING, `  - ${w}`));
+    }
 
     // Route through trade-execution-engine to create simulated_positions
     const executionResult = await tradeExecutionEngine.executeSignal(
