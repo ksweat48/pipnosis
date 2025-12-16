@@ -212,24 +212,65 @@ class MidTradeTriggerDetector {
       }
     }
 
-    // Near key resistance/support
+    // Near key resistance/support - TP progress monitoring
     const distanceToTP = Math.abs(currentPrice - trade.takeProfit);
     const totalTPDistance = Math.abs(trade.takeProfit - trade.entryPrice);
     const tpProximity = distanceToTP / totalTPDistance;
 
-    if (tpProximity < 0.10 && !firedSet.has('near_tp')) {
-      firedSet.add('near_tp');
+    // Calculate TP progress (0% = at entry, 100% = at TP)
+    const tpProgress = 1 - tpProximity;
+
+    // 50% to TP - halfway check
+    if (tpProgress >= 0.50 && tpProgress < 0.70 && !firedSet.has('tp_50_percent')) {
+      firedSet.add('tp_50_percent');
       return {
         triggered: true,
-        triggerType: 'near_tp',
-        triggerReason: `Price within 10% of take profit target - consider partial exit or hold`,
+        triggerType: 'tp_50_percent',
+        triggerReason: `Trade 50% complete to take profit - Alpha evaluating momentum and potential to move SL to breakeven`,
+        confidence: 75,
+        shouldCallLLM: true,
+        metadata: {
+          current_price: currentPrice,
+          take_profit: trade.takeProfit,
+          tp_progress_percent: (tpProgress * 100).toFixed(1),
+          distance_remaining_pips: (distanceToTP / 0.0001).toFixed(1)
+        }
+      };
+    }
+
+    // 70% to TP - nearing target
+    if (tpProgress >= 0.70 && tpProgress < 0.90 && !firedSet.has('tp_70_percent')) {
+      firedSet.add('tp_70_percent');
+      return {
+        triggered: true,
+        triggerType: 'tp_70_percent',
+        triggerReason: `Trade 70% complete to take profit - Alpha checking for exhaustion signals or consolidation`,
         confidence: 80,
         shouldCallLLM: true,
         metadata: {
           current_price: currentPrice,
           take_profit: trade.takeProfit,
+          tp_progress_percent: (tpProgress * 100).toFixed(1),
+          distance_remaining_pips: (distanceToTP / 0.0001).toFixed(1)
+        }
+      };
+    }
+
+    // 90% to TP - very close to target
+    if (tpProximity < 0.10 && !firedSet.has('near_tp')) {
+      firedSet.add('near_tp');
+      return {
+        triggered: true,
+        triggerType: 'near_tp',
+        triggerReason: `Price within 10% of take profit target - Alpha making final decision on letting it run vs closing early`,
+        confidence: 85,
+        shouldCallLLM: true,
+        metadata: {
+          current_price: currentPrice,
+          take_profit: trade.takeProfit,
           distance_pips: (distanceToTP / 0.0001).toFixed(1),
-          proximity_percent: (tpProximity * 100).toFixed(1)
+          proximity_percent: (tpProximity * 100).toFixed(1),
+          tp_progress_percent: (tpProgress * 100).toFixed(1)
         }
       };
     }

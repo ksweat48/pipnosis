@@ -15,6 +15,7 @@ import { cacheClearOnRefresh } from './services/cache-clear-on-refresh';
 import { supabase } from './lib/supabase';
 import { midTradeNotificationQueue } from './services/mid-trade-notification-queue';
 import MidTradeUpdateModal from './components/MidTradeUpdateModal';
+import { MidTradeAlertListener } from './components/MidTradeAlertListener';
 
 // Lazy load all pages for code splitting
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -277,6 +278,7 @@ const AppRoutes: React.FC = () => {
       <UpdateBanner />
       <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
       <PWAInstallPrompt />
+      {user && <MidTradeAlertListener userId={user.id} />}
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
       <Route path="/auth" element={<AuthPage />} />
@@ -478,10 +480,28 @@ export default function App() {
 
     initServices();
 
+    // Start mid-trade alert auto-execution engine
+    const startAlertExecutor = async () => {
+      try {
+        const { midTradeAlertExecutor } = await import('./services/mid-trade-alert-executor');
+        midTradeAlertExecutor.start();
+        console.log('[App] ✅ Mid-trade alert auto-executor started');
+      } catch (error) {
+        console.error('[App] ❌ Failed to start alert executor:', error);
+      }
+    };
+
+    startAlertExecutor();
+
     // Cleanup on unmount
     return () => {
       import('./services/candle-cache-manager').then(({ candleCacheManager }) => {
         candleCacheManager.unsubscribeFromInvalidationEvents();
+      }).catch(console.warn);
+
+      // Stop alert executor
+      import('./services/mid-trade-alert-executor').then(({ midTradeAlertExecutor }) => {
+        midTradeAlertExecutor.stop();
       }).catch(console.warn);
     };
   }, []);

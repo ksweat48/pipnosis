@@ -2372,59 +2372,55 @@ This learning will carry forward to improve future sessions!
       return;
     }
 
-    // Apply recommendation
+    // Determine if this recommendation requires user alert
+    const requiresUserAlert = evaluation.recommendation === 'EXIT_IMMEDIATELY' ||
+                              evaluation.recommendation === 'TAKE_PROFIT_EARLY';
+
+    // Apply recommendation with smart routing
     let actionMessage = '';
 
-    switch (evaluation.recommendation) {
-      case 'HOLD':
-        actionMessage = `✓ LLM Decision: Continue holding position. ${evaluation.reasoning}`;
-        break;
+    if (requiresUserAlert) {
+      // Critical action - create alert notification with countdown
+      const latestPrice = evaluation.suggestedActions?.exitPrice || trade.entryPrice;
 
-      case 'MOVE_SL':
-        if (evaluation.suggestedActions?.newStopLoss) {
-          trade.stopLoss = evaluation.suggestedActions.newStopLoss;
-          actionMessage = `✓ Stop Loss adjusted to ${trade.stopLoss.toFixed(5)}. ${evaluation.reasoning}`;
+      actionMessage = `🎯 LLM Evaluation (${evaluation.processingTimeMs}ms): "${evaluation.reasoning}"\n\nRecommendation: ${evaluation.recommendation} | Confidence: ${evaluation.confidence}%`;
 
-          // Update database
-          await supabase
-            .from('goal_session_trades')
-            .update({ stop_loss: trade.stopLoss })
-            .eq('id', trade.id);
-        }
-        break;
+      // Create alert notification (will trigger popup modal)
+      const autoExecuteAt = new Date(Date.now() + 30000); // 30 seconds from now
 
-      case 'MOVE_TP':
-        if (evaluation.suggestedActions?.newTakeProfit) {
-          trade.takeProfit = evaluation.suggestedActions.newTakeProfit;
-          actionMessage = `✓ Take Profit adjusted to ${trade.takeProfit.toFixed(5)}. ${evaluation.reasoning}`;
+      await supabase.from('goal_notifications').insert({
+        user_id: this.config.userId,
+        goal_session_id: this.activeSession,
+        type: 'mid_trade_alert',
+        title: evaluation.recommendation === 'EXIT_IMMEDIATELY' ? 'Emergency Exit Required' : 'Take Profit Early',
+        message: actionMessage,
+        priority: 'urgent',
+        requires_user_alert: true,
+        auto_execute_at: autoExecuteAt.toISOString(),
+        executed: false,
+        viewed: false,
+        trade_context: {
+          trade_id: trade.id,
+          symbol: trade.symbol,
+          direction: trade.direction,
+          entry_price: trade.entryPrice,
+          current_price: latestPrice,
+          stop_loss: trade.stopLoss,
+          take_profit: trade.takeProfit,
+          current_pnl: (latestPrice - trade.entryPrice) * trade.positionSize * 10
+        },
+        recommendation_data: {
+          recommendation: evaluation.recommendation,
+          confidence: evaluation.confidence,
+          reasoning: evaluation.reasoning,
+          suggestedActions: evaluation.suggestedActions,
+          processingTimeMs: evaluation.processingTimeMs,
+          costUsd: evaluation.costUsd
+        },
+        trigger_type: trigger.triggerType
+      });
 
-          // Update database
-          await supabase
-            .from('goal_session_trades')
-            .update({ take_profit: trade.takeProfit })
-            .eq('id', trade.id);
-        }
-        break;
-
-      case 'TAKE_PROFIT_EARLY':
-      case 'EXIT_IMMEDIATELY':
-        // Force close the trade
-        trade.outcome = 'win'; // Will be recalculated
-        trade.exitTime = new Date();
-        trade.exitPrice = evaluation.suggestedActions?.exitPrice || trade.entryPrice;
-        trade.exitReason = evaluation.recommendation === 'EXIT_IMMEDIATELY'
-          ? 'LLM emergency exit'
-          : 'LLM early profit taking';
-
-        actionMessage = `${evaluation.recommendation === 'EXIT_IMMEDIATELY' ? '❌' : '🎯'} Position closed by LLM at ${trade.exitPrice.toFixed(5)}. ${evaluation.reasoning}`;
-        break;
-
-      default:
-        actionMessage = `✓ LLM Decision: ${evaluation.recommendation}`;
-    }
-
-    // Send action message to AI conversation
-    try {
+      // Log to AI conversation (informational only - execution will happen after countdown)
       await supabase.from('goal_ai_conversations').insert({
         goal_session_id: this.activeSession,
         user_id: this.config.userId,
@@ -2435,27 +2431,84 @@ This learning will carry forward to improve future sessions!
           trade_id: trade.id,
           recommendation: evaluation.recommendation,
           confidence: evaluation.confidence,
-          new_sl: trade.stopLoss,
-          new_tp: trade.takeProfit
+          auto_execute_in_seconds: 30,
+          alert_created: true
         },
         sentiment: evaluation.recommendation === 'EXIT_IMMEDIATELY' ? 'cautionary' : 'neutral'
       });
-    } catch (error) {
-      console.error('[Goal Live Engine] Failed to log mid-trade action conversation:', error);
+
+      logger.info(LogCategory.AI_TRADING, `Mid-trade alert created: ${evaluation.recommendation} (auto-execute in 30s)`);
+    } else {
+      // Non-critical action - execute immediately
+      switch (evaluation.recommendation) {
+        case 'HOLD':
+          actionMessage = `✓ LLM Decision: Continue holding position. ${evaluation.reasoning}`;
+          break;
+
+        case 'MOVE_SL':
+          if (evaluation.suggestedActions?.newStopLoss) {
+            trade.stopLoss = evaluation.suggestedActions.newStopLoss;
+            actionMessage = `✓ Stop Loss adjusted to ${trade.stopLoss.toFixed(5)}. ${evaluation.reasoning}`;
+
+            // Update database
+            await supabase
+              .from('goal_session_trades')
+              .update({ stop_loss: trade.stopLoss })
+              .eq('id', trade.id);
+          }
+          break;
+
+        case 'MOVE_TP':
+          if (evaluation.suggestedActions?.newTakeProfit) {
+            trade.takeProfit = evaluation.suggestedActions.newTakeProfit;
+            actionMessage = `✓ Take Profit adjusted to ${trade.takeProfit.toFixed(5)}. ${evaluation.reasoning}`;
+
+            // Update database
+            await supabase
+              .from('goal_session_trades')
+              .update({ take_profit: trade.takeProfit })
+              .eq('id', trade.id);
+          }
+          break;
+
+        default:
+          actionMessage = `✓ LLM Decision: ${evaluation.recommendation}`;
+      }
+
+      // Send action message to AI conversation
+      try {
+        await supabase.from('goal_ai_conversations').insert({
+          goal_session_id: this.activeSession,
+          user_id: this.config.userId,
+          role: 'ai',
+          message: actionMessage,
+          context: {
+            evaluation,
+            trade_id: trade.id,
+            recommendation: evaluation.recommendation,
+            confidence: evaluation.confidence,
+            new_sl: trade.stopLoss,
+            new_tp: trade.takeProfit
+          },
+          sentiment: 'neutral'
+        });
+      } catch (error) {
+        console.error('[Goal Live Engine] Failed to log mid-trade action conversation:', error);
+      }
+
+      // Insert standard notification (no popup)
+      const latestPrice = evaluation.suggestedActions?.exitPrice || trade.entryPrice;
+      await this.insertMidTradeNotification('mid_trade_action', trade, { close: latestPrice }, {
+        trigger_type: 'Action Applied',
+        trigger_reason: actionMessage,
+        llm_recommendation: evaluation.recommendation,
+        llm_reasoning: evaluation.reasoning,
+        action_taken: evaluation.recommendation,
+        confidence: evaluation.confidence
+      }, 'medium');
+
+      logger.info(LogCategory.AI_TRADING, `Mid-trade action executed: ${evaluation.recommendation}`);
     }
-
-    // Insert mid-trade action notification
-    const latestPrice = evaluation.suggestedActions?.exitPrice || trade.entryPrice;
-    await this.insertMidTradeNotification('mid_trade_action', trade, { close: latestPrice }, {
-      trigger_type: 'Action Applied',
-      trigger_reason: actionMessage,
-      llm_recommendation: evaluation.recommendation,
-      llm_reasoning: evaluation.reasoning,
-      action_taken: evaluation.recommendation,
-      confidence: evaluation.confidence
-    }, evaluation.recommendation === 'EXIT_IMMEDIATELY' ? 'urgent' : 'medium');
-
-    logger.info(LogCategory.AI_TRADING, `Mid-trade action: ${evaluation.recommendation}`);
   }
 
   /**
