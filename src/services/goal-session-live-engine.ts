@@ -914,6 +914,16 @@ class GoalSessionLiveEngine {
       const dbTimeframe = normalizeTimeframeToDb(this.config.timeframe);
       logger.debug(LogCategory.AI_TRADING, `Querying candles: ${symbol} ${this.config.timeframe} -> ${dbTimeframe}`);
 
+      // 🔐 SINGLE-SYMBOL MODE: Check max trades BEFORE expensive operations
+      // Uses same DB count as multi-symbol mode for consistency
+      if (dbOpenTradeCount >= this.config.maxConcurrentTrades) {
+        logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - PAUSING scanning to save credits`);
+        console.log('%c[AUTONOMOUS ENGINE] ⏸️ SCAN BLOCKED: Max trades reached (single-symbol mode)', 'color: #f44336; font-weight: bold');
+        // Still monitor open positions but don't scan for new trades
+        await this.monitorOpenPositionsOnly();
+        return;
+      }
+
       const { data: candles, error } = await supabase
         .from('forex_candles')
         .select('*')
@@ -1104,9 +1114,8 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      if (this.openTrades.length >= this.config.maxConcurrentTrades) {
-        return;
-      }
+      // ✅ Max trades check moved earlier (line 919) to save resources
+      // Old blocker removed - was using memory count and located too late
 
       const goalContext = goalSession ? {
         goalSessionId: this.activeSession,
