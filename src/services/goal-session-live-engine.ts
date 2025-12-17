@@ -732,7 +732,8 @@ class GoalSessionLiveEngine {
 
               const entryMessage = `✅ Trade executed successfully!\n\n` +
                 `🎯 Position opened: ${selectedSymbol} ${decision.action}\n` +
-                `💰 Entry: ${decision.entry.toFixed(5)} | SL: ${decision.stopLoss.toFixed(5)} | TP: ${decision.takeProfit.toFixed(5)}\n\n` +
+                `💰 Entry: ${decision.entry.toFixed(5)} | SL: ${decision.stopLoss.toFixed(5)} | TP: ${decision.takeProfit.toFixed(5)}\n` +
+                `📊 Expected R:R = ${riskReward.toFixed(2)}:1 ($${expectedProfit.toFixed(2)})\n\n` +
                 `👀 Now monitoring this position until it hits TP or SL.\n` +
                 `I'll let you know when it closes and we can decide on next steps.`;
 
@@ -743,7 +744,7 @@ class GoalSessionLiveEngine {
                 'signal',
                 `Trade Opened: ${selectedSymbol} ${decision.action}`,
                 entryMessage,
-                'high',
+                'urgent',
                 {
                   trade_id: trade.id,
                   symbol: selectedSymbol,
@@ -752,7 +753,9 @@ class GoalSessionLiveEngine {
                   stop_loss: decision.stopLoss,
                   take_profit: decision.takeProfit,
                   position_size: trade.positionSize,
-                  confidence: decision.confidence
+                  confidence: decision.confidence,
+                  risk_reward: riskReward,
+                  expected_profit: expectedProfit
                 }
               );
 
@@ -771,14 +774,35 @@ class GoalSessionLiveEngine {
         .map((e, i) => `${i + 1}. ${e.symbol} (${e.overallScore.toFixed(1)})`)
         .join('\n');
 
-      await this.sendAIMessage(
-        `🎯 Trade Signal: ${selectedSymbol}\n\n` +
+      const multiTradeMessage = `🎯 Trade Signal: ${selectedSymbol}\n\n` +
         `Direction: ${decision.action}\n` +
         `Entry: ${decision.entry.toFixed(5)}\n` +
         `SL: ${decision.stopLoss.toFixed(5)} | TP: ${decision.takeProfit.toFixed(5)}\n` +
+        `📊 Expected R:R = ${riskReward.toFixed(2)}:1 ($${expectedProfit.toFixed(2)})\n` +
         `Confidence: ${decision.confidence}%\n\n` +
         `Why ${selectedSymbol}?\n${decision.reasoning}\n\n` +
-        `Symbol Rankings:\n${selectionSummary}`
+        `Symbol Rankings:\n${selectionSummary}`;
+
+      await this.sendAIMessage(multiTradeMessage);
+
+      // CRITICAL: Also log notification for multi-trade mode (not just single-trade!)
+      await this.logNotification(
+        'signal',
+        `Trade Executed: ${selectedSymbol} ${decision.action}`,
+        multiTradeMessage,
+        'urgent',
+        {
+          trade_id: trade.id,
+          symbol: selectedSymbol,
+          direction: decision.action,
+          entry: decision.entry,
+          stop_loss: decision.stopLoss,
+          take_profit: decision.takeProfit,
+          position_size: trade.positionSize,
+          confidence: decision.confidence,
+          risk_reward: riskReward,
+          expected_profit: expectedProfit
+        }
       );
 
     } catch (error) {
@@ -2322,11 +2346,12 @@ This learning will carry forward to improve future sessions!
     data?: any
   ): Promise<void> {
     if (!this.activeSession || !this.config) {
+      console.warn('[Goal Live Engine] Cannot log notification - missing session or config');
       return;
     }
 
     try {
-      await supabase.from('goal_notifications').insert({
+      const { error } = await supabase.from('goal_notifications').insert({
         goal_session_id: this.activeSession,
         user_id: this.config.userId,
         type: type,
@@ -2338,9 +2363,15 @@ This learning will carry forward to improve future sessions!
         channels: ['in_app']
       });
 
-      console.log(`[Notification Logged] ${type.toUpperCase()}: ${title}`);
+      if (error) {
+        console.error('[Goal Live Engine] CRITICAL: Notification insert failed:', error);
+        logger.error(LogCategory.AI_TRADING, 'Failed to insert notification', { error, title, type });
+      } else {
+        console.log(`[Notification Logged] ✅ ${type.toUpperCase()}: ${title}`);
+      }
     } catch (error) {
-      console.error('[Goal Live Engine] Failed to log notification:', error);
+      console.error('[Goal Live Engine] Failed to log notification (exception):', error);
+      logger.error(LogCategory.AI_TRADING, 'Notification logging exception', { error, title, type });
     }
   }
 

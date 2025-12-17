@@ -546,21 +546,28 @@ class TradeExecutionEngine {
     await goalSessionManager.addAIMessage(
       signal.sessionId,
       userId,
-      `Trade executed on ${signal.symbol}! ${signal.direction.toUpperCase()} at ${signal.entryPrice}. ${signal.setupType} setup with ${signal.confidence}% confidence. Stop Loss: ${signal.stopLoss}, Take Profit: ${signal.takeProfit}. Expected R:R = ${signal.riskReward.toFixed(2)}`,
+      `Trade executed on ${signal.symbol}! ${signal.direction.toUpperCase()} at ${signal.entryPrice}. ${signal.setupType} setup with ${signal.confidence}% confidence. Stop Loss: ${signal.stopLoss}, Take Profit: ${signal.takeProfit}. Expected R:R = ${signal.riskReward.toFixed(2)}:1 ($${signal.expectedProfit.toFixed(2)})`,
       { signal, trade },
       'encouraging'
     );
 
-    await supabase.from('goal_notifications').insert({
+    const { error: notificationError } = await supabase.from('goal_notifications').insert({
       goal_session_id: signal.sessionId,
       user_id: userId,
       type: 'signal',
       priority: 'urgent',
       title: `Trade Executed: ${signal.symbol}`,
-      message: `${signal.direction.toUpperCase()} trade opened at ${signal.entryPrice}. Monitoring position...`,
-      data: { signal, tradeId: trade.id },
+      message: `${signal.direction.toUpperCase()} trade opened at ${signal.entryPrice}. Expected R:R = ${signal.riskReward.toFixed(2)}:1 ($${signal.expectedProfit.toFixed(2)}). Monitoring position...`,
+      data: { signal, tradeId: trade.id, expectedProfit: signal.expectedProfit, riskReward: signal.riskReward },
       channels: ['in_app', 'email']
     });
+
+    if (notificationError) {
+      console.error('[Trade Execution] CRITICAL: Failed to log notification:', notificationError);
+      prodLogger.error('trade_execution', 'Failed to insert notification', { error: notificationError, signal });
+    } else {
+      console.log('[Trade Execution] ✅ Notification logged successfully for', signal.symbol);
+    }
 
     // Trigger immediate trade entry modal
     globalDialogManager.showTradeEntry({
