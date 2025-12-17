@@ -35,6 +35,12 @@ export interface MarketConditions {
   };
 }
 
+export interface GoalContext {
+  targetValue: number;
+  currentProgress: number;
+  remainingGoal: number;
+}
+
 class MidTradeTriggerDetector {
   // Memory to track which triggers have fired for each trade
   private firedTriggers: Map<string, Set<string>> = new Map();
@@ -45,7 +51,8 @@ class MidTradeTriggerDetector {
    */
   checkForTriggers(
     trade: SimulatedTrade,
-    marketConditions: MarketConditions
+    marketConditions: MarketConditions,
+    goalContext?: GoalContext
   ): TriggerDetectionResult {
     const tradeId = trade.id;
     const currentPrice = marketConditions.currentPrice;
@@ -62,15 +69,21 @@ class MidTradeTriggerDetector {
     const drawdownTrigger = this.checkDrawdownTriggers(trade, currentPrice, firedSet);
     if (drawdownTrigger.triggered) return drawdownTrigger;
 
-    // 2. Profit triggers
+    // 2. Goal-based profit triggers (if goal context provided)
+    if (goalContext) {
+      const goalTrigger = this.checkGoalProgressTriggers(trade, currentPrice, goalContext, firedSet);
+      if (goalTrigger.triggered) return goalTrigger;
+    }
+
+    // 3. Technical profit triggers
     const profitTrigger = this.checkProfitTriggers(trade, currentPrice, marketConditions, firedSet);
     if (profitTrigger.triggered) return profitTrigger;
 
-    // 3. Market structure triggers
+    // 4. Market structure triggers
     const structureTrigger = this.checkMarketStructureTriggers(trade, marketConditions, firedSet);
     if (structureTrigger.triggered) return structureTrigger;
 
-    // 4. Time-based triggers
+    // 5. Time-based triggers
     const timeTrigger = this.checkTimeBasedTriggers(trade, marketConditions, firedSet);
     if (timeTrigger.triggered) return timeTrigger;
 
@@ -150,6 +163,88 @@ class MidTradeTriggerDetector {
         metadata: {
           risk_ratio: riskRatio.toFixed(2),
           current_pnl: (priceDiff / 0.0001 * 10 * trade.positionSize).toFixed(2)
+        }
+      };
+    }
+
+    return { triggered: false, triggerType: null, triggerReason: null, confidence: 0, shouldCallLLM: false, metadata: {} };
+  }
+
+  /**
+   * Check goal-based profit triggers (for goal mode sessions)
+   * Triggers based on dollar profit relative to goal, not price relative to TP
+   */
+  private checkGoalProgressTriggers(
+    trade: SimulatedTrade,
+    currentPrice: number,
+    goalContext: GoalContext,
+    firedSet: Set<string>
+  ): TriggerDetectionResult {
+    const isLong = trade.direction === 'buy';
+    const priceDiff = isLong
+      ? (currentPrice - trade.entryPrice)
+      : (trade.entryPrice - currentPrice);
+
+    const pipDiff = priceDiff / 0.0001;
+    const dollarPerPip = 10 * trade.positionSize;
+    const currentProfitDollars = pipDiff * dollarPerPip;
+
+    const totalTradeProgress = currentProfitDollars + goalContext.currentProgress;
+    const goalProgressPercent = (totalTradeProgress / goalContext.targetValue) * 100;
+
+    // Goal 50% milestone - encouraging update
+    if (goalProgressPercent >= 50 && goalProgressPercent < 70 && !firedSet.has('goal_50_percent')) {
+      firedSet.add('goal_50_percent');
+      return {
+        triggered: true,
+        triggerType: 'goal_50_percent',
+        triggerReason: `Halfway to your $${goalContext.targetValue} goal! Current: $${totalTradeProgress.toFixed(2)} (${goalProgressPercent.toFixed(1)}%)`,
+        confidence: 80,
+        shouldCallLLM: true,
+        metadata: {
+          goal_target: goalContext.targetValue,
+          total_progress: totalTradeProgress.toFixed(2),
+          this_trade_profit: currentProfitDollars.toFixed(2),
+          goal_progress_percent: goalProgressPercent.toFixed(1),
+          remaining_to_goal: (goalContext.targetValue - totalTradeProgress).toFixed(2)
+        }
+      };
+    }
+
+    // Goal 70% milestone - consider protection
+    if (goalProgressPercent >= 70 && goalProgressPercent < 90 && !firedSet.has('goal_70_percent')) {
+      firedSet.add('goal_70_percent');
+      return {
+        triggered: true,
+        triggerType: 'goal_70_percent',
+        triggerReason: `70% to your $${goalContext.targetValue} goal! Current: $${totalTradeProgress.toFixed(2)} - Alpha evaluating stop loss protection`,
+        confidence: 85,
+        shouldCallLLM: true,
+        metadata: {
+          goal_target: goalContext.targetValue,
+          total_progress: totalTradeProgress.toFixed(2),
+          this_trade_profit: currentProfitDollars.toFixed(2),
+          goal_progress_percent: goalProgressPercent.toFixed(1),
+          remaining_to_goal: (goalContext.targetValue - totalTradeProgress).toFixed(2)
+        }
+      };
+    }
+
+    // Goal 90% milestone - consider early exit
+    if (goalProgressPercent >= 90 && !firedSet.has('goal_90_percent')) {
+      firedSet.add('goal_90_percent');
+      return {
+        triggered: true,
+        triggerType: 'goal_90_percent',
+        triggerReason: `90% to your $${goalContext.targetValue} goal! Current: $${totalTradeProgress.toFixed(2)} - Alpha considering early profit capture`,
+        confidence: 90,
+        shouldCallLLM: true,
+        metadata: {
+          goal_target: goalContext.targetValue,
+          total_progress: totalTradeProgress.toFixed(2),
+          this_trade_profit: currentProfitDollars.toFixed(2),
+          goal_progress_percent: goalProgressPercent.toFixed(1),
+          remaining_to_goal: (goalContext.targetValue - totalTradeProgress).toFixed(2)
         }
       };
     }

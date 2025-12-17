@@ -2425,8 +2425,36 @@ This learning will carry forward to improve future sessions!
       }
     };
 
-    // Check for triggers
-    const triggerResult = midTradeTriggerDetector.checkForTriggers(trade, marketConditions);
+    // Fetch goal session data for goal-aware triggers
+    const { data: goalSession } = await supabase
+      .from('goal_sessions')
+      .select('target_value')
+      .eq('id', this.activeSession)
+      .single();
+
+    // Calculate current progress from closed trades
+    const { data: closedTrades } = await supabase
+      .from('goal_session_trades')
+      .select('profit_loss')
+      .eq('goal_session_id', this.activeSession)
+      .eq('status', 'closed');
+
+    const currentProgress = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
+    const targetValue = goalSession?.target_value || 100;
+
+    // Build goal context for trigger detection
+    const goalContextForTrigger: import('./mid-trade-trigger-detector').GoalContext = {
+      targetValue,
+      currentProgress,
+      remainingGoal: targetValue - currentProgress
+    };
+
+    // Check for triggers (with goal context)
+    const triggerResult = midTradeTriggerDetector.checkForTriggers(
+      trade,
+      marketConditions,
+      goalContextForTrigger
+    );
 
     if (triggerResult.triggered && triggerResult.shouldCallLLM) {
       logger.debug(LogCategory.AI_TRADING, `Mid-trade trigger: ${triggerResult.triggerType} - ${triggerResult.triggerReason}`);
@@ -2658,7 +2686,23 @@ This learning will carry forward to improve future sessions!
   private async sendMidTradeTriggerMessage(trigger: any, trade: SimulatedTrade, candle: any): Promise<void> {
     if (!this.config || !this.activeSession) return;
 
-    const message = `⚠️ Mid-Trade Event: ${trigger.triggerReason}. Requesting LLM evaluation...`;
+    let message = '';
+    let sentiment: 'encouraging' | 'neutral' | 'warning' = 'neutral';
+
+    // Customize message based on trigger type
+    if (trigger.triggerType === 'goal_50_percent') {
+      message = `🎯 Halfway Milestone! ${trigger.triggerReason}\n\nAlpha is evaluating momentum and market conditions to optimize this position for the best chance of reaching your goal.`;
+      sentiment = 'encouraging';
+    } else if (trigger.triggerType === 'goal_70_percent') {
+      message = `🔥 70% Progress! ${trigger.triggerReason}\n\nAlpha is analyzing whether to:\n• Move stop loss to breakeven for protection\n• Let it run to full TP\n• Consider early profit capture\n\nEvaluating now...`;
+      sentiment = 'encouraging';
+    } else if (trigger.triggerType === 'goal_90_percent') {
+      message = `🚀 90% to Goal! ${trigger.triggerReason}\n\nAlpha is making a critical decision:\n• Close now and secure the goal?\n• Let it run for full profit?\n• Protect with tighter stop loss?\n\nLLM evaluation in progress...`;
+      sentiment = 'encouraging';
+    } else {
+      message = `⚠️ Mid-Trade Event: ${trigger.triggerReason}. Requesting LLM evaluation...`;
+      sentiment = 'neutral';
+    }
 
     try {
       await supabase.from('goal_ai_conversations').insert({
@@ -2671,9 +2715,10 @@ This learning will carry forward to improve future sessions!
           trade_id: trade.id,
           trigger_type: trigger.triggerType,
           confidence: trigger.confidence,
-          current_price: candle.close
+          current_price: candle.close,
+          goal_metadata: trigger.metadata
         },
-        sentiment: 'neutral'
+        sentiment
       });
     } catch (error) {
       console.error('[Goal Live Engine] Failed to log mid-trade trigger conversation:', error);

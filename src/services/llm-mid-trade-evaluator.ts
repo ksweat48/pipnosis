@@ -166,10 +166,19 @@ MARKET CONDITIONS:
     }
 
     if (goalContext) {
+      const totalProgressWithThisTrade = goalContext.currentProgress + pnl;
+      const goalProgressPercent = (totalProgressWithThisTrade / goalContext.targetValue) * 100;
+      const remainingToGoal = goalContext.targetValue - totalProgressWithThisTrade;
+
       prompt += `\n\nGOAL CONTEXT:
 - Target: $${goalContext.targetValue}
-- Progress: $${goalContext.currentProgress.toFixed(2)} (${((goalContext.currentProgress / goalContext.targetValue) * 100).toFixed(0)}%)
-- Trades Remaining: ${goalContext.tradesRemaining}`;
+- Progress (all trades): $${goalContext.currentProgress.toFixed(2)}
+- This trade profit: $${pnl.toFixed(2)}
+- Total progress: $${totalProgressWithThisTrade.toFixed(2)} (${goalProgressPercent.toFixed(1)}% to goal)
+- Remaining to goal: $${remainingToGoal.toFixed(2)}
+- Trades Remaining: ${goalContext.tradesRemaining}
+
+**NOTE:** If this trade is near goal milestones (50%, 70%, 90%), consider the risk/reward of securing profits early vs letting it run to TP.`;
     }
 
     prompt += `\n\nYour task: Recommend ONE action based on current market conditions and trigger event.
