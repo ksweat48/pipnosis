@@ -29,6 +29,7 @@ export const GoalSessionDashboard: React.FC = () => {
   } | null>(null);
   const [continuationLoading, setContinuationLoading] = useState(false);
   const [openTrades, setOpenTrades] = useState<any[]>([]);
+  const [livePrices, setLivePrices] = useState<Record<string, { bid: number; ask: number }>>({});
   const [showGoalAchieved, setShowGoalAchieved] = useState(false);
   const [showTradeClosedAction, setShowTradeClosedAction] = useState(false);
   const [goalAchievementData, setGoalAchievementData] = useState<any>(null);
@@ -187,6 +188,47 @@ export const GoalSessionDashboard: React.FC = () => {
       // No cleanup needed - next render will handle it
     };
   }, [activeSession?.sessionId, activeSession?.status]);
+
+  // Fetch live prices for open trades
+  useEffect(() => {
+    if (openTrades.length === 0) return;
+
+    const symbols = Array.from(new Set(openTrades.map(t => t.symbol)));
+
+    const fetchLivePrices = async () => {
+      const prices: Record<string, { bid: number; ask: number }> = {};
+
+      await Promise.all(
+        symbols.map(async (symbol) => {
+          try {
+            const { data, error } = await supabase
+              .from('realtime_prices')
+              .select('bid, ask')
+              .eq('symbol', symbol)
+              .order('updated_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (!error && data) {
+              prices[symbol] = {
+                bid: data.bid,
+                ask: data.ask
+              };
+            }
+          } catch (error) {
+            console.error(`Error fetching price for ${symbol}:`, error);
+          }
+        })
+      );
+
+      setLivePrices(prices);
+    };
+
+    fetchLivePrices();
+    const interval = setInterval(fetchLivePrices, 2000); // Update every 2 seconds
+
+    return () => clearInterval(interval);
+  }, [openTrades]);
 
   const loadSessionData = async () => {
     if (!user) return;
@@ -427,6 +469,38 @@ export const GoalSessionDashboard: React.FC = () => {
     return `${diffDay}d ago`;
   };
 
+  const calculateCurrentPnL = (trade: any): number => {
+    // If we don't have live prices, fall back to stored P&L
+    if (!livePrices[trade.symbol] || !trade.entry_price) {
+      return trade.profit_loss || 0;
+    }
+
+    const currentPrice = trade.direction === 'buy'
+      ? livePrices[trade.symbol].bid
+      : livePrices[trade.symbol].ask;
+
+    const isLong = trade.direction === 'buy';
+    const priceDiff = isLong
+      ? (currentPrice - trade.entry_price)
+      : (trade.entry_price - currentPrice);
+
+    // Calculate P&L: price difference * position size * pip value
+    // For forex pairs (except JPY pairs), 1 pip = 0.0001
+    // For JPY pairs, 1 pip = 0.01
+    const isJPY = trade.symbol.includes('JPY');
+    const pipSize = isJPY ? 0.01 : 0.0001;
+    const lotSize = trade.lot_size || trade.position_size || 0;
+
+    // Standard lot = 100,000 units, so $10 per pip for standard lot (non-JPY)
+    // Mini lot = 10,000 units, so $1 per pip
+    // Micro lot = 1,000 units, so $0.10 per pip
+    const pipValue = isJPY ? 10 : 10; // $10 per pip per standard lot
+    const pips = priceDiff / pipSize;
+    const pnl = pips * pipValue * lotSize;
+
+    return pnl;
+  };
+
   const getStatusColor = (status: string) => {
     const colors = {
       initializing: 'text-yellow-400',
@@ -608,12 +682,20 @@ export const GoalSessionDashboard: React.FC = () => {
 
               {openTrades.map((trade, index) => {
                 const isLong = trade.direction === 'buy';
-                const currentPrice = trade.current_price || trade.entry_price;
+
+                // Get live price if available, otherwise fallback to stored price
+                const livePrice = livePrices[trade.symbol];
+                const currentPrice = livePrice
+                  ? (isLong ? livePrice.bid : livePrice.ask)
+                  : (trade.current_price || trade.entry_price);
+
                 const priceDiff = isLong
                   ? (currentPrice - trade.entry_price)
                   : (trade.entry_price - currentPrice);
-                const pips = priceDiff / 0.0001;
-                const currentPnL = trade.profit_loss || 0;
+                const isJPY = trade.symbol.includes('JPY');
+                const pipSize = isJPY ? 0.01 : 0.0001;
+                const pips = priceDiff / pipSize;
+                const currentPnL = calculateCurrentPnL(trade);
 
                 return (
                   <div key={trade.id} className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
@@ -643,7 +725,12 @@ export const GoalSessionDashboard: React.FC = () => {
                       </div>
 
                       <div>
-                        <div className="text-xs text-gray-500 mb-1">Current P&L</div>
+                        <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                          Current P&L
+                          {livePrice && (
+                            <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" title="Live price feed active" />
+                          )}
+                        </div>
                         <div className={`text-sm font-semibold ${currentPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                           {currentPnL >= 0 ? '+' : ''}${currentPnL.toFixed(2)}
                         </div>
