@@ -1,4 +1,6 @@
 import TinyEmitter from 'tiny-emitter';
+import { modalNotificationBridge } from './modal-notification-bridge';
+import { supabase } from '../lib/supabase';
 
 export type DialogType = 'goal_achieved' | 'trade_closed' | 'trade_signal' | 'trade_entry';
 
@@ -14,13 +16,19 @@ class GlobalDialogManager {
   private dialogQueue: DialogData[] = [];
   private currentDialog: DialogData | null = null;
 
-  showDialog(type: DialogType, data: any, priority: 'low' | 'medium' | 'high' = 'medium') {
+  async showDialog(type: DialogType, data: any, priority: 'low' | 'medium' | 'high' = 'medium') {
     const dialogData: DialogData = {
       type,
       data,
       priority,
       timestamp: Date.now()
     };
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const goalSessionId = data.goal_session_id || data.goalSessionId || null;
+      await modalNotificationBridge.captureDialog(dialogData, user.id, goalSessionId);
+    }
 
     if (this.currentDialog) {
       this.dialogQueue.push(dialogData);

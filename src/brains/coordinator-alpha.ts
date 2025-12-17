@@ -66,6 +66,7 @@ import { alphaIntelligenceAggregator, type AlphaIntelligenceSnapshot } from '../
 import { supabase } from '../lib/supabase';
 import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
+import { rrSuccessTracker } from '../services/rr-success-tracker';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -215,10 +216,34 @@ class AlphaCoordinatorBrain {
     // Build advisory context (Adversarial Detector + Regime Oracle)
     let advisoryContext = this.buildAdvisoryContext(adversarialSignal, regimeSnapshot);
 
+    // Fetch historical R:R performance data for learning
+    let rrPerformanceContext = '';
+    if (userId) {
+      try {
+        const performanceSummary = await rrSuccessTracker.getRecentPerformanceSummary(userId, marketContext.symbol);
+        if (performanceSummary && performanceSummary.length > 100) {
+          rrPerformanceContext = `\n${performanceSummary}\n`;
+        }
+      } catch (error) {
+        console.error('[Alpha Coordinator] Failed to fetch R:R performance:', error);
+      }
+    }
+
     // Build goal context (if trading with a goal)
     let goalContextText = '';
     if (goalContext && goalContext.hasGoal) {
-      goalContextText = `\n🎯 GOAL TRADING MODE:\nBalance: $${goalContext.currentBalance.toFixed(2)} | Target: +$${goalContext.targetGoal.toFixed(2)}\nProgress: $${goalContext.currentProgress.toFixed(2)} | Remaining: $${goalContext.remainingGoal.toFixed(2)} (${goalContext.goalPercentage.toFixed(3)}%)\nEstimate: ~${goalContext.pipsNeededEstimate.toFixed(0)} pips needed\n\n🔍 FIND A TRADE THAT CAN CAPTURE ${goalContext.pipsNeededEstimate.toFixed(0)} PIPS:\n- Look for symbols with momentum to reach this pip target\n- Balance goal achievement with realistic technical levels\n- Consider if market is offering this opportunity NOW\n`;
+      const riskPercent = 5;
+      const maxRisk = goalContext.currentBalance * (riskPercent / 100);
+      const dollarPerPipPerLot = marketContext.symbol.includes('JPY') ? 10 : marketContext.symbol.includes('XAU') ? 100 : 10;
+
+      const exampleSL15 = maxRisk / (15 * dollarPerPipPerLot);
+      const exampleSL30 = maxRisk / (30 * dollarPerPipPerLot);
+      const exampleSL50 = maxRisk / (50 * dollarPerPipPerLot);
+
+      const recentATR = marketContext.atr || 60;
+      const avgCandleRange = recentATR * 0.7;
+
+      goalContextText = `\n🎯 GOAL TRADING MODE:\nBalance: $${goalContext.currentBalance.toFixed(2)} | Target: +$${goalContext.targetGoal.toFixed(2)}\nProgress: $${goalContext.currentProgress.toFixed(2)} | Remaining: $${goalContext.remainingGoal.toFixed(2)}\n\n📊 POSITION SIZING EDUCATION:\nYou have ${riskPercent}% risk = $${maxRisk.toFixed(2)} available per trade\nPosition sizing formula: Lot Size = Risk Amount / (SL Pips × $${dollarPerPipPerLot}/pip per lot)\n\nEXAMPLES FOR ${marketContext.symbol}:\n- 15-pip SL: ${exampleSL15.toFixed(2)} lots available (tight, scalp-style)\n- 30-pip SL: ${exampleSL30.toFixed(2)} lots available (standard swing)\n- 50-pip SL: ${exampleSL50.toFixed(2)} lots available (wider breathing room)\n\nKEY INSIGHT: Wider SLs don't hurt you - they give trades breathing room while position size automatically adjusts to maintain proper risk. Don't fear wider stops!\n\n📈 MARKET REALITY CHECK:\nCurrent ATR: ${recentATR.toFixed(0)} pips | Recent Avg Range: ${avgCandleRange.toFixed(0)} pips/candle\nMinimum viable SL: ${(recentATR * 0.4).toFixed(0)} pips (avoid noise)\nRealistic TP ranges: ${(recentATR * 0.5).toFixed(0)}-${(recentATR * 1.5).toFixed(0)} pips achievable today\n\n⚠️ COMMON MISTAKES TO AVOID:\n- 2-3 pip SLs get stopped by market noise (100% failure rate)\n- 100+ pip TPs rarely fill unless major catalyst present\n- Lottery tickets (10:1+ R:R) almost never work\n\n✅ PROFESSIONAL APPROACH FOR $${goalContext.remainingGoal.toFixed(0)} GOAL:\nOption A: 1 trade with ${(goalContext.remainingGoal / (30 * dollarPerPipPerLot)).toFixed(2)} lots, 30-pip SL, 60-pip TP (2:1 R:R)\nOption B: 2 trades with ${(goalContext.remainingGoal / 2 / (20 * dollarPerPipPerLot)).toFixed(2)} lots each, 20-pip SL, 40-pip TP\nOption C: Multiple quality setups if market not offering full goal in one trade\n\nREMEMBER: Markets move in realistic increments. Take achievable profits through quality execution, not lottery tickets.\n`;
     }
 
     // Build intelligence context
@@ -228,7 +253,7 @@ class AlphaCoordinatorBrain {
 
 ${context}
 
-WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${intelligenceContext}${goalContextText}
+WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${intelligenceContext}${goalContextText}
 
 YOUR FULL AUTHORITY:
 - Override Adversarial blocks when statistical edge is strong (manipulation resolved, BOS confirmed)
