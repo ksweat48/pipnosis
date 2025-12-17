@@ -228,14 +228,14 @@ export const GoalSessionDashboard: React.FC = () => {
               .from('realtime_prices')
               .select('bid, ask')
               .eq('symbol', symbol)
-              .order('updated_at', { ascending: false })
+              .order('created_at', { ascending: false })
               .limit(1)
               .maybeSingle();
 
             if (!error && data) {
               prices[symbol] = {
-                bid: data.bid,
-                ask: data.ask
+                bid: parseFloat(String(data.bid)),
+                ask: parseFloat(String(data.ask))
               };
             }
           } catch (error) {

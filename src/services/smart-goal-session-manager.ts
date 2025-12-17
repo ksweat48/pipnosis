@@ -110,9 +110,7 @@ class SmartGoalSessionManager {
       next_scan_time: session.nextScanTime.toISOString(),
       server_enabled: true,
       autonomous_enabled: true,
-      execution_mode: 'server',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      execution_mode: 'server'
     });
 
     if (error) {
@@ -573,8 +571,7 @@ class SmartGoalSessionManager {
         .from('goal_sessions')
         .update({
           status: 'user_stopped',
-          end_time: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          end_time: new Date().toISOString()
         })
         .eq('id', sessionId)
         .eq('user_id', userId)
