@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, TrendingUp, TrendingDown, Clock, AlertCircle } from 'lucide-react';
+import { X, TrendingUp, TrendingDown, Clock, AlertCircle, BarChart3 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { positionService } from '@/services/position-service';
 import { calculatePnL } from '@/types/position';
@@ -8,6 +8,7 @@ import { pollingConfigService } from '@/services/polling-config-service';
 import { notificationManager } from '@/services/notification-manager';
 import { useToast } from '@/hooks/useToast';
 import { useConfirmDialog } from '@/hooks/useConfirmDialog';
+import { useNavigate } from 'react-router-dom';
 
 interface Position {
   id: string;
@@ -40,6 +41,7 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
   const [livePrices, setLivePrices] = useState<Record<string, { bid: number; ask: number }>>({});
   const toast = useToast();
   const { confirm } = useConfirmDialog();
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchPositions();
@@ -382,6 +384,17 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
                               {position.position_type.toUpperCase()}
                             </span>
                             <span className="text-gray-400 text-sm">{formatLotSize(position.lot_size)} lots</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/trade?symbol=${position.symbol}`);
+                              }}
+                              className="flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 rounded text-xs font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-blue-500/25 hover:scale-105 active:scale-95"
+                              title="View live chart"
+                            >
+                              <BarChart3 className="w-3 h-3" />
+                              View Chart
+                            </button>
                           </div>
 
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">

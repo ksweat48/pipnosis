@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, WifiOff, AlertTriangle, Search, Shield, Sparkles, Eye } from 'lucide-react';
+import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, WifiOff, AlertTriangle, Search, Shield, Sparkles, Eye, BarChart3 } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
 import { useAuth } from '../hooks/useAuth';
@@ -10,11 +10,13 @@ import { GoalAchievedDialog } from './GoalAchievedDialog';
 import { TradeClosedActionDialog } from './TradeClosedActionDialog';
 import { goalSessionLiveEngine } from '../services/goal-session-live-engine';
 import { supabase } from '../lib/supabase';
+import { useNavigate } from 'react-router-dom';
 // GoalScanReadinessIndicator removed - using simple indicator
 
 export const GoalSessionDashboard: React.FC = () => {
   const { user } = useAuth();
   const { confirm } = useConfirmDialog();
+  const navigate = useNavigate();
   const [activeSession, setActiveSession] = useState<SmartGoalSession | null>(null);
   const [progress, setProgress] = useState<any>(null);
   const [conversations, setConversations] = useState<any[]>([]);
@@ -615,6 +617,15 @@ export const GoalSessionDashboard: React.FC = () => {
 
                 return (
                   <div key={trade.id} className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <button
+                        onClick={() => navigate(`/trade?symbol=${trade.symbol}`)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 rounded-lg text-xs font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-blue-500/25 hover:scale-105 active:scale-95"
+                      >
+                        <BarChart3 className="w-3.5 h-3.5" />
+                        View Chart
+                      </button>
+                    </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       <div>
                         <div className="text-xs text-gray-500 mb-1">Symbol</div>
