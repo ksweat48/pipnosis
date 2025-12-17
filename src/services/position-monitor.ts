@@ -5,6 +5,8 @@ import { logger, LogCategory, LogLevel } from '@/lib/logger';
 import type { GoalSessionTrade } from '@/types/position';
 import { calculatePnL } from '@/types/position';
 import { prodLogger } from '@/lib/production-logger';
+import { midTradeTriggerDetector } from './mid-trade-trigger-detector';
+import type { MarketConditions, GoalContext } from './mid-trade-trigger-detector';
 
 logger.setCategoryLevel(LogCategory.POSITION_MONITOR, LogLevel.ERROR);
 
@@ -18,6 +20,8 @@ class PositionMonitorService {
   private criticalSymbols: Set<string> = new Set();
   private updateRetryCount: Map<string, number> = new Map();
   private maxRetries = 3;
+  private lastMidTradeCheck: Map<string, number> = new Map();
+  private midTradeCheckInterval = 60000; // Check every 60 seconds per trade
 
   start() {
     if (this.isRunning) return;
@@ -46,6 +50,7 @@ class PositionMonitorService {
     this.isRunning = false;
     this.criticalSymbols.clear();
     this.updateRetryCount.clear();
+    this.lastMidTradeCheck.clear();
     logger.debug(LogCategory.POSITION_MONITOR, ' Stopped position monitor service');
   }
 
@@ -351,6 +356,9 @@ class PositionMonitorService {
       return;
     }
 
+    // Check for mid-trade triggers (drawdown alerts, etc.)
+    await this.checkMidTradeTriggers(position, actualCurrentPrice, pnl);
+
     // CRITICAL: Check if goal is reached FIRST (before SL/TP check)
     let shouldCloseForGoal = false;
     if (position.goal_session_id) {
@@ -462,6 +470,121 @@ class PositionMonitorService {
     }
   }
 
+  /**
+   * Check for mid-trade triggers (drawdown alerts, profit milestones)
+   * Creates AI conversation messages and notifications when triggered
+   */
+  private async checkMidTradeTriggers(
+    position: MonitoredPosition,
+    currentPrice: number,
+    currentPnl: number
+  ): Promise<void> {
+    try {
+      const now = Date.now();
+      const lastCheck = this.lastMidTradeCheck.get(position.id) || 0;
+
+      if (now - lastCheck < this.midTradeCheckInterval) {
+        return;
+      }
+
+      this.lastMidTradeCheck.set(position.id, now);
+
+      const risk = Math.abs(position.entry_price - position.stop_loss);
+      const isLong = position.direction === 'buy';
+      const priceDiff = isLong
+        ? (currentPrice - position.entry_price)
+        : (position.entry_price - currentPrice);
+      const riskRatio = priceDiff / risk;
+
+      const distanceToSL = Math.abs(currentPrice - position.stop_loss);
+      const slProximity = distanceToSL / risk;
+
+      let triggerType: string | null = null;
+      let alertMessage: string | null = null;
+      let priority: 'low' | 'medium' | 'high' | 'urgent' = 'medium';
+
+      if (slProximity < 0.15) {
+        triggerType = 'near_sl';
+        alertMessage = `ALERT: ${position.symbol} is very close to stop loss! Currently ${(slProximity * 100).toFixed(1)}% away. Price: ${currentPrice.toFixed(5)}, SL: ${position.stop_loss.toFixed(5)}. The trade may close soon if price continues in this direction.`;
+        priority = 'urgent';
+      } else if (riskRatio <= -0.70) {
+        triggerType = 'drawdown_0.70R';
+        alertMessage = `CRITICAL: ${position.symbol} is down 70% of risk (-0.70R). Current P&L: $${currentPnl.toFixed(2)}. Price is at ${currentPrice.toFixed(5)}. This trade is approaching stop loss territory.`;
+        priority = 'urgent';
+      } else if (riskRatio <= -0.50) {
+        triggerType = 'drawdown_0.50R';
+        alertMessage = `WARNING: ${position.symbol} is down 50% of risk (-0.50R). Current P&L: $${currentPnl.toFixed(2)}. Price is at ${currentPrice.toFixed(5)}. Monitoring this position closely for potential reversal or stop loss hit.`;
+        priority = 'high';
+      } else if (riskRatio <= -0.30) {
+        triggerType = 'drawdown_0.30R';
+        alertMessage = `UPDATE: ${position.symbol} is down 30% of risk (-0.30R). Current P&L: $${currentPnl.toFixed(2)}. Price is at ${currentPrice.toFixed(5)}. This is normal market fluctuation, but I'm keeping an eye on it.`;
+        priority = 'medium';
+      }
+
+      const timeInTrade = position.opened_at
+        ? (now - new Date(position.opened_at).getTime()) / 1000 / 60
+        : 0;
+
+      if (!triggerType && timeInTrade > 60) {
+        const hours = Math.floor(timeInTrade / 60);
+        if (hours > 0 && hours % 2 === 0) {
+          triggerType = 'time_update';
+          alertMessage = `Trade Update: ${position.symbol} has been open for ${hours} hours. Current P&L: $${currentPnl.toFixed(2)}. Price: ${currentPrice.toFixed(5)}. ${currentPnl >= 0 ? 'Trade is currently profitable.' : 'Trade is currently in drawdown but within acceptable risk parameters.'}`;
+          priority = 'low';
+        }
+      }
+
+      if (triggerType && alertMessage) {
+        const existingTrigger = await supabase
+          .from('goal_ai_conversations')
+          .select('id')
+          .eq('trade_id', position.id)
+          .eq('conversation_type', 'mid_trade_alert')
+          .contains('metadata', { trigger_type: triggerType })
+          .maybeSingle();
+
+        if (!existingTrigger) {
+          await supabase.from('goal_ai_conversations').insert({
+            goal_session_id: position.goal_session_id,
+            user_id: position.user_id,
+            role: 'assistant',
+            content: alertMessage,
+            conversation_type: 'mid_trade_alert',
+            trade_id: position.id,
+            metadata: {
+              trigger_type: triggerType,
+              current_price: currentPrice,
+              current_pnl: currentPnl,
+              risk_ratio: riskRatio.toFixed(3),
+              sl_proximity: slProximity.toFixed(3),
+              time_in_trade_minutes: Math.floor(timeInTrade)
+            }
+          });
+
+          await supabase.from('goal_notifications').insert({
+            goal_session_id: position.goal_session_id,
+            user_id: position.user_id,
+            type: 'mid_trade_alert',
+            priority: priority,
+            title: `Trade Alert: ${position.symbol}`,
+            message: alertMessage,
+            data: {
+              trade_id: position.id,
+              symbol: position.symbol,
+              trigger_type: triggerType,
+              current_pnl: currentPnl
+            },
+            channels: ['in_app']
+          });
+
+          console.log(`[PositionMonitor] 🔔 Mid-trade trigger fired: ${triggerType} for ${position.symbol}`);
+        }
+      }
+    } catch (error) {
+      console.error('[PositionMonitor] Error checking mid-trade triggers:', error);
+    }
+  }
+
   private async autoClosePosition(
     position: MonitoredPosition,
     closePrice: number,
@@ -469,7 +592,14 @@ class PositionMonitorService {
   ) {
     try {
       // Use the secure RPC function to close
-      const result = await positionService.closePosition(position.id, closePrice, reason);
+      // CRITICAL: Pass userId and goalSessionId so journal entries get created
+      const result = await positionService.closePosition(
+        position.id,
+        closePrice,
+        reason,
+        position.user_id,
+        position.goal_session_id
+      );
 
       if (result.success && result.pnl !== undefined) {
         const displayReason = reason === 'stop_loss' ? 'SL' : reason === 'take_profit' ? 'TP' : 'GOAL MET';
@@ -503,6 +633,7 @@ class PositionMonitorService {
 
         const config = notificationConfig[reason];
         if (config) {
+          // Insert notification for in-app alerts
           await supabase.from('goal_notifications').insert({
             goal_session_id: position.goal_session_id,
             user_id: position.user_id,
@@ -521,6 +652,31 @@ class PositionMonitorService {
             },
             channels: ['in_app']
           });
+
+          // ALSO insert AI conversation message so it appears in FloatingMessageCenter
+          const conversationMessage = reason === 'stop_loss'
+            ? `Stop loss was hit on ${position.symbol}. The trade closed at ${closePrice.toFixed(5)} with a loss of $${Math.abs(result.pnl).toFixed(2)}. This is a normal part of trading - we protected our capital by exiting at our predetermined risk level.`
+            : reason === 'take_profit'
+            ? `Excellent! Take profit was hit on ${position.symbol}. The trade closed at ${closePrice.toFixed(5)} with a profit of $${result.pnl.toFixed(2)}. The market moved as predicted and we successfully captured our target.`
+            : `Outstanding! Your goal has been achieved! The ${position.symbol} trade reached your target profit of $${result.pnl.toFixed(2)}. Well done on this successful trade.`;
+
+          await supabase.from('goal_ai_conversations').insert({
+            goal_session_id: position.goal_session_id,
+            user_id: position.user_id,
+            role: 'assistant',
+            content: conversationMessage,
+            conversation_type: 'trade_closure',
+            trade_id: position.id,
+            metadata: {
+              close_reason: reason,
+              symbol: position.symbol,
+              pnl: result.pnl,
+              entry_price: position.entry_price,
+              exit_price: closePrice
+            }
+          });
+
+          console.log(`[PositionMonitor] ✅ Created AI conversation message for ${reason} on ${position.symbol}`);
         }
       }
 
