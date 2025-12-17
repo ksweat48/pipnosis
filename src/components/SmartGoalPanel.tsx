@@ -157,48 +157,7 @@ export const SmartGoalPanel: React.FC = () => {
       <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-xl opacity-20 group-hover:opacity-40 transition duration-300 blur" />
 
       <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl p-6 border border-gray-700/50 shadow-2xl">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="relative">
-            <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-emerald-500 rounded-xl blur opacity-50 animate-pulse" />
-            <div className="relative p-3 bg-gradient-to-br from-blue-600 to-emerald-600 rounded-xl shadow-lg">
-              <Target className="w-6 h-6 text-white" />
-            </div>
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              Smart Goal Mode
-              <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />
-            </h2>
-            <p className="text-sm text-gray-400">Tell me your trading goal and I'll make it happen</p>
-          </div>
-        </div>
-
-      <div className="space-y-4">
-        <div className="bg-blue-900/20 border border-blue-700 rounded-lg overflow-hidden mb-3">
-          <button
-            onClick={() => setIsTradingModeExpanded(!isTradingModeExpanded)}
-            className="w-full flex items-center justify-between gap-2 p-3 hover:bg-blue-900/30 transition-colors cursor-pointer"
-          >
-            <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-blue-400" />
-              <span className="text-sm font-semibold text-blue-400">Short-Term Trading Mode</span>
-            </div>
-            <ChevronDown
-              className={`w-4 h-4 text-blue-400 transition-transform duration-200 ${
-                isTradingModeExpanded ? 'rotate-180' : ''
-              }`}
-            />
-          </button>
-          {isTradingModeExpanded && (
-            <div className="px-3 pb-3 animate-in fade-in slide-in-from-top-2 duration-200">
-              <p className="text-xs text-gray-300">
-                Pipnosis specializes in trades lasting <strong>minutes to hours</strong>, never overnight.
-                <strong> Pipnosis will always try to complete your goal in ONE trade</strong>, but may use several trades if needed depending on markets and the goal itself.
-              </p>
-            </div>
-          )}
-        </div>
-
+        <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           {GOAL_TEMPLATES.map((template, index) => (
             <button

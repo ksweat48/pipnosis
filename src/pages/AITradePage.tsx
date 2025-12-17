@@ -44,13 +44,6 @@ export function AITradePage() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 relative z-10">
         <div className="mb-8">
-          <div className="relative inline-block mb-6">
-            <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur-sm opacity-5" />
-            <h1 className="relative text-3xl sm:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-blue-400 to-emerald-400">
-              Smart Goal Mode
-            </h1>
-          </div>
-
           <div className="flex items-center gap-3 bg-gray-800/50 rounded-xl p-1.5 border border-gray-700/50 backdrop-blur-sm max-w-md">
             <button
               onClick={() => setActiveTab('start')}
@@ -61,7 +54,7 @@ export function AITradePage() {
               }`}
             >
               <Target className="w-5 h-5" />
-              <span>Start Session</span>
+              <span>Session</span>
             </button>
             <button
               onClick={() => setActiveTab('achievements')}
