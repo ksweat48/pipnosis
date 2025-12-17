@@ -80,6 +80,14 @@ export const GoalSessionDashboard: React.FC = () => {
         },
         (payload) => {
           console.log('[GoalSessionDashboard] Goal achievement detected!', payload);
+
+          // Play celebration sound for goal achievement
+          import('../services/notification-manager').then(({ notificationManager }) => {
+            notificationManager.playSound('trade_entry');
+            setTimeout(() => notificationManager.playSound('trade_exit'), 200);
+            console.log('[GoalSessionDashboard] 🏆 Played celebration sound for goal achievement!');
+          }).catch(err => console.error('[GoalSessionDashboard] Failed to play sound:', err));
+
           loadSessionData();
           // Show goal achieved dialog
           setGoalAchievementData({
@@ -127,6 +135,21 @@ export const GoalSessionDashboard: React.FC = () => {
           if (payload.new.status === 'closed' && payload.old.status === 'open') {
             console.log('[GoalSessionDashboard] ✅ Trade closed! Preparing popup...');
             const closeReason = payload.new.close_reason || 'manual';
+            const profitLoss = payload.new.profit_loss || 0;
+            const isProfit = profitLoss > 0;
+
+            // Play sound notification
+            import('../services/notification-manager').then(({ notificationManager }) => {
+              if (closeReason === 'take_profit' && isProfit) {
+                notificationManager.playSound('trade_exit');
+                console.log('[GoalSessionDashboard] 🎉 Played celebration sound for TP hit!');
+              } else if (closeReason === 'stop_loss') {
+                notificationManager.playSound('alarm');
+                console.log('[GoalSessionDashboard] 🔔 Played alert sound for SL hit');
+              } else {
+                notificationManager.playSound('notification');
+              }
+            }).catch(err => console.error('[GoalSessionDashboard] Failed to play sound:', err));
 
             // Don't show action dialog if goal was met (already showing goal achieved)
             if (closeReason !== 'goal_met' && !showGoalAchieved) {
@@ -137,7 +160,7 @@ export const GoalSessionDashboard: React.FC = () => {
                   direction: payload.new.direction,
                   entryPrice: payload.new.entry_price,
                   exitPrice: payload.new.exit_price,
-                  profitLoss: payload.new.profit_loss,
+                  profitLoss: profitLoss,
                   stopLoss: payload.new.stop_loss,
                   takeProfit: payload.new.take_profit,
                   closeReason

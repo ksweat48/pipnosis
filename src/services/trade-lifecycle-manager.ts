@@ -430,22 +430,26 @@ class TradeLifecycleManager {
         if (trade.direction === 'buy') {
           if (price <= trade.stop_loss) {
             shouldClose = true;
-            closeReason = 'Stop loss hit';
-            profitLoss = (trade.stop_loss - trade.entry_price) * dollarPerPip / calculatePipDistance(trade.symbol, trade.entry_price, trade.stop_loss);
+            closeReason = 'stop_loss';
+            const pipDistanceSL = calculatePipDistance(trade.symbol, trade.entry_price, trade.stop_loss);
+            profitLoss = -Math.abs(pipDistanceSL) * dollarPerPip;
           } else if (price >= trade.take_profit) {
             shouldClose = true;
-            closeReason = 'Take profit hit';
-            profitLoss = (trade.take_profit - trade.entry_price) * dollarPerPip / calculatePipDistance(trade.symbol, trade.entry_price, trade.take_profit);
+            closeReason = 'take_profit';
+            const pipDistanceTP = calculatePipDistance(trade.symbol, trade.entry_price, trade.take_profit);
+            profitLoss = Math.abs(pipDistanceTP) * dollarPerPip;
           }
         } else {
           if (price >= trade.stop_loss) {
             shouldClose = true;
-            closeReason = 'Stop loss hit';
-            profitLoss = (trade.entry_price - trade.stop_loss) * dollarPerPip / calculatePipDistance(trade.symbol, trade.entry_price, trade.stop_loss);
+            closeReason = 'stop_loss';
+            const pipDistanceSL = calculatePipDistance(trade.symbol, trade.entry_price, trade.stop_loss);
+            profitLoss = -Math.abs(pipDistanceSL) * dollarPerPip;
           } else if (price <= trade.take_profit) {
             shouldClose = true;
-            closeReason = 'Take profit hit';
-            profitLoss = (trade.entry_price - trade.take_profit) * dollarPerPip / calculatePipDistance(trade.symbol, trade.entry_price, trade.take_profit);
+            closeReason = 'take_profit';
+            const pipDistanceTP = calculatePipDistance(trade.symbol, trade.entry_price, trade.take_profit);
+            profitLoss = Math.abs(pipDistanceTP) * dollarPerPip;
           }
         }
       }
@@ -509,6 +513,7 @@ class TradeLifecycleManager {
   ): Promise<void> {
     try {
       console.log(`[Trade Lifecycle] Closing trade ${trade.id} on ${trade.symbol}: ${reason}`);
+      console.log(`[Trade Lifecycle] P&L: $${profitLoss.toFixed(2)}`);
 
       const { error: updateError } = await supabase
         .from('goal_session_trades')
@@ -516,6 +521,7 @@ class TradeLifecycleManager {
           status: 'closed',
           exit_price: exitPrice,
           profit_loss: profitLoss,
+          close_reason: reason,
           closed_at: new Date().toISOString()
         })
         .eq('id', trade.id);
@@ -527,6 +533,17 @@ class TradeLifecycleManager {
 
       const userId = trade.goal_sessions.user_id;
       const isProfit = profitLoss > 0;
+
+      // Play celebration sound for TP hits
+      if (reason === 'take_profit' && isProfit) {
+        console.log('[Trade Lifecycle] 🎉 TP HIT! Playing celebration sound...');
+        try {
+          const { notificationManager } = await import('./notification-manager');
+          notificationManager.playSound('trade_exit');
+        } catch (soundError) {
+          console.error('[Trade Lifecycle] Failed to play sound:', soundError);
+        }
+      }
 
       this.runCounterfactualAnalysis(trade, exitPrice, profitLoss).catch(err => {
         console.error('[Trade Lifecycle] Counterfactual analysis failed:', err);
