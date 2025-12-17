@@ -84,6 +84,8 @@ export interface MarketContext {
   volatility: string;  // low/med/high
   price: number;
   atr: number;
+  atr20?: number;      // Short-term ATR for volatility regime detection
+  atr100?: number;     // Long-term ATR for volatility regime detection
 }
 
 export interface GoalContext {
@@ -94,6 +96,8 @@ export interface GoalContext {
   remainingGoal: number;
   goalPercentage: number; // e.g., 0.077% for $200 from $258k
   pipsNeededEstimate: number; // Rough estimate for context
+  riskMode?: 'low' | 'medium' | 'high'; // User's selected risk tolerance
+  riskPercent?: number; // Actual risk percentage (3%, 5%, 10%)
 }
 
 export interface AlphaOverride {
@@ -129,6 +133,141 @@ export interface AlphaDecision {
 }
 
 class AlphaCoordinatorBrain {
+  /**
+   * Calculate Omega confidence spread (standard deviation)
+   * High spread = disagreement, tighten R:R
+   * Low spread = consensus, can use wider R:R
+   */
+  private calculateConfidenceSpread(votes: OmegaCouncilVotes): {
+    stdDev: number;
+    avgConfidence: number;
+    isHighAgreement: boolean;
+  } {
+    const confidences: number[] = [];
+
+    if (votes.trend) confidences.push(votes.trend.confidence);
+    if (votes.scalper) confidences.push(votes.scalper.confidence);
+    if (votes.swing) confidences.push(votes.swing.confidence);
+    if (votes.reversal) confidences.push(votes.reversal.confidence);
+    if (votes.volatility) confidences.push(votes.volatility.confidence);
+    if (votes.risk) confidences.push(votes.risk.confidence);
+    if (votes.omega8) confidences.push(votes.omega8.confidence);
+
+    if (confidences.length === 0) {
+      return { stdDev: 0, avgConfidence: 0, isHighAgreement: false };
+    }
+
+    // Calculate mean
+    const mean = confidences.reduce((sum, val) => sum + val, 0) / confidences.length;
+
+    // Calculate standard deviation
+    const squaredDiffs = confidences.map(val => Math.pow(val - mean, 2));
+    const variance = squaredDiffs.reduce((sum, val) => sum + val, 0) / confidences.length;
+    const stdDev = Math.sqrt(variance);
+
+    // High agreement = low std dev (< 10)
+    const isHighAgreement = stdDev < 10;
+
+    return { stdDev, avgConfidence: mean, isHighAgreement };
+  }
+
+  /**
+   * Detect volatility expansion/compression
+   * Expanding volatility = trending market, wider TP viable
+   * Compressing volatility = ranging market, tighten TP
+   */
+  private detectVolatilityRegime(marketContext: MarketContext): {
+    regime: 'expanding' | 'compressing' | 'stable';
+    ratio: number;
+    recommendation: string;
+  } {
+    // If we don't have ATR20/ATR100, return stable
+    if (!marketContext.atr20 || !marketContext.atr100) {
+      return {
+        regime: 'stable',
+        ratio: 1.0,
+        recommendation: 'Use standard R:R (2.0-2.5:1)'
+      };
+    }
+
+    const ratio = marketContext.atr20 / marketContext.atr100;
+
+    // Expanding: ATR20 > ATR100 by 15%+
+    if (ratio > 1.15) {
+      return {
+        regime: 'expanding',
+        ratio,
+        recommendation: 'Volatility expanding - wider TP viable (2.5-3.5:1)'
+      };
+    }
+
+    // Compressing: ATR20 < ATR100 by 15%+
+    if (ratio < 0.85) {
+      return {
+        regime: 'compressing',
+        ratio,
+        recommendation: 'Volatility compressing - tighten TP (1.5-2.0:1)'
+      };
+    }
+
+    return {
+      regime: 'stable',
+      ratio,
+      recommendation: 'Volatility stable - standard R:R (2.0-2.5:1)'
+    };
+  }
+
+  /**
+   * Consolidate stop quality score from Omega-8 and Omega-9
+   * Returns a unified quality score 0-100
+   */
+  private calculateStopQualityScore(
+    omega8Vote: Omega8Vote | null,
+    omega9Validation: Omega9ValidationResult | null
+  ): {
+    score: number;
+    recommendation: string;
+  } {
+    let qualityScore = 50; // Start neutral
+
+    // Omega-8 liquidity assessment
+    if (omega8Vote) {
+      if (omega8Vote.liquidity_bias === 'clean') {
+        qualityScore += 25; // Well-protected stop
+      } else if (omega8Vote.liquidity_bias === 'stoprun_risk') {
+        qualityScore -= 30; // Exposed stop
+      } else if (omega8Vote.liquidity_bias === 'reaccumulation') {
+        qualityScore += 10; // Decent protection
+      } else if (omega8Vote.liquidity_bias === 'distribution') {
+        qualityScore -= 15; // Risky area
+      }
+    }
+
+    // Omega-9 validation flags
+    if (omega9Validation) {
+      if (omega9Validation.pass) {
+        qualityScore += 15; // Passed validation
+      }
+      // Penalize for each flag
+      qualityScore -= (omega9Validation.flags.length * 5);
+    }
+
+    // Clamp to 0-100
+    qualityScore = Math.max(0, Math.min(100, qualityScore));
+
+    // Generate recommendation
+    let recommendation = '';
+    if (qualityScore >= 70) {
+      recommendation = 'High quality stop - use wider TP (2.5-3.5:1)';
+    } else if (qualityScore >= 40) {
+      recommendation = 'Moderate stop quality - standard TP (2.0-2.5:1)';
+    } else {
+      recommendation = 'Exposed stop - tighten TP (1.5-2.0:1)';
+    }
+
+    return { score: qualityScore, recommendation };
+  }
+
   /**
    * Coordinate Omega votes and make final decision
    * Alpha has FULL AUTHORITY - can override any Omega recommendation
@@ -229,10 +368,15 @@ class AlphaCoordinatorBrain {
       }
     }
 
+    // Calculate enhanced intelligence signals
+    const confidenceSpread = this.calculateConfidenceSpread(votes);
+    const volatilityRegime = this.detectVolatilityRegime(marketContext);
+    const stopQuality = this.calculateStopQualityScore(votes.omega8, null); // omega9 validation happens later
+
     // Build goal context (if trading with a goal)
     let goalContextText = '';
     if (goalContext && goalContext.hasGoal) {
-      const riskPercent = 5;
+      const riskPercent = goalContext.riskPercent || 5; // Use actual risk from user settings
       const maxRisk = goalContext.currentBalance * (riskPercent / 100);
       const dollarPerPipPerLot = marketContext.symbol.includes('JPY') ? 10 : marketContext.symbol.includes('XAU') ? 100 : 10;
 
@@ -254,6 +398,28 @@ class AlphaCoordinatorBrain {
 ${context}
 
 WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${intelligenceContext}${goalContextText}
+
+🎯 ELITE ALPHA INTELLIGENCE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Omega Council Agreement:
+  Confidence Spread: ${confidenceSpread.stdDev.toFixed(1)}% (Avg: ${confidenceSpread.avgConfidence.toFixed(0)}%)
+  ${confidenceSpread.isHighAgreement ? '✅ HIGH CONSENSUS - can use wider R:R (2.5-3.5:1)' : '⚠️ HIGH DISAGREEMENT - tighten R:R to 1.5-2.0:1'}
+
+📈 Volatility Regime:
+  Status: ${volatilityRegime.regime.toUpperCase()} ${volatilityRegime.ratio !== 1.0 ? `(ATR ratio: ${volatilityRegime.ratio.toFixed(2)})` : ''}
+  Recommendation: ${volatilityRegime.recommendation}
+
+🛡️ Stop Quality Assessment:
+  Score: ${stopQuality.score}/100
+  ${stopQuality.recommendation}
+${goalContext?.riskMode ? `
+💰 Risk Allocation (${goalContext.riskMode.toUpperCase()} Mode):
+  Risk per trade: ${goalContext.riskPercent}% = $${(goalContext.currentBalance * (goalContext.riskPercent || 5) / 100).toFixed(2)}
+  ${goalContext.riskMode === 'low' ? 'Conservative mode - favor 1.5:1-2.0:1 R:R for consistency' :
+    goalContext.riskMode === 'high' ? 'Aggressive mode - 2.5:1-4.0:1 R:R acceptable with high confidence' :
+    'Balanced mode - 2.0:1-3.0:1 R:R optimal'}
+` : ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 YOUR FULL AUTHORITY:
 - Override Adversarial blocks when statistical edge is strong (manipulation resolved, BOS confirmed)
@@ -447,6 +613,10 @@ Return JSON only:
 
         const validation = await omega9Hallucination.validate(omega9Input);
         decision.omega9_validation = validation;
+
+        // Recalculate stop quality now that we have Omega-9 results
+        const finalStopQuality = this.calculateStopQualityScore(votes.omega8, validation);
+        console.log(`[Alpha Coordinator] 🛡️ Final Stop Quality: ${finalStopQuality.score}/100`);
 
         if (!validation.pass) {
           console.log('[Alpha Coordinator] ❌ Omega-9 BLOCKED trade:', validation.reasoning);

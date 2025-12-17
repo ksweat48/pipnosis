@@ -469,7 +469,9 @@ class GoalSessionLiveEngine {
         currentProgress,
         remainingGoal,
         goalPercentage,
-        pipsNeededEstimate
+        pipsNeededEstimate,
+        riskMode: this.config.riskMode,
+        riskPercent: getRiskPercentage(this.config.riskMode)
       };
 
       console.log('%c[GOAL CONTEXT] 🎯 Calculated:', 'color: #ff6b6b; font-weight: bold');
