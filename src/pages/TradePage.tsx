@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { MarketChart } from '@/components/MarketChart';
@@ -9,6 +10,7 @@ import { RefreshCw } from 'lucide-react';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 
 export function TradePage() {
+  const [searchParams] = useSearchParams();
   const [selectedSymbol, setSelectedSymbol] = useState<string>(() => chartPreferencesService.getSelectedSymbol());
   const [tradeLines, setTradeLines] = useState<{
     entry?: number;
@@ -21,6 +23,14 @@ export function TradePage() {
     setSelectedSymbol(symbol);
     chartPreferencesService.setSelectedSymbol(symbol);
   }, []);
+
+  // Read symbol from URL query parameter on mount
+  useEffect(() => {
+    const symbolFromUrl = searchParams.get('symbol');
+    if (symbolFromUrl) {
+      handleSymbolChange(symbolFromUrl);
+    }
+  }, [searchParams, handleSymbolChange]);
 
   // Pull-to-refresh functionality
   const pullToRefresh = usePullToRefresh({
