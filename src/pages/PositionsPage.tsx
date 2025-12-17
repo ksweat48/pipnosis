@@ -188,23 +188,46 @@ export function PositionsPage() {
     }
 
     // Map goal_session_trades to RecentTrade format
-    const mappedTrades = (goalTradesData || []).map((trade: any) => ({
-      id: trade.id,
-      symbol: trade.symbol,
-      position_type: trade.direction, // direction -> position_type
-      lot_size: parseFloat(trade.position_size) || 0, // position_size -> lot_size
-      entry_price: parseFloat(trade.entry_price) || 0,
-      exit_price: parseFloat(trade.exit_price) || 0,
-      profit_loss: parseFloat(trade.profit_loss) || 0,
-      opened_at: trade.opened_at,
-      closed_at: trade.closed_at,
-      close_reason: trade.close_reason || 'unknown',
-      stop_loss: parseFloat(trade.stop_loss) || 0,
-      take_profit: parseFloat(trade.take_profit) || 0,
-      max_drawdown: trade.max_drawdown ? parseFloat(trade.max_drawdown) : 0,
-      max_profit: trade.max_profit ? parseFloat(trade.max_profit) : 0,
-      total_pips: trade.total_pips ? parseFloat(trade.total_pips) : 0
-    }));
+    const mappedTrades = (goalTradesData || []).map((trade: any) => {
+      let profitLoss = parseFloat(trade.profit_loss) || 0;
+
+      // Defensive fallback: If profit_loss is 0 but entry/exit prices differ, calculate it
+      if (profitLoss === 0 && trade.entry_price && trade.exit_price && trade.entry_price !== trade.exit_price && trade.position_size > 0) {
+        const entryPrice = parseFloat(trade.entry_price);
+        const exitPrice = parseFloat(trade.exit_price);
+        const positionSize = parseFloat(trade.position_size);
+
+        // Calculate pip distance
+        const pipValue = trade.symbol === 'XAUUSD' ? 0.01 : (trade.symbol.includes('JPY') ? 0.01 : 0.0001);
+        const pipDistance = (exitPrice - entryPrice) / pipValue;
+
+        // Calculate dollar per pip
+        const dollarPerPip = trade.symbol === 'XAUUSD' ? positionSize * 100 : positionSize * 10;
+
+        // Calculate PnL based on direction
+        profitLoss = trade.direction === 'buy' ? pipDistance * dollarPerPip : -pipDistance * dollarPerPip;
+
+        console.warn(`Fallback PnL calculation for trade ${trade.id}: $${profitLoss.toFixed(2)}`);
+      }
+
+      return {
+        id: trade.id,
+        symbol: trade.symbol,
+        position_type: trade.direction, // direction -> position_type
+        lot_size: parseFloat(trade.position_size) || 0, // position_size -> lot_size
+        entry_price: parseFloat(trade.entry_price) || 0,
+        exit_price: parseFloat(trade.exit_price) || 0,
+        profit_loss: profitLoss,
+        opened_at: trade.opened_at,
+        closed_at: trade.closed_at,
+        close_reason: trade.close_reason || 'unknown',
+        stop_loss: parseFloat(trade.stop_loss) || 0,
+        take_profit: parseFloat(trade.take_profit) || 0,
+        max_drawdown: trade.max_drawdown ? parseFloat(trade.max_drawdown) : 0,
+        max_profit: trade.max_profit ? parseFloat(trade.max_profit) : 0,
+        total_pips: trade.total_pips ? parseFloat(trade.total_pips) : 0
+      };
+    });
 
     return mappedTrades;
   };

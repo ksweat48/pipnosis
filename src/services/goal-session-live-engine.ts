@@ -1646,9 +1646,39 @@ Your decision keeps you in control of your risk and prevents runaway trading.
       return;
     }
 
+    // 🚨 CRITICAL: Validate and recalculate PnL if needed
+    let finalPnL = trade.pnl;
+
+    if (!finalPnL || finalPnL === 0) {
+      console.warn(`%c⚠️ PnL is $0.00 for trade ${trade.id} - Recalculating!`, 'color: #ff9800; font-weight: bold');
+
+      // Recalculate PnL using the same method as event-based-llm-engine
+      if (trade.exitPrice && trade.entryPrice && trade.positionSize) {
+        const pipDistance = calculatePipDistance(trade.symbol, trade.entryPrice, trade.exitPrice);
+        const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.positionSize);
+
+        finalPnL = trade.direction === 'buy'
+          ? pipDistance * dollarPerPip
+          : -pipDistance * dollarPerPip;
+
+        console.log(`%c✅ RECALCULATED PnL: $${finalPnL.toFixed(2)}`, 'color: #4caf50; font-weight: bold');
+        console.log(`  Pip Distance: ${pipDistance.toFixed(1)} pips`);
+        console.log(`  Dollar Per Pip: $${dollarPerPip.toFixed(2)}`);
+        console.log(`  Position Size: ${trade.positionSize} lots`);
+
+        // Update the trade object for downstream systems
+        trade.pnl = finalPnL;
+      } else {
+        console.error(`%c🚨 CANNOT RECALCULATE PnL - Missing data:`, 'color: #ff0000; font-weight: bold');
+        console.error(`  Exit Price: ${trade.exitPrice}`);
+        console.error(`  Entry Price: ${trade.entryPrice}`);
+        console.error(`  Position Size: ${trade.positionSize}`);
+      }
+    }
+
     // 🔍 USER ISOLATION AUDIT: Log user_id to verify trades are per-user
     logger.info(LogCategory.AI_TRADING,
-      `Trade closed: ${trade.outcome.toUpperCase()} - PnL: $${trade.pnl.toFixed(2)} | ` +
+      `Trade closed: ${trade.outcome.toUpperCase()} - PnL: $${finalPnL.toFixed(2)} | ` +
       `User: ${this.config.userId.substring(0, 8)} | Session: ${this.activeSession.substring(0, 8)}`
     );
 
@@ -1666,7 +1696,7 @@ Your decision keeps you in control of your risk and prevents runaway trading.
       .from('goal_session_trades')
       .update({
         exit_price: trade.exitPrice,
-        profit_loss: trade.pnl,
+        profit_loss: finalPnL,
         status: 'closed',
         closed_at: new Date().toISOString(),
         close_reason: trade.outcome === 'win' ? 'take_profit' : 'stop_loss'
@@ -1690,7 +1720,7 @@ Your decision keeps you in control of your risk and prevents runaway trading.
         exitPrice: trade.exitPrice!,
         stopLoss: trade.stopLoss,
         takeProfit: trade.takeProfit,
-        pnl: trade.pnl,
+        pnl: finalPnL,
         entryTime: trade.entryTime,
         exitTime: trade.exitTime!
       });
@@ -1722,7 +1752,7 @@ Your decision keeps you in control of your risk and prevents runaway trading.
     const closureMessage = `${emoji} Trade Closed: ${trade.symbol} ${trade.direction.toUpperCase()}\n` +
       `📊 Exit: ${trade.exitPrice?.toFixed(5)} | Reason: ${exitReason}\n` +
       `⏱️ Duration: ${durationText}\n` +
-      `💰 P&L: ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)} (${pips >= 0 ? '+' : ''}${pips.toFixed(1)} pips)`;
+      `💰 P&L: ${finalPnL >= 0 ? '+' : ''}$${finalPnL.toFixed(2)} (${pips >= 0 ? '+' : ''}${pips.toFixed(1)} pips)`;
 
     try {
       await supabase.from('goal_ai_conversations').insert({
@@ -1736,7 +1766,7 @@ Your decision keeps you in control of your risk and prevents runaway trading.
           duration_minutes: tradeDuration,
           entry_price: trade.entryPrice,
           exit_price: trade.exitPrice,
-          pnl: trade.pnl,
+          pnl: finalPnL,
           pips,
           duration: durationText,
           exit_reason: exitReason
