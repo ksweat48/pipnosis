@@ -948,11 +948,30 @@ class GoalSessionLiveEngine {
 
       // Use DB count as source of truth (memory can desync)
       if (dbOpenTradeCount >= this.config.maxConcurrentTrades) {
-        logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - PAUSING scanning to save credits`);
-        console.log('%c[AUTONOMOUS ENGINE] ⏸️ SCAN BLOCKED: DB confirms max trades reached', 'color: #f44336; font-weight: bold');
-        // Still monitor open positions but don't scan for new trades
-        await this.monitorOpenPositionsOnly();
-        return;
+        // CRITICAL: Verify these are actual valid open positions, not stale records
+        const validOpenPositions = dbPositions?.filter(p =>
+          p.entry_price > 0 &&
+          p.stop_loss > 0 &&
+          p.take_profit > 0 &&
+          p.position_size > 0
+        ) || [];
+
+        const validOpenCount = validOpenPositions.length;
+
+        if (validOpenCount === 0 && dbOpenTradeCount > 0) {
+          console.error('%c[AUTONOMOUS ENGINE] 🚨 STALE DATABASE RECORDS DETECTED!', 'color: #f44336; font-weight: bold; font-size: 16px');
+          console.error(`[AUTONOMOUS ENGINE] Database shows ${dbOpenTradeCount} "open" trades but 0 are valid. This is a data integrity issue!`);
+          console.log('%c[AUTONOMOUS ENGINE] ✅ Allowing scan to continue (no valid open positions)', 'color: #4caf50; font-weight: bold');
+        } else if (validOpenCount < this.config.maxConcurrentTrades) {
+          console.warn('%c[AUTONOMOUS ENGINE] ⚠️ Some database records are invalid', 'color: #ff9800; font-weight: bold');
+          console.log(`[AUTONOMOUS ENGINE] ${validOpenCount} valid positions out of ${dbOpenTradeCount} total - allowing scan`);
+        } else {
+          logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - PAUSING scanning to save credits`);
+          console.log('%c[AUTONOMOUS ENGINE] ⏸️ SCAN BLOCKED: DB confirms max trades reached', 'color: #f44336; font-weight: bold');
+          // Still monitor open positions but don't scan for new trades
+          await this.monitorOpenPositionsOnly();
+          return;
+        }
       }
 
       const watchlist = this.config.watchlist || getDefaultWatchlist();
@@ -3092,8 +3111,18 @@ Keep response under 100 words, educational tone.`;
         'color: #4caf50; font-weight: bold');
     }
 
+    // CRITICAL: If no open positions after resync, exit immediately (don't block scanning)
+    if (this.openTrades.length === 0) {
+      console.warn('%c[MONITORING MODE] ⚠️ No open positions after resync!', 'color: #ff9800; font-weight: bold; font-size: 14px');
+      console.warn('[MONITORING MODE] Database had "open" records but they were stale/invalid.');
+      console.log('%c[MONITORING MODE] ✅ Exiting monitoring mode - scan can proceed', 'color: #4caf50; font-weight: bold');
+      this.monitoringModeMessageSent = false; // Reset flag to allow normal operation
+      return;
+    }
+
     // Send status update to UI on first call to monitoring mode
-    if (!this.monitoringModeMessageSent) {
+    // CRITICAL: Only send message if there are ACTUALLY open positions after resync
+    if (!this.monitoringModeMessageSent && this.openTrades.length > 0) {
       console.log('%c[MONITORING MODE] 👁️ Switched to position monitoring only', 'color: #2196f3; font-weight: bold; font-size: 16px');
       await this.sendAIMessage(
         `👁️ Position Monitoring Active\n\n` +
@@ -3109,6 +3138,7 @@ Keep response under 100 words, educational tone.`;
 
     if (tradeSymbols.length === 0) {
       console.log('%c[MONITORING MODE] ⚠️ No symbols to monitor (empty array)', 'color: #ff9800; font-weight: bold');
+      this.monitoringModeMessageSent = false;
       return;
     }
 
