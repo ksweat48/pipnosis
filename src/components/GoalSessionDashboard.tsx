@@ -1055,6 +1055,7 @@ export const GoalSessionDashboard: React.FC = () => {
           currentProgress={progress?.stats?.totalProfit || 0}
           targetValue={activeSession.config.goalAmount}
           tradesInSession={progress?.stats?.totalTrades || 0}
+          isGoalAchieved={(progress?.stats?.totalProfit || 0) >= activeSession.config.goalAmount}
           onStartNewSession={handleStartNewSession}
           onContinueSession={handleContinueCurrentSession}
           onCloseForNow={handleCloseForNow}

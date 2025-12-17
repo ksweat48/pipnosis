@@ -20,13 +20,15 @@ interface TradeClosedActionDialogProps {
   currentProgress: number;
   targetValue: number;
   tradesInSession: number;
+  isGoalAchieved: boolean;
   onStartNewSession: () => void;
   onContinueSession: () => void;
   onCloseForNow: () => void;
   isLoading?: boolean;
 }
 
-const TIMEOUT_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+const GOAL_ACHIEVED_TIMEOUT = 60 * 1000; // 60 seconds for goal achieved
+const NORMAL_TIMEOUT = 5 * 60 * 1000; // 5 minutes for normal trades
 
 export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = ({
   isOpen,
@@ -41,12 +43,14 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   currentProgress,
   targetValue,
   tradesInSession,
+  isGoalAchieved,
   onStartNewSession,
   onContinueSession,
   onCloseForNow,
   isLoading = false
 }) => {
-  const [timeRemaining, setTimeRemaining] = useState(TIMEOUT_DURATION);
+  const timeoutDuration = isGoalAchieved ? GOAL_ACHIEVED_TIMEOUT : NORMAL_TIMEOUT;
+  const [timeRemaining, setTimeRemaining] = useState(timeoutDuration);
 
   const smartCloseResult = detectTrueCloseReason({
     exitPrice,
@@ -67,9 +71,9 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   // Reset timer when dialog opens
   useEffect(() => {
     if (isOpen) {
-      setTimeRemaining(TIMEOUT_DURATION);
+      setTimeRemaining(timeoutDuration);
     }
-  }, [isOpen]);
+  }, [isOpen, timeoutDuration]);
 
   // Countdown timer
   useEffect(() => {
@@ -79,7 +83,13 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
       setTimeRemaining((prev) => {
         if (prev <= 1000) {
           clearInterval(interval);
-          onContinueSession(); // Auto-continue session
+          // If goal achieved, auto-close session and stop scanning
+          // If goal not achieved, auto-continue session
+          if (isGoalAchieved) {
+            onCloseForNow();
+          } else {
+            onContinueSession();
+          }
           return 0;
         }
         return prev - 1000;
@@ -87,7 +97,7 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isOpen, onContinueSession]);
+  }, [isOpen, isGoalAchieved, onContinueSession, onCloseForNow]);
 
   // Escape key handler
   useEffect(() => {
@@ -95,13 +105,18 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onContinueSession(); // Default action on escape
+        // If goal achieved, close session; otherwise continue
+        if (isGoalAchieved) {
+          onCloseForNow();
+        } else {
+          onContinueSession();
+        }
       }
     };
 
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onContinueSession]);
+  }, [isOpen, isGoalAchieved, onContinueSession, onCloseForNow]);
 
   if (!isOpen) return null;
 
@@ -172,7 +187,7 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
             <div className="flex items-center justify-center gap-2 text-xs">
               <Clock className="w-3 h-3 text-gray-500" />
               <span className="text-gray-500">
-                Auto-continue in <span className="font-semibold text-gray-400">{formatTime(timeRemaining)}</span>
+                {isGoalAchieved ? 'Auto-close in' : 'Auto-continue in'} <span className="font-semibold text-gray-400">{formatTime(timeRemaining)}</span>
               </span>
             </div>
           </div>
@@ -251,14 +266,16 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
 
             {/* Action Buttons */}
             <div className="space-y-3">
-              <button
-                onClick={onContinueSession}
-                disabled={isLoading}
-                className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 rounded-xl font-semibold text-white transition-all duration-300 shadow-lg hover:shadow-emerald-500/25 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <PlayCircle className="w-5 h-5" />
-                Continue Current Session
-              </button>
+              {!isGoalAchieved && (
+                <button
+                  onClick={onContinueSession}
+                  disabled={isLoading}
+                  className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 rounded-xl font-semibold text-white transition-all duration-300 shadow-lg hover:shadow-emerald-500/25 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <PlayCircle className="w-5 h-5" />
+                  Continue Current Session
+                </button>
+              )}
 
               <button
                 onClick={onStartNewSession}
