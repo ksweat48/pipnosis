@@ -490,6 +490,7 @@ export function calculateGoalOptimalPosition(
   console.log(`  Max Position Size (risk-based): ${maxPositionSize.toFixed(3)} lots`);
 
   // REVERSE CALCULATION: What lot size gives us goal profit at optimal pips?
+  const optimalPips = commonMovePips;
   const dollarPerPipAtOneLot = isXAUUSD(symbol) ? 100 : isIndex(symbol) ? 100 : 10;
   const requiredLotSizeForOptimal = remainingGoal / (optimalPips * dollarPerPipAtOneLot);
 
