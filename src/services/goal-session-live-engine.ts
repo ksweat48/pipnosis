@@ -25,6 +25,7 @@ import { TraderScore } from './ai-identity';
 import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalOptimalPosition, calculateAndValidateRR } from '../utils/currencyHelpers';
 import { getRiskPercentage } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
+import { scanningStateMachine } from './scanning-state-machine';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -320,6 +321,8 @@ class GoalSessionLiveEngine {
    * Evaluates all watchlist symbols and selects the best opportunity
    */
   private async processMultiSymbolCycle(watchlist: string[]): Promise<void> {
+    let tradeExecuted = false;
+
     try {
       // 🔍 AGGRESSIVE LOGGING: Entry point
       console.log('%c[MULTI-SYMBOL] 🚀 ENTERED processMultiSymbolCycle', 'color: #00ff00; font-weight: bold; font-size: 16px');
@@ -688,6 +691,7 @@ class GoalSessionLiveEngine {
       );
 
       if (executionResult.success) {
+        tradeExecuted = true;
         // CRITICAL: Update trade ID to match database UUID before tracking
         trade.id = executionResult.tradeId!;
         this.openTrades.push(trade);
@@ -787,6 +791,14 @@ class GoalSessionLiveEngine {
       await this.sendAIMessage(`⚠️ Error during market scan: ${error instanceof Error ? error.message : 'Unknown error'}. Will retry on next cycle.`).catch(e => {
         console.error('[MULTI-SYMBOL] Failed to send error message:', e);
       });
+    } finally {
+      // Record scan completion for state machine tracking
+      try {
+        await scanningStateMachine.recordScanCompletion(this.activeSession!, tradeExecuted);
+        console.log(`[MULTI-SYMBOL] 📊 Scan completion recorded: Trade found = ${tradeExecuted}`);
+      } catch (error) {
+        logger.error(LogCategory.AI_TRADING, 'Failed to record scan completion', { error });
+      }
     }
     // NOTE: Parent function manages the lock - do not modify it here
   }
@@ -795,6 +807,8 @@ class GoalSessionLiveEngine {
    * Main autonomous candle processing logic (Multi-Symbol Mode)
    */
   private async processCandleAutonomous(): Promise<void> {
+    let tradeExecuted = false;
+
     try {
       // 🚨 EMERGENCY DIAGNOSTICS
       console.log('%c[AUTONOMOUS ENGINE] 🔍 Cycle starting...', 'color: #10b981; font-weight: bold; font-size: 14px');
@@ -827,6 +841,43 @@ class GoalSessionLiveEngine {
         await this.monitorOpenPositionsOnly();
         return;
       }
+
+      // ⏱️ CHECK: Scanning frequency control via state machine
+      const scanState = await scanningStateMachine.canScanNow(this.activeSession);
+
+      console.log('%c[AUTONOMOUS ENGINE] ⏱️ Scanning State Machine Check:', 'color: #3b82f6; font-weight: bold', {
+        allowed: scanState.allowed,
+        status: scanState.status,
+        reason: scanState.reason,
+        message: scanState.message,
+        sessionNumber: scanState.sessionNumber,
+        scansRemaining: scanState.scansRemaining,
+        secondsRemaining: scanState.secondsRemaining
+      });
+
+      if (!scanState.allowed) {
+        logger.debug(LogCategory.AI_TRADING, `⏸️ Scanning blocked by state machine: ${scanState.reason}`);
+        console.log('%c[AUTONOMOUS ENGINE] ⏸️ SCAN BLOCKED: ' + scanState.message, 'color: #f59e0b; font-weight: bold');
+        console.log(`[AUTONOMOUS ENGINE] Status: ${scanState.status}`);
+
+        if (scanState.nextScanAt) {
+          console.log(`[AUTONOMOUS ENGINE] Next scan allowed at: ${scanState.nextScanAt}`);
+        }
+        if (scanState.cooldownEndsAt) {
+          console.log(`[AUTONOMOUS ENGINE] Cooldown ends at: ${scanState.cooldownEndsAt}`);
+        }
+        if (scanState.lockdownEndsAt) {
+          console.log(`[AUTONOMOUS ENGINE] Lockdown ends at: ${scanState.lockdownEndsAt}`);
+        }
+
+        // Still monitor open positions during cooldown/lockdown
+        await this.monitorOpenPositionsOnly();
+        return;
+      }
+
+      // ✅ Scanning allowed - proceed with market evaluation
+      console.log('%c[AUTONOMOUS ENGINE] ✅ Scan permission GRANTED', 'color: #10b981; font-weight: bold');
+      console.log(`[AUTONOMOUS ENGINE] Session ${scanState.sessionNumber}/2 - ${scanState.scansRemaining} scans remaining`);
 
       // 🚨 CRITICAL: Sync with database before checking max trades
       // Prevents memory desync from losing track of open positions
@@ -1207,6 +1258,7 @@ class GoalSessionLiveEngine {
           logger.debug(LogCategory.AI_TRADING, `🎯 Trade decision: ${result.trade.direction} @ ${result.trade.entryPrice}`);
           logger.debug(LogCategory.AI_TRADING, `SL: ${result.trade.stopLoss} | TP: ${result.trade.takeProfit} | R:R 1:${((result.trade.takeProfit - result.trade.entryPrice) / (result.trade.entryPrice - result.trade.stopLoss)).toFixed(2)}`);
           await this.handleNewTradeSignal(result.trade);
+          tradeExecuted = true;
         }
       }
 
@@ -1223,6 +1275,14 @@ class GoalSessionLiveEngine {
           client_last_seen: new Date().toISOString()
         })
         .eq('id', this.activeSession);
+
+      // Record scan completion for state machine tracking
+      try {
+        await scanningStateMachine.recordScanCompletion(this.activeSession, tradeExecuted);
+        console.log(`[AUTONOMOUS ENGINE] 📊 Scan completion recorded: Trade found = ${tradeExecuted}`);
+      } catch (error) {
+        logger.error(LogCategory.AI_TRADING, 'Failed to record scan completion', { error });
+      }
 
     } catch (error) {
       console.error('[Goal Live Engine] Autonomous processing error:', error);
