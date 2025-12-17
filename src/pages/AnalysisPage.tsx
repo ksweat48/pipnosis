@@ -8,7 +8,7 @@ import { useUserBalance } from '@/hooks/useUserBalance';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { supabase } from '@/lib/supabase';
 import { pageContext } from '@/services/page-context';
-import { TrendingUp, TrendingDown, DollarSign, Target, Award, AlertTriangle, Clock, Calendar, BarChart3, PieChart, Sparkles } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Target, Award, AlertTriangle, Clock, Calendar, BarChart3, PieChart, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface TradeStatistics {
   total_trades: number;
@@ -41,6 +41,11 @@ export function AnalysisPage() {
   const [symbolPerformance, setSymbolPerformance] = useState<SymbolPerformance[]>([]);
   const [loading, setLoading] = useState(true);
   const [timePeriod, setTimePeriod] = useState<'today' | 'week' | 'month' | 'all'>('all');
+
+  // Collapsible sections state - default to collapsed (true)
+  const [bestWorstCollapsed, setBestWorstCollapsed] = useState(true);
+  const [symbolPerfCollapsed, setSymbolPerfCollapsed] = useState(true);
+  const [insightsCollapsed, setInsightsCollapsed] = useState(true);
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -269,12 +274,26 @@ export function AnalysisPage() {
           <div className="relative group">
             <div className="absolute -inset-0.5 bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
             <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl border border-gray-700/50 rounded-xl p-4 sm:p-6 shadow-2xl">
-              <h3 className="text-base sm:text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-emerald-400 mb-3 sm:mb-4 flex items-center gap-2">
-                <Award className="w-4 h-4 sm:w-5 sm:h-5 text-green-500" />
-                Best & Worst Trades
-              </h3>
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <h3 className="text-base sm:text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-emerald-400 flex items-center gap-2">
+                  <Award className="w-4 h-4 sm:w-5 sm:h-5 text-green-500" />
+                  Best & Worst Trades
+                </h3>
+                <button
+                  onClick={() => setBestWorstCollapsed(!bestWorstCollapsed)}
+                  className="text-gray-400 hover:text-white transition-colors p-1"
+                  aria-label={bestWorstCollapsed ? "Expand" : "Collapse"}
+                >
+                  {bestWorstCollapsed ? (
+                    <ChevronDown className="w-5 h-5" />
+                  ) : (
+                    <ChevronUp className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
 
-              <div className="space-y-3 sm:space-y-4">
+              {!bestWorstCollapsed && (
+                <div className="space-y-3 sm:space-y-4">
                 <div className="relative group/inner">
                   <div className="absolute -inset-0.5 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg opacity-20 blur-sm" />
                   <div className="relative bg-green-900/20 backdrop-blur-sm border border-green-700/50 rounded-lg p-3 sm:p-4">
@@ -316,28 +335,44 @@ export function AnalysisPage() {
                   </div>
                 </div>
               </div>
+              )}
             </div>
           </div>
 
           <div className="relative group">
             <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
             <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl border border-gray-700/50 rounded-xl p-4 sm:p-6 shadow-2xl">
-              <h3 className="text-base sm:text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-400 mb-3 sm:mb-4 flex items-center gap-2">
-                <PieChart className="w-4 h-4 sm:w-5 sm:h-5 text-purple-500" />
-                Performance by Symbol
-              </h3>
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <h3 className="text-base sm:text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-400 flex items-center gap-2">
+                  <PieChart className="w-4 h-4 sm:w-5 sm:h-5 text-purple-500" />
+                  Performance by Symbol
+                </h3>
+                <button
+                  onClick={() => setSymbolPerfCollapsed(!symbolPerfCollapsed)}
+                  className="text-gray-400 hover:text-white transition-colors p-1"
+                  aria-label={symbolPerfCollapsed ? "Expand" : "Collapse"}
+                >
+                  {symbolPerfCollapsed ? (
+                    <ChevronDown className="w-5 h-5" />
+                  ) : (
+                    <ChevronUp className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
 
-              {symbolPerformance.length === 0 ? (
-                <div className="text-center py-8">
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="p-4 bg-purple-500/10 rounded-full">
-                      <PieChart className="w-8 h-8 text-purple-400" />
+              {!symbolPerfCollapsed && (
+                <>
+                  {symbolPerformance.length === 0 ? (
+                    <div className="text-center py-8">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="p-4 bg-purple-500/10 rounded-full">
+                          <PieChart className="w-8 h-8 text-purple-400" />
+                        </div>
+                        <p className="text-gray-400 text-sm">No trading data available yet</p>
+                      </div>
                     </div>
-                    <p className="text-gray-400 text-sm">No trading data available yet</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2 sm:space-y-3 max-h-80 overflow-y-auto">
+                  ) : (
+                    <div className="space-y-2 sm:space-y-3 max-h-80 overflow-y-auto">
                   {symbolPerformance.map((symbol) => (
                     <div key={symbol.symbol} className="bg-gray-700/30 backdrop-blur-sm border border-gray-600/50 rounded-lg p-3 sm:p-4 hover:bg-gray-700/40 hover:border-gray-600/70 transition-all">
                       <div className="flex items-center justify-between mb-2">
@@ -374,7 +409,9 @@ export function AnalysisPage() {
                       </div>
                     </div>
                   ))}
-                </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -383,13 +420,27 @@ export function AnalysisPage() {
         <div className="relative group">
           <div className="absolute -inset-0.5 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
           <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl border border-gray-700/50 rounded-xl p-4 sm:p-6 shadow-2xl">
-            <h3 className="text-base sm:text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-yellow-400 to-orange-400 mb-3 sm:mb-4 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-500" />
-              Trading Insights
-            </h3>
+            <div className="flex items-center justify-between mb-3 sm:mb-4">
+              <h3 className="text-base sm:text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-yellow-400 to-orange-400 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-500" />
+                Trading Insights
+              </h3>
+              <button
+                onClick={() => setInsightsCollapsed(!insightsCollapsed)}
+                className="text-gray-400 hover:text-white transition-colors p-1"
+                aria-label={insightsCollapsed ? "Expand" : "Collapse"}
+              >
+                {insightsCollapsed ? (
+                  <ChevronDown className="w-5 h-5" />
+                ) : (
+                  <ChevronUp className="w-5 h-5" />
+                )}
+              </button>
+            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-              {statistics && statistics.win_rate < 50 && (
+            {!insightsCollapsed && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                {statistics && statistics.win_rate < 50 && (
                 <div className="relative group/insight">
                   <div className="absolute -inset-0.5 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-lg opacity-20 blur-sm" />
                   <div className="relative bg-yellow-900/20 backdrop-blur-sm border border-yellow-700/50 rounded-lg p-3 sm:p-4">
@@ -448,7 +499,8 @@ export function AnalysisPage() {
                   </div>
                 </div>
               )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
 

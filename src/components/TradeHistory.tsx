@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { TrendingUp, TrendingDown, Calendar, DollarSign, BarChart3, Award, AlertCircle, Download } from 'lucide-react';
+import { TrendingUp, TrendingDown, Calendar, DollarSign, BarChart3, Award, AlertCircle, Download, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   detectTrueCloseReason,
   getCloseReasonText,
@@ -55,6 +55,7 @@ export function TradeHistory() {
   const [filterOutcome, setFilterOutcome] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'date' | 'profit'>('date');
   const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
+  const [collapsed, setCollapsed] = useState(true); // Default collapsed
 
   useEffect(() => {
     fetchTradeHistory();
@@ -290,18 +291,31 @@ export function TradeHistory() {
             <BarChart3 className="w-5 h-5 text-emerald-500" />
             Trade History
           </h3>
-          {trades.length > 0 && (
+          <div className="flex items-center gap-2">
+            {trades.length > 0 && (
+              <button
+                onClick={exportToCSV}
+                className="flex items-center gap-2 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                Export CSV
+              </button>
+            )}
             <button
-              onClick={exportToCSV}
-              className="flex items-center gap-2 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded transition-colors"
+              onClick={() => setCollapsed(!collapsed)}
+              className="text-gray-400 hover:text-white transition-colors p-1"
+              aria-label={collapsed ? "Expand" : "Collapse"}
             >
-              <Download className="w-4 h-4" />
-              Export CSV
+              {collapsed ? (
+                <ChevronDown className="w-5 h-5" />
+              ) : (
+                <ChevronUp className="w-5 h-5" />
+              )}
             </button>
-          )}
+          </div>
         </div>
 
-        {statistics && (
+        {!collapsed && statistics && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
               <div className="bg-gray-800/50 rounded-lg p-3">
@@ -363,7 +377,8 @@ export function TradeHistory() {
           </>
         )}
 
-        <div className="flex flex-wrap gap-2">
+        {!collapsed && (
+          <div className="flex flex-wrap gap-2">
           <select
             value={filterSymbol}
             onChange={(e) => setFilterSymbol(e.target.value)}
@@ -393,10 +408,12 @@ export function TradeHistory() {
             <option value="date">Sort by Date</option>
             <option value="profit">Sort by P&L</option>
           </select>
-        </div>
+          </div>
+        )}
       </div>
 
-      <div className="p-4">
+      {!collapsed && (
+        <div className="p-4">
         {filteredTrades.length === 0 ? (
           <div className="text-center py-8 text-gray-400">
             <AlertCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
@@ -497,7 +514,8 @@ export function TradeHistory() {
             ))}
           </div>
         )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
