@@ -532,11 +532,14 @@ class PositionMonitorService {
         .eq('status', 'open');
 
       if (!otherTrades || otherTrades.length === 0) {
-        const newStatus = reason === 'goal_met' ? 'goal_achieved' : 'scanning';
-        await supabase
-          .from('goal_sessions')
-          .update({ status: newStatus })
-          .eq('id', position.goal_session_id);
+        // Database trigger handles soft_closing → expired and in_trade → scanning
+        // Only override status here if goal was achieved
+        if (reason === 'goal_met') {
+          await supabase
+            .from('goal_sessions')
+            .update({ status: 'goal_achieved' })
+            .eq('id', position.goal_session_id);
+        }
 
         // Clear mid-trade notifications when session completes
         const { midTradeNotificationQueue } = await import('./mid-trade-notification-queue');
