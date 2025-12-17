@@ -16,6 +16,7 @@ import { supabase } from './lib/supabase';
 import { midTradeNotificationQueue } from './services/mid-trade-notification-queue';
 import MidTradeUpdateModal from './components/MidTradeUpdateModal';
 import { MidTradeAlertListener } from './components/MidTradeAlertListener';
+import { FloatingMessageCenter } from './components/FloatingMessageCenter';
 
 // Lazy load all pages for code splitting
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -279,6 +280,7 @@ const AppRoutes: React.FC = () => {
       <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
       <PWAInstallPrompt />
       {user && <MidTradeAlertListener userId={user.id} />}
+      {user && <FloatingMessageCenter userId={user.id} />}
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
       <Route path="/auth" element={<AuthPage />} />

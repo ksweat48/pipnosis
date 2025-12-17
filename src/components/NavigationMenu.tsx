@@ -1,11 +1,9 @@
 import React, { memo, useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity, Coins, Layers, Bell, Smartphone } from 'lucide-react';
+import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity, Coins, Layers, Smartphone } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 import { useTokenBalance } from '@/hooks/useTokenBalance';
-import { midTradeNotificationQueue } from '@/services/mid-trade-notification-queue';
-import NotificationHistoryPanel from './NotificationHistoryPanel';
 import { supabase } from '@/lib/supabase';
 
 interface NavigationMenuProps {
@@ -20,9 +18,6 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
   const { balance, totalPnL, openPositionsCount } = useUserBalance(user?.id || null);
   const { balance: tokenBalance } = useTokenBalance(user?.id || null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [unviewedCount, setUnviewedCount] = useState(0);
-  const [showNotificationPanel, setShowNotificationPanel] = useState(false);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
   const navItems = [
     { path: '/charts', label: 'Charts', icon: TrendingUp },
@@ -33,44 +28,6 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
   ];
 
   const isActive = (path: string) => location.pathname === path;
-
-  // Handle notification badge updates
-  useEffect(() => {
-    const handleBadgeUpdate = (count: number) => {
-      setUnviewedCount(count);
-    };
-
-    midTradeNotificationQueue.on('badge-update', handleBadgeUpdate);
-
-    if (user?.id) {
-      midTradeNotificationQueue.loadUnviewedCount(user.id);
-    }
-
-    return () => {
-      midTradeNotificationQueue.off('badge-update', handleBadgeUpdate);
-    };
-  }, [user?.id]);
-
-  // Load current session ID
-  useEffect(() => {
-    const loadCurrentSession = async () => {
-      if (!user?.id) return;
-
-      const { data } = await supabase
-        .from('goal_sessions')
-        .select('id')
-        .eq('user_id', user.id)
-        .in('status', ['active', 'scanning'])
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (data && data.length > 0) {
-        setCurrentSessionId(data[0].id);
-      }
-    };
-
-    loadCurrentSession();
-  }, [user?.id]);
 
   return (
     <nav className="sticky top-0 bg-gray-900 border-b border-gray-800 z-[9999]" style={{ paddingTop: 'var(--safe-area-top)' }}>
@@ -124,20 +81,6 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                   {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)} P&L
                 </div>
               </div>
-
-              {/* Notification Bell */}
-              <button
-                onClick={() => setShowNotificationPanel(true)}
-                className="relative w-9 h-9 bg-gray-800 hover:bg-gray-700 rounded-full flex items-center justify-center transition-colors min-h-[44px] min-w-[44px]"
-                aria-label="Notifications"
-              >
-                <Bell size={18} className="text-white" />
-                {unviewedCount > 0 && (
-                  <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1 animate-pulse shadow-lg shadow-red-500/50">
-                    {unviewedCount > 9 ? '9+' : unviewedCount}
-                  </div>
-                )}
-              </button>
 
               <div className="relative">
                 <button
@@ -269,16 +212,6 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
           </div>
         </div>
       </div>
-
-      {/* Notification History Panel */}
-      {user && (
-        <NotificationHistoryPanel
-          isOpen={showNotificationPanel}
-          onClose={() => setShowNotificationPanel(false)}
-          userId={user.id}
-          sessionId={currentSessionId}
-        />
-      )}
     </nav>
   );
 };
