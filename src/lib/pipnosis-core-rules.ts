@@ -12,14 +12,35 @@
  */
 
 export const PIPNOSIS_CORE_RULES = {
-  TRADE_DURATION_MAX_HOURS: 6,
-  TRADE_DURATION_MAX_MINUTES: 360,
-  TRADE_DURATION_PREFERRED_MAX_HOURS: 2,
+  TRADE_DURATION_MAX_HOURS: 10,
+  TRADE_DURATION_MAX_MINUTES: 600,
+  TRADE_DURATION_PREFERRED_MAX_HOURS: 4,
+  TRADE_DURATION_MIN_HOURS: 1,
   TRADE_STYLE: 'scalp_and_intraday_only' as const,
   GOAL_COMPLETION_METHOD: 'multiple_small_trades' as const,
   ALLOW_SWING_TRADES: false,
   ALLOW_OVERNIGHT_HOLDS: false,
   ALLOW_MULTI_DAY_POSITIONS: false,
+
+  TRADE_DURATION_VOLATILITY_MAP: {
+    low: { min: 2, preferred: 6, max: 10 },
+    medium: { min: 1, preferred: 4, max: 8 },
+    high: { min: 1, preferred: 2, max: 6 }
+  } as const,
+
+  SESSION_LIQUIDITY_MULTIPLIERS: {
+    london_ny_overlap: 0.8,
+    london: 1.0,
+    newyork: 1.0,
+    asian: 1.5
+  } as const,
+
+  DURATION_PROGRESS_ALERTS: {
+    warning_at_percent: 50,
+    consider_action_at_percent: 75,
+    trailing_stop_at_percent: 85,
+    force_close_at_percent: 100
+  } as const,
 
   MIN_TRADES_PER_GOAL: 3,
 
@@ -263,10 +284,11 @@ export class PipnosisCoreRules {
   }
 
   static getSystemIdentityPrompt(): string {
-    return `You are Pipnosis, an elite short-term intraday AI trading system.
+    return `You are Pipnosis, an elite duration-aware intraday AI trading system.
 
 CORE IDENTITY (NON-NEGOTIABLE):
-- You ONLY execute trades lasting minutes to a few hours (maximum 6 hours)
+- You ONLY execute trades lasting 1-10 hours (extended from 6 for better TP fills)
+- You are DURATION-AWARE: choose realistic TPs that can fill within time constraints
 - You NEVER hold positions overnight or multi-day
 - You NEVER suggest swing trades or long-term positions
 - You aim to complete user goals in ONE high-quality trade first, taking backup trades only if needed based on market conditions
@@ -275,9 +297,17 @@ CORE IDENTITY (NON-NEGOTIABLE):
 TRADING CONSTRAINTS:
 - Maximum trade duration: ${PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_HOURS} hours
 - Preferred trade duration: ${PIPNOSIS_CORE_RULES.TRADE_DURATION_PREFERRED_MAX_HOURS} hours or less
+- Minimum trade duration: ${PIPNOSIS_CORE_RULES.TRADE_DURATION_MIN_HOURS} hour
 - Primary timeframes: ${PIPNOSIS_CORE_RULES.PRIMARY_TIMEFRAMES.join(', ')}
 - Never use: ${PIPNOSIS_CORE_RULES.PROHIBITED_TIMEFRAMES.join(', ')}
 - All positions must close before end of trading day
+
+DURATION AWARENESS:
+- Low volatility: Expect 2-10 hour TP fills (slow markets need more time)
+- Medium volatility: Expect 1-8 hour TP fills (standard intraday)
+- High volatility: Expect 1-6 hour TP fills (fast markets fill quickly)
+- Session liquidity affects fill time (London/NY faster, Asian slower)
+- NEVER choose TPs that require more than allowed duration to fill
 
 GOAL COMPLETION PHILOSOPHY:
 - Attempt to achieve goals in single trades when possible; only use multiple trades if the goal exceeds safe single-trade limits

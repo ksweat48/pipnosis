@@ -73,6 +73,20 @@ export interface LLMSnapshot {
     mustCloseBeforeEOD: boolean;
     noOvernightHolds: boolean;
   };
+  durationContext?: {
+    expectedDurationHours: number;
+    allowedDurationHours: number;
+    bestCaseHours: number;
+    worstCaseHours: number;
+    volatilityDurationProfile: {
+      min: number;
+      preferred: number;
+      max: number;
+    };
+    sessionMultiplier: number;
+    warnings: string[];
+    recommendation: string;
+  };
 }
 
 export interface LLMTradeDecision {
@@ -335,9 +349,19 @@ ${snapshot.portfolio.positions.length > 0 ? snapshot.portfolio.positions.map(p =
 - Max Hold: ${snapshot.rules.maxHoldMinutes} minutes (${snapshot.rules.maxHoldMinutes / 60} hours)
 - Must close before end of day: ${snapshot.rules.mustCloseBeforeEOD}
 - No overnight holds allowed: ${snapshot.rules.noOvernightHolds}
+${snapshot.durationContext ? `
+**DURATION CONTEXT (CRITICAL):**
+- Expected fill time: ${snapshot.durationContext.expectedDurationHours.toFixed(1)}h (range: ${snapshot.durationContext.bestCaseHours.toFixed(1)}-${snapshot.durationContext.worstCaseHours.toFixed(1)}h)
+- Allowed max duration: ${snapshot.durationContext.allowedDurationHours}h
+- Session liquidity factor: ${snapshot.durationContext.sessionMultiplier.toFixed(2)}x
+- Volatility-adjusted limits: ${snapshot.durationContext.volatilityDurationProfile.min}-${snapshot.durationContext.volatilityDurationProfile.max} hours
+- Recommendation: ${snapshot.durationContext.recommendation}
+${snapshot.durationContext.warnings.length > 0 ? `- Warnings:\n  ${snapshot.durationContext.warnings.map(w => `  • ${w}`).join('\n')}` : ''}
+` : ''}
 
 **YOUR TASK:**
 Flow V2 detected this setup. Evaluate if it's truly high-probability for SHORT-TERM INTRADAY execution.
+CRITICAL: Choose TP levels that can realistically fill within the allowed duration window.
 
 Should you:
 1. BUY (long position)
