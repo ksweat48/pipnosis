@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, TrendingUp, TrendingDown, Target, PlayCircle, PauseCircle, RotateCcw, Clock } from 'lucide-react';
+import {
+  detectTrueCloseReason,
+  getCloseReasonText,
+  getCloseReasonColor,
+  CloseReason
+} from '@/utils/close-reason-detector';
 
 interface TradeClosedActionDialogProps {
   isOpen: boolean;
@@ -9,6 +15,8 @@ interface TradeClosedActionDialogProps {
   exitPrice: number;
   profitLoss: number;
   closeReason: 'stop_loss' | 'take_profit' | 'manual' | 'goal_met';
+  stopLoss: number;
+  takeProfit: number;
   currentProgress: number;
   targetValue: number;
   tradesInSession: number;
@@ -28,6 +36,8 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   exitPrice,
   profitLoss,
   closeReason,
+  stopLoss,
+  takeProfit,
   currentProgress,
   targetValue,
   tradesInSession,
@@ -37,6 +47,22 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   isLoading = false
 }) => {
   const [timeRemaining, setTimeRemaining] = useState(TIMEOUT_DURATION);
+
+  const smartCloseResult = detectTrueCloseReason({
+    exitPrice,
+    stopLoss,
+    takeProfit,
+    symbol,
+    databaseCloseReason: closeReason
+  });
+
+  const displayReason = smartCloseResult.displayReason;
+
+  if (smartCloseResult.isOverride) {
+    console.log(`[TradeClosedActionDialog] Close reason override: ${closeReason} -> ${displayReason}`);
+    console.log(`  Confidence: ${smartCloseResult.confidence}`);
+    console.log(`  Details: ${smartCloseResult.details}`);
+  }
 
   // Reset timer when dialog opens
   useEffect(() => {
@@ -103,32 +129,8 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   const progressPercent = (currentProgress / targetValue) * 100;
   const remaining = targetValue - currentProgress;
 
-  const getReasonText = () => {
-    switch (closeReason) {
-      case 'stop_loss':
-        return 'Stop Loss Hit';
-      case 'take_profit':
-        return 'Take Profit Hit';
-      case 'manual':
-        return 'Manually Closed';
-      case 'goal_met':
-        return 'Goal Achieved';
-      default:
-        return 'Trade Closed';
-    }
-  };
-
-  const getReasonColor = () => {
-    switch (closeReason) {
-      case 'stop_loss':
-        return 'from-red-500 to-orange-500';
-      case 'take_profit':
-      case 'goal_met':
-        return 'from-emerald-500 to-blue-500';
-      default:
-        return 'from-gray-500 to-gray-600';
-    }
-  };
+  const reasonText = getCloseReasonText(displayReason);
+  const reasonColor = getCloseReasonColor(displayReason);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
@@ -143,20 +145,25 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
           <div className="overflow-y-auto max-h-[85vh]">
             {/* Header */}
             <div className="relative pt-6 pb-4 px-6">
-            <div className={`absolute inset-0 bg-gradient-to-b ${getReasonColor()} opacity-10`} />
+            <div className={`absolute inset-0 bg-gradient-to-b ${reasonColor} opacity-10`} />
 
             <div className="relative flex items-center justify-center mb-3">
-              <div className={`p-3 bg-gradient-to-r ${getReasonColor()} rounded-xl shadow-lg`}>
-                {closeReason === 'stop_loss' && <AlertCircle className="w-6 h-6 text-white" />}
-                {closeReason === 'take_profit' && <TrendingUp className="w-6 h-6 text-white" />}
-                {closeReason === 'goal_met' && <Target className="w-6 h-6 text-white" />}
-                {closeReason === 'manual' && <PauseCircle className="w-6 h-6 text-white" />}
+              <div className={`p-3 bg-gradient-to-r ${reasonColor} rounded-xl shadow-lg`}>
+                {displayReason === 'stop_loss' && <AlertCircle className="w-6 h-6 text-white" />}
+                {displayReason === 'take_profit' && <TrendingUp className="w-6 h-6 text-white" />}
+                {displayReason === 'goal_met' && <Target className="w-6 h-6 text-white" />}
+                {displayReason === 'manual' && <PauseCircle className="w-6 h-6 text-white" />}
               </div>
             </div>
 
             <h2 className="text-2xl font-bold text-white text-center mb-1">
-              {getReasonText()}
+              {reasonText}
             </h2>
+            {smartCloseResult.isOverride && smartCloseResult.confidence === 'high' && (
+              <p className="text-xs text-yellow-400 text-center mb-1">
+                (Price-based detection)
+              </p>
+            )}
             <p className="text-gray-400 text-sm text-center mb-2">
               What would you like to do next?
             </p>

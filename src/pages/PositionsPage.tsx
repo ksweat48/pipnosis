@@ -14,6 +14,10 @@ import { pollingConfigService } from '@/services/polling-config-service';
 import { notificationManager } from '@/services/notification-manager';
 import { pageContext } from '@/services/page-context';
 import {
+  detectTrueCloseReason,
+  getCloseReasonText
+} from '@/utils/close-reason-detector';
+import {
   TrendingUp,
   TrendingDown,
   X,
@@ -59,6 +63,8 @@ interface RecentTrade {
   opened_at: string;
   closed_at: string;
   close_reason: string;
+  stop_loss: number;
+  take_profit: number;
   max_drawdown?: number;
   max_profit?: number;
   total_pips?: number;
@@ -190,6 +196,8 @@ export function PositionsPage() {
       opened_at: trade.opened_at,
       closed_at: trade.closed_at,
       close_reason: trade.close_reason || 'unknown',
+      stop_loss: parseFloat(trade.stop_loss) || 0,
+      take_profit: parseFloat(trade.take_profit) || 0,
       max_drawdown: trade.max_drawdown ? parseFloat(trade.max_drawdown) : 0,
       max_profit: trade.max_profit ? parseFloat(trade.max_profit) : 0,
       total_pips: trade.total_pips ? parseFloat(trade.total_pips) : 0
@@ -839,7 +847,16 @@ export function PositionsPage() {
                               <span className="text-xs text-gray-500">{trade.lot_size} lots</span>
                             </div>
                             <div className="text-xs text-gray-400 mt-1">
-                              Closed {formatDateTime(trade.closed_at)} • {trade.close_reason}
+                              Closed {formatDateTime(trade.closed_at)} • {(() => {
+                                const smartResult = detectTrueCloseReason({
+                                  exitPrice: trade.exit_price,
+                                  stopLoss: trade.stop_loss,
+                                  takeProfit: trade.take_profit,
+                                  symbol: trade.symbol,
+                                  databaseCloseReason: trade.close_reason
+                                });
+                                return getCloseReasonText(smartResult.displayReason);
+                              })()}
                             </div>
                           </div>
                         </div>

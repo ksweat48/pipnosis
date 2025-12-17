@@ -135,6 +135,8 @@ export const GoalSessionDashboard: React.FC = () => {
                   entryPrice: payload.new.entry_price,
                   exitPrice: payload.new.exit_price,
                   profitLoss: payload.new.profit_loss,
+                  stopLoss: payload.new.stop_loss,
+                  takeProfit: payload.new.take_profit,
                   closeReason
                 });
                 setShowTradeClosedAction(true);
@@ -927,6 +929,8 @@ export const GoalSessionDashboard: React.FC = () => {
           exitPrice={tradeClosedData.exitPrice}
           profitLoss={tradeClosedData.profitLoss}
           closeReason={tradeClosedData.closeReason}
+          stopLoss={tradeClosedData.stopLoss}
+          takeProfit={tradeClosedData.takeProfit}
           currentProgress={progress?.stats?.totalProfit || 0}
           targetValue={activeSession.config.goalAmount}
           tradesInSession={progress?.stats?.totalTrades || 0}

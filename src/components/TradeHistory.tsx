@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { TrendingUp, TrendingDown, Calendar, DollarSign, BarChart3, Award, AlertCircle, Download } from 'lucide-react';
+import {
+  detectTrueCloseReason,
+  getCloseReasonText,
+  getCloseReasonBadgeColor
+} from '@/utils/close-reason-detector';
 
 interface Trade {
   id: string;
@@ -437,7 +442,18 @@ export function TradeHistory() {
                     <div className={`text-xl font-bold ${trade.profit_loss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                       {trade.profit_loss >= 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
                     </div>
-                    <div className="text-xs text-gray-500 capitalize">{trade.close_reason}</div>
+                    <div className="text-xs text-gray-500 capitalize">
+                      {(() => {
+                        const smartResult = detectTrueCloseReason({
+                          exitPrice: trade.exit_price,
+                          stopLoss: trade.stop_loss,
+                          takeProfit: trade.take_profit,
+                          symbol: trade.symbol,
+                          databaseCloseReason: trade.close_reason
+                        });
+                        return getCloseReasonText(smartResult.displayReason);
+                      })()}
+                    </div>
                   </div>
                 </div>
 

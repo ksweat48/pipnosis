@@ -112,6 +112,8 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
           exitPrice={currentDialog.data.exitPrice}
           profitLoss={currentDialog.data.profitLoss}
           closeReason={currentDialog.data.closeReason}
+          stopLoss={currentDialog.data.stopLoss}
+          takeProfit={currentDialog.data.takeProfit}
           currentProgress={currentDialog.data.currentProgress || 0}
           targetValue={currentDialog.data.targetValue || 0}
           tradesInSession={currentDialog.data.tradesInSession || 0}
