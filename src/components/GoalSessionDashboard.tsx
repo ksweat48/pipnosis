@@ -8,9 +8,11 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { ContinuationDialog } from './ContinuationDialog';
 import { GoalAchievedDialog } from './GoalAchievedDialog';
 import { TradeClosedActionDialog } from './TradeClosedActionDialog';
+import { NoTradesFoundDialog } from './NoTradesFoundDialog';
 import { goalSessionLiveEngine } from '../services/goal-session-live-engine';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
+import { simpleScanningTimer } from '../services/simple-scanning-timer';
 // GoalScanReadinessIndicator removed - using simple indicator
 
 export const GoalSessionDashboard: React.FC = () => {
@@ -34,6 +36,8 @@ export const GoalSessionDashboard: React.FC = () => {
   const [showTradeClosedAction, setShowTradeClosedAction] = useState(false);
   const [goalAchievementData, setGoalAchievementData] = useState<any>(null);
   const [tradeClosedData, setTradeClosedData] = useState<any>(null);
+  const [showNoTradesModal, setShowNoTradesModal] = useState(false);
+  const [noTradesLoading, setNoTradesLoading] = useState(false);
 
   useEffect(() => {
     loadSessionData();
@@ -261,23 +265,27 @@ export const GoalSessionDashboard: React.FC = () => {
       setActiveSession(session);
 
       if (session) {
-        // Check for continuation prompt (only if multi-trade is disabled AND in correct status)
+        // Check for no-trades-found continuation modal (15-minute threshold)
         try {
           const { data: sessionData } = await supabase
             .from('goal_sessions')
-            .select('status, awaiting_user_continuation, continuation_prompt, trades_in_session, current_progress, target_value, multi_trade_enabled')
+            .select('status, awaiting_continuation_confirmation, awaiting_user_continuation, continuation_prompt, trades_in_session, current_progress, target_value, multi_trade_enabled')
             .eq('id', session.sessionId)
             .single();
 
-          // Only show continuation dialog if:
-          // 1. Multi-trade is DISABLED
-          // 2. Awaiting continuation flag is set
-          // NOTE: Status doesn't matter - if flag is set, dialog should block until user responds
-          const shouldShowDialog =
+          // New simplified 15-minute modal (takes priority)
+          if (sessionData?.awaiting_continuation_confirmation) {
+            setShowNoTradesModal(true);
+          } else {
+            setShowNoTradesModal(false);
+          }
+
+          // Legacy continuation dialog (only if multi-trade is disabled AND in correct status)
+          const shouldShowLegacyDialog =
             sessionData?.awaiting_user_continuation &&
             !sessionData?.multi_trade_enabled;
 
-          if (shouldShowDialog) {
+          if (shouldShowLegacyDialog) {
             setContinuationData({
               isAwaiting: true,
               prompt: sessionData.continuation_prompt || 'Would you like to continue scanning for more trades?',
@@ -289,6 +297,7 @@ export const GoalSessionDashboard: React.FC = () => {
         } catch (error) {
           console.error('[GoalSessionDashboard] Error checking continuation status:', error);
           setContinuationData(null);
+          setShowNoTradesModal(false);
         }
 
         // Load data separately with individual error handling
@@ -456,6 +465,38 @@ export const GoalSessionDashboard: React.FC = () => {
     const success = await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
     if (success) {
       loadSessionData();
+    }
+  };
+
+  const handleNoTradesContinue = async () => {
+    if (!activeSession) return;
+
+    setNoTradesLoading(true);
+    try {
+      console.log('[GoalSessionDashboard] User chose to continue scanning');
+      await simpleScanningTimer.handleContinuationResponse(activeSession.sessionId, true);
+      setShowNoTradesModal(false);
+      loadSessionData();
+    } catch (error) {
+      console.error('[GoalSessionDashboard] Error continuing scan:', error);
+    } finally {
+      setNoTradesLoading(false);
+    }
+  };
+
+  const handleNoTradesClose = async () => {
+    if (!activeSession || !user) return;
+
+    setNoTradesLoading(true);
+    try {
+      console.log('[GoalSessionDashboard] User chose to close session');
+      await simpleScanningTimer.handleContinuationResponse(activeSession.sessionId, false);
+      setShowNoTradesModal(false);
+      loadSessionData();
+    } catch (error) {
+      console.error('[GoalSessionDashboard] Error closing session:', error);
+    } finally {
+      setNoTradesLoading(false);
     }
   };
 
@@ -1024,6 +1065,16 @@ export const GoalSessionDashboard: React.FC = () => {
           onContinue={() => handleContinuationResponse('continue')}
           onStop={() => handleContinuationResponse('stop')}
           isLoading={continuationLoading}
+        />
+      )}
+
+      {activeSession && (
+        <NoTradesFoundDialog
+          isOpen={showNoTradesModal}
+          onContinue={handleNoTradesContinue}
+          onClose={handleNoTradesClose}
+          sessionId={activeSession.sessionId}
+          isLoading={noTradesLoading}
         />
       )}
 

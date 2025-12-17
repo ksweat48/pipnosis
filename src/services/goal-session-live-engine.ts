@@ -307,6 +307,26 @@ class GoalSessionLiveEngine {
     this.processingLock = true;
 
     try {
+      // Check if we should show the 15-minute continuation modal
+      const { simpleScanningTimer } = await import('./simple-scanning-timer');
+      const shouldShowModal = await simpleScanningTimer.shouldShowContinuationModal(this.activeSession);
+
+      if (shouldShowModal) {
+        console.log('[Goal Live Engine] 🕐 15 minutes elapsed with no trades - triggering modal');
+        await simpleScanningTimer.triggerContinuationModal(this.activeSession);
+        // Stop polling until user responds
+        this.stopPolling();
+        return;
+      }
+
+      // Check if modal timed out
+      const timedOut = await simpleScanningTimer.checkModalTimeout(this.activeSession);
+      if (timedOut) {
+        console.log('[Goal Live Engine] ⏰ Modal timeout - stopping session');
+        await this.stopSession();
+        return;
+      }
+
       await this.processCandleAutonomous();
     } catch (error) {
       console.error('[Goal Live Engine] Error processing candle update:', error);
