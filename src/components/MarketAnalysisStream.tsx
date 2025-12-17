@@ -260,8 +260,11 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
 
   if (loading) {
     return (
-      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-        <div className="animate-pulse text-gray-400 text-center">Loading market analysis...</div>
+      <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-3 border border-gray-700">
+        <div className="flex items-center gap-2 px-3 py-2 bg-gray-700/30 rounded border border-gray-600/50">
+          <Clock className="w-3 h-3 text-gray-500 animate-pulse" />
+          <span className="text-xs text-gray-500">Loading market analysis...</span>
+        </div>
       </div>
     );
   }
@@ -372,9 +375,9 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
         </div>
 
         {marketData.length === 0 && (
-          <div className="text-center py-8 text-gray-400">
-            <Target className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            <p>Waiting for market data...</p>
+          <div className="flex items-center gap-2 px-3 py-2 bg-gray-700/30 rounded border border-gray-600/50">
+            <Clock className="w-3 h-3 text-gray-500 animate-pulse" />
+            <span className="text-xs text-gray-500">Waiting for market data...</span>
           </div>
         )}
       </div>
