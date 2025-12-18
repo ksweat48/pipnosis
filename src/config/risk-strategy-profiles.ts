@@ -1,0 +1,391 @@
+/**
+ * RISK STRATEGY PROFILES
+ *
+ * Defines COMPLETE trading strategies for each risk mode, not just position sizing.
+ * Risk mode determines: entry type, timeframes, stop widths, trade duration, Omega weights
+ *
+ * CRITICAL INSIGHT: "Aggressive" doesn't mean "risk more money the same way"
+ * It means "trade faster, tighter stops, scalp entries, reach goals quicker"
+ */
+
+export interface RiskStrategyProfile {
+  riskMode: 'low' | 'medium' | 'high';
+  displayName: string;
+  description: string;
+
+  // Position Sizing
+  riskPercentRange: { min: number; max: number }; // Actual $ risk as % of account
+  baseRiskPercent: number; // Default risk percentage
+
+  // Strategy Characteristics
+  tradingStyle: 'scalp' | 'day-trade' | 'swing';
+  entryUrgency: 'immediate' | 'confirmed' | 'patient';
+
+  // Timeframe Preferences
+  primaryTimeframes: string[]; // M5, M15, H1, H4, D1
+  secondaryTimeframes: string[];
+  analysisDepth: 'quick' | 'moderate' | 'deep';
+
+  // Stop Loss Configuration
+  stopLossMultiplier: { min: number; max: number }; // Multiple of ATR
+  typicalStopPips: { min: number; max: number }; // Typical range for forex
+
+  // Take Profit Strategy
+  riskRewardRange: { min: number; max: number };
+  targetSpeed: 'fast' | 'moderate' | 'patient';
+
+  // Trade Duration
+  expectedDuration: {
+    min: number; // minutes
+    max: number; // minutes
+  };
+  durationWarningThreshold: number; // minutes - warn if trade exceeds this
+
+  // Omega Council Weights
+  omegaWeights: {
+    trend: number;
+    scalper: number;
+    swing: number;
+    reversal: number;
+    volatility: number;
+    risk: number;
+  };
+
+  // Entry Quality Preferences
+  entryTypePreference: {
+    breakout: number; // 0-1 preference weight
+    momentum: number;
+    pullback: number;
+    reversal: number;
+    consolidation: number;
+  };
+
+  // Goal Achievement Strategy
+  goalApproach: 'single-trade-optimized' | 'multi-trade-balanced' | 'patient-accumulation';
+  pipsPerDollarTarget: number; // How many pips to target per dollar of goal
+}
+
+/**
+ * AGGRESSIVE / HIGH RISK MODE
+ * For traders wanting to reach goals FAST with active management
+ *
+ * Example: $50 goal on $10k account
+ * - Risk: $150-200 (1.5-2%)
+ * - Position: 0.75-1.25 lots
+ * - Stop: 12-18 pips (tight)
+ * - Strategy: Scalp breakout on M5-M15
+ * - Duration: 30 mins - 2 hours
+ */
+export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
+  riskMode: 'high',
+  displayName: 'Aggressive',
+  description: 'Fast execution, tight stops, scalp-style entries for quick goal achievement',
+
+  riskPercentRange: { min: 1.0, max: 3.0 },
+  baseRiskPercent: 1.8,
+
+  tradingStyle: 'scalp',
+  entryUrgency: 'immediate',
+
+  primaryTimeframes: ['M5', 'M15'],
+  secondaryTimeframes: ['H1'],
+  analysisDepth: 'quick',
+
+  stopLossMultiplier: { min: 0.5, max: 1.0 },
+  typicalStopPips: { min: 10, max: 20 },
+
+  riskRewardRange: { min: 1.5, max: 2.5 },
+  targetSpeed: 'fast',
+
+  expectedDuration: {
+    min: 15,
+    max: 120
+  },
+  durationWarningThreshold: 180, // 3 hours
+
+  omegaWeights: {
+    trend: 0.20,
+    scalper: 0.35,      // Dominant for aggressive
+    swing: 0.05,
+    reversal: 0.10,
+    volatility: 0.20,
+    risk: 0.10
+  },
+
+  entryTypePreference: {
+    breakout: 0.9,
+    momentum: 0.9,
+    pullback: 0.3,
+    reversal: 0.2,
+    consolidation: 0.4
+  },
+
+  goalApproach: 'single-trade-optimized',
+  pipsPerDollarTarget: 0.3 // Higher lot size, fewer pips needed
+};
+
+/**
+ * MODERATE / MEDIUM RISK MODE
+ * Balanced approach between speed and safety
+ *
+ * Example: $50 goal on $10k account
+ * - Risk: $80-120 (0.8-1.2%)
+ * - Position: 0.35-0.50 lots
+ * - Stop: 20-28 pips
+ * - Strategy: Confirmed pullback on M15-H1
+ * - Duration: 2-6 hours
+ */
+export const MODERATE_PROFILE: RiskStrategyProfile = {
+  riskMode: 'medium',
+  displayName: 'Moderate',
+  description: 'Balanced execution with 1-2 confirmations, moderate stops for steady progress',
+
+  riskPercentRange: { min: 0.5, max: 1.5 },
+  baseRiskPercent: 1.0,
+
+  tradingStyle: 'day-trade',
+  entryUrgency: 'confirmed',
+
+  primaryTimeframes: ['M15', 'H1'],
+  secondaryTimeframes: ['M5', 'H4'],
+  analysisDepth: 'moderate',
+
+  stopLossMultiplier: { min: 1.0, max: 1.5 },
+  typicalStopPips: { min: 20, max: 35 },
+
+  riskRewardRange: { min: 1.8, max: 3.0 },
+  targetSpeed: 'moderate',
+
+  expectedDuration: {
+    min: 60,
+    max: 360
+  },
+  durationWarningThreshold: 480, // 8 hours
+
+  omegaWeights: {
+    trend: 0.25,
+    scalper: 0.20,
+    swing: 0.15,
+    reversal: 0.15,
+    volatility: 0.15,
+    risk: 0.10
+  },
+
+  entryTypePreference: {
+    breakout: 0.7,
+    momentum: 0.7,
+    pullback: 0.8,
+    reversal: 0.5,
+    consolidation: 0.6
+  },
+
+  goalApproach: 'multi-trade-balanced',
+  pipsPerDollarTarget: 0.6 // Balanced lot size and pip target
+};
+
+/**
+ * CONSERVATIVE / LOW RISK MODE
+ * Patient approach with deep confirmations and wider stops
+ *
+ * Example: $50 goal on $10k account
+ * - Risk: $40-60 (0.4-0.6%)
+ * - Position: 0.15-0.25 lots
+ * - Stop: 25-35 pips (wider)
+ * - Strategy: Patient swing setup on H1-H4
+ * - Duration: 4-12 hours
+ */
+export const CONSERVATIVE_PROFILE: RiskStrategyProfile = {
+  riskMode: 'low',
+  displayName: 'Conservative',
+  description: 'Patient execution, wider stops, deep confirmations for capital preservation',
+
+  riskPercentRange: { min: 0.3, max: 0.8 },
+  baseRiskPercent: 0.5,
+
+  tradingStyle: 'swing',
+  entryUrgency: 'patient',
+
+  primaryTimeframes: ['H1', 'H4'],
+  secondaryTimeframes: ['D1'],
+  analysisDepth: 'deep',
+
+  stopLossMultiplier: { min: 1.5, max: 2.5 },
+  typicalStopPips: { min: 30, max: 50 },
+
+  riskRewardRange: { min: 2.0, max: 4.0 },
+  targetSpeed: 'patient',
+
+  expectedDuration: {
+    min: 240,
+    max: 720
+  },
+  durationWarningThreshold: 960, // 16 hours
+
+  omegaWeights: {
+    trend: 0.30,
+    scalper: 0.05,
+    swing: 0.30,        // Dominant for conservative
+    reversal: 0.20,
+    volatility: 0.10,
+    risk: 0.05
+  },
+
+  entryTypePreference: {
+    breakout: 0.4,
+    momentum: 0.5,
+    pullback: 0.9,
+    reversal: 0.8,
+    consolidation: 0.7
+  },
+
+  goalApproach: 'patient-accumulation',
+  pipsPerDollarTarget: 1.2 // Smaller lot size, more pips needed
+};
+
+/**
+ * Get risk strategy profile by risk mode
+ */
+export function getRiskStrategyProfile(riskMode: 'low' | 'medium' | 'high'): RiskStrategyProfile {
+  switch (riskMode) {
+    case 'high':
+      return AGGRESSIVE_PROFILE;
+    case 'medium':
+      return MODERATE_PROFILE;
+    case 'low':
+      return CONSERVATIVE_PROFILE;
+    default:
+      return MODERATE_PROFILE;
+  }
+}
+
+/**
+ * Get Omega weights for a risk mode
+ */
+export function getOmegaWeights(riskMode: 'low' | 'medium' | 'high'): Record<string, number> {
+  const profile = getRiskStrategyProfile(riskMode);
+  return profile.omegaWeights;
+}
+
+/**
+ * Get expected trade duration range (in minutes)
+ */
+export function getExpectedDuration(riskMode: 'low' | 'medium' | 'high'): { min: number; max: number; warningThreshold: number } {
+  const profile = getRiskStrategyProfile(riskMode);
+  return {
+    min: profile.expectedDuration.min,
+    max: profile.expectedDuration.max,
+    warningThreshold: profile.durationWarningThreshold
+  };
+}
+
+/**
+ * Get stop loss width range in ATR multiples
+ */
+export function getStopLossMultiplierRange(riskMode: 'low' | 'medium' | 'high'): { min: number; max: number } {
+  const profile = getRiskStrategyProfile(riskMode);
+  return profile.stopLossMultiplier;
+}
+
+/**
+ * Get typical stop loss pip range for forex pairs
+ */
+export function getTypicalStopPipsRange(riskMode: 'low' | 'medium' | 'high'): { min: number; max: number } {
+  const profile = getRiskStrategyProfile(riskMode);
+  return profile.typicalStopPips;
+}
+
+/**
+ * Get risk-reward ratio range for trade planning
+ */
+export function getRiskRewardRange(riskMode: 'low' | 'medium' | 'high'): { min: number; max: number } {
+  const profile = getRiskStrategyProfile(riskMode);
+  return profile.riskRewardRange;
+}
+
+/**
+ * Get primary timeframes for analysis
+ */
+export function getPrimaryTimeframes(riskMode: 'low' | 'medium' | 'high'): string[] {
+  const profile = getRiskStrategyProfile(riskMode);
+  return profile.primaryTimeframes;
+}
+
+/**
+ * Format risk profile for Alpha/Omega LLM context
+ */
+export function formatRiskProfileForLLM(riskMode: 'low' | 'medium' | 'high'): string {
+  const profile = getRiskStrategyProfile(riskMode);
+
+  return `
+🎯 ACTIVE RISK PROFILE: ${profile.displayName.toUpperCase()} MODE
+Strategy: ${profile.tradingStyle.toUpperCase()} | Entry: ${profile.entryUrgency} | Speed: ${profile.targetSpeed}
+Timeframes: ${profile.primaryTimeframes.join(', ')} primary | ${profile.secondaryTimeframes.join(', ')} secondary
+Risk Range: ${profile.riskPercentRange.min}-${profile.riskPercentRange.max}% actual exposure
+Stop Width: ${profile.typicalStopPips.min}-${profile.typicalStopPips.max} pips (${profile.stopLossMultiplier.min}-${profile.stopLossMultiplier.max}x ATR)
+R:R Target: ${profile.riskRewardRange.min}-${profile.riskRewardRange.max}:1
+Duration: ${Math.floor(profile.expectedDuration.min / 60)}h-${Math.floor(profile.expectedDuration.max / 60)}h expected
+Entry Preference: ${Object.entries(profile.entryTypePreference)
+  .filter(([_, weight]) => weight >= 0.7)
+  .map(([type]) => type)
+  .join(', ')} setups preferred
+`.trim();
+}
+
+/**
+ * Validate if a trade matches its risk profile
+ */
+export interface TradeProfileMatch {
+  matches: boolean;
+  warnings: string[];
+  score: number; // 0-100
+}
+
+export function validateTradeMatchesProfile(
+  riskMode: 'low' | 'medium' | 'high',
+  actualRiskPercent: number,
+  stopPips: number,
+  riskRewardRatio: number,
+  durationMinutes: number
+): TradeProfileMatch {
+  const profile = getRiskStrategyProfile(riskMode);
+  const warnings: string[] = [];
+  let score = 100;
+
+  // Check risk percent
+  if (actualRiskPercent < profile.riskPercentRange.min) {
+    warnings.push(`Risk too low: ${actualRiskPercent.toFixed(2)}% < ${profile.riskPercentRange.min}% (${profile.displayName} profile)`);
+    score -= 30;
+  }
+  if (actualRiskPercent > profile.riskPercentRange.max) {
+    warnings.push(`Risk too high: ${actualRiskPercent.toFixed(2)}% > ${profile.riskPercentRange.max}% (${profile.displayName} profile)`);
+    score -= 20;
+  }
+
+  // Check stop width
+  if (stopPips < profile.typicalStopPips.min) {
+    warnings.push(`Stop too tight: ${stopPips} pips < ${profile.typicalStopPips.min} pips (${profile.displayName} profile)`);
+    score -= 15;
+  }
+  if (stopPips > profile.typicalStopPips.max) {
+    warnings.push(`Stop too wide: ${stopPips} pips > ${profile.typicalStopPips.max} pips (${profile.displayName} profile)`);
+    score -= 15;
+  }
+
+  // Check R:R ratio
+  if (riskRewardRatio < profile.riskRewardRange.min) {
+    warnings.push(`R:R too low: ${riskRewardRatio.toFixed(1)}:1 < ${profile.riskRewardRange.min}:1 (${profile.displayName} profile)`);
+    score -= 15;
+  }
+
+  // Check duration
+  if (durationMinutes > profile.durationWarningThreshold) {
+    warnings.push(`Duration exceeds expected: ${Math.floor(durationMinutes / 60)}h > ${Math.floor(profile.durationWarningThreshold / 60)}h (${profile.displayName} profile)`);
+    score -= 10;
+  }
+
+  return {
+    matches: warnings.length === 0,
+    warnings,
+    score: Math.max(0, score)
+  };
+}

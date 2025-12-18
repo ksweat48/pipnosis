@@ -67,6 +67,7 @@ import { supabase } from '../lib/supabase';
 import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
 import { rrSuccessTracker } from '../services/rr-success-tracker';
+import { formatRiskProfileForLLM, getOmegaWeights } from '../config/risk-strategy-profiles';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -299,7 +300,8 @@ class AlphaCoordinatorBrain {
       }
     }
     // Calculate vote weights (with Omega-10 overrides if available)
-    const weights = await this.calculateWeights(votes, marketContext, traderScore, userId);
+    const riskModeForWeights = goalContext?.riskMode || 'medium';
+    const weights = await this.calculateWeights(votes, marketContext, traderScore, riskModeForWeights, userId);
 
     // Calculate weighted consensus score
     const consensus = this.calculateWeightedConsensus(votes, weights);
@@ -373,13 +375,18 @@ class AlphaCoordinatorBrain {
     const volatilityRegime = this.detectVolatilityRegime(marketContext);
     const stopQuality = this.calculateStopQualityScore(votes.omega8, null); // omega9 validation happens later
 
-    // Build goal context (if trading with a goal) - COMPRESSED VERSION
+    // Build goal context with RISK PROFILE STRATEGY (if trading with a goal)
     let goalContextText = '';
+    let riskProfileText = '';
     if (goalContext && goalContext.hasGoal) {
       const riskPercent = goalContext.riskPercent || 5;
       const recentATR = marketContext.atr || 60;
+      const riskMode = goalContext.riskMode || 'medium';
 
-      goalContextText = `\n🎯 GOAL: $${goalContext.currentBalance.toFixed(0)} → +$${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}% gain) | Progress: $${goalContext.currentProgress.toFixed(0)}/${goalContext.targetGoal.toFixed(0)} | Remaining: $${goalContext.remainingGoal.toFixed(0)}\nRisk: ${riskPercent}% per trade | ATR: ${recentATR.toFixed(0)} pips → Use 1.5-2.5R for balance of speed & safety\n`;
+      // Add comprehensive risk profile strategy
+      riskProfileText = formatRiskProfileForLLM(riskMode);
+
+      goalContextText = `\n🎯 GOAL: $${goalContext.currentBalance.toFixed(0)} → +$${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}% gain) | Progress: $${goalContext.currentProgress.toFixed(0)}/${goalContext.targetGoal.toFixed(0)} | Remaining: $${goalContext.remainingGoal.toFixed(0)}\n${riskProfileText}\n`;
     }
 
     // Build intelligence context
@@ -434,8 +441,16 @@ YOUR AUTHORITY & SAFETY ZONES:
   • ORANGE (R:R 0.5-1.0:1): Risky - requires override reasoning
   • RED (R:R<0.5:1): HARD BLOCK - cannot override
 
+CRITICAL: RESPECT RISK PROFILE STRATEGY
+The risk profile above defines the COMPLETE trading strategy - not just position size.
+AGGRESSIVE mode = SCALP strategy (tight stops, quick entries, M5-M15 analysis, <2hr duration)
+MODERATE mode = DAY TRADE strategy (balanced stops, confirmed entries, M15-H1 analysis, 2-6hr duration)
+CONSERVATIVE mode = SWING strategy (wide stops, patient entries, H1-H4 analysis, 4-12hr duration)
+
+Your SL and TP MUST match the profile's stop width and R:R ranges. Do NOT use swing-trade stops for aggressive goals!
+
 POSITIONING RULES:
-BUY: SL below entry, TP above | SELL: SL above entry, TP below | Min R:R: 1.0:1 (YELLOW), target 1.5:1+ (GREEN)
+BUY: SL below entry, TP above | SELL: SL above entry, TP below | Use R:R and stop width from ACTIVE RISK PROFILE
 
 Return JSON with structured reasoning:
 {
@@ -776,44 +791,52 @@ Return JSON with structured reasoning:
   }
 
   /**
-   * Calculate vote weights based on regime and personality
+   * Calculate vote weights based on regime, personality, and RISK MODE
    * Includes Omega-10 meta-reasoning overrides
+   *
+   * CRITICAL: Risk mode determines BASE weights (scalper dominant for aggressive, swing for conservative)
    */
   private async calculateWeights(
     votes: OmegaCouncilVotes,
     marketContext: MarketContext,
     traderScore: TraderScore,
+    riskMode: 'low' | 'medium' | 'high',
     userId?: string
   ): Promise<Record<string, number>> {
+    // Start with risk profile base weights
+    const riskProfileWeights = getOmegaWeights(riskMode);
+
+    console.log(`[Alpha Coordinator] 🎯 Applying ${riskMode.toUpperCase()} risk profile base weights:`, riskProfileWeights);
+
     const weights: Record<string, number> = {
-      trend: 1.0,
-      scalper: 1.0,
-      swing: 1.0,
-      reversal: 1.0,
-      volatility: 1.0,
-      risk: 1.0,
-      omega8: 1.0
+      trend: riskProfileWeights.trend,
+      scalper: riskProfileWeights.scalper,
+      swing: riskProfileWeights.swing,
+      reversal: riskProfileWeights.reversal,
+      volatility: riskProfileWeights.volatility,
+      risk: riskProfileWeights.risk,
+      omega8: 1.0  // Omega8 weighted separately
     };
 
-    // Adjust by market regime
+    // Adjust by market regime (multiplicative to preserve risk profile intent)
     if (marketContext.regime === 'bull' || marketContext.regime === 'bear') {
-      weights.trend = 1.5;      // Trending - boost trend specialist
-      weights.swing = 1.3;      // Structure matters in trends
-      weights.scalper = 0.8;    // Reduce scalping in strong trends
+      weights.trend *= 1.3;      // Trending - boost trend specialist
+      weights.swing *= 1.2;      // Structure matters in trends
+      weights.scalper *= 0.9;    // Slightly reduce scalping in strong trends
     } else if (marketContext.regime === 'side') {
-      weights.scalper = 1.5;    // Ranging - boost scalper
-      weights.reversal = 1.3;   // Reversals common in ranges
-      weights.trend = 0.8;      // Reduce trend following
+      weights.scalper *= 1.3;    // Ranging - boost scalper
+      weights.reversal *= 1.2;   // Reversals common in ranges
+      weights.trend *= 0.9;      // Slightly reduce trend following
     }
 
-    // Adjust by volatility
+    // Adjust by volatility (multiplicative)
     if (marketContext.volatility === 'high') {
-      weights.volatility = 1.5; // Boost volatility specialist
-      weights.risk = 1.4;       // Risk is critical in volatility
-      weights.scalper = 0.7;    // Scalping risky in high vol
+      weights.volatility *= 1.4; // Boost volatility specialist
+      weights.risk *= 1.3;       // Risk is critical in volatility
+      weights.scalper *= 0.8;    // Scalping riskier in high vol
     } else if (marketContext.volatility === 'low') {
-      weights.scalper = 1.3;    // Scalping good in low vol
-      weights.volatility = 0.9;
+      weights.scalper *= 1.2;    // Scalping good in low vol
+      weights.volatility *= 0.95;
     }
 
     // Adjust by trader personality
