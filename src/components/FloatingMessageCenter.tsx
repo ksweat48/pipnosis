@@ -47,12 +47,6 @@ export const FloatingMessageCenter: React.FC<FloatingMessageCenterProps> = ({ us
             return;
           }
 
-          // Filter out routine periodic wellness checks (conversation_type === 'periodic_wellness')
-          if (payload.new.conversation_type === 'periodic_wellness') {
-            console.log('[FloatingMessageCenter] Skipping periodic wellness check (shown in indicator instead)');
-            return;
-          }
-
           const newMessage: Message = {
             id: payload.new.id,
             type: 'ai_conversation',
@@ -107,7 +101,6 @@ export const FloatingMessageCenter: React.FC<FloatingMessageCenterProps> = ({ us
           .select('*')
           .eq('user_id', userId)
           .eq('role', 'ai')
-          .neq('conversation_type', 'periodic_wellness') // Exclude periodic wellness checks
           .order('created_at', { ascending: false })
           .limit(50),
 
