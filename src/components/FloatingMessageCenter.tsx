@@ -40,6 +40,19 @@ export const FloatingMessageCenter: React.FC<FloatingMessageCenterProps> = ({ us
           filter: `user_id=eq.${userId}`
         },
         (payload) => {
+          // Filter out silent wellness checks (displayed in UI component, not as notifications)
+          const metadata = payload.new.metadata || {};
+          if (metadata.silent === true) {
+            console.log('[FloatingMessageCenter] Skipping silent wellness check');
+            return;
+          }
+
+          // Filter out routine periodic wellness checks (conversation_type === 'periodic_wellness')
+          if (payload.new.conversation_type === 'periodic_wellness') {
+            console.log('[FloatingMessageCenter] Skipping periodic wellness check (shown in indicator instead)');
+            return;
+          }
+
           const newMessage: Message = {
             id: payload.new.id,
             type: 'ai_conversation',
@@ -94,6 +107,7 @@ export const FloatingMessageCenter: React.FC<FloatingMessageCenterProps> = ({ us
           .select('*')
           .eq('user_id', userId)
           .eq('role', 'ai')
+          .neq('conversation_type', 'periodic_wellness') // Exclude periodic wellness checks
           .order('created_at', { ascending: false })
           .limit(50),
 
@@ -105,14 +119,20 @@ export const FloatingMessageCenter: React.FC<FloatingMessageCenterProps> = ({ us
           .limit(50)
       ]);
 
-      const conversations: Message[] = (conversationsResult.data || []).map(conv => ({
-        id: conv.id,
-        type: 'ai_conversation' as const,
-        message: conv.message,
-        timestamp: conv.created_at,
-        sentiment: conv.sentiment,
-        context: conv.context
-      }));
+      // Filter out any messages with silent=true in metadata
+      const conversations: Message[] = (conversationsResult.data || [])
+        .filter(conv => {
+          const metadata = conv.metadata || {};
+          return metadata.silent !== true;
+        })
+        .map(conv => ({
+          id: conv.id,
+          type: 'ai_conversation' as const,
+          message: conv.message,
+          timestamp: conv.created_at,
+          sentiment: conv.sentiment,
+          context: conv.context
+        }));
 
       const notifications: Message[] = (notificationsResult.data || []).map(notif => ({
         id: notif.id,

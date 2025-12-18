@@ -550,19 +550,59 @@ class MidTradeTriggerDetector {
     const riskRatio = priceDiff / risk;
     const minutesInTrade = (now - trade.entryTime.getTime()) / 60000;
 
+    // Calculate dollar P&L for user-friendly message
+    const pipDiff = priceDiff / 0.0001;
+    const dollarPerPip = 10 * trade.positionSize;
+    const dollarPnL = pipDiff * dollarPerPip;
+
+    // Create user-friendly message
+    const timeDescription = this.formatTradeTime(minutesInTrade);
+    const profitDescription = this.describeProfitStatus(dollarPnL, riskRatio);
+
     return {
       triggered: true,
       triggerType: 'periodic_wellness',
-      triggerReason: `15-minute wellness check - Trade ${minutesInTrade.toFixed(0)}m old, ${riskRatio > 0 ? '+' : ''}${(riskRatio * 100).toFixed(0)}% R`,
+      triggerReason: `Routine check-in: Trade has been running for ${timeDescription}. ${profitDescription}`,
       confidence: 100, // Always execute periodic checks
       shouldCallLLM: true,
       metadata: {
         minutes_in_trade: minutesInTrade.toFixed(0),
         current_risk_ratio: riskRatio.toFixed(2),
+        dollar_pnl: dollarPnL.toFixed(2),
         check_type: 'periodic_wellness',
-        last_check_minutes_ago: (timeSinceLastCheck / 60000).toFixed(1)
+        last_check_minutes_ago: (timeSinceLastCheck / 60000).toFixed(1),
+        user_friendly: true
       }
     };
+  }
+
+  /**
+   * Format trade time in user-friendly way
+   */
+  private formatTradeTime(minutes: number): string {
+    if (minutes < 1) return 'less than a minute';
+    if (minutes < 60) return `${Math.floor(minutes)} minute${Math.floor(minutes) !== 1 ? 's' : ''}`;
+
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = Math.floor(minutes % 60);
+
+    if (remainingMinutes === 0) return `${hours} hour${hours !== 1 ? 's' : ''}`;
+    return `${hours}h ${remainingMinutes}m`;
+  }
+
+  /**
+   * Describe profit/loss status in plain English
+   */
+  private describeProfitStatus(dollarPnL: number, riskRatio: number): string {
+    const absAmount = Math.abs(dollarPnL);
+
+    if (dollarPnL > 0) {
+      return `Currently up $${absAmount.toFixed(2)}`;
+    } else if (dollarPnL < 0) {
+      return `Currently down $${absAmount.toFixed(2)}`;
+    } else {
+      return `Currently at break-even`;
+    }
   }
 
   /**

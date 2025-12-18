@@ -510,7 +510,8 @@ class PositionMonitorService {
         return; // Not time for periodic check yet
       }
 
-      // Log periodic check to database for tracking
+      // Log periodic check to database for tracking (ONLY log, no notification)
+      // Wellness checks are displayed in the UI component, not as floating notifications
       await supabase.from('goal_ai_conversations').insert({
         goal_session_id: position.goal_session_id,
         user_id: position.user_id,
@@ -520,11 +521,12 @@ class PositionMonitorService {
         trade_id: position.id,
         metadata: {
           trigger_type: 'periodic_wellness',
-          ...triggerResult.metadata
+          ...triggerResult.metadata,
+          silent: true // Mark as silent - don't show as notification
         }
       });
 
-      console.log(`[PositionMonitor] ✓ Periodic wellness check: ${position.symbol} - ${triggerResult.triggerReason}`);
+      console.log(`[PositionMonitor] ✓ Periodic wellness check (silent): ${position.symbol} - ${triggerResult.triggerReason}`);
     } catch (error) {
       console.error('[PositionMonitor] Error checking periodic wellness:', error);
     }
