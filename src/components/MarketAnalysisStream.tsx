@@ -478,7 +478,7 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
                     </div>
                   </div>
 
-                  <div className="text-xs leading-relaxed whitespace-pre-line">
+                  <div className="text-xs leading-relaxed whitespace-pre-line text-white">
                     {message.content}
                   </div>
                 </div>
