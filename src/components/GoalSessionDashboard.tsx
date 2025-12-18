@@ -14,6 +14,7 @@ import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { simpleScanningTimer } from '../services/simple-scanning-timer';
 import { getRiskPercentage } from '../config/risk-levels';
+import { calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
 // GoalScanReadinessIndicator removed - using simple indicator
 
 export const GoalSessionDashboard: React.FC = () => {
@@ -584,6 +585,55 @@ export const GoalSessionDashboard: React.FC = () => {
     return (totalProgress / goalAmount) * 100;
   };
 
+  const calculateActualRiskPercentage = (): { percentage: number; dollarRisk: number; displayText: string } => {
+    if (!activeSession || openTrades.length === 0) {
+      // No open trades - show the risk mode setting
+      const riskMode = getRiskPercentage(activeSession?.config.riskMode || 'medium');
+      return {
+        percentage: riskMode,
+        dollarRisk: 0,
+        displayText: `${riskMode}%`
+      };
+    }
+
+    // Calculate actual risk from open trades
+    const accountBalance = activeSession.config.accountBalance || 10000;
+    let totalDollarRisk = 0;
+
+    openTrades.forEach(trade => {
+      const lotSize = trade.lot_size || trade.position_size || 0.01;
+      const entryPrice = trade.entry_price || 0;
+      const stopLoss = trade.stop_loss || 0;
+
+      if (entryPrice > 0 && stopLoss > 0) {
+        // Calculate pip distance to stop loss
+        const pipDistance = calculatePipDistance(trade.symbol, entryPrice, stopLoss);
+
+        // Calculate dollar value per pip for this lot size
+        const dollarPerPip = calculateDollarPerPip(trade.symbol, lotSize);
+
+        // Total dollar risk for this trade
+        const tradeRisk = pipDistance * dollarPerPip;
+        totalDollarRisk += tradeRisk;
+      }
+    });
+
+    // Calculate risk percentage
+    const riskPercentage = (totalDollarRisk / accountBalance) * 100;
+
+    // Display text with appropriate formatting
+    let displayText = `${riskPercentage.toFixed(2)}%`;
+    if (openTrades.length > 1) {
+      displayText += ` (${openTrades.length} trades)`;
+    }
+
+    return {
+      percentage: riskPercentage,
+      dollarRisk: totalDollarRisk,
+      displayText
+    };
+  };
+
   const getStatusColor = (status: string) => {
     const colors = {
       initializing: 'text-yellow-400',
@@ -914,14 +964,32 @@ export const GoalSessionDashboard: React.FC = () => {
               <div className="text-xs text-gray-400">Total Trades</div>
             </div>
             <div className="text-center">
-              <div className={`text-2xl font-bold ${
-                activeSession.config.riskMode === 'low' ? 'text-green-400' :
-                activeSession.config.riskMode === 'medium' ? 'text-yellow-400' :
-                'text-orange-400'
-              }`}>
-                {getRiskPercentage(activeSession.config.riskMode)}%{openTrades.length > 1 ? ` (${openTrades.length})` : ''}
-              </div>
-              <div className="text-xs text-gray-400">Risk Per Trade</div>
+              {(() => {
+                const riskData = calculateActualRiskPercentage();
+                const riskColor =
+                  riskData.percentage < 2 ? 'text-green-400' :
+                  riskData.percentage < 5 ? 'text-yellow-400' :
+                  riskData.percentage < 10 ? 'text-orange-400' : 'text-red-400';
+
+                return (
+                  <>
+                    <div className={`text-2xl font-bold ${riskColor}`}>
+                      {riskData.displayText}
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {openTrades.length > 0 ? (
+                        <span title={`$${riskData.dollarRisk.toFixed(2)} at risk`}>
+                          Actual Risk
+                        </span>
+                      ) : (
+                        <span title={`Max ${getRiskPercentage(activeSession.config.riskMode)}% per trade`}>
+                          Risk Per Trade
+                        </span>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-blue-400">${(progress.stats.totalProfit || 0).toFixed(2)}</div>
