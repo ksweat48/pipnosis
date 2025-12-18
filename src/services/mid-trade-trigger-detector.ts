@@ -45,6 +45,12 @@ class MidTradeTriggerDetector {
   // Memory to track which triggers have fired for each trade
   private firedTriggers: Map<string, Set<string>> = new Map();
 
+  // Track last periodic wellness check time per trade
+  private lastPeriodicCheck: Map<string, number> = new Map();
+
+  // Periodic check interval in milliseconds (15 minutes)
+  private periodicCheckInterval = 15 * 60 * 1000;
+
   /**
    * Check if any trigger events have occurred for an active trade
    * Returns first trigger found, or null if none
@@ -507,6 +513,59 @@ class MidTradeTriggerDetector {
   }
 
   /**
+   * Check if periodic wellness check should fire (every 15 minutes)
+   * This is a "general check-in" to provide continuous confidence
+   */
+  checkPeriodicWellness(
+    trade: SimulatedTrade,
+    marketConditions: MarketConditions
+  ): TriggerDetectionResult {
+    const tradeId = trade.id;
+    const now = Date.now();
+    const lastCheck = this.lastPeriodicCheck.get(tradeId) || 0;
+    const timeSinceLastCheck = now - lastCheck;
+
+    // Check if 15 minutes have passed since last periodic check
+    if (timeSinceLastCheck < this.periodicCheckInterval) {
+      return {
+        triggered: false,
+        triggerType: null,
+        triggerReason: null,
+        confidence: 0,
+        shouldCallLLM: false,
+        metadata: {
+          time_until_next_check: Math.ceil((this.periodicCheckInterval - timeSinceLastCheck) / 60000)
+        }
+      };
+    }
+
+    // Time for periodic wellness check
+    this.lastPeriodicCheck.set(tradeId, now);
+
+    const isLong = trade.direction === 'buy';
+    const priceDiff = isLong
+      ? (marketConditions.currentPrice - trade.entryPrice)
+      : (trade.entryPrice - marketConditions.currentPrice);
+    const risk = Math.abs(trade.entryPrice - trade.stopLoss);
+    const riskRatio = priceDiff / risk;
+    const minutesInTrade = (now - trade.entryTime.getTime()) / 60000;
+
+    return {
+      triggered: true,
+      triggerType: 'periodic_wellness',
+      triggerReason: `15-minute wellness check - Trade ${minutesInTrade.toFixed(0)}m old, ${riskRatio > 0 ? '+' : ''}${(riskRatio * 100).toFixed(0)}% R`,
+      confidence: 100, // Always execute periodic checks
+      shouldCallLLM: true,
+      metadata: {
+        minutes_in_trade: minutesInTrade.toFixed(0),
+        current_risk_ratio: riskRatio.toFixed(2),
+        check_type: 'periodic_wellness',
+        last_check_minutes_ago: (timeSinceLastCheck / 60000).toFixed(1)
+      }
+    };
+  }
+
+  /**
    * Manually trigger evaluation (user requested)
    */
   manualTrigger(tradeId: string, question: string): TriggerDetectionResult {
@@ -528,6 +587,7 @@ class MidTradeTriggerDetector {
    */
   clearTriggers(tradeId: string): void {
     this.firedTriggers.delete(tradeId);
+    this.lastPeriodicCheck.delete(tradeId);
   }
 
   /**

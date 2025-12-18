@@ -356,6 +356,9 @@ class PositionMonitorService {
       return;
     }
 
+    // Check for periodic wellness (15-minute check-ins)
+    await this.checkPeriodicWellness(position, actualCurrentPrice);
+
     // Check for mid-trade triggers (drawdown alerts, etc.)
     await this.checkMidTradeTriggers(position, actualCurrentPrice, pnl);
 
@@ -467,6 +470,63 @@ class PositionMonitorService {
       logger.debug(LogCategory.POSITION_MONITOR, ` Order ${order.id} filled successfully`);
     } catch (error) {
       console.error(`[PositionMonitor] Failed to fill order ${order.id}:`, error);
+    }
+  }
+
+  /**
+   * Check for periodic wellness check (every 15 minutes)
+   * Provides continuous peace of mind and early issue detection
+   */
+  private async checkPeriodicWellness(
+    position: MonitoredPosition,
+    currentPrice: number
+  ): Promise<void> {
+    try {
+      // Build market conditions snapshot (minimal for performance)
+      const marketConditions: MarketConditions = {
+        currentPrice,
+        ohlc: [], // Not needed for periodic check
+        indicators: {},
+        priceAction: {}
+      };
+
+      // Check if periodic wellness should fire
+      const triggerResult = midTradeTriggerDetector.checkPeriodicWellness(
+        {
+          id: position.id,
+          symbol: position.symbol,
+          direction: position.direction,
+          entryPrice: position.entry_price,
+          stopLoss: position.stop_loss,
+          takeProfit: position.take_profit,
+          positionSize: position.lot_size,
+          entryTime: new Date(position.opened_at),
+          status: 'active'
+        } as any,
+        marketConditions
+      );
+
+      if (!triggerResult.triggered) {
+        return; // Not time for periodic check yet
+      }
+
+      // Log periodic check to database for tracking
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: position.goal_session_id,
+        user_id: position.user_id,
+        role: 'system',
+        content: `Periodic wellness check: ${triggerResult.triggerReason}`,
+        conversation_type: 'periodic_wellness',
+        trade_id: position.id,
+        metadata: {
+          trigger_type: 'periodic_wellness',
+          ...triggerResult.metadata
+        }
+      });
+
+      console.log(`[PositionMonitor] ✓ Periodic wellness check: ${position.symbol} - ${triggerResult.triggerReason}`);
+    } catch (error) {
+      console.error('[PositionMonitor] Error checking periodic wellness:', error);
     }
   }
 

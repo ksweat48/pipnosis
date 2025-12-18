@@ -9,6 +9,7 @@ import { notificationManager } from '@/services/notification-manager';
 import { useToast } from '@/hooks/useToast';
 import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 import { useNavigate } from 'react-router-dom';
+import { TradeWellnessIndicator } from './TradeWellnessIndicator';
 
 interface Position {
   id: string;
@@ -395,6 +396,9 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
                               <BarChart3 className="w-3 h-3" />
                               View Chart
                             </button>
+                            <div onClick={(e) => e.stopPropagation()}>
+                              <TradeWellnessIndicator tradeId={position.id} compact />
+                            </div>
                           </div>
 
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">

@@ -110,6 +110,127 @@ class MidTradeMonitorBrain {
   }
 
   /**
+   * Periodic Wellness Check (every 15 minutes)
+   * Lightweight evaluation for continuous peace of mind
+   * Uses gpt-4o-mini for cost efficiency (~$0.0002 per check)
+   */
+  async evaluatePeriodicWellness(
+    snapshot: MidTradeSnapshot,
+    traderScore: TraderScore
+  ): Promise<MidTradeDecision> {
+    // Get sentiment context (lightweight)
+    const sentimentData = await sentimentCoordinator.getSentimentForMidTrade().catch(() => null);
+    const sentimentContext = sentimentData?.current
+      ? ` | Sentiment: ${sentimentData.current.sentiment}`
+      : '';
+
+    const prompt = `Periodic Wellness Check (15-min):
+${JSON.stringify(snapshot)}${sentimentContext}
+
+Quick check - is this trade still on track? Return JSON:
+{
+  "status": "EXCELLENT|GOOD|FAIR|CONCERNING|EXIT_NOW",
+  "confidence": 0-100,
+  "brief_note": "1-2 sentence assessment",
+  "recommendation": "HOLD|TRAIL_SL|REDUCE_RISK|CLOSE"
+}`;
+
+    try {
+      const response = await openAIClient.chat(
+        [
+          {
+            role: 'system',
+            content: 'You are Alpha. Periodic wellness check. Concise JSON response only.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        {
+          model: 'gpt-4o-mini',
+          temperature: 0.3,
+          max_tokens: 120,
+          requestType: 'periodic_wellness',
+          endpoint: 'periodic-wellness'
+        }
+      );
+
+      // Log token usage
+      await llmTokenTracker.logUsage({
+        brainName: 'MidTrade-Periodic',
+        model: 'gpt-4o-mini',
+        promptTokens: response.usage?.prompt_tokens || 0,
+        completionTokens: response.usage?.completion_tokens || 0,
+        totalTokens: response.usage?.total_tokens || 0,
+        contextType: 'periodic_wellness',
+        userId: undefined,
+        sessionId: undefined
+      });
+
+      const content = response.choices[0]?.message?.content || '{}';
+      const parsed = this.parsePeriodicWellness(content);
+
+      console.log(`[Periodic Wellness] ${snapshot.sym}: ${parsed.action} (${parsed.confidence}%) - ${parsed.reasoning}`);
+      return parsed;
+    } catch (error) {
+      console.error('[Periodic Wellness] Error:', error);
+      return {
+        action: 'HOLD',
+        confidence: 50,
+        reasoning: 'Periodic check failed - continuing normally',
+        trigger_level: 'soft'
+      };
+    }
+  }
+
+  /**
+   * Parse periodic wellness response
+   */
+  private parsePeriodicWellness(response: string): MidTradeDecision {
+    try {
+      const cleaned = response
+        .replace(/```json\n?/g, '')
+        .replace(/```\n?/g, '')
+        .trim();
+
+      const parsed = JSON.parse(cleaned);
+
+      // Map status to action
+      let action: MidTradeDecision['action'] = 'HOLD';
+      const status = parsed.status || 'GOOD';
+      const recommendation = parsed.recommendation || 'HOLD';
+
+      // Use explicit recommendation if provided
+      if (['HOLD', 'CLOSE', 'TRAIL_SL', 'REDUCE_RISK'].includes(recommendation)) {
+        action = recommendation;
+      } else if (status === 'EXIT_NOW') {
+        action = 'CLOSE';
+      } else if (status === 'CONCERNING') {
+        action = 'REDUCE_RISK';
+      } else {
+        action = 'HOLD';
+      }
+
+      const reasoning = parsed.brief_note || `Status: ${status}`;
+
+      return {
+        action,
+        confidence: Math.min(100, Math.max(0, parsed.confidence || 75)),
+        reasoning,
+        trigger_level: 'soft' // Periodic checks are non-critical
+      };
+    } catch (error) {
+      return {
+        action: 'HOLD',
+        confidence: 75,
+        reasoning: 'Wellness check parse failed - trade appears normal',
+        trigger_level: 'soft'
+      };
+    }
+  }
+
+  /**
    * Soft Check (30-49% drawdown)
    * Quick Alpha evaluation with sentiment context
    */
