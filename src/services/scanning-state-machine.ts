@@ -121,29 +121,16 @@ class ScanningStateMachine {
 
   /**
    * Record that a scan was completed
+   * NOTE: This is now a no-op since the simplified 15-minute confirmation system
+   * uses time-based checks instead of scan counters.
    */
   async recordScanCompletion(sessionId: string, tradeFound: boolean = false): Promise<void> {
-    try {
-      const { error } = await supabase.rpc('record_scan_completion', {
-        p_session_id: sessionId,
-        p_trade_found: tradeFound
-      });
-
-      if (error) throw error;
-
-      logger.info('📊 Scan completion recorded', {
-        sessionId,
-        tradeFound,
-        action: tradeFound ? 'cycle_reset' : 'counter_increment'
-      });
-
-      if (tradeFound) {
-        logger.success('🎯 Trade found - cycle counters reset');
-      }
-    } catch (error) {
-      logger.error('❌ Failed to record scan completion', { error, sessionId });
-      throw error;
-    }
+    // No longer needed with simplified scanning system
+    // The new system uses time-based continuation checks via should_show_continuation_modal
+    logger.debug('📊 Scan completed (tracking via time-based system)', {
+      sessionId,
+      tradeFound
+    });
   }
 
   /**
