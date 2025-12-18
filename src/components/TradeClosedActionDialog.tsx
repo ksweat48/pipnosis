@@ -25,6 +25,7 @@ interface TradeClosedActionDialogProps {
   onContinueSession: () => void;
   onCloseForNow: () => void;
   isLoading?: boolean;
+  timestamp?: string; // If provided, shows "Trade closed X time ago" instead of countdown
 }
 
 const GOAL_ACHIEVED_TIMEOUT = 60 * 1000; // 60 seconds for goal achieved
@@ -47,10 +48,12 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   onStartNewSession,
   onContinueSession,
   onCloseForNow,
-  isLoading = false
+  isLoading = false,
+  timestamp
 }) => {
   const timeoutDuration = isGoalAchieved ? GOAL_ACHIEVED_TIMEOUT : NORMAL_TIMEOUT;
   const [timeRemaining, setTimeRemaining] = useState(timeoutDuration);
+  const isPendingModal = !!timestamp;
 
   const smartCloseResult = detectTrueCloseReason({
     exitPrice,
@@ -75,9 +78,9 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
     }
   }, [isOpen, timeoutDuration]);
 
-  // Countdown timer
+  // Countdown timer (skip if this is a pending modal)
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || isPendingModal) return;
 
     const interval = setInterval(() => {
       setTimeRemaining((prev) => {
@@ -97,7 +100,28 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isOpen, isGoalAchieved, onContinueSession, onCloseForNow]);
+  }, [isOpen, isPendingModal, isGoalAchieved, onContinueSession, onCloseForNow]);
+
+  // Helper to format time elapsed for pending modals
+  const formatTimeElapsed = (ts: string): string => {
+    const then = new Date(ts).getTime();
+    const now = Date.now();
+    const diffMs = now - then;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays > 0) {
+      return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    }
+    if (diffHours > 0) {
+      return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    }
+    if (diffMins > 0) {
+      return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+    }
+    return 'Just now';
+  };
 
   // Escape key handler
   useEffect(() => {
@@ -183,13 +207,22 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
               What would you like to do next?
             </p>
 
-            {/* Countdown Timer */}
-            <div className="flex items-center justify-center gap-2 text-xs">
-              <Clock className="w-3 h-3 text-gray-500" />
-              <span className="text-gray-500">
-                {isGoalAchieved ? 'Auto-close in' : 'Auto-continue in'} <span className="font-semibold text-gray-400">{formatTime(timeRemaining)}</span>
-              </span>
-            </div>
+            {/* Countdown Timer or Timestamp */}
+            {isPendingModal ? (
+              <div className="flex items-center justify-center gap-2 text-xs bg-amber-500/10 border border-amber-500/20 rounded-lg py-2 px-3">
+                <Clock className="w-4 h-4 text-amber-400" />
+                <span className="text-amber-300 font-medium">
+                  Trade closed {formatTimeElapsed(timestamp)}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center gap-2 text-xs">
+                <Clock className="w-3 h-3 text-gray-500" />
+                <span className="text-gray-500">
+                  {isGoalAchieved ? 'Auto-close in' : 'Auto-continue in'} <span className="font-semibold text-gray-400">{formatTime(timeRemaining)}</span>
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Trade Summary */}

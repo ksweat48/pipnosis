@@ -100,9 +100,71 @@ const AppRoutes: React.FC = () => {
 
     console.log('[App] Setting up global event listeners for user:', user.id);
 
+    // Check for pending modals on app load
+    const checkPendingModals = async () => {
+      const { modalQueueManager } = await import('./services/modal-queue-manager');
+      const pendingModals = await modalQueueManager.getPendingModals(user.id);
+
+      if (pendingModals.length > 0) {
+        console.log('[App] Found pending modals:', pendingModals.length);
+
+        // Show the oldest modal first
+        const modal = pendingModals[0];
+        const modalData = modal.modal_data;
+
+        if (modal.modal_type === 'goal_achieved') {
+          // Show goal achieved celebration
+          globalDialogManager.showGoalAchieved({
+            symbol: modalData.symbol,
+            profitLoss: modalData.profit_loss,
+            targetValue: modalData.target_value,
+            tradesInSession: modalData.trades_in_session,
+            onClose: async () => {
+              await modalQueueManager.dismissModal(modal.id, 'acknowledged');
+              // Check for more pending modals
+              checkPendingModals();
+            }
+          });
+        } else if (modal.modal_type === 'trade_closed') {
+          // Show trade closed dialog with timestamp
+          globalDialogManager.showTradeClosed({
+            symbol: modalData.symbol,
+            direction: modalData.direction,
+            entryPrice: modalData.entry_price,
+            exitPrice: modalData.exit_price,
+            profitLoss: modalData.profit_loss,
+            closeReason: modalData.close_reason,
+            currentProgress: modalData.current_progress,
+            targetValue: modalData.target_value,
+            tradesInSession: modalData.trades_in_session,
+            timestamp: modalData.timestamp || modal.created_at, // Pass timestamp for "X time ago" display
+            onStartNewSession: async () => {
+              await modalQueueManager.dismissModal(modal.id, 'close');
+              window.location.href = '/ai-trade';
+            },
+            onContinueSession: async () => {
+              await modalQueueManager.dismissModal(modal.id, 'continue');
+              // Check for more pending modals
+              checkPendingModals();
+            }
+          });
+        }
+      }
+    };
+
+    // Check immediately on mount
+    checkPendingModals();
+
+    // Subscribe to modal updates
+    const { modalQueueManager } = import('./services/modal-queue-manager').then(({ modalQueueManager }) => {
+      modalQueueManager.subscribeToModalUpdates(user.id, checkPendingModals);
+    });
+
     // Note: Goal achievement notifications are handled by GoalNotificationListener component
     // on SmartGoalModePage to prevent duplicate dialogs
 
+    // Real-time listener for trades closing WHILE user is watching
+    // If user is not watching, modal is already persisted by position-monitor
     const tradeClosureChannel = supabase
       .channel('global-trade-closures')
       .on(
@@ -115,60 +177,60 @@ const AppRoutes: React.FC = () => {
         },
         async (payload) => {
           if (payload.new.status === 'closed' && payload.old.status === 'open') {
-            console.log('[App] Trade closed!', payload);
+            console.log('[App] Trade closed in real-time!', payload);
 
-            const trade = payload.new;
-            const closeReason = trade.close_reason || 'manual';
+            // Check if document is visible - if so, show modal immediately
+            // If not visible, the persistent modal will show when user returns
+            if (document.visibilityState === 'visible') {
+              const trade = payload.new;
+              const closeReason = trade.close_reason || 'manual';
 
-            if (closeReason === 'goal_met') {
-              return;
-            }
-
-            // Calculate cumulative profit from all closed trades
-            const { data: closedTrades } = await supabase
-              .from('goal_session_trades')
-              .select('profit_loss')
-              .eq('goal_session_id', trade.goal_session_id)
-              .eq('status', 'closed');
-
-            const cumulativeProfit = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
-
-            const { data: session } = await supabase
-              .from('goal_sessions')
-              .select('target_value')
-              .eq('id', trade.goal_session_id)
-              .maybeSingle();
-
-            const { data: tradesCount } = await supabase
-              .from('goal_session_trades')
-              .select('id', { count: 'exact' })
-              .eq('goal_session_id', trade.goal_session_id);
-
-            console.log('[App] Trade closed dialog data:', {
-              symbol: trade.symbol,
-              profitLoss: trade.profit_loss,
-              cumulativeProfit,
-              targetValue: session?.target_value,
-              tradesCount: tradesCount?.length
-            });
-
-            globalDialogManager.showTradeClosed({
-              symbol: trade.symbol,
-              direction: trade.direction,
-              entryPrice: trade.entry_price,
-              exitPrice: trade.exit_price,
-              profitLoss: trade.profit_loss,
-              closeReason: closeReason,
-              currentProgress: cumulativeProfit,
-              targetValue: session?.target_value || 0,
-              tradesInSession: tradesCount?.length || 0,
-              onStartNewSession: () => {
-                window.location.href = '/ai-trade';
-              },
-              onContinueSession: () => {
-                window.location.href = '/ai-trade';
+              if (closeReason === 'goal_met') {
+                return;
               }
-            });
+
+              // Calculate cumulative profit from all closed trades
+              const { data: closedTrades } = await supabase
+                .from('goal_session_trades')
+                .select('profit_loss')
+                .eq('goal_session_id', trade.goal_session_id)
+                .eq('status', 'closed');
+
+              const cumulativeProfit = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
+
+              const { data: session } = await supabase
+                .from('goal_sessions')
+                .select('target_value')
+                .eq('id', trade.goal_session_id)
+                .maybeSingle();
+
+              const { data: tradesCount } = await supabase
+                .from('goal_session_trades')
+                .select('id', { count: 'exact' })
+                .eq('goal_session_id', trade.goal_session_id);
+
+              console.log('[App] Showing real-time trade closed dialog');
+
+              globalDialogManager.showTradeClosed({
+                symbol: trade.symbol,
+                direction: trade.direction,
+                entryPrice: trade.entry_price,
+                exitPrice: trade.exit_price,
+                profitLoss: trade.profit_loss,
+                closeReason: closeReason,
+                currentProgress: cumulativeProfit,
+                targetValue: session?.target_value || 0,
+                tradesInSession: tradesCount?.length || 0,
+                onStartNewSession: () => {
+                  window.location.href = '/ai-trade';
+                },
+                onContinueSession: () => {
+                  window.location.href = '/ai-trade';
+                }
+              });
+            } else {
+              console.log('[App] Document not visible - modal will be shown from queue when user returns');
+            }
           }
         }
       )
@@ -253,6 +315,11 @@ const AppRoutes: React.FC = () => {
       supabase.removeChannel(tradeClosureChannel);
       supabase.removeChannel(tradeSignalChannel);
       supabase.removeChannel(midTradeChannel);
+
+      // Unsubscribe from modal updates
+      import('./services/modal-queue-manager').then(({ modalQueueManager }) => {
+        modalQueueManager.unsubscribeFromModalUpdates();
+      });
     };
   }, [user]);
 

@@ -678,6 +678,53 @@ class PositionMonitorService {
 
           console.log(`[PositionMonitor] ✅ Created AI conversation message for ${reason} on ${position.symbol}`);
         }
+
+        // CRITICAL: Create persistent modal that will show even if user is away
+        // Calculate cumulative progress for session
+        const { data: closedTrades } = await supabase
+          .from('goal_session_trades')
+          .select('profit_loss')
+          .eq('goal_session_id', position.goal_session_id)
+          .eq('status', 'closed');
+
+        const cumulativeProfit = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
+
+        const { data: session } = await supabase
+          .from('goal_sessions')
+          .select('target_value, status')
+          .eq('id', position.goal_session_id)
+          .maybeSingle();
+
+        const { data: tradesCount } = await supabase
+          .from('goal_session_trades')
+          .select('id', { count: 'exact' })
+          .eq('goal_session_id', position.goal_session_id);
+
+        // Import and use modal queue manager
+        const { modalQueueManager } = await import('./modal-queue-manager');
+
+        const modalType = reason === 'goal_met' ? 'goal_achieved' : 'trade_closed';
+
+        // Create persistent modal
+        await modalQueueManager.createPendingModal(
+          position.user_id,
+          position.goal_session_id,
+          modalType,
+          {
+            symbol: position.symbol,
+            direction: position.direction,
+            entry_price: position.entry_price,
+            exit_price: closePrice,
+            profit_loss: result.pnl,
+            close_reason: reason,
+            current_progress: cumulativeProfit,
+            target_value: session?.target_value || 0,
+            trades_in_session: tradesCount?.length || 0,
+            session_status: session?.status
+          }
+        );
+
+        console.log(`[PositionMonitor] ✅ Created persistent modal for ${reason} on ${position.symbol}`);
       }
 
       // Update goal session status if no more open trades
