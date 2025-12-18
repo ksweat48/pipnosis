@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, TrendingUp, TrendingDown, Minus, Clock, Target, BarChart3, AlertCircle, CheckCircle } from 'lucide-react';
+import { Activity, TrendingUp, TrendingDown, Minus, Clock, Target, BarChart3, AlertCircle, CheckCircle, Brain, Shield } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface MarketSnapshot {
@@ -17,6 +17,21 @@ interface MarketSnapshot {
   lastUpdate: string;
 }
 
+interface WellnessMessage {
+  id: string;
+  content: string;
+  trade_id: string;
+  symbol: string;
+  created_at: string;
+  metadata: {
+    action?: string;
+    confidence?: number;
+    current_pnl?: number;
+    risk_ratio?: string;
+    minutes_in_trade?: number;
+  };
+}
+
 interface AnalysisStreamProps {
   sessionId: string;
   watchlist: string[];
@@ -28,19 +43,45 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
   const [nextScanTime, setNextScanTime] = useState<Date | null>(null);
   const [countdown, setCountdown] = useState<string>('Calculating...');
   const [hasOpenTrades, setHasOpenTrades] = useState(false);
+  const [wellnessMessages, setWellnessMessages] = useState<WellnessMessage[]>([]);
 
   useEffect(() => {
     loadMarketData();
     loadSessionInfo();
     checkOpenTrades();
+    loadWellnessMessages();
 
     const interval = setInterval(() => {
       loadMarketData();
       loadSessionInfo();
       checkOpenTrades();
-    }, 30000);
+      loadWellnessMessages();
+    }, 10000); // Check more frequently for wellness updates
 
-    return () => clearInterval(interval);
+    // Subscribe to realtime wellness check updates
+    const wellnessChannel = supabase
+      .channel('wellness-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'goal_ai_conversations',
+          filter: `goal_session_id=eq.${sessionId}`
+        },
+        (payload) => {
+          if (payload.new.conversation_type === 'periodic_wellness') {
+            console.log('[MarketAnalysisStream] New wellness check received:', payload.new);
+            loadWellnessMessages();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(wellnessChannel);
+    };
   }, [sessionId, watchlist]);
 
   // Update countdown every second
@@ -88,6 +129,61 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
     } catch (error) {
       console.error('Error checking open trades:', error);
       setHasOpenTrades(false);
+    }
+  };
+
+  const loadWellnessMessages = async () => {
+    try {
+      // Get all open trades for this session
+      const { data: openTrades } = await supabase
+        .from('goal_session_trades')
+        .select('id, symbol')
+        .eq('goal_session_id', sessionId)
+        .eq('status', 'open');
+
+      if (!openTrades || openTrades.length === 0) {
+        setWellnessMessages([]);
+        return;
+      }
+
+      // Get latest wellness check for each open trade
+      const tradeIds = openTrades.map(t => t.id);
+      const { data: conversations } = await supabase
+        .from('goal_ai_conversations')
+        .select('*')
+        .eq('goal_session_id', sessionId)
+        .eq('conversation_type', 'periodic_wellness')
+        .in('trade_id', tradeIds)
+        .order('created_at', { ascending: false });
+
+      if (conversations && conversations.length > 0) {
+        // Get most recent wellness check per trade
+        const latestByTrade = new Map<string, any>();
+        conversations.forEach(conv => {
+          if (conv.trade_id && !latestByTrade.has(conv.trade_id)) {
+            latestByTrade.set(conv.trade_id, conv);
+          }
+        });
+
+        const messages: WellnessMessage[] = Array.from(latestByTrade.values()).map(conv => {
+          const trade = openTrades.find(t => t.id === conv.trade_id);
+          return {
+            id: conv.id,
+            content: conv.content,
+            trade_id: conv.trade_id,
+            symbol: trade?.symbol || 'UNKNOWN',
+            created_at: conv.created_at,
+            metadata: conv.metadata || {}
+          };
+        });
+
+        setWellnessMessages(messages);
+      } else {
+        setWellnessMessages([]);
+      }
+    } catch (error) {
+      console.error('[MarketAnalysisStream] Error loading wellness messages:', error);
+      setWellnessMessages([]);
     }
   };
 
@@ -257,6 +353,49 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
     return 'from-gray-500 to-gray-600';
   };
 
+  const getActionColor = (action: string) => {
+    switch (action?.toUpperCase()) {
+      case 'HOLD':
+        return 'text-blue-400 bg-blue-500/10 border-blue-500/30';
+      case 'CLOSE':
+      case 'EXIT_NOW':
+        return 'text-red-400 bg-red-500/10 border-red-500/30';
+      case 'CONSIDER_EXIT':
+      case 'CONSIDER_CLOSING':
+        return 'text-orange-400 bg-orange-500/10 border-orange-500/30';
+      default:
+        return 'text-gray-400 bg-gray-500/10 border-gray-500/30';
+    }
+  };
+
+  const getActionIcon = (action: string) => {
+    switch (action?.toUpperCase()) {
+      case 'HOLD':
+        return <Shield className="w-4 h-4" />;
+      case 'CLOSE':
+      case 'EXIT_NOW':
+        return <AlertCircle className="w-4 h-4" />;
+      case 'CONSIDER_EXIT':
+      case 'CONSIDER_CLOSING':
+        return <Clock className="w-4 h-4" />;
+      default:
+        return <Activity className="w-4 h-4" />;
+    }
+  };
+
+  const formatTimeSince = (timestamp: string): string => {
+    const now = new Date().getTime();
+    const then = new Date(timestamp).getTime();
+    const diffMs = now - then;
+    const diffMins = Math.floor(diffMs / 60000);
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins === 1) return '1m ago';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    return `${diffHours}h ago`;
+  };
+
 
   if (loading) {
     return (
@@ -274,8 +413,17 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
       <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-3 border border-gray-700">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-blue-400 animate-pulse" />
-            <h4 className="text-base font-bold text-white">Live Market Analysis</h4>
+            {hasOpenTrades ? (
+              <>
+                <Brain className="w-4 h-4 text-purple-400 animate-pulse" />
+                <h4 className="text-base font-bold text-white">Alpha Trade Monitor</h4>
+              </>
+            ) : (
+              <>
+                <Activity className="w-4 h-4 text-blue-400 animate-pulse" />
+                <h4 className="text-base font-bold text-white">Live Market Analysis</h4>
+              </>
+            )}
           </div>
           {hasOpenTrades ? (
             <div className="flex items-center gap-2 px-2 py-1 bg-blue-500/20 rounded border border-blue-500/50">
@@ -291,8 +439,60 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-2">
-          {marketData.map((snapshot) => (
+        {/* Show wellness messages when trades are open */}
+        {hasOpenTrades && wellnessMessages.length > 0 ? (
+          <div className="space-y-2">
+            {wellnessMessages.map((message) => {
+              const action = message.metadata.action || 'HOLD';
+              const confidence = message.metadata.confidence || 0;
+              const pnl = message.metadata.current_pnl || 0;
+              const riskRatio = message.metadata.risk_ratio || '0.0';
+              const minutesInTrade = message.metadata.minutes_in_trade || 0;
+
+              return (
+                <div
+                  key={message.id}
+                  className={`rounded-lg p-3 border ${getActionColor(action)}`}
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      {getActionIcon(action)}
+                      <div>
+                        <div className="text-sm font-bold">{message.symbol}</div>
+                        <div className="text-xs opacity-70">{formatTimeSince(message.created_at)}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <div className={`text-sm font-bold ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+                        </div>
+                        <div className="text-xs opacity-70">
+                          {minutesInTrade}m • {riskRatio}R
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end">
+                        <div className="text-sm font-bold">{action}</div>
+                        <div className="text-xs opacity-70">{confidence}%</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-xs leading-relaxed whitespace-pre-line">
+                    {message.content}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : hasOpenTrades ? (
+          <div className="flex items-center gap-2 px-3 py-2 bg-gray-700/30 rounded border border-gray-600/50">
+            <Clock className="w-3 h-3 text-gray-500 animate-pulse" />
+            <span className="text-xs text-gray-500">Waiting for wellness check...</span>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-2">
+            {marketData.map((snapshot) => (
             <div
               key={snapshot.symbol}
               className="bg-gray-700/50 rounded-lg p-3 border border-gray-600 hover:border-gray-500 transition-colors"
@@ -372,9 +572,10 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
               )}
             </div>
           ))}
-        </div>
+          </div>
+        )}
 
-        {marketData.length === 0 && (
+        {!hasOpenTrades && marketData.length === 0 && (
           <div className="flex items-center gap-2 px-3 py-2 bg-gray-700/30 rounded border border-gray-600/50">
             <Clock className="w-3 h-3 text-gray-500 animate-pulse" />
             <span className="text-xs text-gray-500">Waiting for market data...</span>
