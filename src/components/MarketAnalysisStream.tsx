@@ -459,7 +459,7 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
                       {getActionIcon(action)}
                       <div>
                         <div className="text-sm font-bold">{message.symbol}</div>
-                        <div className="text-xs opacity-70">{formatTimeSince(message.created_at)}</div>
+                        <div className="text-xs opacity-70">Analysis from {formatTimeSince(message.created_at)}</div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -467,8 +467,8 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
                         <div className={`text-sm font-bold ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                           {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
                         </div>
-                        <div className="text-xs opacity-70">
-                          {minutesInTrade}m • {riskRatio}R
+                        <div className="text-xs text-gray-400">
+                          at analysis time
                         </div>
                       </div>
                       <div className="flex flex-col items-end">

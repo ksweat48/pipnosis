@@ -538,6 +538,7 @@ class PositionMonitorService {
         tp: position.take_profit,
         dir: position.direction,
         dd: Math.abs(riskRatio),
+        pnl: currentPnL, // CRITICAL: Include actual calculated P&L
         e20: 0, // Not available in position monitor
         e50: 0,
         rsi: 0,
