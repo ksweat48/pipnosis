@@ -373,107 +373,78 @@ class AlphaCoordinatorBrain {
     const volatilityRegime = this.detectVolatilityRegime(marketContext);
     const stopQuality = this.calculateStopQualityScore(votes.omega8, null); // omega9 validation happens later
 
-    // Build goal context (if trading with a goal)
+    // Build goal context (if trading with a goal) - COMPRESSED VERSION
     let goalContextText = '';
     if (goalContext && goalContext.hasGoal) {
-      const riskPercent = goalContext.riskPercent || 5; // Use actual risk from user settings
-      const maxRisk = goalContext.currentBalance * (riskPercent / 100);
-      const dollarPerPipPerLot = marketContext.symbol.includes('JPY') ? 10 : marketContext.symbol.includes('XAU') ? 100 : 10;
-
-      const exampleSL15 = maxRisk / (15 * dollarPerPipPerLot);
-      const exampleSL30 = maxRisk / (30 * dollarPerPipPerLot);
-      const exampleSL50 = maxRisk / (50 * dollarPerPipPerLot);
-
+      const riskPercent = goalContext.riskPercent || 5;
       const recentATR = marketContext.atr || 60;
-      const avgCandleRange = recentATR * 0.7;
 
-      goalContextText = `\n🎯 GOAL TRADING MODE:\nBalance: $${goalContext.currentBalance.toFixed(2)} | Target: +$${goalContext.targetGoal.toFixed(2)}\nProgress: $${goalContext.currentProgress.toFixed(2)} | Remaining: $${goalContext.remainingGoal.toFixed(2)}\n\n📊 POSITION SIZING EDUCATION:\nYou have ${riskPercent}% risk = $${maxRisk.toFixed(2)} available per trade\nPosition sizing formula: Lot Size = Risk Amount / (SL Pips × $${dollarPerPipPerLot}/pip per lot)\n\nEXAMPLES FOR ${marketContext.symbol}:\n- 15-pip SL: ${exampleSL15.toFixed(2)} lots available (tight, scalp-style)\n- 30-pip SL: ${exampleSL30.toFixed(2)} lots available (standard swing)\n- 50-pip SL: ${exampleSL50.toFixed(2)} lots available (wider breathing room)\n\nKEY INSIGHT: Wider SLs don't hurt you - they give trades breathing room while position size automatically adjusts to maintain proper risk. Don't fear wider stops!\n\n📈 MARKET REALITY CHECK:\nCurrent ATR: ${recentATR.toFixed(0)} pips | Recent Avg Range: ${avgCandleRange.toFixed(0)} pips/candle\nMinimum viable SL: ${(recentATR * 0.4).toFixed(0)} pips (avoid noise)\nRealistic TP ranges: ${(recentATR * 0.5).toFixed(0)}-${(recentATR * 1.5).toFixed(0)} pips achievable today\n\n⚠️ COMMON MISTAKES TO AVOID:\n- 2-3 pip SLs get stopped by market noise (100% failure rate)\n- 100+ pip TPs rarely fill unless major catalyst present\n- Lottery tickets (10:1+ R:R) almost never work\n\n✅ PROFESSIONAL APPROACH FOR $${goalContext.remainingGoal.toFixed(0)} GOAL:\nOption A: 1 trade with ${(goalContext.remainingGoal / (30 * dollarPerPipPerLot)).toFixed(2)} lots, 30-pip SL, 60-pip TP (2:1 R:R)\nOption B: 2 trades with ${(goalContext.remainingGoal / 2 / (20 * dollarPerPipPerLot)).toFixed(2)} lots each, 20-pip SL, 40-pip TP\nOption C: Multiple quality setups if market not offering full goal in one trade\n\nREMEMBER: Markets move in realistic increments. Take achievable profits through quality execution, not lottery tickets.\n`;
+      goalContextText = `\n🎯 GOAL: $${goalContext.currentBalance.toFixed(0)} → +$${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}% gain) | Progress: $${goalContext.currentProgress.toFixed(0)}/${goalContext.targetGoal.toFixed(0)} | Remaining: $${goalContext.remainingGoal.toFixed(0)}\nRisk: ${riskPercent}% per trade | ATR: ${recentATR.toFixed(0)} pips → Use 1.5-2.5R for balance of speed & safety\n`;
     }
 
     // Build intelligence context
     let intelligenceContext = this.buildIntelligenceContext(intelligenceSnapshot);
 
+    // Fetch recent trades for context (NEW FEATURE)
+    let recentTradesContext = '';
+    if (userId) {
+      try {
+        const { data: recentTrades } = await supabase
+          .from('goal_trades')
+          .select('symbol, direction, pnl_result, close_reason, created_at')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(3);
+
+        if (recentTrades && recentTrades.length > 0) {
+          recentTradesContext = `\n📈 RECENT TRADES (Last 3):\n`;
+          recentTrades.forEach((trade, idx) => {
+            const result = trade.pnl_result > 0 ? 'WIN' : trade.pnl_result < 0 ? 'LOSS' : 'BE';
+            const emoji = result === 'WIN' ? '✅' : result === 'LOSS' ? '❌' : '⚪';
+            recentTradesContext += `${idx + 1}. ${emoji} ${trade.symbol} ${trade.direction} → ${result} ($${trade.pnl_result.toFixed(2)}) - ${trade.close_reason}\n`;
+          });
+        }
+      } catch (error) {
+        console.error('[Alpha Coordinator] Failed to fetch recent trades:', error);
+      }
+    }
+
     const prompt = `You are Alpha, the final decision maker. You have COMPLETE AUTHORITY to accept or override ANY recommendation.
 
 ${context}
 
-WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${intelligenceContext}${goalContextText}
+WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${intelligenceContext}${goalContextText}
 
-🎯 ELITE ALPHA INTELLIGENCE:
+🎯 ALPHA DECISION INTELLIGENCE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 Omega Council Agreement:
-  Confidence Spread: ${confidenceSpread.stdDev.toFixed(1)}% (Avg: ${confidenceSpread.avgConfidence.toFixed(0)}%)
-  ${confidenceSpread.isHighAgreement ? '✅ HIGH CONSENSUS - can use wider R:R (2.5-3.5:1)' : '⚠️ HIGH DISAGREEMENT - tighten R:R to 1.5-2.0:1'}
+📊 Omega Weighted Contributions:
+${this.buildWeightedVoteSummary(votes, weights, consensus)}
 
-📈 Volatility Regime:
-  Status: ${volatilityRegime.regime.toUpperCase()} ${volatilityRegime.ratio !== 1.0 ? `(ATR ratio: ${volatilityRegime.ratio.toFixed(2)})` : ''}
-  Recommendation: ${volatilityRegime.recommendation}
-
-🛡️ Stop Quality Assessment:
-  Score: ${stopQuality.score}/100
-  ${stopQuality.recommendation}
-${goalContext?.riskMode ? `
-💰 Risk Allocation (${goalContext.riskMode.toUpperCase()} Mode):
-  Risk per trade: ${goalContext.riskPercent}% = $${(goalContext.currentBalance * (goalContext.riskPercent || 5) / 100).toFixed(2)}
-  ${goalContext.riskMode === 'low' ? 'Conservative mode - favor 1.5:1-2.0:1 R:R for consistency' :
-    goalContext.riskMode === 'high' ? 'Aggressive mode - 2.5:1-4.0:1 R:R acceptable with high confidence' :
-    'Balanced mode - 2.0:1-3.0:1 R:R optimal'}
-` : ''}
+📈 Market Intelligence:
+  Confidence Spread: ${confidenceSpread.stdDev.toFixed(1)}% (Avg: ${confidenceSpread.avgConfidence.toFixed(0)}%) → ${confidenceSpread.isHighAgreement ? '✅ HIGH CONSENSUS - wider R:R viable (2.5-3.5:1)' : '⚠️ DISAGREEMENT - tighten to 1.5-2.0:1'}
+  Volatility: ${volatilityRegime.regime.toUpperCase()} ${volatilityRegime.ratio !== 1.0 ? `(${volatilityRegime.ratio.toFixed(2)}x)` : ''} → ${volatilityRegime.recommendation}
+  Stop Quality: ${stopQuality.score}/100 → ${stopQuality.recommendation}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-YOUR FULL AUTHORITY:
-- Override Adversarial blocks when statistical edge is strong (manipulation resolved, BOS confirmed)
-- Override Regime avoid_trading when symbol-specific conditions justify it
-- Override Risk Omega if setup quality justifies it
-- Override consensus if you see better opportunity
-- Make contrarian calls based on platform intelligence
-- Request mental timeout if confidence borderline (45-55%)
+YOUR AUTHORITY & SAFETY ZONES:
+✅ FULL OVERRIDE POWER for: Adversarial blocks (when BOS confirmed), Regime avoid (when justified), Risk Omega (if setup quality high)
+🛡️ OMEGA-9 SAFETY ZONES (Auto-enforced):
+  • GREEN (R:R≥1.5:1): Optimal - full authority
+  • YELLOW (R:R 1.0-1.5:1): Suboptimal - proceed with caution
+  • ORANGE (R:R 0.5-1.0:1): Risky - requires override reasoning
+  • RED (R:R<0.5:1): HARD BLOCK - cannot override
 
-ADVISORY SIGNALS (NOT BLOCKERS):
-${adversarialSignal ? `- Adversarial: ${adversarialSignal.recommended_action} (${adversarialSignal.level} level, score: ${adversarialSignal.suspicion_score})` : '- Adversarial: No concerns'}
-${regimeSnapshot ? `- Regime: Risk factor ${(regimeSnapshot.risk_reduction_factor * 100).toFixed(0)}% ${regimeSnapshot.avoid_trading ? '(AVOID recommended but you can override)' : ''}` : '- Regime: Normal'}
+POSITIONING RULES:
+BUY: SL below entry, TP above | SELL: SL above entry, TP below | Min R:R: 1.0:1 (YELLOW), target 1.5:1+ (GREEN)
 
-Your job: Synthesize ALL intelligence and make the BEST decision. You can override any safety recommendation if statistically justified.
-
-Decide: BUY, SELL, or NO_TRADE.
-Calculate entry, SL (dynamic ATR buffer), TP (dynamic R:R based on context).
-
-🛡️ GRADUATED SAFETY ZONES (Enforced by Omega-9):
-- GREEN ZONE (R:R >= 1.5:1, TP >= 5 ATR): Full authority, optimal conditions
-- YELLOW ZONE (R:R 1.0-1.5:1, TP 3-5 ATR): Suboptimal, proceed with caution
-- ORANGE ZONE (R:R 0.5-1.0:1, TP 2-3 ATR): Risky, requires override reasoning
-- RED ZONE (R:R < 0.5:1, TP < 2 ATR): HARD BLOCK - Cannot override even for goals
-
-${goalContext && goalContext.hasGoal ? `\n🎯 GOAL-AWARE TRADING MODE:
-- Goal: $${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}% of balance)
-- Progress: $${goalContext.currentProgress.toFixed(0)} (${(goalContext.currentProgress / goalContext.targetGoal * 100).toFixed(1)}% complete)
-- Remaining: $${goalContext.remainingGoal.toFixed(0)}
-- Est. pips needed: ~${goalContext.pipsNeededEstimate.toFixed(0)} pips
-
-GOAL-AWARE DIRECTIVE:
-- For small goals (< 0.1% of balance): You may use tighter TP (1.5R-2.0R) for faster fills
-- CRITICAL: Even for small goals, MAINTAIN MINIMUM 1.0:1 R:R to stay in YELLOW ZONE
-- Never go below 0.5:1 R:R - this triggers RED ZONE hard block
-- Balance speed vs safety: Quick fills are good, but survival is mandatory` : ''}
-
-CRITICAL POSITIONING RULES:
-- BUY trades: stopLoss MUST be BELOW entry, takeProfit MUST be ABOVE entry
-- SELL trades: stopLoss MUST be ABOVE entry, takeProfit MUST be BELOW entry
-- Example BUY: entry=1.2000, stopLoss=1.1950 (below), takeProfit=1.2100 (above)
-- Example SELL: entry=1.2000, stopLoss=1.2050 (above), takeProfit=1.1900 (below)
-- Minimum R:R: 1.0:1 (YELLOW ZONE), aim for 1.5:1+ (GREEN ZONE)
-- VERIFY your prices match the trade direction before returning
-
-If you override any safety recommendation, include your statistical justification in reasoning.
-
-Return JSON only:
+Return JSON with structured reasoning:
 {
   "action": "BUY|SELL|NO_TRADE",
   "entry": price,
   "stopLoss": price,
   "takeProfit": price,
   "confidence": 0-100,
-  "reasoning": "brief decision rationale - state if you overrode any recommendations and why",
+  "reasoning": "[CONSENSUS: summary] [MARKET: key factors] [DECISION: rationale] [OVERRIDES: if any with justification]",
   "override": {
     "type": "adversarial_block|regime_avoid|risk_limit|none",
     "justification": "statistical reasoning if override occurred"
@@ -495,7 +466,7 @@ Return JSON only:
         {
           model: 'gpt-4o-mini',
           temperature: 0.3,
-          max_tokens: 150,
+          max_tokens: 300,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator'
         }
@@ -991,6 +962,37 @@ Return JSON only:
         }
       } else {
         parts.push(`${entry.name} (${entry.weight.toFixed(1)}x): UNAVAILABLE`);
+      }
+    }
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Build weighted vote summary showing each Omega's contribution
+   */
+  private buildWeightedVoteSummary(
+    votes: OmegaCouncilVotes,
+    weights: Record<string, number>,
+    consensus: any
+  ): string {
+    const parts: string[] = [];
+
+    const voteEntries = [
+      { name: 'Trend', vote: votes.trend, weight: weights.trend },
+      { name: 'Scalper', vote: votes.scalper, weight: weights.scalper },
+      { name: 'Swing', vote: votes.swing, weight: weights.swing },
+      { name: 'Reversal', vote: votes.reversal, weight: weights.reversal },
+      { name: 'Volatility', vote: votes.volatility, weight: weights.volatility },
+      { name: 'Risk', vote: votes.risk, weight: weights.risk },
+      { name: 'OrderFlow', vote: votes.omega8, weight: weights.omega8 }
+    ];
+
+    for (const entry of voteEntries) {
+      if (entry.vote) {
+        const weightedContribution = (entry.weight * entry.vote.confidence / 100).toFixed(1);
+        const voteIcon = entry.vote.vote === 'BUY' ? '📈' : entry.vote.vote === 'SELL' ? '📉' : '⏸️';
+        parts.push(`  ${voteIcon} ${entry.name} (${entry.weight.toFixed(1)}x): ${entry.vote.vote} ${entry.vote.confidence}% → ${weightedContribution} pts`);
       }
     }
 
