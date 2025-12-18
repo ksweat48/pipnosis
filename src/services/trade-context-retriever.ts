@@ -65,7 +65,7 @@ class TradeContextRetriever {
 
       // Fetch journal entry for detailed context
       const { data: journalEntry, error: journalError } = await supabase
-        .from('llm_reasoning_journal')
+        .from('ai_trade_journal')
         .select('*')
         .eq('trade_id', tradeId)
         .maybeSingle();
