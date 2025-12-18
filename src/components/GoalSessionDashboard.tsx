@@ -13,6 +13,7 @@ import { goalSessionLiveEngine } from '../services/goal-session-live-engine';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { simpleScanningTimer } from '../services/simple-scanning-timer';
+import { getRiskPercentage } from '../config/risk-levels';
 // GoalScanReadinessIndicator removed - using simple indicator
 
 export const GoalSessionDashboard: React.FC = () => {
@@ -565,6 +566,24 @@ export const GoalSessionDashboard: React.FC = () => {
     return pnl;
   };
 
+  const calculateLiveProgressPercentage = (): number => {
+    if (!progress || !activeSession) return 0;
+
+    // Get closed trades profit
+    const closedProfit = progress.stats?.closedProfit || 0;
+
+    // Calculate current unrealized P&L from open trades
+    const openUnrealizedPnL = openTrades.reduce((sum, trade) => {
+      return sum + calculateCurrentPnL(trade);
+    }, 0);
+
+    // Total progress = closed + open unrealized
+    const totalProgress = closedProfit + openUnrealizedPnL;
+    const goalAmount = activeSession.config.goalAmount;
+
+    return (totalProgress / goalAmount) * 100;
+  };
+
   const getStatusColor = (status: string) => {
     const colors = {
       initializing: 'text-yellow-400',
@@ -772,13 +791,21 @@ export const GoalSessionDashboard: React.FC = () => {
                         View Chart
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                       <div>
                         <div className="text-xs text-gray-500 mb-1">Symbol</div>
                         <div className="text-sm font-semibold text-white">{trade.symbol}</div>
                         <div className={`text-xs font-medium ${isLong ? 'text-emerald-400' : 'text-red-400'}`}>
                           {trade.direction.toUpperCase()}
                         </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs text-gray-500 mb-1">Lot Size</div>
+                        <div className="text-sm font-semibold text-blue-300">
+                          {(trade.lot_size || trade.position_size || 0).toFixed(2)}
+                        </div>
+                        <div className="text-xs text-gray-500">lots</div>
                       </div>
 
                       <div>
@@ -863,13 +890,17 @@ export const GoalSessionDashboard: React.FC = () => {
         <div className="mb-6">
           <div className="flex justify-between text-sm mb-3">
             <span className="text-gray-400 font-medium">Goal Progress</span>
-            <span className="text-white font-bold">{progress?.session?.progress_percentage ? progress.session.progress_percentage.toFixed(1) : '0.0'}%</span>
+            <span className="text-white font-bold">{calculateLiveProgressPercentage().toFixed(1)}%</span>
           </div>
           <div className="relative w-full bg-gray-700/50 backdrop-blur-sm rounded-full h-4 overflow-hidden border border-gray-600/50">
             <div className="absolute inset-0 bg-gradient-to-r from-gray-700 to-gray-800" />
             <div
-              className="relative bg-gradient-to-r from-emerald-500 via-blue-500 to-emerald-400 h-full transition-all duration-500 shadow-lg"
-              style={{ width: `${Math.max(0, Math.min(progress?.session?.progress_percentage || 0, 100))}%` }}
+              className={`relative h-full transition-all duration-500 shadow-lg ${
+                openTrades.length > 0
+                  ? 'bg-gradient-to-r from-emerald-500 via-cyan-500 to-emerald-400 animate-pulse'
+                  : 'bg-gradient-to-r from-emerald-500 via-blue-500 to-emerald-400'
+              }`}
+              style={{ width: `${Math.max(0, Math.min(calculateLiveProgressPercentage(), 100))}%` }}
             >
               <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/20 to-transparent" />
             </div>
@@ -883,8 +914,14 @@ export const GoalSessionDashboard: React.FC = () => {
               <div className="text-xs text-gray-400">Total Trades</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-green-400">{(progress.stats.winRate || 0).toFixed(0)}%</div>
-              <div className="text-xs text-gray-400">Win Rate</div>
+              <div className={`text-2xl font-bold ${
+                activeSession.config.riskMode === 'low' ? 'text-green-400' :
+                activeSession.config.riskMode === 'medium' ? 'text-yellow-400' :
+                'text-orange-400'
+              }`}>
+                {getRiskPercentage(activeSession.config.riskMode)}%{openTrades.length > 1 ? ` (${openTrades.length})` : ''}
+              </div>
+              <div className="text-xs text-gray-400">Risk Per Trade</div>
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-blue-400">${(progress.stats.totalProfit || 0).toFixed(2)}</div>
