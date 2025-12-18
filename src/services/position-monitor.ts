@@ -475,7 +475,7 @@ class PositionMonitorService {
 
   /**
    * Check for periodic wellness check (every 15 minutes)
-   * Provides continuous peace of mind and early issue detection
+   * Provides comprehensive trade intelligence and situational awareness
    */
   private async checkPeriodicWellness(
     position: MonitoredPosition,
@@ -510,23 +510,85 @@ class PositionMonitorService {
         return; // Not time for periodic check yet
       }
 
-      // Log periodic check to database for tracking (ONLY log, no notification)
-      // Wellness checks are displayed in the UI component, not as floating notifications
+      // CRITICAL: Get comprehensive AI wellness evaluation with full trade context
+      const { midTradeMonitor } = await import('../brains/midtrade-monitor');
+
+      // Calculate current P&L
+      const lotSize = position.lot_size || position.position_size;
+      const currentPnL = calculatePnL(
+        position.direction,
+        position.entry_price,
+        currentPrice,
+        lotSize,
+        position.symbol
+      );
+
+      // Calculate risk metrics
+      const risk = Math.abs(position.entry_price - position.stop_loss);
+      const priceDiff = position.direction === 'buy'
+        ? (currentPrice - position.entry_price)
+        : (position.entry_price - currentPrice);
+      const riskRatio = priceDiff / risk;
+
+      // Build snapshot for AI evaluation
+      const snapshot = {
+        p: currentPrice,
+        ep: position.entry_price,
+        sl: position.stop_loss,
+        tp: position.take_profit,
+        dir: position.direction,
+        dd: Math.abs(riskRatio),
+        e20: 0, // Not available in position monitor
+        e50: 0,
+        rsi: 0,
+        atr: risk,
+        vw_d: 0,
+        tr: 'unknown',
+        vol: 'normal',
+        t: triggerResult.metadata.minutesInTrade || 0,
+        risk_pct: 2,
+        sym: position.symbol
+      };
+
+      // Get trader score (simplified for now)
+      const traderScore = {
+        current_score: 75,
+        confidence_level: 'Moderate' as const,
+        win_streak: 0,
+        adaptive_sizing_enabled: false
+      };
+
+      // CRITICAL: Pass trade ID so Alpha can retrieve original context
+      const decision = await midTradeMonitor.evaluatePeriodicWellness(
+        snapshot,
+        traderScore,
+        position.id // Pass trade ID for context retrieval
+      );
+
+      // Create comprehensive wellness message for FloatingMessageCenter
       await supabase.from('goal_ai_conversations').insert({
         goal_session_id: position.goal_session_id,
         user_id: position.user_id,
-        role: 'system',
-        content: `Periodic wellness check: ${triggerResult.triggerReason}`,
+        role: 'assistant',
+        content: decision.reasoning, // Full comprehensive message
         conversation_type: 'periodic_wellness',
         trade_id: position.id,
         metadata: {
           trigger_type: 'periodic_wellness',
           ...triggerResult.metadata,
-          silent: true // Mark as silent - don't show as notification
+          action: decision.action,
+          confidence: decision.confidence,
+          current_pnl: currentPnL,
+          risk_ratio: riskRatio.toFixed(3),
+          minutes_in_trade: snapshot.t,
+          // NO silent flag - show these messages!
+          show_in_floating_center: true
         }
       });
 
-      console.log(`[PositionMonitor] ✓ Periodic wellness check (silent): ${position.symbol} - ${triggerResult.triggerReason}`);
+      console.log(`[PositionMonitor] ✅ Comprehensive wellness check completed: ${position.symbol}`);
+      console.log(`[PositionMonitor] Decision: ${decision.action} (${decision.confidence}% confidence)`);
+      console.log(`[PositionMonitor] Message: ${decision.reasoning.substring(0, 100)}...`);
     } catch (error) {
       console.error('[PositionMonitor] Error checking periodic wellness:', error);
     }

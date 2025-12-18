@@ -22,6 +22,7 @@ import { sentimentCoordinator } from '../services/sentiment-coordinator';
 import type { OmegaVote } from './omega/trend';
 import type { TraderScore } from '../services/ai-identity';
 import { llmTokenTracker } from '../services/llm-token-tracker';
+import { tradeContextRetriever, type TradeContext } from '../services/trade-context-retriever';
 
 export interface MidTradeSnapshot {
   // Position info
@@ -111,27 +112,67 @@ class MidTradeMonitorBrain {
 
   /**
    * Periodic Wellness Check (every 15 minutes)
-   * Lightweight evaluation for continuous peace of mind
-   * Uses gpt-4o-mini for cost efficiency (~$0.0002 per check)
+   * Comprehensive evaluation with full trade context
+   * Uses gpt-4o-mini for cost efficiency (~$0.0003 per check with context)
    */
   async evaluatePeriodicWellness(
     snapshot: MidTradeSnapshot,
-    traderScore: TraderScore
+    traderScore: TraderScore,
+    tradeId?: string
   ): Promise<MidTradeDecision> {
+    // CRITICAL: Get original trade context
+    let tradeContext: TradeContext | null = null;
+    if (tradeId) {
+      tradeContext = await tradeContextRetriever.getTradeContext(tradeId);
+    }
+
     // Get sentiment context (lightweight)
     const sentimentData = await sentimentCoordinator.getSentimentForMidTrade().catch(() => null);
     const sentimentContext = sentimentData?.current
-      ? ` | Sentiment: ${sentimentData.current.sentiment}`
+      ? ` | Sentiment: ${sentimentData.current.sentiment}, Vol: ${sentimentData.current.volatility}`
       : '';
 
-    const prompt = `Periodic Wellness Check (15-min):
-${JSON.stringify(snapshot)}${sentimentContext}
+    // Build comprehensive prompt with trade context
+    let contextSection = '';
+    if (tradeContext) {
+      const thesisSummary = tradeContextRetriever.buildThesisSummary(tradeContext);
+      contextSection = `
 
-Quick check - is this trade still on track? Return JSON:
+ORIGINAL TRADE CONTEXT:
+- Entry Reasoning: ${tradeContext.originalReasoning}
+- Setup Pattern: ${thesisSummary}
+- Expected Outcome: ${tradeContext.expectedOutcome || 'Move to TP as expected'}
+- Market Read at Entry: ${tradeContext.marketRead || 'Favorable conditions'}
+- Time in Trade: ${tradeContext.minutesInTrade} minutes
+- Entry: ${tradeContext.entryPrice.toFixed(5)} | SL: ${tradeContext.stopLoss.toFixed(5)} | TP: ${tradeContext.takeProfit.toFixed(5)}`;
+    }
+
+    const prompt = `Comprehensive Wellness Check (15-min):
+
+CURRENT MARKET STATE:
+${JSON.stringify(snapshot)}${sentimentContext}${contextSection}
+
+CRITICAL ANALYSIS REQUIRED:
+1. Trade Status: Is position still open and valid?
+2. Thesis Check: Is trade developing AS EXPECTED per original reasoning?
+3. Current Situation: Describe P&L context (normal drawdown vs concerning)
+4. Forward Outlook: What specific price levels/confirmations are we watching for?
+5. Action Triggers: What market conditions would trigger a close?
+6. Probability: Estimate chance of success based on current conditions
+7. Timeframe Analysis: Evaluate 1H vs 4H trend alignment
+8. Reasoning: WHY hold or exit based on original thesis
+
+Return comprehensive JSON:
 {
   "status": "EXCELLENT|GOOD|FAIR|CONCERNING|EXIT_NOW",
   "confidence": 0-100,
-  "brief_note": "1-2 sentence assessment",
+  "trade_status": "Position still open - monitoring closely",
+  "current_situation": "Down $X but [trend still favorable/setup invalidated]",
+  "watching_for": "Specific price level or confirmation we're waiting for",
+  "action_triggers": "What would make us close (specific conditions)",
+  "probability_assessment": "X% chance of continuation/reversal",
+  "timeframe_analysis": "1H: [status], 4H: [status]",
+  "reasoning": "Why holding/exiting based on original thesis validation",
   "recommendation": "HOLD|TRAIL_SL|REDUCE_RISK|CLOSE"
 }`;
 
@@ -140,7 +181,7 @@ Quick check - is this trade still on track? Return JSON:
         [
           {
             role: 'system',
-            content: 'You are Alpha. Periodic wellness check. Concise JSON response only.'
+            content: 'You are Alpha monitoring this trade. You have the ORIGINAL trade thesis. Evaluate if the trade is developing as expected. Be specific about price levels and market conditions. Think like a professional trade manager.'
           },
           {
             role: 'user',
@@ -150,7 +191,7 @@ Quick check - is this trade still on track? Return JSON:
         {
           model: 'gpt-4o-mini',
           temperature: 0.3,
-          max_tokens: 120,
+          max_tokens: 400,
           requestType: 'periodic_wellness',
           endpoint: 'periodic-wellness'
         }
@@ -169,7 +210,7 @@ Quick check - is this trade still on track? Return JSON:
       });
 
       const content = response.choices[0]?.message?.content || '{}';
-      const parsed = this.parsePeriodicWellness(content);
+      const parsed = this.parseComprehensiveWellness(content);
 
       console.log(`[Periodic Wellness] ${snapshot.sym}: ${parsed.action} (${parsed.confidence}%) - ${parsed.reasoning}`);
       return parsed;
@@ -185,9 +226,16 @@ Quick check - is this trade still on track? Return JSON:
   }
 
   /**
-   * Parse periodic wellness response
+   * Parse comprehensive wellness response with full context
    */
-  private parsePeriodicWellness(response: string): MidTradeDecision {
+  private parseComprehensiveWellness(response: string): MidTradeDecision & {
+    tradeStatus?: string;
+    currentSituation?: string;
+    watchingFor?: string;
+    actionTriggers?: string;
+    probabilityAssessment?: string;
+    timeframeAnalysis?: string;
+  } {
     try {
       const cleaned = response
         .replace(/```json\n?/g, '')
@@ -212,13 +260,53 @@ Quick check - is this trade still on track? Return JSON:
         action = 'HOLD';
       }
 
-      const reasoning = parsed.brief_note || `Status: ${status}`;
+      // Build comprehensive reasoning that tells the full story
+      const reasoningParts: string[] = [];
+
+      if (parsed.trade_status) {
+        reasoningParts.push(`STATUS: ${parsed.trade_status}`);
+      }
+
+      if (parsed.current_situation) {
+        reasoningParts.push(`SITUATION: ${parsed.current_situation}`);
+      }
+
+      if (parsed.watching_for) {
+        reasoningParts.push(`WATCHING FOR: ${parsed.watching_for}`);
+      }
+
+      if (parsed.action_triggers) {
+        reasoningParts.push(`ACTION TRIGGERS: ${parsed.action_triggers}`);
+      }
+
+      if (parsed.probability_assessment) {
+        reasoningParts.push(`PROBABILITY: ${parsed.probability_assessment}`);
+      }
+
+      if (parsed.timeframe_analysis) {
+        reasoningParts.push(`TIMEFRAMES: ${parsed.timeframe_analysis}`);
+      }
+
+      if (parsed.reasoning) {
+        reasoningParts.push(`ANALYSIS: ${parsed.reasoning}`);
+      }
+
+      const comprehensiveReasoning = reasoningParts.length > 0
+        ? reasoningParts.join('\n\n')
+        : `Status: ${status}`;
 
       return {
         action,
         confidence: Math.min(100, Math.max(0, parsed.confidence || 75)),
-        reasoning,
-        trigger_level: 'soft' // Periodic checks are non-critical
+        reasoning: comprehensiveReasoning,
+        trigger_level: 'soft',
+        // Include all the new fields
+        tradeStatus: parsed.trade_status,
+        currentSituation: parsed.current_situation,
+        watchingFor: parsed.watching_for,
+        actionTriggers: parsed.action_triggers,
+        probabilityAssessment: parsed.probability_assessment,
+        timeframeAnalysis: parsed.timeframe_analysis
       };
     } catch (error) {
       return {
@@ -228,6 +316,14 @@ Quick check - is this trade still on track? Return JSON:
         trigger_level: 'soft'
       };
     }
+  }
+
+  /**
+   * DEPRECATED: Old parser for simple wellness checks
+   * Kept for backwards compatibility only
+   */
+  private parsePeriodicWellness(response: string): MidTradeDecision {
+    return this.parseComprehensiveWellness(response);
   }
 
   /**
