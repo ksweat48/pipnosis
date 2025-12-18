@@ -437,19 +437,31 @@ Your job: Synthesize ALL intelligence and make the BEST decision. You can overri
 
 Decide: BUY, SELL, or NO_TRADE.
 Calculate entry, SL (dynamic ATR buffer), TP (dynamic R:R based on context).
+
+🛡️ GRADUATED SAFETY ZONES (Enforced by Omega-9):
+- GREEN ZONE (R:R >= 1.5:1, TP >= 5 ATR): Full authority, optimal conditions
+- YELLOW ZONE (R:R 1.0-1.5:1, TP 3-5 ATR): Suboptimal, proceed with caution
+- ORANGE ZONE (R:R 0.5-1.0:1, TP 2-3 ATR): Risky, requires override reasoning
+- RED ZONE (R:R < 0.5:1, TP < 2 ATR): HARD BLOCK - Cannot override even for goals
+
 ${goalContext && goalContext.hasGoal ? `\n🎯 GOAL-AWARE TRADING MODE:
 - Goal: $${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}% of balance)
 - Progress: $${goalContext.currentProgress.toFixed(0)} (${(goalContext.currentProgress / goalContext.targetGoal * 100).toFixed(1)}% complete)
 - Remaining: $${goalContext.remainingGoal.toFixed(0)}
 - Est. pips needed: ~${goalContext.pipsNeededEstimate.toFixed(0)} pips
-DIRECTIVE: Calculate TP dynamically to reach the goal efficiently. If goal is small (${goalContext.goalPercentage.toFixed(3)}%), you can use TIGHTER TP (1.5R-2.5R) for quicker fills. If goal is large, use standard TP (2.0R-3.0R). Balance probability of fill vs profit target.` : ''}
+
+GOAL-AWARE DIRECTIVE:
+- For small goals (< 0.1% of balance): You may use tighter TP (1.5R-2.0R) for faster fills
+- CRITICAL: Even for small goals, MAINTAIN MINIMUM 1.0:1 R:R to stay in YELLOW ZONE
+- Never go below 0.5:1 R:R - this triggers RED ZONE hard block
+- Balance speed vs safety: Quick fills are good, but survival is mandatory` : ''}
 
 CRITICAL POSITIONING RULES:
 - BUY trades: stopLoss MUST be BELOW entry, takeProfit MUST be ABOVE entry
 - SELL trades: stopLoss MUST be ABOVE entry, takeProfit MUST be BELOW entry
 - Example BUY: entry=1.2000, stopLoss=1.1950 (below), takeProfit=1.2100 (above)
 - Example SELL: entry=1.2000, stopLoss=1.2050 (above), takeProfit=1.1900 (below)
-- Dynamic R:R: Use 1.5R-3.0R based on goal size, market structure, and probability of fill
+- Minimum R:R: 1.0:1 (YELLOW ZONE), aim for 1.5:1+ (GREEN ZONE)
 - VERIFY your prices match the trade direction before returning
 
 If you override any safety recommendation, include your statistical justification in reasoning.
@@ -618,10 +630,31 @@ Return JSON only:
         const finalStopQuality = this.calculateStopQualityScore(votes.omega8, validation);
         console.log(`[Alpha Coordinator] 🛡️ Final Stop Quality: ${finalStopQuality.score}/100`);
 
+        // Check for RED ZONE hard block - CANNOT BE OVERRIDDEN
+        if (validation.safety_zone === 'RED' && !validation.pass) {
+          console.log('[Alpha Coordinator] 🚨 RED ZONE HARD BLOCK - Trade cannot proceed');
+          console.log('[Alpha Coordinator] ❌ Omega-9 HARD BLOCKED:', validation.reasoning);
+          return {
+            action: 'NO_TRADE',
+            decision: 'NO_TRADE',
+            entry: marketContext.price,
+            stopLoss: marketContext.price,
+            takeProfit: marketContext.price,
+            confidence: 0,
+            reasoning: `🚨 RED ZONE HARD BLOCK: ${validation.reasoning}. This trade violates mathematical survival limits.`,
+            omega_summary: decision.omega_summary,
+            omega8_liquidity_bias: decision.omega8_liquidity_bias,
+            omega8_direction_support: decision.omega8_direction_support,
+            omega9_validation: validation
+          };
+        }
+
+        // Check for other validation failures
         if (!validation.pass) {
           console.log('[Alpha Coordinator] ❌ Omega-9 BLOCKED trade:', validation.reasoning);
           return {
             action: 'NO_TRADE',
+            decision: 'NO_TRADE',
             entry: marketContext.price,
             stopLoss: marketContext.price,
             takeProfit: marketContext.price,
@@ -632,6 +665,18 @@ Return JSON only:
             omega8_direction_support: decision.omega8_direction_support,
             omega9_validation: validation
           };
+        }
+
+        // Log safety zone status
+        if (validation.safety_zone) {
+          const zoneEmoji = validation.safety_zone === 'GREEN' ? '✅' : validation.safety_zone === 'YELLOW' ? '⚡' : validation.safety_zone === 'ORANGE' ? '⚠️' : '🚨';
+          console.log(`[Alpha Coordinator] ${zoneEmoji} Safety Zone: ${validation.safety_zone} | Safety Score: ${validation.safety_evaluation?.safety_score || 0}/100`);
+
+          if (validation.safety_zone === 'ORANGE') {
+            console.log('[Alpha Coordinator] ⚠️ ORANGE ZONE: Trade allowed but requires Alpha override reasoning');
+          } else if (validation.safety_zone === 'YELLOW') {
+            console.log('[Alpha Coordinator] ⚡ YELLOW ZONE: Suboptimal conditions detected, proceeding with caution');
+          }
         }
 
         // Apply Omega-9 corrections if provided

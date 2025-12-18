@@ -2,6 +2,8 @@
  * Type definitions for Omega specialist modules
  */
 
+import type { SafetyZone, SafetyEvaluation } from '../config/alpha-safety-zones';
+
 export interface OmegaVote {
   vote: 'BUY' | 'SELL' | 'NO_TRADE';
   confidence: number;
@@ -27,6 +29,8 @@ export interface Omega9ValidationResult {
   confidence_adjustment: number;
   corrections: Omega9Corrections;
   reasoning: string;
+  safety_zone?: SafetyZone;
+  safety_evaluation?: SafetyEvaluation;
 }
 
 export interface OmegaCouncilVotes {

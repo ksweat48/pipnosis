@@ -9,14 +9,22 @@
  * - Internal Omega vote conflicts
  * - Risk parameter sanity
  * - Impossible scenarios
+ * - GRADUATED SAFETY ZONES (Green/Yellow/Orange/Red)
  *
  * Can repair fixable issues or block unfixable hallucinations.
+ *
+ * SAFETY ZONE ENFORCEMENT:
+ * - GREEN: Full Alpha authority
+ * - YELLOW: Proceed with warning
+ * - ORANGE: Requires Alpha override reasoning
+ * - RED: HARD BLOCK - Cannot proceed even with Alpha override
  */
 
 import { openAIClient } from '../services/openai-client';
 import type { Omega9ValidationResult, Omega9Corrections, OmegaVote } from '../types/omega';
 import type { AlphaDecision } from './coordinator-alpha';
 import { llmTokenTracker } from '../services/llm-token-tracker';
+import { alphaSafetyZoneEvaluator, type SafetyEvaluation } from '../config/alpha-safety-zones';
 
 export interface Omega9Input {
   alphaDecision: AlphaDecision;
@@ -78,6 +86,7 @@ class Omega9HallucinationBrain {
 
   /**
    * Perform local mathematical and logical validation without LLM
+   * Includes GRADUATED SAFETY ZONE enforcement
    */
   private performLocalValidation(input: Omega9Input): Omega9ValidationResult {
     const flags: string[] = [];
@@ -89,7 +98,9 @@ class Omega9HallucinationBrain {
         flags: [],
         confidence_adjustment: 0,
         corrections: { sl: null, tp: null, risk_pct: null },
-        reasoning: 'NO_TRADE requires no validation'
+        reasoning: 'NO_TRADE requires no validation',
+        safety_zone: 'GREEN' as const,
+        safety_evaluation: undefined
       };
     }
 
@@ -120,8 +131,58 @@ class Omega9HallucinationBrain {
     const tpDistance = Math.abs(tp - entry);
     const rr = slDistance > 0 ? tpDistance / slDistance : 0;
 
-    if (rr < safetyRules.minRR) {
-      flags.push(`RR_TOO_LOW_${rr.toFixed(2)}`);
+    const voteConflicts = this.detectVoteConflicts(omegaVotes);
+    if (voteConflicts.length > 0) {
+      flags.push(...voteConflicts);
+    }
+
+    const slDistancePips = slDistance * (marketContext.symbol.includes('JPY') ? 100 : 10000);
+    const tpDistancePips = tpDistance * (marketContext.symbol.includes('JPY') ? 100 : 10000);
+
+    const safetyEval = alphaSafetyZoneEvaluator.evaluateTrade({
+      rrRatio: rr,
+      tpDistancePips: tpDistancePips,
+      slDistancePips: slDistancePips,
+      atr: marketContext.atr,
+      symbol: marketContext.symbol,
+      estimatedDurationSeconds: 0
+    });
+
+    console.log(`[Omega-9] 🛡️ Safety Zone: ${safetyEval.zone} | Score: ${safetyEval.safety_score}/100 | R:R: ${rr.toFixed(3)}`);
+
+    if (safetyEval.zone === 'RED' && !safetyEval.can_proceed) {
+      flags.push(`SAFETY_RED_ZONE_HARD_BLOCK`);
+      console.log(`[Omega-9] 🚨 RED ZONE VIOLATION - HARD BLOCKING TRADE`);
+      safetyEval.violations.forEach(v => {
+        console.log(`  ❌ ${v.violation_type}: ${v.message}`);
+        flags.push(`RED_ZONE_${v.violation_type.toUpperCase()}`);
+      });
+
+      return {
+        pass: false,
+        flags,
+        confidence_adjustment: -100,
+        corrections: { sl: null, tp: null, risk_pct: null },
+        reasoning: `RED ZONE HARD BLOCK: ${safetyEval.violations.map(v => v.message).join('; ')}. Trade cannot proceed even with Alpha override.`,
+        safety_zone: safetyEval.zone,
+        safety_evaluation: safetyEval
+      };
+    }
+
+    if (safetyEval.zone === 'ORANGE') {
+      console.log(`[Omega-9] ⚠️ ORANGE ZONE: Alpha override required with reasoning`);
+      safetyEval.violations.forEach(v => {
+        console.log(`  ⚠️ ${v.violation_type}: ${v.message}`);
+        flags.push(`ORANGE_ZONE_${v.violation_type.toUpperCase()}`);
+      });
+    }
+
+    if (safetyEval.zone === 'YELLOW') {
+      console.log(`[Omega-9] ⚡ YELLOW ZONE: Suboptimal conditions detected`);
+      safetyEval.violations.forEach(v => {
+        console.log(`  ⚡ ${v.violation_type}: ${v.message}`);
+        flags.push(`YELLOW_ZONE_${v.violation_type.toUpperCase()}`);
+      });
     }
 
     if (slDistance > marketContext.atr * 5) {
@@ -132,19 +193,25 @@ class Omega9HallucinationBrain {
       flags.push('SL_TOO_TIGHT');
     }
 
-    const voteConflicts = this.detectVoteConflicts(omegaVotes);
-    if (voteConflicts.length > 0) {
-      flags.push(...voteConflicts);
-    }
+    const hasHardBlock = flags.some(f => f.includes('HARD_BLOCK'));
+    const pass = flags.length === 0 || (!hasHardBlock && safetyEval.can_proceed);
 
-    const pass = flags.length === 0;
+    let confidenceAdjustment = 0;
+    if (safetyEval.zone === 'RED') confidenceAdjustment = -100;
+    else if (safetyEval.zone === 'ORANGE') confidenceAdjustment = -30;
+    else if (safetyEval.zone === 'YELLOW') confidenceAdjustment = -15;
+    else if (flags.length > 0) confidenceAdjustment = -20;
 
     return {
       pass,
       flags,
-      confidence_adjustment: pass ? 0 : -20,
+      confidence_adjustment: confidenceAdjustment,
       corrections: { sl: null, tp: null, risk_pct: null },
-      reasoning: pass ? 'All validations passed' : `Failed: ${flags.join(', ')}`
+      reasoning: pass ?
+        (safetyEval.zone === 'GREEN' ? 'All validations passed' : `${safetyEval.zone} ZONE: ${flags.join(', ')}`) :
+        `Failed: ${flags.join(', ')}`,
+      safety_zone: safetyEval.zone,
+      safety_evaluation: safetyEval
     };
   }
 
