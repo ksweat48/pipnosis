@@ -6,6 +6,7 @@
  */
 
 import { getRiskPercentage } from '../config/risk-levels';
+import { getRiskStrategyProfile } from '../config/risk-strategy-profiles';
 
 export interface CurrencyPipInfo {
   pipValue: number;
@@ -470,23 +471,33 @@ export function calculateGoalOptimalPosition(
   const pipInfo = getCurrencyPipInfo(symbol);
   const remainingGoal = targetGoal - currentProgress;
 
+  // Get risk profile for strategy-aware pip targets
+  const riskProfile = getRiskStrategyProfile(riskMode);
+
   console.log(`[Goal Optimal Position] ${symbol}:`);
   console.log(`  Balance: $${accountBalance.toFixed(2)}`);
   console.log(`  Goal Target: $${targetGoal.toFixed(2)}`);
   console.log(`  Current Progress: $${currentProgress.toFixed(2)}`);
   console.log(`  Remaining: $${remainingGoal.toFixed(2)}`);
+  console.log(`  Risk Mode: ${riskMode.toUpperCase()} (${riskProfile.tradingStyle})`);
 
-  // Typical pip ranges by asset type (educational reference, not hard limits)
+  // Typical pip ranges by asset type AND risk mode strategy
   const typicalDailyRange = isXAUUSD(symbol) ? 200 : isJPYPair(symbol) ? 100 : 60;
-  const commonMovePips = isXAUUSD(symbol) ? 80 : isJPYPair(symbol) ? 50 : 30;
-  const minViablePips = isXAUUSD(symbol) ? 20 : isJPYPair(symbol) ? 15 : 10;
 
-  console.log(`  Typical Market Ranges: Min=${minViablePips}, Common=${commonMovePips}, Daily=${typicalDailyRange}`);
+  // Use risk profile to determine target pips
+  // Aggressive = fewer pips with bigger size, Conservative = more pips with smaller size
+  const minViablePips = riskProfile.typicalStopPips.min;
+  const maxViablePips = riskProfile.typicalStopPips.max;
+  const commonMovePips = (minViablePips + maxViablePips) / 2; // Average of risk profile range
 
-  // Calculate standard risk-based position size as MAX CAP - USE CENTRALIZED CONFIG
-  const riskPercent = getRiskPercentage(riskMode);
+  console.log(`  ${riskMode.toUpperCase()} Profile: ${minViablePips}-${maxViablePips} pips (avg ${commonMovePips.toFixed(0)})`);
+  console.log(`  Daily Range: ${typicalDailyRange} pips`);
+
+  // Calculate position size using risk profile base risk percent
+  const riskPercent = riskProfile.baseRiskPercent;
   const maxPositionSize = calculatePositionSize(symbol, accountBalance, riskPercent, entryPrice, stopLoss);
 
+  console.log(`  Risk Profile Base: ${riskPercent}%`);
   console.log(`  Max Position Size (risk-based): ${maxPositionSize.toFixed(3)} lots`);
 
   // REVERSE CALCULATION: What lot size gives us goal profit at optimal pips?

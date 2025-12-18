@@ -7,6 +7,7 @@ import { drawdownProtectionBreaker, DrawdownCheckInputs } from './drawdown-prote
 import { marketConditionRiskAdjuster, MarketConditionInputs } from './market-condition-risk-adjuster';
 import { winRateRROptimizer, WinRateRRInputs } from './winrate-rr-optimizer';
 import { progressiveRiskScaling, RiskScalingInputs } from './progressive-risk-scaling';
+import { getRiskStrategyProfile } from '../config/risk-strategy-profiles';
 
 export interface ComprehensiveRiskAssessment {
   approved: boolean;
@@ -40,6 +41,7 @@ export interface TradeEvaluationInputs {
   takeProfitPips?: number;
   currentATR?: number; // Will be calculated from candles if not provided
   goalSessionId?: string;
+  riskMode?: 'low' | 'medium' | 'high'; // Risk strategy profile
 }
 
 class ProfessionalRiskManager {
@@ -56,8 +58,17 @@ class ProfessionalRiskManager {
       stopLossPips,
       takeProfitPips,
       currentATR,
-      goalSessionId
+      goalSessionId,
+      riskMode = 'medium'
     } = inputs;
+
+    // Get risk profile for floor/ceiling validation
+    const riskProfile = getRiskStrategyProfile(riskMode);
+    console.log(`[Professional Risk Manager] 🎯 Using ${riskMode.toUpperCase()} risk profile:`, {
+      minRisk: riskProfile.riskPercentRange.min,
+      maxRisk: riskProfile.riskPercentRange.max,
+      baseRisk: riskProfile.baseRiskPercent
+    });
 
     const criticalWarnings: string[] = [];
     const recommendations: string[] = [];
@@ -213,6 +224,24 @@ class ProfessionalRiskManager {
     // Use Kelly if it's more conservative than our adjusted risk
     const kellyRisk = kelly.conservativeFraction;
     finalRiskPercent = Math.min(finalRiskPercent, kellyRisk);
+
+    // CRITICAL: Apply risk profile floor and ceiling
+    // Convert percent to decimal for comparison (e.g., 1.5% -> 0.015)
+    const minRiskDecimal = riskProfile.riskPercentRange.min / 100;
+    const maxRiskDecimal = riskProfile.riskPercentRange.max / 100;
+
+    const beforeFloorCeiling = finalRiskPercent;
+    finalRiskPercent = Math.max(minRiskDecimal, Math.min(maxRiskDecimal, finalRiskPercent));
+
+    if (finalRiskPercent !== beforeFloorCeiling) {
+      console.log(`[Professional Risk Manager] 🎯 Risk profile ${riskMode.toUpperCase()} adjusted risk: ${(beforeFloorCeiling * 100).toFixed(2)}% → ${(finalRiskPercent * 100).toFixed(2)}%`);
+
+      if (finalRiskPercent === minRiskDecimal) {
+        recommendations.push(`Risk profile floor applied: minimum ${riskProfile.riskPercentRange.min}% for ${riskMode} mode`);
+      } else if (finalRiskPercent === maxRiskDecimal) {
+        recommendations.push(`Risk profile ceiling applied: maximum ${riskProfile.riskPercentRange.max}% for ${riskMode} mode`);
+      }
+    }
 
     // Calculate final lot size
     const riskAmount = currentBalance * finalRiskPercent;
