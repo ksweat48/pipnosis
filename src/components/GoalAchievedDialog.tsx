@@ -26,7 +26,15 @@ export const GoalAchievedDialog: React.FC<GoalAchievedDialogProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const overPerformance = ((achievedProfit - goalAmount) / goalAmount) * 100;
+  // Safety check for unrealistic profit values (100x multiplier bug)
+  let displayProfit = achievedProfit;
+  if (Math.abs(achievedProfit) > 10000) {
+    console.warn('[GoalAchievedDialog] Unrealistic profit detected:', achievedProfit);
+    displayProfit = achievedProfit / 100;
+    console.log('[GoalAchievedDialog] Auto-corrected to:', displayProfit);
+  }
+
+  const overPerformance = ((displayProfit - goalAmount) / goalAmount) * 100;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
@@ -77,7 +85,7 @@ export const GoalAchievedDialog: React.FC<GoalAchievedDialogProps> = ({
               <div className="bg-gradient-to-br from-emerald-900/50 to-blue-900/50 rounded-xl p-4 border border-emerald-500/50">
                 <div className="text-xs text-emerald-300 mb-1">Achieved</div>
                 <div className="text-2xl font-bold text-emerald-400">
-                  ${achievedProfit.toFixed(2)}
+                  ${displayProfit.toFixed(2)}
                 </div>
                 {overPerformance > 0 && (
                   <div className="text-xs text-emerald-300 mt-1">

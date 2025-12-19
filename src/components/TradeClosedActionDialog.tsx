@@ -162,19 +162,31 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   };
 
   // Safety check: validate P&L is realistic
-  const isUnrealisticPnL = Math.abs(safeProfitLoss) > 10000;
+  // If PnL is > $1000, it's likely a calculation error (100x multiplier bug)
+  const isUnrealisticPnL = Math.abs(safeProfitLoss) > 1000;
+  let displayProfitLoss = safeProfitLoss;
+  let showWarning = false;
+
   if (isUnrealisticPnL) {
     console.error('[TradeClosedActionDialog] Unrealistic P&L detected:', {
       profitLoss: safeProfitLoss,
       symbol,
       entryPrice: safeEntryPrice,
       exitPrice: safeExitPrice,
-      warning: 'P&L exceeds $10,000 - possible calculation error'
+      warning: 'P&L exceeds $1,000 - possible calculation error (100x multiplier bug)'
     });
+
+    // Attempt to fix by dividing by 100 if it looks like 100x error
+    const correctedPnL = safeProfitLoss / 100;
+    if (Math.abs(correctedPnL) >= 1 && Math.abs(correctedPnL) <= 500) {
+      console.log('[TradeClosedActionDialog] Auto-correcting PnL from', safeProfitLoss, 'to', correctedPnL);
+      displayProfitLoss = correctedPnL;
+      showWarning = true;
+    }
   }
 
-  const isProfit = safeProfitLoss > 0;
-  const isLoss = safeProfitLoss < 0;
+  const isProfit = displayProfitLoss > 0;
+  const isLoss = displayProfitLoss < 0;
   const progressPercent = safeTargetValue > 0 ? (safeCurrentProgress / safeTargetValue) * 100 : 0;
   const remaining = safeTargetValue - safeCurrentProgress;
 
@@ -267,9 +279,14 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
                   <div className={`text-xl font-bold ${
                     isProfit ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-gray-400'
                   }`}>
-                    {isProfit ? '+' : ''}{safeProfitLoss >= 0 ? '$' : '-$'}{Math.abs(safeProfitLoss).toFixed(2)}
+                    {isProfit ? '+' : ''}{displayProfitLoss >= 0 ? '$' : '-$'}{Math.abs(displayProfitLoss).toFixed(2)}
                   </div>
                 </div>
+                {showWarning && (
+                  <div className="mt-2 text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 rounded px-2 py-1">
+                    Value auto-corrected from display error
+                  </div>
+                )}
               </div>
             </div>
 

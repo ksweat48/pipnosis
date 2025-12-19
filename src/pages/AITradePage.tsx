@@ -12,6 +12,12 @@ type TabType = 'start' | 'achievements';
 
 export function AITradePage() {
   const [activeTab, setActiveTab] = useState<TabType>(() => {
+    // Check URL parameters first
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab');
+    if (tabParam === 'achievements') return 'achievements';
+
+    // Then check localStorage
     const saved = localStorage.getItem('ai-trade-tab');
     return (saved as TabType) || 'start';
   });
@@ -26,6 +32,20 @@ export function AITradePage() {
   useEffect(() => {
     localStorage.setItem('ai-trade-tab', activeTab);
   }, [activeTab]);
+
+  // Listen for custom event to switch tabs
+  useEffect(() => {
+    const handleSwitchToAchievements = () => {
+      console.log('[AITradePage] Received event to switch to achievements tab');
+      setActiveTab('achievements');
+    };
+
+    window.addEventListener('switch-to-achievements-tab', handleSwitchToAchievements);
+
+    return () => {
+      window.removeEventListener('switch-to-achievements-tab', handleSwitchToAchievements);
+    };
+  }, []);
 
   return (
     <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative" ref={pullToRefresh.containerRef}>

@@ -436,6 +436,8 @@ export const GoalSessionDashboard: React.FC = () => {
     if (!user || !activeSession) return;
 
     try {
+      console.log('[GoalSessionDashboard] 🛑 Close for Now clicked - stopping session', activeSession.sessionId);
+
       // Record user's choice
       if (tradeClosedData) {
         await supabase.from('goal_trade_actions').insert({
@@ -449,19 +451,48 @@ export const GoalSessionDashboard: React.FC = () => {
         });
       }
 
-      // Stop the session
-      await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
+      // CRITICAL: Stop ALL scanning and polling immediately
+      console.log('[GoalSessionDashboard] 🛑 Stopping goal scanner polling...');
+      goalScannerTrigger.stopPolling();
 
+      console.log('[GoalSessionDashboard] 🛑 Stopping simple scanning timer...');
+      simpleScanningTimer.stop();
+
+      // Stop the session in database
+      console.log('[GoalSessionDashboard] 🛑 Stopping session in database...');
+      const stopSuccess = await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
+
+      if (!stopSuccess) {
+        console.error('[GoalSessionDashboard] ❌ Failed to stop session');
+        throw new Error('Failed to stop session');
+      }
+
+      console.log('[GoalSessionDashboard] ✅ Session stopped successfully');
+
+      // Close the dialog
       setShowTradeClosedAction(false);
+
+      // Reload data to show stopped state
       await loadSessionData();
+
+      console.log('[GoalSessionDashboard] ✅ Session closed completely');
     } catch (error) {
-      console.error('[GoalSessionDashboard] Error closing session:', error);
+      console.error('[GoalSessionDashboard] ❌ Error closing session:', error);
+      // Still close the dialog even if there was an error
+      setShowTradeClosedAction(false);
     }
   };
 
   const handleViewAchievements = () => {
+    console.log('[GoalSessionDashboard] 🏆 View All Achievements clicked - navigating...');
     setShowGoalAchieved(false);
-    // The user can switch to the achievements tab in AITradePage
+
+    // Navigate to achievements tab by dispatching a custom event
+    // This will be picked up by AITradePage which manages the tabs
+    window.dispatchEvent(new CustomEvent('switch-to-achievements-tab'));
+
+    // Also try direct navigation as fallback
+    navigate('/ai-trade?tab=achievements');
   };
 
 
