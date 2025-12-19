@@ -313,7 +313,21 @@ export const GoalSessionDashboard: React.FC = () => {
 
         try {
           const convos = await smartGoalSessionManager.getSessionConversations(session.sessionId, 20);
-          setConversations(convos || []);
+
+          // Filter out generic error/failure messages that confuse users
+          const genericErrorPatterns = [
+            'periodic check failed',
+            'continuing normally',
+            'check failed',
+            'analysis failed'
+          ];
+
+          const filteredConvos = (convos || []).filter(convo => {
+            const message = convo.message?.toLowerCase() || '';
+            return !genericErrorPatterns.some(pattern => message.includes(pattern));
+          });
+
+          setConversations(filteredConvos);
         } catch (error) {
           console.error('[GoalSessionDashboard] Error loading conversations:', error);
           setConversations([]);
