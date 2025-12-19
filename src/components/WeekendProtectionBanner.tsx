@@ -53,21 +53,21 @@ export function WeekendProtectionBanner() {
 
   const getIcon = () => {
     if (status.message.includes('Market Closed')) {
-      return <Shield className="w-5 h-5" />;
+      return <Shield className="w-4 h-4" />;
     } else if (status.message.includes('Auto-closing')) {
-      return <AlertTriangle className="w-5 h-5" />;
+      return <AlertTriangle className="w-4 h-4" />;
     } else {
-      return <Clock className="w-5 h-5" />;
+      return <Clock className="w-4 h-4" />;
     }
   };
 
   return (
-    <div className={`${getSeverityStyle()} border-2 text-white px-4 py-3 shadow-lg`}>
-      <div className="max-w-7xl mx-auto flex items-center justify-center gap-3">
+    <div className={`${getSeverityStyle()} border text-white px-3 py-1.5 shadow-md`}>
+      <div className="max-w-7xl mx-auto flex items-center justify-center gap-2">
         {getIcon()}
-        <span className="font-semibold">{status.message}</span>
+        <span className="text-sm font-semibold">{status.message}</span>
         {status.hoursUntilClose !== undefined && status.minutesUntilClose !== undefined && (
-          <span className="text-sm opacity-90">
+          <span className="text-xs opacity-90">
             ({status.hoursUntilClose}h {status.minutesUntilClose}m remaining)
           </span>
         )}
