@@ -148,57 +148,34 @@ ORIGINAL TRADE CONTEXT:
 - Entry: ${tradeContext.entryPrice.toFixed(5)} | SL: ${tradeContext.stopLoss.toFixed(5)} | TP: ${tradeContext.takeProfit.toFixed(5)}`;
     }
 
-    const prompt = `Comprehensive Wellness Check (15-min):
+    const prompt = `Quick Wellness Check (15-min):
 
-CURRENT MARKET STATE:
+TRADE INFO:
 ${JSON.stringify(snapshot)}${sentimentContext}
 
-ACTUAL P&L: ${snapshot.pnl >= 0 ? '+' : ''}$${snapshot.pnl.toFixed(2)}
-Current Price: ${snapshot.p.toFixed(5)}
-Entry: ${snapshot.ep.toFixed(5)} | SL: ${snapshot.sl.toFixed(5)} | TP: ${snapshot.tp.toFixed(5)}${contextSection}
+P&L: ${snapshot.pnl >= 0 ? '+' : ''}$${snapshot.pnl.toFixed(2)}
+Current: ${snapshot.p.toFixed(5)} | Entry: ${snapshot.ep.toFixed(5)} | SL: ${snapshot.sl.toFixed(5)} | TP: ${snapshot.tp.toFixed(5)}${contextSection}
 
-CRITICAL ANALYSIS - Provide specific, actionable insights:
+Give me a natural, human update in 1-2 SHORT paragraphs. Follow this structure:
 
-1. THESIS VALIDATION: Is the market behaving as expected per our entry logic?
-   - What has changed since entry?
-   - Does current structure support our direction?
-   - Is the original setup still valid or breaking down?
+1. Quick status (1 sentence - where does the trade stand?)
+2. What matters right now (1 key price level to watch - be specific)
+3. Why we're holding or adjusting (brief reasoning)
+4. Reassurance + monitoring (remind me you're watching)
 
-2. CURRENT SITUATION:
-   - Current P&L: $${snapshot.pnl.toFixed(2)}
-   - Is this drawdown NORMAL for this pattern type, or CONCERNING?
-   - Are we in a healthy pullback or structural break?
-   - Do NOT just say "trade is valid because SL not hit" - analyze if thesis is developing correctly
+CRITICAL RULES:
+- NO labels like "STATUS:" or "SITUATION:" - just write naturally
+- NO probabilities ("60% chance") - use words like "still looks solid" or "setup weakening"
+- NO technical jargon (RSI, timeframes, structure) - plain English
+- NO multiple far-away levels - ONE specific price that matters next
+- Keep it SHORT - max 3-4 sentences total
+- Sound like a human trader, not a report
 
-3. SHORT-TERM LEVELS (next 15-30 minutes):
-   - Immediate support/resistance near current price
-   - Price level that confirms continuation (staying on track)
-   - Price level that signals reversal warning (setup compromising)
-   - Be specific: "Watching ${snapshot.p > snapshot.ep ? (snapshot.p + 0.0002).toFixed(5) : (snapshot.p - 0.0002).toFixed(5)} for X"
-
-4. REVERSAL SIGNALS (early warning, NOT stop loss):
-   - At what price does the setup become INVALID (before SL)?
-   - What candle pattern + price = early exit signal?
-   - Example: "Setup compromised if price reclaims ${(snapshot.p + 0.0003).toFixed(5)} with strong momentum"
-   - Do NOT mention "close if SL hits" - that's automatic
-
-5. FORWARD DECISION POINTS:
-   - Next key price level we're watching (be specific)
-   - What happens if we reach that level?
-   - How do probabilities shift based on price action?
-
-Return comprehensive JSON:
+Return simple JSON:
 {
-  "status": "EXCELLENT|GOOD|FAIR|CONCERNING|EXIT_NOW",
+  "action": "HOLD|TRAIL_SL|REDUCE_RISK|CLOSE",
   "confidence": 0-100,
-  "trade_status": "Position still open - monitoring closely",
-  "current_situation": "P&L $${snapshot.pnl.toFixed(2)} - Is this normal for this setup? Is original thesis developing correctly? NOT just 'valid because no SL hit'",
-  "watching_for": "SHORT-TERM: Next 15-30 min, watching [specific price] for [specific confirmation]. NOT far-away levels like TP.",
-  "action_triggers": "Setup invalid if price reaches [specific level] | Reversal warning at [price] with [pattern] | Do NOT mention SL auto-close",
-  "probability_assessment": "X% chance based on current structure. If price holds above/below [level], odds improve/decline",
-  "timeframe_analysis": "1H: [current state], 4H: [current state], alignment status",
-  "reasoning": "Why holding/exiting based on THESIS VALIDATION - is market doing what we expected?",
-  "recommendation": "HOLD|TRAIL_SL|REDUCE_RISK|CLOSE"
+  "message": "Your natural 1-2 paragraph update here"
 }`;
 
     try {
@@ -206,18 +183,29 @@ Return comprehensive JSON:
         [
           {
             role: 'system',
-            content: `You are Alpha monitoring this trade. You have the ORIGINAL trade thesis.
+            content: `You are Alpha, a human-like trading assistant giving quick check-ins on open trades.
 
-YOUR JOB: Evaluate if the trade is developing as expected. Provide ACTIONABLE, FORWARD-LOOKING analysis.
+PERSONALITY:
+- Talk like a real trader, not a robot
+- Keep it SHORT and conversational (1-2 paragraphs max)
+- Use plain English, not technical jargon
+- Be specific with ONE key price level, not multiple
+- Sound confident and reassuring
 
-CRITICAL RULES:
-- NEVER say "trade is valid because it hasn't hit SL" - that's circular logic
-- NEVER just mention closing at SL - that's automatic
-- ALWAYS provide SHORT-TERM levels (next 15-30 min), not far-away TP levels
-- ALWAYS specify at what price the setup becomes INVALID (before SL hits)
-- ALWAYS compare current price action to the original entry thesis
-- Be specific: Use exact price levels, not vague statements
-- Think like a professional trade manager watching this unfold in real-time`
+NEVER DO:
+- NO labels like "STATUS:" "SITUATION:" "WATCHING FOR:" etc
+- NO probability percentages ("60% chance...")
+- NO technical terms (RSI, divergence, timeframe analysis)
+- NO long multi-paragraph reports
+- NO far-away levels the price hasn't reached yet
+
+ALWAYS DO:
+- Quick status in plain words
+- ONE specific price to watch right now
+- Brief reason for holding/adjusting
+- Confidence that you're monitoring closely
+
+Write naturally like you're texting an update to a friend.`
           },
           {
             role: 'user',
@@ -227,7 +215,7 @@ CRITICAL RULES:
         {
           model: 'gpt-4o-mini',
           temperature: 0.3,
-          max_tokens: 400,
+          max_tokens: 150,
           requestType: 'periodic_wellness',
           endpoint: 'periodic-wellness'
         }
@@ -280,69 +268,20 @@ CRITICAL RULES:
 
       const parsed = JSON.parse(cleaned);
 
-      // Map status to action
-      let action: MidTradeDecision['action'] = 'HOLD';
-      const status = parsed.status || 'GOOD';
-      const recommendation = parsed.recommendation || 'HOLD';
-
-      // Use explicit recommendation if provided
-      if (['HOLD', 'CLOSE', 'TRAIL_SL', 'REDUCE_RISK'].includes(recommendation)) {
-        action = recommendation;
-      } else if (status === 'EXIT_NOW') {
-        action = 'CLOSE';
-      } else if (status === 'CONCERNING') {
-        action = 'REDUCE_RISK';
-      } else {
+      // Simple parsing - just extract action, confidence, and natural message
+      let action: MidTradeDecision['action'] = parsed.action || 'HOLD';
+      if (!['HOLD', 'CLOSE', 'TRAIL_SL', 'REDUCE_RISK'].includes(action)) {
         action = 'HOLD';
       }
 
-      // Build comprehensive reasoning that tells the full story
-      const reasoningParts: string[] = [];
-
-      if (parsed.trade_status) {
-        reasoningParts.push(`STATUS: ${parsed.trade_status}`);
-      }
-
-      if (parsed.current_situation) {
-        reasoningParts.push(`SITUATION: ${parsed.current_situation}`);
-      }
-
-      if (parsed.watching_for) {
-        reasoningParts.push(`WATCHING FOR: ${parsed.watching_for}`);
-      }
-
-      if (parsed.action_triggers) {
-        reasoningParts.push(`ACTION TRIGGERS: ${parsed.action_triggers}`);
-      }
-
-      if (parsed.probability_assessment) {
-        reasoningParts.push(`PROBABILITY: ${parsed.probability_assessment}`);
-      }
-
-      if (parsed.timeframe_analysis) {
-        reasoningParts.push(`TIMEFRAMES: ${parsed.timeframe_analysis}`);
-      }
-
-      if (parsed.reasoning) {
-        reasoningParts.push(`ANALYSIS: ${parsed.reasoning}`);
-      }
-
-      const comprehensiveReasoning = reasoningParts.length > 0
-        ? reasoningParts.join('\n\n')
-        : `Status: ${status}`;
+      const message = parsed.message || 'Trade update unavailable';
+      const confidence = Math.min(100, Math.max(0, parsed.confidence || 75));
 
       return {
         action,
-        confidence: Math.min(100, Math.max(0, parsed.confidence || 75)),
-        reasoning: comprehensiveReasoning,
-        trigger_level: 'soft',
-        // Include all the new fields
-        tradeStatus: parsed.trade_status,
-        currentSituation: parsed.current_situation,
-        watchingFor: parsed.watching_for,
-        actionTriggers: parsed.action_triggers,
-        probabilityAssessment: parsed.probability_assessment,
-        timeframeAnalysis: parsed.timeframe_analysis
+        confidence,
+        reasoning: message, // Pass through the natural message as-is
+        trigger_level: 'soft'
       };
     } catch (error) {
       return {
