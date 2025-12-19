@@ -6,6 +6,19 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
+function isMobileDevice(): boolean {
+  const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+
+  const mobileRegex = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
+  const isMobileUserAgent = mobileRegex.test(userAgent);
+
+  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+  const isSmallScreen = window.innerWidth <= 1024;
+
+  return isMobileUserAgent || (isTouchDevice && isSmallScreen);
+}
+
 export function PWAInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
@@ -18,6 +31,10 @@ export function PWAInstallPrompt() {
     setIsInstalled(isStandalone);
 
     if (isStandalone) {
+      return;
+    }
+
+    if (!isMobileDevice()) {
       return;
     }
 

@@ -9,6 +9,7 @@ import { ResetSessionDialog } from './ResetSessionDialog';
 export const UserManagementPanel: React.FC = () => {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -20,11 +21,22 @@ export const UserManagementPanel: React.FC = () => {
   const loadUsers = useCallback(async (search?: string) => {
     try {
       setLoading(true);
+      setError(null);
       const data = await adminUserService.getAllUsers(search, 100);
       setUsers(data);
-    } catch (error) {
-      showToast('Failed to load users', 'error');
-      console.error(error);
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Failed to load users';
+      setError(errorMessage);
+
+      if (errorMessage.includes('Admin access required')) {
+        showToast('You do not have admin privileges', 'error');
+      } else if (errorMessage.includes('function') && errorMessage.includes('does not exist')) {
+        showToast('Admin function not found in database', 'error');
+      } else {
+        showToast(errorMessage, 'error');
+      }
+
+      console.error('[UserManagementPanel] Error loading users:', error);
     } finally {
       setLoading(false);
     }
@@ -147,9 +159,21 @@ export const UserManagementPanel: React.FC = () => {
         <div className="text-center py-12 text-gray-400">
           Loading users...
         </div>
+      ) : error ? (
+        <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-6 text-center">
+          <div className="text-red-400 font-semibold mb-2">Error Loading Users</div>
+          <div className="text-gray-300 text-sm mb-4">{error}</div>
+          <button
+            onClick={() => loadUsers(searchTerm || undefined)}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center gap-2 mx-auto"
+          >
+            <RefreshCw size={16} />
+            Try Again
+          </button>
+        </div>
       ) : users.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
-          No users found
+          {searchTerm ? 'No users match your search' : 'No users found'}
         </div>
       ) : (
         <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
