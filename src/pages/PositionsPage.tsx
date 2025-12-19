@@ -227,9 +227,9 @@ export function PositionsPage() {
         close_reason: trade.close_reason || 'unknown',
         stop_loss: parseFloat(trade.stop_loss) || 0,
         take_profit: parseFloat(trade.take_profit) || 0,
-        max_drawdown: trade.max_drawdown ? parseFloat(trade.max_drawdown) : 0,
-        max_profit: trade.max_profit ? parseFloat(trade.max_profit) : 0,
-        total_pips: trade.total_pips ? parseFloat(trade.total_pips) : 0
+        max_drawdown: trade.max_drawdown !== null && trade.max_drawdown !== undefined ? parseFloat(trade.max_drawdown) : undefined,
+        max_profit: trade.max_profit !== null && trade.max_profit !== undefined ? parseFloat(trade.max_profit) : undefined,
+        total_pips: trade.total_pips !== null && trade.total_pips !== undefined ? parseFloat(trade.total_pips) : undefined
       };
     });
 
@@ -1052,7 +1052,7 @@ export function PositionsPage() {
                             Max Drawdown
                           </div>
                           <div className="text-xs font-semibold text-red-400">
-                            {trade.max_drawdown !== undefined && trade.max_drawdown !== 0
+                            {trade.max_drawdown !== undefined && trade.max_drawdown !== null
                               ? `${trade.max_drawdown < 0 ? '' : '-'}$${Math.abs(trade.max_drawdown).toFixed(2)}`
                               : 'N/A'}
                           </div>

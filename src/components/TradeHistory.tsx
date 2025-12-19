@@ -95,9 +95,9 @@ export function TradeHistory() {
         take_profit: parseFloat(trade.take_profit) || 0,
         trade_source: 'goal_mode' as const,
         goal_session_id: trade.goal_session_id,
-        max_drawdown: trade.max_drawdown ? parseFloat(trade.max_drawdown) : 0,
-        max_profit: trade.max_profit ? parseFloat(trade.max_profit) : 0,
-        total_pips: trade.total_pips ? parseFloat(trade.total_pips) : 0
+        max_drawdown: trade.max_drawdown !== null && trade.max_drawdown !== undefined ? parseFloat(trade.max_drawdown) : undefined,
+        max_profit: trade.max_profit !== null && trade.max_profit !== undefined ? parseFloat(trade.max_profit) : undefined,
+        total_pips: trade.total_pips !== null && trade.total_pips !== undefined ? parseFloat(trade.total_pips) : undefined
       }));
 
       setTrades(normalizedTrades);
@@ -190,9 +190,9 @@ export function TradeHistory() {
         trade.entry_price,
         trade.exit_price,
         trade.profit_loss,
-        trade.max_drawdown || 0,
-        trade.max_profit || 0,
-        trade.total_pips || 0,
+        trade.max_drawdown !== undefined && trade.max_drawdown !== null ? trade.max_drawdown : 'N/A',
+        trade.max_profit !== undefined && trade.max_profit !== null ? trade.max_profit : 'N/A',
+        trade.total_pips !== undefined && trade.total_pips !== null ? trade.total_pips : 'N/A',
         new Date(trade.opened_at).toLocaleString(),
         new Date(trade.closed_at).toLocaleString(),
         `${durationMinutes}m`,
@@ -490,7 +490,9 @@ export function TradeHistory() {
                   <div>
                     <div className="text-gray-500 text-xs">Max Drawdown</div>
                     <div className="text-red-400 font-semibold">
-                      ${Math.abs(trade.max_drawdown || 0).toFixed(2)}
+                      {trade.max_drawdown !== undefined && trade.max_drawdown !== null
+                        ? `$${Math.abs(trade.max_drawdown).toFixed(2)}`
+                        : 'N/A'}
                     </div>
                   </div>
                   <div>
