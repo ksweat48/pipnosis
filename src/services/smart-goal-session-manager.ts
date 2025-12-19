@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import { PIPNOSIS_CORE_RULES, PipnosisCoreRules } from '../lib/pipnosis-core-rules';
 import { goalSessionLiveEngine, GoalSessionLiveConfig } from './goal-session-live-engine';
 import { v4 as uuidv4 } from 'uuid';
+import { getMinConfidenceThreshold } from '../config/risk-levels';
 
 export interface SmartGoalConfig {
   goalAmount: number;
@@ -330,6 +331,9 @@ class SmartGoalSessionManager {
       // Only allow 2+ concurrent trades if multi-trade is explicitly enabled
       const maxConcurrentTrades = multiTradeEnabled ? 2 : 1;
 
+      // Calculate minimum confidence threshold based on risk mode
+      const minConfidence = getMinConfidenceThreshold(config.riskMode);
+
       const liveConfig: GoalSessionLiveConfig = {
         goalSessionId: sessionId,
         userId,
@@ -339,7 +343,8 @@ class SmartGoalSessionManager {
         riskMode: config.riskMode,
         maxConcurrentTrades,
         initialBalance: accountBalance,
-        autoExecute: config.autoExecute
+        autoExecute: config.autoExecute,
+        minConfidence
       };
 
       const result = await goalSessionLiveEngine.startSession(liveConfig);
@@ -361,6 +366,7 @@ class SmartGoalSessionManager {
           `💰 Target: $${config.goalAmount} in ${config.timeframe}\\n` +
           `📊 Strategy: ${breakDown.targetTradeCount} trades averaging $${breakDown.avgProfitPerTrade.toFixed(2)} each\\n` +
           `🛡️ Risk Mode: ${config.riskMode.toUpperCase()} (max $${breakDown.maxProfitPerTrade.toFixed(2)} per trade)\\n` +
+          `🎯 Confidence Threshold: ${minConfidence}% (${config.riskMode} risk = ${minConfidence >= 70 ? 'selective' : minConfidence >= 60 ? 'balanced' : 'aggressive'})\\n` +
           `\\n🔍 Monitoring: ${config.watchlist.join(', ')}\\n` +
           `⚡ Analyzing markets every minute for optimal entries\\n` +
           `🧠 Autonomous Pipnosis Alpha: GPT-4o-mini creating dynamic strategies\\n` +

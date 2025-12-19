@@ -581,7 +581,15 @@ class GoalSessionLiveEngine {
 
       const minConfidence = this.config.minConfidence || 70;
       if (decision.confidence < minConfidence) {
-        logger.debug(LogCategory.AI_TRADING, `Confidence ${decision.confidence}% below threshold ${minConfidence}%`);
+        const rejectionMessage = `⚠️ Trade opportunity found but rejected:\n\n` +
+          `🎯 Symbol: ${selectedSymbol}\n` +
+          `📊 Direction: ${decision.action}\n` +
+          `🔍 Confidence: ${decision.confidence}%\n` +
+          `⛔ Required: ${minConfidence}%\n\n` +
+          `Waiting for stronger signals (${this.config.riskMode.toUpperCase()} risk mode).`;
+
+        await this.sendAIMessage(rejectionMessage);
+        logger.info(LogCategory.AI_TRADING, `Trade rejected: ${selectedSymbol} ${decision.action} @ ${decision.confidence}% < ${minConfidence}%`);
         return;
       }
 
