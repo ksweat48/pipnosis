@@ -650,7 +650,8 @@ class AILearningEngine {
         what_failed: analysis.whatFailed,
         similar_trades_count: analysis.similarTradesCount,
         similar_trades_win_rate: analysis.similarTradesWinRate,
-        is_pattern_repeating: analysis.isPatternRepeating
+        is_pattern_repeating: analysis.isPatternRepeating,
+        contributed_to_global_learning: true
       });
 
       // Extract patterns (all trades have 2x weight)
