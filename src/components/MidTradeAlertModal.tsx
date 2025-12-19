@@ -212,11 +212,73 @@ export function MidTradeAlertModal({ notification, onClose, onExecuted }: MidTra
             <AlertTriangle className={`w-5 h-5 ${theme.text}`} />
             Alpha's Analysis
           </h3>
-          <div className="bg-gray-800/70 rounded-lg p-4 border border-gray-700">
-            <p className="text-gray-200 leading-relaxed">
-              {reasoning}
-            </p>
-          </div>
+
+          {/* Parse and display structured analysis */}
+          {(() => {
+            const sections = reasoning.split('\n\n').reduce((acc: any, section: string) => {
+              if (section.includes('STATUS:')) acc.status = section.replace('STATUS:', '').trim();
+              else if (section.includes('SITUATION:')) acc.situation = section.replace('SITUATION:', '').trim();
+              else if (section.includes('WATCHING FOR:')) acc.watchingFor = section.replace('WATCHING FOR:', '').trim();
+              else if (section.includes('ACTION TRIGGERS:')) acc.actionTriggers = section.replace('ACTION TRIGGERS:', '').trim();
+              else if (section.includes('PROBABILITY:')) acc.probability = section.replace('PROBABILITY:', '').trim();
+              else if (section.includes('TIMEFRAMES:')) acc.timeframes = section.replace('TIMEFRAMES:', '').trim();
+              else if (section.includes('ANALYSIS:')) acc.analysis = section.replace('ANALYSIS:', '').trim();
+              return acc;
+            }, {});
+
+            return (
+              <div className="space-y-3">
+                {/* Current Situation - Most Important */}
+                {sections.situation && (
+                  <div className="bg-gray-800/70 rounded-lg p-4 border border-yellow-500/30">
+                    <div className="text-xs font-semibold text-yellow-400 uppercase mb-2">Current Situation</div>
+                    <p className="text-gray-200 leading-relaxed">{sections.situation}</p>
+                  </div>
+                )}
+
+                {/* Short-Term Levels - What to watch NOW */}
+                {sections.watchingFor && (
+                  <div className="bg-gray-800/70 rounded-lg p-4 border border-blue-500/30">
+                    <div className="text-xs font-semibold text-blue-400 uppercase mb-2">🎯 Watching For (Next 15-30 Min)</div>
+                    <p className="text-gray-200 leading-relaxed">{sections.watchingFor}</p>
+                  </div>
+                )}
+
+                {/* Action Triggers - When to act */}
+                {sections.actionTriggers && (
+                  <div className="bg-gray-800/70 rounded-lg p-4 border border-red-500/30">
+                    <div className="text-xs font-semibold text-red-400 uppercase mb-2">⚠️ Reversal Signals</div>
+                    <p className="text-gray-200 leading-relaxed">{sections.actionTriggers}</p>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Probability */}
+                  {sections.probability && (
+                    <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
+                      <div className="text-xs font-semibold text-gray-400 uppercase mb-1">Probability</div>
+                      <p className="text-sm text-gray-300">{sections.probability}</p>
+                    </div>
+                  )}
+
+                  {/* Timeframes */}
+                  {sections.timeframes && (
+                    <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
+                      <div className="text-xs font-semibold text-gray-400 uppercase mb-1">Timeframes</div>
+                      <p className="text-sm text-gray-300">{sections.timeframes}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Fallback: If reasoning isn't structured, show as-is */}
+                {!sections.situation && !sections.watchingFor && (
+                  <div className="bg-gray-800/70 rounded-lg p-4 border border-gray-700">
+                    <p className="text-gray-200 leading-relaxed">{reasoning}</p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Recommendation */}
           <div className={`mt-4 ${theme.bg} border ${theme.border} rounded-lg p-4`}>
