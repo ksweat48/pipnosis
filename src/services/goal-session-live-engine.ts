@@ -1328,8 +1328,16 @@ class GoalSessionLiveEngine {
         } else {
           logger.debug(LogCategory.AI_TRADING, `🎯 Trade decision: ${result.trade.direction} @ ${result.trade.entryPrice}`);
           logger.debug(LogCategory.AI_TRADING, `SL: ${result.trade.stopLoss} | TP: ${result.trade.takeProfit} | R:R 1:${((result.trade.takeProfit - result.trade.entryPrice) / (result.trade.entryPrice - result.trade.stopLoss)).toFixed(2)}`);
-          await this.handleNewTradeSignal(result.trade);
-          tradeExecuted = true;
+
+          // CRITICAL FIX: Only mark as executed if trade actually went through
+          // If confidence too low or other validation fails, we need to keep scanning
+          tradeExecuted = await this.handleNewTradeSignal(result.trade);
+
+          if (tradeExecuted) {
+            console.log(`[AUTONOMOUS ENGINE] ✅ Trade successfully executed - system will manage appropriately`);
+          } else {
+            console.log(`[AUTONOMOUS ENGINE] ⚠️ Trade rejected by validation - continuing to scan for next opportunity`);
+          }
         }
       }
 
@@ -1364,10 +1372,12 @@ class GoalSessionLiveEngine {
 
   /**
    * Handle new trade signal - Routes through trade-execution-engine for proper goal_session_trades creation
+   * @returns true if trade was successfully executed, false if rejected
    */
-  private async handleNewTradeSignal(trade: SimulatedTrade): Promise<void> {
+  private async handleNewTradeSignal(trade: SimulatedTrade): Promise<boolean> {
     if (!this.config || !this.activeSession) {
-      return;
+      console.log('[Goal Live Engine] ❌ Trade rejected: No active session or config');
+      return false;
     }
 
     logger.info(LogCategory.AI_TRADING, `✅ Trade approved: ${trade.direction.toUpperCase()} @ ${trade.entryPrice} (${trade.confidence}% confidence)`);
@@ -1459,6 +1469,9 @@ class GoalSessionLiveEngine {
       // CHECK: Should we pause for user review after this trade?
       await this.checkAndPauseForReview(executionResult.tradeId, trade);
 
+      console.log(`[Goal Live Engine] ✅ Trade executed successfully - scanning will pause appropriately`);
+      return true;
+
     } else {
       console.error(`[Goal Live Engine] ❌ Trade execution failed: ${executionResult.message}`);
 
@@ -1475,6 +1488,9 @@ class GoalSessionLiveEngine {
       } catch (error) {
         console.error('[Goal Live Engine] Failed to log trade failure conversation:', error);
       }
+
+      console.log(`[Goal Live Engine] ❌ Trade rejected - will continue scanning for next opportunity`);
+      return false;
     }
   }
 
