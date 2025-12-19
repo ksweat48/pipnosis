@@ -6,6 +6,7 @@
  */
 
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
+import { calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
 
 export interface LocalTrade {
   id: string;
@@ -193,9 +194,14 @@ class LocalMemoryLayer {
     trade.exitPrice = exitPrice;
     trade.exitReason = exitReason;
 
-    const multiplier = trade.direction === 'buy' ? 1 : -1;
-    trade.pnl = (exitPrice - trade.entryPrice) * multiplier * trade.positionSize;
-    trade.pnlPercent = ((exitPrice - trade.entryPrice) / trade.entryPrice) * 100 * multiplier;
+    // FIXED: Use proper currency-aware pip calculations instead of raw price difference
+    const pipDistance = calculatePipDistance(trade.symbol, trade.entryPrice, exitPrice);
+    const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.positionSize);
+
+    trade.pnl = trade.direction === 'buy'
+      ? pipDistance * dollarPerPip
+      : -pipDistance * dollarPerPip;
+    trade.pnlPercent = (trade.pnl / (trade.positionSize * 100000)) * 100;
 
     if (Math.abs(trade.pnlPercent) < 0.01) {
       trade.outcome = 'breakeven';

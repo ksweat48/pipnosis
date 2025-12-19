@@ -704,8 +704,13 @@ class TradeLifecycleManager {
       // Update playbook stats if trade has playbook metadata
       if (trade.playbook_id && userId) {
         try {
-          // Calculate risk-normalized metrics
-          const riskDollars = trade.risk_dollars || Math.abs(trade.entry_price - trade.stop_loss) * trade.position_size;
+          // Calculate risk-normalized metrics using proper pip calculation
+          let riskDollars = trade.risk_dollars;
+          if (!riskDollars || riskDollars === 0) {
+            const slPipDistance = calculatePipDistance(trade.symbol, trade.entry_price, trade.stop_loss);
+            const dollarPerPipForRisk = calculateDollarPerPip(trade.symbol, trade.position_size);
+            riskDollars = Math.abs(slPipDistance) * dollarPerPipForRisk;
+          }
           const pnl_r = riskDollars > 0 ? profitLoss / riskDollars : 0;
 
           const tpDistance = Math.abs(trade.take_profit - trade.entry_price);
@@ -767,9 +772,13 @@ class TradeLifecycleManager {
       }
 
       const exitPrice = trade.direction === 'buy' ? currentPrice.bid : currentPrice.ask;
+
+      // FIXED: Use proper pip-based calculation instead of raw price difference
+      const pipDistance = calculatePipDistance(trade.symbol, trade.entry_price, exitPrice);
+      const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.position_size);
       const profitLoss = trade.direction === 'buy'
-        ? (exitPrice - trade.entry_price) * trade.position_size
-        : (trade.entry_price - exitPrice) * trade.position_size;
+        ? pipDistance * dollarPerPip
+        : -pipDistance * dollarPerPip;
 
       await this.closeTrade(trade, exitPrice, profitLoss, reason);
 
@@ -804,9 +813,13 @@ class TradeLifecycleManager {
         (data || []).map(async (trade) => {
           const currentPrice = await this.getCurrentPrice(trade.symbol);
           const price = currentPrice ? (trade.direction === 'buy' ? currentPrice.bid : currentPrice.ask) : trade.entry_price;
+
+          // FIXED: Use proper pip-based calculation instead of raw price difference
+          const pipDistance = calculatePipDistance(trade.symbol, trade.entry_price, price);
+          const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.position_size);
           const unrealizedPL = trade.direction === 'buy'
-            ? (price - trade.entry_price) * trade.position_size
-            : (trade.entry_price - price) * trade.position_size;
+            ? pipDistance * dollarPerPip
+            : -pipDistance * dollarPerPip;
 
           return {
             ...trade,
