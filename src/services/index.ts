@@ -17,6 +17,9 @@ export * from './platform-intelligence-service';
 // Scanning Cycle Services
 export * from './scanning-state-machine';
 
+// Weekend Protection Services
+export * from './weekend-protection-service';
+
 // Existing Services
 export * from './openai-client';
 export * from './database-service';

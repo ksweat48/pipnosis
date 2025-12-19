@@ -17,6 +17,7 @@ import { midTradeNotificationQueue } from './services/mid-trade-notification-que
 import MidTradeUpdateModal from './components/MidTradeUpdateModal';
 import { MidTradeAlertListener } from './components/MidTradeAlertListener';
 import { FloatingMessageCenter } from './components/FloatingMessageCenter';
+import { WeekendProtectionBanner } from './components/WeekendProtectionBanner';
 
 // Lazy load all pages for code splitting
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -570,6 +571,19 @@ export default function App() {
 
     startAlertExecutor();
 
+    // Start weekend protection service
+    const startWeekendProtection = async () => {
+      try {
+        const { weekendProtectionService } = await import('./services/weekend-protection-service');
+        weekendProtectionService.start();
+        console.log('[App] 🛡️ Weekend protection service started');
+      } catch (error) {
+        console.error('[App] ❌ Failed to start weekend protection:', error);
+      }
+    };
+
+    startWeekendProtection();
+
     // Cleanup on unmount
     return () => {
       import('./services/candle-cache-manager').then(({ candleCacheManager }) => {
@@ -580,6 +594,11 @@ export default function App() {
       import('./services/mid-trade-alert-executor').then(({ midTradeAlertExecutor }) => {
         midTradeAlertExecutor.stop();
       }).catch(console.warn);
+
+      // Stop weekend protection
+      import('./services/weekend-protection-service').then(({ weekendProtectionService }) => {
+        weekendProtectionService.stop();
+      }).catch(console.warn);
     };
   }, []);
 
@@ -587,6 +606,7 @@ export default function App() {
     <DatabaseErrorBoundary>
       <ConfirmDialogProvider>
         <GlobalDialogProvider>
+          <WeekendProtectionBanner />
           <AppRoutes />
         </GlobalDialogProvider>
       </ConfirmDialogProvider>

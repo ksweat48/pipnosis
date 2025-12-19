@@ -10,6 +10,7 @@ import { positionSafetyValidator } from './position-safety-validator';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { getRiskPercentage } from '../config/risk-levels';
 import { scanningStateMachine } from './scanning-state-machine';
+import { weekendProtectionService } from './weekend-protection-service';
 
 export interface ScanResult {
   symbol: string;
@@ -41,7 +42,23 @@ export interface TradeSignal {
 class GoalScanner {
   async scanMarket(sessionId: string, userId: string): Promise<ScanResult[]> {
     try {
-      // STEP 1: Check if scanning is allowed
+      // STEP 1: Check weekend protection
+      const weekendCheck = weekendProtectionService.canOpenNewTrade();
+      if (!weekendCheck.allowed) {
+        console.log(`[Goal Scanner] 🛡️ Weekend protection blocked scanning: ${weekendCheck.reason}`);
+
+        await goalSessionManager.addAIMessage(
+          sessionId,
+          userId,
+          `🛡️ ${weekendCheck.reason}`,
+          { weekendProtection: true },
+          'warning'
+        );
+
+        return [];
+      }
+
+      // STEP 2: Check if scanning is allowed
       const scanPermission = await scanningStateMachine.canScanNow(sessionId);
 
       if (!scanPermission.allowed) {
