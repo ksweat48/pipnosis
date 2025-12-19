@@ -53,6 +53,24 @@ export async function processGoalSessionIteration(
     logger.info(LogCategory.AI_TRADING, `[Core] 🚀 Starting iteration for session ${goalSessionId}`);
     logger.info(LogCategory.AI_TRADING, `[Core] Watchlist: ${watchlist.join(', ')} | Timeframe: ${timeframe}`);
 
+    // CRITICAL: Check if session is awaiting continuation response
+    const { data: sessionStatus, error: statusError } = await client
+      .from('goal_sessions')
+      .select('status, awaiting_continuation_confirmation')
+      .eq('id', goalSessionId)
+      .single();
+
+    if (!statusError && sessionStatus) {
+      if (sessionStatus.status === 'awaiting_continuation' || sessionStatus.awaiting_continuation_confirmation) {
+        logger.info(LogCategory.AI_TRADING, '[Core] ⏸️ Session awaiting user continuation response - skipping processing');
+        return {
+          success: true,
+          message: 'Session paused - awaiting user continuation response',
+          shouldContinue: false
+        };
+      }
+    }
+
     if (!watchlist || watchlist.length === 0) {
       logger.error(LogCategory.AI_TRADING, '[Core] ❌ No symbols in watchlist');
       return {

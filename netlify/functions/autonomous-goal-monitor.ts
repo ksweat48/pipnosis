@@ -55,11 +55,71 @@ export const handler: Handler = async (event, context) => {
     const results = [];
     let successCount = 0;
     let errorCount = 0;
+    let timedOutCount = 0;
+    let modalTriggeredCount = 0;
 
     // Process each session
     for (const session of activeSessions) {
       try {
         console.log(`[Autonomous Monitor] Processing session ${session.session_id} for user ${session.user_id}`);
+
+        // CRITICAL: Check for modal timeout and auto-close if expired
+        const { data: hasTimedOut } = await supabase.rpc('check_continuation_modal_timeout', {
+          p_session_id: session.session_id
+        });
+
+        if (hasTimedOut) {
+          console.log(`[Autonomous Monitor] ⏰ Session ${session.session_id} modal timeout - auto-closed`);
+          timedOutCount++;
+          successCount++;
+          results.push({
+            sessionId: session.session_id,
+            success: true,
+            message: 'Session auto-closed due to continuation modal timeout',
+            action: 'timeout_auto_close'
+          });
+          continue;
+        }
+
+        // CRITICAL: Check if 15 minutes elapsed without trades - trigger modal
+        const { data: shouldShowModal } = await supabase.rpc('should_show_continuation_modal', {
+          p_session_id: session.session_id
+        });
+
+        if (shouldShowModal) {
+          console.log(`[Autonomous Monitor] 🕐 Session ${session.session_id} reached 15-min threshold - triggering modal`);
+          await supabase.rpc('trigger_continuation_modal', {
+            p_session_id: session.session_id
+          });
+          modalTriggeredCount++;
+          successCount++;
+          results.push({
+            sessionId: session.session_id,
+            success: true,
+            message: '15-minute threshold reached - awaiting user response',
+            action: 'modal_triggered'
+          });
+          continue;
+        }
+
+        // Skip sessions awaiting continuation response
+        const { data: sessionStatus } = await supabase
+          .from('goal_sessions')
+          .select('status, awaiting_continuation_confirmation')
+          .eq('id', session.session_id)
+          .single();
+
+        if (sessionStatus?.status === 'awaiting_continuation' || sessionStatus?.awaiting_continuation_confirmation) {
+          console.log(`[Autonomous Monitor] ⏸️ Session ${session.session_id} awaiting user response - skipping`);
+          successCount++;
+          results.push({
+            sessionId: session.session_id,
+            success: true,
+            message: 'Awaiting user continuation response',
+            action: 'awaiting_response'
+          });
+          continue;
+        }
 
         // Update heartbeat at start
         await supabase.rpc('update_server_heartbeat', {
@@ -159,12 +219,20 @@ export const handler: Handler = async (event, context) => {
       processed: activeSessions.length,
       successful: successCount,
       errors: errorCount,
+      modalTriggered: modalTriggeredCount,
+      timedOut: timedOutCount,
       staleSessions: staleSessions?.length || 0,
       duration,
       results
     };
 
     console.log('[Autonomous Monitor] Completed:', summary);
+    if (modalTriggeredCount > 0) {
+      console.log(`[Autonomous Monitor] 🕐 ${modalTriggeredCount} sessions reached 15-minute threshold`);
+    }
+    if (timedOutCount > 0) {
+      console.log(`[Autonomous Monitor] ⏰ ${timedOutCount} sessions auto-closed due to timeout`);
+    }
 
     return {
       statusCode: 200,
