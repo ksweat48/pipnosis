@@ -4,7 +4,7 @@ import type { DialogType, DialogData } from './global-dialog-manager';
 interface NotificationPayload {
   user_id: string;
   goal_session_id: string | null;
-  notification_type: string;
+  type: string;
   title: string;
   message: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
@@ -48,7 +48,7 @@ class ModalNotificationBridge {
       case 'goal_achieved':
         return {
           ...baseNotification,
-          notification_type: 'goal_achieved',
+          type: 'goal_achieved',
           title: 'Goal Achieved!',
           message: this.formatGoalAchievedMessage(dialogData.data)
         };
@@ -56,7 +56,7 @@ class ModalNotificationBridge {
       case 'trade_closed':
         return {
           ...baseNotification,
-          notification_type: 'trade_closed',
+          type: 'trade_closed',
           title: 'Trade Closed',
           message: this.formatTradeClosedMessage(dialogData.data)
         };
@@ -64,7 +64,7 @@ class ModalNotificationBridge {
       case 'trade_signal':
         return {
           ...baseNotification,
-          notification_type: 'trade_signal',
+          type: 'trade_signal',
           title: 'Trade Signal',
           message: this.formatTradeSignalMessage(dialogData.data)
         };
@@ -72,7 +72,7 @@ class ModalNotificationBridge {
       case 'trade_entry':
         return {
           ...baseNotification,
-          notification_type: 'trade_entry',
+          type: 'trade_entry',
           title: 'Trade Entry',
           message: this.formatTradeEntryMessage(dialogData.data)
         };
@@ -80,7 +80,7 @@ class ModalNotificationBridge {
       default:
         return {
           ...baseNotification,
-          notification_type: 'general',
+          type: 'general',
           title: 'Notification',
           message: 'System notification'
         };
