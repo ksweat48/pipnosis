@@ -7,6 +7,7 @@ import { getRegimeBucket } from './regime-bucketing';
 import { prodLogger } from '../lib/production-logger';
 import { globalDialogManager } from './global-dialog-manager';
 import { llmReasoningLogger } from './llm-reasoning-logger';
+import { getMinConfidenceThreshold } from '../config/risk-levels';
 
 export interface TradeSignal {
   sessionId: string;
@@ -104,13 +105,7 @@ class TradeExecutionEngine {
       return { valid: false, reason: 'Confidence too low' };
     }
 
-    const riskThresholds = {
-      low: 80,
-      medium: 70,
-      high: 70
-    };
-
-    const threshold = riskThresholds[session.risk_mode as keyof typeof riskThresholds] || 75;
+    const threshold = session.min_confidence || getMinConfidenceThreshold(session.risk_mode);
     if (signal.confidence < threshold) {
       return {
         valid: false,

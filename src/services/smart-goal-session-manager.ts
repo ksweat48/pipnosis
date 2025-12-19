@@ -82,11 +82,14 @@ class SmartGoalSessionManager {
     const timeframeHours = this.convertTimeframeToHours(config.timeframe);
     const endTime = new Date(session.startTime.getTime() + timeframeHours * 3600000);
 
+    const minConfidence = getMinConfidenceThreshold(config.riskMode);
+
     console.log('[Smart Goal] Creating session with settings:', {
       sessionId,
       multi_trade_enabled: multiTradeEnabled,
       target: config.goalAmount,
-      risk_mode: config.riskMode
+      risk_mode: config.riskMode,
+      min_confidence: minConfidence
     });
 
     const { error } = await supabase.from('goal_sessions').insert({
@@ -97,6 +100,7 @@ class SmartGoalSessionManager {
       timeframe: config.timeframe,
       timeframe_hours: timeframeHours,
       risk_mode: config.riskMode,
+      min_confidence: minConfidence,
       status: 'scanning',
       starting_balance: accountBalance,
       current_progress: 0,
