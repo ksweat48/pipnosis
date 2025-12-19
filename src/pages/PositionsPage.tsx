@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
+import { TradeClosedActionDialog } from '@/components/TradeClosedActionDialog';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 import { useToast } from '@/hooks/useToast';
@@ -14,6 +15,7 @@ import { calculatePnL } from '@/types/position';
 import { pollingConfigService } from '@/services/polling-config-service';
 import { notificationManager } from '@/services/notification-manager';
 import { pageContext } from '@/services/page-context';
+import { smartGoalSessionManager } from '@/services/smart-goal-session-manager';
 import {
   detectTrueCloseReason,
   getCloseReasonText
@@ -85,6 +87,8 @@ export function PositionsPage() {
   const [loading, setLoading] = useState(true);
   const [closingPosition, setClosingPosition] = useState<string | null>(null);
   const [livePrices, setLivePrices] = useState<Record<string, { bid: number; ask: number }>>({});
+  const [showTradeClosedDialog, setShowTradeClosedDialog] = useState(false);
+  const [tradeClosedDialogData, setTradeClosedDialogData] = useState<any>(null);
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -315,15 +319,73 @@ export function PositionsPage() {
       const result = await positionService.closePosition(
         position.id,
         currentPrice,
-        'manual'
+        'manual',
+        user?.id
       );
 
       if (result.success) {
         notificationManager.playSound('trade_exit');
         toast.success('Position Closed', result.message || 'Position closed successfully');
+
+        // Refresh data
         await fetchAllData();
         await refreshBalance();
         await refreshPositions();
+
+        // Fetch the closed trade to get goal_session_id
+        const { data: closedTrade, error: tradeError } = await supabase
+          .from('goal_session_trades')
+          .select('*')
+          .eq('id', position.id)
+          .single();
+
+        if (!tradeError && closedTrade && closedTrade.goal_session_id) {
+          console.log('[PositionsPage] Trade closed, fetching session data for dialog');
+
+          // Fetch goal session data
+          const { data: sessionData, error: sessionError } = await supabase
+            .from('goal_sessions')
+            .select('id, target_value, current_progress, status, config')
+            .eq('id', closedTrade.goal_session_id)
+            .single();
+
+          if (!sessionError && sessionData) {
+            // Count trades in this session
+            const { data: sessionTrades, error: tradesError } = await supabase
+              .from('goal_session_trades')
+              .select('id', { count: 'exact' })
+              .eq('goal_session_id', closedTrade.goal_session_id);
+
+            const tradesCount = tradesError ? 0 : (sessionTrades?.length || 0);
+            const isGoalAchieved = (sessionData.current_progress || 0) >= (sessionData.target_value || 100);
+
+            // Prepare dialog data
+            setTradeClosedDialogData({
+              symbol: closedTrade.symbol,
+              direction: closedTrade.direction,
+              entryPrice: closedTrade.entry_price,
+              exitPrice: closedTrade.exit_price || currentPrice,
+              profitLoss: closedTrade.profit_loss || 0,
+              stopLoss: closedTrade.stop_loss,
+              takeProfit: closedTrade.take_profit,
+              closeReason: closedTrade.close_reason || 'manual',
+              currentProgress: sessionData.current_progress || 0,
+              targetValue: sessionData.target_value || 100,
+              tradesInSession: tradesCount,
+              isGoalAchieved,
+              sessionId: closedTrade.goal_session_id,
+              sessionStatus: sessionData.status
+            });
+
+            // Show the dialog
+            setShowTradeClosedDialog(true);
+            console.log('[PositionsPage] TradeClosedActionDialog shown');
+          } else {
+            console.log('[PositionsPage] Could not fetch session data:', sessionError);
+          }
+        } else {
+          console.log('[PositionsPage] No goal_session_id found or trade fetch failed');
+        }
       } else {
         toast.error('Failed to Close', result.message || 'Could not close position');
       }
@@ -332,6 +394,79 @@ export function PositionsPage() {
       toast.error('Error', 'Failed to close position. Please try again.');
     } finally {
       setClosingPosition(null);
+    }
+  };
+
+  const handleContinueSession = async () => {
+    if (!user || !tradeClosedDialogData) return;
+
+    try {
+      // Record user's choice
+      await supabase.from('goal_trade_actions').insert({
+        user_id: user.id,
+        goal_session_id: tradeClosedDialogData.sessionId,
+        action_type: 'continue_current',
+        trade_close_reason: tradeClosedDialogData.closeReason,
+        profit_loss: tradeClosedDialogData.profitLoss,
+        cumulative_progress: tradeClosedDialogData.currentProgress,
+        target_value: tradeClosedDialogData.targetValue
+      });
+
+      setShowTradeClosedDialog(false);
+      toast.success('Session Continued', 'Keep trading to reach your goal!');
+      await fetchAllData();
+    } catch (error) {
+      console.error('[PositionsPage] Error continuing session:', error);
+      setShowTradeClosedDialog(false);
+    }
+  };
+
+  const handleStartNewSession = async () => {
+    if (!user || !tradeClosedDialogData) return;
+
+    try {
+      // Stop current session
+      if (tradeClosedDialogData.sessionId) {
+        await smartGoalSessionManager.stopSession(tradeClosedDialogData.sessionId, user.id);
+      }
+
+      setShowTradeClosedDialog(false);
+      toast.success('Session Stopped', 'Navigate to SmartGoal Mode to start a new session');
+
+      // Navigate to SmartGoal Mode page
+      navigate('/smart-goal-mode');
+    } catch (error) {
+      console.error('[PositionsPage] Error starting new session:', error);
+      setShowTradeClosedDialog(false);
+    }
+  };
+
+  const handleCloseForNow = async () => {
+    if (!user || !tradeClosedDialogData) return;
+
+    try {
+      // Record user's choice
+      await supabase.from('goal_trade_actions').insert({
+        user_id: user.id,
+        goal_session_id: tradeClosedDialogData.sessionId,
+        action_type: 'close_for_now',
+        trade_close_reason: tradeClosedDialogData.closeReason,
+        profit_loss: tradeClosedDialogData.profitLoss,
+        cumulative_progress: tradeClosedDialogData.currentProgress,
+        target_value: tradeClosedDialogData.targetValue
+      });
+
+      // Stop the session
+      if (tradeClosedDialogData.sessionId) {
+        await smartGoalSessionManager.stopSession(tradeClosedDialogData.sessionId, user.id);
+      }
+
+      setShowTradeClosedDialog(false);
+      toast.success('Session Closed', 'Take a break and come back when ready!');
+      await fetchAllData();
+    } catch (error) {
+      console.error('[PositionsPage] Error closing session:', error);
+      setShowTradeClosedDialog(false);
     }
   };
 
@@ -950,6 +1085,28 @@ export function PositionsPage() {
           )}
         </div>
       </main>
+
+      {/* Trade Closed Action Dialog */}
+      {tradeClosedDialogData && (
+        <TradeClosedActionDialog
+          isOpen={showTradeClosedDialog}
+          symbol={tradeClosedDialogData.symbol}
+          direction={tradeClosedDialogData.direction}
+          entryPrice={tradeClosedDialogData.entryPrice}
+          exitPrice={tradeClosedDialogData.exitPrice}
+          profitLoss={tradeClosedDialogData.profitLoss}
+          closeReason={tradeClosedDialogData.closeReason}
+          stopLoss={tradeClosedDialogData.stopLoss}
+          takeProfit={tradeClosedDialogData.takeProfit}
+          currentProgress={tradeClosedDialogData.currentProgress}
+          targetValue={tradeClosedDialogData.targetValue}
+          tradesInSession={tradeClosedDialogData.tradesInSession}
+          isGoalAchieved={tradeClosedDialogData.isGoalAchieved}
+          onStartNewSession={handleStartNewSession}
+          onContinueSession={handleContinueSession}
+          onCloseForNow={handleCloseForNow}
+        />
+      )}
 
       <BottomNavigation />
     </div>

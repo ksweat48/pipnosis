@@ -33,30 +33,40 @@ const NORMAL_TIMEOUT = 5 * 60 * 1000; // 5 minutes for normal trades
 
 export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = ({
   isOpen,
-  symbol,
-  direction,
-  entryPrice,
-  exitPrice,
-  profitLoss,
-  closeReason,
-  stopLoss,
-  takeProfit,
-  currentProgress,
-  targetValue,
-  tradesInSession,
-  isGoalAchieved,
+  symbol = 'UNKNOWN',
+  direction = 'buy',
+  entryPrice = 0,
+  exitPrice = 0,
+  profitLoss = 0,
+  closeReason = 'manual',
+  stopLoss = 0,
+  takeProfit = 0,
+  currentProgress = 0,
+  targetValue = 100,
+  tradesInSession = 0,
+  isGoalAchieved = false,
   onStartNewSession,
   onContinueSession,
   onCloseForNow,
   isLoading = false,
   timestamp
 }) => {
+  // Safety check: validate required props
+  if (!isOpen) return null;
+
+  // Validate numeric values to prevent NaN/Infinity errors
+  const safeEntryPrice = isFinite(entryPrice) ? entryPrice : 0;
+  const safeExitPrice = isFinite(exitPrice) ? exitPrice : 0;
+  const safeProfitLoss = isFinite(profitLoss) ? profitLoss : 0;
+  const safeCurrentProgress = isFinite(currentProgress) ? currentProgress : 0;
+  const safeTargetValue = isFinite(targetValue) && targetValue > 0 ? targetValue : 100;
+  const safeTradesInSession = isFinite(tradesInSession) && tradesInSession >= 0 ? tradesInSession : 0;
   const timeoutDuration = isGoalAchieved ? GOAL_ACHIEVED_TIMEOUT : NORMAL_TIMEOUT;
   const [timeRemaining, setTimeRemaining] = useState(timeoutDuration);
   const isPendingModal = !!timestamp;
 
   const smartCloseResult = detectTrueCloseReason({
-    exitPrice,
+    exitPrice: safeExitPrice,
     stopLoss,
     takeProfit,
     symbol,
@@ -152,21 +162,21 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   };
 
   // Safety check: validate P&L is realistic
-  const isUnrealisticPnL = Math.abs(profitLoss) > 10000;
+  const isUnrealisticPnL = Math.abs(safeProfitLoss) > 10000;
   if (isUnrealisticPnL) {
     console.error('[TradeClosedActionDialog] Unrealistic P&L detected:', {
-      profitLoss,
+      profitLoss: safeProfitLoss,
       symbol,
-      entryPrice,
-      exitPrice,
+      entryPrice: safeEntryPrice,
+      exitPrice: safeExitPrice,
       warning: 'P&L exceeds $10,000 - possible calculation error'
     });
   }
 
-  const isProfit = profitLoss > 0;
-  const isLoss = profitLoss < 0;
-  const progressPercent = (currentProgress / targetValue) * 100;
-  const remaining = targetValue - currentProgress;
+  const isProfit = safeProfitLoss > 0;
+  const isLoss = safeProfitLoss < 0;
+  const progressPercent = safeTargetValue > 0 ? (safeCurrentProgress / safeTargetValue) * 100 : 0;
+  const remaining = safeTargetValue - safeCurrentProgress;
 
   const reasonText = getCloseReasonText(displayReason);
   const reasonColor = getCloseReasonColor(displayReason);
@@ -243,11 +253,11 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
                   <div className="text-xs text-gray-400">Entry Price</div>
-                  <div className="text-sm font-mono text-gray-300">{entryPrice.toFixed(5)}</div>
+                  <div className="text-sm font-mono text-gray-300">{safeEntryPrice.toFixed(5)}</div>
                 </div>
                 <div>
                   <div className="text-xs text-gray-400">Exit Price</div>
-                  <div className="text-sm font-mono text-gray-300">{exitPrice.toFixed(5)}</div>
+                  <div className="text-sm font-mono text-gray-300">{safeExitPrice.toFixed(5)}</div>
                 </div>
               </div>
 
@@ -257,7 +267,7 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
                   <div className={`text-xl font-bold ${
                     isProfit ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-gray-400'
                   }`}>
-                    {isProfit ? '+' : ''}{profitLoss >= 0 ? '$' : '-$'}{Math.abs(profitLoss).toFixed(2)}
+                    {isProfit ? '+' : ''}{safeProfitLoss >= 0 ? '$' : '-$'}{Math.abs(safeProfitLoss).toFixed(2)}
                   </div>
                 </div>
               </div>
@@ -280,7 +290,7 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
               <div className="grid grid-cols-3 gap-2 text-xs">
                 <div>
                   <div className="text-gray-500">Current</div>
-                  <div className="font-semibold text-white">${currentProgress.toFixed(0)}</div>
+                  <div className="font-semibold text-white">${safeCurrentProgress.toFixed(0)}</div>
                 </div>
                 <div>
                   <div className="text-gray-500">Remaining</div>
@@ -288,12 +298,12 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
                 </div>
                 <div>
                   <div className="text-gray-500">Target</div>
-                  <div className="font-semibold text-white">${targetValue.toFixed(0)}</div>
+                  <div className="font-semibold text-white">${safeTargetValue.toFixed(0)}</div>
                 </div>
               </div>
 
               <div className="mt-2 text-xs text-gray-400">
-                {tradesInSession} trade{tradesInSession !== 1 ? 's' : ''} executed in this session
+                {safeTradesInSession} trade{safeTradesInSession !== 1 ? 's' : ''} executed in this session
               </div>
             </div>
 
