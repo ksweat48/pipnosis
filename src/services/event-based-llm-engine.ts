@@ -183,6 +183,13 @@ class EventBasedLLMEngine {
       tradesPlanned: number;
     }
   ): Promise<{ trade: SimulatedTrade | null; trigger: TriggerEvent | null; llmCalled: boolean }> {
+    // Check weekend shutdown
+    const { weekendProtectionService } = await import('./weekend-protection-service');
+    if (weekendProtectionService.isLLMDisabled()) {
+      console.log('[Autonomous Brain] LLM APIs disabled for weekend shutdown');
+      return { trade: null, trigger: null, llmCalled: false };
+    }
+
     if (candles.length < 50) {
       return { trade: null, trigger: null, llmCalled: false };
     }

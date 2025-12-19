@@ -1,16 +1,18 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * Weekend Protection Service
+ * Weekend Protection Service - SIMPLIFIED
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Automatically closes all open positions before Friday market close to prevent
- * weekend gap risk exposure.
+ * SIMPLE RULE: At market close, shut everything down completely:
+ * - Close all trades
+ * - End all sessions
+ * - Stop all scanning
+ * - Disable all LLM API calls
  *
- * CRITICAL RULES:
- * - Forex market closes Friday 5:00 PM EST
- * - All positions MUST be closed by Friday 3:00 PM EST (2-hour buffer)
- * - Warning notifications start at Friday 12:00 PM EST
- * - No new trades allowed after Friday 2:00 PM EST
+ * TIMING:
+ * - Market closes Friday 5:00 PM EST
+ * - Shutdown happens 5 minutes before close (4:55 PM EST)
+ * - Warnings at 3h, 1h, 30min, and 5min before close
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -20,18 +22,19 @@ import { logger, LogCategory } from '@/lib/logger';
 import { globalToastManager } from './global-toast-manager';
 import { notificationManager } from './notification-manager';
 
+// Global shutdown flags
+let SCANNING_DISABLED = false;
+let LLM_API_DISABLED = false;
+
 interface WeekendStatus {
   isWeekend: boolean;
   isFriday: boolean;
   hoursUntilClose: number;
   minutesUntilClose: number;
-  shouldClosePositions: boolean;
-  shouldPreventNewTrades: boolean;
+  shouldShutdown: boolean;
   shouldWarnUser: boolean;
   marketClosesAt: Date;
-  autoCloseAt: Date;
-  warningStartsAt: Date;
-  tradeBlockStartsAt: Date;
+  shutdownAt: Date;
 }
 
 interface WeekendClosureEvent {
@@ -47,14 +50,12 @@ interface WeekendClosureEvent {
 
 class WeekendProtectionService {
   private checkInterval: NodeJS.Timeout | null = null;
-  private readonly CHECK_INTERVAL_MS = 5 * 60 * 1000; // Check every 5 minutes
+  private readonly CHECK_INTERVAL_MS = 60 * 1000; // Check every minute
   private readonly MARKET_CLOSE_HOUR_EST = 17; // 5:00 PM
-  private readonly AUTO_CLOSE_BUFFER_HOURS = 2; // Close 2 hours before market close
-  private readonly WARNING_START_HOURS = 5; // Start warnings 5 hours before auto-close
-  private readonly TRADE_BLOCK_HOURS = 3; // Block new trades 3 hours before market close
+  private readonly MARKET_CLOSE_MINUTE_EST = 0; // 0 minutes
+  private readonly SHUTDOWN_MINUTES_BEFORE = 5; // Shutdown 5 minutes before close
 
-  private lastWarningTime: Date | null = null;
-  private hasClosedPositionsToday = false;
+  private hasShutdownToday = false;
   private warningsSent = new Set<string>();
 
   start(): void {
@@ -65,7 +66,7 @@ class WeekendProtectionService {
 
     logger.info(LogCategory.POSITION_MONITOR, '🛡️ Starting weekend protection service');
 
-    // Run immediately and then every 5 minutes
+    // Run immediately and then every minute
     this.checkWeekendProtection();
     this.checkInterval = setInterval(() => {
       this.checkWeekendProtection();
@@ -80,13 +81,28 @@ class WeekendProtectionService {
     }
   }
 
+  // Check if scanning is disabled
+  isScanningDisabled(): boolean {
+    return SCANNING_DISABLED;
+  }
+
+  // Check if LLM APIs are disabled
+  isLLMDisabled(): boolean {
+    return LLM_API_DISABLED;
+  }
+
+  // Enable systems on market reopen
+  enableSystems(): void {
+    SCANNING_DISABLED = false;
+    LLM_API_DISABLED = false;
+    logger.info(LogCategory.POSITION_MONITOR, '✅ Systems re-enabled for market open');
+  }
+
   getWeekendStatus(): WeekendStatus {
     const now = new Date();
     const estNow = this.toEST(now);
 
     const dayOfWeek = estNow.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
-    const currentHour = estNow.getHours();
-    const currentMinute = estNow.getMinutes();
 
     // Check if it's currently the weekend
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
@@ -101,48 +117,39 @@ class WeekendProtectionService {
       // Already weekend, market closes next Friday
       marketClosesAt.setDate(estNow.getDate() + (5 + 7 - dayOfWeek));
     }
-    marketClosesAt.setHours(this.MARKET_CLOSE_HOUR_EST, 0, 0, 0);
+    marketClosesAt.setHours(this.MARKET_CLOSE_HOUR_EST, this.MARKET_CLOSE_MINUTE_EST, 0, 0);
 
-    // Calculate auto-close time (2 hours before market close)
-    const autoCloseAt = new Date(marketClosesAt);
-    autoCloseAt.setHours(autoCloseAt.getHours() - this.AUTO_CLOSE_BUFFER_HOURS);
-
-    // Calculate warning start time (5 hours before auto-close)
-    const warningStartsAt = new Date(autoCloseAt);
-    warningStartsAt.setHours(warningStartsAt.getHours() - this.WARNING_START_HOURS);
-
-    // Calculate trade block time (3 hours before market close)
-    const tradeBlockStartsAt = new Date(marketClosesAt);
-    tradeBlockStartsAt.setHours(tradeBlockStartsAt.getHours() - this.TRADE_BLOCK_HOURS);
+    // Calculate shutdown time (5 minutes before market close)
+    const shutdownAt = new Date(marketClosesAt);
+    shutdownAt.setMinutes(shutdownAt.getMinutes() - this.SHUTDOWN_MINUTES_BEFORE);
 
     // Calculate time until close
     const msUntilClose = marketClosesAt.getTime() - estNow.getTime();
     const hoursUntilClose = msUntilClose / (1000 * 60 * 60);
     const minutesUntilClose = msUntilClose / (1000 * 60);
 
-    // Determine actions needed
-    const shouldClosePositions = isFriday && estNow >= autoCloseAt && estNow < marketClosesAt;
-    const shouldPreventNewTrades = isFriday && estNow >= tradeBlockStartsAt && estNow < marketClosesAt;
-    const shouldWarnUser = isFriday && estNow >= warningStartsAt && estNow < autoCloseAt;
+    // SIMPLE LOGIC: Shutdown at 5 minutes before close on Friday
+    const shouldShutdown = isFriday && estNow >= shutdownAt && estNow < marketClosesAt;
+
+    // Send warnings at specific intervals (3h, 1h, 30min)
+    const shouldWarnUser = isFriday && hoursUntilClose <= 3 && hoursUntilClose > 0;
 
     return {
       isWeekend,
       isFriday,
       hoursUntilClose,
       minutesUntilClose,
-      shouldClosePositions,
-      shouldPreventNewTrades,
+      shouldShutdown,
       shouldWarnUser,
       marketClosesAt,
-      autoCloseAt,
-      warningStartsAt,
-      tradeBlockStartsAt
+      shutdownAt
     };
   }
 
   canOpenNewTrade(): { allowed: boolean; reason?: string } {
     const status = this.getWeekendStatus();
 
+    // Block during weekend
     if (status.isWeekend) {
       return {
         allowed: false,
@@ -150,12 +157,11 @@ class WeekendProtectionService {
       };
     }
 
-    if (status.shouldPreventNewTrades) {
-      const hoursUntil = Math.floor(status.hoursUntilClose);
-      const minutesUntil = Math.floor(status.minutesUntilClose % 60);
+    // Block if systems are shut down
+    if (SCANNING_DISABLED || LLM_API_DISABLED) {
       return {
         allowed: false,
-        reason: `Too close to weekend market close (${hoursUntil}h ${minutesUntil}m remaining). No new trades allowed to prevent weekend gap risk.`
+        reason: 'All systems paused for weekend. Market reopens Sunday 5:00 PM EST.'
       };
     }
 
@@ -166,30 +172,48 @@ class WeekendProtectionService {
     try {
       const status = this.getWeekendStatus();
 
-      // Reset daily flags at start of new week
+      // Reset flags on market reopen (Sunday evening)
+      const dayOfWeek = this.toEST(new Date()).getDay();
+      const hour = this.toEST(new Date()).getHours();
+      if (dayOfWeek === 0 && hour >= 17) {
+        // Market reopened - re-enable systems
+        if (SCANNING_DISABLED || LLM_API_DISABLED) {
+          this.enableSystems();
+          this.hasShutdownToday = false;
+          this.warningsSent.clear();
+
+          globalToastManager.showToast(
+            '✅ Market reopened - All systems active',
+            'success'
+          );
+        }
+      }
+
+      // Reset flags on new week
       if (!status.isFriday && !status.isWeekend) {
-        this.hasClosedPositionsToday = false;
-        this.lastWarningTime = null;
+        this.hasShutdownToday = false;
         this.warningsSent.clear();
       }
 
-      // Log current status
-      if (status.isFriday) {
+      // Log current status on Friday
+      if (status.isFriday && !this.hasShutdownToday) {
+        const hours = Math.floor(status.hoursUntilClose);
+        const minutes = Math.floor(status.minutesUntilClose % 60);
         logger.debug(
           LogCategory.POSITION_MONITOR,
-          `🛡️ Weekend protection active - ${Math.floor(status.hoursUntilClose)}h ${Math.floor(status.minutesUntilClose % 60)}m until market close`
+          `🛡️ Weekend protection active - ${hours}h ${minutes}m until market close`
         );
       }
 
       // Send warnings
-      if (status.shouldWarnUser) {
+      if (status.shouldWarnUser && !this.hasShutdownToday) {
         await this.sendWarnings(status);
       }
 
-      // Auto-close positions
-      if (status.shouldClosePositions && !this.hasClosedPositionsToday) {
-        await this.closeAllPositions(status);
-        this.hasClosedPositionsToday = true;
+      // COMPLETE SHUTDOWN
+      if (status.shouldShutdown && !this.hasShutdownToday) {
+        await this.executeCompleteShutdown(status);
+        this.hasShutdownToday = true;
       }
 
     } catch (error) {
@@ -198,40 +222,50 @@ class WeekendProtectionService {
   }
 
   private async sendWarnings(status: WeekendStatus): Promise<void> {
-    const hoursUntilAutoClose = (status.autoCloseAt.getTime() - this.toEST(new Date()).getTime()) / (1000 * 60 * 60);
+    const hours = Math.floor(status.hoursUntilClose);
+    const minutes = Math.floor(status.minutesUntilClose % 60);
 
-    // Send warning every hour
-    const currentHour = Math.floor(hoursUntilAutoClose);
-    const warningKey = `hour_${currentHour}`;
+    // Send warnings at 3h, 1h, 30min, 5min
+    let warningKey = '';
+    let message = '';
+
+    if (hours === 3 && minutes <= 5) {
+      warningKey = '3h';
+      message = `⚠️ Market closes in 3 hours - All trades and sessions will be closed automatically`;
+    } else if (hours === 1 && minutes <= 5) {
+      warningKey = '1h';
+      message = `🚨 ALERT - All trades closing in 1 hour`;
+    } else if (hours === 0 && minutes >= 25 && minutes <= 35) {
+      warningKey = '30min';
+      message = `🚨 FINAL WARNING - Closing all positions in 30 minutes`;
+    } else if (hours === 0 && minutes <= 10 && minutes >= 5) {
+      warningKey = '5min';
+      message = `🚨 Closing all positions NOW`;
+    } else {
+      return; // Not a warning time
+    }
 
     if (this.warningsSent.has(warningKey)) {
-      return; // Already sent this warning
+      return; // Already sent
     }
 
     this.warningsSent.add(warningKey);
 
-    const hours = Math.floor(hoursUntilAutoClose);
-    const minutes = Math.floor((hoursUntilAutoClose % 1) * 60);
-
-    const message = hours > 0
-      ? `⚠️ Weekend approaching: All positions will auto-close in ${hours}h ${minutes}m to prevent gap risk`
-      : `⚠️ Weekend approaching: All positions will auto-close in ${minutes} minutes to prevent gap risk`;
-
     logger.warn(LogCategory.POSITION_MONITOR, message);
     globalToastManager.showToast(message, 'warning');
 
-    // Get all users with open positions
+    // Notify all users with active sessions
     const { data: sessions } = await supabase
       .from('goal_sessions')
       .select('user_id, id')
-      .eq('status', 'active');
+      .in('status', ['initializing', 'scanning', 'trade_pending', 'in_trade']);
 
     if (sessions) {
       for (const session of sessions) {
         await notificationManager.createNotification(
           session.user_id,
           'weekend_warning',
-          'Weekend Protection Active',
+          'Weekend Protection',
           message,
           { sessionId: session.id, hoursUntil: hours, minutesUntil: minutes },
           'high'
@@ -240,168 +274,186 @@ class WeekendProtectionService {
     }
   }
 
-  private async closeAllPositions(status: WeekendStatus): Promise<void> {
+  /**
+   * COMPLETE SHUTDOWN - Close everything
+   */
+  private async executeCompleteShutdown(status: WeekendStatus): Promise<void> {
     logger.warn(
       LogCategory.POSITION_MONITOR,
-      '🛡️ WEEKEND PROTECTION: Auto-closing all positions to prevent weekend gap risk'
+      '🛡️ WEEKEND SHUTDOWN: Closing all trades, sessions, and disabling systems'
     );
 
     try {
-      // Get all active sessions with open trades
-      const { data: sessions, error: sessionsError } = await supabase
-        .from('goal_sessions')
-        .select('id, user_id, symbol')
-        .eq('status', 'active');
+      // STEP 1: Close all open trades
+      logger.info(LogCategory.POSITION_MONITOR, 'Step 1: Closing all open trades...');
+      const closedTrades = await this.closeAllOpenTrades();
+      logger.info(LogCategory.POSITION_MONITOR, `✅ Closed ${closedTrades} trade(s)`);
 
-      if (sessionsError) throw sessionsError;
-      if (!sessions || sessions.length === 0) {
-        logger.info(LogCategory.POSITION_MONITOR, '✅ No active positions to close');
-        return;
+      // STEP 2: End all active sessions
+      logger.info(LogCategory.POSITION_MONITOR, 'Step 2: Ending all active sessions...');
+      const endedSessions = await this.endAllActiveSessions();
+      logger.info(LogCategory.POSITION_MONITOR, `✅ Ended ${endedSessions} session(s)`);
+
+      // STEP 3: Stop all scanning
+      logger.info(LogCategory.POSITION_MONITOR, 'Step 3: Stopping all scanning...');
+      SCANNING_DISABLED = true;
+      logger.info(LogCategory.POSITION_MONITOR, '✅ Scanning disabled');
+
+      // STEP 4: Stop all LLM API calls
+      logger.info(LogCategory.POSITION_MONITOR, 'Step 4: Stopping all LLM API calls...');
+      LLM_API_DISABLED = true;
+      logger.info(LogCategory.POSITION_MONITOR, '✅ LLM APIs disabled');
+
+      // STEP 5: Log shutdown event
+      logger.warn(
+        LogCategory.POSITION_MONITOR,
+        `🛡️ COMPLETE SHUTDOWN - ${closedTrades} trades closed, ${endedSessions} sessions ended, All systems paused`
+      );
+
+      // STEP 6: Notify all users
+      globalToastManager.showToast(
+        `🛡️ Weekend Shutdown Complete - All positions closed. Market reopens Sunday 5 PM EST`,
+        'info'
+      );
+
+      // Send notification to all affected users
+      const { data: users } = await supabase
+        .from('user_profiles')
+        .select('id');
+
+      if (users) {
+        for (const user of users) {
+          await notificationManager.createNotification(
+            user.id,
+            'weekend_shutdown',
+            'Weekend Shutdown Complete',
+            `All trades and sessions have been closed for the weekend. Systems will resume Sunday at 5:00 PM EST.`,
+            { closedTrades, endedSessions },
+            'high'
+          );
+        }
       }
 
-      logger.info(LogCategory.POSITION_MONITOR, `🛡️ Closing ${sessions.length} active session(s) for weekend`);
+    } catch (error) {
+      logger.error(LogCategory.POSITION_MONITOR, '❌ Error in complete shutdown', error);
+      throw error;
+    }
+  }
 
-      const closureEvents: WeekendClosureEvent[] = [];
+  /**
+   * Close all open trades
+   */
+  private async closeAllOpenTrades(): Promise<number> {
+    try {
+      const { data: trades } = await supabase
+        .from('goal_trades')
+        .select('*')
+        .eq('status', 'open');
+
+      if (!trades || trades.length === 0) {
+        return 0;
+      }
+
+      let closedCount = 0;
+
+      for (const trade of trades) {
+        try {
+          // Get current price
+          const { data: priceData } = await supabase
+            .from('realtime_prices')
+            .select('bid, ask')
+            .eq('symbol', trade.symbol)
+            .order('timestamp', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          const closePrice = trade.direction === 'buy'
+            ? (priceData?.bid || trade.entry_price)
+            : (priceData?.ask || trade.entry_price);
+
+          // Calculate P&L
+          const priceDiff = trade.direction === 'buy'
+            ? closePrice - trade.entry_price
+            : trade.entry_price - closePrice;
+
+          const pnl = priceDiff * trade.lot_size * 100000;
+
+          // Close the trade
+          await supabase
+            .from('goal_trades')
+            .update({
+              status: 'closed',
+              exit_price: closePrice,
+              pnl: pnl,
+              close_reason: 'weekend_protection',
+              closed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', trade.id);
+
+          closedCount++;
+
+          logger.info(
+            LogCategory.POSITION_MONITOR,
+            `✅ Closed trade ${trade.id} - ${trade.symbol} at ${closePrice} (P&L: $${pnl.toFixed(2)})`
+          );
+        } catch (error) {
+          logger.error(LogCategory.POSITION_MONITOR, `❌ Error closing trade ${trade.id}`, error);
+        }
+      }
+
+      return closedCount;
+    } catch (error) {
+      logger.error(LogCategory.POSITION_MONITOR, '❌ Error closing all trades', error);
+      return 0;
+    }
+  }
+
+  /**
+   * End all active sessions
+   */
+  private async endAllActiveSessions(): Promise<number> {
+    try {
+      const { data: sessions } = await supabase
+        .from('goal_sessions')
+        .select('id, user_id')
+        .in('status', ['initializing', 'scanning', 'trade_pending', 'in_trade']);
+
+      if (!sessions || sessions.length === 0) {
+        return 0;
+      }
+
+      let endedCount = 0;
 
       for (const session of sessions) {
         try {
-          // Get all open trades for this session
-          const { data: trades, error: tradesError } = await supabase
-            .from('goal_trades')
-            .select('*')
-            .eq('goal_session_id', session.id)
-            .eq('status', 'open');
-
-          if (tradesError) throw tradesError;
-          if (!trades || trades.length === 0) continue;
-
-          for (const trade of trades) {
-            // Get current price for the symbol
-            const { data: priceData } = await supabase
-              .from('realtime_prices')
-              .select('bid, ask')
-              .eq('symbol', session.symbol)
-              .order('timestamp', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            const closePrice = trade.direction === 'buy'
-              ? (priceData?.bid || trade.entry_price)
-              : (priceData?.ask || trade.entry_price);
-
-            // Calculate P&L
-            const priceDiff = trade.direction === 'buy'
-              ? closePrice - trade.entry_price
-              : trade.entry_price - closePrice;
-
-            const pnl = priceDiff * trade.lot_size * 100000; // Standard lot conversion
-
-            // Close the trade
-            const { error: closeError } = await supabase
-              .from('goal_trades')
-              .update({
-                status: 'closed',
-                exit_price: closePrice,
-                pnl: pnl,
-                close_reason: 'weekend_protection',
-                closed_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', trade.id);
-
-            if (closeError) throw closeError;
-
-            closureEvents.push({
-              userId: session.user_id,
-              sessionId: session.id,
-              positionId: trade.id,
-              symbol: session.symbol,
-              closePrice,
-              pnl,
-              reason: 'weekend_protection',
-              closedAt: new Date()
-            });
-
-            logger.info(
-              LogCategory.POSITION_MONITOR,
-              `✅ Closed position ${trade.id} - ${session.symbol} at ${closePrice} (P&L: $${pnl.toFixed(2)})`
-            );
-          }
-
-          // Mark session as completed
-          const { error: sessionUpdateError } = await supabase
+          await supabase
             .from('goal_sessions')
             .update({
-              status: 'completed',
+              status: 'force_closed_weekend',
               completed_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
             })
             .eq('id', session.id);
 
-          if (sessionUpdateError) throw sessionUpdateError;
+          endedCount++;
 
-          // Send notification to user
-          await notificationManager.createNotification(
-            session.user_id,
-            'weekend_closure',
-            'Position Closed - Weekend Protection',
-            `Your ${session.symbol} position was automatically closed to prevent weekend gap risk. Market reopens Sunday 5:00 PM EST.`,
-            { sessionId: session.id },
-            'high'
-          );
-
-        } catch (error) {
-          logger.error(
+          logger.info(
             LogCategory.POSITION_MONITOR,
-            `❌ Error closing session ${session.id}`,
-            error
+            `✅ Ended session ${session.id}`
           );
+        } catch (error) {
+          logger.error(LogCategory.POSITION_MONITOR, `❌ Error ending session ${session.id}`, error);
         }
       }
 
-      // Log all closure events to database
-      if (closureEvents.length > 0) {
-        await this.logWeekendClosures(closureEvents);
-      }
-
-      globalToastManager.showToast(
-        `🛡️ Weekend Protection: Closed ${closureEvents.length} position(s) to prevent gap risk`,
-        'info'
-      );
-
+      return endedCount;
     } catch (error) {
-      logger.error(LogCategory.POSITION_MONITOR, '❌ Error in weekend position closure', error);
-      throw error;
+      logger.error(LogCategory.POSITION_MONITOR, '❌ Error ending all sessions', error);
+      return 0;
     }
   }
 
-  private async logWeekendClosures(events: WeekendClosureEvent[]): Promise<void> {
-    try {
-      const records = events.map(event => ({
-        user_id: event.userId,
-        goal_session_id: event.sessionId,
-        position_id: event.positionId,
-        symbol: event.symbol,
-        close_price: event.closePrice,
-        pnl: event.pnl,
-        reason: event.reason,
-        closed_at: event.closedAt.toISOString(),
-        created_at: new Date().toISOString()
-      }));
-
-      const { error } = await supabase
-        .from('weekend_closure_log')
-        .insert(records);
-
-      if (error) {
-        logger.error(LogCategory.POSITION_MONITOR, '❌ Error logging weekend closures', error);
-      } else {
-        logger.info(LogCategory.POSITION_MONITOR, `✅ Logged ${records.length} weekend closure(s)`);
-      }
-    } catch (error) {
-      logger.error(LogCategory.POSITION_MONITOR, '❌ Error in logWeekendClosures', error);
-    }
-  }
 
   private toEST(date: Date): Date {
     // Convert to EST (UTC-5) or EDT (UTC-4) depending on DST
@@ -424,39 +476,33 @@ class WeekendProtectionService {
   } {
     const status = this.getWeekendStatus();
 
+    // During weekend
     if (status.isWeekend) {
       return {
         isActive: true,
-        message: '🛡️ Weekend Protection: Market Closed'
+        message: '🛡️ All systems paused until market reopen'
       };
     }
 
-    if (status.isFriday) {
+    // Systems shut down
+    if (SCANNING_DISABLED || LLM_API_DISABLED) {
+      return {
+        isActive: true,
+        message: '🛡️ Weekend Shutdown - Market reopens Sunday 5 PM EST'
+      };
+    }
+
+    // Friday warnings
+    if (status.isFriday && status.shouldWarnUser) {
       const hours = Math.floor(status.hoursUntilClose);
       const minutes = Math.floor(status.minutesUntilClose % 60);
 
-      if (status.shouldClosePositions) {
-        return {
-          isActive: true,
-          message: '🛡️ Weekend Protection: Auto-closing positions now',
-          hoursUntilClose: hours,
-          minutesUntilClose: minutes
-        };
-      } else if (status.shouldPreventNewTrades) {
-        return {
-          isActive: true,
-          message: `🛡️ Weekend Protection: No new trades (${hours}h ${minutes}m until close)`,
-          hoursUntilClose: hours,
-          minutesUntilClose: minutes
-        };
-      } else if (status.shouldWarnUser) {
-        return {
-          isActive: true,
-          message: `⚠️ Market closes in ${hours}h ${minutes}m`,
-          hoursUntilClose: hours,
-          minutesUntilClose: minutes
-        };
-      }
+      return {
+        isActive: true,
+        message: `⚠️ Market closes in ${hours}h ${minutes}m - All trades will be closed`,
+        hoursUntilClose: hours,
+        minutesUntilClose: minutes
+      };
     }
 
     return {

@@ -40,24 +40,22 @@ export function WeekendProtectionBanner() {
 
   // Determine banner style based on severity
   const getSeverityStyle = () => {
-    if (status.message.includes('Auto-closing')) {
-      return 'bg-red-500 border-red-600';
-    } else if (status.message.includes('No new trades')) {
+    if (status.message.includes('paused') || status.message.includes('Shutdown')) {
+      return 'bg-gray-600 border-gray-700';
+    } else if (status.message.includes('closes in')) {
       return 'bg-orange-500 border-orange-600';
-    } else if (status.message.includes('Market Closed')) {
-      return 'bg-gray-500 border-gray-600';
     } else {
       return 'bg-yellow-500 border-yellow-600';
     }
   };
 
   const getIcon = () => {
-    if (status.message.includes('Market Closed')) {
+    if (status.message.includes('paused') || status.message.includes('Shutdown')) {
       return <Shield className="w-4 h-4" />;
-    } else if (status.message.includes('Auto-closing')) {
-      return <AlertTriangle className="w-4 h-4" />;
-    } else {
+    } else if (status.message.includes('closes in')) {
       return <Clock className="w-4 h-4" />;
+    } else {
+      return <AlertTriangle className="w-4 h-4" />;
     }
   };
 

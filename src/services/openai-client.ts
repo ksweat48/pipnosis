@@ -72,6 +72,12 @@ class OpenAIClient {
     options: ChatCompletionOptions = {}
   ): Promise<ChatCompletionResponse> {
     try {
+      // Check weekend shutdown
+      const { weekendProtectionService } = await import('./weekend-protection-service');
+      if (weekendProtectionService.isLLMDisabled()) {
+        throw new Error('LLM APIs are disabled for weekend shutdown. Market reopens Sunday 5 PM EST.');
+      }
+
       const authToken = await this.getAuthToken();
       if (!authToken) {
         throw new Error('Authentication required. Please log in to use AI features.');

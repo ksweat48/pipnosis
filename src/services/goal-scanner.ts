@@ -42,7 +42,22 @@ export interface TradeSignal {
 class GoalScanner {
   async scanMarket(sessionId: string, userId: string): Promise<ScanResult[]> {
     try {
-      // STEP 1: Check weekend protection
+      // STEP 1: Check if scanning is disabled (weekend shutdown)
+      if (weekendProtectionService.isScanningDisabled()) {
+        console.log(`[Goal Scanner] 🛡️ Scanning disabled for weekend shutdown`);
+
+        await goalSessionManager.addAIMessage(
+          sessionId,
+          userId,
+          `🛡️ All systems paused for weekend. Market reopens Sunday 5:00 PM EST.`,
+          { weekendShutdown: true },
+          'warning'
+        );
+
+        return [];
+      }
+
+      // STEP 2: Check weekend protection
       const weekendCheck = weekendProtectionService.canOpenNewTrade();
       if (!weekendCheck.allowed) {
         console.log(`[Goal Scanner] 🛡️ Weekend protection blocked scanning: ${weekendCheck.reason}`);
@@ -58,7 +73,7 @@ class GoalScanner {
         return [];
       }
 
-      // STEP 2: Check if scanning is allowed
+      // STEP 3: Check if scanning is allowed
       const scanPermission = await scanningStateMachine.canScanNow(sessionId);
 
       if (!scanPermission.allowed) {
