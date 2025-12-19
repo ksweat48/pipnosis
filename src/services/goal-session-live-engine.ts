@@ -22,7 +22,7 @@ import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orch
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
-import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalOptimalPosition, calculateAndValidateRR } from '../utils/currencyHelpers';
+import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalOptimalPosition, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
 import { getRiskPercentage } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
 import { scanningStateMachine } from './scanning-state-machine';
@@ -1780,23 +1780,25 @@ Your decision keeps you in control of your risk and prevents runaway trading.
       ? `${tradeDuration}m`
       : `${Math.floor(tradeDuration / 60)}h ${tradeDuration % 60}m`;
 
-    // Calculate pips
+    // Calculate pips using symbol-specific pip value
+    const pipInfo = getCurrencyPipInfo(trade.symbol);
     const isLong = trade.direction === 'buy';
     const priceDiff = isLong
       ? (trade.exitPrice! - trade.entryPrice)
       : (trade.entryPrice - trade.exitPrice!);
-    const pips = priceDiff / 0.0001;
+    const pips = priceDiff / pipInfo.pipValue;
+    const pointsLabel = pipInfo.symbolType === 'index' ? 'points' : 'pips';
 
     // Determine exit reason and emoji
     const isWin = trade.outcome === 'win';
     const emoji = isWin ? '✅' : '❌';
     const exitReason = trade.exitReason || (isWin ? 'Take profit hit' : 'Stop loss hit');
 
-    // Send trade closure message
+    // Send trade closure message with proper decimal formatting
     const closureMessage = `${emoji} Trade Closed: ${trade.symbol} ${trade.direction.toUpperCase()}\n` +
-      `📊 Exit: ${trade.exitPrice?.toFixed(5)} | Reason: ${exitReason}\n` +
+      `📊 Exit: ${formatCurrencyPrice(trade.symbol, trade.exitPrice!)} | Reason: ${exitReason}\n` +
       `⏱️ Duration: ${durationText}\n` +
-      `💰 P&L: ${finalPnL >= 0 ? '+' : ''}$${finalPnL.toFixed(2)} (${pips >= 0 ? '+' : ''}${pips.toFixed(1)} pips)`;
+      `💰 P&L: ${finalPnL >= 0 ? '+' : ''}$${finalPnL.toFixed(2)} (${pips >= 0 ? '+' : ''}${pips.toFixed(1)} ${pointsLabel})`;
 
     try {
       await supabase.from('goal_ai_conversations').insert({
@@ -2851,7 +2853,8 @@ This learning will carry forward to improve future sessions!
       : (trade.entryPrice - currentPrice) * trade.positionSize;
     const pnlPercentage = ((pnl / (trade.entryPrice * trade.positionSize)) * 100);
     const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.positionSize);
-    const pipsToRisk = Math.abs(trade.entryPrice - trade.stopLoss) / 0.0001;
+    const pipInfo = getCurrencyPipInfo(trade.symbol);
+    const pipsToRisk = Math.abs(trade.entryPrice - trade.stopLoss) / pipInfo.pipValue;
     const riskAmount = dollarPerPip * pipsToRisk;
     const rMultiple = riskAmount > 0 ? pnl / riskAmount : 0;
     const timeInTrade = Date.now() - new Date(trade.entryTime).getTime();
@@ -3016,24 +3019,26 @@ Keep response under 100 words, educational tone.`;
     const trade = this.openTrades[0]; // Monitor first open trade
     const currentPrice = latestCandle.close;
     const isLong = trade.direction === 'buy';
+    const pipInfo = getCurrencyPipInfo(trade.symbol);
 
-    // Calculate current P&L
+    // Calculate current P&L using proper pip value and dollar per pip
     const priceDiff = isLong
       ? (currentPrice - trade.entryPrice)
       : (trade.entryPrice - currentPrice);
-    const pips = priceDiff / 0.0001;
-    const pnl = pips * 10 * trade.positionSize;
+    const pips = priceDiff / pipInfo.pipValue;
+    const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.positionSize);
+    const pnl = pips * dollarPerPip;
 
     // Calculate time open
     const timeOpen = Math.floor((Date.now() - trade.entryTime.getTime()) / 60000);
 
-    // Calculate distance to TP and SL
+    // Calculate distance to TP and SL using proper pip value
     const distanceToTP = isLong
-      ? ((trade.takeProfit - currentPrice) / 0.0001)
-      : ((currentPrice - trade.takeProfit) / 0.0001);
+      ? ((trade.takeProfit - currentPrice) / pipInfo.pipValue)
+      : ((currentPrice - trade.takeProfit) / pipInfo.pipValue);
     const distanceToSL = isLong
-      ? ((currentPrice - trade.stopLoss) / 0.0001)
-      : ((trade.stopLoss - currentPrice) / 0.0001);
+      ? ((currentPrice - trade.stopLoss) / pipInfo.pipValue)
+      : ((trade.stopLoss - currentPrice) / pipInfo.pipValue);
 
     let sentiment = 'neutral';
     let emoji = '🔄';
@@ -3059,7 +3064,8 @@ Keep response under 100 words, educational tone.`;
       statusText = 'Near take profit';
     }
 
-    const message = `${emoji} ${statusText}: ${trade.symbol} ${trade.direction.toUpperCase()} (${timeOpen}m) | Price: ${currentPrice.toFixed(5)} | P&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pips >= 0 ? '+' : ''}${pips.toFixed(1)} pips)`;
+    const pointsLabel = pipInfo.symbolType === 'index' ? 'points' : 'pips';
+    const message = `${emoji} ${statusText}: ${trade.symbol} ${trade.direction.toUpperCase()} (${timeOpen}m) | Price: ${formatCurrencyPrice(trade.symbol, currentPrice)} | P&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pips >= 0 ? '+' : ''}${pips.toFixed(1)} ${pointsLabel})`;
 
     try {
       await supabase.from('goal_ai_conversations').insert({
@@ -3316,7 +3322,18 @@ Keep response under 100 words, educational tone.`;
       const tradesForSymbol = this.openTrades.filter(t => t.symbol === symbol);
       for (const trade of tradesForSymbol) {
         const updatedTrades = eventBasedLLMEngine.updateOpenTrades([trade], latestCandle);
+
+        // 🚨 DEFENSIVE: Check for undefined before accessing properties
+        if (!updatedTrades || updatedTrades.length === 0) {
+          console.error(`[MONITORING MODE] ❌ updateOpenTrades returned empty for ${symbol} trade ${trade.id.substring(0, 8)}`);
+          continue;
+        }
+
         const updatedTrade = updatedTrades[0];
+        if (!updatedTrade) {
+          console.error(`[MONITORING MODE] ❌ updatedTrade is undefined for ${symbol} trade ${trade.id.substring(0, 8)}`);
+          continue;
+        }
 
         if (updatedTrade.outcome !== 'open') {
           console.log(`[MONITORING MODE] 🎯 ${symbol} trade ${trade.id.substring(0, 8)} closed: ${updatedTrade.outcome}`);
