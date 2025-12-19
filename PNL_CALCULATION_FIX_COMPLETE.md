@@ -38,3 +38,14 @@ ALL future trades will calculate correctly
 ## Status: COMPLETE ✅
 
 Migration applied, balances corrected, issue permanently fixed.
+
+## AI Trade Journal Fix
+
+The journal was displaying cached P&L values from before the fix.
+
+**Additional Fix Applied:**
+- ✅ Synced all `ai_trade_journal` entries with corrected P&L
+- ✅ Added automatic trigger to keep journal in sync
+- ✅ Journal now displays accurate P&L for all trades
+
+**Your USDJPY journal entry will now show $190.17 instead of $21,161.82**
