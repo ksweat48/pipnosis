@@ -495,7 +495,9 @@ export function PositionsPage() {
         const result = await positionService.closePosition(
           position.id,
           currentPrice,
-          'manual'
+          'manual',
+          user?.id,
+          position.goal_session_id
         );
 
         if (result.success) {
@@ -548,7 +550,13 @@ export function PositionsPage() {
             : livePrices[position.symbol].ask)
         : (position.currentPrice || position.entryPrice || 0);
 
-      await positionService.closePosition(position.id, currentPrice, 'manual');
+      await positionService.closePosition(
+        position.id,
+        currentPrice,
+        'manual',
+        user?.id,
+        position.goal_session_id
+      );
     }
 
     notificationManager.playSound('trade_exit');
