@@ -55,7 +55,7 @@ export const AITradeJournal: React.FC = () => {
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
       {/* Fixed Header */}
-      <div className="bg-gray-900 backdrop-blur-xl p-4 sm:p-6 border-b border-white/5">
+      <div className="bg-gray-900/80 backdrop-blur-xl p-4 sm:p-6 border-b border-white/10 shadow-lg shadow-black/20">
         <div className="max-w-4xl mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3">
