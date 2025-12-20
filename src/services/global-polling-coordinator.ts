@@ -159,14 +159,31 @@ class GlobalPollingCoordinator {
   private setupVisibilityHandling(): void {
     if (typeof document === 'undefined') return;
 
+    let visibilityTimeout: NodeJS.Timeout | null = null;
+    let focusTimeout: NodeJS.Timeout | null = null;
+
     const handleVisibilityChange = () => {
       const wasVisible = this.isTabVisible;
       this.isTabVisible = !document.hidden;
 
       if (!wasVisible && this.isTabVisible) {
-        console.log('👁️ Tab became visible - verifying polling status...');
-        this.verifyPollingHealth();
+        // Debounce visibility checks to prevent conflicts with IDE
+        if (visibilityTimeout) {
+          clearTimeout(visibilityTimeout);
+        }
+
+        visibilityTimeout = setTimeout(() => {
+          console.log('👁️ Tab became visible - verifying polling status (debounced)...');
+          this.verifyPollingHealth();
+          visibilityTimeout = null;
+        }, 2000); // 2 second debounce
       } else if (wasVisible && !this.isTabVisible) {
+        // Clear pending checks when hidden
+        if (visibilityTimeout) {
+          clearTimeout(visibilityTimeout);
+          visibilityTimeout = null;
+        }
+
         if (this.hasActiveSessions) {
           console.log('🙈 Tab hidden but 🛡️ ACTIVE GOAL SESSIONS detected');
           console.log('✅ Maintaining full polling despite tab visibility');
@@ -180,12 +197,21 @@ class GlobalPollingCoordinator {
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Debounce focus events as well
     window.addEventListener('focus', () => {
-      logger.debug(LogCategory.POLLING_COORDINATOR, '🔍 Window focused - checking polling health...');
-      this.verifyPollingHealth();
+      if (focusTimeout) {
+        clearTimeout(focusTimeout);
+      }
+
+      focusTimeout = setTimeout(() => {
+        logger.debug(LogCategory.POLLING_COORDINATOR, '🔍 Window focused - checking polling health (debounced)...');
+        this.verifyPollingHealth();
+        focusTimeout = null;
+      }, 2000); // 2 second debounce
     });
 
-    logger.debug(LogCategory.POLLING_COORDINATOR, '✅ Visibility change handlers installed');
+    logger.debug(LogCategory.POLLING_COORDINATOR, '✅ Visibility change handlers installed (with debouncing)');
   }
 
   private startHeartbeatMonitoring(): void {

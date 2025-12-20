@@ -12,7 +12,7 @@ class PWAUpdateManager {
   private updateListeners: Set<UpdateListener> = new Set();
   private isCheckingForUpdate = false;
   private lastCheckTime: number = 0;
-  private readonly CHECK_COOLDOWN = 5000;
+  private readonly CHECK_COOLDOWN = 30000; // Increased from 5s to 30s to reduce conflicts
 
   async initialize(registration: ServiceWorkerRegistration | null) {
     this.registration = registration;
@@ -29,13 +29,29 @@ class PWAUpdateManager {
   }
 
   private setupVisibilityListener() {
+    // Debounced visibility change to prevent conflicts with IDE auto-save
+    let visibilityTimeout: NodeJS.Timeout | null = null;
+
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         this.wasHidden = true;
+        // Clear any pending checks when tab becomes hidden
+        if (visibilityTimeout) {
+          clearTimeout(visibilityTimeout);
+          visibilityTimeout = null;
+        }
       } else {
         if (this.wasHidden) {
-          console.log('[PWA Update] App resumed from background');
-          this.checkForUpdatesOnResume();
+          // Debounce the check to avoid conflicts with IDE mechanisms
+          if (visibilityTimeout) {
+            clearTimeout(visibilityTimeout);
+          }
+
+          visibilityTimeout = setTimeout(() => {
+            console.log('[PWA Update] App resumed from background (debounced)');
+            this.checkForUpdatesOnResume();
+            visibilityTimeout = null;
+          }, 3000); // 3 second debounce
         }
         this.wasHidden = false;
       }
@@ -73,6 +89,7 @@ class PWAUpdateManager {
 
     const now = Date.now();
     if (this.isCheckingForUpdate || now - this.lastCheckTime < this.CHECK_COOLDOWN) {
+      console.log('[PWA Update] Skipping check - cooldown active');
       return;
     }
 
@@ -81,13 +98,15 @@ class PWAUpdateManager {
 
     try {
       console.log('[PWA Update] Checking for updates on app open...');
+
+      // Only check, don't auto-reload to avoid conflicts with IDE
       await this.registration.update();
 
       const hasUpdate = await this.hasWaitingServiceWorker();
 
       if (hasUpdate) {
-        console.log('[PWA Update] Update available on app open - auto-reloading...');
-        this.skipWaitingAndReload();
+        console.log('[PWA Update] Update available - notifying listeners');
+        this.notifyListeners(true, 'app-open');
       } else {
         console.log('[PWA Update] No updates available');
       }
