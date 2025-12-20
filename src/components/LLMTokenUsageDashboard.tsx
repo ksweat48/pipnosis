@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLLMTokenUsage } from '@/hooks/useLLMTokenUsage';
 import {
   DollarSign,
@@ -27,6 +27,27 @@ export function LLMTokenUsageDashboard() {
   } = useLLMTokenUsage();
 
   const [sortBy, setSortBy] = useState<'cost' | 'calls' | 'tokens'>('cost');
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const lastScrollPosition = useRef<number>(0);
+
+  // Preserve scroll position during background refreshes
+  useEffect(() => {
+    if (scrollContainerRef.current && !loading) {
+      scrollContainerRef.current.scrollTop = lastScrollPosition.current;
+    }
+  }, [costByBrain, loading]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (scrollContainerRef.current) {
+        lastScrollPosition.current = scrollContainerRef.current.scrollTop;
+      }
+    };
+
+    const container = scrollContainerRef.current;
+    container?.addEventListener('scroll', handleScroll);
+    return () => container?.removeEventListener('scroll', handleScroll);
+  }, []);
 
   if (loading) {
     return (
@@ -69,7 +90,7 @@ export function LLMTokenUsageDashboard() {
   const costChange = yesterdayCost > 0 ? ((todayCost - yesterdayCost) / yesterdayCost) * 100 : 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" ref={scrollContainerRef}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -339,19 +360,27 @@ function SummaryCard({ title, value, subtitle, icon: Icon, color, trend, trendUp
 
 function getBrainColor(brainName: string): string {
   const colors: Record<string, string> = {
-    'Alpha': 'text-blue-400',
-    'Omega-7': 'text-purple-400',
-    'Omega-8': 'text-green-400',
-    'Omega-9': 'text-red-400',
-    'Omega-10': 'text-yellow-400',
-    'MidTrade-Monitor': 'text-orange-400'
+    'Alpha': 'text-blue-400',           // Leader - Blue
+    'Omega-1': 'text-cyan-400',         // Trend
+    'Omega-2': 'text-teal-400',         // Reversal
+    'Omega-3': 'text-emerald-400',      // Scalper
+    'Omega-4': 'text-lime-400',         // Volatility
+    'Omega-5': 'text-amber-400',        // Risk
+    'Omega-6': 'text-orange-400',       // OrderFlow
+    'Omega-7': 'text-purple-400',       // Sentiment
+    'Omega-8': 'text-green-400',        // Hybrid OrderFlow
+    'Omega-9': 'text-pink-400',         // Hallucination Detector
+    'Omega-10': 'text-yellow-400',      // Meta-Reasoning
+    'MidTrade-Monitor': 'text-red-400',
+    'MidTrade-Periodic': 'text-red-300'
   };
   return colors[brainName] || 'text-gray-400';
 }
 
 function getPercentageBarColor(percentage: number): string {
-  if (percentage >= 40) return 'bg-red-500';
-  if (percentage >= 25) return 'bg-orange-500';
-  if (percentage >= 15) return 'bg-yellow-500';
-  return 'bg-green-500';
+  if (percentage >= 40) return 'bg-gradient-to-r from-red-600 to-red-400';
+  if (percentage >= 25) return 'bg-gradient-to-r from-orange-600 to-orange-400';
+  if (percentage >= 15) return 'bg-gradient-to-r from-yellow-600 to-yellow-400';
+  if (percentage >= 10) return 'bg-gradient-to-r from-blue-600 to-blue-400';
+  return 'bg-gradient-to-r from-green-600 to-green-400';
 }

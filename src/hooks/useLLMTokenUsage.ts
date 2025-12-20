@@ -43,6 +43,7 @@ export function useLLMTokenUsage(): LLMTokenUsageData {
     loading: true,
     error: null
   });
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   useEffect(() => {
     if (!user) {
@@ -50,18 +51,21 @@ export function useLLMTokenUsage(): LLMTokenUsageData {
       return;
     }
 
-    loadUsageData();
+    loadUsageData(true);
 
-    // Refresh every 30 seconds
-    const interval = setInterval(loadUsageData, 30000);
+    // Refresh every 30 seconds (silent background refresh)
+    const interval = setInterval(() => loadUsageData(false), 30000);
     return () => clearInterval(interval);
   }, [user]);
 
-  const loadUsageData = async () => {
+  const loadUsageData = async (isInitial: boolean = false) => {
     if (!user) return;
 
     try {
-      setData(prev => ({ ...prev, loading: true, error: null }));
+      // Only show loading state on initial load, not on background refreshes
+      if (isInitial) {
+        setData(prev => ({ ...prev, loading: true, error: null }));
+      }
 
       // Get today's date range
       const now = new Date();
@@ -181,13 +185,20 @@ export function useLLMTokenUsage(): LLMTokenUsageData {
         error: null
       });
 
+      if (isInitial) {
+        setIsInitialLoad(false);
+      }
+
     } catch (error) {
       console.error('[useLLMTokenUsage] Error loading data:', error);
-      setData(prev => ({
-        ...prev,
-        loading: false,
-        error: error instanceof Error ? error.message : 'Failed to load token usage data'
-      }));
+      // Only show error on initial load, silent fail on background refresh
+      if (isInitial) {
+        setData(prev => ({
+          ...prev,
+          loading: false,
+          error: error instanceof Error ? error.message : 'Failed to load token usage data'
+        }));
+      }
     }
   };
 
