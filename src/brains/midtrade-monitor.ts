@@ -518,7 +518,7 @@ Omega Council Votes:
 Trend: ${trendVote?.vote || 'N/A'} (${trendVote?.confidence || 0}%) - ${trendVote?.reasoning || ''}
 Volatility: ${volVote?.vote || 'N/A'} (${volVote?.confidence || 0}%) - ${volVote?.reasoning || ''}
 Risk: ${riskVote?.vote || 'N/A'} (${riskVote?.confidence || 0}%) - ${riskVote?.reasoning || ''}
-Swing: ${swingVote?.vote || 'N/A'} (${swingVote?.confidence || 0}%) - ${swingVote?.reasoning || ''}
+Confirmation: ${confirmationVote?.vote || 'N/A'} (${confirmationVote?.confidence || 0}%) - ${confirmationVote?.reasoning || ''}
 
 Vote Count: ${exitVotes} favor EXIT, ${holdVotes} favor HOLD
 

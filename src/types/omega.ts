@@ -36,7 +36,7 @@ export interface Omega9ValidationResult {
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
   scalper: OmegaVote | null;
-  swing: OmegaVote | null;
+  confirmation: OmegaVote | null;
   reversal: OmegaVote | null;
   volatility: OmegaVote | null;
   risk: OmegaVote | null;
