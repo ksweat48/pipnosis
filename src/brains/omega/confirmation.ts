@@ -10,6 +10,7 @@
  */
 
 import { openAIClient } from '../../services/openai-client';
+import { llmTokenTracker } from '../../services/llm-token-tracker';
 import type { OmegaVote } from './trend';
 
 export interface ConfirmationSnapshot {
@@ -75,6 +76,18 @@ Return JSON only:
           endpoint: 'omega-confirmation'
         }
       );
+
+      // Track token usage
+      await llmTokenTracker.logUsage({
+        brainName: 'Omega-3',
+        model: 'gpt-4o-mini',
+        promptTokens: response.usage?.prompt_tokens || 0,
+        completionTokens: response.usage?.completion_tokens || 0,
+        totalTokens: response.usage?.total_tokens || 0,
+        contextType: 'confirmation_analysis',
+        userId: undefined,
+        sessionId: undefined
+      });
 
       const content = response.choices[0]?.message?.content || '{}';
       const vote = this.parseVote(content);

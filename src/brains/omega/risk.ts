@@ -12,6 +12,7 @@
  */
 
 import { openAIClient } from '../../services/openai-client';
+import { llmTokenTracker } from '../../services/llm-token-tracker';
 import type { OmegaVote } from './trend';
 
 export interface RiskSnapshot {
@@ -64,6 +65,18 @@ Return JSON only:
           endpoint: 'omega-risk'
         }
       );
+
+      // Track token usage
+      await llmTokenTracker.logUsage({
+        brainName: 'Omega-6',
+        model: 'gpt-4o-mini',
+        promptTokens: response.usage?.prompt_tokens || 0,
+        completionTokens: response.usage?.completion_tokens || 0,
+        totalTokens: response.usage?.total_tokens || 0,
+        contextType: 'risk_analysis',
+        userId: undefined,
+        sessionId: undefined
+      });
 
       const content = response.choices[0]?.message?.content || '{}';
       const vote = this.parseVote(content);
