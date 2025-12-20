@@ -271,9 +271,24 @@ export const GoalSessionDashboard: React.FC = () => {
         try {
           const { data: sessionData } = await supabase
             .from('goal_sessions')
-            .select('status, awaiting_continuation_confirmation, awaiting_user_continuation, continuation_prompt, trades_in_session, current_progress, target_value, multi_trade_enabled')
+            .select('status, awaiting_continuation_confirmation, awaiting_user_continuation, continuation_prompt, trades_in_session, current_progress, target_value, multi_trade_enabled, continuation_confirmation_expires_at')
             .eq('id', session.sessionId)
             .single();
+
+          // CRITICAL: Check if continuation modal has timed out (client-side safety check)
+          if (sessionData?.awaiting_continuation_confirmation && sessionData?.continuation_confirmation_expires_at) {
+            const expiresAt = new Date(sessionData.continuation_confirmation_expires_at);
+            const now = new Date();
+
+            if (now > expiresAt) {
+              console.log('[GoalSessionDashboard] ⏰ Continuation modal timeout detected - auto-closing session');
+              // Call the timeout check RPC which will close the session
+              await simpleScanningTimer.checkModalTimeout(session.sessionId);
+              // Reload session data to reflect closed status
+              await loadSessionData();
+              return;
+            }
+          }
 
           // New simplified 15-minute modal (takes priority)
           if (sessionData?.awaiting_continuation_confirmation) {

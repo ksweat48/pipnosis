@@ -63,6 +63,23 @@ export const handler: Handler = async (event, context) => {
       try {
         console.log(`[Autonomous Monitor] Processing session ${session.session_id} for user ${session.user_id}`);
 
+        /*
+         * CRITICAL 15-MINUTE TIMEOUT ENFORCEMENT
+         *
+         * This section implements the 15-minute scanning limit to prevent resource waste.
+         * The flow MUST execute in this exact order:
+         *
+         * 1. Check for expired timeout (1-minute after modal shown) → auto-close if expired
+         * 2. Check if 15 minutes elapsed without trade → show continuation modal
+         * 3. If awaiting user response → skip trading operations but KEEP in processing queue
+         *
+         * IMPORTANT: Sessions with status 'awaiting_continuation' MUST remain in the
+         * get_sessions_for_server_processing() result set. If they are excluded, the
+         * timeout check (#1) will never run and sessions will waste resources indefinitely.
+         *
+         * The database migration fix_15min_timeout_enforcement.sql ensures this.
+         */
+
         // CRITICAL: Check for modal timeout and auto-close if expired
         const { data: hasTimedOut } = await supabase.rpc('check_continuation_modal_timeout', {
           p_session_id: session.session_id
@@ -102,7 +119,8 @@ export const handler: Handler = async (event, context) => {
           continue;
         }
 
-        // Skip sessions awaiting continuation response
+        // Skip sessions awaiting continuation response (don't do trading operations)
+        // NOTE: These sessions remain in the processing queue for timeout checks above
         const { data: sessionStatus } = await supabase
           .from('goal_sessions')
           .select('status, awaiting_continuation_confirmation')
