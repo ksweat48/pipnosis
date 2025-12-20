@@ -54,7 +54,7 @@ export const AITradeJournal: React.FC = () => {
 
   return (
     <div className="space-y-4 pb-6">
-      <div className="bg-gray-900 backdrop-blur-xl rounded-2xl p-4 sm:p-6 border border-white/5 sticky top-0 z-20 shadow-lg shadow-black/20">
+      <div className="bg-gray-900 backdrop-blur-xl rounded-2xl p-4 sm:p-6 border border-white/5 sticky top-14 sm:top-16 z-20 shadow-lg shadow-black/20">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-500/10 rounded-xl">
