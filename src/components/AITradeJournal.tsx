@@ -53,54 +53,60 @@ export const AITradeJournal: React.FC = () => {
   }
 
   return (
-    <div className="space-y-4 pb-6">
-      <div className="bg-gray-900 backdrop-blur-xl rounded-2xl p-4 sm:p-6 border border-white/5 sticky top-14 sm:top-16 z-20 shadow-lg shadow-black/20">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-500/10 rounded-xl">
-              <Brain className="w-6 h-6 text-blue-400" />
+    <div className="flex-1 overflow-hidden flex flex-col">
+      {/* Fixed Header */}
+      <div className="bg-gray-900 backdrop-blur-xl p-4 sm:p-6 border-b border-white/5">
+        <div className="max-w-4xl mx-auto">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-500/10 rounded-xl">
+                <Brain className="w-6 h-6 text-blue-400" />
+              </div>
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-white">AI Trade Journal</h2>
+                <p className="text-xs sm:text-sm text-gray-400">Every decision explained in natural language</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-xl sm:text-2xl font-bold text-white">AI Trade Journal</h2>
-              <p className="text-xs sm:text-sm text-gray-400">Every decision explained in natural language</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setFilter('all')}
+                className={`flex-1 sm:flex-none px-4 py-2 rounded-xl transition-all font-medium ${
+                  filter === 'all'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
+                    : 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50'
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setFilter('win')}
+                className={`flex-1 sm:flex-none px-4 py-2 rounded-xl transition-all font-medium ${
+                  filter === 'win'
+                    ? 'bg-green-600 text-white shadow-lg shadow-green-500/30'
+                    : 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50'
+                }`}
+              >
+                Wins
+              </button>
+              <button
+                onClick={() => setFilter('loss')}
+                className={`flex-1 sm:flex-none px-4 py-2 rounded-xl transition-all font-medium ${
+                  filter === 'loss'
+                    ? 'bg-red-600 text-white shadow-lg shadow-red-500/30'
+                    : 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50'
+                }`}
+              >
+                Losses
+              </button>
             </div>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setFilter('all')}
-              className={`flex-1 sm:flex-none px-4 py-2 rounded-xl transition-all font-medium ${
-                filter === 'all'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
-                  : 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50'
-              }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setFilter('win')}
-              className={`flex-1 sm:flex-none px-4 py-2 rounded-xl transition-all font-medium ${
-                filter === 'win'
-                  ? 'bg-green-600 text-white shadow-lg shadow-green-500/30'
-                  : 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50'
-              }`}
-            >
-              Wins
-            </button>
-            <button
-              onClick={() => setFilter('loss')}
-              className={`flex-1 sm:flex-none px-4 py-2 rounded-xl transition-all font-medium ${
-                filter === 'loss'
-                  ? 'bg-red-600 text-white shadow-lg shadow-red-500/30'
-                  : 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50'
-              }`}
-            >
-              Losses
-            </button>
           </div>
         </div>
       </div>
 
-      {filteredEntries.length === 0 ? (
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto mobile-panel-scroll px-4 sm:px-6 py-6 sm:py-8">
+        <div className="max-w-4xl mx-auto">
+          {filteredEntries.length === 0 ? (
         <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-8 sm:p-12 text-center border border-white/5">
           <div className="p-4 bg-gray-700/30 rounded-2xl w-20 h-20 flex items-center justify-center mx-auto mb-4">
             <Brain className="w-12 h-12 text-gray-500" />
@@ -234,6 +240,8 @@ export const AITradeJournal: React.FC = () => {
           ))}
         </div>
       )}
+        </div>
+      </div>
     </div>
   );
 };
