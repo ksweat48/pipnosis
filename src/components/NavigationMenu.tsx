@@ -1,10 +1,11 @@
 import React, { memo, useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity, Coins, Layers, Smartphone } from 'lucide-react';
+import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity, Coins, Layers, Smartphone, MessageSquare, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 import { useTokenBalance } from '@/hooks/useTokenBalance';
 import { supabase } from '@/lib/supabase';
+import { BetaFeedbackDialog } from './BetaFeedbackDialog';
 
 interface NavigationMenuProps {
   currentPrice?: number | null;
@@ -18,6 +19,7 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
   const { balance, totalPnL, openPositionsCount } = useUserBalance(user?.id || null);
   const { balance: tokenBalance } = useTokenBalance(user?.id || null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
 
   const navItems = [
     { path: '/charts', label: 'Charts', icon: TrendingUp },
@@ -121,6 +123,25 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                       </div>
 
                       <div className="p-2">
+                        <button
+                          onClick={() => {
+                            setShowProfileMenu(false);
+                            setShowFeedbackDialog(true);
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-lg transition-all group mb-2"
+                        >
+                          <div className="flex items-center gap-3 flex-1">
+                            <div className="p-1.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded">
+                              <Sparkles size={14} className="text-white" />
+                            </div>
+                            <div className="flex flex-col items-start">
+                              <span className="text-amber-400 font-semibold text-sm">BETA Feedback</span>
+                              <span className="text-amber-500/70 text-xs">Help us improve</span>
+                            </div>
+                          </div>
+                          <MessageSquare size={16} className="text-amber-400 group-hover:text-amber-300" />
+                        </button>
+
                         <Link
                           to="/credits"
                           onClick={() => setShowProfileMenu(false)}
@@ -212,6 +233,11 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
           </div>
         </div>
       </div>
+
+      <BetaFeedbackDialog
+        isOpen={showFeedbackDialog}
+        onClose={() => setShowFeedbackDialog(false)}
+      />
     </nav>
   );
 };

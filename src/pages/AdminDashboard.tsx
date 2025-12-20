@@ -30,11 +30,14 @@ import {
   CheckCircle,
   AlertCircle,
   Clock,
-  Users
+  Users,
+  MessageSquare
 } from 'lucide-react';
 import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
+import { UserFeedbackPanel } from '@/components/admin/UserFeedbackPanel';
+import { userFeedbackService } from '@/services/user-feedback-service';
 
-type AdminTab = 'overview' | 'data' | 'api-usage' | 'settings' | 'users';
+type AdminTab = 'overview' | 'data' | 'api-usage' | 'settings' | 'users' | 'feedback';
 
 interface AIMetrics {
   skillLevel: number;
@@ -55,6 +58,7 @@ export function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [aiMetrics, setAIMetrics] = useState<AIMetrics | null>(null);
   const [loading, setLoading] = useState(true);
+  const [newFeedbackCount, setNewFeedbackCount] = useState(0);
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -72,6 +76,25 @@ export function AdminDashboard() {
       return () => clearInterval(interval);
     }
   }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      loadNewFeedbackCount();
+
+      const unsubscribe = userFeedbackService.subscribeToNewFeedback(() => {
+        loadNewFeedbackCount();
+      });
+
+      return () => {
+        unsubscribe();
+      };
+    }
+  }, [user]);
+
+  const loadNewFeedbackCount = async () => {
+    const count = await userFeedbackService.getNewFeedbackCount();
+    setNewFeedbackCount(count);
+  };
 
   const loadAIMetrics = async () => {
     if (!user) return;
@@ -253,6 +276,22 @@ export function AdminDashboard() {
             <Users size={18} />
             Users
           </button>
+          <button
+            onClick={() => setActiveTab('feedback')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap relative ${
+              activeTab === 'feedback'
+                ? 'bg-purple-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            <MessageSquare size={18} />
+            Feedback
+            {newFeedbackCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                {newFeedbackCount}
+              </span>
+            )}
+          </button>
         </div>
 
         {activeTab === 'overview' && (
@@ -417,6 +456,18 @@ export function AdminDashboard() {
         {activeTab === 'users' && (
           <div className="space-y-6">
             <UserManagementPanel />
+          </div>
+        )}
+
+        {activeTab === 'feedback' && (
+          <div className="space-y-6">
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <MessageSquare size={24} className="text-purple-400" />
+                <h2 className="text-2xl font-semibold text-white">User Feedback</h2>
+              </div>
+              <UserFeedbackPanel />
+            </div>
           </div>
         )}
       </main>
