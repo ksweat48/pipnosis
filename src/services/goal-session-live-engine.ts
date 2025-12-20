@@ -26,6 +26,8 @@ import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionS
 import { getRiskPercentage } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
 import { scanningStateMachine } from './scanning-state-machine';
+import { getForexMarketStatus } from '../utils/marketHours';
+import { weekendProtectionService } from './weekend-protection-service';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -349,6 +351,26 @@ class GoalSessionLiveEngine {
       console.log('[MULTI-SYMBOL] Watchlist:', watchlist);
       console.log('[MULTI-SYMBOL] Open trades:', this.openTrades.length);
       console.log('[MULTI-SYMBOL] Max concurrent:', this.config.maxConcurrentTrades);
+
+      // 🛡️ CRITICAL: Check if market is open BEFORE any LLM calls or expensive operations
+      const marketStatus = getForexMarketStatus();
+      if (!marketStatus.isOpen) {
+        console.log('%c[MULTI-SYMBOL] 🛑 Market is CLOSED - Aborting scan to preserve LLM credits', 'color: #ff0000; font-weight: bold; font-size: 14px');
+        logger.info(LogCategory.AI_TRADING, '🛑 Market is closed - skipping scan to preserve LLM credits');
+        await this.sendAIMessage('⏸️ Market is closed. Scanning paused until market reopens. No LLM resources will be used while market is closed.');
+        return;
+      }
+
+      // Additional check for weekend protection flags
+      const canTrade = weekendProtectionService.canOpenNewTrade();
+      if (!canTrade.allowed) {
+        console.log('%c[MULTI-SYMBOL] 🛑 Trading DISABLED - ' + canTrade.reason, 'color: #ff0000; font-weight: bold');
+        logger.info(LogCategory.AI_TRADING, `🛑 Trading disabled: ${canTrade.reason}`);
+        await this.sendAIMessage(`⏸️ ${canTrade.reason}`);
+        return;
+      }
+
+      console.log('%c[MULTI-SYMBOL] ✅ Market is OPEN - Proceeding with scan', 'color: #00ff00; font-weight: bold');
 
       // CRITICAL: Verify with DB before expensive operations (prevents memory desync bugs)
       const { data: verifyTrades } = await supabase
