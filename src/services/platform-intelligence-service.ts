@@ -58,6 +58,9 @@ export interface UserContribution {
 class PlatformIntelligenceService {
   async fetchPlatformStats(): Promise<PlatformStats | null> {
     try {
+      // Update platform stats with latest data (calculates growth rate)
+      await supabase.rpc('update_platform_stats');
+
       const { data, error } = await supabase
         .from('ai_platform_learning_stats')
         .select('*')

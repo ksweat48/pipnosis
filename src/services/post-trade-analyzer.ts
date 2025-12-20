@@ -8,10 +8,12 @@
  * 3. Generates natural language lessons
  * 4. Updates journal with post-trade analysis
  * 5. Feeds data back to confidence calibration
+ * 6. Populates AI learning tables (ai_trade_analysis, alpha_meta_insights, etc.)
  */
 
 import { supabase } from '../lib/supabase';
 import { llmReasoningLogger, PostTradeAnalysis } from './llm-reasoning-logger';
+import { logger } from '../lib/logger';
 
 interface TradeData {
   id: string;
@@ -95,6 +97,9 @@ class PostTradeAnalyzer {
 
       // Log accuracy tracking
       await this.logAccuracyTracking(tradeData, journalEntry, wasPredictionCorrect);
+
+      // Populate AI learning tables
+      await this.populateAILearningTables(tradeData, journalEntry, outcome, wasPredictionCorrect);
 
       console.log(`[Post-Trade Analyzer] ✅ Analysis complete for ${tradeData.symbol}`);
     } catch (error) {
@@ -358,6 +363,275 @@ class PostTradeAnalyzer {
     } catch (error) {
       console.error('[Post-Trade Analyzer] Error logging accuracy:', error);
     }
+  }
+
+  /**
+   * Populate AI learning tables for platform intelligence
+   */
+  private async populateAILearningTables(
+    tradeData: TradeData,
+    journalEntry: any,
+    outcome: 'win' | 'loss' | 'breakeven',
+    predictionCorrect: boolean
+  ): Promise<void> {
+    try {
+      logger.info('[Post-Trade Analyzer] Populating AI learning tables');
+
+      // Write to ai_trade_analysis
+      await this.writeAITradeAnalysis(tradeData, journalEntry, outcome);
+
+      // Update alpha_meta_insights
+      if (journalEntry.pattern_identified) {
+        await this.updateAlphaMetaInsights(tradeData, journalEntry, outcome);
+      }
+
+      // Update alpha_confidence_calibration
+      if (journalEntry.conviction_level) {
+        await this.updateAlphaConfidenceCalibration(
+          tradeData.userId,
+          journalEntry.conviction_level,
+          predictionCorrect,
+          outcome
+        );
+      }
+
+      // Log execution quality
+      await this.logExecutionQuality(tradeData, journalEntry);
+
+      logger.info('[Post-Trade Analyzer] ✅ AI learning tables updated');
+    } catch (error) {
+      logger.error('[Post-Trade Analyzer] Error populating AI learning tables:', error);
+    }
+  }
+
+  /**
+   * Write comprehensive analysis to ai_trade_analysis table
+   */
+  private async writeAITradeAnalysis(
+    tradeData: TradeData,
+    journalEntry: any,
+    outcome: 'win' | 'loss' | 'breakeven'
+  ): Promise<void> {
+    try {
+      const riskReward = this.calculateRiskReward(tradeData);
+      const durationMinutes = this.calculateTradeDuration(tradeData);
+
+      await supabase.from('ai_trade_analysis').insert({
+        user_id: tradeData.userId,
+        live_trade_id: tradeData.id,
+        symbol: tradeData.symbol,
+        direction: tradeData.direction,
+        entry_time: tradeData.entryTime.toISOString(),
+        exit_time: tradeData.exitTime.toISOString(),
+        entry_price: tradeData.entryPrice,
+        exit_price: tradeData.exitPrice,
+        stop_loss: tradeData.stopLoss,
+        take_profit: tradeData.takeProfit,
+        entry_confidence: journalEntry.conviction_level || 0,
+        outcome: outcome,
+        pnl: tradeData.pnl,
+        risk_reward_at_entry: riskReward,
+        duration_minutes: durationMinutes,
+        close_reason: this.determineCloseReason(tradeData),
+        ai_reasoning: journalEntry.llm_reasoning,
+        entry_indicators_alignment: {
+          setup: journalEntry.pattern_identified || 'unknown',
+          market_read: journalEntry.market_read
+        },
+        contributed_to_global_learning: true
+      });
+    } catch (error) {
+      logger.error('[Post-Trade Analyzer] Error writing ai_trade_analysis:', error);
+    }
+  }
+
+  /**
+   * Update alpha meta-insights for pattern learning
+   */
+  private async updateAlphaMetaInsights(
+    tradeData: TradeData,
+    journalEntry: any,
+    outcome: 'win' | 'loss' | 'breakeven'
+  ): Promise<void> {
+    try {
+      const pattern = journalEntry.pattern_identified;
+      const winRate = outcome === 'win' ? 100 : 0;
+
+      // Check if insight exists
+      const { data: existing } = await supabase
+        .from('alpha_meta_insights')
+        .select('*')
+        .eq('user_id', tradeData.userId)
+        .eq('symbol', tradeData.symbol)
+        .eq('insight_description', `${pattern} on ${tradeData.symbol}`)
+        .maybeSingle();
+
+      if (existing) {
+        // Update existing
+        const sampleSize = (existing.supporting_evidence?.sample_size || 0) + 1;
+        const newWinRate = ((existing.improvement_seen || 0) * (sampleSize - 1) + winRate) / sampleSize;
+
+        await supabase
+          .from('alpha_meta_insights')
+          .update({
+            improvement_seen: newWinRate,
+            confidence_in_insight: Math.min(95, 50 + (sampleSize * 2)),
+            supporting_evidence: {
+              sample_size: sampleSize,
+              last_updated: new Date().toISOString()
+            },
+            validated: sampleSize >= 10,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existing.id);
+      } else {
+        // Create new
+        const insightType = outcome === 'win' ? 'strength' : outcome === 'loss' ? 'weakness' : 'neutral';
+
+        await supabase.from('alpha_meta_insights').insert({
+          user_id: tradeData.userId,
+          symbol: tradeData.symbol,
+          insight_type: insightType,
+          insight_description: `${pattern} on ${tradeData.symbol}`,
+          improvement_seen: winRate,
+          confidence_in_insight: 50,
+          supporting_evidence: {
+            sample_size: 1,
+            last_updated: new Date().toISOString()
+          },
+          validated: false
+        });
+      }
+    } catch (error) {
+      logger.error('[Post-Trade Analyzer] Error updating alpha_meta_insights:', error);
+    }
+  }
+
+  /**
+   * Update alpha confidence calibration buckets
+   */
+  private async updateAlphaConfidenceCalibration(
+    userId: string,
+    confidence: number,
+    predictionCorrect: boolean,
+    outcome: 'win' | 'loss' | 'breakeven'
+  ): Promise<void> {
+    try {
+      const bucket = this.getConfidenceBucket(confidence);
+      const actualWinRate = outcome === 'win' ? 100 : 0;
+
+      const { data: existing } = await supabase
+        .from('alpha_confidence_calibration')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('confidence_bucket', bucket)
+        .maybeSingle();
+
+      if (existing) {
+        const newSampleSize = existing.sample_size + 1;
+        const newActualWR = ((existing.actual_win_rate * existing.sample_size) + actualWinRate) / newSampleSize;
+        const calibrationError = Math.abs(confidence - newActualWR);
+
+        await supabase
+          .from('alpha_confidence_calibration')
+          .update({
+            sample_size: newSampleSize,
+            actual_win_rate: newActualWR,
+            predicted_win_rate: confidence,
+            calibration_error: calibrationError,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existing.id);
+      } else {
+        const calibrationError = Math.abs(confidence - actualWinRate);
+
+        await supabase.from('alpha_confidence_calibration').insert({
+          user_id: userId,
+          confidence_bucket: bucket,
+          sample_size: 1,
+          actual_win_rate: actualWinRate,
+          predicted_win_rate: confidence,
+          calibration_error: calibrationError
+        });
+      }
+    } catch (error) {
+      logger.error('[Post-Trade Analyzer] Error updating alpha_confidence_calibration:', error);
+    }
+  }
+
+  /**
+   * Log execution quality metrics
+   */
+  private async logExecutionQuality(tradeData: TradeData, journalEntry: any): Promise<void> {
+    try {
+      // Detect SL hunting
+      const slHunting = this.didHitStopLoss(tradeData) && tradeData.pnl < 0;
+
+      await supabase.from('execution_quality_log').insert({
+        user_id: tradeData.userId,
+        symbol: tradeData.symbol,
+        trade_id: tradeData.id,
+        entry_time: tradeData.entryTime.toISOString(),
+        slippage_pips: 0, // Would need real-time tracking
+        sl_hunting_suspected: slHunting,
+        spread_at_entry: 0,
+        spread_at_exit: 0,
+        rejection_occurred: false,
+        session: this.determineSession(tradeData.entryTime)
+      });
+    } catch (error) {
+      logger.error('[Post-Trade Analyzer] Error logging execution quality:', error);
+    }
+  }
+
+  /**
+   * Calculate risk-reward ratio
+   */
+  private calculateRiskReward(tradeData: TradeData): number {
+    const risk = Math.abs(tradeData.entryPrice - tradeData.stopLoss);
+    const reward = Math.abs(tradeData.takeProfit - tradeData.entryPrice);
+    return risk > 0 ? reward / risk : 0;
+  }
+
+  /**
+   * Calculate trade duration in minutes
+   */
+  private calculateTradeDuration(tradeData: TradeData): number {
+    const entryTime = tradeData.entryTime.getTime();
+    const exitTime = tradeData.exitTime.getTime();
+    return Math.round((exitTime - entryTime) / 60000);
+  }
+
+  /**
+   * Determine close reason
+   */
+  private determineCloseReason(tradeData: TradeData): string {
+    if (this.didHitTargetProfit(tradeData)) return 'tp_hit';
+    if (this.didHitStopLoss(tradeData)) return 'sl_hit';
+    return 'manual_close';
+  }
+
+  /**
+   * Get confidence bucket
+   */
+  private getConfidenceBucket(confidence: number): number {
+    if (confidence >= 95) return 95;
+    if (confidence >= 90) return 90;
+    if (confidence >= 85) return 85;
+    if (confidence >= 80) return 80;
+    if (confidence >= 75) return 75;
+    return 70;
+  }
+
+  /**
+   * Determine trading session
+   */
+  private determineSession(date: Date): string {
+    const hour = date.getUTCHours();
+    if (hour >= 0 && hour < 8) return 'Tokyo';
+    if (hour >= 8 && hour < 16) return 'London';
+    if (hour >= 16 && hour < 24) return 'NewYork';
+    return 'Unknown';
   }
 }
 

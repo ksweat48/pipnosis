@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { liveTradeLearningTrigger } from '@/services/live-trade-learning-trigger';
+import { continuousLearningLoop } from '@/services/continuous-learning-loop';
 
 interface AuthContextType {
   user: User | null;
@@ -71,6 +72,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log('[Auth] Starting live trade learning trigger for user:', session.user.id);
             liveTradeLearningTrigger.start(session.user.id);
           }
+
+          // Start continuous learning loop for authenticated users
+          if (!continuousLearningLoop.isActive()) {
+            console.log('[Auth] Starting continuous learning loop for user:', session.user.id);
+            continuousLearningLoop.start(session.user.id);
+          }
         } else {
           setIsAdmin(false);
 
@@ -78,6 +85,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (liveTradeLearningTrigger.isActive()) {
             console.log('[Auth] Stopping live trade learning trigger');
             liveTradeLearningTrigger.stop();
+          }
+
+          // Stop continuous learning loop when user logs out
+          if (continuousLearningLoop.isActive()) {
+            console.log('[Auth] Stopping continuous learning loop');
+            continuousLearningLoop.stop();
           }
         }
         setLoading(false);
@@ -89,6 +102,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Clean up learning trigger on component unmount
       if (liveTradeLearningTrigger.isActive()) {
         liveTradeLearningTrigger.stop();
+      }
+      // Clean up continuous learning loop on component unmount
+      if (continuousLearningLoop.isActive()) {
+        continuousLearningLoop.stop();
       }
     };
   }, []);
