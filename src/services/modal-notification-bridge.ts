@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import type { DialogType, DialogData } from './global-dialog-manager';
+import { pushNotificationDispatcher } from './push-notification-dispatcher';
 
 interface NotificationPayload {
   user_id: string;
@@ -17,17 +18,94 @@ class ModalNotificationBridge {
     try {
       const notification = this.mapDialogToNotification(dialogData, userId, goalSessionId);
 
-      const { error } = await supabase
+      const { data: insertedData, error } = await supabase
         .from('goal_notifications')
-        .insert(notification);
+        .insert(notification)
+        .select('id')
+        .single();
 
       if (error) {
         console.error('[Notification Bridge] Failed to persist notification:', error);
-      } else {
-        console.log(`[Notification Bridge] Persisted ${dialogData.type} notification`);
+        return;
       }
+
+      console.log(`[Notification Bridge] Persisted ${dialogData.type} notification`);
+
+      const notificationId = insertedData?.id;
+
+      await this.triggerPushNotification(dialogData, userId, goalSessionId, notificationId);
     } catch (error) {
       console.error('[Notification Bridge] Error capturing dialog:', error);
+    }
+  }
+
+  private async triggerPushNotification(
+    dialogData: DialogData,
+    userId: string,
+    goalSessionId: string | null,
+    notificationId?: string
+  ): Promise<void> {
+    try {
+      const data = dialogData.data;
+
+      switch (dialogData.type) {
+        case 'goal_achieved':
+          await pushNotificationDispatcher.sendGoalAchieved({
+            userId,
+            notificationId,
+            goalSessionId: goalSessionId || data.goal_session_id || data.goalSessionId,
+            goalAmount: data.goal_amount || data.goalAmount || 0,
+            actualAmount: data.actual_profit || data.profit || 0,
+            tradesCount: data.trades_count || data.tradesCount || 0
+          });
+          break;
+
+        case 'trade_closed':
+          await pushNotificationDispatcher.sendTradeClosed({
+            userId,
+            notificationId,
+            tradeId: data.trade_id || data.tradeId || '',
+            symbol: data.symbol || 'Unknown',
+            direction: data.direction || 'buy',
+            profit: data.pnl || data.profit || 0,
+            closeReason: data.close_reason || data.reason || 'Manual',
+            duration: data.duration
+          });
+          break;
+
+        case 'trade_signal':
+          await pushNotificationDispatcher.sendTradeSignal({
+            userId,
+            notificationId,
+            symbol: data.symbol || 'Unknown',
+            direction: data.direction || data.type || 'buy',
+            setupType: data.setup_type || data.setupType || 'Signal',
+            confidence: data.confidence || 0,
+            entryPrice: data.entry_price || data.entryPrice || 0,
+            stopLoss: data.stop_loss || data.stopLoss || 0,
+            takeProfit: data.take_profit || data.takeProfit || 0
+          });
+          break;
+
+        case 'trade_entry':
+          await pushNotificationDispatcher.sendTradeEntry({
+            userId,
+            notificationId,
+            tradeId: data.trade_id || data.tradeId || '',
+            symbol: data.symbol || 'Unknown',
+            direction: data.direction || data.type || 'buy',
+            entryPrice: data.entry_price || data.entryPrice || 0,
+            lotSize: data.lot_size || data.lotSize || 0,
+            stopLoss: data.stop_loss || data.stopLoss || 0,
+            takeProfit: data.take_profit || data.takeProfit || 0
+          });
+          break;
+
+        default:
+          console.log('[Notification Bridge] No push notification for type:', dialogData.type);
+      }
+    } catch (error) {
+      console.error('[Notification Bridge] Error triggering push notification:', error);
     }
   }
 

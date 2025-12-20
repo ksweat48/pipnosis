@@ -86,3 +86,194 @@ self.addEventListener('fetch', (event) => {
       })
   );
 });
+
+// =============================================================================
+// PUSH NOTIFICATION HANDLERS
+// =============================================================================
+
+// Vibration patterns for different notification types
+const VIBRATION_PATTERNS = {
+  'trade-signal': [200, 100, 200],
+  'trade-entry': [100, 50, 100, 50, 100],
+  'trade-closed-profit': [100, 50, 150, 50, 200],
+  'trade-closed-loss': [200, 50, 150, 50, 100],
+  'mid-trade-urgent': [500],
+  'goal-achieved': [100, 50, 100, 50, 100, 50, 100, 50, 100]
+};
+
+// Get vibration pattern based on notification type and data
+function getVibrationPattern(type, data) {
+  if (type === 'trade-closed') {
+    return data.profit > 0 ? VIBRATION_PATTERNS['trade-closed-profit'] : VIBRATION_PATTERNS['trade-closed-loss'];
+  }
+  return VIBRATION_PATTERNS[type] || [200];
+}
+
+// Get notification icon based on type
+function getNotificationIcon(type) {
+  return '/Pipnosis icon.png';
+}
+
+// Get notification badge
+function getNotificationBadge() {
+  return '/Pipnosis icon.png';
+}
+
+// Get notification color based on type and data
+function getNotificationColor(type, data) {
+  switch (type) {
+    case 'trade-signal':
+      return '#3B82F6'; // Blue for signals
+    case 'trade-entry':
+      return '#10B981'; // Green for entries
+    case 'trade-closed':
+      return data.profit > 0 ? '#10B981' : '#EF4444'; // Green for profit, red for loss
+    case 'mid-trade-alert':
+      return '#F59E0B'; // Orange for mid-trade alerts
+    case 'goal-achieved':
+      return '#8B5CF6'; // Purple for achievements
+    default:
+      return '#3B82F6';
+  }
+}
+
+// Push event - receive and display notification
+self.addEventListener('push', (event) => {
+  console.log('[Push] Push event received');
+
+  if (!event.data) {
+    console.log('[Push] No data in push event');
+    return;
+  }
+
+  try {
+    const payload = event.data.json();
+    console.log('[Push] Payload:', payload);
+
+    const { title, body, icon, badge, data, tag, vibrate } = payload;
+
+    const notificationOptions = {
+      body: body || 'New notification from Pipnosis',
+      icon: icon || getNotificationIcon(data?.type),
+      badge: badge || getNotificationBadge(),
+      vibrate: vibrate || getVibrationPattern(data?.type, data),
+      data: data || {},
+      tag: tag || data?.type || 'default',
+      requireInteraction: data?.priority === 'urgent',
+      silent: false,
+      renotify: true
+    };
+
+    // Add action buttons based on notification type
+    if (data?.type === 'trade-signal') {
+      notificationOptions.actions = [
+        { action: 'view', title: 'View Signal', icon: '/Pipnosis icon.png' },
+        { action: 'dismiss', title: 'Dismiss', icon: '/Pipnosis icon.png' }
+      ];
+    } else if (data?.type === 'trade-entry') {
+      notificationOptions.actions = [
+        { action: 'view', title: 'View Position', icon: '/Pipnosis icon.png' },
+        { action: 'dismiss', title: 'Dismiss', icon: '/Pipnosis icon.png' }
+      ];
+    } else if (data?.type === 'trade-closed') {
+      notificationOptions.actions = [
+        { action: 'view', title: 'View Details', icon: '/Pipnosis icon.png' },
+        { action: 'dismiss', title: 'Dismiss', icon: '/Pipnosis icon.png' }
+      ];
+    } else if (data?.type === 'mid-trade-alert') {
+      notificationOptions.actions = [
+        { action: 'view', title: 'View Trade', icon: '/Pipnosis icon.png' },
+        { action: 'dismiss', title: 'Dismiss', icon: '/Pipnosis icon.png' }
+      ];
+    } else if (data?.type === 'goal-achieved') {
+      notificationOptions.actions = [
+        { action: 'view', title: 'View Achievement', icon: '/Pipnosis icon.png' },
+        { action: 'dismiss', title: 'Dismiss', icon: '/Pipnosis icon.png' }
+      ];
+    }
+
+    event.waitUntil(
+      self.registration.showNotification(title || 'Pipnosis', notificationOptions)
+    );
+  } catch (error) {
+    console.error('[Push] Error parsing push event:', error);
+  }
+});
+
+// Notification click event - handle user interaction
+self.addEventListener('notificationclick', (event) => {
+  console.log('[Push] Notification clicked:', event.notification.tag);
+
+  event.notification.close();
+
+  const data = event.notification.data || {};
+  const action = event.action;
+
+  // Dismiss action - just close the notification
+  if (action === 'dismiss') {
+    return;
+  }
+
+  // Determine target URL based on notification type
+  let targetUrl = '/';
+
+  switch (data.type) {
+    case 'trade-signal':
+      targetUrl = '/smart-goal-mode';
+      break;
+    case 'trade-entry':
+      targetUrl = '/positions';
+      break;
+    case 'trade-closed':
+      targetUrl = '/ai-journal';
+      break;
+    case 'mid-trade-alert':
+      targetUrl = `/positions?trade=${data.trade_id}`;
+      break;
+    case 'goal-achieved':
+      targetUrl = `/smart-goal-mode?session=${data.goal_session_id}`;
+      break;
+    default:
+      targetUrl = '/';
+  }
+
+  // Open the app or focus existing tab
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList) => {
+        // Check if app is already open
+        for (let i = 0; i < clientList.length; i++) {
+          const client = clientList[i];
+          if (client.url.includes(self.location.origin) && 'focus' in client) {
+            return client.focus().then(() => {
+              // Navigate to target URL
+              return client.postMessage({
+                type: 'NOTIFICATION_CLICKED',
+                url: targetUrl,
+                data: data
+              });
+            });
+          }
+        }
+
+        // If app is not open, open new window
+        if (clients.openWindow) {
+          return clients.openWindow(targetUrl);
+        }
+      })
+  );
+});
+
+// Notification close event - track dismissals
+self.addEventListener('notificationclose', (event) => {
+  console.log('[Push] Notification closed:', event.notification.tag);
+
+  const data = event.notification.data || {};
+
+  // Send dismissal event to analytics if needed
+  event.waitUntil(
+    self.registration.getNotifications().then((notifications) => {
+      console.log('[Push] Remaining notifications:', notifications.length);
+    })
+  );
+});

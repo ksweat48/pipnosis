@@ -1,5 +1,6 @@
 import TinyEmitter from 'tiny-emitter';
 import { supabase } from '@/lib/supabase';
+import { pushNotificationDispatcher } from './push-notification-dispatcher';
 
 export interface MidTradeNotification {
   id: string;
@@ -55,8 +56,30 @@ class MidTradeNotificationQueue extends TinyEmitter {
 
     this.emit('notification-added', notification);
 
+    if (notification.priority === 'high' || notification.priority === 'urgent') {
+      this.triggerPushNotification(notification).catch(error => {
+        console.error('[Mid-Trade Queue] Error triggering push:', error);
+      });
+    }
+
     if (!this.isDisplaying) {
       this.showNext();
+    }
+  }
+
+  private async triggerPushNotification(notification: MidTradeNotification): Promise<void> {
+    try {
+      await pushNotificationDispatcher.sendMidTradeAlert({
+        userId: notification.user_id,
+        notificationId: notification.id,
+        tradeId: notification.trade_context.trade_id,
+        symbol: notification.trade_context.symbol,
+        triggerReason: notification.recommendation_data.trigger_reason,
+        llmRecommendation: notification.recommendation_data.llm_recommendation,
+        priority: notification.priority
+      });
+    } catch (error) {
+      console.error('[Mid-Trade Queue] Error in triggerPushNotification:', error);
     }
   }
 
