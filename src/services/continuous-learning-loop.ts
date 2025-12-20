@@ -72,7 +72,7 @@ class ContinuousLearningLoop {
         .select('*')
         .eq('user_id', userId)
         .eq('status', 'closed')
-        .gte('close_time', fiveMinutesAgo)
+        .gte('closed_at', fiveMinutesAgo)
         .is('ai_validated', false)
         .limit(10);
 
