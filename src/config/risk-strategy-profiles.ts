@@ -45,7 +45,7 @@ export interface RiskStrategyProfile {
   omegaWeights: {
     trend: number;
     scalper: number;
-    swing: number;
+    confirmation: number;
     reversal: number;
     volatility: number;
     risk: number;
@@ -79,7 +79,7 @@ export interface RiskStrategyProfile {
 export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
   riskMode: 'high',
   displayName: 'Aggressive',
-  description: 'Fast execution, tight stops, scalp-style entries for quick goal achievement',
+  description: 'Fast intraday execution, tight stops, scalp-style entries for quick goal achievement',
 
   riskPercentRange: { min: 1.0, max: 3.0 },
   baseRiskPercent: 1.8,
@@ -98,18 +98,18 @@ export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
   targetSpeed: 'fast',
 
   expectedDuration: {
-    min: 15,
-    max: 120
+    min: 10,   // 10 minutes minimum
+    max: 90    // 1.5 hours maximum (pure intraday)
   },
-  durationWarningThreshold: 180, // 3 hours
+  durationWarningThreshold: 120, // 2 hours
 
   omegaWeights: {
-    trend: 0.20,
-    scalper: 0.35,      // Dominant for aggressive
-    swing: 0.05,
+    trend: 0.30,
+    scalper: 0.40,      // Dominant for aggressive
+    confirmation: 0.10,
     reversal: 0.10,
-    volatility: 0.20,
-    risk: 0.10
+    volatility: 0.10,
+    risk: 0.00          // Advisory only
   },
 
   entryTypePreference: {
@@ -138,7 +138,7 @@ export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
 export const MODERATE_PROFILE: RiskStrategyProfile = {
   riskMode: 'medium',
   displayName: 'Moderate',
-  description: 'Balanced execution with 1-2 confirmations, moderate stops for steady progress',
+  description: 'Balanced intraday execution with confirmations, moderate stops for steady progress',
 
   riskPercentRange: { min: 0.5, max: 1.5 },
   baseRiskPercent: 1.0,
@@ -157,18 +157,18 @@ export const MODERATE_PROFILE: RiskStrategyProfile = {
   targetSpeed: 'moderate',
 
   expectedDuration: {
-    min: 60,
-    max: 360
+    min: 20,   // 20 minutes minimum
+    max: 120   // 2 hours maximum (pure intraday)
   },
-  durationWarningThreshold: 480, // 8 hours
+  durationWarningThreshold: 180, // 3 hours
 
   omegaWeights: {
-    trend: 0.25,
+    trend: 0.30,
     scalper: 0.20,
-    swing: 0.15,
-    reversal: 0.15,
-    volatility: 0.15,
-    risk: 0.10
+    confirmation: 0.30,  // Balanced with trend
+    reversal: 0.10,
+    volatility: 0.10,
+    risk: 0.00           // Advisory only
   },
 
   entryTypePreference: {
@@ -197,12 +197,12 @@ export const MODERATE_PROFILE: RiskStrategyProfile = {
 export const CONSERVATIVE_PROFILE: RiskStrategyProfile = {
   riskMode: 'low',
   displayName: 'Conservative',
-  description: 'Patient execution, wider stops, deep confirmations for capital preservation',
+  description: 'Patient intraday execution, deep confirmations, capital preservation focused',
 
   riskPercentRange: { min: 0.3, max: 0.8 },
   baseRiskPercent: 0.5,
 
-  tradingStyle: 'swing',
+  tradingStyle: 'day-trade',
   entryUrgency: 'patient',
 
   primaryTimeframes: ['H1', 'H4'],
@@ -216,18 +216,18 @@ export const CONSERVATIVE_PROFILE: RiskStrategyProfile = {
   targetSpeed: 'patient',
 
   expectedDuration: {
-    min: 240,
-    max: 720
+    min: 20,   // 20 minutes minimum
+    max: 120   // 2 hours maximum (pure intraday)
   },
-  durationWarningThreshold: 960, // 16 hours
+  durationWarningThreshold: 240, // 4 hours
 
   omegaWeights: {
     trend: 0.30,
-    scalper: 0.05,
-    swing: 0.30,        // Dominant for conservative
-    reversal: 0.20,
+    scalper: 0.10,
+    confirmation: 0.40,  // Dominant - requires strong confirmation
+    reversal: 0.10,
     volatility: 0.10,
-    risk: 0.05
+    risk: 0.00           // Advisory only
   },
 
   entryTypePreference: {

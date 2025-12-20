@@ -17,7 +17,7 @@ import { openAIClient } from '../services/openai-client';
 import { omegaTrend } from './omega/trend';
 import { omegaVolatility } from './omega/volatility';
 import { omegaRisk } from './omega/risk';
-import { omegaSwing } from './omega/swing';
+import { omegaConfirmation } from './omega/confirmation';
 import { sentimentCoordinator } from '../services/sentiment-coordinator';
 import type { OmegaVote } from './omega/trend';
 import type { TraderScore } from '../services/ai-identity';
@@ -463,7 +463,7 @@ Return JSON:
     console.log(`[MidTrade Emergency] ${snapshot.sym}: EMERGENCY @ ${snapshot.dd.toFixed(0)}% DD - Calling Omega Council`);
 
     // Call critical Omegas in parallel
-    const [trendVote, volVote, riskVote, swingVote] = await Promise.all([
+    const [trendVote, volVote, riskVote, confirmationVote] = await Promise.all([
       omegaTrend.evaluate({
         p: snapshot.p,
         e20: snapshot.e20,
@@ -493,7 +493,7 @@ Return JSON:
         risk_pct: snapshot.risk_pct
       }).catch(() => null),
 
-      omegaSwing.evaluate({
+      omegaConfirmation.evaluate({
         p: snapshot.p,
         sup: [],
         res: [],
@@ -504,7 +504,7 @@ Return JSON:
     ]);
 
     // Count votes
-    const votes = [trendVote, volVote, riskVote, swingVote].filter(v => v !== null) as OmegaVote[];
+    const votes = [trendVote, volVote, riskVote, confirmationVote].filter(v => v !== null) as OmegaVote[];
     const exitVotes = votes.filter(v => v.vote === 'NO_TRADE' || v.vote !== snapshot.dir.toUpperCase()).length;
     const holdVotes = votes.filter(v => v.vote === snapshot.dir.toUpperCase()).length;
 

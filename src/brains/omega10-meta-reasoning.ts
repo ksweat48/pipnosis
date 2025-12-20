@@ -172,7 +172,7 @@ function detectContradictions(
     const omegaVoteArray = [
       omegas.trend,
       omegas.scalper,
-      omegas.swing,
+      omegas.confirmation,
       omegas.reversal,
       omegas.volatility,
       omegas.risk
@@ -381,7 +381,7 @@ function calculateConfidenceVariance(omegaVotes: OmegaCouncilVotes[]): number {
     const voteArray = [
       votes.trend,
       votes.scalper,
-      votes.swing,
+      votes.confirmation,
       votes.reversal,
       votes.volatility,
       votes.risk

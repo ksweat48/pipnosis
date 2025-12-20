@@ -12,20 +12,27 @@
  */
 
 export const PIPNOSIS_CORE_RULES = {
-  TRADE_DURATION_MAX_HOURS: 10,
-  TRADE_DURATION_MAX_MINUTES: 600,
-  TRADE_DURATION_PREFERRED_MAX_HOURS: 4,
-  TRADE_DURATION_MIN_HOURS: 1,
+  // Core Duration Rules (Pure Intraday Specialist)
+  TRADE_DURATION_MAX_HOURS: 8,           // Absolute maximum (hard block)
+  TRADE_DURATION_MAX_MINUTES: 480,       // 8 hours in minutes
+  TRADE_DURATION_TARGET_MIN_HOURS: 0.33, // 20 minutes minimum target
+  TRADE_DURATION_TARGET_MAX_HOURS: 2.0,  // 2 hours maximum target
+  TRADE_DURATION_PREFERRED_MAX_HOURS: 2, // Preferred maximum
+  TRADE_DURATION_WARNING_HOURS: 4,       // Warn at 4 hours
+  TRADE_DURATION_BLOCK_HOURS: 6,         // Block at 6+ hours expected
+  TRADE_DURATION_MIN_HOURS: 1,           // Kept for compatibility
+
   TRADE_STYLE: 'scalp_and_intraday_only' as const,
   GOAL_COMPLETION_METHOD: 'multiple_small_trades' as const,
   ALLOW_SWING_TRADES: false,
   ALLOW_OVERNIGHT_HOLDS: false,
   ALLOW_MULTI_DAY_POSITIONS: false,
 
+  // Updated volatility map for intraday focus
   TRADE_DURATION_VOLATILITY_MAP: {
-    low: { min: 2, preferred: 6, max: 10 },
-    medium: { min: 1, preferred: 4, max: 8 },
-    high: { min: 1, preferred: 2, max: 6 }
+    low: { min: 0.33, preferred: 1.5, max: 2.0 },     // 20min-2hr for conservative
+    medium: { min: 0.33, preferred: 1.0, max: 2.0 },  // 20min-2hr for moderate
+    high: { min: 0.17, preferred: 0.75, max: 1.5 }    // 10min-1.5hr for aggressive
   } as const,
 
   SESSION_LIQUIDITY_MULTIPLIERS: {

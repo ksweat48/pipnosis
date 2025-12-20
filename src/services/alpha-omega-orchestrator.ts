@@ -11,7 +11,7 @@
 
 import { omegaTrend, type TrendSnapshot } from '../brains/omega/trend';
 import { omegaScalper, type ScalperSnapshot } from '../brains/omega/scalper';
-import { omegaSwing, type SwingSnapshot } from '../brains/omega/swing';
+import { omegaConfirmation, type ConfirmationSnapshot } from '../brains/omega/confirmation';
 import { omegaReversal, type ReversalSnapshot } from '../brains/omega/reversal';
 import { omegaVolatility, type VolatilitySnapshot } from '../brains/omega/volatility';
 import { omegaRisk, type RiskSnapshot } from '../brains/omega/risk';
@@ -96,7 +96,7 @@ class AlphaOmegaOrchestrator {
     // Build snapshots for each Omega
     const trendSnap = this.buildTrendSnapshot(marketState);
     const scalperSnap = this.buildScalperSnapshot(marketState);
-    const swingSnap = this.buildSwingSnapshot(marketState);
+    const confirmationSnap = this.buildConfirmationSnapshot(marketState);
     const reversalSnap = this.buildReversalSnapshot(marketState);
     const volatilitySnap = this.buildVolatilitySnapshot(marketState);
     const riskSnap = this.buildRiskSnapshot(marketState, proposedSL, proposedTP, 3);
@@ -106,7 +106,7 @@ class AlphaOmegaOrchestrator {
     console.log('[Alpha+Omega] 🔮 Calling Omega Council (parallel)...');
     const startTime = Date.now();
 
-    const [trendVote, scalperVote, swingVote, reversalVote, volatilityVote, riskVote, omega8Vote] = await Promise.all([
+    const [trendVote, scalperVote, confirmationVote, reversalVote, volatilityVote, riskVote, omega8Vote] = await Promise.all([
       omegaTrend.evaluate(trendSnap).catch(err => {
         console.warn('[Omega Trend] Failed:', err.message);
         return null;
@@ -115,8 +115,8 @@ class AlphaOmegaOrchestrator {
         console.warn('[Omega Scalper] Failed:', err.message);
         return null;
       }),
-      omegaSwing.evaluate(swingSnap).catch(err => {
-        console.warn('[Omega Swing] Failed:', err.message);
+      omegaConfirmation.evaluate(confirmationSnap).catch(err => {
+        console.warn('[Omega Confirmation] Failed:', err.message);
         return null;
       }),
       omegaReversal.evaluate(reversalSnap).catch(err => {
@@ -144,7 +144,7 @@ class AlphaOmegaOrchestrator {
     this.logOmegaVotes({
       trend: trendVote,
       scalper: scalperVote,
-      swing: swingVote,
+      confirmation: confirmationVote,
       reversal: reversalVote,
       volatility: volatilityVote,
       risk: riskVote,
@@ -155,7 +155,7 @@ class AlphaOmegaOrchestrator {
     const conflictCheck = this.detectOmegaConflicts({
       trend: trendVote,
       scalper: scalperVote,
-      swing: swingVote,
+      confirmation: confirmationVote,
       reversal: reversalVote,
       volatility: volatilityVote,
       risk: riskVote,
@@ -197,7 +197,7 @@ class AlphaOmegaOrchestrator {
       {
         trend: trendVote,
         scalper: scalperVote,
-        swing: swingVote,
+        confirmation: confirmationVote,
         reversal: reversalVote,
         volatility: volatilityVote,
         risk: riskVote,
@@ -467,10 +467,10 @@ class AlphaOmegaOrchestrator {
   }
 
   /**
-   * Build snapshot for Omega Swing
+   * Build snapshot for Omega Confirmation
    */
-  private buildSwingSnapshot(state: FullMarketState): SwingSnapshot {
-    const base: SwingSnapshot = {
+  private buildConfirmationSnapshot(state: FullMarketState): ConfirmationSnapshot {
+    const base: ConfirmationSnapshot = {
       p: state.price,
       sup: state.support,
       res: state.resistance,

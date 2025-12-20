@@ -68,11 +68,14 @@ import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
 import { rrSuccessTracker } from '../services/rr-success-tracker';
 import { formatRiskProfileForLLM, getOmegaWeights } from '../config/risk-strategy-profiles';
+import { timeToFillCalculator, type TimeToFillInput } from '../services/time-to-fill-calculator';
+import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
+import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ranker';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
   scalper: OmegaVote | null;
-  swing: OmegaVote | null;
+  confirmation: OmegaVote | null;
   reversal: OmegaVote | null;
   volatility: OmegaVote | null;
   risk: OmegaVote | null;
@@ -148,7 +151,7 @@ class AlphaCoordinatorBrain {
 
     if (votes.trend) confidences.push(votes.trend.confidence);
     if (votes.scalper) confidences.push(votes.scalper.confidence);
-    if (votes.swing) confidences.push(votes.swing.confidence);
+    if (votes.confirmation) confidences.push(votes.confirmation.confidence);
     if (votes.reversal) confidences.push(votes.reversal.confidence);
     if (votes.volatility) confidences.push(votes.volatility.confidence);
     if (votes.risk) confidences.push(votes.risk.confidence);
@@ -310,6 +313,9 @@ class AlphaCoordinatorBrain {
     // Fetch platform-wide intelligence for this symbol
     const platformIntelligence = await this.fetchPlatformIntelligence(marketContext.symbol);
 
+    // Build daily narrative for institutional context
+    const dailyNarrative = await dailyNarrativeBuilder.build(marketContext.symbol, marketContext.price);
+
     // Get professional risk assessment (advisory only - Alpha has final authority)
     let riskAssessment = null;
     let riskContext = '';
@@ -416,11 +422,23 @@ class AlphaCoordinatorBrain {
       }
     }
 
+    // Build daily narrative context for institutional intelligence
+    let dailyNarrativeContext = '';
+    if (dailyNarrative) {
+      dailyNarrativeContext = `\n📅 DAILY NARRATIVE (Institutional Context):\n`;
+      dailyNarrativeContext += `Range: ${dailyNarrative.dailyRange.toFixed(1)} pips | Position: ${dailyNarrative.rangePosition.toFixed(0)}% of range\n`;
+      dailyNarrativeContext += `Daily Bias: ${dailyNarrative.dailyBias.toUpperCase()} | Structure: ${dailyNarrative.structureQuality}\n`;
+      dailyNarrativeContext += `Session: ${dailyNarrative.currentSession} | ${dailyNarrative.intradayContext}\n`;
+      if (dailyNarrative.liquiditySweeps.asianLowSwept || dailyNarrative.liquiditySweeps.asianHighSwept) {
+        dailyNarrativeContext += `Liquidity: ${dailyNarrative.liquiditySweeps.asianLowSwept ? 'Asian low swept' : ''} ${dailyNarrative.liquiditySweeps.asianHighSwept ? 'Asian high swept' : ''}\n`;
+      }
+    }
+
     const prompt = `You are Alpha, the final decision maker. You have COMPLETE AUTHORITY to accept or override ANY recommendation.
 
 ${context}
 
-WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${intelligenceContext}${goalContextText}
+WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${intelligenceContext}${goalContextText}
 
 🎯 ALPHA DECISION INTELLIGENCE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -726,7 +744,7 @@ Return JSON with structured reasoning:
     const voteEntries = [
       { name: 'trend', vote: votes.trend, weight: weights.trend },
       { name: 'scalper', vote: votes.scalper, weight: weights.scalper },
-      { name: 'swing', vote: votes.swing, weight: weights.swing },
+      { name: 'confirmation', vote: votes.confirmation, weight: weights.confirmation },
       { name: 'reversal', vote: votes.reversal, weight: weights.reversal },
       { name: 'volatility', vote: votes.volatility, weight: weights.volatility },
       { name: 'risk', vote: votes.risk, weight: weights.risk * 0.5 }, // Reduce Risk weight to advisory level
@@ -811,7 +829,7 @@ Return JSON with structured reasoning:
     const weights: Record<string, number> = {
       trend: riskProfileWeights.trend,
       scalper: riskProfileWeights.scalper,
-      swing: riskProfileWeights.swing,
+      confirmation: riskProfileWeights.confirmation,
       reversal: riskProfileWeights.reversal,
       volatility: riskProfileWeights.volatility,
       risk: riskProfileWeights.risk,
@@ -821,7 +839,7 @@ Return JSON with structured reasoning:
     // Adjust by market regime (multiplicative to preserve risk profile intent)
     if (marketContext.regime === 'bull' || marketContext.regime === 'bear') {
       weights.trend *= 1.3;      // Trending - boost trend specialist
-      weights.swing *= 1.2;      // Structure matters in trends
+      weights.confirmation *= 1.2;      // Structure matters in trends
       weights.scalper *= 0.9;    // Slightly reduce scalping in strong trends
     } else if (marketContext.regime === 'side') {
       weights.scalper *= 1.3;    // Ranging - boost scalper
@@ -846,12 +864,12 @@ Return JSON with structured reasoning:
       weights.risk = weights.risk * 0.9;
     } else if (traderScore.confidence_level === 'cautious') {
       weights.risk = weights.risk * 1.5;     // Risk is VERY important
-      weights.swing = weights.swing * 1.2;   // Structure confirmation
+      weights.confirmation = weights.confirmation * 1.2;   // Structure confirmation
       weights.scalper = weights.scalper * 0.8;
     }
 
     // Losing streak - weight risk heavily
-    if (traderScore.win_streak < 0) {
+    if (traderScore.winRate < 0.5) {
       weights.risk = weights.risk * 1.5;
     }
 
@@ -953,7 +971,7 @@ Return JSON with structured reasoning:
 
     parts.push(`Market: ${marketContext.symbol} | ${marketContext.regime} | ${marketContext.volatility} vol`);
     parts.push(`Price: ${marketContext.price} | ATR: ${marketContext.atr}`);
-    parts.push(`Trader: ${traderScore.confidence_level} (Score: ${traderScore.current_score}, Streak: ${traderScore.win_streak})`);
+    parts.push(`Trader: ${traderScore.confidence_level} (Score: ${traderScore.current_score}, Win Rate: ${(traderScore.winRate * 100).toFixed(1)}%)`);
 
     if (platformIntelligence) {
       parts.push('');
@@ -966,7 +984,7 @@ Return JSON with structured reasoning:
     const voteEntries = [
       { name: 'Trend', vote: votes.trend, weight: weights.trend },
       { name: 'Scalper', vote: votes.scalper, weight: weights.scalper },
-      { name: 'Swing', vote: votes.swing, weight: weights.swing },
+      { name: 'Confirmation', vote: votes.confirmation, weight: weights.confirmation },
       { name: 'Reversal', vote: votes.reversal, weight: weights.reversal },
       { name: 'Volatility', vote: votes.volatility, weight: weights.volatility },
       { name: 'Risk', vote: votes.risk, weight: weights.risk },
@@ -1004,7 +1022,7 @@ Return JSON with structured reasoning:
     const voteEntries = [
       { name: 'Trend', vote: votes.trend, weight: weights.trend },
       { name: 'Scalper', vote: votes.scalper, weight: weights.scalper },
-      { name: 'Swing', vote: votes.swing, weight: weights.swing },
+      { name: 'Confirmation', vote: votes.confirmation, weight: weights.confirmation },
       { name: 'Reversal', vote: votes.reversal, weight: weights.reversal },
       { name: 'Volatility', vote: votes.volatility, weight: weights.volatility },
       { name: 'Risk', vote: votes.risk, weight: weights.risk },

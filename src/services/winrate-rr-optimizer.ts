@@ -15,7 +15,7 @@ export interface WinRateRRResult {
   profitabilityScore: number; // 0-100
   recommendations: string[];
   reasoning: string;
-  improvement Suggestions: {
+  improvementSuggestions: {
     improveWinRate: { target: number; impact: string };
     improveRR: { target: number; impact: string };
     balanced: { winRate: number; rr: number; impact: string };

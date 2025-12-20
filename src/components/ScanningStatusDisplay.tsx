@@ -18,7 +18,7 @@ import { useEffect, useState } from 'react';
 import { Clock, Lock, Activity, AlertTriangle } from 'lucide-react';
 import { scanningStateMachine, SessionStatus } from '../services/scanning-state-machine';
 
-interface ScanningStat usDisplayProps {
+interface ScanningStatusDisplayProps {
   sessionId: string;
   isAdmin?: boolean;
 }
