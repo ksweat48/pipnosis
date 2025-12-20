@@ -699,6 +699,62 @@ Return JSON with structured reasoning:
         console.log('[Alpha Coordinator] ✅ Omega-9 validation passed');
       }
 
+      // Time-to-Fill validation (CRITICAL FOR INTRADAY FOCUS)
+      if (decision.action !== 'NO_TRADE') {
+        console.log('[Alpha Coordinator] ⏱️  Running Time-to-Fill validation...');
+
+        const tpDistancePips = Math.abs(decision.takeProfit - decision.entry) / (marketContext.symbol.includes('JPY') ? 0.01 : 0.0001);
+        const atrPips = marketContext.atr;
+
+        // Determine current session
+        const hour = new Date().getUTCHours();
+        let currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
+        if (hour >= 8 && hour < 12) currentSession = 'london';
+        else if (hour >= 13 && hour < 17) currentSession = 'ny';
+        else if (hour >= 12 && hour < 13) currentSession = 'overlap';
+        else if (hour >= 0 && hour < 8) currentSession = 'asian';
+        else if ((hour >= 22 && hour < 24) || (hour >= 0 && hour < 1)) currentSession = 'sydney';
+        else currentSession = 'closed';
+
+        const timeToFill = timeToFillCalculator.calculate({
+          tpDistancePips,
+          atrPips,
+          currentSession,
+          symbol: marketContext.symbol
+        });
+
+        console.log(`[Alpha Coordinator] ⏱️  Expected fill: ${timeToFill.expectedMinutes}min (${timeToFill.viability})`);
+        console.log(`[Alpha Coordinator] ⏱️  ${timeToFill.reasoning}`);
+
+        // HARD BLOCK: >6 hours (swing trade territory)
+        if (timeToFill.recommendedAction === 'REJECT') {
+          console.log('[Alpha Coordinator] 🚨 TIME-TO-FILL BLOCK: Trade exceeds intraday duration limits');
+          return {
+            action: 'NO_TRADE',
+            decision: 'NO_TRADE',
+            entry: marketContext.price,
+            stopLoss: marketContext.price,
+            takeProfit: marketContext.price,
+            confidence: 0,
+            reasoning: `⏱️ TIME-TO-FILL BLOCK: ${timeToFill.reasoning}. Pipnosis is an INTRADAY SPECIALIST (20min-2hr target).`,
+            omega_summary: decision.omega_summary,
+            omega8_liquidity_bias: decision.omega8_liquidity_bias,
+            omega8_direction_support: decision.omega8_direction_support,
+            omega9_validation: decision.omega9_validation
+          };
+        }
+
+        // WARNING: 4-6 hours (reduce confidence)
+        if (timeToFill.recommendedAction === 'CAUTION') {
+          console.log('[Alpha Coordinator] ⚠️ TIME-TO-FILL WARNING: Trade approaching swing duration');
+          decision.confidence = Math.max(0, decision.confidence - 25);
+          decision.reasoning += ` [Time-to-Fill Warning: ${timeToFill.reasoning}]`;
+        } else if (timeToFill.viability === 'OPTIMAL') {
+          console.log('[Alpha Coordinator] ✅ TIME-TO-FILL OPTIMAL: Perfect for intraday');
+          decision.reasoning += ` [Expected fill: ${timeToFill.expectedMinutes}min]`;
+        }
+      }
+
       console.log('[Alpha Coordinator] Decision:', decision.action);
       console.log('[Alpha Coordinator] Confidence:', decision.confidence);
       console.log('[Alpha Coordinator] Reasoning:', decision.reasoning);

@@ -191,8 +191,8 @@ export const MODERATE_PROFILE: RiskStrategyProfile = {
  * - Risk: $40-60 (0.4-0.6%)
  * - Position: 0.15-0.25 lots
  * - Stop: 25-35 pips (wider)
- * - Strategy: Patient swing setup on H1-H4
- * - Duration: 4-12 hours
+ * - Strategy: Patient intraday setup on H1-H4
+ * - Duration: 20 mins - 2 hours (pure intraday)
  */
 export const CONSERVATIVE_PROFILE: RiskStrategyProfile = {
   riskMode: 'low',

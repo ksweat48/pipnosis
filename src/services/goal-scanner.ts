@@ -11,6 +11,7 @@ import { getDefaultWatchlist } from '../config/watchlist';
 import { getRiskPercentage } from '../config/risk-levels';
 import { scanningStateMachine } from './scanning-state-machine';
 import { weekendProtectionService } from './weekend-protection-service';
+import { multiSymbolRanker, type SymbolScore } from './multi-symbol-ranker';
 
 export interface ScanResult {
   symbol: string;
@@ -108,13 +109,38 @@ class GoalScanner {
         return [];
       }
 
-      // STEP 2: Perform the market scan
+      // STEP 2: Rank symbols and filter for quality opportunities
       const watchlist = session.data.watchlist || getDefaultWatchlist();
+
+      console.log(`[Goal Scanner] 📊 Ranking ${watchlist.length} symbols by opportunity quality...`);
+
+      const rankings: SymbolScore[] = await multiSymbolRanker.rankSymbols(watchlist);
+
+      // Filter to only GOOD or better symbols (score ≥65)
+      const qualitySymbols = rankings.filter(r => r.totalScore >= 65);
+
+      console.log(`[Goal Scanner] 📊 Symbol Rankings:`);
+      rankings.forEach((rank, idx) => {
+        const emoji = rank.recommendation === 'EXCELLENT' ? '🌟' :
+                     rank.recommendation === 'GOOD' ? '✅' :
+                     rank.recommendation === 'FAIR' ? '⚡' :
+                     rank.recommendation === 'POOR' ? '⚠️' : '❌';
+        console.log(`  ${idx + 1}. ${emoji} ${rank.symbol}: ${rank.totalScore}/100 (${rank.recommendation}) - ${rank.reasoning}`);
+      });
+
+      console.log(`[Goal Scanner] ✅ Filtered to ${qualitySymbols.length} quality symbols (score ≥65)`);
+
+      if (qualitySymbols.length === 0) {
+        console.log('[Goal Scanner] ⚠️ No quality symbols meet criteria - scanning all symbols as fallback');
+      }
+
+      // Use quality-filtered symbols, or fall back to full watchlist if none pass
+      const symbolsToScan = qualitySymbols.length > 0 ? qualitySymbols.map(r => r.symbol) : watchlist;
       const results: ScanResult[] = [];
 
-      console.log(`[Goal Scanner] 🔍 Scanning ${watchlist.length} symbols...`);
+      console.log(`[Goal Scanner] 🔍 Scanning ${symbolsToScan.length} symbols...`);
 
-      for (const symbol of watchlist) {
+      for (const symbol of symbolsToScan) {
         const scanResult = await this.scanSymbol(symbol, session.data);
         results.push(scanResult);
       }
