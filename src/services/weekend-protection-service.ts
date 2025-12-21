@@ -100,37 +100,63 @@ class WeekendProtectionService {
 
   getWeekendStatus(): WeekendStatus {
     const now = new Date();
-    // Use proper timezone conversion (handles DST automatically)
-    const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
 
-    const dayOfWeek = estTime.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
+    // Convert UTC to EST/EDT properly (EST is UTC-5, EDT is UTC-4)
+    // Forex market: Opens Sunday 5 PM EST, Closes Friday 5 PM EST
+    const utcHours = now.getUTCHours();
+    const utcDay = now.getUTCDay();
+    const utcMinutes = now.getUTCMinutes();
 
-    // Check if it's currently the weekend
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-    const isFriday = dayOfWeek === 5;
+    // EST offset (simplified - assumes EST/UTC-5 for now)
+    // TODO: Add proper DST detection if needed
+    const EST_OFFSET = 5;
+
+    // Calculate EST hours and day
+    let estHours = utcHours - EST_OFFSET;
+    let estDay = utcDay;
+
+    // Handle day rollover when crossing midnight
+    if (estHours < 0) {
+      estHours += 24;
+      estDay = (utcDay - 1 + 7) % 7;
+    }
+
+    // Market hours in EST:
+    // - Opens: Sunday 5:00 PM EST (22:00 UTC Sunday)
+    // - Closes: Friday 5:00 PM EST (22:00 UTC Friday)
+
+    // Check if currently weekend (Saturday OR Sunday before 5 PM EST)
+    const isSaturday = estDay === 6;
+    const isSundayBeforeOpen = estDay === 0 && estHours < 17;
+    const isWeekend = isSaturday || isSundayBeforeOpen;
+
+    const isFriday = estDay === 5;
 
     // Calculate when market closes this week (Friday 5 PM EST)
-    const marketClosesAt = new Date(estTime);
-    if (dayOfWeek <= 5) {
-      // Move to Friday
-      marketClosesAt.setDate(estTime.getDate() + (5 - dayOfWeek));
+    const marketClosesAt = new Date(now);
+    if (estDay <= 5) {
+      // Move to Friday 5 PM EST (22:00 UTC)
+      const daysUntilFriday = 5 - estDay;
+      marketClosesAt.setUTCDate(now.getUTCDate() + daysUntilFriday);
+      marketClosesAt.setUTCHours(22, 0, 0, 0); // 5 PM EST = 22:00 UTC
     } else {
       // Already weekend, market closes next Friday
-      marketClosesAt.setDate(estTime.getDate() + (5 + 7 - dayOfWeek));
+      const daysUntilNextFriday = (5 + 7 - estDay) % 7;
+      marketClosesAt.setUTCDate(now.getUTCDate() + daysUntilNextFriday);
+      marketClosesAt.setUTCHours(22, 0, 0, 0);
     }
-    marketClosesAt.setHours(this.MARKET_CLOSE_HOUR_EST, this.MARKET_CLOSE_MINUTE_EST, 0, 0);
 
     // Calculate shutdown time (5 minutes before market close)
     const shutdownAt = new Date(marketClosesAt);
     shutdownAt.setMinutes(shutdownAt.getMinutes() - this.SHUTDOWN_MINUTES_BEFORE);
 
     // Calculate time until close
-    const msUntilClose = marketClosesAt.getTime() - estTime.getTime();
+    const msUntilClose = marketClosesAt.getTime() - now.getTime();
     const hoursUntilClose = msUntilClose / (1000 * 60 * 60);
     const minutesUntilClose = msUntilClose / (1000 * 60);
 
     // SIMPLE LOGIC: Shutdown at 5 minutes before close on Friday
-    const shouldShutdown = isFriday && estTime >= shutdownAt && estTime < marketClosesAt;
+    const shouldShutdown = isFriday && now >= shutdownAt && now < marketClosesAt;
 
     // Send warnings at specific intervals (3h, 1h, 30min)
     const shouldWarnUser = isFriday && hoursUntilClose <= 3 && hoursUntilClose > 0;
@@ -173,12 +199,22 @@ class WeekendProtectionService {
     try {
       const status = this.getWeekendStatus();
 
-      // Reset flags on market reopen (Sunday evening)
+      // Reset flags on market reopen (Sunday evening 5 PM EST)
       const now = new Date();
-      const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-      const dayOfWeek = estTime.getDay();
-      const hour = estTime.getHours();
-      if (dayOfWeek === 0 && hour >= 17) {
+      const utcHours = now.getUTCHours();
+      const utcDay = now.getUTCDay();
+
+      // Convert to EST
+      const EST_OFFSET = 5;
+      let estHours = utcHours - EST_OFFSET;
+      let estDay = utcDay;
+      if (estHours < 0) {
+        estHours += 24;
+        estDay = (utcDay - 1 + 7) % 7;
+      }
+
+      // Market reopens Sunday at 5 PM EST (22:00 UTC Sunday)
+      if (estDay === 0 && estHours >= 17) {
         // Market reopened - re-enable systems
         if (SCANNING_DISABLED || LLM_API_DISABLED) {
           this.enableSystems();
