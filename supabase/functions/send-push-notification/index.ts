@@ -80,37 +80,19 @@ async function encryptPayload(
 
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const textEncoder = new TextEncoder();
-    const contentEncoding = textEncoder.encode('Content-Encoding: aes128gcm\0');
 
-    const info = new Uint8Array([
+    // RFC 8291: key_info = "WebPush: info" || 0x00 || ua_public || as_public
+    // NO extra null byte between the public keys
+    const keyInfo = new Uint8Array([
       ...textEncoder.encode('WebPush: info\0'),
       ...userPublicKey,
-      0,
       ...serverPublicKeyBytes
     ]);
 
-    const hkdfKey = await crypto.subtle.importKey(
+    // Step 1: Derive IKM from shared secret using auth as salt
+    const sharedSecretKey = await crypto.subtle.importKey(
       'raw',
       new Uint8Array(sharedSecret),
-      { name: 'HKDF' },
-      false,
-      ['deriveBits']
-    );
-
-    const prk = await crypto.subtle.deriveBits(
-      {
-        name: 'HKDF',
-        hash: 'SHA-256',
-        salt: userAuth,
-        info: contentEncoding
-      },
-      hkdfKey,
-      256
-    );
-
-    const prkKey = await crypto.subtle.importKey(
-      'raw',
-      prk,
       { name: 'HKDF' },
       false,
       ['deriveBits']
@@ -120,25 +102,24 @@ async function encryptPayload(
       {
         name: 'HKDF',
         hash: 'SHA-256',
-        salt: salt,
-        info: info
+        salt: userAuth,
+        info: keyInfo
       },
-      prkKey,
+      sharedSecretKey,
       256
     );
 
+    // Step 2: Derive PRK from IKM using random salt
     const ikmKey = await crypto.subtle.importKey(
       'raw',
-      ikm,
+      new Uint8Array(ikm),
       { name: 'HKDF' },
       false,
       ['deriveBits']
     );
 
-    const cekInfo = new Uint8Array([
-      ...textEncoder.encode('Content-Encoding: aes128gcm\0'),
-      0x00, 0x00
-    ]);
+    // RFC 8291: cek_info = "Content-Encoding: aes128gcm" || 0x00
+    const cekInfo = textEncoder.encode('Content-Encoding: aes128gcm\0');
 
     const cekBits = await crypto.subtle.deriveBits(
       {
@@ -151,10 +132,8 @@ async function encryptPayload(
       128
     );
 
-    const nonceInfo = new Uint8Array([
-      ...textEncoder.encode('Content-Encoding: nonce\0'),
-      0x00, 0x00
-    ]);
+    // RFC 8291: nonce_info = "Content-Encoding: nonce" || 0x00
+    const nonceInfo = textEncoder.encode('Content-Encoding: nonce\0');
 
     const nonceBits = await crypto.subtle.deriveBits(
       {
@@ -175,9 +154,9 @@ async function encryptPayload(
       ['encrypt']
     );
 
+    // Pad the plaintext with delimiter byte (0x02 for final record)
     const plaintextBytes = textEncoder.encode(plaintext);
-    const paddingLength = 0;
-    const record = new Uint8Array(plaintextBytes.length + 1 + paddingLength);
+    const record = new Uint8Array(plaintextBytes.length + 1);
     record.set(plaintextBytes);
     record[plaintextBytes.length] = 0x02;
 
