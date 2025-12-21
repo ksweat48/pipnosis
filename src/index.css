@@ -187,9 +187,9 @@
 
   /* Chart dropdown fix - ensure text is visible and styled properly */
   .chart-select {
-    -webkit-appearance: menulist !important;
-    -moz-appearance: menulist !important;
-    appearance: menulist !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    appearance: none !important;
     color: white !important;
     background-color: rgb(31 41 55) !important; /* gray-800 */
     padding-right: 2rem !important;
