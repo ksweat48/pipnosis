@@ -143,8 +143,14 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+    <div
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+      style={{ WebkitBackdropFilter: 'blur(4px)', backdropFilter: 'blur(4px)' }}
+    >
+      <div
+        className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
         <div className="flex items-center justify-between p-6 border-b border-gray-700">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-gradient-to-r from-amber-500 to-orange-500 rounded-lg">
@@ -192,7 +198,7 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6" style={{ WebkitOverflowScrolling: 'touch' }}>
           {activeTab === 'submit' ? (
             <form onSubmit={handleSubmit} className="space-y-6">
               <div>
@@ -227,10 +233,14 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
                   placeholder="Brief description of your feedback"
-                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-emerald-500"
+                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-emerald-500 text-base"
+                  style={{ fontSize: '16px', touchAction: 'manipulation' }}
                   required
                   minLength={5}
                   maxLength={100}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck="false"
                 />
                 <div className="mt-1 text-xs text-gray-400">
                   {subject.length}/100 characters
@@ -246,10 +256,14 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder="Please provide detailed information about your feedback..."
                   rows={6}
-                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-emerald-500 resize-none"
+                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-emerald-500 resize-none text-base"
+                  style={{ fontSize: '16px', touchAction: 'manipulation' }}
                   required
                   minLength={20}
                   maxLength={1000}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck="false"
                 />
                 <div className="mt-1 text-xs text-gray-400">
                   {message.length}/1000 characters (minimum 20)
@@ -258,18 +272,25 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
 
               <button
                 type="submit"
-                disabled={isSubmitting || subject.length < 5 || message.length < 20}
-                className="w-full py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                disabled={isSubmitting || subject.trim().length < 5 || message.trim().length < 20}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (!isSubmitting && subject.trim().length >= 5 && message.trim().length >= 20) {
+                    handleSubmit(e);
+                  }
+                }}
+                className="w-full py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 active:from-emerald-700 active:to-emerald-800 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', minHeight: '52px' }}
               >
                 {isSubmitting ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Submitting...
+                    <span>Submitting...</span>
                   </>
                 ) : (
                   <>
                     <Send className="w-5 h-5" />
-                    Submit Feedback
+                    <span>Submit Feedback</span>
                   </>
                 )}
               </button>
@@ -372,14 +393,23 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
                               value={replyMessage}
                               onChange={(e) => setReplyMessage(e.target.value)}
                               placeholder="Add a reply..."
-                              className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:border-emerald-500"
+                              className="flex-1 px-3 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-emerald-500"
+                              style={{ fontSize: '16px', touchAction: 'manipulation' }}
+                              autoComplete="off"
+                              autoCorrect="off"
                             />
                             <button
+                              type="button"
                               onClick={() => handleAddReply(feedback.id)}
                               disabled={!replyMessage.trim() || isSubmittingReply}
-                              className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="px-4 py-3 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              style={{ touchAction: 'manipulation', minWidth: '48px' }}
                             >
-                              <Send className="w-4 h-4" />
+                              {isSubmittingReply ? (
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <Send className="w-4 h-4" />
+                              )}
                             </button>
                           </div>
                         )}

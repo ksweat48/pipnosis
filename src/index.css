@@ -138,6 +138,52 @@
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
+
+  /* iOS input fixes - prevent zoom and white box issues */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="search"],
+  textarea,
+  select {
+    font-size: 16px !important; /* Prevent iOS zoom on focus */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    border-radius: 8px;
+  }
+
+  /* Modal/Dialog input container fixes for iOS */
+  .fixed input,
+  .fixed textarea,
+  .fixed select,
+  [role="dialog"] input,
+  [role="dialog"] textarea,
+  [role="dialog"] select {
+    font-size: 16px !important;
+    transform: translateZ(0); /* Force GPU layer */
+    -webkit-transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  /* iOS input focus styles - prevent white box appearance */
+  input:focus,
+  textarea:focus,
+  select:focus {
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+    background-color: inherit;
+  }
+
+  /* Prevent iOS keyboard pushing content */
+  .ios-keyboard-fix {
+    position: fixed;
+    width: 100%;
+  }
 }
 
 @keyframes fadeIn {
