@@ -5,18 +5,20 @@ export interface PendingModal {
   id: string;
   user_id: string;
   goal_session_id: string | null;
-  modal_type: 'trade_closed' | 'goal_achieved' | 'session_update';
+  modal_type: 'trade_closed' | 'goal_achieved' | 'session_update' | 'continuation';
   modal_data: {
-    symbol: string;
-    direction: 'buy' | 'sell';
-    entry_price: number;
-    exit_price: number;
-    profit_loss: number;
-    close_reason: string;
+    symbol?: string;
+    direction?: 'buy' | 'sell';
+    entry_price?: number;
+    exit_price?: number;
+    profit_loss?: number;
+    close_reason?: string;
     current_progress: number;
     target_value: number;
     trades_in_session: number;
     session_status?: string;
+    continuation_prompt?: string;
+    session_id?: string;
     timestamp?: string;
   };
   created_at: string;
@@ -35,7 +37,7 @@ class ModalQueueManager extends TinyEmitter {
   async createPendingModal(
     userId: string,
     goalSessionId: string | null,
-    modalType: 'trade_closed' | 'goal_achieved' | 'session_update',
+    modalType: 'trade_closed' | 'goal_achieved' | 'session_update' | 'continuation',
     modalData: PendingModal['modal_data']
   ): Promise<{ success: boolean; modalId?: string; error?: any }> {
     try {
@@ -170,7 +172,7 @@ class ModalQueueManager extends TinyEmitter {
    */
   async hasSessionPendingModal(
     goalSessionId: string,
-    modalType: 'trade_closed' | 'goal_achieved' | 'session_update'
+    modalType: 'trade_closed' | 'goal_achieved' | 'session_update' | 'continuation'
   ): Promise<boolean> {
     try {
       const { data, error } = await supabase

@@ -7,6 +7,7 @@ export type NotificationType =
   | 'mid-trade-alert'
   | 'goal-achieved'
   | 'goal-progress'
+  | 'scanning-timeout'
   | 'system';
 
 export type NotificationPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -338,6 +339,50 @@ class PushNotificationDispatcher {
       return await this.dispatch(params.userId, payload, params.notificationId);
     } catch (error) {
       console.error('[Push Dispatcher] Error sending goal progress:', error);
+      return false;
+    }
+  }
+
+  async sendScanningTimeout(params: {
+    userId: string;
+    notificationId?: string;
+    goalSessionId: string;
+    modalId: string;
+    tradesInSession: number;
+    currentProgress: number;
+    targetAmount: number;
+  }): Promise<boolean> {
+    try {
+      const priority: NotificationPriority = 'high';
+      const shouldSend = await this.shouldSendPush(params.userId, priority);
+
+      if (!shouldSend) {
+        return false;
+      }
+
+      const payload: PushNotificationPayload = {
+        title: 'Scanning Paused',
+        body: `No trades found in 15 minutes. Continue scanning or close session?`,
+        icon: '/Pipnosis icon.png',
+        badge: '/notification-badge_3.png',
+        data: {
+          type: 'scanning-timeout',
+          priority,
+          goal_session_id: params.goalSessionId,
+          modal_id: params.modalId,
+          tradesInSession: params.tradesInSession,
+          currentProgress: params.currentProgress,
+          targetAmount: params.targetAmount,
+          action: 'open_continuation_modal'
+        },
+        tag: `scanning-timeout-${params.goalSessionId}`,
+        vibrate: [200, 100, 200, 100, 200],
+        requireInteraction: true
+      };
+
+      return await this.dispatch(params.userId, payload, params.notificationId);
+    } catch (error) {
+      console.error('[Push Dispatcher] Error sending scanning timeout:', error);
       return false;
     }
   }
