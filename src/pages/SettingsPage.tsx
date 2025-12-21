@@ -10,6 +10,8 @@ import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock
 import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
 import { chartPreferencesService, type IndicatorVisibility } from '@/services/chart-preferences';
 import { useToast } from '@/hooks/useToast';
+import { pushSubscriptionService, type DeviceInfo } from '@/services/push-subscription-service';
+import { pushNotificationDispatcher } from '@/services/push-notification-dispatcher';
 
 export function SettingsPage() {
   const { user, updatePassword } = useAuth();
@@ -53,6 +55,12 @@ export function SettingsPage() {
   const [balanceMessage, setBalanceMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showBalanceConfirmModal, setShowBalanceConfirmModal] = useState(false);
 
+  const [pushDevices, setPushDevices] = useState<DeviceInfo[]>([]);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>('default');
+  const [loadingPush, setLoadingPush] = useState(false);
+  const [testingPush, setTestingPush] = useState(false);
+  const [editingDevice, setEditingDevice] = useState<{ id: string; name: string } | null>(null);
+
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
       window.location.reload();
@@ -64,6 +72,7 @@ export function SettingsPage() {
     if (user) {
       loadUserData();
       loadIndicatorPreferences();
+      loadPushSettings();
     }
   }, [user]);
 
@@ -306,6 +315,137 @@ export function SettingsPage() {
     } else {
       toast.success('Up to Date', 'You are running the latest version');
     }
+  };
+
+  const loadPushSettings = async () => {
+    try {
+      const permission = await pushSubscriptionService.getPermissionStatus();
+      setPushPermission(permission);
+
+      if (permission === 'granted') {
+        const devices = await pushSubscriptionService.getDevices();
+        setPushDevices(devices);
+      }
+    } catch (error) {
+      console.error('Error loading push settings:', error);
+    }
+  };
+
+  const handleEnablePush = async () => {
+    try {
+      setLoadingPush(true);
+      const subscription = await pushSubscriptionService.subscribe();
+
+      if (subscription) {
+        toast.success('Push Enabled', 'Push notifications have been enabled successfully');
+        await loadPushSettings();
+      } else {
+        toast.error('Failed', 'Could not enable push notifications');
+      }
+    } catch (error) {
+      console.error('Error enabling push:', error);
+      toast.error('Error', 'Failed to enable push notifications');
+    } finally {
+      setLoadingPush(false);
+    }
+  };
+
+  const handleDisablePush = async () => {
+    try {
+      setLoadingPush(true);
+      const success = await pushSubscriptionService.unsubscribe();
+
+      if (success) {
+        toast.success('Push Disabled', 'Push notifications have been disabled');
+        await loadPushSettings();
+      } else {
+        toast.error('Failed', 'Could not disable push notifications');
+      }
+    } catch (error) {
+      console.error('Error disabling push:', error);
+      toast.error('Error', 'Failed to disable push notifications');
+    } finally {
+      setLoadingPush(false);
+    }
+  };
+
+  const handleTestPush = async () => {
+    try {
+      setTestingPush(true);
+
+      if (!user) return;
+
+      await pushNotificationDispatcher.sendTradeSignal({
+        userId: user.id,
+        symbol: 'EURUSD',
+        direction: 'buy',
+        setupType: 'Test Signal',
+        confidence: 85,
+        entryPrice: 1.0850,
+        stopLoss: 1.0800,
+        takeProfit: 1.0950
+      });
+
+      toast.success('Test Sent', 'Test push notification sent to all your devices');
+    } catch (error) {
+      console.error('Error sending test push:', error);
+      toast.error('Failed', 'Could not send test notification');
+    } finally {
+      setTestingPush(false);
+    }
+  };
+
+  const handleRemoveDevice = async (deviceId: string) => {
+    try {
+      const success = await pushSubscriptionService.removeDevice(deviceId);
+
+      if (success) {
+        toast.success('Device Removed', 'Device has been removed from your account');
+        await loadPushSettings();
+      } else {
+        toast.error('Failed', 'Could not remove device');
+      }
+    } catch (error) {
+      console.error('Error removing device:', error);
+      toast.error('Error', 'Failed to remove device');
+    }
+  };
+
+  const handleSaveDeviceName = async () => {
+    if (!editingDevice) return;
+
+    try {
+      const success = await pushSubscriptionService.updateDeviceName(
+        editingDevice.id,
+        editingDevice.name
+      );
+
+      if (success) {
+        toast.success('Name Updated', 'Device name has been updated');
+        setEditingDevice(null);
+        await loadPushSettings();
+      } else {
+        toast.error('Failed', 'Could not update device name');
+      }
+    } catch (error) {
+      console.error('Error updating device name:', error);
+      toast.error('Error', 'Failed to update device name');
+    }
+  };
+
+  const formatDeviceDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
   };
 
   return (
@@ -1005,6 +1145,164 @@ export function SettingsPage() {
                   </button>
                 </div>
               </form>
+            </div>
+
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <Bell size={20} className="text-emerald-400" />
+                <h2 className="text-xl font-semibold text-white">Push Notifications</h2>
+              </div>
+
+              <p className="text-sm text-gray-400 mb-6">
+                Manage push notification devices and receive real-time alerts even when the app is closed.
+              </p>
+
+              <div className="space-y-6">
+                <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <div className="text-white font-medium mb-1">Push Notifications</div>
+                      <div className="text-xs text-gray-400">
+                        {pushPermission === 'granted' && 'Enabled on this device'}
+                        {pushPermission === 'denied' && 'Blocked by browser - please enable in browser settings'}
+                        {pushPermission === 'default' && 'Not configured'}
+                      </div>
+                    </div>
+                    {pushPermission === 'granted' ? (
+                      <button
+                        onClick={handleDisablePush}
+                        disabled={loadingPush}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white text-sm rounded-lg transition-colors"
+                      >
+                        {loadingPush ? 'Disabling...' : 'Disable'}
+                      </button>
+                    ) : pushPermission === 'default' ? (
+                      <button
+                        onClick={handleEnablePush}
+                        disabled={loadingPush}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 text-white text-sm rounded-lg transition-colors"
+                      >
+                        {loadingPush ? 'Enabling...' : 'Enable Push'}
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {pushPermission === 'granted' && (
+                    <button
+                      onClick={handleTestPush}
+                      disabled={testingPush}
+                      className="w-full mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                    >
+                      {testingPush ? (
+                        <>
+                          <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
+                          <span>Sending Test...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Bell size={16} />
+                          <span>Send Test Notification</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                {pushDevices.length > 0 && (
+                  <div>
+                    <h3 className="text-white font-medium mb-3">Registered Devices</h3>
+                    <div className="space-y-3">
+                      {pushDevices.map((device) => (
+                        <div
+                          key={device.id}
+                          className="p-4 bg-gray-800/50 rounded-lg border border-gray-700"
+                        >
+                          {editingDevice?.id === device.id ? (
+                            <div className="space-y-3">
+                              <input
+                                type="text"
+                                value={editingDevice.name}
+                                onChange={(e) =>
+                                  setEditingDevice({ ...editingDevice, name: e.target.value })
+                                }
+                                className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={handleSaveDeviceName}
+                                  className="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg transition-colors"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  onClick={() => setEditingDevice(null)}
+                                  className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-start justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <Smartphone
+                                    size={16}
+                                    className={device.isActive ? 'text-emerald-400' : 'text-gray-500'}
+                                  />
+                                  <div className="text-white font-medium">{device.deviceName}</div>
+                                  {!device.isActive && (
+                                    <span className="text-xs text-gray-500">(Inactive)</span>
+                                  )}
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() =>
+                                      setEditingDevice({ id: device.id, name: device.deviceName })
+                                    }
+                                    className="text-blue-400 hover:text-blue-300 text-xs"
+                                  >
+                                    Rename
+                                  </button>
+                                  <button
+                                    onClick={() => handleRemoveDevice(device.id)}
+                                    className="text-red-400 hover:text-red-300 text-xs"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                Last used {formatDeviceDate(device.lastUsedAt)}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {pushPermission === 'denied' && (
+                  <div className="p-4 bg-red-900/20 border border-red-700/30 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle size={18} className="text-red-400 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-red-300">
+                        <p className="font-medium mb-1">Push Notifications Blocked</p>
+                        <p className="text-red-300/80 mb-2">
+                          You have blocked push notifications for this site. To enable them:
+                        </p>
+                        <ol className="text-xs list-decimal list-inside space-y-1 text-red-300/80">
+                          <li>Click the lock icon in your browser address bar</li>
+                          <li>Find "Notifications" in the permissions list</li>
+                          <li>Change the setting to "Allow"</li>
+                          <li>Refresh this page</li>
+                        </ol>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">

@@ -31,13 +31,15 @@ import {
   AlertCircle,
   Clock,
   Users,
-  MessageSquare
+  MessageSquare,
+  Bell
 } from 'lucide-react';
 import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
 import { UserFeedbackPanel } from '@/components/admin/UserFeedbackPanel';
+import { PushNotificationTester } from '@/components/admin/PushNotificationTester';
 import { userFeedbackService } from '@/services/user-feedback-service';
 
-type AdminTab = 'overview' | 'data' | 'api-usage' | 'settings' | 'users' | 'feedback';
+type AdminTab = 'overview' | 'data' | 'api-usage' | 'settings' | 'users' | 'feedback' | 'push-notifications';
 
 interface AIMetrics {
   skillLevel: number;
@@ -292,6 +294,17 @@ export function AdminDashboard() {
               </span>
             )}
           </button>
+          <button
+            onClick={() => setActiveTab('push-notifications')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+              activeTab === 'push-notifications'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            <Bell size={18} />
+            Push Notifications
+          </button>
         </div>
 
         {activeTab === 'overview' && (
@@ -468,6 +481,12 @@ export function AdminDashboard() {
               </div>
               <UserFeedbackPanel />
             </div>
+          </div>
+        )}
+
+        {activeTab === 'push-notifications' && (
+          <div className="space-y-6">
+            <PushNotificationTester />
           </div>
         )}
       </main>
