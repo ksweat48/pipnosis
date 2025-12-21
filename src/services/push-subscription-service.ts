@@ -102,13 +102,17 @@ class PushSubscriptionService {
     }
   }
 
-  async subscribe(deviceName?: string): Promise<PushSubscription | null> {
+  async subscribe(deviceName?: string, force = false): Promise<PushSubscription | null> {
     try {
+      console.log('[Push] Subscribe called, device:', deviceName, 'force:', force);
+
       const permission = await this.requestPermission();
       if (permission !== 'granted') {
-        console.warn('[Push] Permission not granted');
+        console.warn('[Push] Permission not granted:', permission);
         return null;
       }
+
+      console.log('[Push] Permission granted');
 
       const registration = await this.getServiceWorkerRegistration();
       if (!registration) {
@@ -116,30 +120,54 @@ class PushSubscriptionService {
         return null;
       }
 
+      console.log('[Push] Service worker ready');
+
       const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
       if (!vapidPublicKey) {
         console.error('[Push] VAPID public key not configured');
         return null;
       }
 
-      const convertedVapidKey = this.urlBase64ToUint8Array(vapidPublicKey);
-      console.log('[Push] VAPID key length:', convertedVapidKey.length, 'bytes');
+      // Check for existing subscription
+      let existingSubscription = await registration.pushManager.getSubscription();
 
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: convertedVapidKey
-      });
+      if (existingSubscription && force) {
+        console.log('[Push] Force re-subscribe - unsubscribing existing');
+        await existingSubscription.unsubscribe();
+        existingSubscription = null;
+      }
 
-      console.log('[Push] Subscription created:', subscription);
+      let subscription: PushSubscription;
 
+      if (existingSubscription) {
+        console.log('[Push] Using existing browser subscription');
+        subscription = existingSubscription;
+      } else {
+        console.log('[Push] Creating new browser subscription');
+        const convertedVapidKey = this.urlBase64ToUint8Array(vapidPublicKey);
+        console.log('[Push] VAPID key length:', convertedVapidKey.length, 'bytes');
+
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedVapidKey
+        });
+
+        console.log('[Push] New subscription created');
+      }
+
+      console.log('[Push] Saving subscription to database...');
       await this.saveSubscription(subscription, deviceName);
 
       this.subscriptionCache = subscription;
       this.isInitialized = true;
 
+      console.log('[Push] Subscribe complete');
       return subscription;
     } catch (error) {
       console.error('[Push] Error subscribing:', error);
+      if (error instanceof Error) {
+        console.error('[Push] Error details:', error.message, error.stack);
+      }
       return null;
     }
   }

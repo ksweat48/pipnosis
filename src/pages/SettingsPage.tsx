@@ -334,16 +334,21 @@ export function SettingsPage() {
   const handleEnablePush = async () => {
     try {
       setLoadingPush(true);
-      const subscription = await pushSubscriptionService.subscribe();
+      console.log('[Settings] Enabling push notifications...');
+
+      // Force re-subscribe to ensure it gets saved to database
+      const subscription = await pushSubscriptionService.subscribe(undefined, true);
 
       if (subscription) {
+        console.log('[Settings] Push enabled successfully');
         toast.success('Push Enabled', 'Push notifications have been enabled successfully');
         await loadPushSettings();
       } else {
-        toast.error('Failed', 'Could not enable push notifications');
+        console.error('[Settings] Push enable returned null');
+        toast.error('Failed', 'Could not enable push notifications. Check console for details.');
       }
     } catch (error) {
-      console.error('Error enabling push:', error);
+      console.error('[Settings] Error enabling push:', error);
       toast.error('Error', 'Failed to enable push notifications');
     } finally {
       setLoadingPush(false);
@@ -353,16 +358,21 @@ export function SettingsPage() {
   const handleDisablePush = async () => {
     try {
       setLoadingPush(true);
+      console.log('[Settings] Disabling push notifications...');
+
       const success = await pushSubscriptionService.unsubscribe();
 
       if (success) {
+        console.log('[Settings] Push disabled successfully');
         toast.success('Push Disabled', 'Push notifications have been disabled');
-        await loadPushSettings();
+        setPushPermission('default');
+        setPushDevices([]);
       } else {
+        console.error('[Settings] Push disable returned false');
         toast.error('Failed', 'Could not disable push notifications');
       }
     } catch (error) {
-      console.error('Error disabling push:', error);
+      console.error('[Settings] Error disabling push:', error);
       toast.error('Error', 'Failed to disable push notifications');
     } finally {
       setLoadingPush(false);
