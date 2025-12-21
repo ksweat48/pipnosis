@@ -105,7 +105,7 @@ class PushNotificationDispatcher {
         title: `Trade Signal: ${params.symbol}`,
         body: `${params.direction.toUpperCase()} ${params.setupType} - ${params.confidence}% confidence`,
         icon: '/Pipnosis icon.png',
-        badge: '/Pipnosis icon.png',
+        badge: '/notification-badge_1.png',
         data: {
           type: 'trade-signal',
           priority,
@@ -151,7 +151,7 @@ class PushNotificationDispatcher {
         title: `Trade Entered: ${params.symbol}`,
         body: `${params.direction.toUpperCase()} at ${params.entryPrice} - ${params.lotSize} lots`,
         icon: '/Pipnosis icon.png',
-        badge: '/Pipnosis icon.png',
+        badge: '/notification-badge_1.png',
         data: {
           type: 'trade-entry',
           priority,
@@ -199,7 +199,7 @@ class PushNotificationDispatcher {
         title: `Trade Closed: ${params.symbol}`,
         body: `${profitText} - ${params.closeReason}`,
         icon: '/Pipnosis icon.png',
-        badge: '/Pipnosis icon.png',
+        badge: '/notification-badge_1.png',
         data: {
           type: 'trade-closed',
           priority,
@@ -242,7 +242,7 @@ class PushNotificationDispatcher {
         title: `Mid-Trade Alert: ${params.symbol}`,
         body: `${params.triggerReason} - ${params.llmRecommendation}`,
         icon: '/Pipnosis icon.png',
-        badge: '/Pipnosis icon.png',
+        badge: '/notification-badge_1.png',
         data: {
           type: 'mid-trade-alert',
           priority,
@@ -282,7 +282,7 @@ class PushNotificationDispatcher {
         title: 'Goal Achieved!',
         body: `Congratulations! You reached your $${params.goalAmount} target with ${params.tradesCount} trades`,
         icon: '/Pipnosis icon.png',
-        badge: '/Pipnosis icon.png',
+        badge: '/notification-badge_1.png',
         data: {
           type: 'goal-achieved',
           priority,
@@ -322,7 +322,7 @@ class PushNotificationDispatcher {
         title: 'Goal Progress Update',
         body: `${params.progressPercentage.toFixed(1)}% complete - $${params.currentProgress.toFixed(2)} of $${params.targetAmount}`,
         icon: '/Pipnosis icon.png',
-        badge: '/Pipnosis icon.png',
+        badge: '/notification-badge_1.png',
         data: {
           type: 'goal-progress',
           priority,

@@ -121,7 +121,7 @@ function getNotificationIcon(type) {
 // Use the black and white notification badge for status bar
 function getNotificationBadge() {
   const origin = self.location.origin;
-  return `${origin}/notification-badge.png`;
+  return `${origin}/notification-badge_1.png`;
 }
 
 // Get notification color based on type and data
