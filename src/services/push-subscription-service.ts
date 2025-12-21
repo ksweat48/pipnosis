@@ -149,11 +149,17 @@ class PushSubscriptionService {
     deviceName?: string
   ): Promise<void> {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError) {
+        console.error('[Push] Error getting user:', userError);
+        return;
+      }
       if (!user) {
         console.error('[Push] No user found');
         return;
       }
+
+      console.log('[Push] Saving subscription for user:', user.id);
 
       const subscriptionJson = subscription.toJSON();
       const endpoint = subscriptionJson.endpoint;
@@ -161,12 +167,16 @@ class PushSubscriptionService {
       const authKey = subscriptionJson.keys?.auth;
 
       if (!endpoint || !p256dhKey || !authKey) {
-        console.error('[Push] Invalid subscription data');
+        console.error('[Push] Invalid subscription data', { endpoint: !!endpoint, p256dhKey: !!p256dhKey, authKey: !!authKey });
         return;
       }
 
+      console.log('[Push] Subscription data valid, endpoint:', endpoint);
+
       const userAgent = navigator.userAgent;
       const finalDeviceName = deviceName || this.getDefaultDeviceName();
+
+      console.log('[Push] Device name:', finalDeviceName);
 
       const { data: existing, error: fetchError } = await supabase
         .from('push_subscriptions')
@@ -176,10 +186,12 @@ class PushSubscriptionService {
 
       if (fetchError) {
         console.error('[Push] Error checking existing subscription:', fetchError);
+        return;
       }
 
       if (existing) {
-        const { error: updateError } = await supabase
+        console.log('[Push] Updating existing subscription:', existing.id);
+        const { data: updateData, error: updateError } = await supabase
           .from('push_subscriptions')
           .update({
             p256dh_key: p256dhKey,
@@ -189,15 +201,17 @@ class PushSubscriptionService {
             is_active: true,
             last_used_at: new Date().toISOString()
           })
-          .eq('id', existing.id);
+          .eq('id', existing.id)
+          .select();
 
         if (updateError) {
           console.error('[Push] Error updating subscription:', updateError);
         } else {
-          console.log('[Push] Subscription updated');
+          console.log('[Push] Subscription updated successfully:', updateData);
         }
       } else {
-        const { error: insertError } = await supabase
+        console.log('[Push] Creating new subscription');
+        const { data: insertData, error: insertError } = await supabase
           .from('push_subscriptions')
           .insert({
             user_id: user.id,
@@ -207,12 +221,30 @@ class PushSubscriptionService {
             device_name: finalDeviceName,
             user_agent: userAgent,
             is_active: true
-          });
+          })
+          .select();
 
         if (insertError) {
           console.error('[Push] Error saving subscription:', insertError);
+          console.error('[Push] Insert error details:', JSON.stringify(insertError, null, 2));
         } else {
-          console.log('[Push] Subscription saved');
+          console.log('[Push] Subscription saved successfully:', insertData);
+        }
+      }
+
+      // Verify the subscription was saved
+      const { data: verify, error: verifyError } = await supabase
+        .from('push_subscriptions')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_active', true);
+
+      if (verifyError) {
+        console.error('[Push] Error verifying subscription:', verifyError);
+      } else {
+        console.log('[Push] Verified active subscriptions:', verify?.length || 0);
+        if (verify && verify.length > 0) {
+          console.log('[Push] Active subscription details:', verify);
         }
       }
     } catch (error) {
