@@ -1,7 +1,7 @@
 // Pipnosis PWA Service Worker
 // Enables installation and "Add to Home Screen" functionality
 
-const BUILD_VERSION = '1.0.3';
+const BUILD_VERSION = '1.0.4';
 const CACHE_NAME = `pipnosis-v${BUILD_VERSION}`;
 const STATIC_ASSETS = [
   '/',
@@ -110,8 +110,10 @@ function getVibrationPattern(type, data) {
 }
 
 // Get notification icon based on type
+// Use full URL for Android to properly display colored icon
 function getNotificationIcon(type) {
-  return '/Pipnosis icon.png';
+  const origin = self.location.origin;
+  return `${origin}/Pipnosis icon.png`;
 }
 
 // Get notification badge (monochrome icon for Android status bar)
@@ -174,30 +176,31 @@ self.addEventListener('push', (event) => {
     }
 
     // Add action buttons based on notification type
+    const actionIcon = `${self.location.origin}/Pipnosis icon.png`;
     if (data?.type === 'trade-signal') {
       notificationOptions.actions = [
-        { action: 'view', title: 'View Signal', icon: '/Pipnosis icon.png' },
-        { action: 'dismiss', title: 'Dismiss', icon: '/Pipnosis icon.png' }
+        { action: 'view', title: 'View Signal', icon: actionIcon },
+        { action: 'dismiss', title: 'Dismiss', icon: actionIcon }
       ];
     } else if (data?.type === 'trade-entry') {
       notificationOptions.actions = [
-        { action: 'view', title: 'View Position', icon: '/Pipnosis icon.png' },
-        { action: 'dismiss', title: 'Dismiss', icon: '/Pipnosis icon.png' }
+        { action: 'view', title: 'View Position', icon: actionIcon },
+        { action: 'dismiss', title: 'Dismiss', icon: actionIcon }
       ];
     } else if (data?.type === 'trade-closed') {
       notificationOptions.actions = [
-        { action: 'view', title: 'View Details', icon: '/Pipnosis icon.png' },
-        { action: 'dismiss', title: 'Dismiss', icon: '/Pipnosis icon.png' }
+        { action: 'view', title: 'View Details', icon: actionIcon },
+        { action: 'dismiss', title: 'Dismiss', icon: actionIcon }
       ];
     } else if (data?.type === 'mid-trade-alert') {
       notificationOptions.actions = [
-        { action: 'view', title: 'View Trade', icon: '/Pipnosis icon.png' },
-        { action: 'dismiss', title: 'Dismiss', icon: '/Pipnosis icon.png' }
+        { action: 'view', title: 'View Trade', icon: actionIcon },
+        { action: 'dismiss', title: 'Dismiss', icon: actionIcon }
       ];
     } else if (data?.type === 'goal-achieved') {
       notificationOptions.actions = [
-        { action: 'view', title: 'View Achievement', icon: '/Pipnosis icon.png' },
-        { action: 'dismiss', title: 'Dismiss', icon: '/Pipnosis icon.png' }
+        { action: 'view', title: 'View Achievement', icon: actionIcon },
+        { action: 'dismiss', title: 'Dismiss', icon: actionIcon }
       ];
     }
 
@@ -220,7 +223,7 @@ self.addEventListener('push', (event) => {
     event.waitUntil(
       self.registration.showNotification('Pipnosis', {
         body: 'New notification (error parsing data)',
-        icon: '/Pipnosis icon.png',
+        icon: `${self.location.origin}/Pipnosis icon.png`,
         vibrate: [200],
         requireInteraction: false,
         silent: false
