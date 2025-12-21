@@ -11,6 +11,7 @@ export interface AdminUser {
   active_trades: number;
   scanning_sessions: number;
   scanning_duration_minutes: number | null;
+  awaiting_response_sessions: number;
   last_activity: string;
 }
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, MoreVertical, User, DollarSign, RefreshCw, Eye, Copy } from 'lucide-react';
+import { Search, MoreVertical, User, DollarSign, RefreshCw, Eye, Copy, Clock } from 'lucide-react';
 import { adminUserService, AdminUser } from '../../services/admin-user-service';
 import { useToast } from '../../hooks/useToast';
 import { UserDetailsModal } from './UserDetailsModal';
@@ -117,6 +117,12 @@ export const UserManagementPanel: React.FC = () => {
 
   const formatScanDuration = (minutes: number | null): string => {
     if (!minutes) return '';
+
+    // Safety cap: scanning should never exceed 15 minutes
+    // If showing more, indicates potential stuck session
+    if (minutes >= 15) {
+      return '15m';
+    }
 
     if (minutes < 60) {
       return `${Math.round(minutes)}m`;
@@ -256,6 +262,14 @@ export const UserManagementPanel: React.FC = () => {
                               {formatScanDuration(user.scanning_duration_minutes)}
                             </span>
                           )}
+                        </div>
+                      ) : user.awaiting_response_sessions > 0 ? (
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="px-2 py-1 bg-amber-500/20 text-amber-400 text-xs rounded flex items-center justify-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            Paused
+                          </span>
+                          <span className="text-xs text-gray-400">Awaiting</span>
                         </div>
                       ) : (
                         <span className="text-gray-500">0</span>
