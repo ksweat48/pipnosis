@@ -385,6 +385,26 @@ export function SettingsPage() {
 
       if (!user) return;
 
+      console.log('[Test Push] === SERVICE WORKER DIAGNOSTICS ===');
+
+      if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.ready;
+        console.log('[Test Push] Service Worker State:', registration.active?.state);
+        console.log('[Test Push] Service Worker Script URL:', registration.active?.scriptURL);
+
+        const subscription = await registration.pushManager.getSubscription();
+        console.log('[Test Push] Push Subscription Active:', !!subscription);
+
+        if (subscription) {
+          console.log('[Test Push] Subscription Endpoint:', subscription.endpoint.substring(0, 50) + '...');
+        }
+      } else {
+        console.log('[Test Push] Service Worker not supported');
+      }
+
+      console.log('[Test Push] Notification Permission:', Notification.permission);
+      console.log('[Test Push] Sending test notification...');
+
       await pushNotificationDispatcher.sendTradeSignal({
         userId: user.id,
         symbol: 'EURUSD',
@@ -396,9 +416,13 @@ export function SettingsPage() {
         takeProfit: 1.0950
       });
 
-      toast.success('Test Sent', 'Test push notification sent to all your devices');
+      console.log('[Test Push] Test notification sent successfully');
+      console.log('[Test Push] Check your device - notification should appear in ~5 seconds');
+      console.log('[Test Push] Open DevTools → Application → Service Workers to see SW logs');
+
+      toast.success('Test Sent', 'Check console for detailed diagnostics. Notification should appear in ~5 seconds.');
     } catch (error) {
-      console.error('Error sending test push:', error);
+      console.error('[Test Push] Error sending test push:', error);
       toast.error('Failed', 'Could not send test notification');
     } finally {
       setTestingPush(false);

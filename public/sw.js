@@ -1,7 +1,7 @@
 // Pipnosis PWA Service Worker
 // Enables installation and "Add to Home Screen" functionality
 
-const BUILD_VERSION = '1.0.1';
+const BUILD_VERSION = '1.0.2';
 const CACHE_NAME = `pipnosis-v${BUILD_VERSION}`;
 const STATIC_ASSETS = [
   '/',
@@ -139,16 +139,18 @@ function getNotificationColor(type, data) {
 
 // Push event - receive and display notification
 self.addEventListener('push', (event) => {
-  console.log('[Push] Push event received');
+  console.log('[SW Push] ==================== PUSH EVENT RECEIVED ====================');
+  console.log('[SW Push] Event:', event);
+  console.log('[SW Push] Event.data:', event.data);
 
   if (!event.data) {
-    console.log('[Push] No data in push event');
+    console.log('[SW Push] ERROR: No data in push event');
     return;
   }
 
   try {
     const payload = event.data.json();
-    console.log('[Push] Payload:', payload);
+    console.log('[SW Push] Parsed payload:', JSON.stringify(payload, null, 2));
 
     const { title, body, icon, badge, data, tag, vibrate } = payload;
 
@@ -192,11 +194,32 @@ self.addEventListener('push', (event) => {
       ];
     }
 
+    console.log('[SW Push] Showing notification with title:', title || 'Pipnosis');
+    console.log('[SW Push] Notification options:', notificationOptions);
+
     event.waitUntil(
       self.registration.showNotification(title || 'Pipnosis', notificationOptions)
+        .then(() => {
+          console.log('[SW Push] ✅ Notification shown successfully!');
+        })
+        .catch((error) => {
+          console.error('[SW Push] ❌ Error showing notification:', error);
+        })
     );
   } catch (error) {
-    console.error('[Push] Error parsing push event:', error);
+    console.error('[SW Push] ❌ Error parsing push event:', error);
+
+    // Show fallback notification
+    event.waitUntil(
+      self.registration.showNotification('Pipnosis', {
+        body: 'New notification (error parsing data)',
+        icon: '/Pipnosis icon.png',
+        badge: '/Pipnosis icon.png',
+        vibrate: [200],
+        requireInteraction: false,
+        silent: false
+      })
+    );
   }
 });
 
