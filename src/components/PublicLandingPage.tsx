@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 
-export function PublicLandingPage() {
+export default function PublicLandingPage() {
   return (
     <div className="min-h-screen relative flex items-center justify-center p-4 overflow-hidden">
       <div
