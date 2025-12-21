@@ -60,8 +60,13 @@ if (typeof window !== 'undefined') {
   if ('serviceWorker' in navigator && import.meta.env.PROD) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js');
+        const registration = await navigator.serviceWorker.register('/sw.js', {
+          updateViaCache: 'none'
+        });
         console.log('PWA: Service Worker registered successfully');
+
+        await registration.update();
+        console.log('PWA: Forced service worker update check');
 
         const { pwaUpdateManager } = await import('./services/pwa-update-manager');
         await pwaUpdateManager.initialize(registration);
