@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import webpush from 'npm:web-push@3.6.7';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,6 +24,14 @@ interface SendPushRequest {
   payload: PushPayload;
 }
 
+interface PushSubscription {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+}
+
 async function sendWebPush(
   endpoint: string,
   p256dhKey: string,
@@ -38,94 +47,56 @@ async function sendWebPush(
       return { success: false, error: 'VAPID keys not configured' };
     }
 
-    const urlObject = new URL(endpoint);
-    const audience = `${urlObject.protocol}//${urlObject.host}`;
+    console.log('[Push] Configuring web-push with VAPID keys');
 
-    const now = Math.floor(Date.now() / 1000);
-    const exp = now + 12 * 60 * 60;
-
-    const header = {
-      typ: 'JWT',
-      alg: 'ES256'
-    };
-
-    const jwtPayload = {
-      aud: audience,
-      exp: exp,
-      sub: 'mailto:support@pipnosis.com'
-    };
-
-    const textEncoder = new TextEncoder();
-    const headerB64 = btoa(JSON.stringify(header))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
-    const payloadB64 = btoa(JSON.stringify(jwtPayload))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
-
-    const unsignedToken = `${headerB64}.${payloadB64}`;
-
-    const privateKeyDer = Uint8Array.from(atob(vapidPrivateKey.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-    const importedKey = await crypto.subtle.importKey(
-      'pkcs8',
-      privateKeyDer,
-      {
-        name: 'ECDSA',
-        namedCurve: 'P-256'
-      },
-      false,
-      ['sign']
+    // Configure web-push with VAPID details
+    webpush.setVapidDetails(
+      'mailto:support@pipnosis.com',
+      vapidPublicKey,
+      vapidPrivateKey
     );
 
-    const signature = await crypto.subtle.sign(
+    // Create push subscription object
+    const pushSubscription: PushSubscription = {
+      endpoint: endpoint,
+      keys: {
+        p256dh: p256dhKey,
+        auth: authKey
+      }
+    };
+
+    console.log('[Push] Sending notification to endpoint:', endpoint.substring(0, 50) + '...');
+
+    // Send notification using web-push library (handles all encryption)
+    const result = await webpush.sendNotification(
+      pushSubscription,
+      JSON.stringify(payload),
       {
-        name: 'ECDSA',
-        hash: { name: 'SHA-256' }
-      },
-      importedKey,
-      textEncoder.encode(unsignedToken)
+        TTL: 86400, // 24 hours
+        urgency: 'high',
+        topic: payload.tag || 'default'
+      }
     );
 
-    const signatureB64 = btoa(String.fromCharCode(...new Uint8Array(signature)))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
+    console.log('[Push] Push sent successfully, status:', result.statusCode);
 
-    const jwt = `${unsignedToken}.${signatureB64}`;
-
-    const payloadString = JSON.stringify(payload);
-    const payloadBytes = textEncoder.encode(payloadString);
-
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'Content-Encoding': 'aes128gcm',
-        'Authorization': `vapid t=${jwt}, k=${vapidPublicKey}`,
-        'TTL': '86400'
-      },
-      body: payloadBytes
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('[Push] Push failed:', response.status, errorText);
-
-      return {
-        success: false,
-        error: `Push failed: ${response.status} ${errorText}`,
-        statusCode: response.status
-      };
-    }
-
-    return { success: true };
-  } catch (error) {
+    return {
+      success: true,
+      statusCode: result.statusCode
+    };
+  } catch (error: any) {
     console.error('[Push] Error sending push:', error);
+
+    // Extract status code from error if available
+    const statusCode = error?.statusCode || error?.response?.statusCode || 500;
+    const errorBody = error?.body || error?.message || 'Unknown error';
+
+    console.error('[Push] Error details - Status:', statusCode, 'Body:', errorBody);
+
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: errorBody,
+      statusCode: statusCode
     };
   }
 }
@@ -156,6 +127,7 @@ Deno.serve(async (req: Request) => {
     }
 
     console.log('[Push] Sending to user:', user_id);
+    console.log('[Push] Payload:', JSON.stringify(payload).substring(0, 100));
 
     const { data: subscriptions, error: fetchError } = await supabase
       .from('push_subscriptions')
@@ -190,10 +162,12 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    console.log('[Push] Found subscriptions:', subscriptions.length);
+    console.log('[Push] Found', subscriptions.length, 'active subscription(s)');
 
     const results = await Promise.allSettled(
       subscriptions.map(async (sub) => {
+        console.log('[Push] Sending to device:', sub.device_name);
+
         const result = await sendWebPush(
           sub.endpoint,
           sub.p256dh_key,
@@ -201,6 +175,9 @@ Deno.serve(async (req: Request) => {
           payload
         );
 
+        console.log('[Push] Result for', sub.device_name, ':', result.success ? 'SUCCESS' : 'FAILED', result.statusCode);
+
+        // Mark subscription as inactive if endpoint is gone or not found
         if (result.statusCode === 410 || result.statusCode === 404) {
           console.log('[Push] Marking subscription as inactive:', sub.id);
           await supabase
@@ -208,6 +185,7 @@ Deno.serve(async (req: Request) => {
             .update({ is_active: false })
             .eq('id', sub.id);
         } else if (result.success) {
+          // Update last used timestamp on success
           await supabase
             .from('push_subscriptions')
             .update({ last_used_at: new Date().toISOString() })
@@ -222,8 +200,17 @@ Deno.serve(async (req: Request) => {
     const deliveredCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
     const failedCount = sentCount - deliveredCount;
 
-    console.log('[Push] Results - Sent:', sentCount, 'Delivered:', deliveredCount, 'Failed:', failedCount);
+    console.log('[Push] FINAL RESULTS - Sent:', sentCount, 'Delivered:', deliveredCount, 'Failed:', failedCount);
 
+    // Log failed results for debugging
+    results.forEach((r, i) => {
+      if (r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)) {
+        const error = r.status === 'rejected' ? r.reason : r.value.error;
+        console.error('[Push] Failed device', i, 'error:', error);
+      }
+    });
+
+    // Update notification status in database if notification_id provided
     if (notification_id) {
       await supabase
         .from('goal_notifications')
