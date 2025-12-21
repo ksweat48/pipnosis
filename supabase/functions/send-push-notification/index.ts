@@ -283,6 +283,31 @@ async function sendWebPush(
 
     console.log('[Push] Sending encrypted notification to:', endpoint.substring(0, 50) + '...');
 
+    // Build the complete aes128gcm body: salt + record_size + public_key_length + public_key + ciphertext
+    const recordSize = new Uint8Array([0x00, 0x00, 0x10, 0x00]); // 4096 bytes
+    const publicKeyLength = new Uint8Array([0x41]); // 65 bytes
+
+    const body = new Uint8Array(
+      encrypted.salt.length +
+      recordSize.length +
+      publicKeyLength.length +
+      encrypted.publicKey.length +
+      encrypted.ciphertext.length
+    );
+
+    let offset = 0;
+    body.set(encrypted.salt, offset);
+    offset += encrypted.salt.length;
+    body.set(recordSize, offset);
+    offset += recordSize.length;
+    body.set(publicKeyLength, offset);
+    offset += publicKeyLength.length;
+    body.set(encrypted.publicKey, offset);
+    offset += encrypted.publicKey.length;
+    body.set(encrypted.ciphertext, offset);
+
+    console.log('[Push] Complete body size:', body.length, 'bytes (salt:', encrypted.salt.length, '+ header: 5 + pubkey:', encrypted.publicKey.length, '+ cipher:', encrypted.ciphertext.length, ')');
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/octet-stream',
       'Content-Encoding': 'aes128gcm',
@@ -293,7 +318,7 @@ async function sendWebPush(
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: headers,
-      body: encrypted.ciphertext
+      body: body
     });
 
     if (!response.ok) {
