@@ -100,22 +100,23 @@ class WeekendProtectionService {
 
   getWeekendStatus(): WeekendStatus {
     const now = new Date();
-    const estNow = this.toEST(now);
+    // Use proper timezone conversion (handles DST automatically)
+    const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
 
-    const dayOfWeek = estNow.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
+    const dayOfWeek = estTime.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
 
     // Check if it's currently the weekend
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
     const isFriday = dayOfWeek === 5;
 
     // Calculate when market closes this week (Friday 5 PM EST)
-    const marketClosesAt = new Date(estNow);
+    const marketClosesAt = new Date(estTime);
     if (dayOfWeek <= 5) {
       // Move to Friday
-      marketClosesAt.setDate(estNow.getDate() + (5 - dayOfWeek));
+      marketClosesAt.setDate(estTime.getDate() + (5 - dayOfWeek));
     } else {
       // Already weekend, market closes next Friday
-      marketClosesAt.setDate(estNow.getDate() + (5 + 7 - dayOfWeek));
+      marketClosesAt.setDate(estTime.getDate() + (5 + 7 - dayOfWeek));
     }
     marketClosesAt.setHours(this.MARKET_CLOSE_HOUR_EST, this.MARKET_CLOSE_MINUTE_EST, 0, 0);
 
@@ -124,12 +125,12 @@ class WeekendProtectionService {
     shutdownAt.setMinutes(shutdownAt.getMinutes() - this.SHUTDOWN_MINUTES_BEFORE);
 
     // Calculate time until close
-    const msUntilClose = marketClosesAt.getTime() - estNow.getTime();
+    const msUntilClose = marketClosesAt.getTime() - estTime.getTime();
     const hoursUntilClose = msUntilClose / (1000 * 60 * 60);
     const minutesUntilClose = msUntilClose / (1000 * 60);
 
     // SIMPLE LOGIC: Shutdown at 5 minutes before close on Friday
-    const shouldShutdown = isFriday && estNow >= shutdownAt && estNow < marketClosesAt;
+    const shouldShutdown = isFriday && estTime >= shutdownAt && estTime < marketClosesAt;
 
     // Send warnings at specific intervals (3h, 1h, 30min)
     const shouldWarnUser = isFriday && hoursUntilClose <= 3 && hoursUntilClose > 0;
@@ -173,8 +174,10 @@ class WeekendProtectionService {
       const status = this.getWeekendStatus();
 
       // Reset flags on market reopen (Sunday evening)
-      const dayOfWeek = this.toEST(new Date()).getDay();
-      const hour = this.toEST(new Date()).getHours();
+      const now = new Date();
+      const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const dayOfWeek = estTime.getDay();
+      const hour = estTime.getHours();
       if (dayOfWeek === 0 && hour >= 17) {
         // Market reopened - re-enable systems
         if (SCANNING_DISABLED || LLM_API_DISABLED) {
@@ -454,19 +457,6 @@ class WeekendProtectionService {
     }
   }
 
-
-  private toEST(date: Date): Date {
-    // Convert to EST (UTC-5) or EDT (UTC-4) depending on DST
-    const estOffset = this.isDST(date) ? -4 : -5;
-    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-    return new Date(utc + (3600000 * estOffset));
-  }
-
-  private isDST(date: Date): boolean {
-    // Simplified DST check - in production, use a proper timezone library
-    const month = date.getMonth();
-    return month >= 2 && month <= 10; // Roughly March through November
-  }
 
   getStatusForDisplay(): {
     isActive: boolean;

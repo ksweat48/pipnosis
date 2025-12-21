@@ -184,6 +184,25 @@
     position: fixed;
     width: 100%;
   }
+
+  /* Chart dropdown fix - ensure text is visible and styled properly */
+  .chart-select {
+    -webkit-appearance: menulist !important;
+    -moz-appearance: menulist !important;
+    appearance: menulist !important;
+    color: white !important;
+    background-color: rgb(31 41 55) !important; /* gray-800 */
+    padding-right: 2rem !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23fff' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E") !important;
+    background-position: right 0.5rem center !important;
+    background-repeat: no-repeat !important;
+    background-size: 1.5em 1.5em !important;
+  }
+
+  .chart-select option {
+    background-color: rgb(31 41 55) !important; /* gray-800 */
+    color: white !important;
+  }
 }
 
 @keyframes fadeIn {

@@ -1733,7 +1733,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             <select
               value={symbol}
               onChange={(e) => handleSymbolChangeInternal(e.target.value)}
-              className="bg-gray-800 text-white px-2 sm:px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-xs sm:text-sm"
+              className="chart-select bg-gray-800 text-white px-2 sm:px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-xs sm:text-sm"
             >
               {FOREX_PAIRS.map(pair => (
                 <option key={pair} value={pair}>{pair}</option>
@@ -1743,7 +1743,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             <select
               value={timeframe}
               onChange={(e) => handleTimeframeChange(e.target.value as Timeframe)}
-              className="bg-gray-800 text-white px-2 sm:px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-xs sm:text-sm"
+              className="chart-select bg-gray-800 text-white px-2 sm:px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-xs sm:text-sm"
             >
               {TIMEFRAMES.map(tf => (
                 <option key={tf} value={tf}>{tf}</option>
