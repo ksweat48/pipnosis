@@ -1,7 +1,7 @@
 // Pipnosis PWA Service Worker
 // Enables installation and "Add to Home Screen" functionality
 
-const BUILD_VERSION = '1.0.2';
+const BUILD_VERSION = '1.0.3';
 const CACHE_NAME = `pipnosis-v${BUILD_VERSION}`;
 const STATIC_ASSETS = [
   '/',
@@ -114,9 +114,11 @@ function getNotificationIcon(type) {
   return '/Pipnosis icon.png';
 }
 
-// Get notification badge
+// Get notification badge (monochrome icon for Android status bar)
+// Note: Android requires a monochrome icon (white silhouette on transparent)
+// Returning undefined lets Android use its default app icon from manifest
 function getNotificationBadge() {
-  return '/Pipnosis icon.png';
+  return undefined;
 }
 
 // Get notification color based on type and data
@@ -157,7 +159,6 @@ self.addEventListener('push', (event) => {
     const notificationOptions = {
       body: body || 'New notification from Pipnosis',
       icon: icon || getNotificationIcon(data?.type),
-      badge: badge || getNotificationBadge(),
       vibrate: vibrate || getVibrationPattern(data?.type, data),
       data: data || {},
       tag: tag || data?.type || 'default',
@@ -165,6 +166,12 @@ self.addEventListener('push', (event) => {
       silent: false,
       renotify: true
     };
+
+    // Only set badge if explicitly provided (Android needs monochrome icon)
+    const badgeIcon = badge || getNotificationBadge();
+    if (badgeIcon) {
+      notificationOptions.badge = badgeIcon;
+    }
 
     // Add action buttons based on notification type
     if (data?.type === 'trade-signal') {
@@ -214,7 +221,6 @@ self.addEventListener('push', (event) => {
       self.registration.showNotification('Pipnosis', {
         body: 'New notification (error parsing data)',
         icon: '/Pipnosis icon.png',
-        badge: '/Pipnosis icon.png',
         vibrate: [200],
         requireInteraction: false,
         silent: false
