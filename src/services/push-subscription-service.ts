@@ -31,6 +31,15 @@ class PushSubscriptionService {
     for (let i = 0; i < rawData.length; ++i) {
       outputArray[i] = rawData.charCodeAt(i);
     }
+
+    // If this is a DER-encoded SPKI key (starts with 0x30), extract the raw key
+    // SPKI format: 0x30 [length] [algorithm info] 0x03 [bitstring length] 0x00 [raw key]
+    // We need to skip the header and get just the last 65 bytes (raw EC public key)
+    if (outputArray.length > 65 && outputArray[0] === 0x30) {
+      // Extract the raw key (last 65 bytes)
+      return outputArray.slice(outputArray.length - 65);
+    }
+
     return outputArray;
   }
 
@@ -114,6 +123,7 @@ class PushSubscriptionService {
       }
 
       const convertedVapidKey = this.urlBase64ToUint8Array(vapidPublicKey);
+      console.log('[Push] VAPID key length:', convertedVapidKey.length, 'bytes');
 
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
