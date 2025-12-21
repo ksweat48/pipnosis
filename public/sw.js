@@ -1,7 +1,7 @@
 // Pipnosis PWA Service Worker
 // Enables installation and "Add to Home Screen" functionality
 
-const BUILD_VERSION = '1.0.4';
+const BUILD_VERSION = '1.0.5';
 const CACHE_NAME = `pipnosis-v${BUILD_VERSION}`;
 const STATIC_ASSETS = [
   '/',
@@ -118,9 +118,10 @@ function getNotificationIcon(type) {
 
 // Get notification badge (monochrome icon for Android status bar)
 // Note: Android requires a monochrome icon (white silhouette on transparent)
-// Returning undefined lets Android use its default app icon from manifest
+// Use the black and white notification badge for status bar
 function getNotificationBadge() {
-  return undefined;
+  const origin = self.location.origin;
+  return `${origin}/notification-badge.png`;
 }
 
 // Get notification color based on type and data
