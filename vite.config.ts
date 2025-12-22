@@ -50,12 +50,17 @@ export default defineConfig({
     // CRITICAL: Proper host configuration for Bolt preview
     host: true, // MUST be true for Bolt/StackBlitz
     port: 5173,
-    strictPort: false,
-    cors: true,
+    strictPort: false, // Allow fallback to different port
+    cors: true, // Enable CORS for preview iframe
+    // Simplified headers for better compatibility
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Methods': '*',
       'Access-Control-Allow-Headers': '*'
+    },
+    // Ensure HMR works in preview
+    hmr: {
+      clientPort: 5173
     }
   },
   // Preview configuration for production builds

@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pipnosis Debug</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .debug-card {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      margin-top: 0;
+    }
+    h2 {
+      color: #555;
+      font-size: 18px;
+      margin-top: 0;
+    }
+    .status {
+      padding: 8px 12px;
+      border-radius: 4px;
+      display: inline-block;
+      font-weight: 500;
+      margin: 4px 0;
+    }
+    .status.good {
+      background: #d4edda;
+      color: #155724;
+    }
+    .status.bad {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    button {
+      background: #3B82F6;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      margin-right: 10px;
+      margin-top: 10px;
+    }
+    button:hover {
+      background: #2563EB;
+    }
+    .info {
+      background: #e7f3ff;
+      padding: 12px;
+      border-radius: 4px;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+    pre {
+      background: #f8f9fa;
+      padding: 12px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔧 Pipnosis Debug Helper</h1>
+
+  <div class="debug-card">
+    <h2>Environment Information</h2>
+    <div id="env-info"></div>
+  </div>
+
+  <div class="debug-card">
+    <h2>Service Worker Status</h2>
+    <div id="sw-status"></div>
+    <button onclick="unregisterServiceWorkers()">Unregister All Service Workers</button>
+  </div>
+
+  <div class="debug-card">
+    <h2>Cache Status</h2>
+    <div id="cache-status"></div>
+    <button onclick="clearAllCaches()">Clear All Caches</button>
+  </div>
+
+  <div class="debug-card">
+    <h2>Network Test</h2>
+    <div id="network-status"></div>
+    <button onclick="testNetwork()">Test API Connection</button>
+  </div>
+
+  <div class="debug-card">
+    <h2>Quick Actions</h2>
+    <button onclick="fullCleanup()">🧹 Full Cleanup (SW + Caches)</button>
+    <button onclick="window.location.href='/'">🏠 Go to App</button>
+    <button onclick="location.reload()">🔄 Reload Page</button>
+    <div class="info" style="margin-top: 15px;">
+      <strong>Tip:</strong> If the Bolt preview isn't working, click "Full Cleanup" then reload the page.
+    </div>
+  </div>
+
+  <script>
+    // Display environment info
+    const envInfo = document.getElementById('env-info');
+    envInfo.innerHTML = `
+      <pre>Hostname: ${window.location.hostname}
+Port: ${window.location.port}
+Protocol: ${window.location.protocol}
+User Agent: ${navigator.userAgent}
+
+Is Localhost: ${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'}
+Is Bolt: ${window.location.hostname.includes('bolt.new')}
+Is StackBlitz: ${window.location.hostname.includes('stackblitz')}
+Is WebContainer: ${window.location.hostname.includes('webcontainer')}</pre>
+    `;
+
+    // Check service worker status
+    async function checkServiceWorkers() {
+      const swStatus = document.getElementById('sw-status');
+
+      if (!('serviceWorker' in navigator)) {
+        swStatus.innerHTML = '<div class="status bad">Service Workers not supported</div>';
+        return;
+      }
+
+      const registrations = await navigator.serviceWorker.getRegistrations();
+
+      if (registrations.length === 0) {
+        swStatus.innerHTML = '<div class="status good">✅ No service workers registered (Good for development)</div>';
+      } else {
+        const list = registrations.map(reg => `<li>${reg.scope}</li>`).join('');
+        swStatus.innerHTML = `
+          <div class="status bad">⚠️ ${registrations.length} service worker(s) registered</div>
+          <ul>${list}</ul>
+        `;
+      }
+    }
+
+    // Check cache status
+    async function checkCaches() {
+      const cacheStatus = document.getElementById('cache-status');
+
+      if (!('caches' in window)) {
+        cacheStatus.innerHTML = '<div class="status bad">Cache API not supported</div>';
+        return;
+      }
+
+      const cacheNames = await caches.keys();
+
+      if (cacheNames.length === 0) {
+        cacheStatus.innerHTML = '<div class="status good">✅ No caches found (Clean state)</div>';
+      } else {
+        const list = cacheNames.map(name => `<li>${name}</li>`).join('');
+        cacheStatus.innerHTML = `
+          <div class="status bad">⚠️ ${cacheNames.length} cache(s) found</div>
+          <ul>${list}</ul>
+        `;
+      }
+    }
+
+    // Unregister all service workers
+    async function unregisterServiceWorkers() {
+      const swStatus = document.getElementById('sw-status');
+      swStatus.innerHTML = '<div class="status">Unregistering service workers...</div>';
+
+      const registrations = await navigator.serviceWorker.getRegistrations();
+
+      if (registrations.length === 0) {
+        swStatus.innerHTML = '<div class="status good">✅ No service workers to unregister</div>';
+        return;
+      }
+
+      for (const registration of registrations) {
+        await registration.unregister();
+      }
+
+      swStatus.innerHTML = `<div class="status good">✅ Unregistered ${registrations.length} service worker(s)</div>`;
+      setTimeout(checkServiceWorkers, 1000);
+    }
+
+    // Clear all caches
+    async function clearAllCaches() {
+      const cacheStatus = document.getElementById('cache-status');
+      cacheStatus.innerHTML = '<div class="status">Clearing caches...</div>';
+
+      const cacheNames = await caches.keys();
+
+      if (cacheNames.length === 0) {
+        cacheStatus.innerHTML = '<div class="status good">✅ No caches to clear</div>';
+        return;
+      }
+
+      for (const cacheName of cacheNames) {
+        await caches.delete(cacheName);
+      }
+
+      cacheStatus.innerHTML = `<div class="status good">✅ Cleared ${cacheNames.length} cache(s)</div>`;
+      setTimeout(checkCaches, 1000);
+    }
+
+    // Full cleanup
+    async function fullCleanup() {
+      await unregisterServiceWorkers();
+      await clearAllCaches();
+      alert('✅ Full cleanup complete! Reload the page to see changes.');
+    }
+
+    // Test network connectivity
+    async function testNetwork() {
+      const networkStatus = document.getElementById('network-status');
+      networkStatus.innerHTML = '<div class="status">Testing network...</div>';
+
+      try {
+        const response = await fetch('/');
+        networkStatus.innerHTML = `
+          <div class="status good">✅ Network OK (Status: ${response.status})</div>
+          <div class="info">Server is responding correctly</div>
+        `;
+      } catch (error) {
+        networkStatus.innerHTML = `
+          <div class="status bad">❌ Network Error</div>
+          <pre>${error.message}</pre>
+        `;
+      }
+    }
+
+    // Initialize
+    checkServiceWorkers();
+    checkCaches();
+    testNetwork();
+  </script>
+</body>
+</html>

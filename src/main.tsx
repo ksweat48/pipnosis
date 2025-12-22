@@ -57,11 +57,51 @@ if (typeof window !== 'undefined') {
   }, 100);
 
   // Register service worker for PWA functionality with smart update management
-  // Disabled in Bolt/StackBlitz environments to prevent preview issues
+  // Disabled in Bolt/StackBlitz/Development environments to prevent preview issues
   const isBoltEnvironment = window.location.hostname.includes('bolt.new') ||
                             window.location.hostname.includes('stackblitz') ||
-                            window.location.hostname.includes('webcontainer');
+                            window.location.hostname.includes('webcontainer') ||
+                            window.location.hostname === 'localhost' ||
+                            window.location.hostname === '127.0.0.1';
 
+  const isDevelopment = !import.meta.env.PROD;
+
+  // CRITICAL: Aggressively unregister service worker in dev/Bolt to fix preview
+  if ('serviceWorker' in navigator && (isDevelopment || isBoltEnvironment)) {
+    console.log('🔧 Development/Bolt environment detected - unregistering all service workers');
+
+    // Unregister immediately
+    navigator.serviceWorker.getRegistrations().then(registrations => {
+      if (registrations.length > 0) {
+        console.log(`🔧 Found ${registrations.length} service worker(s) - unregistering...`);
+        registrations.forEach(registration => {
+          registration.unregister().then(success => {
+            if (success) {
+              console.log('✅ Service Worker unregistered successfully');
+            }
+          });
+        });
+      } else {
+        console.log('✅ No service workers found - preview should work correctly');
+      }
+    });
+
+    // Clear all caches to ensure clean state
+    if ('caches' in window) {
+      caches.keys().then(cacheNames => {
+        if (cacheNames.length > 0) {
+          console.log(`🔧 Clearing ${cacheNames.length} cache(s)...`);
+          return Promise.all(
+            cacheNames.map(cacheName => caches.delete(cacheName))
+          );
+        }
+      }).then(() => {
+        console.log('✅ All caches cleared');
+      });
+    }
+  }
+
+  // Only register service worker in production AND non-Bolt environments
   if ('serviceWorker' in navigator && import.meta.env.PROD && !isBoltEnvironment) {
     window.addEventListener('load', async () => {
       try {
@@ -78,16 +118,6 @@ if (typeof window !== 'undefined') {
       } catch (error) {
         console.log('PWA: Service Worker registration failed:', error);
       }
-    });
-  }
-
-  // Unregister service worker in development or Bolt environments
-  if ('serviceWorker' in navigator && (!import.meta.env.PROD || isBoltEnvironment)) {
-    navigator.serviceWorker.getRegistrations().then(registrations => {
-      registrations.forEach(registration => {
-        registration.unregister();
-        console.log('PWA: Service Worker unregistered for development/Bolt');
-      });
     });
   }
 }
