@@ -22,13 +22,36 @@ type BrainName =
 type Model = 'gpt-4o' | 'gpt-4o-mini';
 
 type ContextType =
+  // Original types
   | 'vote'
   | 'fusion'
   | 'sentiment'
   | 'meta_reasoning'
   | 'mid_trade'
   | 'strategy_planning'
-  | 'execution';
+  | 'execution'
+  | 'periodic_wellness'
+  | 'drawdown_check'
+  | 'profit_milestone'
+  // Alpha coordination
+  | 'alpha_coordination'
+  // Generic omega types
+  | 'omega_vote'
+  | 'omega9_validation'
+  // Specific omega brain vote types
+  | 'omega_trend_vote'
+  | 'omega_scalper_vote'
+  | 'omega_confirmation_vote'
+  | 'omega_reversal_vote'
+  | 'omega_volatility_vote'
+  | 'omega_risk_vote'
+  | 'omega_orderflow_vote'
+  | 'omega_sentiment_vote'
+  // Omega analysis types
+  | 'omega_sentiment_analysis'
+  | 'omega8_hybrid_refinement'
+  // LLM health check
+  | 'llm_health_check';
 
 interface TokenUsageParams {
   brainName: BrainName;
