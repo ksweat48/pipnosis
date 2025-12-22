@@ -527,7 +527,7 @@ Return JSON:
         promptTokens: response.usage?.prompt_tokens || 0,
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
-        contextType: 'vote',
+        contextType: 'omega8_hybrid_refinement',
         userId: undefined,
         sessionId: undefined
       });

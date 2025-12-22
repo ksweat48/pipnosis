@@ -512,7 +512,7 @@ Return JSON with structured reasoning:
         promptTokens: response.usage?.prompt_tokens || 0,
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
-        contextType: 'fusion',
+        contextType: 'alpha_coordination',
         userId: userId,
         sessionId: undefined
       });

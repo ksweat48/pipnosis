@@ -228,7 +228,7 @@ Write naturally like you're texting an update to a friend.`
         promptTokens: response.usage?.prompt_tokens || 0,
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
-        contextType: 'periodic_wellness',
+        contextType: 'trade_monitoring',
         userId: undefined,
         sessionId: undefined
       });
@@ -354,7 +354,7 @@ Return JSON:
         promptTokens: response.usage?.prompt_tokens || 0,
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
-        contextType: 'mid_trade',
+        contextType: 'trade_monitoring',
         userId: undefined,
         sessionId: undefined
       });
@@ -430,7 +430,7 @@ Return JSON:
         promptTokens: response.usage?.prompt_tokens || 0,
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
-        contextType: 'mid_trade',
+        contextType: 'trade_monitoring',
         userId: undefined,
         sessionId: undefined
       });
@@ -559,7 +559,7 @@ Return JSON:
         promptTokens: response.usage?.prompt_tokens || 0,
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
-        contextType: 'mid_trade',
+        contextType: 'trade_monitoring',
         userId: undefined,
         sessionId: undefined
       });

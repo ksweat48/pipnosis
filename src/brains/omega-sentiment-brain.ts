@@ -68,7 +68,7 @@ class OmegaSentimentBrain {
         promptTokens: response.usage?.prompt_tokens || 0,
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
-        contextType: 'sentiment',
+        contextType: 'omega_sentiment_analysis',
         userId: undefined,
         sessionId: undefined
       });

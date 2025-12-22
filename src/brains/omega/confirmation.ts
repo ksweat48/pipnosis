@@ -84,7 +84,7 @@ Return JSON only:
         promptTokens: response.usage?.prompt_tokens || 0,
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
-        contextType: 'confirmation_analysis',
+        contextType: 'omega_confirmation_vote',
         userId: undefined,
         sessionId: undefined
       });
