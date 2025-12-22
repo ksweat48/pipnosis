@@ -549,9 +549,9 @@ class AdversarialDetector {
 
     if (isManipulationSpike) {
       // CRITICAL FIX: Only block VERY recent AND severe spikes
-      const isExtremeSpike = spikeMultiplier > 3.5; // Extreme spikes (raised from 4.0)
-      const isVeryRecentSpike = candlesAgo <= 2; // Very recent = within 2 candles (reduced from 5)
-      const isAgedSpike = candlesAgo >= 10; // Aged = 10+ candles old
+      const isExtremeSpike = spikeMultiplier >= 4.0; // Extreme spikes (4.0x ATR or more)
+      const isVeryRecentSpike = candlesAgo <= 1; // Very recent = within 1 candle (current candle only)
+      const isAgedSpike = candlesAgo >= 5; // Aged = 5+ candles old (reduced from 10)
 
       // Hard block only for very recent AND extreme spikes
       if (isVeryRecentSpike && isExtremeSpike) {
@@ -565,7 +565,7 @@ class AdversarialDetector {
         };
       }
 
-      // Aged spikes (10+ candles): downgrade to Omega-9 validation instead of hard block
+      // Aged spikes (5+ candles): downgrade to Omega-9 validation instead of hard block
       if (isAgedSpike) {
         console.log(`[Adversarial] Aged manipulation spike (${spikeMultiplier.toFixed(1)}x, ${candlesAgo} candles ago) → needs Omega-9 validation`);
         return {
@@ -577,7 +577,7 @@ class AdversarialDetector {
         };
       }
 
-      // Mid-range spikes (6-9 candles): check for market stabilization
+      // Mid-range spikes (2-4 candles): check for market stabilization
       console.log(`[Adversarial] Mid-aged manipulation spike (${spikeMultiplier.toFixed(1)}x, ${candlesAgo} candles ago) → checking stabilization...`);
       const hasStabilized = this.checkMarketStabilization(recentCandles, stopRunCandleIndex, avgCandleRange);
 
@@ -592,7 +592,7 @@ class AdversarialDetector {
         };
       }
 
-      console.warn(`[Adversarial] Manipulation spike still unstable → BLOCK for ${Math.max(0, 10 - candlesAgo)} more candles`);
+      console.warn(`[Adversarial] Manipulation spike still unstable → BLOCK for ${Math.max(0, 5 - candlesAgo)} more candles`);
       return {
         type: 'manipulation_spike',
         candles_ago: candlesAgo,
@@ -602,15 +602,15 @@ class AdversarialDetector {
       };
     }
 
-    // B) Check if active (within last 1-2 candles only - reduced from 3)
-    if (candlesAgo <= 2) {
+    // B) Check if active (within last 1 candle only - very strict, only blocks current-candle stop runs)
+    if (candlesAgo <= 0) {
       console.warn('[Adversarial] Active Stop Run Detected → BLOCK');
       return {
         type: 'active_stop_run',
         candles_ago: candlesAgo,
         has_bos: false,
         should_block: true,
-        reasoning: `Stop run occurred ${candlesAgo} candle(s) ago - too recent to trust`
+        reasoning: `Stop run occurring RIGHT NOW (current candle) - too active to trust`
       };
     }
 

@@ -57,14 +57,29 @@ export class MultiSymbolScanner {
       // 3. Filter by confidence threshold
       const aboveThreshold = rankings.filter(r => r.confidence >= minConfidence);
 
-      // 4. Select best symbol (if any pass threshold)
-      const selectedRanking = aboveThreshold.length > 0 ? aboveThreshold[0] : null;
+      // 4. Select best symbol - ALWAYS pick best, even if below threshold
+      // Alpha will make final decision with full context
+      let selectedRanking = aboveThreshold.length > 0 ? aboveThreshold[0] : null;
+      let belowThresholdWarning = false;
+
+      // Fallback: if no symbols pass, select highest-ranked anyway with warning
+      if (!selectedRanking && rankings.length > 0) {
+        selectedRanking = rankings[0]; // Best of available, even if below threshold
+        belowThresholdWarning = true;
+        logger.warn('Multi-Symbol Scan: No symbols above threshold, selecting best available', {
+          userId,
+          selectedSymbol: selectedRanking.symbol,
+          confidence: selectedRanking.confidence,
+          threshold: minConfidence
+        });
+      }
 
       logger.info('Multi-Symbol Scan Complete', {
         userId,
         totalScanned: symbols.length,
         aboveThreshold: aboveThreshold.length,
-        selectedSymbol: selectedRanking?.symbol
+        selectedSymbol: selectedRanking?.symbol,
+        belowThreshold: belowThresholdWarning
       });
 
       return {
@@ -73,6 +88,7 @@ export class MultiSymbolScanner {
         selectedRanking,
         totalScanned: symbols.length,
         aboveThreshold: aboveThreshold.length,
+        belowThresholdWarning,
         scanTimestamp: new Date()
       };
 

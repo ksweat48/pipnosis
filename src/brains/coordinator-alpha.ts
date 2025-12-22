@@ -585,14 +585,14 @@ Return JSON with structured reasoning:
         // Override parsing failed, continue without it
       }
 
-      // Check Omega-10 recommendations
+      // Check Omega-10 recommendations (ADVISORY - reduced penalty)
       if (userId) {
         const omega10Analysis = await omega10Scheduler.getLatestAnalysis(userId);
         if (omega10Analysis && omega10Analysis.riskHorizon.level === 'high') {
-          console.log('[Alpha Coordinator] ⚠️ Omega-10 risk horizon: HIGH - reducing confidence');
-          decision.confidence = Math.max(0, decision.confidence - 20);
+          console.log('[Alpha Coordinator] ⚠️ Omega-10 risk horizon: HIGH - advisory caution');
+          decision.confidence = Math.max(0, decision.confidence - 5);
           decision.omega10_applied = true;
-          decision.reasoning += ' [Omega-10: High risk horizon detected]';
+          decision.reasoning += ' [Omega-10: High risk horizon advisory]';
         }
       }
 
@@ -727,28 +727,16 @@ Return JSON with structured reasoning:
         console.log(`[Alpha Coordinator] ⏱️  Expected fill: ${timeToFill.expectedMinutes}min (${timeToFill.viability})`);
         console.log(`[Alpha Coordinator] ⏱️  ${timeToFill.reasoning}`);
 
-        // HARD BLOCK: >6 hours (swing trade territory)
+        // ADVISORY WARNING: >6 hours (no longer hard-blocks, Alpha can override)
         if (timeToFill.recommendedAction === 'REJECT') {
-          console.log('[Alpha Coordinator] 🚨 TIME-TO-FILL BLOCK: Trade exceeds intraday duration limits');
-          return {
-            action: 'NO_TRADE',
-            decision: 'NO_TRADE',
-            entry: marketContext.price,
-            stopLoss: marketContext.price,
-            takeProfit: marketContext.price,
-            confidence: 0,
-            reasoning: `⏱️ TIME-TO-FILL BLOCK: ${timeToFill.reasoning}. Pipnosis is an INTRADAY SPECIALIST (20min-2hr target).`,
-            omega_summary: decision.omega_summary,
-            omega8_liquidity_bias: decision.omega8_liquidity_bias,
-            omega8_direction_support: decision.omega8_direction_support,
-            omega9_validation: decision.omega9_validation
-          };
+          console.log('[Alpha Coordinator] ⚠️ TIME-TO-FILL CAUTION: Trade exceeds typical intraday duration');
+          decision.confidence = Math.max(0, decision.confidence - 15);
+          decision.reasoning += ` [Time-to-Fill Advisory: ${timeToFill.reasoning} - Alpha may override if high conviction]`;
         }
-
-        // WARNING: 4-6 hours (reduce confidence)
-        if (timeToFill.recommendedAction === 'CAUTION') {
-          console.log('[Alpha Coordinator] ⚠️ TIME-TO-FILL WARNING: Trade approaching swing duration');
-          decision.confidence = Math.max(0, decision.confidence - 25);
+        // WARNING: 4-6 hours (reduce confidence moderately)
+        else if (timeToFill.recommendedAction === 'CAUTION') {
+          console.log('[Alpha Coordinator] ⚠️ TIME-TO-FILL WARNING: Trade approaching extended duration');
+          decision.confidence = Math.max(0, decision.confidence - 10);
           decision.reasoning += ` [Time-to-Fill Warning: ${timeToFill.reasoning}]`;
         } else if (timeToFill.viability === 'OPTIMAL') {
           console.log('[Alpha Coordinator] ✅ TIME-TO-FILL OPTIMAL: Perfect for intraday');
@@ -853,10 +841,10 @@ Return JSON with structured reasoning:
       agreementCount = Math.max(buyCount, sellCount);
     }
 
-    // Strong agreement = 4+ Omegas agree AND weighted score > 55%
-    // LOWERED from 65% to 55% to reduce missed trades
-    // 55% ensures majority consensus without being too restrictive
-    const strongAgreement = agreementCount >= 4 && score >= 55;
+    // Strong agreement = 3+ Omegas agree AND weighted score > 50%
+    // LOWERED from 55% to 50% to reduce paralysis and allow Alpha override authority
+    // Alpha can override between 45-55% with high conviction reasoning
+    const strongAgreement = agreementCount >= 3 && score >= 50;
 
     return {
       direction,
@@ -927,9 +915,9 @@ Return JSON with structured reasoning:
       weights.scalper = weights.scalper * 0.8;
     }
 
-    // Losing streak - weight risk heavily
+    // Losing streak - weight risk more heavily (but still advisory)
     if (traderScore.winRate < 0.5) {
-      weights.risk = weights.risk * 1.5;
+      weights.risk = weights.risk * 1.3;
     }
 
     // High score - trust trend more
@@ -937,8 +925,8 @@ Return JSON with structured reasoning:
       weights.trend = weights.trend * 1.2;
     }
 
-    // Risk specialist ALWAYS important
-    weights.risk = Math.max(weights.risk, 1.2);
+    // Risk remains advisory - do NOT enforce minimum weight
+    // Line 807 applies 0.5x multiplier to keep Risk advisory, not blocking
 
     // Omega-8 OrderFlow adjustments
     if (votes.omega8 && votes.omega8.confidence >= 70) {
