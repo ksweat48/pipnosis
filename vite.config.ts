@@ -48,27 +48,8 @@ export default defineConfig({
   },
   server: {
     // CRITICAL: Proper host configuration for Bolt preview
-    host: 'localhost', // Changed from 0.0.0.0 to localhost
+    host: true, // MUST be true for Bolt/StackBlitz
     port: 5173,
-    strictPort: false, // Allow port fallback
-    // Ensure proper CORS for Bolt preview
-    cors: true,
-    // Add headers for Bolt compatibility
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': '*'
-    },
-    // CRITICAL: Enable HMR for external access
-    hmr: {
-      port: 5173,
-      host: 'localhost' // Changed from 0.0.0.0 to localhost
-    }
-  },
-  // Preview configuration for production builds
-  preview: {
-    host: 'localhost', // Changed from 0.0.0.0 to localhost
-    port: 4173,
     strictPort: false,
     cors: true,
     headers: {
@@ -76,6 +57,13 @@ export default defineConfig({
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': '*'
     }
+  },
+  // Preview configuration for production builds
+  preview: {
+    host: true,
+    port: 4173,
+    strictPort: false,
+    cors: true
   },
   define: {
     // Build version for error tracking
