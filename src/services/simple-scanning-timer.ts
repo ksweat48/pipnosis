@@ -8,6 +8,9 @@
  * - 1-minute auto-timeout if no response
  *
  * Same rules for all users (no admin bypass)
+ *
+ * CRITICAL: Includes client-side fallback to ensure sessions close
+ * even if server-side autonomous monitor fails
  */
 
 import { supabase } from '../lib/supabase';
@@ -19,6 +22,9 @@ export interface ScanningTimerStatus {
   timeoutExpiresAt: string | null;
   sessionStatus: string;
 }
+
+const TIMEOUT_THRESHOLD_MINUTES = 15;
+const SAFETY_NET_MINUTES = 20;
 
 class SimpleScanningTimerService {
   /**
@@ -228,6 +234,139 @@ class SimpleScanningTimerService {
     } catch (error) {
       console.error('[Scanning Timer] Exception resetting timer:', error);
     }
+  }
+
+  /**
+   * CLIENT-SIDE FALLBACK: Check and enforce timeout locally
+   * This runs as a backup if server-side autonomous monitor fails
+   */
+  async clientSideTimeoutCheck(sessionId: string): Promise<{
+    shouldTriggerModal: boolean;
+    shouldForceClose: boolean;
+    timedOut: boolean;
+    elapsedMinutes: number;
+  }> {
+    try {
+      const { data: session, error } = await supabase
+        .from('goal_sessions')
+        .select('scanning_started_at, start_time, created_at, status, awaiting_continuation_confirmation, continuation_confirmation_expires_at')
+        .eq('id', sessionId)
+        .maybeSingle();
+
+      if (error || !session) {
+        return { shouldTriggerModal: false, shouldForceClose: false, timedOut: false, elapsedMinutes: 0 };
+      }
+
+      const scanningStartedAt = session.scanning_started_at || session.start_time || session.created_at;
+      if (!scanningStartedAt) {
+        return { shouldTriggerModal: false, shouldForceClose: false, timedOut: false, elapsedMinutes: 0 };
+      }
+
+      const elapsed = Date.now() - new Date(scanningStartedAt).getTime();
+      const elapsedMinutes = Math.floor(elapsed / 60000);
+
+      // Check 1: Modal timeout expired - force close
+      if (session.awaiting_continuation_confirmation && session.continuation_confirmation_expires_at) {
+        const expiresAt = new Date(session.continuation_confirmation_expires_at);
+        if (new Date() > expiresAt) {
+          console.log('[Scanning Timer] ⏰ CLIENT-SIDE: Modal timeout expired - forcing close');
+          return { shouldTriggerModal: false, shouldForceClose: true, timedOut: true, elapsedMinutes };
+        }
+      }
+
+      // Check 2: Safety net - scanning >20 minutes without modal
+      if (session.status === 'scanning' || session.status === 'trade_pending') {
+        if (elapsedMinutes >= SAFETY_NET_MINUTES && !session.awaiting_continuation_confirmation) {
+          console.log('[Scanning Timer] ⚠️ CLIENT-SIDE: Safety net - >20min without modal, forcing close');
+          return { shouldTriggerModal: false, shouldForceClose: true, timedOut: true, elapsedMinutes };
+        }
+
+        // Check 3: 15 minutes elapsed - should trigger modal
+        if (elapsedMinutes >= TIMEOUT_THRESHOLD_MINUTES && !session.awaiting_continuation_confirmation) {
+          console.log('[Scanning Timer] 🕐 CLIENT-SIDE: 15 minutes elapsed - triggering modal');
+          return { shouldTriggerModal: true, shouldForceClose: false, timedOut: false, elapsedMinutes };
+        }
+      }
+
+      return { shouldTriggerModal: false, shouldForceClose: false, timedOut: false, elapsedMinutes };
+    } catch (error) {
+      console.error('[Scanning Timer] Exception in client-side timeout check:', error);
+      return { shouldTriggerModal: false, shouldForceClose: false, timedOut: false, elapsedMinutes: 0 };
+    }
+  }
+
+  /**
+   * CLIENT-SIDE FALLBACK: Trigger continuation modal from client
+   */
+  async clientTriggerModal(sessionId: string): Promise<boolean> {
+    try {
+      console.log('[Scanning Timer] 🔔 CLIENT-SIDE: Triggering continuation modal');
+
+      const { data, error } = await supabase.rpc('client_trigger_continuation_modal', {
+        p_session_id: sessionId
+      });
+
+      if (error) {
+        console.error('[Scanning Timer] Error in client trigger:', error);
+        return false;
+      }
+
+      if (data) {
+        console.log('[Scanning Timer] ✅ CLIENT-SIDE: Modal triggered successfully');
+      }
+
+      return data || false;
+    } catch (error) {
+      console.error('[Scanning Timer] Exception in client trigger:', error);
+      return false;
+    }
+  }
+
+  /**
+   * CLIENT-SIDE FALLBACK: Force close a stale session
+   */
+  async forceCloseStaleSession(sessionId: string): Promise<boolean> {
+    try {
+      console.log('[Scanning Timer] 🛑 CLIENT-SIDE: Force closing stale session');
+
+      const { data, error } = await supabase.rpc('force_close_stale_session', {
+        p_session_id: sessionId
+      });
+
+      if (error) {
+        console.error('[Scanning Timer] Error force closing:', error);
+        return false;
+      }
+
+      if (data) {
+        console.log('[Scanning Timer] ✅ CLIENT-SIDE: Session force closed');
+      }
+
+      return data || false;
+    } catch (error) {
+      console.error('[Scanning Timer] Exception force closing:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Full client-side timeout enforcement - call this periodically
+   * Returns true if an action was taken (modal triggered or session closed)
+   */
+  async enforceTimeoutClientSide(sessionId: string): Promise<boolean> {
+    const check = await this.clientSideTimeoutCheck(sessionId);
+
+    if (check.shouldForceClose) {
+      const closed = await this.forceCloseStaleSession(sessionId);
+      return closed;
+    }
+
+    if (check.shouldTriggerModal) {
+      const triggered = await this.clientTriggerModal(sessionId);
+      return triggered;
+    }
+
+    return false;
   }
 }
 

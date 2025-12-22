@@ -267,6 +267,28 @@ export const GoalSessionDashboard: React.FC = () => {
       setActiveSession(session);
 
       if (session) {
+        // CRITICAL: Client-side timeout enforcement as backup to server-side
+        // This ensures sessions close even if autonomous monitor fails
+        try {
+          const timeoutCheck = await simpleScanningTimer.clientSideTimeoutCheck(session.sessionId);
+
+          if (timeoutCheck.shouldForceClose) {
+            console.log('[GoalSessionDashboard] 🛑 CLIENT-SIDE: Forcing session close due to timeout');
+            await simpleScanningTimer.forceCloseStaleSession(session.sessionId);
+            setShowNoTradesModal(false);
+            setContinuationData(null);
+            await loadSessionData();
+            return;
+          }
+
+          if (timeoutCheck.shouldTriggerModal) {
+            console.log('[GoalSessionDashboard] 🔔 CLIENT-SIDE: Triggering 15-minute modal');
+            await simpleScanningTimer.clientTriggerModal(session.sessionId);
+          }
+        } catch (timeoutError) {
+          console.error('[GoalSessionDashboard] Client-side timeout check failed:', timeoutError);
+        }
+
         // Check for no-trades-found continuation modal (15-minute threshold)
         try {
           const { data: sessionData } = await supabase
@@ -282,9 +304,9 @@ export const GoalSessionDashboard: React.FC = () => {
 
             if (now > expiresAt) {
               console.log('[GoalSessionDashboard] ⏰ Continuation modal timeout detected - auto-closing session');
-              // Call the timeout check RPC which will close the session
-              await simpleScanningTimer.checkModalTimeout(session.sessionId);
-              // Reload session data to reflect closed status
+              await simpleScanningTimer.forceCloseStaleSession(session.sessionId);
+              setShowNoTradesModal(false);
+              setContinuationData(null);
               await loadSessionData();
               return;
             }
@@ -469,9 +491,6 @@ export const GoalSessionDashboard: React.FC = () => {
       // CRITICAL: Stop ALL scanning and polling immediately
       console.log('[GoalSessionDashboard] 🛑 Stopping goal scanner polling...');
       goalScannerTrigger.stopPolling();
-
-      console.log('[GoalSessionDashboard] 🛑 Stopping simple scanning timer...');
-      simpleScanningTimer.stop();
 
       // Stop the session in database
       console.log('[GoalSessionDashboard] 🛑 Stopping session in database...');
