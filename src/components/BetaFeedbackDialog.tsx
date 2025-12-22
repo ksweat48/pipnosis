@@ -62,8 +62,8 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (subject.trim().length < 5 || subject.trim().length > 100) {
-      showToast('Subject must be between 5 and 100 characters', 'error');
+    if (subject.trim().length < 3 || subject.trim().length > 100) {
+      showToast('Subject must be between 3 and 100 characters', 'error');
       return;
     }
 
@@ -233,17 +233,30 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
                   placeholder="Brief description of your feedback"
-                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-emerald-500 text-base"
+                  className={`w-full px-4 py-3 bg-gray-700 border rounded-lg text-white placeholder-gray-400 focus:outline-none text-base transition-colors ${
+                    subject.trim().length > 0 && subject.trim().length < 3
+                      ? 'border-red-500 focus:border-red-500'
+                      : subject.trim().length >= 3
+                      ? 'border-emerald-500 focus:border-emerald-500'
+                      : 'border-gray-600 focus:border-emerald-500'
+                  }`}
                   style={{ fontSize: '16px', touchAction: 'manipulation' }}
                   required
-                  minLength={5}
+                  minLength={3}
                   maxLength={100}
                   autoComplete="off"
                   autoCorrect="off"
                   spellCheck="false"
                 />
-                <div className="mt-1 text-xs text-gray-400">
+                <div className={`mt-1 text-xs ${
+                  subject.trim().length > 0 && subject.trim().length < 3
+                    ? 'text-red-400'
+                    : 'text-gray-400'
+                }`}>
                   {subject.length}/100 characters
+                  {subject.trim().length > 0 && subject.trim().length < 3 && (
+                    <span className="ml-2">(minimum 3 characters)</span>
+                  )}
                 </div>
               </div>
 
@@ -256,7 +269,13 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder="Please provide detailed information about your feedback..."
                   rows={6}
-                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-emerald-500 resize-none text-base"
+                  className={`w-full px-4 py-3 bg-gray-700 border rounded-lg text-white placeholder-gray-400 focus:outline-none resize-none text-base transition-colors ${
+                    message.trim().length > 0 && message.trim().length < 20
+                      ? 'border-red-500 focus:border-red-500'
+                      : message.trim().length >= 20
+                      ? 'border-emerald-500 focus:border-emerald-500'
+                      : 'border-gray-600 focus:border-emerald-500'
+                  }`}
                   style={{ fontSize: '16px', touchAction: 'manipulation' }}
                   required
                   minLength={20}
@@ -265,20 +284,21 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
                   autoCorrect="off"
                   spellCheck="false"
                 />
-                <div className="mt-1 text-xs text-gray-400">
-                  {message.length}/1000 characters (minimum 20)
+                <div className={`mt-1 text-xs ${
+                  message.trim().length > 0 && message.trim().length < 20
+                    ? 'text-red-400'
+                    : 'text-gray-400'
+                }`}>
+                  {message.length}/1000 characters
+                  {message.trim().length > 0 && message.trim().length < 20 && (
+                    <span className="ml-2">(minimum 20 characters)</span>
+                  )}
                 </div>
               </div>
 
               <button
                 type="submit"
-                disabled={isSubmitting || subject.trim().length < 5 || message.trim().length < 20}
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (!isSubmitting && subject.trim().length >= 5 && message.trim().length >= 20) {
-                    handleSubmit(e);
-                  }
-                }}
+                disabled={isSubmitting || subject.trim().length < 3 || message.trim().length < 20}
                 className="w-full py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 active:from-emerald-700 active:to-emerald-800 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', minHeight: '52px' }}
               >
