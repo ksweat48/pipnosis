@@ -536,7 +536,7 @@ class GoalSessionLiveEngine {
       console.log('%c[MULTI-SYMBOL] 🚀 CALLING ORCHESTRATOR NOW...', 'color: #ff0000; font-weight: bold; font-size: 20px; background: yellow');
       const orchestratorStartTime = Date.now();
 
-      // Add timeout protection (30 seconds max)
+      // Add timeout protection (60 seconds max - increased for LLM retry resilience)
       const orchestratorPromise = alphaOmegaOrchestrator.evaluateMultipleSymbols(
         marketStates,
         traderScore,
@@ -545,7 +545,7 @@ class GoalSessionLiveEngine {
       );
 
       const timeoutPromise = new Promise<Map<string, any>>((_, reject) => {
-        setTimeout(() => reject(new Error('Orchestrator timeout after 30s')), 30000);
+        setTimeout(() => reject(new Error('Orchestrator timeout after 60s')), 60000);
       });
 
       const omegaDecisions = await Promise.race([orchestratorPromise, timeoutPromise]);

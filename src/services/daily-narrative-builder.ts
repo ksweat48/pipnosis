@@ -66,8 +66,8 @@ class DailyNarrativeBuilder {
         .select('*')
         .eq('symbol', symbol)
         .eq('timeframe', 'M15')
-        .gte('time', todayUTC.toISOString())
-        .order('time', { ascending: true });
+        .gte('open_time', todayUTC.toISOString())
+        .order('open_time', { ascending: true });
 
       if (error || !candles || candles.length === 0) {
         console.warn(`[Daily Narrative] No data for ${symbol} today`);

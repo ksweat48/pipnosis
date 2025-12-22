@@ -70,8 +70,8 @@ class MultiSymbolRanker {
         .select('*')
         .eq('symbol', symbol)
         .eq('timeframe', 'M15')
-        .gte('time', twentyFourHoursAgo.toISOString())
-        .order('time', { ascending: false })
+        .gte('open_time', twentyFourHoursAgo.toISOString())
+        .order('open_time', { ascending: false })
         .limit(100);
 
       if (error || !candles || candles.length < 20) {

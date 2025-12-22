@@ -50,9 +50,19 @@ interface ChatCompletionResponse {
 
 class OpenAIClient {
   private readonly functionUrl: string;
+  private readonly maxRetries = 3;
+  private readonly baseDelayMs = 1000;
 
   constructor() {
     this.functionUrl = '/.netlify/functions/openai-chat';
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private isRetryableError(status: number): boolean {
+    return status === 500 || status === 502 || status === 503 || status === 504;
   }
 
   private async getAuthToken(): Promise<string | null> {
@@ -89,40 +99,69 @@ class OpenAIClient {
         model: options.model || 'gpt-4o-mini'
       });
 
-      const response = await fetch(this.functionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({
-          messages,
-          model: options.model || 'gpt-4o-mini',
-          temperature: options.temperature ?? 0.7,
-          max_tokens: options.max_tokens ?? 2000,
-          requestType: options.requestType,
-          endpoint: options.endpoint
-        })
-      });
+      let lastError: Error | null = null;
+      let response: Response | null = null;
 
-      if (!response.ok) {
-        if (response.status === 429) {
+      for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+        try {
+          response = await fetch(this.functionUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({
+              messages,
+              model: options.model || 'gpt-4o-mini',
+              temperature: options.temperature ?? 0.7,
+              max_tokens: options.max_tokens ?? 2000,
+              requestType: options.requestType,
+              endpoint: options.endpoint
+            })
+          });
+
+          if (response.ok) {
+            break;
+          }
+
+          if (this.isRetryableError(response.status) && attempt < this.maxRetries) {
+            const delay = this.baseDelayMs * Math.pow(2, attempt);
+            console.warn(`[OpenAI Client] Retryable error ${response.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${this.maxRetries})`);
+            await this.sleep(delay);
+            continue;
+          }
+
+          if (response.status === 429) {
+            const errorData = await response.json().catch(() => ({}));
+            const resetIn = errorData.resetIn || 3600;
+            const resetMinutes = Math.ceil(resetIn / 60);
+            throw new Error(
+              `Rate limit exceeded. ${errorData.message || 'Too many requests'}. Resets in ${resetMinutes} minute${resetMinutes !== 1 ? 's' : ''}.`
+            );
+          }
+
+          if (response.status === 401) {
+            throw new Error('Authentication expired. Please log in again to continue using AI features.');
+          }
+
           const errorData = await response.json().catch(() => ({}));
-          const resetIn = errorData.resetIn || 3600;
-          const resetMinutes = Math.ceil(resetIn / 60);
           throw new Error(
-            `Rate limit exceeded. ${errorData.message || 'Too many requests'}. Resets in ${resetMinutes} minute${resetMinutes !== 1 ? 's' : ''}.`
+            `OpenAI API error: ${response.status} - ${errorData.error || errorData.message || 'Unknown error'}`
           );
+        } catch (fetchError) {
+          lastError = fetchError as Error;
+          if (attempt < this.maxRetries && !lastError.message.includes('Rate limit') && !lastError.message.includes('Authentication')) {
+            const delay = this.baseDelayMs * Math.pow(2, attempt);
+            console.warn(`[OpenAI Client] Fetch error, retrying in ${delay}ms (attempt ${attempt + 1}/${this.maxRetries}):`, lastError.message);
+            await this.sleep(delay);
+            continue;
+          }
+          throw lastError;
         }
+      }
 
-        if (response.status === 401) {
-          throw new Error('Authentication expired. Please log in again to continue using AI features.');
-        }
-
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          `OpenAI API error: ${response.status} - ${errorData.error || errorData.message || 'Unknown error'}`
-        );
+      if (!response || !response.ok) {
+        throw lastError || new Error('Failed to get response after retries');
       }
 
       const rateLimitHourly = response.headers.get('X-RateLimit-Remaining-Hourly');
