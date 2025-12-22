@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { modalQueueManager, PendingModal } from '@/services/modal-queue-manager';
 import { simpleScanningTimer } from '@/services/simple-scanning-timer';
 import { ContinuationDialog } from './ContinuationDialog';
+import { SessionEndedDialog } from './SessionEndedDialog';
 
 interface PendingContinuationModalHandlerProps {
   userId: string;
@@ -16,10 +17,10 @@ export const PendingContinuationModalHandler: React.FC<PendingContinuationModalH
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    loadPendingContinuationModal();
+    loadPendingModal();
 
     modalQueueManager.subscribeToModalUpdates(userId, () => {
-      loadPendingContinuationModal();
+      loadPendingModal();
     });
 
     return () => {
@@ -27,20 +28,27 @@ export const PendingContinuationModalHandler: React.FC<PendingContinuationModalH
     };
   }, [userId]);
 
-  const loadPendingContinuationModal = async () => {
+  const loadPendingModal = async () => {
     try {
       const modals = await modalQueueManager.getPendingModals(userId);
 
-      const continuationModal = modals.find(m => m.modal_type === 'continuation');
-
-      if (continuationModal) {
-        console.log('[PendingContinuationModal] Found continuation modal:', continuationModal.id);
-        setPendingModal(continuationModal);
-      } else {
-        setPendingModal(null);
+      const sessionEndedModal = modals.find(m => m.modal_type === 'session_ended');
+      if (sessionEndedModal) {
+        console.log('[PendingModalHandler] Found session_ended modal:', sessionEndedModal.id);
+        setPendingModal(sessionEndedModal);
+        return;
       }
+
+      const continuationModal = modals.find(m => m.modal_type === 'continuation');
+      if (continuationModal) {
+        console.log('[PendingModalHandler] Found continuation modal:', continuationModal.id);
+        setPendingModal(continuationModal);
+        return;
+      }
+
+      setPendingModal(null);
     } catch (error) {
-      console.error('[PendingContinuationModal] Error loading modal:', error);
+      console.error('[PendingModalHandler] Error loading modal:', error);
     }
   };
 
@@ -92,11 +100,48 @@ export const PendingContinuationModalHandler: React.FC<PendingContinuationModalH
     }
   };
 
+  const handleSessionEndedDismiss = async () => {
+    if (!pendingModal) return;
+
+    setIsLoading(true);
+
+    try {
+      console.log('[PendingModalHandler] Dismissing session_ended modal');
+      await modalQueueManager.dismissModal(pendingModal.id, 'acknowledged');
+      setPendingModal(null);
+      onModalDismissed?.();
+    } catch (error) {
+      console.error('[PendingModalHandler] Error dismissing modal:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleStartNewSession = () => {
+    console.log('[PendingModalHandler] User starting new session');
+  };
+
   if (!pendingModal) {
     return null;
   }
 
-  const { modal_data } = pendingModal;
+  const { modal_data, modal_type } = pendingModal;
+
+  if (modal_type === 'session_ended') {
+    return (
+      <SessionEndedDialog
+        isOpen={true}
+        closeReason={(modal_data.close_reason as 'timeout' | 'safety_net' | 'user_stopped') || 'timeout'}
+        durationMinutes={modal_data.duration_minutes || 0}
+        tradesInSession={modal_data.trades_in_session || 0}
+        currentProgress={modal_data.current_progress || 0}
+        targetValue={modal_data.target_value || 0}
+        message={modal_data.message || 'Your session has ended.'}
+        onDismiss={handleSessionEndedDismiss}
+        onStartNewSession={handleStartNewSession}
+      />
+    );
+  }
 
   return (
     <ContinuationDialog
