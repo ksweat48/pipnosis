@@ -57,7 +57,12 @@ if (typeof window !== 'undefined') {
   }, 100);
 
   // Register service worker for PWA functionality with smart update management
-  if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  // Disabled in Bolt/StackBlitz environments to prevent preview issues
+  const isBoltEnvironment = window.location.hostname.includes('bolt.new') ||
+                            window.location.hostname.includes('stackblitz') ||
+                            window.location.hostname.includes('webcontainer');
+
+  if ('serviceWorker' in navigator && import.meta.env.PROD && !isBoltEnvironment) {
     window.addEventListener('load', async () => {
       try {
         const registration = await navigator.serviceWorker.register('/sw.js', {
@@ -73,6 +78,16 @@ if (typeof window !== 'undefined') {
       } catch (error) {
         console.log('PWA: Service Worker registration failed:', error);
       }
+    });
+  }
+
+  // Unregister service worker in development or Bolt environments
+  if ('serviceWorker' in navigator && (!import.meta.env.PROD || isBoltEnvironment)) {
+    navigator.serviceWorker.getRegistrations().then(registrations => {
+      registrations.forEach(registration => {
+        registration.unregister();
+        console.log('PWA: Service Worker unregistered for development/Bolt');
+      });
     });
   }
 }
