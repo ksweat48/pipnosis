@@ -10,11 +10,16 @@ export interface OmegaVote {
   reasoning: string;
 }
 
-export type Omega8LiquidityBias = 'clean' | 'stoprun_risk' | 'reaccumulation' | 'distribution';
+export type Omega8LiquidityBias = 'clean' | 'stoprun_risk' | 'stoprun_entry' | 'reaccumulation' | 'distribution';
 
 export interface Omega8Vote extends OmegaVote {
   liquidity_bias: Omega8LiquidityBias;
   direction_support: 'buy' | 'sell' | 'neutral';
+  sweep_details?: {
+    type: 'high' | 'low' | 'none';
+    candles_ago: number;
+    has_bos: boolean;
+  };
 }
 
 export interface Omega9Corrections {

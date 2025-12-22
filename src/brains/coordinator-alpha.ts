@@ -596,15 +596,16 @@ Return JSON with structured reasoning:
         }
       }
 
-      // Add Omega-8 insights
       if (votes.omega8) {
         decision.omega8_liquidity_bias = votes.omega8.liquidity_bias;
         decision.omega8_direction_support = votes.omega8.direction_support;
 
-        // Reduce position size if stop-run risk detected
         if (votes.omega8.liquidity_bias === 'stoprun_risk') {
           decision.confidence = Math.max(0, decision.confidence - 15);
-          console.log('[Alpha Coordinator] ⚠️ Omega-8 flags stop-run risk - reducing confidence');
+          console.log('[Alpha Coordinator] Omega-8 flags stop-run risk (no BOS) - reducing confidence');
+        } else if (votes.omega8.liquidity_bias === 'stoprun_entry') {
+          decision.confidence = Math.min(100, decision.confidence + 10);
+          console.log('[Alpha Coordinator] Omega-8 confirms stop-run WITH BOS - good entry setup, boosting confidence');
         }
       }
 
@@ -852,8 +853,10 @@ Return JSON with structured reasoning:
       agreementCount = Math.max(buyCount, sellCount);
     }
 
-    // Strong agreement = 4+ Omegas agree AND weighted score > 65%
-    const strongAgreement = agreementCount >= 4 && score >= 65;
+    // Strong agreement = 4+ Omegas agree AND weighted score > 55%
+    // LOWERED from 65% to 55% to reduce missed trades
+    // 55% ensures majority consensus without being too restrictive
+    const strongAgreement = agreementCount >= 4 && score >= 55;
 
     return {
       direction,

@@ -88,8 +88,13 @@ export interface Omega8HybridResult {
   reason: string;
   vote: 'BUY' | 'SELL' | 'NO_TRADE';
   reasoning: string;
-  liquidity_bias: 'clean' | 'stoprun_risk' | 'reaccumulation' | 'distribution';
+  liquidity_bias: 'clean' | 'stoprun_risk' | 'stoprun_entry' | 'reaccumulation' | 'distribution';
   direction_support: 'buy' | 'sell' | 'neutral';
+  sweep_details?: {
+    type: 'high' | 'low' | 'none';
+    candles_ago: number;
+    has_bos: boolean;
+  };
 }
 
 export class Omega8HybridBrain {
@@ -123,7 +128,7 @@ export class Omega8HybridBrain {
     }
 
     const vote = this.biasToVote(finalBias);
-    const liquidityBias = this.determineLiquidityBias(patterns, deterministic);
+    const liquidityAnalysis = this.determineLiquidityBias(patterns, deterministic, snapshot.candles);
     const signals = this.generateSignals(patterns);
     const reason = this.buildReason(deterministic, llmRefinement, patterns);
 
@@ -144,8 +149,9 @@ export class Omega8HybridBrain {
       reason,
       vote,
       reasoning: reason,
-      liquidity_bias: liquidityBias,
-      direction_support: finalBias
+      liquidity_bias: liquidityAnalysis.bias,
+      direction_support: finalBias,
+      sweep_details: liquidityAnalysis.sweep_details
     };
   }
 
@@ -606,21 +612,120 @@ Return JSON:
 
   private determineLiquidityBias(
     patterns: Omega8Patterns,
-    deterministic: DeterministicOmega8Decision
-  ): 'clean' | 'stoprun_risk' | 'reaccumulation' | 'distribution' {
-    if ((patterns.sweptHighs > 0 || patterns.sweptLows > 0) && deterministic.confidence < 50) {
-      return 'stoprun_risk';
+    deterministic: DeterministicOmega8Decision,
+    candles?: Omega8Candle[]
+  ): {
+    bias: 'clean' | 'stoprun_risk' | 'stoprun_entry' | 'reaccumulation' | 'distribution';
+    sweep_details?: { type: 'high' | 'low' | 'none'; candles_ago: number; has_bos: boolean };
+  } {
+    const hasSweeps = patterns.sweptHighs > 0 || patterns.sweptLows > 0;
+
+    if (hasSweeps && candles && candles.length >= 5) {
+      const sweepAnalysis = this.analyzeSweepWithBOS(candles, patterns);
+
+      if (sweepAnalysis.has_bos) {
+        console.log(`[Omega-8] Stop-run ${sweepAnalysis.type} detected ${sweepAnalysis.candles_ago} candles ago WITH BOS confirmation - GOOD ENTRY`);
+        return {
+          bias: 'stoprun_entry',
+          sweep_details: sweepAnalysis
+        };
+      }
+
+      if (sweepAnalysis.candles_ago <= 3 && !sweepAnalysis.has_bos) {
+        console.log(`[Omega-8] Recent stop-run ${sweepAnalysis.type} (${sweepAnalysis.candles_ago} candles ago) WITHOUT BOS - RISKY`);
+        return {
+          bias: 'stoprun_risk',
+          sweep_details: sweepAnalysis
+        };
+      }
+
+      if (sweepAnalysis.candles_ago > 5) {
+        console.log(`[Omega-8] Old stop-run ${sweepAnalysis.type} (${sweepAnalysis.candles_ago} candles ago) - treating as clean`);
+        return { bias: 'clean', sweep_details: sweepAnalysis };
+      }
     }
 
     if (patterns.accumulationZone) {
-      return 'reaccumulation';
+      return { bias: 'reaccumulation' };
     }
 
     if (patterns.distributionZone) {
-      return 'distribution';
+      return { bias: 'distribution' };
     }
 
-    return 'clean';
+    return { bias: 'clean' };
+  }
+
+  private analyzeSweepWithBOS(
+    candles: Omega8Candle[],
+    patterns: Omega8Patterns
+  ): { type: 'high' | 'low' | 'none'; candles_ago: number; has_bos: boolean } {
+    if (candles.length < 5) {
+      return { type: 'none', candles_ago: 0, has_bos: false };
+    }
+
+    const isHighSweep = patterns.sweptHighs > 0;
+    const isLowSweep = patterns.sweptLows > 0;
+
+    if (!isHighSweep && !isLowSweep) {
+      return { type: 'none', candles_ago: 0, has_bos: false };
+    }
+
+    let sweepCandleIdx = -1;
+    const recentCandles = candles.slice(-10);
+
+    for (let i = recentCandles.length - 1; i >= 1; i--) {
+      const curr = recentCandles[i];
+      const prev = recentCandles[i - 1];
+      const wickTop = curr.high - Math.max(curr.open, curr.close);
+      const wickBottom = Math.min(curr.open, curr.close) - curr.low;
+      const bodySize = Math.abs(curr.close - curr.open);
+
+      if (isHighSweep && curr.high > prev.high && wickTop > bodySize * 1.5 && curr.close < curr.open) {
+        sweepCandleIdx = i;
+        break;
+      }
+
+      if (isLowSweep && curr.low < prev.low && wickBottom > bodySize * 1.5 && curr.close > curr.open) {
+        sweepCandleIdx = i;
+        break;
+      }
+    }
+
+    if (sweepCandleIdx === -1) {
+      return { type: isHighSweep ? 'high' : 'low', candles_ago: 10, has_bos: false };
+    }
+
+    const candles_ago = recentCandles.length - 1 - sweepCandleIdx;
+    let has_bos = false;
+
+    if (sweepCandleIdx < recentCandles.length - 1) {
+      const sweepCandle = recentCandles[sweepCandleIdx];
+
+      for (let i = sweepCandleIdx + 1; i < recentCandles.length; i++) {
+        const afterCandle = recentCandles[i];
+
+        if (isHighSweep) {
+          if (afterCandle.close < sweepCandle.low) {
+            has_bos = true;
+            break;
+          }
+        }
+
+        if (isLowSweep) {
+          if (afterCandle.close > sweepCandle.high) {
+            has_bos = true;
+            break;
+          }
+        }
+      }
+    }
+
+    return {
+      type: isHighSweep ? 'high' : 'low',
+      candles_ago,
+      has_bos
+    };
   }
 
   private generateSignals(patterns: Omega8Patterns): string[] {

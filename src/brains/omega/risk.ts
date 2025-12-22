@@ -1,5 +1,5 @@
 /**
- * Omega Risk - Risk Assessment Specialist
+ * Omega Risk - Risk Assessment Specialist (ADVISORY ROLE)
  *
  * Specializes in:
  * - SL placement quality
@@ -8,7 +8,11 @@
  * - Market conditions for risk
  * - Position exposure
  *
- * This Omega ONLY evaluates risk - doesn't care about trend or setup
+ * IMPORTANT: This Omega is ADVISORY ONLY
+ * - It provides risk warnings and quality scores
+ * - It does NOT vote NO_TRADE (that would veto the council)
+ * - Alpha uses its risk_score to adjust confidence
+ * - Only CATASTROPHIC violations (R:R < 0.5:1) trigger a block
  */
 
 import { openAIClient } from '../../services/openai-client';
@@ -24,25 +28,45 @@ export interface RiskSnapshot {
   res: number[];    // nearby resistance
   vol: string;      // volatility
   risk_pct: number; // % of account
+  direction?: 'BUY' | 'SELL'; // The direction other Omegas are voting
+}
+
+export interface RiskVote extends OmegaVote {
+  risk_score: number;  // 0-100 (100 = excellent risk profile)
+  warnings: string[];  // Specific risk warnings
+  is_catastrophic: boolean; // Only true for R:R < 0.5:1 or insane SL
 }
 
 class OmegaRiskBrain {
   /**
    * Evaluate risk quality of proposed trade
+   * ADVISORY ROLE: Returns risk assessment, not a blocking vote
    */
-  async evaluate(snapshot: RiskSnapshot): Promise<OmegaVote> {
-    const prompt = `Risk Assessment:
+  async evaluate(snapshot: RiskSnapshot): Promise<RiskVote> {
+    const prompt = `Risk Assessment (ADVISORY):
 ${JSON.stringify(snapshot)}
 
-Evaluate ONLY the risk quality - ignore trend/setup.
-Focus: SL placement near support/resistance, R/R ratio, ATR alignment.
-Vote: BUY/SELL (risk acceptable), NO_TRADE (poor SL placement or bad R/R).
+Evaluate the risk quality. You are ADVISORY - do not veto, just assess.
+Focus: SL placement quality, R/R ratio, ATR alignment.
+
+Rate risk_score 0-100:
+- 80-100: Excellent risk profile
+- 60-79: Acceptable risk
+- 40-59: Elevated risk (warnings needed)
+- 20-39: High risk (strong warnings)
+- 0-19: Catastrophic risk (R:R < 0.5:1 or SL in liquidity zone)
+
+If direction is provided, vote WITH that direction but adjust confidence based on risk.
+Only flag is_catastrophic=true for truly dangerous setups (R:R < 0.5:1).
 
 Return JSON only:
 {
-  "vote": "BUY|SELL|NO_TRADE",
+  "vote": "BUY|SELL",
   "confidence": 0-100,
-  "reasoning": "brief 1-line explanation"
+  "risk_score": 0-100,
+  "warnings": ["warning1", "warning2"],
+  "is_catastrophic": false,
+  "reasoning": "brief risk assessment"
 }`;
 
     try {
@@ -50,7 +74,7 @@ Return JSON only:
         [
           {
             role: 'system',
-            content: 'You are OmegaRisk, a risk management specialist. Evaluate ONLY risk quality. Return JSON only.'
+            content: 'You are OmegaRisk, an ADVISORY risk specialist. You assess risk quality but do NOT veto trades. Only flag catastrophic for R:R < 0.5:1. Return JSON only.'
           },
           {
             role: 'user',
@@ -59,14 +83,13 @@ Return JSON only:
         ],
         {
           model: 'gpt-4o-mini',
-          temperature: 0.2, // Lower temp for risk - be consistent
-          max_tokens: 100,
+          temperature: 0.2,
+          max_tokens: 150,
           requestType: 'omega_risk_vote',
           endpoint: 'omega-risk'
         }
       );
 
-      // Track token usage
       await llmTokenTracker.logUsage({
         brainName: 'Omega-6',
         model: 'gpt-4o-mini',
@@ -79,23 +102,31 @@ Return JSON only:
       });
 
       const content = response.choices[0]?.message?.content || '{}';
-      const vote = this.parseVote(content);
+      const vote = this.parseVote(content, snapshot.direction);
 
-      // Log vote for transparency
-      console.log(`[Omega-6 Risk] Vote: ${vote.vote} | Confidence: ${vote.confidence}% | Reasoning: ${vote.reasoning}`);
+      console.log(`[Omega-6 Risk] ADVISORY: ${vote.vote} | Risk Score: ${vote.risk_score}/100 | Confidence: ${vote.confidence}%`);
+      if (vote.warnings.length > 0) {
+        console.log(`[Omega-6 Risk] Warnings: ${vote.warnings.join(', ')}`);
+      }
+      if (vote.is_catastrophic) {
+        console.log(`[Omega-6 Risk] CATASTROPHIC RISK DETECTED`);
+      }
 
       return vote;
     } catch (error) {
       console.error('[Omega-6 Risk] LLM call failed:', error);
       return {
-        vote: 'NO_TRADE',
-        confidence: 100, // High confidence NO when risk eval fails
-        reasoning: 'Risk analysis failed - reject trade'
+        vote: snapshot.direction || 'BUY',
+        confidence: 30,
+        risk_score: 50,
+        warnings: ['Risk analysis failed - using fallback'],
+        is_catastrophic: false,
+        reasoning: 'Risk analysis failed - proceeding with caution'
       };
     }
   }
 
-  private parseVote(response: string): OmegaVote {
+  private parseVote(response: string, fallbackDirection?: 'BUY' | 'SELL'): RiskVote {
     try {
       const cleaned = response
         .replace(/```json\n?/g, '')
@@ -104,18 +135,28 @@ Return JSON only:
 
       const parsed = JSON.parse(cleaned);
 
+      let vote = parsed.vote || fallbackDirection || 'BUY';
+      if (vote === 'NO_TRADE') {
+        vote = fallbackDirection || 'BUY';
+      }
+
       return {
-        vote: parsed.vote || 'NO_TRADE',
-        confidence: Math.min(100, Math.max(0, parsed.confidence || 0)),
+        vote,
+        confidence: Math.min(100, Math.max(0, parsed.confidence || 50)),
+        risk_score: Math.min(100, Math.max(0, parsed.risk_score || 50)),
+        warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+        is_catastrophic: parsed.is_catastrophic === true,
         reasoning: parsed.reasoning || 'No reasoning provided'
       };
     } catch (error) {
-      console.error('[Omega-6 Risk] ❌ Parse error:', error);
-      console.error('[Omega-6 Risk] Raw response:', response.substring(0, 200));
+      console.error('[Omega-6 Risk] Parse error:', error);
       return {
-        vote: 'NO_TRADE',
-        confidence: 100,
-        reasoning: 'Parse failed - reject for safety'
+        vote: fallbackDirection || 'BUY',
+        confidence: 30,
+        risk_score: 50,
+        warnings: ['Parse error - using defaults'],
+        is_catastrophic: false,
+        reasoning: 'Parse failed - using defaults'
       };
     }
   }

@@ -52,15 +52,14 @@ export interface DailyNarrative {
 class DailyNarrativeBuilder {
   /**
    * Build daily narrative for a symbol
+   * ALWAYS returns data - uses fallback if database has no candles
    */
-  async build(symbol: string, currentPrice: number): Promise<DailyNarrative | null> {
+  async build(symbol: string, currentPrice: number): Promise<DailyNarrative> {
     try {
-      // Get today's date in UTC
       const now = new Date();
       const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
       const dateStr = todayUTC.toISOString().split('T')[0];
 
-      // Fetch today's candles (M15 and higher for daily analysis)
       const { data: candles, error } = await supabase
         .from('forex_candles')
         .select('*')
@@ -70,8 +69,8 @@ class DailyNarrativeBuilder {
         .order('open_time', { ascending: true });
 
       if (error || !candles || candles.length === 0) {
-        console.warn(`[Daily Narrative] No data for ${symbol} today`);
-        return null;
+        console.warn(`[Daily Narrative] No data for ${symbol} today - using fallback`);
+        return this.buildFallbackNarrative(symbol, currentPrice, dateStr);
       }
 
       // Calculate daily high/low/open
@@ -154,8 +153,50 @@ class DailyNarrativeBuilder {
       };
     } catch (error) {
       console.error('[Daily Narrative] Error building narrative:', error);
-      return null;
+      const dateStr = new Date().toISOString().split('T')[0];
+      return this.buildFallbackNarrative(symbol, currentPrice, dateStr);
     }
+  }
+
+  /**
+   * Build fallback narrative when no candle data is available
+   * Uses current price and session context to provide useful information
+   */
+  private buildFallbackNarrative(symbol: string, currentPrice: number, dateStr: string): DailyNarrative {
+    const currentSession = this.getCurrentSession();
+    const pipFactor = symbol.includes('JPY') ? 0.01 : 0.0001;
+
+    const estimatedDailyRange = symbol.includes('XAU') ? 200 :
+                                 symbol.includes('US30') ? 300 :
+                                 symbol.includes('JPY') ? 50 : 60;
+
+    const halfRange = (estimatedDailyRange * pipFactor) / 2;
+    const estimatedHigh = currentPrice + halfRange;
+    const estimatedLow = currentPrice - halfRange;
+
+    return {
+      symbol,
+      date: dateStr,
+      dailyHigh: estimatedHigh,
+      dailyLow: estimatedLow,
+      dailyOpen: currentPrice,
+      dailyRange: estimatedDailyRange,
+      dailyDisplacement: estimatedDailyRange * 0.5,
+      currentPrice,
+      rangePosition: 50,
+      dailyBias: 'neutral',
+      structureQuality: 'ranging',
+      currentSession,
+      asianRange: null,
+      liquiditySweeps: {
+        asianLowSwept: false,
+        asianHighSwept: false,
+        dailyHighTested: false,
+        dailyLowTested: false
+      },
+      narrative: `${symbol} daily data unavailable - using estimated range of ${estimatedDailyRange} pips. Session: ${currentSession}.`,
+      intradayContext: `Limited daily context available. Current session: ${currentSession}. Trade with caution until full data is available.`
+    };
   }
 
   /**
