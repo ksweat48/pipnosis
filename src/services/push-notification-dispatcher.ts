@@ -8,6 +8,8 @@ export type NotificationType =
   | 'goal-achieved'
   | 'goal-progress'
   | 'scanning-timeout'
+  | 'session-started'
+  | 'session-ended'
   | 'system';
 
 export type NotificationPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -383,6 +385,108 @@ class PushNotificationDispatcher {
       return await this.dispatch(params.userId, payload, params.notificationId);
     } catch (error) {
       console.error('[Push Dispatcher] Error sending scanning timeout:', error);
+      return false;
+    }
+  }
+
+  async sendSessionStarted(params: {
+    userId: string;
+    notificationId?: string;
+    goalSessionId: string;
+    watchlist: string[];
+    timeframe: string;
+    riskMode: string;
+    targetAmount: number;
+  }): Promise<boolean> {
+    try {
+      const priority: NotificationPriority = 'medium';
+      const shouldSend = await this.shouldSendPush(params.userId, priority);
+
+      if (!shouldSend) {
+        return false;
+      }
+
+      const symbolsText = params.watchlist.length > 3
+        ? `${params.watchlist.slice(0, 3).join(', ')} +${params.watchlist.length - 3} more`
+        : params.watchlist.join(', ');
+
+      const payload: PushNotificationPayload = {
+        title: '🚀 Smart Goal Session Started',
+        body: `Scanning ${symbolsText} (${params.timeframe}) for ${params.riskMode} risk trades`,
+        icon: '/Pipnosis icon.png',
+        badge: '/notification-badge_3.png',
+        data: {
+          type: 'session-started',
+          priority,
+          goal_session_id: params.goalSessionId,
+          watchlist: params.watchlist,
+          timeframe: params.timeframe,
+          riskMode: params.riskMode,
+          targetAmount: params.targetAmount,
+          action: 'open_goal_session'
+        },
+        tag: `session-started-${params.goalSessionId}`,
+        vibrate: [100, 50, 100]
+      };
+
+      return await this.dispatch(params.userId, payload, params.notificationId);
+    } catch (error) {
+      console.error('[Push Dispatcher] Error sending session started:', error);
+      return false;
+    }
+  }
+
+  async sendSessionEnded(params: {
+    userId: string;
+    notificationId?: string;
+    goalSessionId: string;
+    closeReason: string;
+    durationMinutes: number;
+    tradesInSession: number;
+    currentProgress: number;
+    targetValue: number;
+  }): Promise<boolean> {
+    try {
+      const priority: NotificationPriority =
+        params.closeReason === 'timeout' || params.closeReason === 'safety_net' ? 'high' : 'medium';
+
+      const shouldSend = await this.shouldSendPush(params.userId, priority);
+
+      if (!shouldSend) {
+        return false;
+      }
+
+      const icon = params.closeReason === 'timeout' ? '⏰' :
+                   params.closeReason === 'safety_net' ? '🛡️' : '✋';
+
+      const reasonText = params.closeReason === 'timeout' ? 'Timed out after no trades' :
+                         params.closeReason === 'safety_net' ? 'Safety stop triggered' :
+                         params.closeReason === 'user_stopped' ? 'Stopped by you' :
+                         'Ended';
+
+      const payload: PushNotificationPayload = {
+        title: `${icon} Session ${reasonText}`,
+        body: `${params.tradesInSession} trade${params.tradesInSession !== 1 ? 's' : ''} • $${params.currentProgress.toFixed(2)} of $${params.targetValue.toFixed(2)} • ${Math.round(params.durationMinutes)}min`,
+        icon: '/Pipnosis icon.png',
+        badge: '/notification-badge_3.png',
+        data: {
+          type: 'session-ended',
+          priority,
+          goal_session_id: params.goalSessionId,
+          closeReason: params.closeReason,
+          durationMinutes: params.durationMinutes,
+          tradesInSession: params.tradesInSession,
+          currentProgress: params.currentProgress,
+          targetValue: params.targetValue,
+          action: 'view_session_summary'
+        },
+        tag: `session-ended-${params.goalSessionId}`,
+        vibrate: [200, 100, 200]
+      };
+
+      return await this.dispatch(params.userId, payload, params.notificationId);
+    } catch (error) {
+      console.error('[Push Dispatcher] Error sending session ended:', error);
       return false;
     }
   }

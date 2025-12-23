@@ -75,6 +75,52 @@ class AutoPushNotificationService {
           console.log('[AutoPush] ✅ Sent goal achieved push notification');
           break;
 
+        case 'trade_entry':
+          const entryData = notification.data?.trade_data || {};
+          await pushNotificationDispatcher.sendTradeEntry({
+            userId,
+            notificationId: notification.id,
+            tradeId: notification.data?.tradeId || metadata.trade_id,
+            symbol: entryData.symbol || 'Unknown',
+            direction: entryData.direction || 'buy',
+            entryPrice: entryData.entry_price || 0,
+            lotSize: entryData.lot_size || 0,
+            stopLoss: entryData.stop_loss || 0,
+            takeProfit: entryData.take_profit || 0
+          });
+          console.log('[AutoPush] ✅ Sent trade entry push notification');
+          break;
+
+        case 'session_started':
+          const sessionData = notification.data || {};
+          const watchlist = sessionData.watchlist || [sessionData.symbol];
+          await pushNotificationDispatcher.sendSessionStarted({
+            userId,
+            notificationId: notification.id,
+            goalSessionId: notification.goal_session_id,
+            watchlist: watchlist,
+            timeframe: sessionData.timeframe || '15m',
+            riskMode: sessionData.risk_mode || 'medium',
+            targetAmount: sessionData.target || 0
+          });
+          console.log('[AutoPush] ✅ Sent session started push notification');
+          break;
+
+        case 'session_ended':
+          const endData = notification.data || {};
+          await pushNotificationDispatcher.sendSessionEnded({
+            userId,
+            notificationId: notification.id,
+            goalSessionId: notification.goal_session_id,
+            closeReason: endData.close_reason || 'unknown',
+            durationMinutes: endData.duration_minutes || 0,
+            tradesInSession: endData.trades_in_session || 0,
+            currentProgress: endData.current_progress || 0,
+            targetValue: endData.target_value || 0
+          });
+          console.log('[AutoPush] ✅ Sent session ended push notification');
+          break;
+
         case 'trade_closed':
           const tradeData = metadata.trade_data || {};
           await pushNotificationDispatcher.sendTradeClosed({

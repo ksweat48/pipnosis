@@ -198,6 +198,24 @@ class GoalSessionLiveEngine {
 
       this.startPolling();
 
+      // Insert session started notification for push
+      await supabase.from('goal_notifications').insert({
+        goal_session_id: config.goalSessionId,
+        user_id: config.userId,
+        type: 'session_started',
+        priority: 'medium',
+        title: '🚀 Smart Goal Session Started',
+        message: `Scanning ${config.watchlist?.join(', ') || config.symbol} for ${config.riskMode} risk opportunities. Target: $${config.initialBalance}`,
+        data: {
+          watchlist: config.watchlist,
+          symbol: config.symbol,
+          timeframe: config.timeframe,
+          risk_mode: config.riskMode,
+          target: config.initialBalance
+        },
+        channels: ['in_app']
+      });
+
       logger.info(LogCategory.AI_TRADING, '✅ Session started - LIVE DEMO MODE with real price monitoring');
       logger.debug(LogCategory.AI_TRADING, '✅ SL/TP will be visible on charts');
       logger.debug(LogCategory.AI_TRADING, '✅ Polling every 15 seconds for triggers');
@@ -239,6 +257,43 @@ class GoalSessionLiveEngine {
       const summary = localSessionMemory.generateSessionSummary(`live-${this.activeSession}`);
       if (summary) {
         await this.saveLiveSessionSummary(summary);
+      }
+
+      // Calculate session statistics
+      const { data: sessionData } = await supabase
+        .from('goal_sessions')
+        .select('created_at, target_value, current_progress')
+        .eq('id', this.activeSession)
+        .single();
+
+      const { data: tradesData } = await supabase
+        .from('goal_session_trades')
+        .select('id')
+        .eq('goal_session_id', this.activeSession)
+        .in('status', ['open', 'closed']);
+
+      const durationMinutes = sessionData?.created_at
+        ? (Date.now() - new Date(sessionData.created_at).getTime()) / (1000 * 60)
+        : 0;
+
+      // Insert session ended notification for push
+      if (this.config) {
+        await supabase.from('goal_notifications').insert({
+          goal_session_id: this.activeSession,
+          user_id: this.config.userId,
+          type: 'session_ended',
+          priority: 'medium',
+          title: '✋ Session Closed',
+          message: `Your session ended after ${Math.round(durationMinutes)} minutes. ${tradesData?.length || 0} trade${tradesData?.length !== 1 ? 's' : ''} completed. Final: $${(sessionData?.current_progress || 0).toFixed(2)}`,
+          data: {
+            close_reason: 'user_stopped',
+            duration_minutes: durationMinutes,
+            trades_in_session: tradesData?.length || 0,
+            current_progress: sessionData?.current_progress || 0,
+            target_value: sessionData?.target_value || 0
+          },
+          channels: ['in_app']
+        });
       }
 
       await supabase

@@ -549,12 +549,25 @@ class TradeExecutionEngine {
     const { error: notificationError } = await supabase.from('goal_notifications').insert({
       goal_session_id: signal.sessionId,
       user_id: userId,
-      type: 'signal',
+      type: 'trade_entry',
       priority: 'urgent',
       title: `Trade Executed: ${signal.symbol}`,
-      message: `${signal.direction.toUpperCase()} trade opened at ${signal.entryPrice}. Expected R:R = ${signal.riskReward.toFixed(2)}:1 ($${signal.expectedProfit.toFixed(2)}). Monitoring position...`,
-      data: { signal, tradeId: trade.id, expectedProfit: signal.expectedProfit, riskReward: signal.riskReward },
-      channels: ['in_app', 'email']
+      message: `${signal.direction.toUpperCase()} trade opened at ${actualEntryPrice.toFixed(5)}. SL: ${signal.stopLoss.toFixed(5)}, TP: ${signal.takeProfit.toFixed(5)}. Expected R:R = ${signal.riskReward.toFixed(2)}:1`,
+      data: {
+        signal,
+        tradeId: trade.id,
+        trade_data: {
+          symbol: signal.symbol,
+          direction: signal.direction,
+          entry_price: actualEntryPrice,
+          stop_loss: signal.stopLoss,
+          take_profit: signal.takeProfit,
+          lot_size: signal.positionSize,
+          confidence: signal.confidence,
+          setup_type: signal.setupType
+        }
+      },
+      channels: ['in_app']
     });
 
     if (notificationError) {
