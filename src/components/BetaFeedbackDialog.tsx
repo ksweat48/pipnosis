@@ -33,6 +33,30 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
   const { showToast } = useToast();
 
   useEffect(() => {
+    if (isOpen) {
+      const scrollY = window.scrollY;
+      const body = document.body;
+
+      body.style.position = 'fixed';
+      body.style.top = `-${scrollY}px`;
+      body.style.left = '0';
+      body.style.right = '0';
+      body.style.overflow = 'hidden';
+      body.style.width = '100%';
+
+      return () => {
+        body.style.position = '';
+        body.style.top = '';
+        body.style.left = '';
+        body.style.right = '';
+        body.style.overflow = '';
+        body.style.width = '';
+        window.scrollTo(0, scrollY);
+      };
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
     if (isOpen && activeTab === 'history') {
       loadUserFeedback();
     }
@@ -145,11 +169,25 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
   return (
     <div
       className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-      style={{ WebkitBackdropFilter: 'blur(4px)', backdropFilter: 'blur(4px)' }}
+      style={{
+        WebkitBackdropFilter: 'blur(4px)',
+        backdropFilter: 'blur(4px)',
+        touchAction: 'none'
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
     >
       <div
         className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-3xl max-h-[700px] flex flex-col"
-        style={{ WebkitOverflowScrolling: 'touch' }}
+        style={{
+          WebkitOverflowScrolling: 'touch',
+          touchAction: 'auto'
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-6 border-b border-gray-700">
           <div className="flex items-center gap-3">
@@ -199,8 +237,14 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
         </div>
 
         <div
-          className="flex-1 overflow-y-auto px-6 pt-6 pb-32"
-          style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}
+          className="flex-1 overflow-y-auto px-6 pt-6 pb-48"
+          style={{
+            WebkitOverflowScrolling: 'touch',
+            scrollBehavior: 'auto',
+            overscrollBehavior: 'contain',
+            touchAction: 'pan-y',
+            minHeight: '0'
+          }}
         >
           {activeTab === 'submit' ? (
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -299,24 +343,26 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={isSubmitting || subject.trim().length < 3 || message.trim().length < 20}
-                className="w-full py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 active:from-emerald-700 active:to-emerald-800 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', minHeight: '52px' }}
-              >
-                {isSubmitting ? (
-                  <>
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Submitting...</span>
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-5 h-5" />
-                    <span>Submit Feedback</span>
-                  </>
-                )}
-              </button>
+              <div className="pt-4 pb-8">
+                <button
+                  type="submit"
+                  disabled={isSubmitting || subject.trim().length < 3 || message.trim().length < 20}
+                  className="w-full py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 active:from-emerald-700 active:to-emerald-800 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', minHeight: '52px' }}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Submitting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5" />
+                      <span>Submit Feedback</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </form>
           ) : (
             <div className="space-y-4">
