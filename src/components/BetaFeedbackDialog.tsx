@@ -199,7 +199,7 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
         </div>
 
         <div
-          className="flex-1 overflow-y-auto p-6"
+          className="flex-1 overflow-y-auto px-6 pt-6 pb-32"
           style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}
         >
           {activeTab === 'submit' ? (
