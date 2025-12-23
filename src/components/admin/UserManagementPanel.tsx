@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, MoreVertical, User, DollarSign, RefreshCw, Eye, Copy, Clock } from 'lucide-react';
+import { Search, MoreVertical, User, DollarSign, RefreshCw, Eye, Copy, Clock, AlertTriangle } from 'lucide-react';
 import { adminUserService, AdminUser } from '../../services/admin-user-service';
 import { useToast } from '../../hooks/useToast';
 import { UserDetailsModal } from './UserDetailsModal';
 import { AddCreditsDialog } from './AddCreditsDialog';
 import { ResetSessionDialog } from './ResetSessionDialog';
+import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 export const UserManagementPanel: React.FC = () => {
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -16,7 +17,10 @@ export const UserManagementPanel: React.FC = () => {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showCreditsDialog, setShowCreditsDialog] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
+  const [stuckSessionsCount, setStuckSessionsCount] = useState(0);
+  const [forceClosing, setForceClosing] = useState(false);
   const { showToast } = useToast();
+  const { showConfirm } = useConfirmDialog();
 
   const loadUsers = useCallback(async (search?: string) => {
     try {
@@ -24,6 +28,15 @@ export const UserManagementPanel: React.FC = () => {
       setError(null);
       const data = await adminUserService.getAllUsers(search, 100);
       setUsers(data);
+
+      // Count stuck sessions (>20 minutes of scanning)
+      const stuckCount = data.reduce((count, user) => {
+        if (user.scanning_duration_minutes && user.scanning_duration_minutes > 20) {
+          return count + user.scanning_sessions;
+        }
+        return count;
+      }, 0);
+      setStuckSessionsCount(stuckCount);
     } catch (error: any) {
       const errorMessage = error?.message || 'Failed to load users';
       setError(errorMessage);
@@ -115,6 +128,37 @@ export const UserManagementPanel: React.FC = () => {
     }
   };
 
+  const handleForceCloseStuckSessions = async () => {
+    const confirmed = await showConfirm(
+      'Force Close Stuck Sessions?',
+      'This will automatically close all sessions that have been scanning for more than 30 minutes. This action cannot be undone. Continue?'
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setForceClosing(true);
+      const results = await adminUserService.forceCloseStaleScanningSessions();
+
+      if (results.length === 0) {
+        showToast('No stuck sessions found', 'info');
+      } else {
+        showToast(
+          `Successfully closed ${results.length} stuck session${results.length > 1 ? 's' : ''}`,
+          'success'
+        );
+        console.log('[Admin] Force-closed sessions:', results);
+      }
+
+      loadUsers(searchTerm || undefined);
+    } catch (error) {
+      showToast('Failed to force-close stuck sessions', 'error');
+      console.error('[Admin] Error force-closing sessions:', error);
+    } finally {
+      setForceClosing(false);
+    }
+  };
+
   const formatBalance = (amount: number): string => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -163,13 +207,28 @@ export const UserManagementPanel: React.FC = () => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-white">User Management</h2>
-        <button
-          onClick={() => loadUsers(searchTerm || undefined)}
-          className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors flex items-center gap-2"
-        >
-          <RefreshCw size={16} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          {stuckSessionsCount > 0 && (
+            <button
+              onClick={handleForceCloseStuckSessions}
+              disabled={forceClosing}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-800 disabled:cursor-not-allowed text-white rounded transition-colors flex items-center gap-2 relative"
+            >
+              <AlertTriangle size={16} className={forceClosing ? 'animate-pulse' : ''} />
+              {forceClosing ? 'Closing...' : 'Force Close Stuck Sessions'}
+              <span className="absolute -top-2 -right-2 px-2 py-0.5 bg-yellow-500 text-black text-xs font-bold rounded-full">
+                {stuckSessionsCount}
+              </span>
+            </button>
+          )}
+          <button
+            onClick={() => loadUsers(searchTerm || undefined)}
+            className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors flex items-center gap-2"
+          >
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="relative">
@@ -310,15 +369,23 @@ export const UserManagementPanel: React.FC = () => {
                     <td className="px-4 py-3 text-sm text-center">
                       {user.scanning_sessions > 0 ? (
                         <div className="flex flex-col items-center gap-1">
-                          <span className="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded flex items-center justify-center gap-1">
-                            <svg className="w-3 h-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            {user.scanning_sessions}
-                          </span>
+                          {user.scanning_duration_minutes && user.scanning_duration_minutes > 20 ? (
+                            <span className="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded flex items-center justify-center gap-1 border border-red-500/30">
+                              <AlertTriangle className="w-3 h-3 animate-pulse" />
+                              {user.scanning_sessions}
+                              <span className="ml-1 text-[10px] font-semibold">STUCK</span>
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded flex items-center justify-center gap-1">
+                              <svg className="w-3 h-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              {user.scanning_sessions}
+                            </span>
+                          )}
                           {user.scanning_duration_minutes && (
-                            <span className="text-xs text-gray-400">
+                            <span className={`text-xs ${user.scanning_duration_minutes > 20 ? 'text-red-400 font-semibold' : 'text-gray-400'}`}>
                               {formatScanDuration(user.scanning_duration_minutes)}
                             </span>
                           )}

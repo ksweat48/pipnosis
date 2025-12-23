@@ -108,6 +108,12 @@ export interface RecalculateBalanceResult {
   total_goal_trades: number;
 }
 
+export interface StaleSessionResult {
+  session_id: string;
+  user_id: string;
+  minutes_scanning: number;
+}
+
 export const adminUserService = {
   async getAllUsers(searchEmail?: string, limit: number = 100): Promise<AdminUser[]> {
     const { data, error } = await supabase.rpc('admin_get_all_users', {
@@ -191,6 +197,17 @@ export const adminUserService = {
     }
 
     return data;
+  },
+
+  async forceCloseStaleScanningSessions(): Promise<StaleSessionResult[]> {
+    const { data, error } = await supabase.rpc('force_close_stale_scanning_sessions');
+
+    if (error) {
+      console.error('Error force-closing stale sessions:', error);
+      throw new Error(error.message);
+    }
+
+    return data || [];
   },
 
   /**
