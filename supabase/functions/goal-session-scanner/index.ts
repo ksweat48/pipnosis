@@ -386,7 +386,7 @@ async function scanSession(supabase: any, session: any): Promise<ScanResult[]> {
         priority: 'urgent',
         title: `${session.auto_execute ? 'Trade Executed' : 'Trade Signal'}: ${symbol}`,
         message: `${setup.setupType}: Entry ${setup.entry.toFixed(5)}, SL ${setup.stopLoss.toFixed(5)}, TP ${setup.takeProfit.toFixed(5)}`,
-        data: { setup, trade: tradeResult.data, riskReward, expectedProfit },
+        metadata: { setup, trade: tradeResult.data, riskReward, expectedProfit },
         channels: ['in_app', 'email'],
       }).select().single();
 
