@@ -152,13 +152,25 @@ class SentimentScrapers {
   }
 
   /**
-   * Fear & Greed Index API
+   * Fear & Greed Index API (via Netlify Function proxy)
    */
   private async scrapeFearGreedIndex(): Promise<string[]> {
     try {
-      const url = 'https://api.alternative.me/fng/?limit=1';
-      const response = await this.fetchWithTimeout(url);
-      const data = await response.json();
+      const response = await this.fetchWithTimeout('/.netlify/functions/sentiment-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'feargreed'
+        })
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        return [];
+      }
+
+      const data = result.data;
 
       if (!data?.data?.[0]) {
         return [];
@@ -190,13 +202,25 @@ class SentimentScrapers {
   }
 
   /**
-   * CoinGecko Trending API (crypto market sentiment proxy)
+   * CoinGecko Trending API (crypto market sentiment proxy) (via Netlify Function proxy)
    */
   private async scrapeCoinGeckoTrending(): Promise<string[]> {
     try {
-      const url = 'https://api.coingecko.com/api/v3/search/trending';
-      const response = await this.fetchWithTimeout(url);
-      const data = await response.json();
+      const response = await this.fetchWithTimeout('/.netlify/functions/sentiment-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'coingecko'
+        })
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        return [];
+      }
+
+      const data = result.data;
 
       if (!data?.coins) {
         return [];

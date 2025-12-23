@@ -1,8 +1,8 @@
 import { Handler } from '@netlify/functions';
 
 interface SentimentProxyEvent {
-  source: 'finnhub' | 'fmp';
-  apiKey: string;
+  source: 'finnhub' | 'fmp' | 'feargreed' | 'coingecko';
+  apiKey?: string;
 }
 
 export const handler: Handler = async (event) => {
@@ -29,7 +29,7 @@ export const handler: Handler = async (event) => {
     const body: SentimentProxyEvent = JSON.parse(event.body || '{}');
     const { source, apiKey } = body;
 
-    if (!apiKey) {
+    if ((source === 'finnhub' || source === 'fmp') && !apiKey) {
       return {
         statusCode: 400,
         headers,
@@ -47,6 +47,14 @@ export const handler: Handler = async (event) => {
 
       case 'fmp':
         url = `https://financialmodelingprep.com/api/v3/fmp/articles?page=0&size=10&apikey=${apiKey}`;
+        break;
+
+      case 'feargreed':
+        url = 'https://api.alternative.me/fng/?limit=1';
+        break;
+
+      case 'coingecko':
+        url = 'https://api.coingecko.com/api/v3/search/trending';
         break;
 
       default:

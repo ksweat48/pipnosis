@@ -2384,7 +2384,7 @@ This learning will carry forward to improve future sessions!
         priority,
         title,
         message,
-        data: data || {},
+        metadata: data || {},
         delivered_at: new Date().toISOString(),
         channels: ['in_app']
       });
