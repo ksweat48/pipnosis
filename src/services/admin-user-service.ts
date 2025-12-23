@@ -8,7 +8,15 @@ export interface AdminUser {
   account_balance: number;
   credit_balance: number;
   total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
   active_trades: number;
+  active_trades_detail: Array<{
+    symbol: string;
+    pnl: number;
+    direction: string;
+    entry_price: number;
+  }>;
   scanning_sessions: number;
   scanning_duration_minutes: number | null;
   awaiting_response_sessions: number;

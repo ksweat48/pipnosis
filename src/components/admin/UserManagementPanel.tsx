@@ -137,6 +137,11 @@ export const UserManagementPanel: React.FC = () => {
     }
   };
 
+  const formatPnL = (pnl: number): string => {
+    const formatted = Math.abs(pnl).toFixed(2);
+    return pnl >= 0 ? `+$${formatted}` : `-$${formatted}`;
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -235,16 +240,45 @@ export const UserManagementPanel: React.FC = () => {
                     <td className="px-4 py-3 text-sm text-right font-mono text-amber-400">
                       {user.credit_balance.toFixed(2)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-center text-gray-300">
-                      {user.total_trades}
-                    </td>
                     <td className="px-4 py-3 text-sm text-center">
-                      {user.active_trades > 0 ? (
+                      {user.total_trades > 0 ? (
+                        <div className="flex flex-col items-center gap-0.5">
+                          <div className="flex items-center gap-1.5 text-xs font-semibold">
+                            <span className="text-green-400">{user.winning_trades}W</span>
+                            <span className="text-gray-500">/</span>
+                            <span className="text-red-400">{user.losing_trades}L</span>
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            ({user.total_trades} total)
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-gray-500">0</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {user.active_trades > 0 && user.active_trades_detail?.length > 0 ? (
+                        <div className="flex flex-col gap-1.5 min-w-[120px]">
+                          {user.active_trades_detail.slice(0, 3).map((trade, idx) => (
+                            <div key={idx} className="flex items-center justify-between gap-2 text-xs">
+                              <span className="font-semibold text-gray-300">{trade.symbol}</span>
+                              <span className={`font-mono ${trade.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {formatPnL(trade.pnl)}
+                              </span>
+                            </div>
+                          ))}
+                          {user.active_trades > 3 && (
+                            <span className="text-xs text-gray-500 text-center">
+                              +{user.active_trades - 3} more
+                            </span>
+                          )}
+                        </div>
+                      ) : user.active_trades > 0 ? (
                         <span className="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded">
                           {user.active_trades}
                         </span>
                       ) : (
-                        <span className="text-gray-500">0</span>
+                        <span className="text-gray-500 text-center block">0</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-center">
