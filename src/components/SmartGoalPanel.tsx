@@ -15,24 +15,24 @@ interface GoalTemplate {
 
 const GOAL_TEMPLATES: GoalTemplate[] = [
   {
-    label: 'Quick $100 Today',
-    prompt: 'Make me $100 today with moderate exposure',
-    description: '1 high-quality trade, backup trades if needed'
-  },
-  {
-    label: 'Weekly $500 Target',
-    prompt: 'Earn $500 this week with moderate exposure',
-    description: '1 premium trade per day, more if needed'
-  },
-  {
     label: 'Conservative $50',
-    prompt: 'Make me $50 today with conservative exposure',
-    description: 'Conservative capital exposure, patient AI'
+    prompt: 'Make me $50 today with conservative exposure, close all positions before market close',
+    description: 'Low risk, patient intraday trades only'
   },
   {
-    label: 'Fast $200 Today',
-    prompt: 'Make me $200 today with aggressive exposure',
-    description: 'Aggressive capital exposure, autonomous AI'
+    label: 'Moderate $100',
+    prompt: 'Make me $100 today with moderate exposure, close all positions before market close',
+    description: 'Balanced intraday approach, closes today'
+  },
+  {
+    label: 'Quick Scalp $200',
+    prompt: 'Find me a quick scalp move for $200 today, fast entry and exit, close before market close',
+    description: 'Fast intraday scalp, in and out quickly'
+  },
+  {
+    label: 'Aggressive $300',
+    prompt: 'Make me $300 today with aggressive exposure, close all positions before market close',
+    description: 'Higher risk intraday trades, closes today'
   },
 ];
 
@@ -180,7 +180,7 @@ export const SmartGoalPanel: React.FC = () => {
             type="text"
             value={goalPrompt}
             onChange={(e) => setGoalPrompt(e.target.value)}
-            placeholder="e.g., 'Make me $100 today' or 'Earn 3% this week'"
+            placeholder="e.g., 'Make me $150 today' or 'Find a quick scalp for $75'"
             className="relative w-full px-4 py-4 bg-gray-800/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all duration-300"
           />
           <TrendingUp className="absolute right-4 top-4 w-5 h-5 text-gray-500 group-focus-within:text-emerald-400 transition-colors" />
