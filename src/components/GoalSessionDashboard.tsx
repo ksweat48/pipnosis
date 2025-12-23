@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, WifiOff, AlertTriangle, Search, Shield, Sparkles, Eye, BarChart3 } from 'lucide-react';
+import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, AlertTriangle, Search, Shield, Sparkles, Eye, BarChart3 } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
 import { useAuth } from '../hooks/useAuth';
@@ -854,18 +854,6 @@ export const GoalSessionDashboard: React.FC = () => {
           </div>
         )}
 
-        {activeSession.executionMode === 'client' && !activeSession.serverHeartbeat && (
-          <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
-            <div className="flex items-center gap-2">
-              <WifiOff className="w-4 h-4 text-yellow-400" />
-              <span className="text-sm font-medium text-yellow-400">Browser-Only Mode</span>
-            </div>
-            <p className="text-xs text-gray-400 mt-2">
-              Keep this window open. Session will stop if you close the browser.
-            </p>
-          </div>
-        )}
-
         {openTrades.length > 0 && (
           <div className="mb-4 relative group">
             <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl opacity-30 blur animate-pulse" />
@@ -1007,7 +995,7 @@ export const GoalSessionDashboard: React.FC = () => {
             <div className="relative bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 group-hover:border-orange-500/30 transition-all duration-300">
               <div className="text-sm text-gray-400 mb-1">Trades</div>
               <div className="text-lg font-bold text-orange-400">
-                {progress?.stats?.closedTradesCount || 0} / {activeSession.strategy.targetTradeCount}
+                {(openTrades.length + (progress?.stats?.closedTradesCount || 0))} / {activeSession.strategy.targetTradeCount}
               </div>
             </div>
           </div>
