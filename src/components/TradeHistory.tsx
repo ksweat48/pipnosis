@@ -372,9 +372,9 @@ export function TradeHistory() {
             onChange={(e) => setFilterSymbol(e.target.value)}
             className="bg-gray-800 text-white text-sm px-3 py-1 rounded border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
-            <option value="all">All Symbols</option>
+            <option value="all" style={{ backgroundColor: '#1f2937', color: 'white' }}>All Symbols</option>
             {uniqueSymbols.map(symbol => (
-              <option key={symbol} value={symbol}>{symbol}</option>
+              <option key={symbol} value={symbol} style={{ backgroundColor: '#1f2937', color: 'white' }}>{symbol}</option>
             ))}
           </select>
 
@@ -383,9 +383,9 @@ export function TradeHistory() {
             onChange={(e) => setFilterOutcome(e.target.value)}
             className="bg-gray-800 text-white text-sm px-3 py-1 rounded border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
-            <option value="all">All Outcomes</option>
-            <option value="winning">Winning Trades</option>
-            <option value="losing">Losing Trades</option>
+            <option value="all" style={{ backgroundColor: '#1f2937', color: 'white' }}>All Outcomes</option>
+            <option value="winning" style={{ backgroundColor: '#1f2937', color: 'white' }}>Winning Trades</option>
+            <option value="losing" style={{ backgroundColor: '#1f2937', color: 'white' }}>Losing Trades</option>
           </select>
 
           <select
@@ -393,8 +393,8 @@ export function TradeHistory() {
             onChange={(e) => setSortBy(e.target.value as 'date' | 'profit')}
             className="bg-gray-800 text-white text-sm px-3 py-1 rounded border border-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
-            <option value="date">Sort by Date</option>
-            <option value="profit">Sort by P&L</option>
+            <option value="date" style={{ backgroundColor: '#1f2937', color: 'white' }}>Sort by Date</option>
+            <option value="profit" style={{ backgroundColor: '#1f2937', color: 'white' }}>Sort by P&L</option>
           </select>
 
           {trades.length > 0 && (
