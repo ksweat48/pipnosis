@@ -67,7 +67,7 @@ export const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ userId, onCl
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-gray-800 rounded-lg max-w-4xl w-full max-h-[700px] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
         <div className="sticky top-0 bg-gray-800 border-b border-gray-700 p-6 flex items-center justify-between">
           <h2 className="text-2xl font-bold text-white">User Details</h2>
           <button

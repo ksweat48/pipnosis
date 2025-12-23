@@ -104,9 +104,11 @@ export function MidTradeAlertModal({ notification, onClose, onExecuted }: MidTra
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div
-        className={`bg-gray-900 rounded-2xl shadow-2xl border ${theme.border} max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-pulse-border`}
+        className={`bg-gray-900 rounded-2xl shadow-2xl border ${theme.border} max-w-2xl w-full max-h-[700px] overflow-y-auto animate-pulse-border`}
         style={{
-          animation: isExitImmediately ? 'pulse-border 1s ease-in-out infinite' : 'none'
+          animation: isExitImmediately ? 'pulse-border 1s ease-in-out infinite' : 'none',
+          WebkitOverflowScrolling: 'touch',
+          scrollBehavior: 'auto'
         }}
       >
         {/* Header */}

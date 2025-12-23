@@ -38,13 +38,13 @@ export const GoalAchievedDialog: React.FC<GoalAchievedDialogProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-300 max-h-[90vh] flex flex-col">
+      <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-300 max-h-[700px] flex flex-col">
         {/* Glow effect */}
         <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 via-blue-500 to-emerald-500 rounded-2xl opacity-75 blur-xl animate-pulse" />
 
         {/* Dialog content */}
         <div className="relative bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 rounded-2xl border border-emerald-500/50 shadow-2xl overflow-hidden flex flex-col">
-          <div className="overflow-y-auto max-h-[85vh]">
+          <div className="overflow-y-auto flex-1" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
           {/* Close button */}
           <button
             onClick={onClose}

@@ -198,12 +198,12 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
       {/* Blocking overlay - prevents all interactions */}
       <div className="absolute inset-0" onClick={(e) => e.stopPropagation()} />
 
-      <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-300 max-h-[90vh] flex flex-col">
+      <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-300 max-h-[700px] flex flex-col">
         <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl opacity-50 blur-xl" />
 
         <div className="relative bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 rounded-2xl border border-gray-700/50 shadow-2xl overflow-hidden flex flex-col">
           {/* Scrollable content area */}
-          <div className="overflow-y-auto max-h-[85vh]">
+          <div className="overflow-y-auto flex-1" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
             {/* Header */}
             <div className="relative pt-6 pb-4 px-6">
             <div className={`absolute inset-0 bg-gradient-to-b ${reasonColor} opacity-10`} />

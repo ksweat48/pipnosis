@@ -148,7 +148,7 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
       style={{ WebkitBackdropFilter: 'blur(4px)', backdropFilter: 'blur(4px)' }}
     >
       <div
-        className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col"
+        className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-3xl max-h-[700px] flex flex-col"
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
         <div className="flex items-center justify-between p-6 border-b border-gray-700">
@@ -198,7 +198,10 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div
+          className="flex-1 overflow-y-auto p-6"
+          style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}
+        >
           {activeTab === 'submit' ? (
             <form onSubmit={handleSubmit} className="space-y-6">
               <div>

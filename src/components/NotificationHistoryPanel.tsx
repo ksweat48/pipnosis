@@ -118,7 +118,7 @@ export default function NotificationHistoryPanel({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-4xl max-h-[80vh] flex flex-col shadow-2xl">
+      <div className="bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-4xl max-h-[700px] flex flex-col shadow-2xl" style={{ WebkitOverflowScrolling: 'touch' }}>
         <div className="flex items-center justify-between p-6 border-b border-slate-700">
           <div>
             <h2 className="text-2xl font-bold text-white">Trade Notifications</h2>

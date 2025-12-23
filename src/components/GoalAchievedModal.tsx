@@ -104,7 +104,7 @@ export function GoalAchievedModal({ notification, onClose, onActionTaken }: Goal
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 rounded-2xl shadow-2xl border border-gray-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-gray-900 rounded-2xl shadow-2xl border border-gray-700 max-w-2xl w-full max-h-[700px] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
         {/* Header */}
         <div className="relative bg-gradient-to-r from-green-600 to-emerald-600 p-8 rounded-t-2xl">
           <button

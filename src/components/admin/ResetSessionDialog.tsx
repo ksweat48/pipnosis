@@ -89,7 +89,7 @@ export const ResetSessionDialog: React.FC<ResetSessionDialogProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-gray-800 rounded-lg max-w-2xl w-full max-h-[700px] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
         <div className="border-b border-gray-700 p-6 flex items-center justify-between">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <RefreshCw size={24} className="text-amber-400" />

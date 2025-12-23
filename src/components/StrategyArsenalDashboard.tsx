@@ -346,7 +346,7 @@ export default function StrategyArsenalDashboard() {
       {/* Strategy Details Modal */}
       {showDetails && selectedStrategy && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-gray-800 rounded-lg max-w-4xl w-full max-h-[700px] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
             <div className="sticky top-0 bg-gray-800 border-b border-gray-700 p-6 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 {getStrategyIcon(selectedStrategy.strategy_type)}

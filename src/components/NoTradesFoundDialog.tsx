@@ -45,11 +45,11 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative max-w-md w-full">
+      <div className="relative max-w-md w-full max-h-[650px] flex flex-col">
         <div className="absolute -inset-1 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-2xl opacity-20 blur animate-pulse" />
 
-        <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden">
-          <div className="p-6">
+        <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col">
+          <div className="p-6 overflow-y-auto flex-1" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
             <div className="flex items-start gap-4 mb-6">
               <div className={`p-3 rounded-xl ${isUrgent ? 'bg-gradient-to-br from-red-600 to-orange-600 animate-pulse' : 'bg-gradient-to-br from-yellow-600 to-orange-600'}`}>
                 <Search className="w-6 h-6 text-white" />

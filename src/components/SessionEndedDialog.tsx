@@ -86,11 +86,11 @@ export const SessionEndedDialog: React.FC<SessionEndedDialogProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative max-w-lg w-full max-h-[90vh] flex flex-col">
+      <div className="relative max-w-lg w-full max-h-[650px] flex flex-col">
         <div className={`absolute -inset-1 bg-gradient-to-r ${getGradient()} rounded-2xl opacity-30 blur`} />
 
         <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col">
-          <div className="overflow-y-auto max-h-[85vh] p-6">
+          <div className="overflow-y-auto flex-1 p-6" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
             <div className="flex items-start gap-4 mb-6">
               <div className={`p-3 bg-gradient-to-br ${getGradient()} rounded-xl`}>
                 {getIcon()}

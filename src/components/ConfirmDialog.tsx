@@ -42,7 +42,7 @@ export function ConfirmDialog({
         onClick={onCancel}
       />
 
-      <div className="relative bg-gray-800 rounded-xl shadow-2xl border border-gray-700 max-w-md w-full animate-slideUp max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-gray-800 rounded-xl shadow-2xl border border-gray-700 max-w-md w-full animate-slideUp max-h-[600px] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
         <div className="p-6">
           <div className="flex flex-col items-center text-center mb-6">
             <div className="mb-4">

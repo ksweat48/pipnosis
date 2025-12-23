@@ -28,11 +28,11 @@ export const ContinuationDialog: React.FC<ContinuationDialogProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative max-w-lg w-full max-h-[90vh] flex flex-col">
+      <div className="relative max-w-lg w-full max-h-[650px] flex flex-col">
         <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-2xl opacity-20 blur" />
 
         <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col">
-          <div className="overflow-y-auto max-h-[85vh] p-6">
+          <div className="overflow-y-auto flex-1 p-6" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
           <div className="flex items-start gap-4 mb-6">
             <div className="p-3 bg-gradient-to-br from-emerald-600 to-blue-600 rounded-xl">
               <TrendingUp className="w-6 h-6 text-white" />
