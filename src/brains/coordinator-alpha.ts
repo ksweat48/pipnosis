@@ -72,6 +72,7 @@ import { timeToFillCalculator, type TimeToFillInput } from '../services/time-to-
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
 import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ranker';
 import { riskAwareStopCalculator, type StopLossCalculation } from '../services/risk-aware-stop-calculator';
+import { eliteProfitTargetCalculator, type LiquidityZone, type TPCalculationResult } from '../services/profit-target-calculator';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -435,6 +436,27 @@ class AlphaCoordinatorBrain {
       }
     }
 
+    // Detect liquidity zones for Elite TP System
+    let liquidityZones: LiquidityZone[] = [];
+    let liquidityContext = '';
+    if (fullCandles && fullCandles.length > 0 && consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED') {
+      const direction = consensus.direction === 'BUY' ? 'long' : 'short';
+      liquidityZones = eliteProfitTargetCalculator.detectLiquidityZones(
+        fullCandles,
+        marketContext.price,
+        direction
+      );
+
+      if (liquidityZones.length > 0) {
+        liquidityContext = `\n🎯 ELITE TP SYSTEM - LIQUIDITY ZONES:\n`;
+        liquidityContext += `Direction: ${direction.toUpperCase()}\n`;
+        liquidityZones.slice(0, 5).forEach((zone, idx) => {
+          liquidityContext += `${idx + 1}. ${zone.type.toUpperCase()} @ ${zone.price.toFixed(5)} (${zone.distance_pips.toFixed(1)} pips, ${zone.strength})\n`;
+        });
+        liquidityContext += `Use these zones for TP placement (prioritize strong liquidity pools)\n`;
+      }
+    }
+
     // Calculate professional stop-loss anchor for Alpha
     let stopLossAnchor: StopLossCalculation | null = null;
     let stopLossDirective = '';
@@ -567,6 +589,124 @@ You are optimizing for:
 
 Act accordingly.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 ALPHA TAKE-PROFIT DIRECTIVE (ELITE TRADER VERSION)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PRIMARY PHILOSOPHY
+Elite traders NEVER accept R:R < 1.0. This is non-negotiable.
+Your take-profit determines trade quality, position expectancy, and systematic profitability.
+
+R:R RATIO ENFORCEMENT
+❌ HARD BLOCK: R:R < 1.0 → Trade REJECTED by Omega-9 (no exceptions)
+⚠️  SUBOPTIMAL: R:R 1.0-1.5 → Acceptable but not preferred
+✅ TARGET ZONE: R:R ≥ 1.5 → Professional standard
+🏆 ELITE ZONE: R:R ≥ 2.0 → Optimal expectancy
+
+LIQUIDITY-FIRST TARGETING
+Your TP must be placed at liquidity zones, NOT arbitrary structure levels.
+
+Priority Order:
+1. ORDER CLUSTER ZONES (highest priority)
+   • Areas where limit orders are stacked
+   • Clear price magnetism points
+   • Strong liquidity pools
+
+2. PSYCHOLOGICAL LEVELS
+   • Round numbers (1.2000, 1.2050, 1.2100)
+   • Historical pivot points
+   • Institutional reference prices
+
+3. STRUCTURAL RESISTANCE (lowest priority)
+   • Previous swing highs/lows
+   • Only used if liquidity aligns
+   • OVERRIDE if strong liquidity exists beyond structure
+
+LIQUIDITY OVERRIDE RULE
+If a strong liquidity pool exists BEYOND structural resistance:
+→ Place TP at liquidity (ignore structure)
+→ Reasoning: Markets move to liquidity, not structure
+
+SINGLE TARGET vs PARTIALS
+Default: SINGLE take-profit at best liquidity zone
+• Simplicity is professionalism
+• Full position capture at optimal exit
+• Reduces complexity and decision fatigue
+
+Partials allowed ONLY when:
+✓ Multiple strong liquidity zones exist
+✓ R:R on first partial ≥ 1.5
+✓ Second target offers R:R ≥ 2.5
+✓ You provide explicit reasoning for partials
+
+Partial split (if used): 50% / 50%
+
+SESSION-TIME CONSTRAINT
+Your TP must be reachable within remaining session time.
+
+Calculation:
+• Distance to TP (pips) ÷ Expected volatility (pips/hour)
+• Result must be < remaining session minutes × 1.2 safety buffer
+
+If time constraint violated:
+→ Choose closer liquidity zone
+→ Or accept risk and justify in reasoning
+
+UNACCEPTABLE TP PLACEMENT
+❌ R:R < 1.0 (Omega-9 HARD BLOCK)
+❌ TP placed at structure without liquidity confirmation
+❌ TP beyond session time constraint without justification
+❌ Arbitrary price levels (must be liquidity-anchored)
+❌ Multiple partials without strong reasoning
+
+ACCEPTABLE TP PLACEMENT
+✅ R:R ≥ 1.0 minimum (1.5+ preferred)
+✅ TP at confirmed liquidity zones
+✅ Single target at best zone (default)
+✅ Partials with explicit multi-zone reasoning
+✅ Time-constrained placement verified
+
+YOUR DECISION AUTHORITY
+You determine:
+• Which liquidity zone to target
+• Whether to use single TP or partials
+• Override structure if liquidity exists beyond
+• R:R ratio (≥ 1.0 minimum, 1.5+ preferred)
+
+You must NOT:
+• Accept R:R < 1.0 (Omega-9 blocks this)
+• Place TP without liquidity justification
+• Use partials without strong reasoning
+• Ignore session-time constraints without explanation
+
+ELITE TRADER MENTALITY CHECK
+Before finalizing your TP, ask:
+"Would a professional trader with 10 years of experience accept this R:R and TP placement?"
+If the answer is no, revise your TP.
+
+FINAL OUTPUT EXPECTATION
+Your TP must:
+• Meet minimum R:R ≥ 1.0 (Omega-9 enforced)
+• Be placed at identifiable liquidity zones
+• Default to single target (partials need reasoning)
+• Respect session-time constraints
+• Read like a senior trader's decision
+
+Remember:
+Elite traders optimize for:
+• Trade expectancy (R:R ≥ 1.5)
+• Liquidity capture (pools > structure)
+• Simplicity (single target default)
+• Systematic profitability
+
+Not for:
+• Speed of exit
+• Conservative structure levels
+• Cosmetic risk reduction
+• Overcomplicated partial strategies
+
+Act accordingly.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
     }
 
@@ -574,7 +714,7 @@ Act accordingly.
 
 ${context}
 
-WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${intelligenceContext}${goalContextText}${stopLossDirective}
+WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${intelligenceContext}${goalContextText}${liquidityContext}${stopLossDirective}
 
 🎯 ALPHA DECISION INTELLIGENCE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━

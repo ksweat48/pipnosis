@@ -14,6 +14,7 @@
 import { supabase } from '../lib/supabase';
 import { llmReasoningLogger, PostTradeAnalysis } from './llm-reasoning-logger';
 import { logger } from '../lib/logger';
+import { tpQualityTracker } from './tp-quality-tracker';
 
 interface TradeData {
   id: string;
@@ -100,6 +101,9 @@ class PostTradeAnalyzer {
 
       // Populate AI learning tables
       await this.populateAILearningTables(tradeData, journalEntry, outcome, wasPredictionCorrect);
+
+      // Track TP quality outcome (Elite TP System)
+      await this.trackTPOutcome(tradeData, outcome);
 
       console.log(`[Post-Trade Analyzer] ✅ Analysis complete for ${tradeData.symbol}`);
     } catch (error) {
@@ -632,6 +636,63 @@ class PostTradeAnalyzer {
     if (hour >= 8 && hour < 16) return 'London';
     if (hour >= 16 && hour < 24) return 'NewYork';
     return 'Unknown';
+  }
+
+  /**
+   * Track TP outcome for Elite TP System learning
+   */
+  private async trackTPOutcome(
+    tradeData: TradeData,
+    outcome: 'win' | 'loss' | 'breakeven'
+  ): Promise<void> {
+    try {
+      let tpOutcome: 'hit' | 'stopped_out' | 'partial_hit' | 'manual_close' | 'timeout';
+      let actualRR: number | undefined;
+
+      const slDistance = Math.abs(tradeData.entryPrice - tradeData.stopLoss);
+      const exitDistance = Math.abs(tradeData.exitPrice - tradeData.entryPrice);
+
+      if (outcome === 'win') {
+        const tpDistance = Math.abs(tradeData.takeProfit - tradeData.entryPrice);
+        const hitRatio = exitDistance / tpDistance;
+
+        if (hitRatio >= 0.95) {
+          tpOutcome = 'hit';
+        } else if (hitRatio >= 0.5) {
+          tpOutcome = 'partial_hit';
+        } else {
+          tpOutcome = 'manual_close';
+        }
+
+        actualRR = exitDistance / slDistance;
+      } else if (outcome === 'loss') {
+        tpOutcome = 'stopped_out';
+        actualRR = -(exitDistance / slDistance);
+      } else {
+        tpOutcome = 'manual_close';
+        actualRR = 0;
+      }
+
+      const timeToFillMinutes = Math.round(
+        (tradeData.exitTime.getTime() - tradeData.entryTime.getTime()) / (1000 * 60)
+      );
+
+      await tpQualityTracker.updateTPOutcome(
+        tradeData.id,
+        tpOutcome,
+        actualRR,
+        timeToFillMinutes
+      );
+
+      logger.info('[Post-Trade Analyzer] TP outcome tracked', {
+        tradeId: tradeData.id,
+        tpOutcome,
+        actualRR,
+        timeToFillMinutes
+      });
+    } catch (error) {
+      logger.error('[Post-Trade Analyzer] Failed to track TP outcome', { error });
+    }
   }
 }
 

@@ -133,6 +133,21 @@ class Omega9HallucinationBrain {
     const tpDistance = Math.abs(tp - entry);
     const rr = slDistance > 0 ? tpDistance / slDistance : 0;
 
+    // ELITE TRADER TP SYSTEM: R:R < 1.0 HARD BLOCK
+    if (rr < 1.0) {
+      flags.push('RR_BELOW_1_HARD_BLOCK');
+      console.log(`[Omega-9] 🚨 ELITE TP VIOLATION: R:R ${rr.toFixed(3)} < 1.0 - HARD BLOCKING TRADE`);
+      return {
+        pass: false,
+        flags,
+        confidence_adjustment: -100,
+        corrections: { sl: null, tp: null, risk_pct: null },
+        reasoning: `ELITE TRADER VIOLATION: R:R ratio ${rr.toFixed(3)} is below minimum 1.0. Elite traders NEVER accept R:R < 1.0. Trade BLOCKED.`,
+        safety_zone: 'RED' as const,
+        safety_evaluation: undefined
+      };
+    }
+
     const voteConflicts = this.detectVoteConflicts(omegaVotes);
     if (voteConflicts.length > 0) {
       flags.push(...voteConflicts);
