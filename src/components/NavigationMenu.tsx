@@ -123,25 +123,6 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                       </div>
 
                       <div className="p-2">
-                        <button
-                          onClick={() => {
-                            setShowProfileMenu(false);
-                            setShowFeedbackDialog(true);
-                          }}
-                          className="w-full flex items-center gap-3 px-3 py-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-lg transition-all group mb-2"
-                        >
-                          <div className="flex items-center gap-3 flex-1">
-                            <div className="p-1.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded">
-                              <Sparkles size={14} className="text-white" />
-                            </div>
-                            <div className="flex flex-col items-start">
-                              <span className="text-amber-400 font-semibold text-sm">BETA Feedback</span>
-                              <span className="text-amber-500/70 text-xs">Help us improve</span>
-                            </div>
-                          </div>
-                          <MessageSquare size={16} className="text-amber-400 group-hover:text-amber-300" />
-                        </button>
-
                         <Link
                           to="/credits"
                           onClick={() => setShowProfileMenu(false)}
@@ -200,6 +181,25 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                         >
                           <LogOut size={18} />
                           <span>Sign Out</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setShowProfileMenu(false);
+                            setShowFeedbackDialog(true);
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-lg transition-all group mt-2"
+                        >
+                          <div className="flex items-center gap-3 flex-1">
+                            <div className="p-1.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded">
+                              <Sparkles size={14} className="text-white" />
+                            </div>
+                            <div className="flex flex-col items-start">
+                              <span className="text-amber-400 font-semibold text-sm">BETA Feedback</span>
+                              <span className="text-amber-500/70 text-xs">Help us improve</span>
+                            </div>
+                          </div>
+                          <MessageSquare size={16} className="text-amber-400 group-hover:text-amber-300" />
                         </button>
                       </div>
                     </div>
