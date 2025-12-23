@@ -40,6 +40,7 @@ export const GoalSessionDashboard: React.FC = () => {
   const [tradeClosedData, setTradeClosedData] = useState<any>(null);
   const [showNoTradesModal, setShowNoTradesModal] = useState(false);
   const [noTradesLoading, setNoTradesLoading] = useState(false);
+  const [forceCloseAttempted, setForceCloseAttempted] = useState<string | null>(null);
 
   useEffect(() => {
     loadSessionData();
@@ -269,15 +270,21 @@ export const GoalSessionDashboard: React.FC = () => {
       if (session) {
         // CRITICAL: Client-side timeout enforcement as backup to server-side
         // This ensures sessions close even if autonomous monitor fails
+        // CIRCUIT BREAKER: Only attempt force close once per session to prevent infinite loops
         try {
           const timeoutCheck = await simpleScanningTimer.clientSideTimeoutCheck(session.sessionId);
 
-          if (timeoutCheck.shouldForceClose) {
+          if (timeoutCheck.shouldForceClose && forceCloseAttempted !== session.sessionId) {
             console.log('[GoalSessionDashboard] 🛑 CLIENT-SIDE: Forcing session close due to timeout');
-            await simpleScanningTimer.forceCloseStaleSession(session.sessionId);
-            setShowNoTradesModal(false);
-            setContinuationData(null);
-            await loadSessionData();
+            setForceCloseAttempted(session.sessionId);
+            const closed = await simpleScanningTimer.forceCloseStaleSession(session.sessionId);
+            if (closed) {
+              setShowNoTradesModal(false);
+              setContinuationData(null);
+              setActiveSession(null);
+            } else {
+              console.error('[GoalSessionDashboard] Force close failed - circuit breaker engaged');
+            }
             return;
           }
 
@@ -298,16 +305,22 @@ export const GoalSessionDashboard: React.FC = () => {
             .single();
 
           // CRITICAL: Check if continuation modal has timed out (client-side safety check)
-          if (sessionData?.awaiting_continuation_confirmation && sessionData?.continuation_confirmation_expires_at) {
+          // CIRCUIT BREAKER: Don't attempt if already tried for this session
+          if (sessionData?.awaiting_continuation_confirmation &&
+              sessionData?.continuation_confirmation_expires_at &&
+              forceCloseAttempted !== session.sessionId) {
             const expiresAt = new Date(sessionData.continuation_confirmation_expires_at);
             const now = new Date();
 
             if (now > expiresAt) {
               console.log('[GoalSessionDashboard] ⏰ Continuation modal timeout detected - auto-closing session');
-              await simpleScanningTimer.forceCloseStaleSession(session.sessionId);
-              setShowNoTradesModal(false);
-              setContinuationData(null);
-              await loadSessionData();
+              setForceCloseAttempted(session.sessionId);
+              const closed = await simpleScanningTimer.forceCloseStaleSession(session.sessionId);
+              if (closed) {
+                setShowNoTradesModal(false);
+                setContinuationData(null);
+                setActiveSession(null);
+              }
               return;
             }
           }
