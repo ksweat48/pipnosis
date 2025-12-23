@@ -327,7 +327,7 @@ class MidTradeAlertExecutor {
       .update({
         executed: true,
         executed_at: new Date().toISOString(),
-        data: {
+        metadata: {
           execution_result: 'success',
           execution_reason: reason
         }
@@ -344,7 +344,7 @@ class MidTradeAlertExecutor {
       .update({
         executed: true,
         executed_at: new Date().toISOString(),
-        data: {
+        metadata: {
           execution_result: 'failed',
           execution_reason: reason
         }

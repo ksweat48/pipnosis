@@ -305,7 +305,7 @@ class TradeExecutionEngine {
       priority: 'urgent',
       title: `Trade Signal: ${signal.symbol}`,
       message: `${signal.setupType} detected. Confidence: ${signal.confidence}%. Entry: ${signal.entryPrice}, SL: ${signal.stopLoss}, TP: ${signal.takeProfit}`,
-      data: { signal, tradeId: trade.id },
+      metadata: { signal, tradeId: trade.id },
       channels: ['in_app', 'email']
     });
 
@@ -553,7 +553,7 @@ class TradeExecutionEngine {
       priority: 'urgent',
       title: `Trade Executed: ${signal.symbol}`,
       message: `${signal.direction.toUpperCase()} trade opened at ${actualEntryPrice.toFixed(5)}. SL: ${signal.stopLoss.toFixed(5)}, TP: ${signal.takeProfit.toFixed(5)}. Expected R:R = ${signal.riskReward.toFixed(2)}:1`,
-      data: {
+      metadata: {
         signal,
         tradeId: trade.id,
         trade_data: {

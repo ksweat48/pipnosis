@@ -180,7 +180,7 @@ class TradeLifecycleManager {
         priority: 'high',
         title: '🎯 Goal Achieved!',
         message: `Congratulations! You've reached your $${targetValue} goal with cumulative profit of $${cumulativeProfit.toFixed(2)} across multiple trades!`,
-        data: {
+        metadata: {
           cumulativeProfit,
           targetValue,
           achievementType: 'cumulative_multi_trade'
@@ -637,7 +637,7 @@ class TradeLifecycleManager {
         priority: isProfit ? 'high' : 'medium',
         title: `Trade Closed: ${trade.symbol}`,
         message: `${reason}. ${isProfit ? 'Profit' : 'Loss'}: $${Math.abs(profitLoss).toFixed(2)}`,
-        data: { trade, exitPrice, profitLoss, reason },
+        metadata: { trade, exitPrice, profitLoss, reason },
         channels: ['in_app', 'email']
       });
 
@@ -864,7 +864,7 @@ class TradeLifecycleManager {
         priority: 'high',
         title: '🎯 Goal Achieved!',
         message: `Congratulations! Your $${targetAmount} goal has been reached with current P&L of $${currentPnL.toFixed(2)}. This win is now permanently logged. What would you like to do?`,
-        data: {
+        metadata: {
           achievement_id: achievementId,
           trade_id: trade.id,
           symbol: trade.symbol,
@@ -947,7 +947,7 @@ class TradeLifecycleManager {
             priority: 'medium',
             title: '🛡️ Breakeven Protection Applied',
             message: 'No action was taken within 5 minutes, so we automatically moved your stop loss to breakeven to protect your profits.',
-            data: {
+            metadata: {
               trade_id: trade.id,
               new_stop_loss: trade.entry_price,
               action: 'default_breakeven'
@@ -969,7 +969,7 @@ class TradeLifecycleManager {
             priority: 'urgent',
             title: '⚠️ Profit Fading!',
             message: `Your profit has dropped from $${goalSession.goal_achieved_pnl.toFixed(2)} to $${currentPnL.toFixed(2)}. Consider closing or protecting your position!`,
-            data: {
+            metadata: {
               trade_id: trade.id,
               peak_pnl: goalSession.goal_achieved_pnl,
               current_pnl: currentPnL,

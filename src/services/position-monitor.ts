@@ -693,7 +693,7 @@ class PositionMonitorService {
             priority: priority,
             title: `Trade Alert: ${position.symbol}`,
             message: alertMessage,
-            data: {
+            metadata: {
               trade_id: position.id,
               symbol: position.symbol,
               trigger_type: triggerType,
@@ -766,7 +766,7 @@ class PositionMonitorService {
             priority: config.priority,
             title: config.title,
             message: config.message,
-            data: {
+            metadata: {
               trade_id: position.id,
               symbol: position.symbol,
               direction: position.direction,

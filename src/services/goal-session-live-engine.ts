@@ -206,7 +206,7 @@ class GoalSessionLiveEngine {
         priority: 'medium',
         title: '🚀 Smart Goal Session Started',
         message: `Scanning ${config.watchlist?.join(', ') || config.symbol} for ${config.riskMode} risk opportunities. Target: $${config.initialBalance}`,
-        data: {
+        metadata: {
           watchlist: config.watchlist,
           symbol: config.symbol,
           timeframe: config.timeframe,
@@ -285,7 +285,7 @@ class GoalSessionLiveEngine {
           priority: 'medium',
           title: '✋ Session Closed',
           message: `Your session ended after ${Math.round(durationMinutes)} minutes. ${tradesData?.length || 0} trade${tradesData?.length !== 1 ? 's' : ''} completed. Final: $${(sessionData?.current_progress || 0).toFixed(2)}`,
-          data: {
+          metadata: {
             close_reason: 'user_stopped',
             duration_minutes: durationMinutes,
             trades_in_session: tradesData?.length || 0,

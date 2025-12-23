@@ -196,7 +196,7 @@ ${signal.reasoning}`;
           priority: notification.priority,
           title: notification.title,
           message: notification.message,
-          data: notification.data || {},
+          metadata: notification.data || {},
           channels: notification.channels || ['in_app'],
           delivered_at: new Date().toISOString(),
         });

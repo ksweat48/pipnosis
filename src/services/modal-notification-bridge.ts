@@ -9,7 +9,7 @@ interface NotificationPayload {
   title: string;
   message: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  data: any;
+  metadata: any;
   created_at: string;
 }
 
@@ -118,7 +118,7 @@ class ModalNotificationBridge {
       user_id: userId,
       goal_session_id: goalSessionId,
       priority: dialogData.priority || 'medium',
-      data: dialogData.data,
+      metadata: dialogData.data,
       created_at: new Date(dialogData.timestamp).toISOString()
     };
 
