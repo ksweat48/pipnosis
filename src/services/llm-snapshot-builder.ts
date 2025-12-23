@@ -9,6 +9,7 @@ import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { TriggerEvent } from './trigger-detection-rules';
 import { validateSLTPDistances, calculatePipDistance } from '../utils/currencyHelpers';
 import { computeOmegaSensors, formatSensorsForLogging, type OmegaSensors } from './omega-sensors';
+import { getEnv } from '../lib/environment';
 
 export interface LLMSnapshot {
   pipnosisIdentity: string;
@@ -763,7 +764,7 @@ Should you:
     );
 
     // Dev logging for Omega Sensors
-    if (import.meta.env.DEV_MODE === 'true') {
+    if (getEnv('DEV_MODE') === 'true') {
       console.debug(formatSensorsForLogging(omegaSensors, trend));
     }
 

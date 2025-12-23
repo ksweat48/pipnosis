@@ -13,6 +13,7 @@
  */
 
 import { SentimentInput } from '@/brains/omega-sentiment-brain';
+import { getEnv } from '@/lib/environment';
 
 interface ScraperResult {
   source: string;
@@ -24,8 +25,8 @@ interface ScraperResult {
 class SentimentScrapers {
   private readonly TIMEOUT_MS = 10000;
   private readonly MAX_ITEMS_PER_SOURCE = 10;
-  private readonly FMP_API_KEY = import.meta.env.VITE_FMP_API_KEY || '';
-  private readonly FINNHUB_API_KEY = import.meta.env.VITE_FINNHUB_API_KEY || '';
+  private readonly FMP_API_KEY = getEnv('VITE_FMP_API_KEY');
+  private readonly FINNHUB_API_KEY = getEnv('VITE_FINNHUB_API_KEY');
 
   /**
    * Scrape all sources and aggregate into SentimentInput

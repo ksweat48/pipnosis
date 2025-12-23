@@ -1,3 +1,5 @@
+import { getEnv } from '../lib/environment';
+
 interface CandleData {
   symbol: string;
   timeframe: string;
@@ -77,9 +79,9 @@ function normalizeTimeframe(timeframe: string): string {
 export async function fetchCandlesFromMetaApi(
   options: FetchCandlesOptions
 ): Promise<CandleData[]> {
-  const token = import.meta.env.VITE_METAAPI_TOKEN;
-  const accountId = import.meta.env.VITE_METAAPI_ACCOUNT_ID;
-  const region = import.meta.env.VITE_METAAPI_REGION || 'new-york';
+  const token = getEnv('VITE_METAAPI_TOKEN');
+  const accountId = getEnv('VITE_METAAPI_ACCOUNT_ID');
+  const region = getEnv('VITE_METAAPI_REGION') || 'new-york';
 
   if (!token || !accountId) {
     throw new Error('MetaAPI credentials not configured. Set METAAPI_TOKEN and METAAPI_ACCOUNT_ID');

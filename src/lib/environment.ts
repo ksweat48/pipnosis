@@ -83,3 +83,32 @@ export function logEnvironmentInfo(): void {
   logger.debug(LogCategory.SYSTEM, `  - Functions Available: ${areFunctionsAvailable()}`);
   logger.debug(LogCategory.SYSTEM, `  - User Agent: ${navigator.userAgent.substring(0, 100)}...`);
 }
+
+/**
+ * Check if running in server-side context (Node.js/Netlify Functions)
+ */
+export function isServerSide(): boolean {
+  return typeof window === 'undefined';
+}
+
+/**
+ * Safely get environment variable that works in both client and server contexts
+ *
+ * In client-side (browser): Uses import.meta.env
+ * In server-side (Node.js/Netlify Functions): Uses process.env
+ *
+ * @param key - The environment variable key (with or without VITE_ prefix)
+ * @returns The environment variable value or empty string if not found
+ */
+export function getEnv(key: string): string {
+  // Ensure key has VITE_ prefix for consistency
+  const envKey = key.startsWith('VITE_') ? key : `VITE_${key}`;
+
+  if (isServerSide()) {
+    // Server-side: Use process.env
+    return process.env[envKey] || process.env[key] || '';
+  } else {
+    // Client-side: Use import.meta.env
+    return (import.meta.env[envKey] as string) || (import.meta.env[key] as string) || '';
+  }
+}
