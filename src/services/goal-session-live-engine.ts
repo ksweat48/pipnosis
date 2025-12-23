@@ -299,8 +299,7 @@ class GoalSessionLiveEngine {
       await supabase
         .from('goal_sessions')
         .update({
-          status: 'user_stopped',
-          end_time: new Date().toISOString()
+          status: 'user_stopped'
         })
         .eq('id', this.activeSession);
 
@@ -1224,108 +1223,6 @@ class GoalSessionLiveEngine {
         .eq('id', this.activeSession)
         .single();
 
-      // Check if timeframe has expired
-      if (goalSession && !this.timeframeExpired) {
-        const endTime = goalSession.end_time ? new Date(goalSession.end_time) : null;
-        const now = new Date();
-
-        if (endTime && now >= endTime) {
-          this.timeframeExpired = true;
-          this.allowNewTrades = false;
-          this.tradesOpenAtExpiration = this.openTrades.length;
-
-          logger.info(LogCategory.AI_TRADING, `🏁 Session timeframe expired. ${this.openTrades.length} trades still open.`);
-          logger.info(LogCategory.AI_TRADING, '✋ No new trades will be opened. Monitoring active positions...');
-
-          await supabase
-            .from('goal_sessions')
-            .update({
-              status: 'soft_closing',
-              timeframe_expired_at: now.toISOString(),
-              trades_open_at_expiration: this.openTrades.length
-            })
-            .eq('id', this.activeSession);
-
-          const message = this.openTrades.length > 0
-            ? `🏁 Your session timeframe has ended!\n\n` +
-              `📊 Current Status:\n` +
-              `• Goal: $${goalSession.target_value} | Progress: $${(goalSession.current_progress || 0).toFixed(2)} (${(goalSession.progress_percentage || 0).toFixed(1)}%)\n` +
-              `• Completed Trades: ${goalSession.total_trades || 0}\n` +
-              `• Active Trades: ${this.openTrades.length} position${this.openTrades.length > 1 ? 's' : ''} still open\n\n` +
-              `🎯 What's Happening Now:\n` +
-              `• No new trades will be opened\n` +
-              `• Your ${this.openTrades.length} active trade${this.openTrades.length > 1 ? 's' : ''} will run their course\n` +
-              `• All stop-loss and take-profit levels remain active\n` +
-              `• I'll continue managing these trades until they close\n\n` +
-              `You'll receive your final session summary once all trades complete.`
-            : `🏁 Your session timeframe has ended!\n\n` +
-              `📊 Final Status:\n` +
-              `• Goal: $${goalSession.target_value} | Progress: $${(goalSession.current_progress || 0).toFixed(2)} (${(goalSession.progress_percentage || 0).toFixed(1)}%)\n` +
-              `• Total Trades: ${goalSession.total_trades || 0}\n\n` +
-              `All trades are closed. Generating final session summary...`;
-
-          try {
-            await supabase.from('goal_ai_conversations').insert({
-              goal_session_id: this.activeSession,
-              user_id: this.config.userId,
-              role: 'ai',
-              message,
-              context: {
-                timeframe_expired: true,
-                trades_open: this.openTrades.length,
-                will_soft_close: this.openTrades.length > 0
-              },
-              sentiment: 'neutral'
-            });
-          } catch (error) {
-            console.error('[Goal Live Engine] Failed to log timeframe expiration:', error);
-          }
-        }
-      }
-
-      // Check if soft close is complete
-      if (this.timeframeExpired && this.openTrades.length === 0) {
-        logger.info(LogCategory.AI_TRADING, '✅ All trades closed after timeframe expiration. Finalizing session...');
-
-        const softCloseStart = goalSession?.timeframe_expired_at ? new Date(goalSession.timeframe_expired_at) : null;
-        const softCloseDuration = softCloseStart
-          ? Math.floor((Date.now() - softCloseStart.getTime()) / 60000)
-          : 0;
-
-        await supabase
-          .from('goal_sessions')
-          .update({
-            status: 'expired',
-            soft_close_duration_minutes: softCloseDuration,
-            end_time: new Date().toISOString()
-          })
-          .eq('id', this.activeSession);
-
-        const finalMessage = `✅ Session Complete - All Trades Closed\n\n` +
-          `⏱️ Soft Close Duration: ${softCloseDuration} minutes\n` +
-          `📊 Trades at expiration: ${this.tradesOpenAtExpiration}\n\n` +
-          `Generating comprehensive session summary...`;
-
-        try {
-          await supabase.from('goal_ai_conversations').insert({
-            goal_session_id: this.activeSession,
-            user_id: this.config!.userId,
-            role: 'ai',
-            message: finalMessage,
-            context: {
-              soft_close_complete: true,
-              soft_close_duration_minutes: softCloseDuration,
-              trades_at_expiration: this.tradesOpenAtExpiration
-            },
-            sentiment: 'neutral'
-          });
-        } catch (error) {
-          console.error('[Goal Live Engine] Failed to log soft close completion:', error);
-        }
-
-        await this.stopSession();
-        return;
-      }
 
       // ✅ Max trades check moved earlier (line 919) to save resources
       // Old blocker removed - was using memory count and located too late
@@ -1380,41 +1277,17 @@ class GoalSessionLiveEngine {
       }
 
       if (result.trade) {
-        if (!this.allowNewTrades) {
-          logger.debug(LogCategory.AI_TRADING, '⏸️ Valid setup detected but session timeframe expired - not opening new trade');
-          logger.info(LogCategory.AI_TRADING, `Trade signal blocked: ${result.trade.direction} @ ${result.trade.entryPrice} (timeframe expired)`);
+        logger.debug(LogCategory.AI_TRADING, `🎯 Trade decision: ${result.trade.direction} @ ${result.trade.entryPrice}`);
+        logger.debug(LogCategory.AI_TRADING, `SL: ${result.trade.stopLoss} | TP: ${result.trade.takeProfit} | R:R 1:${((result.trade.takeProfit - result.trade.entryPrice) / (result.trade.entryPrice - result.trade.stopLoss)).toFixed(2)}`);
 
-          try {
-            await supabase.from('goal_ai_conversations').insert({
-              goal_session_id: this.activeSession,
-              user_id: this.config.userId,
-              role: 'ai',
-              message: `📊 Valid setup detected on ${this.config.symbol} but session timeframe has expired.\n\n` +
-                `🎯 Signal: ${result.trade.direction.toUpperCase()} @ ${result.trade.entryPrice.toFixed(5)}\n` +
-                `✋ Not executing - waiting for ${this.openTrades.length} active trade${this.openTrades.length > 1 ? 's' : ''} to complete.`,
-              context: {
-                blocked_trade: result.trade,
-                reason: 'timeframe_expired',
-                open_trades: this.openTrades.length
-              },
-              sentiment: 'neutral'
-            });
-          } catch (error) {
-            console.error('[Goal Live Engine] Failed to log blocked trade:', error);
-          }
+        // CRITICAL FIX: Only mark as executed if trade actually went through
+        // If confidence too low or other validation fails, we need to keep scanning
+        tradeExecuted = await this.handleNewTradeSignal(result.trade);
+
+        if (tradeExecuted) {
+          console.log(`[AUTONOMOUS ENGINE] ✅ Trade successfully executed - system will manage appropriately`);
         } else {
-          logger.debug(LogCategory.AI_TRADING, `🎯 Trade decision: ${result.trade.direction} @ ${result.trade.entryPrice}`);
-          logger.debug(LogCategory.AI_TRADING, `SL: ${result.trade.stopLoss} | TP: ${result.trade.takeProfit} | R:R 1:${((result.trade.takeProfit - result.trade.entryPrice) / (result.trade.entryPrice - result.trade.stopLoss)).toFixed(2)}`);
-
-          // CRITICAL FIX: Only mark as executed if trade actually went through
-          // If confidence too low or other validation fails, we need to keep scanning
-          tradeExecuted = await this.handleNewTradeSignal(result.trade);
-
-          if (tradeExecuted) {
-            console.log(`[AUTONOMOUS ENGINE] ✅ Trade successfully executed - system will manage appropriately`);
-          } else {
-            console.log(`[AUTONOMOUS ENGINE] ⚠️ Trade rejected by validation - continuing to scan for next opportunity`);
-          }
+          console.log(`[AUTONOMOUS ENGINE] ⚠️ Trade rejected by validation - continuing to scan for next opportunity`);
         }
       }
 

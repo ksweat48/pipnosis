@@ -89,7 +89,7 @@ class PollingOrchestrator {
       const { data: sessions, error } = await supabase
         .from('goal_sessions')
         .select('id, watchlist')
-        .in('status', ['scanning', 'initializing', 'trade_pending', 'in_trade', 'soft_closing']);
+        .in('status', ['scanning', 'initializing', 'trade_pending', 'in_trade']);
 
       if (error) {
         console.error('[PollingOrchestrator] Failed to load active sessions:', error);
@@ -140,7 +140,7 @@ class PollingOrchestrator {
 
     if (eventType === 'INSERT' || eventType === 'UPDATE') {
       const session = newRecord;
-      const activeStatuses = ['scanning', 'initializing', 'trade_pending', 'in_trade', 'soft_closing'];
+      const activeStatuses = ['scanning', 'initializing', 'trade_pending', 'in_trade'];
 
       if (activeStatuses.includes(session.status)) {
         if (!this.activeGoalSessions.has(session.id)) {
@@ -182,7 +182,7 @@ class PollingOrchestrator {
       const { data: sessions, error } = await supabase
         .from('goal_sessions')
         .select('id')
-        .in('status', ['scanning', 'initializing', 'trade_pending', 'in_trade', 'soft_closing'])
+        .in('status', ['scanning', 'initializing', 'trade_pending', 'in_trade'])
         .limit(1);
 
       if (error) {

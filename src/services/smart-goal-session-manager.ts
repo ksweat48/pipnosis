@@ -25,7 +25,7 @@ export interface SmartGoalSession {
   sessionId: string;
   userId: string;
   config: SmartGoalConfig;
-  status: 'initializing' | 'scanning' | 'trade_pending' | 'in_trade' | 'goal_achieved' | 'expired' | 'user_stopped' | 'soft_closing';
+  status: 'initializing' | 'scanning' | 'trade_pending' | 'in_trade' | 'goal_achieved' | 'expired' | 'user_stopped';
   strategy: {
     targetTradeCount: number;
     avgProfitPerTrade: number;
@@ -79,9 +79,6 @@ class SmartGoalSessionManager {
 
     this.activeSessions.set(sessionId, session);
 
-    const timeframeHours = this.convertTimeframeToHours(config.timeframe);
-    const endTime = new Date(session.startTime.getTime() + timeframeHours * 3600000);
-
     const minConfidence = getMinConfidenceThreshold(config.riskMode);
 
     console.log('[Smart Goal] Creating session with settings:', {
@@ -98,7 +95,6 @@ class SmartGoalSessionManager {
       goal_type: 'profit_target',
       target_value: config.goalAmount,
       timeframe: config.timeframe,
-      timeframe_hours: timeframeHours,
       risk_mode: config.riskMode,
       min_confidence: minConfidence,
       status: 'scanning',
@@ -111,7 +107,6 @@ class SmartGoalSessionManager {
       multi_trade_enabled: multiTradeEnabled,
       trades_in_session: 0,
       start_time: session.startTime.toISOString(),
-      end_time: endTime.toISOString(),
       next_scan_time: session.nextScanTime.toISOString(),
       server_enabled: true,
       autonomous_enabled: true,
@@ -212,8 +207,7 @@ class SmartGoalSessionManager {
     await supabase
       .from('goal_sessions')
       .update({
-        status: 'goal_achieved',
-        end_time: new Date().toISOString()
+        status: 'goal_achieved'
       })
       .eq('id', sessionId);
 
@@ -241,7 +235,7 @@ class SmartGoalSessionManager {
         .from('goal_sessions')
         .select('*')
         .eq('user_id', userId)
-        .in('status', ['initializing', 'scanning', 'trade_pending', 'in_trade', 'soft_closing'])
+        .in('status', ['initializing', 'scanning', 'trade_pending', 'in_trade'])
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -583,8 +577,7 @@ class SmartGoalSessionManager {
       const { data: updated, error: updateError } = await supabase
         .from('goal_sessions')
         .update({
-          status: 'user_stopped',
-          end_time: new Date().toISOString()
+          status: 'user_stopped'
         })
         .eq('id', sessionId)
         .eq('user_id', userId)

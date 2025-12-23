@@ -7,7 +7,7 @@
 
 import { calculateDollarPerPip, calculatePipDistance, roundPnL } from '../utils/currencyHelpers';
 
-export type PositionStatus = 'pending' | 'open' | 'closed' | 'rejected' | 'soft_closing';
+export type PositionStatus = 'pending' | 'open' | 'closed' | 'rejected';
 export type PositionDirection = 'buy' | 'sell';
 export type OrderType = 'market' | 'limit';
 export type CloseReason = 'manual' | 'stop_loss' | 'take_profit' | 'goal_achieved' | 'goal_expired' | 'session_ended' | 'risk_limit' | 'trailing_stop';

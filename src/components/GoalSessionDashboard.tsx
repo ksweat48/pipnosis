@@ -203,7 +203,7 @@ export const GoalSessionDashboard: React.FC = () => {
       return;
     }
 
-    const validStatuses = ['scanning', 'initializing', 'trade_pending', 'in_trade', 'soft_closing'];
+    const validStatuses = ['scanning', 'initializing', 'trade_pending', 'in_trade'];
     if (validStatuses.includes(activeSession.status)) {
       console.log(`[GoalSessionDashboard] Starting polling for session ${activeSession.sessionId} (status: ${activeSession.status})`);
       goalScannerTrigger.startPolling(activeSession.sessionId, 60000);
@@ -719,7 +719,6 @@ export const GoalSessionDashboard: React.FC = () => {
       scanning: 'text-blue-400',
       trade_pending: 'text-orange-400',
       in_trade: 'text-green-400',
-      soft_closing: 'text-amber-400',
       goal_achieved: 'text-emerald-400',
       expired: 'text-gray-400',
       user_stopped: 'text-red-400',
@@ -733,8 +732,6 @@ export const GoalSessionDashboard: React.FC = () => {
         return <Activity className="w-5 h-5 animate-pulse" />;
       case 'in_trade':
         return <TrendingUp className="w-5 h-5" />;
-      case 'soft_closing':
-        return <Clock className="w-5 h-5 animate-pulse" />;
       case 'goal_achieved':
         return <CheckCircle className="w-5 h-5" />;
       case 'expired':

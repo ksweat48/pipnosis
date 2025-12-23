@@ -324,25 +324,6 @@ export async function processGoalSessionIteration(
       };
     }
 
-    // Check if timeframe expired
-    if (goalSession.end_time) {
-      const endTime = new Date(goalSession.end_time);
-      const now = new Date();
-
-      if (now >= endTime && goalSession.status !== 'soft_closing') {
-        await client
-          .from('goal_sessions')
-          .update({
-            status: 'soft_closing',
-            timeframe_expired_at: now.toISOString(),
-            trades_open_at_expiration: state.openTrades.length
-          })
-          .eq('id', goalSessionId);
-
-        logger.info(LogCategory.AI_TRADING, `🏁 Session timeframe expired. ${state.openTrades.length} trades still open.`);
-      }
-    }
-
     // Check if goal achieved
     if (goalSession.current_progress >= goalSession.target_value && goalSession.status !== 'goal_achieved') {
       await client
@@ -355,16 +336,6 @@ export async function processGoalSessionIteration(
         .eq('id', goalSessionId);
 
       logger.info(LogCategory.AI_TRADING, `🎯 GOAL ACHIEVED! Target: $${goalSession.target_value}, Achieved: $${goalSession.current_progress}`);
-    }
-
-    // If soft closing and no open trades, complete the session
-    if (goalSession.status === 'soft_closing' && state.openTrades.length === 0) {
-      await stopGoalSession(goalSessionId, 'All positions closed after timeframe expiration', client);
-      return {
-        success: true,
-        message: 'Session completed',
-        shouldContinue: false
-      };
     }
 
     // Update session status
@@ -645,7 +616,6 @@ async function stopGoalSession(goalSessionId: string, reason: string, supabaseCl
     .from('goal_sessions')
     .update({
       status: 'completed',
-      end_time: new Date().toISOString(),
       completion_reason: reason
     })
     .eq('id', goalSessionId);
