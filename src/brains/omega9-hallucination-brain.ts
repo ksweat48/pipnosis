@@ -1,23 +1,25 @@
 /**
  * Omega-9: Hallucination Defense Specialist
  *
- * Final safety validator that prevents catastrophic LLM mistakes.
+ * Final safety validator that prevents CATASTROPHIC LLM mistakes.
+ * LIGHT TOUCH - Alpha is educated via Elite Trader Directive with professional anchor.
  *
  * Validates:
- * - Mathematical correctness (SL/TP positioning)
+ * - Mathematical correctness (SL/TP on correct side of entry)
  * - Direction logic consistency
  * - Internal Omega vote conflicts
- * - Risk parameter sanity
- * - Impossible scenarios
+ * - Impossible scenarios (< 5 pips stops, zero distance)
  * - GRADUATED SAFETY ZONES (Green/Yellow/Orange/Red)
  *
- * Can repair fixable issues or block unfixable hallucinations.
+ * Can repair catastrophic positioning errors or block unfixable hallucinations.
  *
  * SAFETY ZONE ENFORCEMENT:
  * - GREEN: Full Alpha authority
- * - YELLOW: Proceed with warning
- * - ORANGE: Requires Alpha override reasoning
- * - RED: HARD BLOCK - Cannot proceed even with Alpha override
+ * - YELLOW: Advisory warning (proceed)
+ * - ORANGE: Advisory caution (proceed with Alpha reasoning)
+ * - RED: HARD BLOCK - Cannot proceed (mathematical survival violation)
+ *
+ * PHILOSOPHY: Trust Alpha's elite trader judgment unless catastrophic error detected.
  */
 
 import { openAIClient } from '../services/openai-client';
@@ -185,22 +187,18 @@ class Omega9HallucinationBrain {
       });
     }
 
-    if (slDistance > marketContext.atr * 5) {
-      flags.push('SL_TOO_WIDE');
-    }
-
-    if (slDistance < marketContext.atr * 0.5) {
-      flags.push('SL_TOO_TIGHT');
-    }
+    // REMOVED SL_TOO_WIDE and SL_TOO_TIGHT checks
+    // Alpha is now educated via Elite Trader Directive with professional anchor
+    // Trust Alpha's judgment unless catastrophic error
 
     const hasHardBlock = flags.some(f => f.includes('HARD_BLOCK'));
     const pass = flags.length === 0 || (!hasHardBlock && safetyEval.can_proceed);
 
     let confidenceAdjustment = 0;
-    if (safetyEval.zone === 'RED') confidenceAdjustment = -100;
-    else if (safetyEval.zone === 'ORANGE') confidenceAdjustment = -30;
-    else if (safetyEval.zone === 'YELLOW') confidenceAdjustment = -15;
-    else if (flags.length > 0) confidenceAdjustment = -20;
+    if (safetyEval.zone === 'RED') confidenceAdjustment = -100; // HARD BLOCK
+    else if (safetyEval.zone === 'ORANGE') confidenceAdjustment = -10; // ADVISORY (reduced from -30)
+    else if (safetyEval.zone === 'YELLOW') confidenceAdjustment = -5; // ADVISORY (reduced from -15)
+    else if (flags.length > 0) confidenceAdjustment = -5; // MINIMAL (reduced from -20)
 
     return {
       pass,

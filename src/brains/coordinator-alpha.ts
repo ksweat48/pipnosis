@@ -71,6 +71,7 @@ import { formatRiskProfileForLLM, getOmegaWeights } from '../config/risk-strateg
 import { timeToFillCalculator, type TimeToFillInput } from '../services/time-to-fill-calculator';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
 import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ranker';
+import { riskAwareStopCalculator, type StopLossCalculation } from '../services/risk-aware-stop-calculator';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -434,11 +435,146 @@ class AlphaCoordinatorBrain {
       }
     }
 
+    // Calculate professional stop-loss anchor for Alpha
+    let stopLossAnchor: StopLossCalculation | null = null;
+    let stopLossDirective = '';
+    if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED') {
+      const riskMode = goalContext?.riskMode || 'medium';
+      const entryPrice = marketContext.price;
+      const direction = consensus.direction === 'BUY' ? 'buy' : 'sell';
+
+      // Detect market volatility from volatilityRegime
+      let marketVolatilityLevel: 'low' | 'normal' | 'high' = 'normal';
+      if (marketContext.volatility === 'high') {
+        marketVolatilityLevel = 'high';
+      } else if (marketContext.volatility === 'low') {
+        marketVolatilityLevel = 'low';
+      }
+
+      stopLossAnchor = riskAwareStopCalculator.calculateStopLoss({
+        symbol: marketContext.symbol,
+        entryPrice,
+        direction,
+        riskMode,
+        atr: marketContext.atr,
+        marketVolatility: marketVolatilityLevel
+      });
+
+      console.log(`[Alpha Coordinator] 🎯 Stop-Loss Anchor Calculated: ${stopLossAnchor.stopLossPrice.toFixed(5)} (${stopLossAnchor.stopLossPips.toFixed(1)} pips, ${stopLossAnchor.atrMultiplier.toFixed(2)}x ATR)`);
+
+      // Build Elite Trader Stop-Loss Directive
+      stopLossDirective = `
+
+🧠 ALPHA STOP-LOSS DIRECTIVE (ELITE TRADER VERSION)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PRIMARY OBJECTIVE
+Your stop loss is not a guess and not a formality.
+It defines trade survival, position integrity, and whether the setup is allowed to work.
+
+You are expected to place stops that give the trade room to breathe while invalidating the thesis efficiently if wrong.
+
+STOP-LOSS ANCHOR (DEFAULT POSITIONING)
+You are provided a professionally calculated stop-loss anchor based on:
+• Current ATR: ${marketContext.atr.toFixed(5)} (${(marketContext.atr * 10000).toFixed(1)} pips)
+• Volatility regime: ${marketVolatilityLevel.toUpperCase()}
+• Risk mode: ${riskMode.toUpperCase()} (${stopLossAnchor.reasoning})
+• Instrument behavior: ${marketContext.symbol}
+
+This anchor represents a statistically sound stop placement.
+Treat it as the default position used by a senior risk manager.
+
+RECOMMENDED STOP LOSS:
+• Price: ${stopLossAnchor.stopLossPrice.toFixed(5)}
+• Distance: ${stopLossAnchor.stopLossPips.toFixed(1)} pips
+• ATR Multiple: ${stopLossAnchor.atrMultiplier.toFixed(2)}×
+• Rationale: ${stopLossAnchor.reasoning}
+• Profile Range: ${stopLossAnchor.profileMinPips}-${stopLossAnchor.profileMaxPips} pips
+
+YOUR DECISION AUTHORITY
+You may:
+✓ Accept the anchor
+✓ Tighten it slightly
+✓ Widen it slightly
+✓ Relocate it to a superior technical level
+
+Any deviation must be intentional and defensible.
+
+You are not permitted to:
+✗ Place stops "just beyond entry"
+✗ Use cosmetic stops that offer no volatility tolerance
+✗ Sacrifice trade survival for speed
+
+PROFESSIONAL STOP PLACEMENT RULES
+✔️ Acceptable Stops:
+• Outside recent structure
+• Beyond noise range
+• Consistent with ATR expectations
+• Positioned where the trade thesis is invalid, not where loss feels smaller
+
+❌ Unacceptable Stops:
+• Stops within noise (sub-ATR without justification)
+• Stops placed purely to improve R:R optics
+• Stops likely to be hit by normal price fluctuation
+
+RISK MODE INTERPRETATION (IMPORTANT)
+Risk mode adjusts position size, not professionalism.
+
+Risk Mode     Stop Philosophy
+AGGRESSIVE    Lean, but still outside noise
+MODERATE      Balanced, structure-aware
+CONSERVATIVE  Wide enough to let quality setups resolve
+
+Aggressive does not mean reckless.
+Conservative does not mean distant.
+
+INTENTIONAL OVERRIDE EXAMPLES
+You may override the anchor only if one of the following is true:
+• Clear structure invalidation exists closer than ATR anchor
+• Trade is a momentum breakout with confirmed expansion
+• Volatility compression justifies tighter control
+• Liquidity sweep provides asymmetric protection
+
+If you override, state why in your reasoning.
+
+SURVIVAL BOUNDARIES (NON-NEGOTIABLE)
+These are market physics, not preferences:
+• Stop must be on the correct side of entry
+• Stop distance must exceed minimum volatility floor (5 pips minimum)
+• Stops that violate survival math will be corrected or blocked
+
+ELITE TRADER MENTALITY CHECK
+Before finalizing your stop, ask:
+"If this trade is correct, will this stop survive normal price behavior?"
+If the answer is no, the stop is wrong.
+
+FINAL OUTPUT EXPECTATION
+When returning a decision:
+• Your SL must reflect professional risk judgment
+• Any deviation from the anchor must be intentional
+• Your reasoning should read like a senior trader defending a position
+
+Remember:
+You are not optimizing for:
+• Tightness
+• Ego
+• Cosmetic R:R
+
+You are optimizing for:
+• Trade survival
+• Clean invalidation
+• Long-term expectancy
+
+Act accordingly.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+    }
+
     const prompt = `You are Alpha, the final decision maker. You have COMPLETE AUTHORITY to accept or override ANY recommendation.
 
 ${context}
 
-WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${intelligenceContext}${goalContextText}
+WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${intelligenceContext}${goalContextText}${stopLossDirective}
 
 🎯 ALPHA DECISION INTELLIGENCE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -459,16 +595,8 @@ YOUR AUTHORITY & SAFETY ZONES:
   • ORANGE (R:R 0.5-1.0:1): Risky - requires override reasoning
   • RED (R:R<0.5:1): HARD BLOCK - cannot override
 
-CRITICAL: RESPECT RISK PROFILE STRATEGY
-The risk profile above defines the COMPLETE trading strategy - not just position size.
-AGGRESSIVE mode = SCALP strategy (tight stops, quick entries, M5-M15 analysis, <2hr duration)
-MODERATE mode = DAY TRADE strategy (balanced stops, confirmed entries, M15-H1 analysis, 2-6hr duration)
-CONSERVATIVE mode = SWING strategy (wide stops, patient entries, H1-H4 analysis, 4-12hr duration)
-
-Your SL and TP MUST match the profile's stop width and R:R ranges. Do NOT use swing-trade stops for aggressive goals!
-
 POSITIONING RULES:
-BUY: SL below entry, TP above | SELL: SL above entry, TP below | Use R:R and stop width from ACTIVE RISK PROFILE
+BUY: SL below entry, TP above | SELL: SL above entry, TP below
 
 Return JSON with structured reasoning:
 {
@@ -524,6 +652,38 @@ Return JSON with structured reasoning:
       decision.decision = decision.action;
       decision.symbol = marketContext.symbol;
       decision.timestamp = new Date();
+
+      // Log Alpha's stop placement vs anchor (Enhanced Stop Tracking)
+      if (decision.action !== 'NO_TRADE' && stopLossAnchor) {
+        const pipValue = marketContext.symbol.includes('JPY') ? 0.01 : 0.0001;
+        const alphaSLPips = Math.abs(decision.entry - decision.stopLoss) / pipValue;
+        const anchorSLPips = stopLossAnchor.stopLossPips;
+        const deviation = alphaSLPips - anchorSLPips;
+        const deviationPercent = (deviation / anchorSLPips) * 100;
+
+        console.log('[Alpha Stop Analysis] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log(`[Stop Anchor]  Provided: ${stopLossAnchor.stopLossPrice.toFixed(5)} (${anchorSLPips.toFixed(1)} pips, ${stopLossAnchor.atrMultiplier.toFixed(2)}x ATR)`);
+        console.log(`[Alpha Choice] Chose:    ${decision.stopLoss.toFixed(5)} (${alphaSLPips.toFixed(1)} pips)`);
+
+        if (Math.abs(deviationPercent) < 5) {
+          console.log(`[Validation]   ✅ ACCEPTED ANCHOR (deviation: ${deviationPercent.toFixed(1)}%)`);
+        } else if (deviation > 0) {
+          console.log(`[Validation]   ⬆️  WIDENED by ${Math.abs(deviation).toFixed(1)} pips (+${deviationPercent.toFixed(1)}%)`);
+        } else {
+          console.log(`[Validation]   ⬇️  TIGHTENED by ${Math.abs(deviation).toFixed(1)} pips (${deviationPercent.toFixed(1)}%)`);
+        }
+
+        // Check if within profile range
+        if (alphaSLPips < stopLossAnchor.profileMinPips) {
+          console.log(`[Validation]   ⚠️  BELOW profile minimum (${stopLossAnchor.profileMinPips} pips) - risky`);
+        } else if (alphaSLPips > stopLossAnchor.profileMaxPips) {
+          console.log(`[Validation]   ⚠️  ABOVE profile maximum (${stopLossAnchor.profileMaxPips} pips) - too wide`);
+        } else {
+          console.log(`[Validation]   ✅ Within profile range (${stopLossAnchor.profileMinPips}-${stopLossAnchor.profileMaxPips} pips)`);
+        }
+
+        console.log('[Alpha Stop Analysis] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      }
 
       // Add omega summary and votes for transparency
       decision.omega_summary = this.generateOmegaSummary(votes, weights);
@@ -1125,7 +1285,8 @@ Return JSON with structured reasoning:
   }
 
   /**
-   * Parse Alpha decision with validation and automatic correction
+   * Parse Alpha decision with MINIMAL corrections (only catastrophic errors)
+   * Elite Trader Directive educates Alpha - we trust professional judgment
    */
   private parseDecision(response: string, currentPrice: number, atr: number): AlphaDecision {
     try {
@@ -1155,57 +1316,72 @@ Return JSON with structured reasoning:
         };
       }
 
-      // Get LLM values or use defaults
+      // Get LLM values
       let entry = parsed.entry || currentPrice;
       let stopLoss = parsed.stopLoss;
       let takeProfit = parsed.takeProfit;
-      let correctionsMade = false;
-
-      // Validate SL/TP positioning
       const isBuy = action === 'BUY';
 
-      // Check if stopLoss is valid
-      const slValid = stopLoss && (
-        (isBuy && stopLoss < entry) ||
-        (!isBuy && stopLoss > entry)
-      );
+      // CRITICAL SAFEGUARDS ONLY (catastrophic errors)
+      let catastrophicError = false;
+      let errorReason = '';
 
-      // Check if takeProfit is valid
-      const tpValid = takeProfit && (
-        (isBuy && takeProfit > entry) ||
-        (!isBuy && takeProfit < entry)
-      );
-
-      // Check for zero distance
-      const slZeroDistance = stopLoss && Math.abs(entry - stopLoss) < 0.00001;
-      const tpZeroDistance = takeProfit && Math.abs(entry - takeProfit) < 0.00001;
-
-      // Auto-correct invalid values
-      if (!slValid || slZeroDistance) {
-        const oldSL = stopLoss;
-        stopLoss = isBuy ? entry - atr * 1.5 : entry + atr * 1.5;
-        console.log(`[Alpha Coordinator] 🔧 Corrected invalid SL: ${oldSL} → ${stopLoss} (${action})`);
-        correctionsMade = true;
+      // 1. Check if SL is on WRONG SIDE of entry (mathematical impossibility)
+      if (stopLoss) {
+        const slOnWrongSide = (isBuy && stopLoss > entry) || (!isBuy && stopLoss < entry);
+        if (slOnWrongSide) {
+          errorReason = `Stop on WRONG SIDE of entry (${action}: SL ${stopLoss} vs Entry ${entry})`;
+          catastrophicError = true;
+        }
       }
 
-      if (!tpValid || tpZeroDistance) {
-        const oldTP = takeProfit;
-        takeProfit = isBuy ? entry + atr * 2.5 : entry - atr * 2.5;
-        console.log(`[Alpha Coordinator] 🔧 Corrected invalid TP: ${oldTP} → ${takeProfit} (${action})`);
-        correctionsMade = true;
+      // 2. Check if TP is on WRONG SIDE of entry
+      if (takeProfit) {
+        const tpOnWrongSide = (isBuy && takeProfit < entry) || (!isBuy && takeProfit > entry);
+        if (tpOnWrongSide) {
+          errorReason = `TP on WRONG SIDE of entry (${action}: TP ${takeProfit} vs Entry ${entry})`;
+          catastrophicError = true;
+        }
       }
 
-      // Validate R:R ratio
+      // 3. Check for zero/missing distance (< 5 pips minimum for survival)
+      const pipValue = 0.0001; // Standard, will be corrected by Omega-9 for JPY
+      const MIN_SURVIVAL_PIPS = 5;
+      const minDistance = MIN_SURVIVAL_PIPS * pipValue;
+
+      if (stopLoss && Math.abs(entry - stopLoss) < minDistance) {
+        errorReason = `Stop distance < ${MIN_SURVIVAL_PIPS} pips - below survival minimum`;
+        catastrophicError = true;
+      }
+
+      // 4. Missing SL/TP entirely
+      if (!stopLoss || !takeProfit) {
+        errorReason = 'Missing SL or TP values';
+        catastrophicError = true;
+      }
+
+      // If catastrophic error detected, block trade
+      if (catastrophicError) {
+        console.error(`[Alpha Coordinator] 🚨 CATASTROPHIC ERROR: ${errorReason}`);
+        return {
+          action: 'NO_TRADE',
+          entry: currentPrice,
+          stopLoss: currentPrice,
+          takeProfit: currentPrice,
+          confidence: 0,
+          reasoning: `BLOCKED: ${errorReason}`,
+          omega_summary: ''
+        };
+      }
+
+      // Calculate R:R for logging (NOT enforced here - Omega-9's job)
       const slDistance = Math.abs(entry - stopLoss);
       const tpDistance = Math.abs(takeProfit - entry);
       const rr = slDistance > 0 ? tpDistance / slDistance : 0;
+      const slPips = slDistance / pipValue;
+      const tpPips = tpDistance / pipValue;
 
-      if (rr < 1.5) {
-        // Adjust TP to achieve minimum 1.5:1 R:R
-        takeProfit = isBuy ? entry + slDistance * 1.5 : entry - slDistance * 1.5;
-        console.log(`[Alpha Coordinator] 🔧 Adjusted TP for R:R 1.5:1 → ${takeProfit}`);
-        correctionsMade = true;
-      }
+      console.log(`[Alpha Decision] Stop: ${slPips.toFixed(1)} pips | TP: ${tpPips.toFixed(1)} pips | R:R: ${rr.toFixed(2)}:1`);
 
       return {
         action,
@@ -1213,7 +1389,7 @@ Return JSON with structured reasoning:
         stopLoss,
         takeProfit,
         confidence: Math.min(100, Math.max(0, parsed.confidence || 0)),
-        reasoning: parsed.reasoning || 'No reasoning provided' + (correctionsMade ? ' [Auto-corrected SL/TP]' : ''),
+        reasoning: parsed.reasoning || 'No reasoning provided',
         omega_summary: ''
       };
     } catch (error) {
