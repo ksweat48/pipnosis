@@ -78,7 +78,7 @@ class SentimentScrapers {
   }
 
   /**
-   * Finnhub Market News API
+   * Finnhub Market News API (via Netlify Function proxy)
    */
   private async scrapeFinnhub(): Promise<string[]> {
     try {
@@ -86,15 +86,22 @@ class SentimentScrapers {
         return [];
       }
 
-      const url = `https://finnhub.io/api/v1/news?category=forex&token=${this.FINNHUB_API_KEY}`;
-      const response = await this.fetchWithTimeout(url);
-      const data = await response.json();
+      const response = await this.fetchWithTimeout('/.netlify/functions/sentiment-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'finnhub',
+          apiKey: this.FINNHUB_API_KEY
+        })
+      });
 
-      if (!Array.isArray(data)) {
+      const result = await response.json();
+
+      if (!result.success || !Array.isArray(result.data)) {
         return [];
       }
 
-      const headlines = data
+      const headlines = result.data
         .slice(0, 10)
         .map((item: any) => this.sanitizeText(item.headline || ''))
         .filter((h: string) => h.length > 0);
@@ -108,7 +115,7 @@ class SentimentScrapers {
   }
 
   /**
-   * Financial Modeling Prep (FMP) News API
+   * Financial Modeling Prep (FMP) News API (via Netlify Function proxy)
    */
   private async scrapeFMPNews(): Promise<string[]> {
     try {
@@ -116,15 +123,22 @@ class SentimentScrapers {
         return [];
       }
 
-      const url = `https://financialmodelingprep.com/api/v3/fmp/articles?page=0&size=10&apikey=${this.FMP_API_KEY}`;
-      const response = await this.fetchWithTimeout(url);
-      const data = await response.json();
+      const response = await this.fetchWithTimeout('/.netlify/functions/sentiment-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'fmp',
+          apiKey: this.FMP_API_KEY
+        })
+      });
 
-      if (!Array.isArray(data)) {
+      const result = await response.json();
+
+      if (!result.success || !Array.isArray(result.data)) {
         return [];
       }
 
-      const headlines = data
+      const headlines = result.data
         .map((item: any) => this.sanitizeText(item.title || ''))
         .filter((h: string) => h.length > 0);
 
