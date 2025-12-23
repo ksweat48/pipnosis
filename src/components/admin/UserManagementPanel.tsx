@@ -44,7 +44,24 @@ export const UserManagementPanel: React.FC = () => {
 
   useEffect(() => {
     loadUsers();
-  }, [loadUsers]);
+
+    // Subscribe to real-time price updates to refresh PnL values
+    let updateTimeout: NodeJS.Timeout | null = null;
+    const unsubscribe = adminUserService.subscribeToRealtimePrices(() => {
+      // Throttle updates to once every 3 seconds to prevent excessive refreshes
+      if (updateTimeout) return;
+
+      updateTimeout = setTimeout(() => {
+        loadUsers(searchTerm || undefined);
+        updateTimeout = null;
+      }, 3000);
+    });
+
+    return () => {
+      unsubscribe();
+      if (updateTimeout) clearTimeout(updateTimeout);
+    };
+  }, [loadUsers, searchTerm]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -205,7 +222,13 @@ export const UserManagementPanel: React.FC = () => {
                     Total Trades
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Active Trades
+                    <div className="flex items-center justify-center gap-2">
+                      Active Trades
+                      <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[10px] font-semibold rounded flex items-center gap-1">
+                        <span className="w-1 h-1 rounded-full bg-green-400 animate-pulse"></span>
+                        LIVE
+                      </span>
+                    </div>
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Scanning
@@ -261,8 +284,11 @@ export const UserManagementPanel: React.FC = () => {
                         <div className="flex flex-col gap-1.5 min-w-[120px]">
                           {user.active_trades_detail.slice(0, 3).map((trade, idx) => (
                             <div key={idx} className="flex items-center justify-between gap-2 text-xs">
-                              <span className="font-semibold text-gray-300">{trade.symbol}</span>
-                              <span className={`font-mono ${trade.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              <div className="flex items-center gap-1">
+                                <span className="font-semibold text-gray-300">{trade.symbol}</span>
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" title="Live"></span>
+                              </div>
+                              <span className={`font-mono font-semibold transition-colors duration-300 ${trade.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                                 {formatPnL(trade.pnl)}
                               </span>
                             </div>

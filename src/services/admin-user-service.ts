@@ -16,6 +16,7 @@ export interface AdminUser {
     pnl: number;
     direction: string;
     entry_price: number;
+    current_price: number;
   }>;
   scanning_sessions: number;
   scanning_duration_minutes: number | null;
@@ -190,5 +191,30 @@ export const adminUserService = {
     }
 
     return data;
+  },
+
+  /**
+   * Subscribe to real-time price updates for active trades
+   * Returns unsubscribe function
+   */
+  subscribeToRealtimePrices(callback: () => void) {
+    const channel = supabase
+      .channel('admin-realtime-prices')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'realtime_prices',
+        },
+        () => {
+          callback();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   },
 };
