@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
 
 /**
  * HYBRID RISK MANAGEMENT SYSTEM
@@ -12,6 +13,11 @@ import { supabase } from '@/lib/supabase';
  * - Auto-reduce risk by 50% if drawdown >= 3%
  * - Block new trades if daily loss remaining <= 2%
  * - A-grade only mode when daily goal 90% complete
+ *
+ * Goal Intelligence Integration:
+ * - Risk scales based on goal classification (precision/execution/campaign/growth)
+ * - Capital efficiency constraint prevents ego trading on small goals
+ * - Final position size = MIN(goal-optimal, risk-safe)
  *
  * LLM has FULL autonomy inside these rails to:
  * - Scale risk (0-5%)
@@ -109,6 +115,15 @@ export interface RiskValidationResult {
   violations: string[];
   adjustedRiskPct?: number;
   warnings?: string[];
+}
+
+export interface GoalScaledRiskResult {
+  finalRiskPct: number;
+  finalRiskDollars: number;
+  goalEfficientRiskPct: number;
+  riskSafeRiskPct: number;
+  usedGoalScaling: boolean;
+  reasoning: string;
 }
 
 // ============================================================
@@ -525,6 +540,98 @@ class HybridRiskManager {
       totalOpenRiskPct: 0,
       remainingExposureCapacityPct: HARD_RISK_LIMITS.MAX_TOTAL_SESSION_EXPOSURE_PCT,
       openTrades: []
+    };
+  }
+
+  /**
+   * Calculate goal-scaled risk using Goal Intelligence Layer
+   * Implements capital efficiency constraint: Final Size = MIN(goal-optimal, risk-safe)
+   */
+  calculateGoalScaledRisk(
+    goalClassification: GoalClassification,
+    accountBalance: number,
+    targetRiskReward: number
+  ): GoalScaledRiskResult {
+    // Calculate goal-efficient risk (capital efficiency constraint)
+    const goalEfficientResult = goalIntelligenceClassifier.calculateGoalEfficientRisk(
+      goalClassification.goalRatioPercent * accountBalance / 100, // goal amount
+      accountBalance,
+      targetRiskReward
+    );
+
+    // Calculate risk-safe limit (mode-specific max risk)
+    const riskSafeRiskPct = goalClassification.maxRiskPerTradePct;
+    const riskSafeRiskDollars = accountBalance * (riskSafeRiskPct / 100);
+
+    // Apply MIN rule: Final Risk = MIN(goal-optimal, risk-safe)
+    const usedGoalScaling = goalEfficientResult.goalEfficientRiskPct < riskSafeRiskPct;
+    const finalRiskPct = Math.min(goalEfficientResult.goalEfficientRiskPct, riskSafeRiskPct);
+    const finalRiskDollars = Math.min(goalEfficientResult.goalEfficientRiskDollars, riskSafeRiskDollars);
+
+    const reasoning = usedGoalScaling
+      ? `Goal efficiency constraint active: Risk limited to ${finalRiskPct.toFixed(2)}% (${goalClassification.mode} mode max: ${riskSafeRiskPct}%). ${goalEfficientResult.reasoning}`
+      : `Standard ${goalClassification.mode} mode risk: ${finalRiskPct.toFixed(2)}% (within mode limits)`;
+
+    return {
+      finalRiskPct,
+      finalRiskDollars,
+      goalEfficientRiskPct: goalEfficientResult.goalEfficientRiskPct,
+      riskSafeRiskPct,
+      usedGoalScaling,
+      reasoning
+    };
+  }
+
+  /**
+   * Validate trade against goal classification mode
+   * Ensures trade parameters respect goal intelligence constraints
+   */
+  validateTradeAgainstGoalMode(
+    goalClassification: GoalClassification,
+    proposedTrade: {
+      riskPercent: number;
+      riskReward: number;
+      confidence: number;
+    }
+  ): RiskValidationResult {
+    const validation = goalIntelligenceClassifier.validateTradeAgainstGoalMode(
+      goalClassification,
+      proposedTrade
+    );
+
+    return {
+      isValid: validation.isValid,
+      violations: validation.violations,
+      warnings: validation.warnings
+    };
+  }
+
+  /**
+   * Get effective max risk considering both goal mode and dynamic adjustments
+   */
+  getEffectiveMaxRisk(
+    goalClassification: GoalClassification,
+    riskContext: RiskContextForLLM
+  ): {
+    effectiveMaxRiskPct: number;
+    reasoning: string;
+  } {
+    // Start with goal mode limit
+    let effectiveMaxRiskPct = goalClassification.maxRiskPerTradePct;
+    const reasons: string[] = [`${goalClassification.mode} mode: ${effectiveMaxRiskPct}% max`];
+
+    // Apply drawdown reduction if active
+    if (riskContext.drawdownRiskReductionActive) {
+      effectiveMaxRiskPct *= SOFT_ADJUSTMENT_TRIGGERS.DRAWDOWN_RISK_REDUCTION_FACTOR;
+      reasons.push(`Drawdown reduction: ${(effectiveMaxRiskPct * 100).toFixed(1)}% (${riskContext.drawdownPct.toFixed(1)}% DD)`);
+    }
+
+    // Never exceed hard limit
+    effectiveMaxRiskPct = Math.min(effectiveMaxRiskPct, HARD_RISK_LIMITS.MAX_RISK_PER_TRADE_PCT);
+
+    return {
+      effectiveMaxRiskPct,
+      reasoning: reasons.join(' → ')
     };
   }
 

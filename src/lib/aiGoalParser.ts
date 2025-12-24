@@ -1,6 +1,7 @@
 import { GoalSessionConfig } from '@/services/goal-session-manager';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { getRiskPercentage, getRiskModeDescription } from '../config/risk-levels';
+import { goalIntelligenceClassifier, GoalClassification } from '@/services/goal-intelligence-classifier';
 
 interface AIGoalParsing {
   config: GoalSessionConfig;
@@ -8,6 +9,7 @@ interface AIGoalParsing {
   suggestedWatchlist: string[];
   estimatedTrades: number;
   timeline: string;
+  goalClassification?: GoalClassification;
 }
 
 class AIGoalParser {
@@ -187,12 +189,33 @@ Respond with ONLY valid JSON in this format:
 
   async parseGoal(prompt: string, currentBalance: number): Promise<AIGoalParsing> {
     const aiResult = await this.parseWithAI(prompt, currentBalance);
-    if (aiResult) {
-      return aiResult;
+    const result = aiResult || this.parseWithRules(prompt, currentBalance);
+
+    if (!aiResult) {
+      console.log('[AI Goal Parser] Using fallback rule-based parsing');
     }
 
-    console.log('[AI Goal Parser] Using fallback rule-based parsing');
-    return this.parseWithRules(prompt, currentBalance);
+    // Add goal intelligence classification
+    const targetAmount = result.config.goalType === 'percentage_gain'
+      ? (currentBalance * result.config.targetValue) / 100
+      : result.config.targetValue;
+
+    const goalClassification = goalIntelligenceClassifier.classify({
+      goalAmount: targetAmount,
+      accountBalance: currentBalance,
+      timeframe: result.config.timeframe
+    });
+
+    result.goalClassification = goalClassification;
+
+    // Update interpretation with goal mode information
+    result.interpretation = `${goalClassification.userMessage}\n\nMode: ${goalClassification.mode.toUpperCase()} - ${goalClassification.executionPsychology} execution`;
+
+    console.log(
+      `[AI Goal Parser] Goal classified as ${goalClassification.mode.toUpperCase()} (${goalClassification.goalRatioPercent.toFixed(1)}% of balance)`
+    );
+
+    return result;
   }
 
   async validateGoal(config: GoalSessionConfig, currentBalance: number): Promise<{
@@ -207,28 +230,46 @@ Respond with ONLY valid JSON in this format:
       ? (currentBalance * config.targetValue) / 100
       : config.targetValue;
 
-    const percentOfBalance = (targetAmount / currentBalance) * 100;
+    // Use Goal Intelligence Classification
+    const goalClassification = goalIntelligenceClassifier.classify({
+      goalAmount: targetAmount,
+      accountBalance: currentBalance,
+      timeframe: config.timeframe
+    });
 
-    if (percentOfBalance > 50) {
-      warnings.push(`Target is ${percentOfBalance.toFixed(0)}% of your balance - very aggressive`);
-      suggestions.push(`Consider targeting 5-10% for sustainable growth`);
-    }
+    // Add mode-specific warnings and suggestions
+    if (goalClassification.mode === 'growth') {
+      warnings.push(
+        `Goal is ${goalClassification.goalRatioPercent.toFixed(1)}% of balance - exceeds safe execution limits`
+      );
+      suggestions.push(goalClassification.reasoning);
 
-    const timeframeHours = this.parseTimeframeToHours(config.timeframe);
-    const requiredReturnPerHour = (targetAmount / currentBalance) * 100 / timeframeHours;
-
-    if (requiredReturnPerHour > 1) {
-      warnings.push(`Requires ${requiredReturnPerHour.toFixed(1)}% return per hour - unrealistic`);
-      suggestions.push(`Extend timeframe or reduce target for better success probability`);
-    }
-
-    if (config.riskMode === 'high' && percentOfBalance > 20) {
-      warnings.push(`High risk mode with large target may lead to significant drawdown`);
-      suggestions.push(`Consider medium risk mode for better capital preservation`);
+      if (goalClassification.alternativeApproach) {
+        suggestions.push(
+          `Suggested approach: ${goalClassification.alternativeApproach.reasoning}`
+        );
+      }
+    } else if (goalClassification.mode === 'campaign') {
+      warnings.push(
+        `Goal is ${goalClassification.goalRatioPercent.toFixed(1)}% of balance - requires multi-session campaign`
+      );
+      suggestions.push(
+        `This goal needs patience and consistency. Expect ${goalClassification.expectedTradeCount}+ trades over multiple sessions.`
+      );
+    } else if (goalClassification.mode === 'execution') {
+      // Execution mode is realistic but needs discipline
+      suggestions.push(
+        `${goalClassification.executionPsychology} execution required. Expected: ${goalClassification.expectedTradeCount} quality trades.`
+      );
+    } else if (goalClassification.mode === 'precision') {
+      // Precision mode is most realistic
+      suggestions.push(
+        `Precision mode: One surgical trade should achieve this goal efficiently.`
+      );
     }
 
     return {
-      isRealistic: warnings.length === 0,
+      isRealistic: goalClassification.isFeasible,
       warnings,
       suggestions
     };

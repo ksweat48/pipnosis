@@ -2,12 +2,14 @@
  * Alpha Execution Planner
  * Creates strategic trading plans for goal achievement
  * Supports both single-trade (sequential) and multi-trade (simultaneous) modes
+ * Integrates Goal Intelligence Layer for mode-specific execution psychology
  */
 
 import { supabase } from '../lib/supabase';
 import { openaiProxyClient } from './openai-proxy-client';
 import { logger, LogCategory } from '../lib/logger';
 import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
+import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
 
 export interface TradePlan {
   totalTradesNeeded: number;
@@ -32,6 +34,7 @@ export interface PlanningContext {
   timeframe: string;
   watchlist: string[];
   multiTradeEnabled: boolean;
+  goalClassification?: GoalClassification;
 }
 
 interface MarketSnapshot {
@@ -54,11 +57,32 @@ class AlphaExecutionPlanner {
     try {
       logger.info(LogCategory.AI_TRADING, `[Alpha Planner] Creating strategic plan for $${context.goalAmount} goal`);
 
+      // Classify goal if not already provided
+      const goalClassification = context.goalClassification || goalIntelligenceClassifier.classify({
+        goalAmount: context.goalAmount,
+        accountBalance: context.currentBalance,
+        timeframe: context.timeframe
+      });
+
+      // Block execution if goal is in Growth Mode
+      if (goalClassification.shouldBlockExecution) {
+        logger.warn(LogCategory.AI_TRADING, `[Alpha Planner] Goal blocked: ${goalClassification.reasoning}`);
+        throw new Error(
+          `Goal exceeds safe execution limits (${goalClassification.goalRatioPercent.toFixed(1)}% of balance). ` +
+          `${goalClassification.alternativeApproach ? goalClassification.alternativeApproach.reasoning : 'Please reduce goal amount.'}`
+        );
+      }
+
+      logger.info(
+        LogCategory.AI_TRADING,
+        `[Alpha Planner] Goal classified as ${goalClassification.mode.toUpperCase()} mode (${goalClassification.goalRatioPercent.toFixed(1)}%)`
+      );
+
       // Build comprehensive market snapshot
       const marketSnapshot = await this.buildMarketSnapshot(context.watchlist);
 
-      // Call GPT-4o-mini to create strategic plan
-      const prompt = this.buildPlanningPrompt(context, marketSnapshot);
+      // Call GPT-4o-mini to create strategic plan with goal intelligence
+      const prompt = this.buildPlanningPrompt(context, marketSnapshot, goalClassification);
 
       const response = await openaiProxyClient.chat({
         model: 'gpt-4o-mini',
@@ -193,47 +217,52 @@ Return JSON format:
   }
 
   /**
-   * Build planning prompt for Alpha
+   * Build planning prompt for Alpha with Goal Intelligence
    */
   private buildPlanningPrompt(
     context: PlanningContext,
-    marketSnapshot: MarketSnapshot[]
+    marketSnapshot: MarketSnapshot[],
+    goalClassification: GoalClassification
   ): string {
-    const riskPercentMap = {
-      low: 2,
-      medium: 3,
-      high: 5
-    };
-
-    const maxRiskPercent = riskPercentMap[context.riskMode];
+    // Use goal-mode specific max risk
+    const maxRiskPercent = goalClassification.maxRiskPerTradePct;
     const maxRiskDollars = context.currentBalance * (maxRiskPercent / 100);
 
+    // Mode-specific execution psychology
+    const modeGuidance = this.getModeSpecificGuidance(goalClassification);
+
     return `
-Goal: Achieve $${context.goalAmount} profit
+🎯 GOAL INTELLIGENCE CLASSIFICATION
+Goal: $${context.goalAmount} (${goalClassification.goalRatioPercent.toFixed(1)}% of balance)
+Mode: ${goalClassification.mode.toUpperCase()}
+Psychology: ${goalClassification.executionPsychology}
+Classification: ${goalClassification.reasoning}
+
 Account Balance: $${context.currentBalance}
-Risk Mode: ${context.riskMode.toUpperCase()} (max ${maxRiskPercent}% risk per trade = $${maxRiskDollars.toFixed(2)})
-Timeframe: ${context.timeframe}
 Execution Mode: ${context.multiTradeEnabled ? 'Multi-Trade (simultaneous)' : 'Single-Trade (sequential)'}
+
+${modeGuidance}
+
+📊 RISK PARAMETERS
+Max Risk Per Trade: ${maxRiskPercent}% ($${maxRiskDollars.toFixed(2)})
+Expected Trade Count: ${goalClassification.expectedTradeCount}
+Target R:R Range: ${goalClassification.targetRiskRewardRange[0]}-${goalClassification.targetRiskRewardRange[1]}
+Min Confidence: ${goalClassification.minConfidenceThreshold}%
 
 Available Symbols: ${context.watchlist.join(', ')}
 
 Current Market Conditions:
 ${JSON.stringify(marketSnapshot, null, 2)}
 
-Create a strategic trading plan with:
-1. Number of trades needed (be realistic - don't over-trade)
+Create a strategic trading plan that RESPECTS the ${goalClassification.mode.toUpperCase()} MODE guidelines above:
+1. Number of trades (target: ${goalClassification.expectedTradeCount})
 2. Expected profit per trade
 3. Preferred symbols for each trade
-4. Risk per trade (MUST NOT exceed $${maxRiskDollars.toFixed(2)})
-5. Execution strategy (${context.multiTradeEnabled ? 'execute all trades simultaneously' : 'execute trades one at a time, sequentially'})
-6. Strategic reasoning
+4. Risk per trade (MAX: ${maxRiskPercent}%)
+5. R:R ratio per trade (target: ${goalClassification.targetRiskRewardRange[0]}-${goalClassification.targetRiskRewardRange[1]})
+6. Strategic reasoning aligned with ${goalClassification.executionPsychology} psychology
 
-IMPORTANT RULES:
-- Each trade should target AT LEAST $${(context.goalAmount / 3).toFixed(2)} to minimize number of trades
-- Risk per trade cannot exceed ${maxRiskPercent}% of balance
-- Prefer fewer, higher-quality trades over many small trades
-- In single-trade mode, sequence trades by best opportunity first
-- In multi-trade mode, diversify across symbols to reduce correlation risk
+CRITICAL: Follow ${goalClassification.mode.toUpperCase()} mode principles strictly
 
 Return ONLY this JSON format (no markdown, no explanations):
 {
@@ -254,6 +283,56 @@ Return ONLY this JSON format (no markdown, no explanations):
   "strategicNotes": string
 }
 `;
+  }
+
+  /**
+   * Get mode-specific execution guidance
+   */
+  private getModeSpecificGuidance(classification: GoalClassification): string {
+    switch (classification.mode) {
+      case 'precision':
+        return `
+🎯 PRECISION MODE GUIDELINES
+- This is a surgical job, not a power play
+- Optimize for HIGH PROBABILITY, not max profit
+- ONE clean trade is sufficient - no ego trading
+- Risk should be goal-scaled, not balance-maxed
+- Target R:R: ${classification.targetRiskRewardRange[0]}-${classification.targetRiskRewardRange[1]} (conservative)
+- "If the goal is small, trade small. Precision beats power."`;
+
+      case 'execution':
+        return `
+🎯 EXECUTION MODE GUIDELINES
+- Professional execution through sequenced wins
+- Expect ${classification.expectedTradeCount} disciplined trades
+- Focus on quality setups, not speed
+- Risk per trade stays controlled (${classification.maxRiskPerTradePct}%)
+- Target R:R: ${classification.targetRiskRewardRange[0]}-${classification.targetRiskRewardRange[1]}
+- Only A+ setups - no emotional compression
+- "This is achievable, but only through discipline."`;
+
+      case 'campaign':
+        return `
+🎯 CAMPAIGN MODE GUIDELINES
+- Multi-session campaign - DO NOT rush
+- Staged progress over time
+- Reduce per-trade risk for longevity
+- Expect ${classification.expectedTradeCount}+ trades across sessions
+- Target R:R: ${classification.targetRiskRewardRange[0]}-${classification.targetRiskRewardRange[1]}
+- Consistency over speed
+- "Large goals require time, not aggression."`;
+
+      case 'growth':
+        return `
+�� GROWTH MODE - EXECUTION BLOCKED
+- This is a capital problem, not a trading problem
+- Goal exceeds safe execution limits
+- Alternative approach required
+- See staged growth plan`;
+
+      default:
+        return '';
+    }
   }
 
   /**

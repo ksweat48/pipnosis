@@ -9,6 +9,13 @@
  * - NEVER holds positions overnight or multi-day
  * - Tries to reach user goals in ONE high-quality trade, uses backup trades only if needed
  * - Prioritizes high-probability, fast-execution setups
+ *
+ * Goal Intelligence Philosophy:
+ * - Capital survival and efficiency always override goal urgency
+ * - Alpha does not chase goals — Alpha engineers outcomes
+ * - Confidence affects WHETHER to trade, not HOW tight the stops are
+ * - Goal classification determines execution psychology, not just risk percentage
+ * - Final position size = MIN(goal-optimal, risk-safe)
  */
 
 export const PIPNOSIS_CORE_RULES = {
@@ -65,6 +72,60 @@ export const PIPNOSIS_CORE_RULES = {
   AUTO_CLOSE_ON_DURATION_EXCEEDED: true,
   ENFORCE_END_OF_DAY_CLOSURE: true,
   END_OF_DAY_CLOSE_BUFFER_MINUTES: 30,
+
+  GOAL_INTELLIGENCE: {
+    MODE_THRESHOLDS: {
+      PRECISION_MAX_PERCENT: 2.0,
+      EXECUTION_MAX_PERCENT: 10.0,
+      CAMPAIGN_MAX_PERCENT: 30.0,
+    },
+
+    CONFIDENCE_PRINCIPLES: {
+      CONFIDENCE_GATES_EXECUTION: true,
+      CONFIDENCE_DOES_NOT_AFFECT_STOP_WIDTH: true,
+      STOPS_ARE_STRUCTURE_BASED: true,
+      THRESHOLDS: {
+        NO_TRADE_BELOW: 70,
+        STANDARD_EXECUTION: 85,
+        CONSIDER_ADDING: 95,
+        AGGRESSIVE_MANAGEMENT: 98,
+      },
+    },
+
+    CAPITAL_EFFICIENCY: {
+      GOAL_SCALING_ACTIVE_BELOW_PERCENT: 2.0,
+      GOAL_RISK_MULTIPLIER_MAX: 1.5,
+      PREVENT_EGO_TRADING: true,
+      FINAL_SIZE_RULE: 'MIN(goal_optimal, risk_safe)' as const,
+    },
+
+    MODE_BEHAVIORS: {
+      precision: {
+        description: 'Surgical execution - one clean trade',
+        expectedTrades: 1,
+        psychology: 'precision_beats_power',
+        overtradeRisk: 'high',
+      },
+      execution: {
+        description: 'Professional discipline - 2-4 quality trades',
+        expectedTrades: 3,
+        psychology: 'quality_over_speed',
+        overtradeRisk: 'medium',
+      },
+      campaign: {
+        description: 'Multi-session consistency - patience required',
+        expectedTrades: 8,
+        psychology: 'time_not_aggression',
+        overtradeRisk: 'low',
+      },
+      growth: {
+        description: 'Capital problem - execution blocked',
+        expectedTrades: 0,
+        psychology: 'honest_limitation',
+        overtradeRisk: 'n/a',
+      },
+    } as const,
+  } as const,
 } as const;
 
 export type TradeStyle = 'scalp' | 'intraday' | 'swing' | 'position';

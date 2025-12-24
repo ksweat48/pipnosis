@@ -28,6 +28,7 @@ import { postTradeAnalyzer } from './post-trade-analyzer';
 import { scanningStateMachine } from './scanning-state-machine';
 import { getForexMarketStatus } from '../utils/marketHours';
 import { weekendProtectionService } from './weekend-protection-service';
+import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -90,6 +91,7 @@ class GoalSessionLiveEngine {
   private timeframeExpired = false;
   private allowNewTrades = true;
   private tradesOpenAtExpiration = 0;
+  private goalClassification: GoalClassification | null = null;
 
   private readonly POLLING_INTERVAL_MS = 60000; // 60s = 75% fewer LLM calls
   private readonly MAX_DAILY_LOSS_PERCENT = 10;
@@ -127,6 +129,62 @@ class GoalSessionLiveEngine {
           message: `Cannot start trading: session status is ${goalSession.status}`
         };
       }
+
+      // 🎯 GOAL INTELLIGENCE: Classify goal before session start
+      logger.info(LogCategory.AI_TRADING, '🎯 Classifying goal with Intelligence Layer...');
+
+      // Get user balance
+      const { data: userBalance } = await supabase
+        .from('user_balance')
+        .select('current_balance')
+        .eq('user_id', config.userId)
+        .single();
+
+      const currentBalance = userBalance?.current_balance || config.initialBalance;
+
+      this.goalClassification = goalIntelligenceClassifier.classify({
+        goalAmount: goalSession.target_value,
+        accountBalance: currentBalance,
+        timeframe: goalSession.timeframe
+      });
+
+      logger.info(
+        LogCategory.AI_TRADING,
+        `🎯 Goal Classification: ${this.goalClassification.mode.toUpperCase()} mode (${this.goalClassification.goalRatioPercent.toFixed(1)}% of balance)`
+      );
+      logger.info(LogCategory.AI_TRADING, `🎯 Psychology: ${this.goalClassification.executionPsychology}`);
+      logger.info(LogCategory.AI_TRADING, `🎯 Expected trades: ${this.goalClassification.expectedTradeCount}`);
+
+      // Block execution if goal is in Growth Mode
+      if (this.goalClassification.shouldBlockExecution) {
+        logger.warn(LogCategory.AI_TRADING, `🚫 Goal blocked: ${this.goalClassification.reasoning}`);
+
+        await supabase
+          .from('goal_sessions')
+          .update({
+            status: 'blocked',
+            goal_mode: this.goalClassification.mode,
+            goal_ratio_percent: this.goalClassification.goalRatioPercent,
+            execution_psychology: this.goalClassification.executionPsychology
+          })
+          .eq('id', config.goalSessionId);
+
+        return {
+          success: false,
+          message: `Goal exceeds safe execution limits (${this.goalClassification.goalRatioPercent.toFixed(1)}% of balance). ${this.goalClassification.alternativeApproach ? this.goalClassification.alternativeApproach.reasoning : 'Please reduce goal amount.'}`
+        };
+      }
+
+      // Update goal session with classification
+      await supabase
+        .from('goal_sessions')
+        .update({
+          goal_mode: this.goalClassification.mode,
+          goal_ratio_percent: this.goalClassification.goalRatioPercent,
+          execution_psychology: this.goalClassification.executionPsychology,
+          goal_efficient_risk_pct: this.goalClassification.maxRiskPerTradePct
+        })
+        .eq('id', config.goalSessionId);
 
       // ✅ CRITICAL: Test LLM availability BEFORE starting session
       logger.info(LogCategory.AI_TRADING, '🔍 Testing LLM availability...');
