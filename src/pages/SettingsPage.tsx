@@ -727,89 +727,243 @@ export function SettingsPage() {
                 <h2 className="text-xl font-semibold text-white">Notification Preferences</h2>
               </div>
 
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Mail size={18} className="text-gray-400" />
+              <p className="text-sm text-gray-400 mb-6">
+                Manage push notification devices and receive real-time alerts even when the app is closed.
+              </p>
+
+              <div className="space-y-6">
+                <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
                     <div>
-                      <div className="text-white font-medium">Email Notifications</div>
-                      <div className="text-xs text-gray-400">Receive general email updates</div>
+                      <div className="text-white font-medium mb-1">Push Notifications</div>
+                      <div className="text-xs text-gray-400">
+                        {pushPermission === 'granted' && 'Enabled on this device'}
+                        {pushPermission === 'denied' && 'Blocked by browser - please enable in browser settings'}
+                        {pushPermission === 'default' && 'Not configured'}
+                      </div>
                     </div>
+                    {pushPermission === 'granted' ? (
+                      <button
+                        onClick={handleDisablePush}
+                        disabled={loadingPush}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white text-sm rounded-lg transition-colors"
+                      >
+                        {loadingPush ? 'Disabling...' : 'Disable'}
+                      </button>
+                    ) : pushPermission === 'default' ? (
+                      <button
+                        onClick={handleEnablePush}
+                        disabled={loadingPush}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 text-white text-sm rounded-lg transition-colors"
+                      >
+                        {loadingPush ? 'Enabling...' : 'Enable Push'}
+                      </button>
+                    ) : null}
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={preferences.emailNotifications}
-                      onChange={(e) =>
-                        setPreferences({ ...preferences, emailNotifications: e.target.checked })
-                      }
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                  </label>
+
+                  {pushPermission === 'granted' && (
+                    <button
+                      onClick={handleTestPush}
+                      disabled={testingPush}
+                      className="w-full mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                    >
+                      {testingPush ? (
+                        <>
+                          <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
+                          <span>Sending Test...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Bell size={16} />
+                          <span>Send Test Notification</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
 
-                <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <TrendingUp size={18} className="text-gray-400" />
-                    <div>
-                      <div className="text-white font-medium">Trade Notifications</div>
-                      <div className="text-xs text-gray-400">Get notified about trade executions</div>
+                {pushDevices.length > 0 && (
+                  <div>
+                    <h3 className="text-white font-medium mb-3">Registered Devices</h3>
+                    <div className="space-y-3">
+                      {pushDevices.map((device) => (
+                        <div
+                          key={device.id}
+                          className="p-4 bg-gray-800/50 rounded-lg border border-gray-700"
+                        >
+                          {editingDevice?.id === device.id ? (
+                            <div className="space-y-3">
+                              <input
+                                type="text"
+                                value={editingDevice.name}
+                                onChange={(e) =>
+                                  setEditingDevice({ ...editingDevice, name: e.target.value })
+                                }
+                                className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={handleSaveDeviceName}
+                                  className="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg transition-colors"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  onClick={() => setEditingDevice(null)}
+                                  className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-start justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <Smartphone
+                                    size={16}
+                                    className={device.isActive ? 'text-emerald-400' : 'text-gray-500'}
+                                  />
+                                  <div className="text-white font-medium">{device.deviceName}</div>
+                                  {!device.isActive && (
+                                    <span className="text-xs text-gray-500">(Inactive)</span>
+                                  )}
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() =>
+                                      setEditingDevice({ id: device.id, name: device.deviceName })
+                                    }
+                                    className="text-blue-400 hover:text-blue-300 text-xs"
+                                  >
+                                    Rename
+                                  </button>
+                                  <button
+                                    onClick={() => handleRemoveDevice(device.id)}
+                                    className="text-red-400 hover:text-red-300 text-xs"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                Last used {formatDeviceDate(device.lastUsedAt)}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={preferences.tradeNotifications}
-                      onChange={(e) =>
-                        setPreferences({ ...preferences, tradeNotifications: e.target.checked })
-                      }
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                  </label>
-                </div>
+                )}
 
-                <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Bell size={18} className="text-gray-400" />
-                    <div>
-                      <div className="text-white font-medium">Goal Notifications</div>
-                      <div className="text-xs text-gray-400">Alerts for smart goal achievements</div>
+                {pushPermission === 'denied' && (
+                  <div className="p-4 bg-red-900/20 border border-red-700/30 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle size={18} className="text-red-400 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-red-300">
+                        <p className="font-medium mb-1">Push Notifications Blocked</p>
+                        <p className="text-red-300/80 mb-2">
+                          You have blocked push notifications for this site. To enable them:
+                        </p>
+                        <ol className="text-xs list-decimal list-inside space-y-1 text-red-300/80">
+                          <li>Click the lock icon in your browser address bar</li>
+                          <li>Find "Notifications" in the permissions list</li>
+                          <li>Change the setting to "Allow"</li>
+                          <li>Refresh this page</li>
+                        </ol>
+                      </div>
                     </div>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={preferences.goalNotifications}
-                      onChange={(e) =>
-                        setPreferences({ ...preferences, goalNotifications: e.target.checked })
-                      }
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                  </label>
-                </div>
+                )}
 
-                <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Calendar size={18} className="text-gray-400" />
-                    <div>
-                      <div className="text-white font-medium">Weekly Reports</div>
-                      <div className="text-xs text-gray-400">Receive weekly performance summaries</div>
+                <div className="border-t border-gray-700 pt-6">
+                  <h3 className="text-white font-medium mb-4">Notification Types</h3>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <Mail size={18} className="text-gray-400" />
+                        <div>
+                          <div className="text-white font-medium">Email Notifications</div>
+                          <div className="text-xs text-gray-400">Receive general email updates</div>
+                        </div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={preferences.emailNotifications}
+                          onChange={(e) =>
+                            setPreferences({ ...preferences, emailNotifications: e.target.checked })
+                          }
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <TrendingUp size={18} className="text-gray-400" />
+                        <div>
+                          <div className="text-white font-medium">Trade Notifications</div>
+                          <div className="text-xs text-gray-400">Get notified about trade executions</div>
+                        </div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={preferences.tradeNotifications}
+                          onChange={(e) =>
+                            setPreferences({ ...preferences, tradeNotifications: e.target.checked })
+                          }
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <Bell size={18} className="text-gray-400" />
+                        <div>
+                          <div className="text-white font-medium">Goal Notifications</div>
+                          <div className="text-xs text-gray-400">Alerts for smart goal achievements</div>
+                        </div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={preferences.goalNotifications}
+                          onChange={(e) =>
+                            setPreferences({ ...preferences, goalNotifications: e.target.checked })
+                          }
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <Calendar size={18} className="text-gray-400" />
+                        <div>
+                          <div className="text-white font-medium">Weekly Reports</div>
+                          <div className="text-xs text-gray-400">Receive weekly performance summaries</div>
+                        </div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={preferences.weeklyReports}
+                          onChange={(e) =>
+                            setPreferences({ ...preferences, weeklyReports: e.target.checked })
+                          }
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                      </label>
                     </div>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={preferences.weeklyReports}
-                      onChange={(e) =>
-                        setPreferences({ ...preferences, weeklyReports: e.target.checked })
-                      }
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                  </label>
                 </div>
               </div>
 
@@ -1179,164 +1333,6 @@ export function SettingsPage() {
                   </button>
                 </div>
               </form>
-            </div>
-
-            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-6">
-                <Bell size={20} className="text-emerald-400" />
-                <h2 className="text-xl font-semibold text-white">Push Notifications</h2>
-              </div>
-
-              <p className="text-sm text-gray-400 mb-6">
-                Manage push notification devices and receive real-time alerts even when the app is closed.
-              </p>
-
-              <div className="space-y-6">
-                <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <div className="text-white font-medium mb-1">Push Notifications</div>
-                      <div className="text-xs text-gray-400">
-                        {pushPermission === 'granted' && 'Enabled on this device'}
-                        {pushPermission === 'denied' && 'Blocked by browser - please enable in browser settings'}
-                        {pushPermission === 'default' && 'Not configured'}
-                      </div>
-                    </div>
-                    {pushPermission === 'granted' ? (
-                      <button
-                        onClick={handleDisablePush}
-                        disabled={loadingPush}
-                        className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white text-sm rounded-lg transition-colors"
-                      >
-                        {loadingPush ? 'Disabling...' : 'Disable'}
-                      </button>
-                    ) : pushPermission === 'default' ? (
-                      <button
-                        onClick={handleEnablePush}
-                        disabled={loadingPush}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 text-white text-sm rounded-lg transition-colors"
-                      >
-                        {loadingPush ? 'Enabling...' : 'Enable Push'}
-                      </button>
-                    ) : null}
-                  </div>
-
-                  {pushPermission === 'granted' && (
-                    <button
-                      onClick={handleTestPush}
-                      disabled={testingPush}
-                      className="w-full mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
-                    >
-                      {testingPush ? (
-                        <>
-                          <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
-                          <span>Sending Test...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Bell size={16} />
-                          <span>Send Test Notification</span>
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
-
-                {pushDevices.length > 0 && (
-                  <div>
-                    <h3 className="text-white font-medium mb-3">Registered Devices</h3>
-                    <div className="space-y-3">
-                      {pushDevices.map((device) => (
-                        <div
-                          key={device.id}
-                          className="p-4 bg-gray-800/50 rounded-lg border border-gray-700"
-                        >
-                          {editingDevice?.id === device.id ? (
-                            <div className="space-y-3">
-                              <input
-                                type="text"
-                                value={editingDevice.name}
-                                onChange={(e) =>
-                                  setEditingDevice({ ...editingDevice, name: e.target.value })
-                                }
-                                className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                              />
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={handleSaveDeviceName}
-                                  className="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg transition-colors"
-                                >
-                                  Save
-                                </button>
-                                <button
-                                  onClick={() => setEditingDevice(null)}
-                                  className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex items-start justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                  <Smartphone
-                                    size={16}
-                                    className={device.isActive ? 'text-emerald-400' : 'text-gray-500'}
-                                  />
-                                  <div className="text-white font-medium">{device.deviceName}</div>
-                                  {!device.isActive && (
-                                    <span className="text-xs text-gray-500">(Inactive)</span>
-                                  )}
-                                </div>
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={() =>
-                                      setEditingDevice({ id: device.id, name: device.deviceName })
-                                    }
-                                    className="text-blue-400 hover:text-blue-300 text-xs"
-                                  >
-                                    Rename
-                                  </button>
-                                  <button
-                                    onClick={() => handleRemoveDevice(device.id)}
-                                    className="text-red-400 hover:text-red-300 text-xs"
-                                  >
-                                    Remove
-                                  </button>
-                                </div>
-                              </div>
-                              <div className="text-xs text-gray-400">
-                                Last used {formatDeviceDate(device.lastUsedAt)}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {pushPermission === 'denied' && (
-                  <div className="p-4 bg-red-900/20 border border-red-700/30 rounded-lg">
-                    <div className="flex items-start gap-3">
-                      <AlertCircle size={18} className="text-red-400 mt-0.5 flex-shrink-0" />
-                      <div className="text-sm text-red-300">
-                        <p className="font-medium mb-1">Push Notifications Blocked</p>
-                        <p className="text-red-300/80 mb-2">
-                          You have blocked push notifications for this site. To enable them:
-                        </p>
-                        <ol className="text-xs list-decimal list-inside space-y-1 text-red-300/80">
-                          <li>Click the lock icon in your browser address bar</li>
-                          <li>Find "Notifications" in the permissions list</li>
-                          <li>Change the setting to "Allow"</li>
-                          <li>Refresh this page</li>
-                        </ol>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
             </div>
 
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
