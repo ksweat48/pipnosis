@@ -17,7 +17,7 @@ const corsHeaders = {
  * - Client-side monitor crashes
  * - Price data is stale in realtime_prices table
  *
- * Runs every 30 seconds via cron job
+ * Runs every 60 seconds via cron job (optimized from 30s due to database trigger providing instant coverage)
  */
 
 Deno.serve(async (req: Request) => {

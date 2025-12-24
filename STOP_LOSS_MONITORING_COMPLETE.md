@@ -45,14 +45,14 @@ We've implemented a **TRIPLE-REDUNDANT** monitoring system to ensure stop losses
 
 ### Layer 2: Emergency Server-Side Monitor (NEW!)
 **What It Does:**
-- **Runs independently on server every 30 seconds**
+- **Runs independently on server every 60 seconds**
 - Works even when your browser is closed
 - Uses same multi-source price fallback
 - Closes positions immediately at SL/TP breach
 
 **How It Works:**
 ```
-1. Cron job triggers every 30 seconds
+1. Cron job triggers every 60 seconds
 2. Gets all open positions from database
 3. Fetches current prices (realtime_prices → forex_candles → cached)
 4. Checks each position for SL/TP breach
@@ -62,7 +62,7 @@ We've implemented a **TRIPLE-REDUNDANT** monitoring system to ensure stop losses
 
 **Location:** `/supabase/functions/emergency-sl-monitor/index.ts`
 
-**To Enable:** Set up cron job to call this function every 30 seconds
+**To Enable:** Set up cron job to call this function every 60 seconds (every 1 minute)
 
 ---
 
@@ -114,9 +114,9 @@ For each open position with that symbol:
 ```
 1. Client Monitor (every 2-3s) - First responder
    ↓
-2. Server Monitor (every 30s) - Backup check
+2. Database Trigger (every 10s per symbol) - Rate-limited instant checks
    ↓
-3. Database Trigger (instant) - On every price update
+3. Server Monitor (every 60s) - Final safety net
 ```
 
 ### If One Layer Fails
@@ -139,7 +139,7 @@ Price drops to 1.17911 (1 pip below SL):
   ├─ Client monitor detects (if browser open)
   │  └─ Sees position already closed
   │
-  └─ Server monitor runs (next 30s cycle)
+  └─ Server monitor runs (next 60s cycle)
      └─ Sees position already closed
 ```
 
@@ -184,7 +184,7 @@ Check these indicators to ensure system is working:
 - Position updates happening every 2-3s
 
 ### Server Side
-- Emergency monitor function runs every 30s
+- Emergency monitor function runs every 60s
 - Check function logs for "Complete: X closed, Y errors"
 - Errors should be 0 in normal operation
 
@@ -200,12 +200,16 @@ Check these indicators to ensure system is working:
 ### 1. Enable Emergency Monitor Cron Job
 Add to your cron scheduler (Netlify/Supabase/etc):
 ```
-Schedule: */30 * * * * (every 30 seconds)
+Schedule: */1 * * * * (every 1 minute / 60 seconds)
 URL: https://your-project.supabase.co/functions/v1/emergency-sl-monitor
 Method: POST
 Headers:
   - Authorization: Bearer [service-role-key]
 ```
+
+**Note:** Optimized from 30 seconds to 60 seconds since the database trigger now provides
+instant coverage (checks every 10 seconds per symbol). This reduces server load by 50%
+while maintaining comprehensive protection.
 
 ### 2. Verify Price Feeds
 Ensure `realtime_prices` table is being populated regularly:
@@ -253,7 +257,7 @@ We've fixed ALL THREE with:
 ## Next Steps
 
 1. **Deploy the changes** (build completed successfully)
-2. **Set up cron job** for emergency monitor (every 30 seconds)
+2. **Set up cron job** for emergency monitor (every 60 seconds / 1 minute)
 3. **Test with small position** to verify all layers work
 4. **Monitor logs** for first 24 hours to ensure smooth operation
 5. **Review notifications** to confirm alerts are sent
