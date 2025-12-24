@@ -63,8 +63,9 @@ export default function GetAppPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900 text-white pt-20 pb-12 px-4">
-      <div className="max-w-4xl mx-auto">
+    <div className="fixed inset-0 overflow-y-auto bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900 text-white">
+      <div className="min-h-screen pt-20 pb-12 px-4">
+        <div className="max-w-4xl mx-auto">
         <div className="text-center mb-8">
           <div className="flex justify-center mb-6">
             <div className="p-4 bg-gradient-to-br from-emerald-500 to-green-600 rounded-3xl shadow-2xl">
@@ -439,6 +440,7 @@ export default function GetAppPage() {
               <span>Get push notifications for important trade alerts</span>
             </li>
           </ul>
+        </div>
         </div>
       </div>
     </div>
