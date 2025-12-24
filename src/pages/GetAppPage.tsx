@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { Smartphone, Monitor, Download, CheckCircle, Zap, Wifi, Bell, Share2, AlertCircle, ArrowDown } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Smartphone, Monitor, Download, CheckCircle, Zap, Wifi, Bell, Share2, AlertCircle, ArrowDown, Plus, Menu } from 'lucide-react';
 
 export default function GetAppPage() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [platform, setPlatform] = useState<'ios' | 'android' | 'desktop'>('desktop');
   const [isIosSafari, setIsIosSafari] = useState(false);
+  const [showInstructionsHighlight, setShowInstructionsHighlight] = useState(false);
+  const instructionsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const userAgent = navigator.userAgent.toLowerCase();
@@ -50,6 +52,16 @@ export default function GetAppPage() {
     setDeferredPrompt(null);
   };
 
+  const handleMainCTAClick = async () => {
+    if (deferredPrompt) {
+      await handleInstallClick();
+    } else {
+      setShowInstructionsHighlight(true);
+      instructionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setTimeout(() => setShowInstructionsHighlight(false), 3000);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900 text-white pt-20 pb-12 px-4">
       <div className="max-w-4xl mx-auto">
@@ -67,6 +79,31 @@ export default function GetAppPage() {
             Install Pipnosis as a Progressive Web App for the best trading experience
           </p>
         </div>
+
+        {!isInstalled && (
+          <div className="mb-8">
+            <button
+              onClick={handleMainCTAClick}
+              className="w-full max-w-md mx-auto bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white px-8 py-5 rounded-2xl font-bold text-xl shadow-2xl transition-all transform hover:scale-105 flex items-center justify-center gap-3 border-2 border-emerald-400"
+            >
+              {platform === 'ios' && <Plus size={32} />}
+              {platform === 'android' && <Download size={32} />}
+              {platform === 'desktop' && <Download size={32} />}
+              <span>
+                {platform === 'ios' && 'Add to Home Screen'}
+                {platform === 'android' && 'Download for Android'}
+                {platform === 'desktop' && 'Install App'}
+              </span>
+            </button>
+            {!deferredPrompt && (
+              <p className="text-center text-gray-400 text-sm mt-3">
+                {platform === 'ios'
+                  ? 'Tap to see installation instructions'
+                  : 'Tap to see how to install manually'}
+              </p>
+            )}
+          </div>
+        )}
 
         {isInstalled ? (
           <div className="bg-green-900/30 border-2 border-green-500 rounded-xl p-8 text-center mb-8">
@@ -166,9 +203,13 @@ export default function GetAppPage() {
           </div>
         )}
 
-        <div className="space-y-8">
+        <div className="space-y-8" ref={instructionsRef}>
           {platform === 'ios' && (
-            <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-8 border-2 border-emerald-500 shadow-2xl">
+            <div className={`bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-8 border-2 shadow-2xl transition-all duration-500 ${
+              showInstructionsHighlight
+                ? 'border-emerald-400 ring-4 ring-emerald-500/50 animate-pulse'
+                : 'border-emerald-500'
+            }`}>
               <div className="flex items-center gap-3 mb-8">
                 <div className="bg-emerald-600 p-3 rounded-2xl">
                   <Smartphone className="text-white" size={36} />
@@ -225,70 +266,151 @@ export default function GetAppPage() {
             </div>
           )}
 
-          {platform === 'android' && !deferredPrompt && (
-            <div className="bg-gray-800 rounded-xl p-8 border border-gray-700">
-              <div className="flex items-center gap-3 mb-6">
-                <Smartphone className="text-emerald-400" size={32} />
-                <h2 className="text-2xl font-bold">Install on Android</h2>
+          {platform === 'android' && (
+            <div className={`bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-8 border-2 shadow-2xl transition-all duration-500 ${
+              showInstructionsHighlight
+                ? 'border-emerald-400 ring-4 ring-emerald-500/50 animate-pulse'
+                : 'border-emerald-500'
+            }`}>
+              <div className="flex items-center gap-3 mb-8">
+                <div className="bg-emerald-600 p-3 rounded-2xl">
+                  <Smartphone className="text-white" size={36} />
+                </div>
+                <div>
+                  <h2 className="text-3xl font-bold text-emerald-400">Android Installation</h2>
+                  <p className="text-gray-400 text-sm">
+                    {deferredPrompt ? 'One-click install available!' : 'Follow these 3 simple steps'}
+                  </p>
+                </div>
               </div>
 
-              <ol className="space-y-4 text-gray-300">
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0 w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center text-sm font-bold">1</span>
-                  <div>
-                    <p className="font-semibold mb-1">Open Chrome menu</p>
-                    <p className="text-sm text-gray-400">Tap the three dots in the top right corner</p>
+              {!deferredPrompt && (
+                <>
+                  <div className="bg-blue-900/30 border border-blue-500/50 rounded-xl p-5 mb-6">
+                    <div className="flex items-start gap-3">
+                      <Menu className="text-blue-400 flex-shrink-0 mt-1" size={24} />
+                      <div>
+                        <p className="font-semibold text-blue-400 mb-1">Manual Installation Required</p>
+                        <p className="text-gray-300 text-sm">
+                          The automatic install prompt isn't available. Follow the steps below to install manually.
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0 w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center text-sm font-bold">2</span>
-                  <div>
-                    <p className="font-semibold mb-1">Tap "Add to Home screen"</p>
-                    <p className="text-sm text-gray-400">Or look for "Install app" option in the menu</p>
+
+                  <ol className="space-y-6">
+                    <li className="flex gap-4 bg-gray-900/50 rounded-xl p-5 border border-emerald-600/30 hover:border-emerald-500/50 transition-colors">
+                      <span className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">1</span>
+                      <div className="flex-1">
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <p className="font-bold text-lg text-white">Open Chrome Menu</p>
+                          <Menu className="text-emerald-400 flex-shrink-0" size={28} />
+                        </div>
+                        <p className="text-gray-300 leading-relaxed">Tap the three dots (⋮) in the top right corner of your Chrome browser.</p>
+                      </div>
+                    </li>
+                    <li className="flex gap-4 bg-gray-900/50 rounded-xl p-5 border border-emerald-600/30 hover:border-emerald-500/50 transition-colors">
+                      <span className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">2</span>
+                      <div className="flex-1">
+                        <p className="font-bold text-lg mb-2 text-white">Select "Add to Home screen"</p>
+                        <p className="text-gray-300 leading-relaxed">Look for "Add to Home screen" or "Install app" option in the menu and tap it.</p>
+                      </div>
+                    </li>
+                    <li className="flex gap-4 bg-gray-900/50 rounded-xl p-5 border border-emerald-600/30 hover:border-emerald-500/50 transition-colors">
+                      <span className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">3</span>
+                      <div className="flex-1">
+                        <p className="font-bold text-lg mb-2 text-white">Confirm Installation</p>
+                        <p className="text-gray-300 leading-relaxed">Tap "Add" or "Install" to complete. The Pipnosis app will appear on your home screen!</p>
+                      </div>
+                    </li>
+                  </ol>
+
+                  <div className="mt-8 bg-emerald-900/30 border border-emerald-500/50 rounded-xl p-5">
+                    <div className="flex items-start gap-3">
+                      <CheckCircle className="text-emerald-400 flex-shrink-0 mt-1" size={24} />
+                      <div>
+                        <p className="font-semibold text-emerald-400 mb-1">Once Installed</p>
+                        <p className="text-gray-300 text-sm">The Pipnosis app will appear on your home screen with a green icon. Tap it to launch the full app experience!</p>
+                      </div>
+                    </div>
                   </div>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0 w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center text-sm font-bold">3</span>
-                  <div>
-                    <p className="font-semibold mb-1">Confirm installation</p>
-                    <p className="text-sm text-gray-400">Tap "Add" or "Install" to complete</p>
-                  </div>
-                </li>
-              </ol>
+                </>
+              )}
             </div>
           )}
 
-          {platform === 'desktop' && !deferredPrompt && (
-            <div className="bg-gray-800 rounded-xl p-8 border border-gray-700">
-              <div className="flex items-center gap-3 mb-6">
-                <Monitor className="text-emerald-400" size={32} />
-                <h2 className="text-2xl font-bold">Install on Desktop</h2>
+          {platform === 'desktop' && (
+            <div className={`bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-8 border-2 shadow-2xl transition-all duration-500 ${
+              showInstructionsHighlight
+                ? 'border-emerald-400 ring-4 ring-emerald-500/50 animate-pulse'
+                : 'border-emerald-500'
+            }`}>
+              <div className="flex items-center gap-3 mb-8">
+                <div className="bg-emerald-600 p-3 rounded-2xl">
+                  <Monitor className="text-white" size={36} />
+                </div>
+                <div>
+                  <h2 className="text-3xl font-bold text-emerald-400">Desktop Installation</h2>
+                  <p className="text-gray-400 text-sm">
+                    {deferredPrompt ? 'One-click install available!' : 'Follow these 3 simple steps'}
+                  </p>
+                </div>
               </div>
 
-              <ol className="space-y-4 text-gray-300">
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0 w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center text-sm font-bold">1</span>
-                  <div>
-                    <p className="font-semibold mb-1">Look for the install icon</p>
-                    <p className="text-sm text-gray-400">Chrome: Click the install icon in the address bar (computer with down arrow)</p>
-                    <p className="text-sm text-gray-400">Edge: Click the app icon in the address bar or menu</p>
+              {!deferredPrompt && (
+                <>
+                  <div className="bg-blue-900/30 border border-blue-500/50 rounded-xl p-5 mb-6">
+                    <div className="flex items-start gap-3">
+                      <Download className="text-blue-400 flex-shrink-0 mt-1" size={24} />
+                      <div>
+                        <p className="font-semibold text-blue-400 mb-1">Manual Installation Required</p>
+                        <p className="text-gray-300 text-sm">
+                          The automatic install prompt isn't available. Follow the steps below to install manually.
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0 w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center text-sm font-bold">2</span>
-                  <div>
-                    <p className="font-semibold mb-1">Click "Install"</p>
-                    <p className="text-sm text-gray-400">Confirm the installation when prompted</p>
+
+                  <ol className="space-y-6">
+                    <li className="flex gap-4 bg-gray-900/50 rounded-xl p-5 border border-emerald-600/30 hover:border-emerald-500/50 transition-colors">
+                      <span className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">1</span>
+                      <div className="flex-1">
+                        <p className="font-bold text-lg mb-2 text-white">Look for the Install Icon</p>
+                        <p className="text-gray-300 leading-relaxed mb-2">
+                          <strong>Chrome:</strong> Click the install icon in the address bar (computer with down arrow)
+                        </p>
+                        <p className="text-gray-300 leading-relaxed">
+                          <strong>Edge:</strong> Click the app icon in the address bar or menu
+                        </p>
+                      </div>
+                    </li>
+                    <li className="flex gap-4 bg-gray-900/50 rounded-xl p-5 border border-emerald-600/30 hover:border-emerald-500/50 transition-colors">
+                      <span className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">2</span>
+                      <div className="flex-1">
+                        <p className="font-bold text-lg mb-2 text-white">Click "Install"</p>
+                        <p className="text-gray-300 leading-relaxed">Confirm the installation when prompted by clicking the "Install" button.</p>
+                      </div>
+                    </li>
+                    <li className="flex gap-4 bg-gray-900/50 rounded-xl p-5 border border-emerald-600/30 hover:border-emerald-500/50 transition-colors">
+                      <span className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">3</span>
+                      <div className="flex-1">
+                        <p className="font-bold text-lg mb-2 text-white">Launch from Desktop</p>
+                        <p className="text-gray-300 leading-relaxed">Pipnosis will now appear as a standalone app on your computer!</p>
+                      </div>
+                    </li>
+                  </ol>
+
+                  <div className="mt-8 bg-emerald-900/30 border border-emerald-500/50 rounded-xl p-5">
+                    <div className="flex items-start gap-3">
+                      <CheckCircle className="text-emerald-400 flex-shrink-0 mt-1" size={24} />
+                      <div>
+                        <p className="font-semibold text-emerald-400 mb-1">Once Installed</p>
+                        <p className="text-gray-300 text-sm">The Pipnosis app will launch in its own window with a dedicated icon. Pin it to your taskbar for quick access!</p>
+                      </div>
+                    </div>
                   </div>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0 w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center text-sm font-bold">3</span>
-                  <div>
-                    <p className="font-semibold mb-1">Launch from your desktop</p>
-                    <p className="text-sm text-gray-400">Pipnosis will now appear as a standalone app on your computer</p>
-                  </div>
-                </li>
-              </ol>
+                </>
+              )}
             </div>
           )}
         </div>
