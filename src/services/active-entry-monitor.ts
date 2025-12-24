@@ -256,8 +256,9 @@ export class ActiveEntryMonitor {
 
   private async getCandleData(symbol: string): Promise<any> {
     try {
+      // CRITICAL FIX: Use forex_candles table, not candle_cache (which doesn't exist)
       const { data, error } = await supabase
-        .from('candle_cache')
+        .from('forex_candles')
         .select('*')
         .eq('symbol', symbol)
         .eq('timeframe', '5m')
@@ -280,8 +281,9 @@ export class ActiveEntryMonitor {
 
   private async getMarketConditions(symbol: string): Promise<any> {
     try {
+      // CRITICAL FIX: Use forex_candles table, not candle_cache (which doesn't exist)
       const { data, error } = await supabase
-        .from('candle_cache')
+        .from('forex_candles')
         .select('*')
         .eq('symbol', symbol)
         .eq('timeframe', '15m')
