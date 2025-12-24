@@ -19,6 +19,7 @@ import {
 import { getCurrencyPipInfo, roundLotSize, roundPnL } from '@/utils/currencyHelpers';
 import { llmReasoningLogger } from './llm-reasoning-logger';
 import { postTradeAnalyzer } from './post-trade-analyzer';
+import { tradeValidationService } from './trade-validation-service';
 
 export interface OpenPositionParams {
   goalSessionId: string;
@@ -52,6 +53,26 @@ class PositionService {
    */
   async openPosition(params: OpenPositionParams): Promise<{ success: boolean; message: string; position?: GoalSessionTrade }> {
     try {
+      // CRITICAL: Validate trade parameters BEFORE executing
+      try {
+        tradeValidationService.validateOrThrow({
+          symbol: params.symbol,
+          direction: params.direction,
+          entryPrice: params.entryPrice,
+          stopLoss: params.stopLoss,
+          takeProfit: params.takeProfit,
+          lotSize: params.lotSize
+        });
+      } catch (validationError) {
+        console.error('[PositionService] ❌ Trade validation failed:', validationError);
+        return {
+          success: false,
+          message: `Trade validation failed: ${validationError instanceof Error ? validationError.message : 'Unknown error'}`
+        };
+      }
+
+      console.log(`[PositionService] ✅ Trade validation passed for ${params.symbol}`);
+
       // Round lot size to broker standard precision (0.01 lots)
       const roundedLotSize = roundLotSize(params.lotSize);
 

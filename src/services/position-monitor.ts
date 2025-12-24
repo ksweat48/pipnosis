@@ -232,22 +232,93 @@ class PositionMonitorService {
     priority: 'critical' | 'high'
   ): Promise<void> {
     try {
-      const { data, error } = await supabase
+      // CRITICAL: Use multiple price sources with fallbacks
+      let currentPrice: number | null = null;
+      let bid: number | null = null;
+      let ask: number | null = null;
+      let priceSource = '';
+
+      // SOURCE 1: realtime_prices table (most recent, preferred source)
+      const { data: realtimeData, error: realtimeError } = await supabase
         .from('realtime_prices')
-        .select('bid, ask')
+        .select('bid, ask, created_at')
         .eq('symbol', position.symbol)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (error || !data) {
-        console.error(`[PositionMonitor] Failed to get price for ${position.symbol}:`, error);
-        return;
+      if (realtimeData && !realtimeError) {
+        const ageMinutes = (Date.now() - new Date(realtimeData.created_at).getTime()) / 1000 / 60;
+
+        // Only use if less than 5 minutes old
+        if (ageMinutes < 5) {
+          bid = parseFloat(realtimeData.bid);
+          ask = parseFloat(realtimeData.ask);
+          currentPrice = position.direction === 'buy' ? bid : ask;
+          priceSource = 'realtime_prices';
+          console.log(`[PositionMonitor] ${position.symbol}: Using realtime_prices (${ageMinutes.toFixed(1)}m old)`);
+        } else {
+          console.warn(`[PositionMonitor] ${position.symbol}: realtime_prices stale (${ageMinutes.toFixed(1)}m old), trying fallback`);
+        }
+      } else if (realtimeError) {
+        console.warn(`[PositionMonitor] ${position.symbol}: realtime_prices error:`, realtimeError);
       }
 
-      const bid = parseFloat(data.bid);
-      const ask = parseFloat(data.ask);
-      const currentPrice = position.direction === 'buy' ? bid : ask;
+      // SOURCE 2: forex_candles table (5m close price)
+      if (!currentPrice) {
+        const { data: candleData, error: candleError } = await supabase
+          .from('forex_candles')
+          .select('close, high, low')
+          .eq('symbol', position.symbol)
+          .eq('timeframe', '5m')
+          .order('timestamp', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (candleData && !candleError) {
+          currentPrice = parseFloat(candleData.close);
+          // Approximate bid/ask from candle high/low
+          const high = parseFloat(candleData.high);
+          const low = parseFloat(candleData.low);
+          const spread = (high - low) * 0.1; // Estimate 10% of range as spread
+          bid = currentPrice - spread / 2;
+          ask = currentPrice + spread / 2;
+          priceSource = 'forex_candles';
+          console.log(`[PositionMonitor] ${position.symbol}: Using forex_candles fallback`);
+        }
+      }
+
+      // SOURCE 3: Position's cached price (absolute fallback - may be stale)
+      if (!currentPrice && position.current_price) {
+        currentPrice = position.current_price;
+        bid = currentPrice;
+        ask = currentPrice;
+        priceSource = 'position_cache';
+        console.warn(`[PositionMonitor] ${position.symbol}: Using cached price (STALE WARNING)`);
+      }
+
+      if (!currentPrice || !bid || !ask) {
+        console.error(`[PositionMonitor] ❌ CRITICAL: No price data for ${position.symbol} from ANY source!`);
+        console.error(`[PositionMonitor] This position cannot be monitored for SL/TP!`);
+
+        // Create alert notification
+        await supabase.from('goal_notifications').insert({
+          goal_session_id: position.goal_session_id,
+          user_id: position.user_id,
+          type: 'system_alert',
+          priority: 'urgent',
+          title: '⚠️ Price Data Unavailable',
+          message: `Cannot monitor ${position.symbol} - no price data available. Position may not close at SL/TP automatically!`,
+          metadata: {
+            trade_id: position.id,
+            symbol: position.symbol,
+            issue: 'no_price_data'
+          },
+          channels: ['in_app']
+        });
+
+        return;
+      }
 
       await this.updateOpenPosition(position, { bid, ask }, currentPrice);
     } catch (error) {
@@ -260,21 +331,53 @@ class PositionMonitorService {
     priority: 'normal'
   ): Promise<void> {
     try {
-      const { data, error } = await supabase
+      // Use same multi-source price fetching as position monitoring
+      let bid: number | null = null;
+      let ask: number | null = null;
+
+      // SOURCE 1: realtime_prices
+      const { data: realtimeData, error: realtimeError } = await supabase
         .from('realtime_prices')
-        .select('bid, ask')
+        .select('bid, ask, created_at')
         .eq('symbol', order.symbol)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (error || !data) {
-        console.error(`[PositionMonitor] Failed to get price for ${order.symbol}:`, error);
+      if (realtimeData && !realtimeError) {
+        const ageMinutes = (Date.now() - new Date(realtimeData.created_at).getTime()) / 1000 / 60;
+        if (ageMinutes < 5) {
+          bid = parseFloat(realtimeData.bid);
+          ask = parseFloat(realtimeData.ask);
+        }
+      }
+
+      // SOURCE 2: forex_candles fallback
+      if (!bid || !ask) {
+        const { data: candleData } = await supabase
+          .from('forex_candles')
+          .select('close, high, low')
+          .eq('symbol', order.symbol)
+          .eq('timeframe', '5m')
+          .order('timestamp', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (candleData) {
+          const close = parseFloat(candleData.close);
+          const high = parseFloat(candleData.high);
+          const low = parseFloat(candleData.low);
+          const spread = (high - low) * 0.1;
+          bid = close - spread / 2;
+          ask = close + spread / 2;
+        }
+      }
+
+      if (!bid || !ask) {
+        console.error(`[PositionMonitor] No price data for pending order ${order.symbol}`);
         return;
       }
 
-      const bid = parseFloat(data.bid);
-      const ask = parseFloat(data.ask);
       await this.checkPendingOrder(order, { bid, ask });
     } catch (error) {
       console.error(`[PositionMonitor] Failed to check pending order for ${order.symbol}:`, error);
