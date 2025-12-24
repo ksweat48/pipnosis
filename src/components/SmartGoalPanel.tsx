@@ -48,7 +48,7 @@ export const SmartGoalPanel: React.FC = () => {
   const [goalPrompt, setGoalPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [accountBalance] = useState(10000);
+  const [accountBalance, setAccountBalance] = useState(10000);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [showWarning, setShowWarning] = useState(true);
   const [parsedGoal, setParsedGoal] = useState<any>(null);
@@ -64,16 +64,19 @@ export const SmartGoalPanel: React.FC = () => {
       }
 
       try {
+        // CRITICAL FIX: Load ACTUAL user balance from database, not hardcoded $10k
         const { data, error } = await supabase
           .from('user_profiles')
-          .select('trading_preferences')
+          .select('trading_preferences, account_balance')
           .eq('id', user.id)
           .maybeSingle();
 
         if (error) {
           console.error('Error loading user preferences:', error);
-        } else if (data?.trading_preferences) {
-          setMultiTradeEnabled(data.trading_preferences.multiTradeMode ?? false);
+        } else if (data) {
+          setMultiTradeEnabled(data.trading_preferences?.multiTradeMode ?? false);
+          // Set actual account balance
+          setAccountBalance(parseFloat(data.account_balance || '10000'));
         }
       } catch (err) {
         console.error('Error loading preferences:', err);
