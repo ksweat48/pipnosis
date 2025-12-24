@@ -121,8 +121,6 @@ export class ActiveEntryMonitor {
 
     await EntryPlannerService.updateIntentStatus(intent.id, 'executed', undefined, entryPrice);
 
-    globalToastManager.success(message);
-
     const { EntryExecutionCoordinator } = await import('./entry-execution-coordinator');
     const result = await EntryExecutionCoordinator.executeFromIntent(intent.id, entryPrice);
 
@@ -165,8 +163,6 @@ export class ActiveEntryMonitor {
       'Entry conditions not met within timeout window'
     );
 
-    globalToastManager.info(`Entry window expired for ${intent.symbol}. Continuing scan.`);
-
     const { data: session } = await supabase
       .from('goal_sessions')
       .select('user_id')
@@ -193,8 +189,6 @@ export class ActiveEntryMonitor {
     logger.info(`Canceling intent ${intent.id}: ${reason}`);
 
     await EntryPlannerService.updateIntentStatus(intent.id, 'conditions_changed', reason);
-
-    globalToastManager.warning(`Entry canceled for ${intent.symbol}: ${reason}`);
 
     const { data: session } = await supabase
       .from('goal_sessions')
@@ -225,13 +219,7 @@ export class ActiveEntryMonitor {
     currentPrice: number,
     distanceToPips: number
   ): Promise<void> {
-    const lastNotification = this.lastNotificationTime.get(intentId) || 0;
-    const now = Date.now();
-
-    if (now - lastNotification >= this.NOTIFICATION_INTERVAL) {
-      globalToastManager.info(message);
-      this.lastNotificationTime.set(intentId, now);
-    }
+    // Messages already shown in FloatingMessageCenter - no need for duplicate toasts
   }
 
   private async getCurrentPrice(symbol: string): Promise<number | null> {

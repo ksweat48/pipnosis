@@ -56,12 +56,6 @@ export class EntryExecutionCoordinator {
 
     await activeEntryMonitor.startMonitoring(intent.id, userId);
 
-    const intentTypeName = this.getIntentTypeName(entryIntent.intent_type);
-    globalToastManager.info(
-      `Setup confirmed. Monitoring ${intentTypeName} entry for ${symbol}. ` +
-      `Target zone: ${entryIntent.entry_zone_min.toFixed(5)}-${entryIntent.entry_zone_max.toFixed(5)}`
-    );
-
     return { shouldExecuteImmediately: false, intentId: intent.id };
   }
 
