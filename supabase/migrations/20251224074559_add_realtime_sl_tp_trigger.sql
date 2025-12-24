@@ -5,10 +5,10 @@
   should be closed whenever a new price is inserted into realtime_prices.
 
   ## Purpose
-  - Provides THIRD layer of SL/TP protection (client monitor + edge function + database trigger)
-  - Runs automatically on every price insert
+  - Provides SECOND layer of SL/TP protection (client monitor + database trigger)
+  - Runs automatically on every price insert (8 times per minute per symbol)
   - Zero latency - triggers immediately when price data arrives
-  - Independent of client browsers and cron schedules
+  - Independent of client browsers and external cron services
 
   ## How It Works
   1. Trigger fires when price inserted into realtime_prices
@@ -173,4 +173,4 @@ COMMENT ON FUNCTION check_and_close_positions_on_price_update() IS
   'Automatically checks and closes open positions when SL or TP is hit. Runs on every price insert for zero-latency protection.';
 
 COMMENT ON TRIGGER trigger_check_positions_on_price_update ON realtime_prices IS
-  'Third layer of stop loss protection. Triggers automatically when price data arrives, independent of client and cron schedules.';
+  'Second layer of stop loss protection. Triggers automatically when price data arrives (8x per minute), independent of client browsers. Server-side protection that works 24/7.';
