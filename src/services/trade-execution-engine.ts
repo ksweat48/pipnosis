@@ -591,7 +591,8 @@ class TradeExecutionEngine {
       reasoning: signal.reasoning,
       expectedProfit: signal.expectedProfit,
       riskReward: signal.riskReward,
-      autoExecuted: true
+      autoExecuted: true,
+      goal_session_id: signal.sessionId  // Add goal_session_id for notification persistence
     }, signal.confidence >= 85 ? 'urgent' : signal.confidence >= 75 ? 'high' : 'medium');
 
     return {

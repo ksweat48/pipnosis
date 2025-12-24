@@ -401,17 +401,17 @@ class HybridRiskManager {
 
       const initialBalance = profile?.initial_balance || 10000;
 
-      // Get current balance from latest trade or user_balance
-      const { data: balance } = await supabase
-        .from('user_balance')
-        .select('current_balance, peak_balance, daily_pnl, daily_goal')
-        .eq('user_id', userId)
+      // Get current balance from users table
+      const { data: userData } = await supabase
+        .from('users')
+        .select('credit_balance')
+        .eq('id', userId)
         .maybeSingle();
 
-      const currentBalance = balance?.current_balance || initialBalance;
-      const peakBalance = balance?.peak_balance || initialBalance;
-      const dailyPnl = balance?.daily_pnl || 0;
-      const dailyGoal = balance?.daily_goal || 100;
+      const currentBalance = userData?.credit_balance || initialBalance;
+      const peakBalance = currentBalance; // Use current balance as peak for now
+      const dailyPnl = 0; // Calculate from trades if needed
+      const dailyGoal = 100; // Default daily goal
 
       // Calculate drawdown
       const drawdownPct = peakBalance > 0

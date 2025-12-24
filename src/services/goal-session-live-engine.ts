@@ -133,14 +133,14 @@ class GoalSessionLiveEngine {
       // 🎯 GOAL INTELLIGENCE: Classify goal before session start
       logger.info(LogCategory.AI_TRADING, '🎯 Classifying goal with Intelligence Layer...');
 
-      // Get user balance
-      const { data: userBalance } = await supabase
-        .from('user_balance')
-        .select('current_balance')
-        .eq('user_id', config.userId)
-        .single();
+      // Get user balance from users table
+      const { data: userData } = await supabase
+        .from('users')
+        .select('credit_balance')
+        .eq('id', config.userId)
+        .maybeSingle();
 
-      const currentBalance = userBalance?.current_balance || config.initialBalance;
+      const currentBalance = userData?.credit_balance || config.initialBalance;
 
       this.goalClassification = goalIntelligenceClassifier.classify({
         goalAmount: goalSession.target_value,
