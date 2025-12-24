@@ -83,14 +83,15 @@ export const AchievementsHallOfFame: React.FC = () => {
     }
   };
 
-  const formatDuration = (hours: number) => {
-    if (hours < 1) {
-      return `${Math.round(hours * 60)}m`;
-    } else if (hours < 24) {
-      return `${hours.toFixed(1)}h`;
+  const formatDuration = (hours: number | null | undefined) => {
+    const safeHours = hours ?? 0;
+    if (safeHours < 1) {
+      return `${Math.round(safeHours * 60)}m`;
+    } else if (safeHours < 24) {
+      return `${safeHours.toFixed(1)}h`;
     } else {
-      const days = Math.floor(hours / 24);
-      const remainingHours = Math.round(hours % 24);
+      const days = Math.floor(safeHours / 24);
+      const remainingHours = Math.round(safeHours % 24);
       return `${days}d ${remainingHours}h`;
     }
   };
@@ -122,7 +123,7 @@ export const AchievementsHallOfFame: React.FC = () => {
   const shareToClipboard = async () => {
     if (!selectedAchievement) return;
 
-    const text = `🏆 Achievement Unlocked! I just completed Goal #${selectedAchievement.achievement_number} with Pipnosis AI Trading!\n\n💰 Target: $${selectedAchievement.target_value}\n📈 Profit: $${selectedAchievement.final_profit.toFixed(2)}\n🎯 Trades: ${selectedAchievement.total_trades}\n⏱️ Duration: ${formatDuration(selectedAchievement.session_duration_hours)}\n\n${selectedAchievement.medal_rank} Medal Tier! 🎖️`;
+    const text = `🏆 Achievement Unlocked! I just completed Goal #${selectedAchievement.achievement_number} with Pipnosis AI Trading!\n\n💰 Target: $${selectedAchievement.target_value ?? 0}\n📈 Profit: $${(selectedAchievement.final_profit ?? 0).toFixed(2)}\n🎯 Trades: ${selectedAchievement.total_trades ?? 0}\n⏱️ Duration: ${formatDuration(selectedAchievement.session_duration_hours ?? 0)}\n\n${selectedAchievement.medal_rank} Medal Tier! 🎖️`;
 
     try {
       await navigator.clipboard.writeText(text);
@@ -217,25 +218,25 @@ export const AchievementsHallOfFame: React.FC = () => {
               <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
                 <div className="text-gray-400 text-sm mb-1">Total Profit</div>
                 <div className="text-2xl font-bold text-emerald-400">
-                  ${summary.total_profit.toFixed(2)}
+                  ${(summary.total_profit ?? 0).toFixed(2)}
                 </div>
               </div>
               <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
                 <div className="text-gray-400 text-sm mb-1">Best Goal</div>
                 <div className="text-2xl font-bold text-blue-400">
-                  ${summary.best_goal_amount.toFixed(0)}
+                  ${(summary.best_goal_amount ?? 0).toFixed(0)}
                 </div>
               </div>
               <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
                 <div className="text-gray-400 text-sm mb-1">Avg Trades</div>
                 <div className="text-2xl font-bold text-purple-400">
-                  {summary.average_trades_per_goal.toFixed(1)}
+                  {(summary.average_trades_per_goal ?? 0).toFixed(1)}
                 </div>
               </div>
               <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
                 <div className="text-gray-400 text-sm mb-1">Total Time</div>
                 <div className="text-2xl font-bold text-orange-400">
-                  {formatDuration(summary.total_session_hours)}
+                  {formatDuration(summary.total_session_hours ?? 0)}
                 </div>
               </div>
             </div>
@@ -282,23 +283,23 @@ export const AchievementsHallOfFame: React.FC = () => {
                 <div className="space-y-3 mb-4">
                   <div className="flex items-center justify-between">
                     <span className="text-gray-400 text-sm">Target</span>
-                    <span className="text-white font-bold text-lg">${achievement.target_value.toFixed(0)}</span>
+                    <span className="text-white font-bold text-lg">${(achievement.target_value ?? 0).toFixed(0)}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-gray-400 text-sm">Profit</span>
-                    <span className="text-emerald-400 font-bold text-lg">${achievement.final_profit.toFixed(2)}</span>
+                    <span className="text-emerald-400 font-bold text-lg">${(achievement.final_profit ?? 0).toFixed(2)}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-gray-400 text-sm">Trades</span>
-                    <span className="text-blue-400 font-semibold">{achievement.total_trades}</span>
+                    <span className="text-blue-400 font-semibold">{achievement.total_trades ?? 0}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-gray-400 text-sm">Win Rate</span>
-                    <span className="text-purple-400 font-semibold">{achievement.win_rate.toFixed(1)}%</span>
+                    <span className="text-purple-400 font-semibold">{(achievement.win_rate ?? 0).toFixed(1)}%</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-gray-400 text-sm">Duration</span>
-                    <span className="text-orange-400 font-semibold">{formatDuration(achievement.session_duration_hours)}</span>
+                    <span className="text-orange-400 font-semibold">{formatDuration(achievement.session_duration_hours ?? 0)}</span>
                   </div>
                 </div>
 
@@ -330,9 +331,9 @@ export const AchievementsHallOfFame: React.FC = () => {
                 </div>
               </div>
               <div className="space-y-2 text-white">
-                <div>Target: ${selectedAchievement.target_value}</div>
-                <div className="text-emerald-400 font-bold">Profit: ${selectedAchievement.final_profit.toFixed(2)}</div>
-                <div>Trades: {selectedAchievement.total_trades} • Duration: {formatDuration(selectedAchievement.session_duration_hours)}</div>
+                <div>Target: ${selectedAchievement.target_value ?? 0}</div>
+                <div className="text-emerald-400 font-bold">Profit: ${(selectedAchievement.final_profit ?? 0).toFixed(2)}</div>
+                <div>Trades: {selectedAchievement.total_trades ?? 0} • Duration: {formatDuration(selectedAchievement.session_duration_hours ?? 0)}</div>
               </div>
             </div>
 
