@@ -6,7 +6,7 @@ import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { usePWAUpdate } from '@/hooks/usePWAUpdate';
 import { supabase } from '@/lib/supabase';
-import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity, DollarSign, Zap, RefreshCw, Smartphone } from 'lucide-react';
+import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity, DollarSign, Zap, RefreshCw, Smartphone, ChevronDown } from 'lucide-react';
 import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
 import { chartPreferencesService, type IndicatorVisibility } from '@/services/chart-preferences';
 import { useToast } from '@/hooks/useToast';
@@ -60,6 +60,23 @@ export function SettingsPage() {
   const [loadingPush, setLoadingPush] = useState(false);
   const [testingPush, setTestingPush] = useState(false);
   const [editingDevice, setEditingDevice] = useState<{ id: string; name: string } | null>(null);
+
+  const [collapsedSections, setCollapsedSections] = useState({
+    accountInfo: true,
+    accountManagement: true,
+    tradingBehavior: true,
+    notifications: true,
+    chartDisplay: true,
+    security: true,
+    appInfo: true,
+  });
+
+  const toggleSection = (section: keyof typeof collapsedSections) => {
+    setCollapsedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+  };
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -505,14 +522,24 @@ export function SettingsPage() {
         ) : (
           <div className="space-y-6">
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-6">
+              <button
+                onClick={() => toggleSection('accountInfo')}
+                className="flex items-center gap-3 mb-6 w-full text-left group"
+              >
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center">
                   <User size={20} className="text-white" />
                 </div>
-                <h2 className="text-xl font-semibold text-white">Account Information</h2>
-              </div>
+                <h2 className="text-xl font-semibold text-white flex-1">Account Information</h2>
+                <ChevronDown
+                  size={20}
+                  className={`text-gray-400 transition-transform duration-200 ${
+                    collapsedSections.accountInfo ? '' : 'rotate-180'
+                  }`}
+                />
+              </button>
 
-              <div className="space-y-4">
+              {!collapsedSections.accountInfo && (
+                <div className="space-y-4">
                 <div className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg">
                   <Mail size={18} className="text-gray-400" />
                   <div>
@@ -541,13 +568,26 @@ export function SettingsPage() {
                   </div>
                 )}
               </div>
+              )}
             </div>
 
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-6">
+              <button
+                onClick={() => toggleSection('accountManagement')}
+                className="flex items-center gap-3 mb-6 w-full text-left group"
+              >
                 <DollarSign size={20} className="text-emerald-400" />
-                <h2 className="text-xl font-semibold text-white">Account Management</h2>
-              </div>
+                <h2 className="text-xl font-semibold text-white flex-1">Account Management</h2>
+                <ChevronDown
+                  size={20}
+                  className={`text-gray-400 transition-transform duration-200 ${
+                    collapsedSections.accountManagement ? '' : 'rotate-180'
+                  }`}
+                />
+              </button>
+
+              {!collapsedSections.accountManagement && (
+                <>
 
               <p className="text-sm text-gray-400 mb-6">
                 Configure your trading account parameters. This affects position sizing and risk calculations for all trades.
@@ -625,13 +665,27 @@ export function SettingsPage() {
                   )}
                 </button>
               </div>
+              </>
+              )}
             </div>
 
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-6">
+              <button
+                onClick={() => toggleSection('tradingBehavior')}
+                className="flex items-center gap-3 mb-6 w-full text-left group"
+              >
                 <Zap size={20} className="text-emerald-400" />
-                <h2 className="text-xl font-semibold text-white">Trading Behavior</h2>
-              </div>
+                <h2 className="text-xl font-semibold text-white flex-1">Trading Behavior</h2>
+                <ChevronDown
+                  size={20}
+                  className={`text-gray-400 transition-transform duration-200 ${
+                    collapsedSections.tradingBehavior ? '' : 'rotate-180'
+                  }`}
+                />
+              </button>
+
+              {!collapsedSections.tradingBehavior && (
+                <>
 
               <p className="text-sm text-gray-400 mb-6">
                 Configure how the AI executes trades during Smart Goal Mode sessions.
@@ -719,13 +773,27 @@ export function SettingsPage() {
                   )}
                 </button>
               </div>
+              </>
+              )}
             </div>
 
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-6">
+              <button
+                onClick={() => toggleSection('notifications')}
+                className="flex items-center gap-3 mb-6 w-full text-left group"
+              >
                 <Bell size={20} className="text-emerald-400" />
-                <h2 className="text-xl font-semibold text-white">Notification Preferences</h2>
-              </div>
+                <h2 className="text-xl font-semibold text-white flex-1">Notification Preferences</h2>
+                <ChevronDown
+                  size={20}
+                  className={`text-gray-400 transition-transform duration-200 ${
+                    collapsedSections.notifications ? '' : 'rotate-180'
+                  }`}
+                />
+              </button>
+
+              {!collapsedSections.notifications && (
+                <>
 
               <p className="text-sm text-gray-400 mb-6">
                 Manage push notification devices and receive real-time alerts even when the app is closed.
@@ -986,13 +1054,27 @@ export function SettingsPage() {
                   )}
                 </button>
               </div>
+              </>
+              )}
             </div>
 
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-6">
+              <button
+                onClick={() => toggleSection('chartDisplay')}
+                className="flex items-center gap-3 mb-6 w-full text-left group"
+              >
                 <Activity size={20} className="text-emerald-400" />
-                <h2 className="text-xl font-semibold text-white">Chart Display</h2>
-              </div>
+                <h2 className="text-xl font-semibold text-white flex-1">Chart Display</h2>
+                <ChevronDown
+                  size={20}
+                  className={`text-gray-400 transition-transform duration-200 ${
+                    collapsedSections.chartDisplay ? '' : 'rotate-180'
+                  }`}
+                />
+              </button>
+
+              {!collapsedSections.chartDisplay && (
+                <>
 
               <p className="text-sm text-gray-400 mb-6">
                 Control which indicators are displayed on your charts across all trading pairs. Note: All indicators remain active for AI analysis regardless of visibility settings.
@@ -1124,6 +1206,8 @@ export function SettingsPage() {
                   )}
                 </button>
               </div>
+              </>
+              )}
             </div>
 
             {showBalanceConfirmModal && (
@@ -1171,10 +1255,22 @@ export function SettingsPage() {
             )}
 
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-6">
+              <button
+                onClick={() => toggleSection('security')}
+                className="flex items-center gap-3 mb-6 w-full text-left group"
+              >
                 <Lock size={20} className="text-emerald-400" />
-                <h2 className="text-xl font-semibold text-white">Security</h2>
-              </div>
+                <h2 className="text-xl font-semibold text-white flex-1">Security</h2>
+                <ChevronDown
+                  size={20}
+                  className={`text-gray-400 transition-transform duration-200 ${
+                    collapsedSections.security ? '' : 'rotate-180'
+                  }`}
+                />
+              </button>
+
+              {!collapsedSections.security && (
+                <>
 
               {passwordMessage && (
                 <div
@@ -1333,15 +1429,29 @@ export function SettingsPage() {
                   </button>
                 </div>
               </form>
+              </>
+              )}
             </div>
 
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-6">
+              <button
+                onClick={() => toggleSection('appInfo')}
+                className="flex items-center gap-3 mb-6 w-full text-left group"
+              >
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
                   <Smartphone size={20} className="text-white" />
                 </div>
-                <h2 className="text-xl font-semibold text-white">App Information</h2>
-              </div>
+                <h2 className="text-xl font-semibold text-white flex-1">App Information</h2>
+                <ChevronDown
+                  size={20}
+                  className={`text-gray-400 transition-transform duration-200 ${
+                    collapsedSections.appInfo ? '' : 'rotate-180'
+                  }`}
+                />
+              </button>
+
+              {!collapsedSections.appInfo && (
+                <>
 
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg">
@@ -1392,6 +1502,8 @@ export function SettingsPage() {
                   </div>
                 </div>
               </div>
+              </>
+              )}
             </div>
           </div>
         )}
