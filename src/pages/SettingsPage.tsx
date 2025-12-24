@@ -577,7 +577,7 @@ export function SettingsPage() {
                 className="flex items-center gap-3 mb-6 w-full text-left group"
               >
                 <DollarSign size={20} className="text-emerald-400" />
-                <h2 className="text-xl font-semibold text-white flex-1">Account Management</h2>
+                <h2 className="text-xl font-semibold text-white flex-1">Account Balance</h2>
                 <ChevronDown
                   size={20}
                   className={`text-gray-400 transition-transform duration-200 ${
