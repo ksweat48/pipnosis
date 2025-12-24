@@ -54,6 +54,8 @@ interface MarketChartProps {
     entry?: number;
     stopLoss?: number;
     takeProfit?: number;
+    watchedLevel?: number;
+    earlyExitLevel?: number;
   };
   onTradeExecuted?: () => void;
   onPriceUpdate?: (price: number, priceChange: number) => void;
@@ -91,6 +93,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     entry?: any;
     stopLoss?: any;
     takeProfit?: any;
+    watchedLevel?: any;
+    earlyExitLevel?: any;
   }>({});
 
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
@@ -1603,8 +1607,16 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.takeProfit);
       tradeLineRefs.current.takeProfit = undefined;
     }
+    if (tradeLineRefs.current.watchedLevel) {
+      candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.watchedLevel);
+      tradeLineRefs.current.watchedLevel = undefined;
+    }
+    if (tradeLineRefs.current.earlyExitLevel) {
+      candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.earlyExitLevel);
+      tradeLineRefs.current.earlyExitLevel = undefined;
+    }
 
-    const { entry, stopLoss, takeProfit } = tradeLines;
+    const { entry, stopLoss, takeProfit, watchedLevel, earlyExitLevel } = tradeLines;
 
     console.log(`%c[Chart Lines] Creating trade lines for ${symbol}`, 'color: #00aaff; font-weight: bold');
     console.log(`  Entry Price: ${entry?.toFixed(5) || 'none'}`);
@@ -1653,6 +1665,28 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       });
     }
 
+    if (watchedLevel) {
+      tradeLineRefs.current.watchedLevel = candlestickSeriesRef.current.createPriceLine({
+        price: watchedLevel,
+        color: '#f97316',
+        lineWidth: 2,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: '⚠️ Critical Level',
+      });
+    }
+
+    if (earlyExitLevel) {
+      tradeLineRefs.current.earlyExitLevel = candlestickSeriesRef.current.createPriceLine({
+        price: earlyExitLevel,
+        color: '#22c55e',
+        lineWidth: 2,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: '🎯 Early Exit',
+      });
+    }
+
     return () => {
       if (candlestickSeriesRef.current) {
         if (tradeLineRefs.current.entry) {
@@ -1663,6 +1697,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         }
         if (tradeLineRefs.current.takeProfit) {
           candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.takeProfit);
+        }
+        if (tradeLineRefs.current.watchedLevel) {
+          candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.watchedLevel);
+        }
+        if (tradeLineRefs.current.earlyExitLevel) {
+          candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.earlyExitLevel);
         }
       }
     };

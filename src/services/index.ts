@@ -23,6 +23,10 @@ export * from './weekend-protection-service';
 // Elite TP System
 export * from './profit-target-calculator';
 
+// Critical Level Detection System
+export * from './critical-level-detector';
+export * from './trade-level-integration';
+
 // Existing Services
 export * from './openai-client';
 export * from './database-service';

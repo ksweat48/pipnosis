@@ -10,11 +10,13 @@ import { supabase } from '../lib/supabase';
 import { openAIClient } from './openai-client';
 import type { SimulatedTrade } from '../types';
 import type { TriggerDetectionResult, MarketConditions } from './mid-trade-trigger-detector';
+import type { PrioritizedLevel } from './critical-level-detector';
 
 export interface MidTradeEvaluationRequest {
   trade: SimulatedTrade;
   marketConditions: MarketConditions;
   trigger: TriggerDetectionResult;
+  criticalLevel?: PrioritizedLevel;
   goalContext?: {
     goalSessionId: string;
     targetValue: number;
@@ -121,7 +123,7 @@ class LLMMidTradeEvaluator {
    * Build optimized prompt (keep under 500 tokens)
    */
   private buildOptimizedPrompt(request: MidTradeEvaluationRequest): string {
-    const { trade, marketConditions, trigger, goalContext } = request;
+    const { trade, marketConditions, trigger, criticalLevel, goalContext } = request;
 
     const isLong = trade.direction === 'buy';
     const currentPrice = marketConditions.currentPrice;
@@ -163,6 +165,21 @@ MARKET CONDITIONS:
 
     if (marketConditions.indicators.vwap) {
       prompt += `\n- VWAP: ${marketConditions.indicators.vwap.toFixed(5)} (price is ${currentPrice > marketConditions.indicators.vwap ? 'above' : 'below'})`;
+    }
+
+    if (criticalLevel) {
+      const urgencyLevel = criticalLevel.urgency > 80 ? 'CRITICAL' :
+                          criticalLevel.urgency > 60 ? 'HIGH' :
+                          criticalLevel.urgency > 40 ? 'MODERATE' : 'LOW';
+
+      prompt += `\n\n⚠️ CRITICAL LEVEL DETECTED:
+- ${criticalLevel.type.toUpperCase()}: ${criticalLevel.price.toFixed(5)}
+- Distance: ${criticalLevel.distance.toFixed(1)} pips
+- Strength: ${(criticalLevel.strength * 100).toFixed(0)}%
+- Urgency: ${urgencyLevel} (${criticalLevel.urgency.toFixed(0)}/100)
+- Analysis: ${criticalLevel.actionable}
+
+**IMPORTANT:** This level has historically blocked price movement. Consider securing profits BEFORE price reaches this level if urgency is HIGH or CRITICAL.`;
     }
 
     if (goalContext) {
@@ -339,7 +356,7 @@ NEW_TP: [price if MOVE_TP, else N/A]`;
     tokensUsed: number,
     processingTimeMs: number
   ): Promise<void> {
-    const { trade, marketConditions, trigger, goalContext } = request;
+    const { trade, marketConditions, trigger, criticalLevel, goalContext } = request;
 
     try {
       await supabase.from('mid_trade_llm_evaluations').insert({
@@ -352,7 +369,16 @@ NEW_TP: [price if MOVE_TP, else N/A]`;
         market_snapshot: {
           current_price: marketConditions.currentPrice,
           indicators: marketConditions.indicators,
-          price_action: marketConditions.priceAction
+          price_action: marketConditions.priceAction,
+          critical_level: criticalLevel ? {
+            price: criticalLevel.price,
+            type: criticalLevel.type,
+            strength: criticalLevel.strength,
+            distance_pips: criticalLevel.distance,
+            urgency: criticalLevel.urgency,
+            reason: criticalLevel.reason,
+            actionable: criticalLevel.actionable
+          } : null
         },
         trade_context: {
           entry_price: trade.entryPrice,
