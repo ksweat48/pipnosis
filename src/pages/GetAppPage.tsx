@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Smartphone, Monitor, Download, CheckCircle, Zap, Wifi, Bell, Share2, AlertCircle, ArrowDown, Plus, Menu } from 'lucide-react';
+import { Smartphone, Download, CheckCircle, Zap, Wifi, Bell, Share2, AlertCircle, ArrowDown, Plus, Menu } from 'lucide-react';
 
 export default function GetAppPage() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -332,81 +332,6 @@ export default function GetAppPage() {
                       <div>
                         <p className="font-semibold text-emerald-400 mb-1">Once Installed</p>
                         <p className="text-gray-300 text-sm">The Pipnosis app will appear on your home screen with a green icon. Tap it to launch the full app experience!</p>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {platform === 'desktop' && (
-            <div className={`bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-8 border-2 shadow-2xl transition-all duration-500 ${
-              showInstructionsHighlight
-                ? 'border-emerald-400 ring-4 ring-emerald-500/50 animate-pulse'
-                : 'border-emerald-500'
-            }`}>
-              <div className="flex items-center gap-3 mb-8">
-                <div className="bg-emerald-600 p-3 rounded-2xl">
-                  <Monitor className="text-white" size={36} />
-                </div>
-                <div>
-                  <h2 className="text-3xl font-bold text-emerald-400">Desktop Installation</h2>
-                  <p className="text-gray-400 text-sm">
-                    {deferredPrompt ? 'One-click install available!' : 'Follow these 3 simple steps'}
-                  </p>
-                </div>
-              </div>
-
-              {!deferredPrompt && (
-                <>
-                  <div className="bg-blue-900/30 border border-blue-500/50 rounded-xl p-5 mb-6">
-                    <div className="flex items-start gap-3">
-                      <Download className="text-blue-400 flex-shrink-0 mt-1" size={24} />
-                      <div>
-                        <p className="font-semibold text-blue-400 mb-1">Manual Installation Required</p>
-                        <p className="text-gray-300 text-sm">
-                          The automatic install prompt isn't available. Follow the steps below to install manually.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <ol className="space-y-6">
-                    <li className="flex gap-4 bg-gray-900/50 rounded-xl p-5 border border-emerald-600/30 hover:border-emerald-500/50 transition-colors">
-                      <span className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">1</span>
-                      <div className="flex-1">
-                        <p className="font-bold text-lg mb-2 text-white">Look for the Install Icon</p>
-                        <p className="text-gray-300 leading-relaxed mb-2">
-                          <strong>Chrome:</strong> Click the install icon in the address bar (computer with down arrow)
-                        </p>
-                        <p className="text-gray-300 leading-relaxed">
-                          <strong>Edge:</strong> Click the app icon in the address bar or menu
-                        </p>
-                      </div>
-                    </li>
-                    <li className="flex gap-4 bg-gray-900/50 rounded-xl p-5 border border-emerald-600/30 hover:border-emerald-500/50 transition-colors">
-                      <span className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">2</span>
-                      <div className="flex-1">
-                        <p className="font-bold text-lg mb-2 text-white">Click "Install"</p>
-                        <p className="text-gray-300 leading-relaxed">Confirm the installation when prompted by clicking the "Install" button.</p>
-                      </div>
-                    </li>
-                    <li className="flex gap-4 bg-gray-900/50 rounded-xl p-5 border border-emerald-600/30 hover:border-emerald-500/50 transition-colors">
-                      <span className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">3</span>
-                      <div className="flex-1">
-                        <p className="font-bold text-lg mb-2 text-white">Launch from Desktop</p>
-                        <p className="text-gray-300 leading-relaxed">Pipnosis will now appear as a standalone app on your computer!</p>
-                      </div>
-                    </li>
-                  </ol>
-
-                  <div className="mt-8 bg-emerald-900/30 border border-emerald-500/50 rounded-xl p-5">
-                    <div className="flex items-start gap-3">
-                      <CheckCircle className="text-emerald-400 flex-shrink-0 mt-1" size={24} />
-                      <div>
-                        <p className="font-semibold text-emerald-400 mb-1">Once Installed</p>
-                        <p className="text-gray-300 text-sm">The Pipnosis app will launch in its own window with a dedicated icon. Pin it to your taskbar for quick access!</p>
                       </div>
                     </div>
                   </div>
