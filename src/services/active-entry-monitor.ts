@@ -3,6 +3,7 @@ import { EntryPlannerService } from './entry-planner';
 import type { EntryIntent, EntryMonitoringLog } from '../types/entry';
 import { logger } from '../lib/logger';
 import { globalToastManager } from './global-toast-manager';
+import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 
 export class ActiveEntryMonitor {
   private static instance: ActiveEntryMonitor;
@@ -256,13 +257,12 @@ export class ActiveEntryMonitor {
 
   private async getCandleData(symbol: string): Promise<any> {
     try {
-      // CRITICAL FIX: Use forex_candles table, not candle_cache (which doesn't exist)
       const { data, error } = await supabase
         .from('forex_candles')
         .select('*')
         .eq('symbol', symbol)
-        .eq('timeframe', '5m')
-        .order('timestamp', { ascending: false })
+        .eq('timeframe', normalizeTimeframeToDb('5m'))
+        .order('open_time', { ascending: false })
         .limit(10);
 
       if (error || !data) {
@@ -281,13 +281,12 @@ export class ActiveEntryMonitor {
 
   private async getMarketConditions(symbol: string): Promise<any> {
     try {
-      // CRITICAL FIX: Use forex_candles table, not candle_cache (which doesn't exist)
       const { data, error } = await supabase
         .from('forex_candles')
         .select('*')
         .eq('symbol', symbol)
-        .eq('timeframe', '15m')
-        .order('timestamp', { ascending: false })
+        .eq('timeframe', normalizeTimeframeToDb('15m'))
+        .order('open_time', { ascending: false })
         .limit(20);
 
       if (error || !data || data.length === 0) {
