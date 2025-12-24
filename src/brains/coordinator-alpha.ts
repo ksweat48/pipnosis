@@ -136,6 +136,13 @@ export interface AlphaDecision {
   intelligence_snapshot?: Partial<AlphaIntelligenceSnapshot>;
   adversarial_advisory?: AdversarialSignal;
   regime_advisory?: RegimeSnapshot;
+  entry_intent?: {
+    intent_type: 'immediate_momentum' | 'pullback_to_vwap' | 'pullback_to_support' | 'break_and_retest' | 'range_extreme' | 'retest_structure';
+    urgency: 'HIGH' | 'MEDIUM' | 'LOW';
+    entry_zone_min: number;
+    entry_zone_max: number;
+    timeout_minutes: number;
+  };
 }
 
 class AlphaCoordinatorBrain {
@@ -1048,6 +1055,25 @@ Return JSON with structured reasoning:
       console.log('[Alpha Coordinator] Confidence:', decision.confidence);
       console.log('[Alpha Coordinator] Reasoning:', decision.reasoning);
       console.log('[Alpha Coordinator] Omega Summary:', decision.omega_summary);
+
+      if (decision.action !== 'NO_TRADE') {
+        try {
+          const { EntryIntentClassifier } = await import('../services/entry-intent-classifier');
+          const entryIntent = EntryIntentClassifier.classifyEntryIntent(
+            decision,
+            marketContext,
+            votes,
+            undefined
+          );
+
+          if (entryIntent) {
+            decision.entry_intent = entryIntent;
+            console.log(`[Alpha Coordinator] 🎯 Entry intent: ${entryIntent.intent_type} (${entryIntent.urgency})`);
+          }
+        } catch (error) {
+          console.error('[Alpha Coordinator] Failed to classify entry intent:', error);
+        }
+      }
 
       return decision;
     } catch (error) {
