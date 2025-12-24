@@ -475,6 +475,13 @@ class PositionMonitorService {
         .maybeSingle();
 
       if (goalSession && !goalSession.goal_achieved_at && pnl >= goalSession.target_value) {
+        // SAFETY CHECK: Never trigger goal achievement on negative P&L
+        // This prevents a bug where sign inversion could cause false goal triggers
+        if (pnl < 0) {
+          console.error(`[PositionMonitor] ⚠️ PREVENTED FALSE GOAL TRIGGER: P&L is ${pnl.toFixed(2)} (NEGATIVE) but checked >= ${goalSession.target_value}. This indicates a bug in P&L calculation!`);
+          return;
+        }
+
         console.log(`[PositionMonitor] 🎯 GOAL REACHED! Target: $${goalSession.target_value}, Current P&L: $${pnl.toFixed(2)}`);
 
         // Mark goal as met (even if auto-close is disabled, we track this)

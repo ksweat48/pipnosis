@@ -490,10 +490,19 @@ class GoalSessionManager {
 
       const exitPrice = priceData ? parseFloat(priceData.close) : trade.entry_price;
 
-      // Calculate final P&L
+      // Calculate final P&L - CRITICAL FIX: Use calculatePnL for correct sign handling
       const pipDistance = calculatePipDistance(trade.symbol, trade.entry_price, exitPrice);
       const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.position_size);
-      const finalPnL = trade.direction === 'buy' ? pipDistance * dollarPerPip : -pipDistance * dollarPerPip;
+
+      // Calculate signed price movement to determine profit/loss correctly
+      const priceDiff = trade.direction === 'buy'
+        ? exitPrice - trade.entry_price      // For BUY: profit if price goes UP
+        : trade.entry_price - exitPrice;      // For SELL: profit if price goes DOWN
+
+      // Apply correct sign based on favorable/unfavorable movement
+      const finalPnL = priceDiff >= 0
+        ? pipDistance * dollarPerPip      // Profit (price moved favorably)
+        : -pipDistance * dollarPerPip;    // Loss (price moved unfavorably)
 
       // Close the trade
       await supabase

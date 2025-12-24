@@ -4,6 +4,7 @@ import { counterfactualEngine } from './counterfactual-engine';
 import { CandleData } from './candle-data-service';
 import { strategyPlaybookManager } from './strategy-playbook-manager';
 import { calculateDollarPerPip, calculatePipDistance } from '../utils/currencyHelpers';
+import { calculatePnL } from '../types/position';
 
 export interface PriceUpdate {
   symbol: string;
@@ -814,12 +815,15 @@ class TradeLifecycleManager {
           const currentPrice = await this.getCurrentPrice(trade.symbol);
           const price = currentPrice ? (trade.direction === 'buy' ? currentPrice.bid : currentPrice.ask) : trade.entry_price;
 
-          // FIXED: Use proper pip-based calculation instead of raw price difference
-          const pipDistance = calculatePipDistance(trade.symbol, trade.entry_price, price);
-          const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.position_size);
-          const unrealizedPL = trade.direction === 'buy'
-            ? pipDistance * dollarPerPip
-            : -pipDistance * dollarPerPip;
+          // CRITICAL FIX: Use the correct calculatePnL function that handles signs properly
+          // This fixes the bug where BUY losing trades were shown as profits
+          const unrealizedPL = calculatePnL(
+            trade.direction,
+            trade.entry_price,
+            price,
+            trade.position_size,
+            trade.symbol
+          );
 
           return {
             ...trade,

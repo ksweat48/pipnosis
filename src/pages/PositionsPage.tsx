@@ -201,15 +201,15 @@ export function PositionsPage() {
         const exitPrice = parseFloat(trade.exit_price);
         const positionSize = parseFloat(trade.position_size);
 
-        // Calculate pip distance
-        const pipValue = trade.symbol === 'XAUUSD' ? 0.01 : (trade.symbol.includes('JPY') ? 0.01 : 0.0001);
-        const pipDistance = (exitPrice - entryPrice) / pipValue;
-
-        // Calculate dollar per pip
-        const dollarPerPip = trade.symbol === 'XAUUSD' ? positionSize * 100 : positionSize * 10;
-
-        // Calculate PnL based on direction
-        profitLoss = trade.direction === 'buy' ? pipDistance * dollarPerPip : -pipDistance * dollarPerPip;
+        // CRITICAL FIX: Use the correct calculatePnL function instead of manual calculation
+        // This fixes the bug where BUY losing trades were shown as profits
+        profitLoss = calculatePnL(
+          trade.direction,
+          entryPrice,
+          exitPrice,
+          positionSize,
+          trade.symbol
+        );
 
         console.warn(`Fallback PnL calculation for trade ${trade.id}: $${profitLoss.toFixed(2)}`);
       }
