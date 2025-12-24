@@ -87,14 +87,20 @@ export const handler: Handler = async (event) => {
     };
 
   } catch (error) {
-    console.error('[SentimentProxy] Error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[SentimentProxy] Error:', {
+      source: body?.source,
+      error: errorMessage,
+      hasApiKey: !!body?.apiKey
+    });
 
     return {
       statusCode: 500,
       headers,
       body: JSON.stringify({
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: errorMessage,
+        source: body?.source
       })
     };
   }

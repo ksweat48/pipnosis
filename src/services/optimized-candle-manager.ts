@@ -315,8 +315,8 @@ class OptimizedCandleManager {
         .from('realtime_prices')
         .select('*')
         .eq('symbol', symbol)
-        .gte('timestamp', new Date(candleStartTime).toISOString())
-        .order('timestamp', { ascending: false })
+        .gte('created_at', new Date(candleStartTime).toISOString())
+        .order('created_at', { ascending: false })
         .limit(100);
 
       if (error) {

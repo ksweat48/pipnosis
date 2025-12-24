@@ -239,7 +239,7 @@ export class ActiveEntryMonitor {
         .from('realtime_prices')
         .select('bid, ask')
         .eq('symbol', symbol)
-        .order('timestamp', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
