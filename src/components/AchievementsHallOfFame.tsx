@@ -122,7 +122,7 @@ export const AchievementsHallOfFame: React.FC = () => {
   const shareToClipboard = async () => {
     if (!selectedAchievement) return;
 
-    const text = `🏆 Achievement Unlocked! I just completed Goal #${selectedAchievement.achievement_number} with Pipnosis AI Trading!\n\n💰 Target: $${selectedAchievement.target_value}\n📈 Profit: $${selectedAchievement.final_profit.toFixed(2)}\n🎯 Trades: ${selectedAchievement.total_trades}\n⭐ Win Rate: ${selectedAchievement.win_rate.toFixed(1)}%\n\n${selectedAchievement.medal_rank} Medal Tier! 🎖️`;
+    const text = `🏆 Achievement Unlocked! I just completed Goal #${selectedAchievement.achievement_number} with Pipnosis AI Trading!\n\n💰 Target: $${selectedAchievement.target_value}\n📈 Profit: $${selectedAchievement.final_profit.toFixed(2)}\n🎯 Trades: ${selectedAchievement.total_trades}\n⏱️ Duration: ${formatDuration(selectedAchievement.session_duration_hours)}\n\n${selectedAchievement.medal_rank} Medal Tier! 🎖️`;
 
     try {
       await navigator.clipboard.writeText(text);
@@ -332,7 +332,7 @@ export const AchievementsHallOfFame: React.FC = () => {
               <div className="space-y-2 text-white">
                 <div>Target: ${selectedAchievement.target_value}</div>
                 <div className="text-emerald-400 font-bold">Profit: ${selectedAchievement.final_profit.toFixed(2)}</div>
-                <div>Trades: {selectedAchievement.total_trades} • Win Rate: {selectedAchievement.win_rate.toFixed(1)}%</div>
+                <div>Trades: {selectedAchievement.total_trades} • Duration: {formatDuration(selectedAchievement.session_duration_hours)}</div>
               </div>
             </div>
 
