@@ -1,6 +1,8 @@
 import React, { useEffect } from 'react';
 import { SmartGoalPanel } from '../components/SmartGoalPanel';
 import { GoalSessionDashboard } from '../components/GoalSessionDashboard';
+import { ActiveEntryIntents } from '../components/ActiveEntryIntents';
+import { EntryQualityAnalytics } from '../components/EntryQualityAnalytics';
 import { ToastContainer } from '../components/ToastNotification';
 import { GoalNotificationListener } from '../components/GoalNotificationListener';
 import { PendingContinuationModalHandler } from '../components/PendingContinuationModalHandler';
@@ -9,6 +11,7 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { autoPushNotificationService } from '@/services/auto-push-notification-service';
+import { activeEntryMonitor } from '@/services/active-entry-monitor';
 
 export const SmartGoalModePage: React.FC = () => {
   const toast = useToast();
@@ -17,9 +20,11 @@ export const SmartGoalModePage: React.FC = () => {
   useEffect(() => {
     if (user?.id) {
       autoPushNotificationService.initialize(user.id);
+      activeEntryMonitor.resumeAllActiveIntents(user.id);
 
       return () => {
         autoPushNotificationService.shutdown();
+        activeEntryMonitor.stopAllMonitoring();
       };
     }
   }, [user?.id]);
@@ -57,6 +62,16 @@ export const SmartGoalModePage: React.FC = () => {
 
           <div className="lg:col-span-1">
             <GoalSessionDashboard />
+          </div>
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="lg:col-span-1">
+            <ActiveEntryIntents />
+          </div>
+
+          <div className="lg:col-span-1">
+            <EntryQualityAnalytics />
           </div>
         </div>
 

@@ -32,6 +32,7 @@ export interface TradeExecutionResult {
   tradeId?: string;
   error?: string;
   message: string;
+  isMonitoring?: boolean;
 }
 
 class TradeExecutionEngine {
@@ -57,7 +58,8 @@ class TradeExecutionEngine {
   async executeSignal(
     signal: TradeSignal,
     userId: string,
-    autoExecute: boolean = false
+    autoExecute: boolean = false,
+    alphaDecision?: any
   ): Promise<TradeExecutionResult> {
     try {
       console.log(`[Trade Execution] Processing signal for ${signal.symbol}...`);
@@ -83,6 +85,30 @@ class TradeExecutionEngine {
           error: validationResult.reason,
           message: `Signal validation failed: ${validationResult.reason}`
         };
+      }
+
+      if (alphaDecision?.entry_intent) {
+        console.log('[Trade Execution] Entry intent detected, checking execution strategy...');
+        const { EntryExecutionCoordinator } = await import('./entry-execution-coordinator');
+
+        const result = await EntryExecutionCoordinator.handleAlphaDecision(
+          userId,
+          signal.sessionId,
+          alphaDecision,
+          signal.symbol
+        );
+
+        if (!result.shouldExecuteImmediately) {
+          console.log(`[Trade Execution] Entry monitoring started (intent: ${result.intentId})`);
+          return {
+            success: true,
+            tradeId: result.intentId,
+            message: 'Entry monitoring started - trade will execute when conditions are met',
+            isMonitoring: true
+          };
+        }
+
+        console.log('[Trade Execution] High urgency or immediate momentum - executing now');
       }
 
       if (autoExecute) {

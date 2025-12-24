@@ -849,10 +849,23 @@ class GoalSessionLiveEngine {
           expectedProfit
         },
         this.config.userId,
-        this.config.autoExecute
+        this.config.autoExecute,
+        decision
       );
 
       if (executionResult.success) {
+        if (executionResult.isMonitoring) {
+          logger.info(LogCategory.AI_TRADING, `🎯 Entry monitoring started for ${selectedSymbol}. Waiting for optimal entry conditions.`);
+
+          await this.sendAIMessage(
+            `🎯 Setup confirmed! Monitoring ${selectedSymbol} for optimal entry.\n\n` +
+            `Entry will execute automatically when conditions align perfectly. ` +
+            `I'll keep scanning for other opportunities while monitoring this setup.`
+          );
+
+          return;
+        }
+
         tradeExecuted = true;
         // CRITICAL: Update trade ID to match database UUID before tracking
         trade.id = executionResult.tradeId!;
