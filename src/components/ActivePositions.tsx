@@ -3,13 +3,13 @@ import { X, TrendingUp, TrendingDown, Clock, AlertCircle, BarChart3 } from 'luci
 import { supabase } from '@/lib/supabase';
 import { positionService } from '@/services/position-service';
 import { calculatePnL } from '@/types/position';
-import { formatLotSize } from '@/utils/currencyHelpers';
 import { pollingConfigService } from '@/services/polling-config-service';
 import { notificationManager } from '@/services/notification-manager';
 import { useToast } from '@/hooks/useToast';
 import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 import { useNavigate } from 'react-router-dom';
 import { TradeWellnessIndicator } from './TradeWellnessIndicator';
+import { format } from '@/utils/displayFormatters';
 
 interface Position {
   id: string;
@@ -203,7 +203,7 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
 
     const confirmed = await confirm({
       title: 'Close Position',
-      message: `Close ${position.position_type.toUpperCase()} ${position.symbol} ${position.lot_size} lots?\nCurrent P&L: $${pnl.toFixed(2)}`,
+      message: `Close ${format.direction(position.position_type, 'desktop')} ${position.symbol} ${format.lots(position.lot_size, 'desktop')} lots?\nCurrent P&L: ${format.pnl(pnl, 'desktop')}`,
       confirmText: 'Close',
       cancelText: 'Cancel',
       variant: pnl >= 0 ? 'info' : 'warning'
@@ -290,19 +290,8 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
     );
   };
 
-  const formatPrice = (price: number | null, symbol: string): string => {
-    if (price === null) return 'N/A';
-    return symbol.includes('JPY') ? price.toFixed(3) : price.toFixed(5);
-  };
-
   const formatDateTime = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return format.timestamp(dateString, 'desktop');
   };
 
   if (loading) {
@@ -329,7 +318,7 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
             <div className="text-sm">
               <span className="text-gray-400">Total P&L: </span>
               <span className={`font-semibold ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                ${totalPnL.toFixed(2)}
+                {format.pnl(totalPnL, 'desktop')}
               </span>
             </div>
           </div>
@@ -382,9 +371,9 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
                                 ? 'bg-green-900/30 text-green-400'
                                 : 'bg-red-900/30 text-red-400'
                             }`}>
-                              {position.position_type.toUpperCase()}
+                              {format.direction(position.position_type, 'desktop')}
                             </span>
-                            <span className="text-gray-400 text-sm">{formatLotSize(position.lot_size)} lots</span>
+                            <span className="text-gray-400 text-sm">{format.lots(position.lot_size, 'desktop')} lots</span>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -404,19 +393,19 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                             <div>
                               <div className="text-gray-500 text-xs">Entry</div>
-                              <div className="text-white">{formatPrice(position.entry_price, position.symbol)}</div>
+                              <div className="text-white">{format.price(position.entry_price, position.symbol, 'desktop')}</div>
                             </div>
                             <div>
                               <div className="text-gray-500 text-xs">Current</div>
-                              <div className="text-white">{formatPrice(currentPrice, position.symbol)}</div>
+                              <div className="text-white">{format.price(currentPrice, position.symbol, 'desktop')}</div>
                             </div>
                             <div>
                               <div className="text-gray-500 text-xs">Stop Loss</div>
-                              <div className="text-yellow-400">{formatPrice(position.stop_loss, position.symbol)}</div>
+                              <div className="text-yellow-400">{format.price(position.stop_loss, position.symbol, 'desktop')}</div>
                             </div>
                             <div>
                               <div className="text-gray-500 text-xs">Take Profit</div>
-                              <div className="text-green-400">{formatPrice(position.take_profit, position.symbol)}</div>
+                              <div className="text-green-400">{format.price(position.take_profit, position.symbol, 'desktop')}</div>
                             </div>
                           </div>
 
@@ -425,7 +414,7 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
                               Opened: {formatDateTime(position.opened_at)}
                             </div>
                             <div className={`text-lg font-bold ${currentPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              {currentPnL >= 0 ? '+' : ''}${currentPnL.toFixed(2)}
+                              {format.pnl(currentPnL, 'desktop')}
                             </div>
                           </div>
                         </div>
@@ -481,23 +470,24 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
                                 ? 'bg-green-900/20 text-green-400'
                                 : 'bg-red-900/20 text-red-400'
                             }`}>
-                              {order.position_type.toUpperCase()} LIMIT
+                              {format.direction(order.position_type, 'desktop')} LIMIT
                             </span>
-                            <span className="text-gray-400 text-sm">{order.lot_size} lots</span>
+                            <span className="text-gray-400 text-sm">{format.lots(order.lot_size, 'desktop')} lots</span>
                           </div>
 
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                             <div>
                               <div className="text-gray-500 text-xs">Limit Price</div>
-                              <div className="text-yellow-400 font-semibold">{formatPrice(order.limit_price, order.symbol)}</div>
+                              <div className="text-yellow-400 font-semibold">{format.price(order.limit_price, order.symbol, 'desktop')}</div>
                             </div>
                             {currentPrice && (
                               <div>
                                 <div className="text-gray-500 text-xs">Current</div>
                                 <div className="text-white">
-                                  {formatPrice(
+                                  {format.price(
                                     order.position_type === 'buy' ? currentPrice.ask : currentPrice.bid,
-                                    order.symbol
+                                    order.symbol,
+                                    'desktop'
                                   )}
                                 </div>
                               </div>
@@ -505,12 +495,12 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
                             {distanceToPips && (
                               <div>
                                 <div className="text-gray-500 text-xs">Distance</div>
-                                <div className="text-gray-400">{distanceToPips} pips</div>
+                                <div className="text-gray-400">{format.pips(parseFloat(distanceToPips), 'desktop')}</div>
                               </div>
                             )}
                             <div>
                               <div className="text-gray-500 text-xs">Stop Loss</div>
-                              <div className="text-yellow-400">{formatPrice(order.stop_loss, order.symbol)}</div>
+                              <div className="text-yellow-400">{format.price(order.stop_loss, order.symbol, 'desktop')}</div>
                             </div>
                           </div>
                         </div>

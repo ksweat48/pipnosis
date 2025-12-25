@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { format } from '@/utils/displayFormatters';
 
 export type NotificationType =
   | 'trade-signal'
@@ -106,7 +107,7 @@ class PushNotificationDispatcher {
 
       const payload: PushNotificationPayload = {
         title: `Trade Signal: ${params.symbol}`,
-        body: `${params.direction.toUpperCase()} ${params.setupType} - ${params.confidence}% confidence`,
+        body: `${format.direction(params.direction, 'notification')} ${params.setupType} - ${format.percent(params.confidence, 0, 'notification')} confidence`,
         icon: '/Pipnosis icon.png',
         badge: '/notification-badge_3.png',
         data: {
@@ -152,7 +153,7 @@ class PushNotificationDispatcher {
 
       const payload: PushNotificationPayload = {
         title: `Trade Entered: ${params.symbol}`,
-        body: `${params.direction.toUpperCase()} at ${params.entryPrice} - ${params.lotSize} lots`,
+        body: `${format.direction(params.direction, 'notification')} at ${format.price(params.entryPrice, params.symbol, 'notification')} - ${format.lots(params.lotSize, 'notification')} lots`,
         icon: '/Pipnosis icon.png',
         badge: '/notification-badge_3.png',
         data: {
@@ -195,12 +196,9 @@ class PushNotificationDispatcher {
         return false;
       }
 
-      const profitSign = params.profit >= 0 ? '+' : '';
-      const profitText = `${profitSign}$${params.profit.toFixed(2)}`;
-
       const payload: PushNotificationPayload = {
         title: `Trade Closed: ${params.symbol}`,
-        body: `${profitText} - ${params.closeReason}`,
+        body: `${format.pnl(params.profit, 'notification')} - ${format.closeReason(params.closeReason, 'notification')}`,
         icon: '/Pipnosis icon.png',
         badge: '/notification-badge_3.png',
         data: {

@@ -6,6 +6,7 @@ import { useUserBalance } from '@/hooks/useUserBalance';
 import { useTokenBalance } from '@/hooks/useTokenBalance';
 import { supabase } from '@/lib/supabase';
 import { BetaFeedbackDialog } from './BetaFeedbackDialog';
+import { format } from '@/utils/displayFormatters';
 
 interface NavigationMenuProps {
   currentPrice?: number | null;
@@ -78,9 +79,9 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
           {user && (
             <div className="flex items-center gap-2 sm:gap-4">
               <div className="flex flex-col items-end">
-                <div className="text-white font-semibold text-sm sm:text-base">${balance.toFixed(2)}</div>
+                <div className="text-white font-semibold text-sm sm:text-base">{format.balance(balance, 'desktop')}</div>
                 <div className={`text-xs ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)} P&L
+                  {format.pnl(totalPnL, 'desktop')} P&L
                 </div>
               </div>
 
@@ -108,10 +109,10 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                       <div className="p-4 border-b border-gray-700 bg-gray-900/50">
                         <div className="text-white font-medium">{user.email}</div>
                         <div className="text-gray-400 text-sm mt-1">
-                          Balance: ${balance.toFixed(2)}
+                          Balance: {format.balance(balance, 'desktop')}
                         </div>
                         <div className={`text-sm mt-1 ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          P&L: {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)}
+                          P&L: {format.pnl(totalPnL, 'desktop')}
                         </div>
                         <div className="flex items-center gap-2 mt-2 text-sm">
                           <Coins size={14} className="text-emerald-400" />

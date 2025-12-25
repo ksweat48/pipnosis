@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { DollarSign, TrendingUp, TrendingDown, Wallet } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { format } from '@/utils/displayFormatters';
 
 interface BalanceDisplayProps {
   refreshTrigger?: number;
@@ -87,7 +88,7 @@ export function BalanceDisplay({ refreshTrigger }: BalanceDisplayProps) {
           <DollarSign className="w-4 h-4 text-green-400" />
           <div>
             <div className="text-xs font-bold text-white">
-              ${balance.toFixed(0)}
+              {format.balance(balance, 'mobile')}
             </div>
           </div>
         </div>
@@ -102,7 +103,7 @@ export function BalanceDisplay({ refreshTrigger }: BalanceDisplayProps) {
                 <TrendingDown className="w-3 h-3 text-red-400" />
               )}
               <div className={`text-xs font-bold ${unrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {unrealizedPnL >= 0 ? '+' : ''}${unrealizedPnL.toFixed(0)}
+                {format.pnl(unrealizedPnL, 'mobile')}
               </div>
             </div>
           </>
@@ -116,7 +117,7 @@ export function BalanceDisplay({ refreshTrigger }: BalanceDisplayProps) {
           <div>
             <div className="text-xs text-gray-400">Balance</div>
             <div className="text-lg font-bold text-white">
-              ${balance.toFixed(2)}
+              {format.balance(balance, 'desktop')}
             </div>
           </div>
         </div>
@@ -128,7 +129,7 @@ export function BalanceDisplay({ refreshTrigger }: BalanceDisplayProps) {
           <div>
             <div className="text-xs text-gray-400">Free Margin</div>
             <div className="text-lg font-bold text-white">
-              ${freeMargin.toFixed(2)}
+              {format.balance(freeMargin, 'desktop')}
             </div>
           </div>
         </div>
@@ -146,7 +147,7 @@ export function BalanceDisplay({ refreshTrigger }: BalanceDisplayProps) {
               <div>
                 <div className="text-xs text-gray-400">Unrealized P&L</div>
                 <div className={`text-lg font-bold ${unrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {unrealizedPnL >= 0 ? '+' : ''}${unrealizedPnL.toFixed(2)}
+                  {format.pnl(unrealizedPnL, 'desktop')}
                 </div>
               </div>
             </div>
@@ -157,7 +158,7 @@ export function BalanceDisplay({ refreshTrigger }: BalanceDisplayProps) {
               <div>
                 <div className="text-xs text-gray-400">Margin Level</div>
                 <div className={`text-lg font-bold ${getMarginLevelColor()}`}>
-                  {marginLevel.toFixed(0)}%
+                  {format.percent(marginLevel, 0, 'desktop')}
                 </div>
               </div>
             </div>
