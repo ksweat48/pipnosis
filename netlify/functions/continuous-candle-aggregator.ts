@@ -585,7 +585,7 @@ async function aggregateCandlesForSymbol(
   symbol: string,
   timeframesToProcess: string[],
   startTime: number,
-  maxDurationMs: number = 5000 // 5 seconds per symbol (M1 only, much faster)
+  maxDurationMs: number = 12000 // 12 seconds per symbol - INCREASED for reliable completion
 ): Promise<{ candlesCreated: number; timedOut: boolean }> {
   const symbolStartTime = Date.now();
   console.log(`[CandleAggregator]   📊 Starting aggregation for ${symbol}...`);
@@ -611,8 +611,8 @@ async function aggregateCandlesForSymbol(
   for (const timeframe of timeframesToProcess) {
     const timeframeStartTime = Date.now();
 
-    // TIMEOUT PROTECTION: Check if we're approaching the limit
-    const elapsedMs = Date.now() - startTime;
+    // TIMEOUT PROTECTION: Check if we're approaching the per-symbol limit
+    const elapsedMs = Date.now() - symbolStartTime; // FIXED: Use symbolStartTime instead of global startTime
     if (elapsedMs > maxDurationMs) {
       console.log(`[CandleAggregator] ⚠️ Approaching timeout (${elapsedMs}ms), stopping ${symbol} at ${timeframe}`);
       return { candlesCreated, timedOut: true };
@@ -661,7 +661,7 @@ async function aggregateCandlesForSymbol(
 
     while (currentCandleToCreate <= endAt) {
       // TIMEOUT PROTECTION: Check inside the loop to prevent hanging
-      const loopElapsedMs = Date.now() - startTime;
+      const loopElapsedMs = Date.now() - symbolStartTime; // FIXED: Use symbolStartTime instead of global startTime
       if (loopElapsedMs > maxDurationMs) {
         console.log(`[CandleAggregator]       ⚠️ Timeout in while loop (${loopElapsedMs}ms), stopping ${symbol} ${timeframe}`);
         return { candlesCreated, timedOut: true };
@@ -791,9 +791,9 @@ export const handler: Handler = async (event, context) => {
     for (const symbol of ACTIVE_SYMBOLS) {
       console.log(`[CandleAggregator] ▶️ Processing symbol ${symbolsProcessed + 1}/${ACTIVE_SYMBOLS.length}: ${symbol}`);
 
-      // Check if we're approaching timeout (5 symbols * 5s = 25s, leave 90s buffer)
+      // Check if we're approaching global function timeout (9 symbols * 12s = 108s max)
       const elapsedMs = Date.now() - startTime;
-      if (elapsedMs > 30000) { // 30 seconds total (well under 120s Netlify timeout)
+      if (elapsedMs > 90000) { // 90 seconds total (safety buffer under 120s Netlify timeout)
         console.log(`[CandleAggregator] ⚠️ Approaching function timeout (${elapsedMs}ms), stopping before ${symbol}`);
         symbolResults[symbol] = { candles: 0, timedOut: false, error: 'Function timeout - not processed' };
         break;
