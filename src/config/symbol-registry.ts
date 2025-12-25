@@ -4,12 +4,12 @@
  * Single source of truth for all symbol-related configurations including:
  * - Categories (forex, crypto, index, metal, energy)
  * - Market hours (24/7 for crypto, forex hours for others)
- * - Data providers (MetaAPI for forex, Binance for crypto)
+ * - Data providers (MetaAPI for forex, Kraken for crypto)
  * - Pip values and lot sizes
  */
 
 export type SymbolCategory = 'forex' | 'crypto' | 'index' | 'metal' | 'energy';
-export type DataProvider = 'metaapi' | 'twelvedata' | 'finnhub';
+export type DataProvider = 'metaapi' | 'twelvedata' | 'finnhub' | 'kraken';
 export type MarketSchedule = 'forex' | '24/7';
 
 export interface SymbolConfig {
@@ -302,13 +302,13 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     maxLotSize: 5.0,
   },
 
-  // Crypto - 24/7 Trading (via Twelve Data)
+  // Crypto - 24/7 Trading (via Kraken)
   BTCUSD: {
     symbol: 'BTCUSD',
     category: 'crypto',
     displayName: 'Bitcoin',
     marketSchedule: '24/7',
-    dataProvider: 'twelvedata',
+    dataProvider: 'kraken',
     pipValue: 1.0,
     pipMultiplier: 1,
     decimalPlaces: 2,
@@ -322,7 +322,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     category: 'crypto',
     displayName: 'Ethereum',
     marketSchedule: '24/7',
-    dataProvider: 'twelvedata',
+    dataProvider: 'kraken',
     pipValue: 0.1,
     pipMultiplier: 1,
     decimalPlaces: 2,
@@ -406,3 +406,4 @@ export const SYMBOLS_FOREX_HOURS = getSymbolsByMarketSchedule('forex');
 
 export const TWELVEDATA_SYMBOLS = getSymbolsByDataProvider('twelvedata');
 export const METAAPI_SYMBOLS = getSymbolsByDataProvider('metaapi');
+export const KRAKEN_SYMBOLS = getSymbolsByDataProvider('kraken');

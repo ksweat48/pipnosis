@@ -3,7 +3,7 @@
  *
  * BREAKTHROUGH: Uses multiple data sources to ensure data quality
  * - Forex/Indices: MetaAPI (primary) + Finnhub (fallback)
- * - Crypto (24/7): Binance API (primary, execution-grade)
+ * - Crypto (24/7): Kraken API (primary, execution-grade, no geo-restrictions)
  *
  * Supports both traditional forex hours and 24/7 crypto trading.
  */
@@ -11,6 +11,7 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { createFinnhubClient } from './_shared/finnhub-client';
+import { fetchKrakenTicker } from './_shared/kraken-client';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -23,13 +24,6 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500'];
 const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
 const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS, ...CRYPTO_SYMBOLS];
-
-const CRYPTO_TO_BINANCE: Record<string, string> = {
-  'BTCUSD': 'BTCUSDT',
-  'ETHUSD': 'ETHUSDT',
-};
-
-const BINANCE_API_URL = 'https://api.binance.com';
 
 const TICKS_PER_MINUTE = 8;
 const TICK_INTERVAL_MS = 3000;
@@ -62,15 +56,15 @@ interface FinnhubPrice {
   source: 'finnhub';
 }
 
-interface BinancePrice {
+interface KrakenPrice {
   symbol: string;
   bid: number;
   ask: number;
   time: string;
-  source: 'binance';
+  source: 'kraken';
 }
 
-type HybridPrice = MetaApiPrice | FinnhubPrice | BinancePrice;
+type HybridPrice = MetaApiPrice | FinnhubPrice | KrakenPrice;
 
 async function fetchFromMetaAPI(symbol: string): Promise<MetaApiPrice | null> {
   try {
@@ -142,53 +136,30 @@ async function fetchFromFinnhub(symbol: string): Promise<FinnhubPrice | null> {
   }
 }
 
-async function fetchFromBinance(symbol: string): Promise<BinancePrice | null> {
+async function fetchFromKraken(symbol: string): Promise<KrakenPrice | null> {
   try {
-    const binanceSymbol = CRYPTO_TO_BINANCE[symbol.toUpperCase()];
-    if (!binanceSymbol) {
-      console.error(`[HybridCollector] No Binance mapping for ${symbol}`);
-      return null;
-    }
-
-    const url = `${BINANCE_API_URL}/api/v3/ticker/bookTicker?symbol=${binanceSymbol}`;
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-    if (!response.ok) {
-      console.error(`[HybridCollector] Binance HTTP ${response.status} for ${symbol}`);
-      return null;
-    }
-
-    const data = await response.json();
-
-    if (!data.bidPrice || !data.askPrice) {
-      console.error(`[HybridCollector] Invalid Binance data for ${symbol}`);
-      return null;
-    }
+    const priceData = await fetchKrakenTicker(symbol);
 
     return {
       symbol,
-      bid: parseFloat(data.bidPrice),
-      ask: parseFloat(data.askPrice),
+      bid: priceData.bid,
+      ask: priceData.ask,
       time: new Date().toISOString(),
-      source: 'binance'
+      source: 'kraken'
     };
   } catch (error) {
-    console.error(`[HybridCollector] Binance error for ${symbol}:`, error);
+    console.error(`[HybridCollector] Kraken error for ${symbol}:`, error);
     return null;
   }
 }
 
 async function fetchPriceHybrid(symbol: string): Promise<HybridPrice | null> {
   if (isCryptoSymbol(symbol)) {
-    const binancePrice = await fetchFromBinance(symbol);
-    if (binancePrice) {
-      return binancePrice;
+    const krakenPrice = await fetchFromKraken(symbol);
+    if (krakenPrice) {
+      return krakenPrice;
     }
-    console.error(`[HybridCollector] Binance failed for crypto ${symbol}`);
+    console.error(`[HybridCollector] Kraken failed for crypto ${symbol}`);
     return null;
   }
 
@@ -242,7 +213,7 @@ export const handler: Handler = async (event, context) => {
   const startTime = Date.now();
   let totalTicksCollected = 0;
   let totalTicksFailed = 0;
-  const sourceStats: Record<string, number> = { metaapi: 0, finnhub: 0, binance: 0 };
+  const sourceStats: Record<string, number> = { metaapi: 0, finnhub: 0, kraken: 0 };
 
   console.log(`[HybridCollector:${executionId}] Starting hybrid price collection...`);
   console.log(`[HybridCollector:${executionId}] Forex symbols: ${FOREX_SYMBOLS.join(', ')}`);
@@ -297,7 +268,7 @@ export const handler: Handler = async (event, context) => {
     console.log(`[HybridCollector:${executionId}] Completed in ${duration}ms`);
     console.log(`[HybridCollector:${executionId}] Total: ${totalTicksCollected} ticks collected, ${totalTicksFailed} failed`);
     console.log(`[HybridCollector:${executionId}] Average: ${avgTicksPerSymbol.toFixed(1)} ticks per symbol`);
-    console.log(`[HybridCollector:${executionId}] Sources: MetaAPI=${sourceStats.metaapi}, Finnhub=${sourceStats.finnhub}, Binance=${sourceStats.binance}`);
+    console.log(`[HybridCollector:${executionId}] Sources: MetaAPI=${sourceStats.metaapi}, Finnhub=${sourceStats.finnhub}, Kraken=${sourceStats.kraken}`);
 
     const finnhubUsagePercent = totalTicksCollected > 0 ? (sourceStats.finnhub / totalTicksCollected) * 100 : 0;
     if (finnhubUsagePercent > 20) {
