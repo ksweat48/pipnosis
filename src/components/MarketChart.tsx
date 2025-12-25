@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, IChartApi, ISeriesApi, LineStyle, LineSeries } from 'lightweight-charts';
 import { supabase } from '@/lib/supabase';
-import { TrendingUp, Activity, AlertCircle, Clock, RefreshCw } from 'lucide-react';
+import { Activity, AlertCircle, Clock, RefreshCw } from 'lucide-react';
 import { chartPreferencesService, Timeframe, type IndicatorVisibility } from '@/services/chart-preferences';
 import { globalPollingCoordinator } from '@/services/global-polling-coordinator';
 import { pollingConfigService } from '@/services/polling-config-service';

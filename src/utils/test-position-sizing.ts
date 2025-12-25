@@ -89,6 +89,26 @@ const testCases: TestCase[] = [
     description: 'US30 with 50 point stop should risk $200 (2%)'
   },
 
+  // Crypto pairs
+  {
+    symbol: 'BTCUSD',
+    accountBalance: 10000,
+    riskPercent: 2,
+    entryPrice: 87800,
+    stopLoss: 87700,
+    expectedLotRange: { min: 1.90, max: 2.10 },
+    description: 'BTCUSD with 100 pip stop should risk $200 (2%)'
+  },
+  {
+    symbol: 'ETHUSD',
+    accountBalance: 10000,
+    riskPercent: 3,
+    entryPrice: 3200,
+    stopLoss: 3180,
+    expectedLotRange: { min: 1.40, max: 1.60 },
+    description: 'ETHUSD with 20 point (200 pip) stop should risk $300 (3%)'
+  },
+
   // Edge Cases
   {
     symbol: 'XAUUSD',
