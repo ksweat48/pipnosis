@@ -86,6 +86,10 @@
 [functions."twelve-data-bootstrap"]
   timeout = 120
 
+# 📊 COMPREHENSIVE BACKFILL: Backfill all timeframes for new currency pairs
+[functions."backfill-all-timeframes-new-pairs"]
+  timeout = 900
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
