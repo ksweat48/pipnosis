@@ -82,6 +82,16 @@
 [functions."openai-chat"]
   timeout = 26
 
+# 📊 BOOTSTRAP FUNCTIONS: One-time data population for new symbols
+[functions."binance-historical-candles"]
+  timeout = 60
+
+[functions."bootstrap-crypto-symbols"]
+  timeout = 120
+
+[functions."bootstrap-index-symbols"]
+  timeout = 120
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
