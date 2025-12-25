@@ -7,6 +7,7 @@ import { validateSymbol, ValidatedSymbol } from '@/types/symbol';
 import { chartCircuitBreaker } from './chart-circuit-breaker';
 import { databaseResilienceWrapper } from './database-resilience-wrapper';
 import { chartMemoryManager } from './chart-memory-manager';
+import { getForexMarketStatus } from '@/utils/marketHours';
 
 interface PollResult {
   candles: CandleData[];
@@ -31,10 +32,15 @@ class ChartCandlePoller {
   private readonly CACHE_STALE_MS = 5000; // Consider cache stale after 5 seconds
   private isPollingActive = true;
   private memoryManagerRegistered = false;
+  private marketHoursCheckInterval: NodeJS.Timeout | null = null;
+  private lastMarketStatus: boolean = true;
+  private staleDataTracker: Map<string, { lastCandleTime: number; staleCount: number }> = new Map();
 
   constructor() {
     // Register cache with memory manager for automatic cleanup
     this.registerWithMemoryManager();
+    // Start monitoring market hours
+    this.startMarketHoursMonitoring();
   }
 
   private registerWithMemoryManager(): void {
@@ -125,6 +131,13 @@ class ChartCandlePoller {
 
     if (!cache) {
       console.warn(`[ChartPoller] No cache found for ${key}`);
+      return;
+    }
+
+    // CRITICAL: Check market hours before polling
+    const marketStatus = getForexMarketStatus();
+    if (!marketStatus.isOpen) {
+      logger.debug(LogCategory.CHART_POLLER, `[ChartPoller] Market closed - skipping poll for ${symbol} ${timeframe}`);
       return;
     }
 
@@ -251,6 +264,24 @@ class ChartCandlePoller {
 
       const latestCandle = candles[candles.length - 1];
       const hasNewData = cache.lastCandleTime === null || latestCandle.time > cache.lastCandleTime;
+
+      // Track stale data to prevent wasteful notifications during market closure
+      const staleKey = `${symbol}_${timeframe}`;
+      const staleTracker = this.staleDataTracker.get(staleKey) || { lastCandleTime: 0, staleCount: 0 };
+
+      if (latestCandle.time === staleTracker.lastCandleTime) {
+        staleTracker.staleCount++;
+        this.staleDataTracker.set(staleKey, staleTracker);
+
+        // If we've seen the same candle 10+ times, stop notifying listeners
+        if (staleTracker.staleCount >= 10) {
+          logger.debug(LogCategory.CHART_POLLER, `[ChartPoller] Stale data detected for ${symbol} ${timeframe} - suppressing notifications`);
+          return; // Don't update cache or notify listeners
+        }
+      } else {
+        // New candle detected - reset stale counter
+        this.staleDataTracker.set(staleKey, { lastCandleTime: latestCandle.time, staleCount: 0 });
+      }
 
       if (hasNewData) {
         console.log(
@@ -473,8 +504,55 @@ class ChartCandlePoller {
     await this.pollCandles(symbol, timeframe);
   }
 
+  private startMarketHoursMonitoring(): void {
+    // Check market hours every 5 minutes
+    const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+    // Initial check
+    const initialStatus = getForexMarketStatus();
+    this.lastMarketStatus = initialStatus.isOpen;
+    logger.info(LogCategory.CHART_POLLER, `[MarketHoursMonitor] Initial market status: ${initialStatus.status}`);
+
+    this.marketHoursCheckInterval = setInterval(() => {
+      const currentStatus = getForexMarketStatus();
+      const isMarketOpen = currentStatus.isOpen;
+
+      // Detect market open/close transitions
+      if (isMarketOpen !== this.lastMarketStatus) {
+        if (!isMarketOpen) {
+          // Market just closed
+          logger.info(LogCategory.CHART_POLLER, '[MarketHoursMonitor] 🔴 Market closed - pausing all polling');
+          this.pause();
+          // Clear stale data trackers
+          this.staleDataTracker.clear();
+        } else {
+          // Market just opened
+          logger.info(LogCategory.CHART_POLLER, '[MarketHoursMonitor] 🟢 Market opened - resuming all polling');
+          // Clear database cache to force fresh data fetch
+          databaseResilienceWrapper.clearCache();
+          this.staleDataTracker.clear();
+          this.resume();
+        }
+
+        this.lastMarketStatus = isMarketOpen;
+      }
+    }, CHECK_INTERVAL_MS);
+
+    logger.debug(LogCategory.CHART_POLLER, `[MarketHoursMonitor] Started monitoring (checking every ${CHECK_INTERVAL_MS / 1000}s)`);
+  }
+
+  private stopMarketHoursMonitoring(): void {
+    if (this.marketHoursCheckInterval) {
+      clearInterval(this.marketHoursCheckInterval);
+      this.marketHoursCheckInterval = null;
+      logger.debug(LogCategory.CHART_POLLER, '[MarketHoursMonitor] Stopped monitoring');
+    }
+  }
+
   shutdown(): void {
     logger.info(LogCategory.CHART_POLLER, 'Shutting down all polling');
+
+    this.stopMarketHoursMonitoring();
 
     this.pollIntervals.forEach((interval, key) => {
       clearInterval(interval);
@@ -484,6 +562,7 @@ class ChartCandlePoller {
     this.cache.clear();
     this.listeners.clear();
     this.isPollingActive = false;
+    this.staleDataTracker.clear();
   }
 }
 

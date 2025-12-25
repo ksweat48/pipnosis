@@ -25,6 +25,7 @@
 
 import { logger, LogCategory } from '@/lib/logger';
 import { priceValidationService } from './price-validation-service';
+import { getForexMarketStatus } from '@/utils/marketHours';
 
 interface LivePrice {
   symbol: string;
@@ -148,6 +149,14 @@ class ChartDirectPricePoller {
       return;
     }
 
+    // Check market hours before starting
+    const marketStatus = getForexMarketStatus();
+    if (!marketStatus.isOpen) {
+      logger.info(LogCategory.CHART, '🔴 Market closed - direct price polling not started');
+      this.options.enabled = true; // Mark as enabled so it can resume when market opens
+      return;
+    }
+
     logger.info(LogCategory.CHART, '🚀 Starting direct price polling (3s interval)');
 
     this.status.isActive = true;
@@ -195,6 +204,13 @@ class ChartDirectPricePoller {
 
   private async poll(): Promise<void> {
     if (this.trackedSymbols.size === 0) {
+      return;
+    }
+
+    // CRITICAL: Check market hours before polling
+    const marketStatus = getForexMarketStatus();
+    if (!marketStatus.isOpen) {
+      logger.debug(LogCategory.CHART, '[DirectPricePoller] Market closed - skipping price poll');
       return;
     }
 
