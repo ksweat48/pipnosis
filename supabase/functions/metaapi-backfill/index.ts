@@ -10,18 +10,51 @@ const corsHeaders = {
 interface SymbolConfig {
   symbol: string;
   daysBack: number;
+  timeframes: string[];
 }
 
 const SYMBOL_CONFIGS: SymbolConfig[] = [
-  { symbol: 'BTCUSD', daysBack: 7 },
-  { symbol: 'ETHUSD', daysBack: 7 },
-  { symbol: 'NAS100', daysBack: 7 },
-  { symbol: 'SPX500', daysBack: 7 },
-  { symbol: 'GBPJPY', daysBack: 90 },
-  { symbol: 'EURJPY', daysBack: 90 },
-  { symbol: 'AUDUSD', daysBack: 90 },
-  { symbol: 'NZDUSD', daysBack: 90 },
+  {
+    symbol: 'BTCUSD',
+    daysBack: 7,
+    timeframes: ['1m', '5m', '15m', '30m', '1h', '4h', '1d']
+  },
+  {
+    symbol: 'ETHUSD',
+    daysBack: 7,
+    timeframes: ['1m', '5m', '15m', '30m', '1h', '4h', '1d']
+  },
+  {
+    symbol: 'NAS100',
+    daysBack: 7,
+    timeframes: ['1m', '5m', '15m', '30m', '1h', '4h', '1d']
+  },
+  {
+    symbol: 'SPX500',
+    daysBack: 7,
+    timeframes: ['1m', '5m', '15m', '30m', '1h', '4h', '1d']
+  },
 ];
+
+const TIMEFRAME_DURATIONS: Record<string, number> = {
+  '1m': 60000,           // 1 minute
+  '5m': 300000,          // 5 minutes
+  '15m': 900000,         // 15 minutes
+  '30m': 1800000,        // 30 minutes
+  '1h': 3600000,         // 1 hour
+  '4h': 14400000,        // 4 hours
+  '1d': 86400000,        // 1 day
+};
+
+const TIMEFRAME_TO_DB: Record<string, string> = {
+  '1m': 'M1',
+  '5m': 'M5',
+  '15m': 'M15',
+  '30m': 'M30',
+  '1h': 'H1',
+  '4h': 'H4',
+  '1d': 'D1',
+};
 
 interface MetaAPICandle {
   time: string;
@@ -52,14 +85,14 @@ async function fetchMetaAPICandles(
 
     if (!response.ok) {
       const text = await response.text();
-      console.error(`MetaAPI error for ${symbol}: ${response.status} - ${text}`);
+      console.error(`MetaAPI error for ${symbol} ${timeframe}: ${response.status} - ${text}`);
       return [];
     }
 
     const data = await response.json();
     return Array.isArray(data) ? data : [];
   } catch (error) {
-    console.error(`Error fetching ${symbol}:`, error);
+    console.error(`Error fetching ${symbol} ${timeframe}:`, error);
     return [];
   }
 }
@@ -80,104 +113,131 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    console.log('Starting MetaAPI backfill...');
+    console.log('Starting MetaAPI multi-timeframe backfill...');
     const startTime = Date.now();
 
     const results = [];
     const now = new Date();
+    let totalCandles = 0;
+    let totalSuccessful = 0;
+    let totalFailed = 0;
 
     for (const config of SYMBOL_CONFIGS) {
-      try {
-        console.log(`Fetching ${config.symbol}...`);
+      console.log(`\n=== Processing ${config.symbol} ===`);
 
-        const startDate = new Date(now.getTime() - (config.daysBack * 24 * 60 * 60 * 1000));
-        const startTimeStr = startDate.toISOString();
+      const symbolResult: any = {
+        symbol: config.symbol,
+        timeframes: {},
+      };
 
-        const candles = await fetchMetaAPICandles(
-          accountId,
-          config.symbol,
-          '1h',
-          startTimeStr,
-          metaapiToken
-        );
+      for (const timeframe of config.timeframes) {
+        try {
+          console.log(`  Fetching ${timeframe}...`);
 
-        if (candles.length === 0) {
-          results.push({
-            symbol: config.symbol,
+          const startDate = new Date(now.getTime() - (config.daysBack * 24 * 60 * 60 * 1000));
+          const startTimeStr = startDate.toISOString();
+
+          const candles = await fetchMetaAPICandles(
+            accountId,
+            config.symbol,
+            timeframe,
+            startTimeStr,
+            metaapiToken
+          );
+
+          if (candles.length === 0) {
+            symbolResult.timeframes[timeframe] = {
+              success: false,
+              candles: 0,
+              error: 'No data returned',
+            };
+            totalFailed++;
+            continue;
+          }
+
+          const duration = TIMEFRAME_DURATIONS[timeframe];
+          const dbTimeframe = TIMEFRAME_TO_DB[timeframe];
+
+          const candleData = candles.map((c) => {
+            const openTime = new Date(c.time);
+            const closeTime = new Date(openTime.getTime() + duration);
+
+            return {
+              symbol: config.symbol,
+              timeframe: dbTimeframe,
+              open_time: openTime.toISOString(),
+              close_time: closeTime.toISOString(),
+              open: c.open,
+              high: c.high,
+              low: c.low,
+              close: c.close,
+              volume: c.volume || c.tickVolume || 0,
+              data_source: 'metaapi',
+            };
+          });
+
+          const { error } = await supabase
+            .from('forex_candles')
+            .upsert(candleData, {
+              onConflict: 'symbol,timeframe,open_time',
+              ignoreDuplicates: false,
+            });
+
+          if (error) {
+            symbolResult.timeframes[timeframe] = {
+              success: false,
+              candles: 0,
+              error: error.message,
+            };
+            totalFailed++;
+          } else {
+            symbolResult.timeframes[timeframe] = {
+              success: true,
+              candles: candleData.length,
+            };
+            totalCandles += candleData.length;
+            totalSuccessful++;
+            console.log(`  ✓ ${timeframe}: ${candleData.length} candles`);
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        } catch (error) {
+          symbolResult.timeframes[timeframe] = {
             success: false,
             candles: 0,
-            error: 'No data returned',
-          });
-          continue;
-        }
-
-        const candleData = candles.map((c) => {
-          const openTime = new Date(c.time);
-          const closeTime = new Date(openTime.getTime() + 3600000);
-
-          return {
-            symbol: config.symbol,
-            timeframe: 'H1',
-            open_time: openTime.toISOString(),
-            close_time: closeTime.toISOString(),
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close,
-            volume: c.volume || c.tickVolume || 0,
-            data_source: 'metaapi',
+            error: error instanceof Error ? error.message : 'Unknown error',
           };
-        });
-
-        const { error } = await supabase
-          .from('forex_candles')
-          .upsert(candleData, {
-            onConflict: 'symbol,timeframe,open_time',
-            ignoreDuplicates: false,
-          });
-
-        if (error) {
-          results.push({
-            symbol: config.symbol,
-            success: false,
-            candles: 0,
-            error: error.message,
-          });
-        } else {
-          results.push({
-            symbol: config.symbol,
-            success: true,
-            candles: candleData.length,
-          });
+          totalFailed++;
         }
-
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      } catch (error) {
-        results.push({
-          symbol: config.symbol,
-          success: false,
-          candles: 0,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
       }
+
+      results.push(symbolResult);
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    const successful = results.filter((r) => r.success).length;
-    const totalCandles = results.reduce((sum, r) => sum + r.candles, 0);
+
+    const response = {
+      success: true,
+      duration: `${duration}s`,
+      summary: {
+        totalPairs: SYMBOL_CONFIGS.length,
+        totalTimeframeRequests: SYMBOL_CONFIGS.length * SYMBOL_CONFIGS[0].timeframes.length,
+        successful: totalSuccessful,
+        failed: totalFailed,
+        totalCandles,
+      },
+      results,
+    };
+
+    console.log('\n=== Backfill Complete ===');
+    console.log(`Duration: ${duration}s`);
+    console.log(`Total Candles: ${totalCandles}`);
+    console.log(`Successful: ${totalSuccessful}/${response.summary.totalTimeframeRequests}`);
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        duration: `${duration}s`,
-        summary: {
-          total: results.length,
-          successful,
-          failed: results.length - successful,
-          totalCandles,
-        },
-        results,
-      }),
+      JSON.stringify(response, null, 2),
       {
         headers: {
           ...corsHeaders,
