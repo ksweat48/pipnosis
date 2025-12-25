@@ -5,7 +5,11 @@
  * The AI analyzes all symbols every cycle and selects the best opportunity.
  */
 
-export const DEFAULT_WATCHLIST = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'US30'] as const;
+export const DEFAULT_WATCHLIST = [
+  'XAUUSD', 'US30', 'NAS100', 'SPX500',
+  'EURUSD', 'GBPUSD', 'USDJPY',
+  'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'
+] as const;
 
 export type WatchlistSymbol = typeof DEFAULT_WATCHLIST[number];
 
