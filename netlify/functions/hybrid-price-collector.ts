@@ -1,12 +1,11 @@
 /**
  * Hybrid Price Collector
  *
- * BREAKTHROUGH: Uses BOTH MetaAPI and Finnhub to ensure data quality
- * - Primary: MetaAPI for real-time ticks (8 per minute)
- * - Fallback: Finnhub for supplementary M1 candles when MetaAPI fails
- * - Smart switching: Uses whichever source provides better data
+ * BREAKTHROUGH: Uses multiple data sources to ensure data quality
+ * - Forex/Indices: MetaAPI (primary) + Finnhub (fallback)
+ * - Crypto (24/7): Binance API (primary, execution-grade)
  *
- * This eliminates the 58% flat candle problem by having dual sources.
+ * Supports both traditional forex hours and 24/7 crypto trading.
  */
 
 import type { Handler } from '@netlify/functions';
@@ -21,10 +20,26 @@ const metaApiAccountId = process.env.METAAPI_ACCOUNT_ID || '';
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
+const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500'];
+const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'];
+const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS, ...CRYPTO_SYMBOLS];
+
+const CRYPTO_TO_BINANCE: Record<string, string> = {
+  'BTCUSD': 'BTCUSDT',
+  'ETHUSD': 'ETHUSDT',
+  'SOLUSD': 'SOLUSDT',
+  'BNBUSD': 'BNBUSDT',
+};
+
+const BINANCE_API_URL = 'https://api.binance.com';
+
 const TICKS_PER_MINUTE = 8;
 const TICK_INTERVAL_MS = 3000;
 const MAX_EXECUTION_TIME_MS = 24000;
+
+function isCryptoSymbol(symbol: string): boolean {
+  return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
+}
 
 interface PriceSource {
   name: string;
@@ -49,7 +64,15 @@ interface FinnhubPrice {
   source: 'finnhub';
 }
 
-type HybridPrice = MetaApiPrice | FinnhubPrice;
+interface BinancePrice {
+  symbol: string;
+  bid: number;
+  ask: number;
+  time: string;
+  source: 'binance';
+}
+
+type HybridPrice = MetaApiPrice | FinnhubPrice | BinancePrice;
 
 async function fetchFromMetaAPI(symbol: string): Promise<MetaApiPrice | null> {
   try {
@@ -96,19 +119,16 @@ async function fetchFromFinnhub(symbol: string): Promise<FinnhubPrice | null> {
     const now = Math.floor(Date.now() / 1000);
     const oneMinuteAgo = now - 60;
 
-    // Fetch last M1 candle from Finnhub
     const candles = await finnhubClient.fetchForexCandles(symbol, 'M1', oneMinuteAgo, now);
 
     if (candles.length === 0) {
       return null;
     }
 
-    // Use most recent candle's close as current price
     const latestCandle = candles[candles.length - 1];
     const mid = latestCandle.close;
 
-    // Estimate bid/ask from close (typical spread)
-    const spreadEstimate = mid * 0.0001; // 1 pip for forex, scaled for other instruments
+    const spreadEstimate = mid * 0.0001;
     const bid = mid - spreadEstimate / 2;
     const ask = mid + spreadEstimate / 2;
 
@@ -124,21 +144,68 @@ async function fetchFromFinnhub(symbol: string): Promise<FinnhubPrice | null> {
   }
 }
 
+async function fetchFromBinance(symbol: string): Promise<BinancePrice | null> {
+  try {
+    const binanceSymbol = CRYPTO_TO_BINANCE[symbol.toUpperCase()];
+    if (!binanceSymbol) {
+      console.error(`[HybridCollector] No Binance mapping for ${symbol}`);
+      return null;
+    }
+
+    const url = `${BINANCE_API_URL}/api/v3/ticker/bookTicker?symbol=${binanceSymbol}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!response.ok) {
+      console.error(`[HybridCollector] Binance HTTP ${response.status} for ${symbol}`);
+      return null;
+    }
+
+    const data = await response.json();
+
+    if (!data.bidPrice || !data.askPrice) {
+      console.error(`[HybridCollector] Invalid Binance data for ${symbol}`);
+      return null;
+    }
+
+    return {
+      symbol,
+      bid: parseFloat(data.bidPrice),
+      ask: parseFloat(data.askPrice),
+      time: new Date().toISOString(),
+      source: 'binance'
+    };
+  } catch (error) {
+    console.error(`[HybridCollector] Binance error for ${symbol}:`, error);
+    return null;
+  }
+}
+
 async function fetchPriceHybrid(symbol: string): Promise<HybridPrice | null> {
-  // Try MetaAPI first (faster, real-time)
+  if (isCryptoSymbol(symbol)) {
+    const binancePrice = await fetchFromBinance(symbol);
+    if (binancePrice) {
+      return binancePrice;
+    }
+    console.error(`[HybridCollector] Binance failed for crypto ${symbol}`);
+    return null;
+  }
+
   const metaPrice = await fetchFromMetaAPI(symbol);
   if (metaPrice) {
     return metaPrice;
   }
 
-  // Fallback to Finnhub
   console.log(`[HybridCollector] MetaAPI failed for ${symbol}, falling back to Finnhub...`);
   const finnhubPrice = await fetchFromFinnhub(symbol);
   if (finnhubPrice) {
     return finnhubPrice;
   }
 
-  console.error(`[HybridCollector] Both sources failed for ${symbol}`);
+  console.error(`[HybridCollector] All sources failed for ${symbol}`);
   return null;
 }
 
@@ -177,10 +244,11 @@ export const handler: Handler = async (event, context) => {
   const startTime = Date.now();
   let totalTicksCollected = 0;
   let totalTicksFailed = 0;
-  const sourceStats = { metaapi: 0, finnhub: 0 };
+  const sourceStats: Record<string, number> = { metaapi: 0, finnhub: 0, binance: 0 };
 
-  console.log(`[HybridCollector:${executionId}] 🚀 Starting hybrid price collection...`);
-  console.log(`[HybridCollector:${executionId}] Sources: MetaAPI (primary) + Finnhub (fallback)`);
+  console.log(`[HybridCollector:${executionId}] Starting hybrid price collection...`);
+  console.log(`[HybridCollector:${executionId}] Forex symbols: ${FOREX_SYMBOLS.join(', ')}`);
+  console.log(`[HybridCollector:${executionId}] Crypto symbols (24/7): ${CRYPTO_SYMBOLS.join(', ')}`);
   console.log(`[HybridCollector:${executionId}] Collecting ${TICKS_PER_MINUTE} ticks over ${MAX_EXECUTION_TIME_MS / 1000}s...`);
 
   try {
@@ -228,15 +296,14 @@ export const handler: Handler = async (event, context) => {
     const duration = Date.now() - startTime;
     const avgTicksPerSymbol = totalTicksCollected / ACTIVE_SYMBOLS.length;
 
-    console.log(`[HybridCollector:${executionId}] ✅ Completed in ${duration}ms`);
-    console.log(`[HybridCollector:${executionId}] 📊 Total: ${totalTicksCollected} ticks collected, ${totalTicksFailed} failed`);
-    console.log(`[HybridCollector:${executionId}] 🎯 Average: ${avgTicksPerSymbol.toFixed(1)} ticks per symbol`);
-    console.log(`[HybridCollector:${executionId}] 📡 Sources: MetaAPI=${sourceStats.metaapi}, Finnhub=${sourceStats.finnhub}`);
-    console.log(`[HybridCollector:${executionId}] 🚀 Improvement: ${avgTicksPerSymbol}x more ticks than before`);
+    console.log(`[HybridCollector:${executionId}] Completed in ${duration}ms`);
+    console.log(`[HybridCollector:${executionId}] Total: ${totalTicksCollected} ticks collected, ${totalTicksFailed} failed`);
+    console.log(`[HybridCollector:${executionId}] Average: ${avgTicksPerSymbol.toFixed(1)} ticks per symbol`);
+    console.log(`[HybridCollector:${executionId}] Sources: MetaAPI=${sourceStats.metaapi}, Finnhub=${sourceStats.finnhub}, Binance=${sourceStats.binance}`);
 
-    const finnhubUsagePercent = (sourceStats.finnhub / totalTicksCollected) * 100;
+    const finnhubUsagePercent = totalTicksCollected > 0 ? (sourceStats.finnhub / totalTicksCollected) * 100 : 0;
     if (finnhubUsagePercent > 20) {
-      console.warn(`[HybridCollector:${executionId}] ⚠️ Finnhub used for ${finnhubUsagePercent.toFixed(1)}% of ticks - MetaAPI may have issues`);
+      console.warn(`[HybridCollector:${executionId}] Finnhub used for ${finnhubUsagePercent.toFixed(1)}% - MetaAPI may have issues`);
     }
 
     return {

@@ -21,6 +21,7 @@ import { supabase } from '@/lib/supabase';
 import { logger, LogCategory } from '@/lib/logger';
 import { globalToastManager } from './global-toast-manager';
 import { notificationManager } from './notification-manager';
+import { is24HourSymbol } from '@/utils/marketHours';
 
 // Global shutdown flags
 let SCANNING_DISABLED = false;
@@ -173,10 +174,13 @@ class WeekendProtectionService {
     };
   }
 
-  canOpenNewTrade(): { allowed: boolean; reason?: string } {
+  canOpenNewTrade(symbol?: string): { allowed: boolean; reason?: string } {
+    if (symbol && is24HourSymbol(symbol)) {
+      return { allowed: true };
+    }
+
     const status = this.getWeekendStatus();
 
-    // Block during weekend
     if (status.isWeekend) {
       return {
         allowed: false,
@@ -184,7 +188,6 @@ class WeekendProtectionService {
       };
     }
 
-    // Block if systems are shut down
     if (SCANNING_DISABLED || LLM_API_DISABLED) {
       return {
         allowed: false,
@@ -380,7 +383,7 @@ class WeekendProtectionService {
   }
 
   /**
-   * Close all open trades
+   * Close all open trades (excludes crypto - they trade 24/7)
    */
   private async closeAllOpenTrades(): Promise<number> {
     try {
@@ -393,9 +396,23 @@ class WeekendProtectionService {
         return 0;
       }
 
+      const forexTrades = trades.filter(t => !is24HourSymbol(t.symbol));
+      const cryptoTrades = trades.filter(t => is24HourSymbol(t.symbol));
+
+      if (cryptoTrades.length > 0) {
+        logger.info(
+          LogCategory.POSITION_MONITOR,
+          `Skipping ${cryptoTrades.length} crypto trade(s) - 24/7 markets stay open`
+        );
+      }
+
+      if (forexTrades.length === 0) {
+        return 0;
+      }
+
       let closedCount = 0;
 
-      for (const trade of trades) {
+      for (const trade of forexTrades) {
         try {
           // Get current price
           const { data: priceData } = await supabase

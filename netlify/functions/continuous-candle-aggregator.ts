@@ -6,7 +6,13 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
+const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500'];
+const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'];
+const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS, ...CRYPTO_SYMBOLS];
+
+function isCryptoSymbol(symbol: string): boolean {
+  return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
+}
 
 // CRITICAL: Process M1, M5, M15 every run to ensure continuous data (runs every 5 min)
 // These are the most commonly used timeframes and must always have fresh data
@@ -105,34 +111,32 @@ function getTimeframesToProcess(): string[] {
 /**
  * Check if a specific date/time is during open market hours
  * Uses EST/EDT timezone (New York) to properly handle daylight saving time
- * Market closes Friday 5:00 PM EST and opens Sunday 5:00 PM EST
+ * Forex: Market closes Friday 5:00 PM EST and opens Sunday 5:00 PM EST
+ * Crypto: Market is open 24/7/365
  */
-function isMarketOpenAtTime(date: Date): boolean {
-  // Convert to EST/EDT (New York timezone) - automatically handles DST
+function isMarketOpenAtTime(date: Date, symbol?: string): boolean {
+  if (symbol && isCryptoSymbol(symbol)) {
+    return true;
+  }
+
   const estTime = new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
 
-  const dayOfWeek = estTime.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
+  const dayOfWeek = estTime.getDay();
   const hours = estTime.getHours();
   const minutes = estTime.getMinutes();
   const totalMinutes = hours * 60 + minutes;
 
-  // Friday 5:00 PM = 17:00 = 1020 minutes
   const fridayCloseTime = 17 * 60;
-
-  // Sunday 5:00 PM = 17:00 = 1020 minutes
   const sundayOpenTime = 17 * 60;
 
-  // Market is closed on Saturday (all day)
   if (dayOfWeek === 6) {
     return false;
   }
 
-  // Market is closed Friday after 5:00 PM
   if (dayOfWeek === 5 && totalMinutes >= fridayCloseTime) {
     return false;
   }
 
-  // Market is closed Sunday before 5:00 PM
   if (dayOfWeek === 0 && totalMinutes < sundayOpenTime) {
     return false;
   }
@@ -729,9 +733,8 @@ async function aggregateCandlesForSymbol(
 
       if (candle) {
         // CRITICAL: Check if candle is during market open hours
-        // Skip weekend candles using proper EST/EDT timezone conversion
-        if (!isMarketOpenAtTime(candle.open_time)) {
-          // Skip weekend candle - market is closed
+        // Skip weekend candles for forex (crypto trades 24/7)
+        if (!isMarketOpenAtTime(candle.open_time, symbol)) {
           currentCandleToCreate = new Date(currentCandleToCreate.getTime() + timeframeMinutes * 60 * 1000);
           continue;
         }

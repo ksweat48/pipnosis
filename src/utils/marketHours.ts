@@ -267,3 +267,98 @@ export function getTimeframeLookbackHours(timeframe: string): number {
 
   return lookbackMap[timeframe] || 720; // Default to 30 days
 }
+
+const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'];
+
+export function isCryptoSymbol(symbol: string): boolean {
+  return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
+}
+
+export function is24HourSymbol(symbol: string): boolean {
+  return isCryptoSymbol(symbol);
+}
+
+export interface SymbolMarketStatus {
+  symbol: string;
+  isOpen: boolean;
+  status: 'Open' | 'Closed';
+  is24Hour: boolean;
+  reason?: string;
+}
+
+export function getSymbolMarketStatus(symbol: string): SymbolMarketStatus {
+  const normalizedSymbol = symbol.toUpperCase();
+
+  if (is24HourSymbol(normalizedSymbol)) {
+    return {
+      symbol: normalizedSymbol,
+      isOpen: true,
+      status: 'Open',
+      is24Hour: true,
+      reason: 'Crypto markets are open 24/7'
+    };
+  }
+
+  const forexStatus = getForexMarketStatus();
+
+  return {
+    symbol: normalizedSymbol,
+    isOpen: forexStatus.isOpen,
+    status: forexStatus.status,
+    is24Hour: false,
+    reason: forexStatus.isOpen
+      ? 'Forex/Index market open'
+      : 'Forex/Index market closed (Weekend: Fri 5pm - Sun 5pm EST)'
+  };
+}
+
+export function isSymbolMarketOpen(symbol: string): boolean {
+  return getSymbolMarketStatus(symbol).isOpen;
+}
+
+export function isSymbolMarketOpenAt(symbol: string, unixTimestamp: number): boolean {
+  if (is24HourSymbol(symbol)) {
+    return true;
+  }
+  return isMarketOpenAt(unixTimestamp);
+}
+
+export function getOpenSymbols(symbols: string[]): string[] {
+  return symbols.filter(symbol => isSymbolMarketOpen(symbol));
+}
+
+export function getClosedSymbols(symbols: string[]): string[] {
+  return symbols.filter(symbol => !isSymbolMarketOpen(symbol));
+}
+
+export function hasAnyOpenMarket(symbols: string[]): boolean {
+  return symbols.some(symbol => isSymbolMarketOpen(symbol));
+}
+
+export function getAllMarketsStatus(symbols: string[]): {
+  allOpen: boolean;
+  allClosed: boolean;
+  cryptoOpen: boolean;
+  forexOpen: boolean;
+  openCount: number;
+  closedCount: number;
+} {
+  const cryptoSymbols = symbols.filter(s => is24HourSymbol(s));
+  const forexSymbols = symbols.filter(s => !is24HourSymbol(s));
+
+  const forexStatus = getForexMarketStatus();
+  const cryptoOpen = cryptoSymbols.length > 0;
+  const forexOpen = forexSymbols.length > 0 && forexStatus.isOpen;
+
+  const openCount = cryptoSymbols.length + (forexStatus.isOpen ? forexSymbols.length : 0);
+  const closedCount = symbols.length - openCount;
+
+  return {
+    allOpen: openCount === symbols.length,
+    allClosed: openCount === 0,
+    cryptoOpen,
+    forexOpen,
+    openCount,
+    closedCount
+  };
+}

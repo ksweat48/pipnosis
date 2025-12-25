@@ -62,9 +62,14 @@ export function isIndex(symbol: string): boolean {
  */
 export function isCrypto(symbol: string): boolean {
   const normalized = safeNormalizeSymbol(symbol);
-  return normalized.includes('BTC') ||
+  return normalized === 'BTCUSD' ||
+         normalized === 'ETHUSD' ||
+         normalized === 'SOLUSD' ||
+         normalized === 'BNBUSD' ||
+         normalized.includes('BTC') ||
          normalized.includes('ETH') ||
-         normalized.includes('USDT');
+         normalized.includes('SOL') ||
+         normalized.includes('BNB');
 }
 
 /**
@@ -97,8 +102,48 @@ export function getCurrencyPipInfo(symbol: string): CurrencyPipInfo {
     };
   }
 
-  // Crypto pairs (BTC, ETH, etc.)
+  // Crypto pairs (BTC, ETH, SOL, BNB)
   if (isCrypto(symbol)) {
+    if (normalized === 'BTCUSD' || normalized.includes('BTC')) {
+      return {
+        pipValue: 1.0,
+        pipMultiplier: 1,
+        decimalPlaces: 2,
+        contractSize: 1,
+        dollarPerPipPerLot: 1.0,
+        symbolType: 'crypto'
+      };
+    }
+    if (normalized === 'ETHUSD' || normalized.includes('ETH')) {
+      return {
+        pipValue: 0.1,
+        pipMultiplier: 1,
+        decimalPlaces: 2,
+        contractSize: 1,
+        dollarPerPipPerLot: 0.1,
+        symbolType: 'crypto'
+      };
+    }
+    if (normalized === 'SOLUSD' || normalized.includes('SOL')) {
+      return {
+        pipValue: 0.01,
+        pipMultiplier: 1,
+        decimalPlaces: 2,
+        contractSize: 1,
+        dollarPerPipPerLot: 0.01,
+        symbolType: 'crypto'
+      };
+    }
+    if (normalized === 'BNBUSD' || normalized.includes('BNB')) {
+      return {
+        pipValue: 0.1,
+        pipMultiplier: 1,
+        decimalPlaces: 2,
+        contractSize: 1,
+        dollarPerPipPerLot: 0.1,
+        symbolType: 'crypto'
+      };
+    }
     return {
       pipValue: 1.0,
       pipMultiplier: 1,
@@ -211,16 +256,18 @@ export function calculateDollarPerPip(
   positionSize: number
 ): number {
   if (isXAUUSD(symbol)) {
-    // XAUUSD: 0.01 lot = $1/pip, 1.0 lot = $100/pip
     return positionSize * 100;
   }
 
   if (isIndex(symbol)) {
-    // Indices: 0.01 lot = $1/point, 1.0 lot = $100/point (typical)
     return positionSize * 100;
   }
 
-  // Standard Forex: 0.01 lot = $0.10/pip, 0.1 lot = $1/pip, 1.0 lot = $10/pip
+  if (isCrypto(symbol)) {
+    const pipInfo = getCurrencyPipInfo(symbol);
+    return positionSize * pipInfo.dollarPerPipPerLot;
+  }
+
   return positionSize * 10;
 }
 
@@ -252,15 +299,13 @@ export function calculatePositionSize(
   let positionSize: number;
 
   if (isXAUUSD(symbol)) {
-    // XAUUSD: 0.01 lot = $1/pip
-    // Formula: Risk / (Pips × $100 per full lot) = lot size
     positionSize = riskAmount / (stopDistancePips * 100);
   } else if (isIndex(symbol)) {
-    // Indices: 0.01 lot = $1/point
     positionSize = riskAmount / (stopDistancePips * 100);
+  } else if (isCrypto(symbol)) {
+    const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
+    positionSize = riskAmount / (stopDistancePips * dollarPerPipPerLot);
   } else {
-    // Forex: 0.01 lot = $0.10/pip, full lot = $10/pip
-    // Formula: Risk / (Pips × $10 per full lot) = lot size
     positionSize = riskAmount / (stopDistancePips * 10);
   }
 
@@ -268,7 +313,8 @@ export function calculatePositionSize(
   const minSize = 0.01;
   const maxSize = pipInfo.symbolType === 'metal' ? 10.0 :
                   pipInfo.symbolType === 'index' ? 1.0 :
-                  5.0; // forex
+                  pipInfo.symbolType === 'crypto' ? 10.0 :
+                  5.0;
 
   positionSize = Math.max(minSize, Math.min(maxSize, positionSize));
 
@@ -502,7 +548,7 @@ export function calculateGoalOptimalPosition(
 
   // REVERSE CALCULATION: What lot size gives us goal profit at optimal pips?
   const optimalPips = commonMovePips;
-  const dollarPerPipAtOneLot = isXAUUSD(symbol) ? 100 : isIndex(symbol) ? 100 : 10;
+  const dollarPerPipAtOneLot = isXAUUSD(symbol) ? 100 : isIndex(symbol) ? 100 : isCrypto(symbol) ? pipInfo.dollarPerPipPerLot : 10;
   const requiredLotSizeForOptimal = remainingGoal / (optimalPips * dollarPerPipAtOneLot);
 
   console.log(`  Required Lot Size for ${optimalPips} pips: ${requiredLotSizeForOptimal.toFixed(3)}`);
@@ -512,7 +558,7 @@ export function calculateGoalOptimalPosition(
 
   // Apply absolute minimums and maximums
   const minLotSize = 0.01;
-  const maxLotSize = isXAUUSD(symbol) ? 10.0 : isIndex(symbol) ? 1.0 : 5.0;
+  const maxLotSize = isXAUUSD(symbol) ? 10.0 : isIndex(symbol) ? 1.0 : isCrypto(symbol) ? 10.0 : 5.0;
   actualLotSize = Math.max(minLotSize, Math.min(maxLotSize, actualLotSize));
 
   // Round to broker standard precision (0.01 lots)

@@ -18,10 +18,20 @@
 // Branded type - can't be assigned from regular string
 export type ValidatedSymbol = string & { readonly __brand: 'ValidatedSymbol' };
 
-// Known forex symbols - exhaustive list
+// Known trading symbols - exhaustive list
 export const KNOWN_SYMBOLS = [
+  // Metals
   'XAUUSD',  // Gold
+  'XAGUSD',  // Silver
+  'XPTUSD',  // Platinum
+  'XPDUSD',  // Palladium
+  // Indices
   'US30',    // Dow Jones
+  'NAS100',  // NASDAQ
+  'SPX500',  // S&P 500
+  'UK100',   // FTSE 100
+  'GER40',   // DAX
+  // Major Forex
   'EURUSD',  // Euro/USD
   'GBPUSD',  // Pound/USD
   'USDJPY',  // USD/Yen
@@ -29,20 +39,18 @@ export const KNOWN_SYMBOLS = [
   'USDCAD',  // USD/Canadian
   'NZDUSD',  // Kiwi/USD
   'USDCHF',  // USD/Franc
+  // Cross Forex
   'EURGBP',  // Euro/Pound
   'EURJPY',  // Euro/Yen
   'GBPJPY',  // Pound/Yen
   'AUDJPY',  // Aussie/Yen
   'EURAUD',  // Euro/Aussie
-  'XAGUSD',  // Silver
-  'XPTUSD',  // Platinum
-  'XPDUSD',  // Palladium
-  'NAS100',  // NASDAQ
-  'SPX500',  // S&P 500
-  'UK100',   // FTSE 100
-  'GER40',   // DAX
+  // Crypto (24/7)
   'BTCUSD',  // Bitcoin
   'ETHUSD',  // Ethereum
+  'SOLUSD',  // Solana
+  'BNBUSD',  // BNB
+  // Energy
   'USOIL',   // WTI Crude
   'UKOIL',   // Brent Crude
 ] as const;
@@ -177,12 +185,23 @@ export function isPrimarySymbol(symbol: ValidatedSymbol): symbol is PrimarySymbo
 export type SymbolCategory = 'forex' | 'metal' | 'index' | 'crypto' | 'energy';
 
 export function getSymbolCategory(symbol: ValidatedSymbol): SymbolCategory {
-  if (symbol.includes('USD') && !symbol.startsWith('X')) return 'forex';
   if (symbol.startsWith('X') && symbol.endsWith('USD')) return 'metal';
   if (['US30', 'NAS100', 'SPX500', 'UK100', 'GER40'].includes(symbol)) return 'index';
-  if (['BTCUSD', 'ETHUSD'].includes(symbol)) return 'crypto';
+  if (['BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(symbol)) return 'crypto';
   if (symbol.includes('OIL')) return 'energy';
-  return 'forex'; // default
+  if (symbol.includes('USD') || symbol.includes('JPY') || symbol.includes('GBP') || symbol.includes('EUR') || symbol.includes('CHF') || symbol.includes('AUD') || symbol.includes('NZD') || symbol.includes('CAD')) return 'forex';
+  return 'forex';
+}
+
+export const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'] as const;
+export type CryptoSymbol = typeof CRYPTO_SYMBOLS[number];
+
+export function isCryptoSymbol(symbol: string): boolean {
+  return CRYPTO_SYMBOLS.includes(symbol.toUpperCase() as CryptoSymbol);
+}
+
+export function is24HourSymbol(symbol: string): boolean {
+  return isCryptoSymbol(symbol);
 }
 
 // Symbol equality check (type-safe)
