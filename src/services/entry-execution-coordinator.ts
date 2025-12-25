@@ -12,9 +12,29 @@ export class EntryExecutionCoordinator {
     sessionId: string,
     decision: AlphaDecision,
     symbol: string
-  ): Promise<{ shouldExecuteImmediately: boolean; intentId?: string }> {
+  ): Promise<{ shouldExecuteImmediately: boolean; intentId?: string; waitConditionId?: string }> {
     if (decision.action === 'NO_TRADE') {
       return { shouldExecuteImmediately: false };
+    }
+
+    // Handle WAIT decision - create wait_condition and monitor
+    if (decision.action === 'WAIT' && decision.wait_condition) {
+      logger.info('Alpha decided to WAIT for better entry conditions');
+
+      const waitConditionId = await this.createWaitCondition(
+        userId,
+        sessionId,
+        decision,
+        symbol
+      );
+
+      if (!waitConditionId) {
+        logger.error('Failed to create wait condition, converting to NO_TRADE');
+        return { shouldExecuteImmediately: false };
+      }
+
+      logger.info(`Wait condition created: ${waitConditionId} - monitoring for zone entry`);
+      return { shouldExecuteImmediately: false, waitConditionId };
     }
 
     if (!decision.entry_intent) {
@@ -192,5 +212,58 @@ export class EntryExecutionCoordinator {
 
   static async getUserActiveIntents(userId: string): Promise<EntryIntent[]> {
     return EntryPlannerService.getActiveIntents(userId);
+  }
+
+  private static async createWaitCondition(
+    userId: string,
+    sessionId: string,
+    decision: AlphaDecision,
+    symbol: string
+  ): Promise<string | null> {
+    try {
+      if (!decision.wait_condition) {
+        return null;
+      }
+
+      const { data, error } = await supabase
+        .from('wait_conditions')
+        .insert({
+          user_id: userId,
+          session_id: sessionId,
+          symbol,
+          direction: decision.action === 'WAIT' ? (decision.reasoning.includes('BUY') ? 'BUY' : 'SELL') : 'BUY',
+          current_price: decision.entry,
+          target_entry_zone_min: decision.wait_condition.target_entry_zone_min,
+          target_entry_zone_max: decision.wait_condition.target_entry_zone_max,
+          invalidation_price: decision.wait_condition.invalidation_price,
+          confidence: decision.confidence,
+          wait_reasoning: decision.wait_condition.wait_reasoning,
+          alpha_decision_snapshot: {
+            stopLoss: decision.stopLoss,
+            takeProfit: decision.takeProfit,
+            reasoning: decision.reasoning,
+            omega_summary: decision.omega_summary
+          },
+          omega_votes: decision.omega_votes,
+          status: 'active'
+        })
+        .select('id')
+        .single();
+
+      if (error || !data) {
+        logger.error('Failed to create wait condition:', error);
+        return null;
+      }
+
+      globalToastManager.show(
+        `⏳ Waiting for ${symbol} to enter zone ${decision.wait_condition.target_entry_zone_min.toFixed(5)}-${decision.wait_condition.target_entry_zone_max.toFixed(5)}`,
+        'info'
+      );
+
+      return data.id;
+    } catch (error) {
+      logger.error('Error creating wait condition:', error);
+      return null;
+    }
   }
 }

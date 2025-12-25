@@ -115,8 +115,8 @@ export interface AlphaOverride {
 }
 
 export interface AlphaDecision {
-  action: 'BUY' | 'SELL' | 'NO_TRADE';
-  decision: 'BUY' | 'SELL' | 'NO_TRADE';
+  action: 'BUY' | 'SELL' | 'NO_TRADE' | 'WAIT';
+  decision: 'BUY' | 'SELL' | 'NO_TRADE' | 'WAIT';
   entry: number;
   stopLoss: number;
   takeProfit: number;
@@ -142,6 +142,13 @@ export interface AlphaDecision {
     entry_zone_min: number;
     entry_zone_max: number;
     timeout_minutes: number;
+  };
+  wait_condition?: {
+    target_entry_zone_min: number;
+    target_entry_zone_max: number;
+    invalidation_price: number;
+    wait_reasoning: string;
+    expected_wait_minutes?: number;
   };
 }
 
@@ -719,6 +726,34 @@ Act accordingly.
 
     const prompt = `You are Alpha, the final decision maker. You have COMPLETE AUTHORITY to accept or override ANY recommendation.
 
+🎯 CONFIDENCE LANGUAGE GUIDELINES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Be DECISIVE. Avoid hedging language.
+
+✅ USE (Confident):
+"Executing BUY - confluence at support"
+"Taking the trade - momentum confirmed"
+"WAIT for pullback to 1.0850 VWAP zone"
+"NO_TRADE - mixed signals, no edge"
+"Strong setup - executing immediately"
+
+❌ AVOID (Hedging):
+"Could be a good opportunity..."
+"Might consider entering if..."
+"Perhaps we should wait..."
+"This seems like it could work..."
+"May want to consider..."
+
+Your reasoning should sound like a senior trader making a firm decision, not a junior analyst presenting possibilities.
+
+Confidence bands:
+85-100: "Excellent setup" / "Strong confluence" / "Clear edge"
+70-84: "Solid setup" / "Good conditions" / "Favorable"
+55-69: "Acceptable conditions" / "Modest edge"
+40-54: "Marginal setup" / "Weak edge"
+<40: "Insufficient edge" / "Unfavorable conditions"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 ${context}
 
 WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${intelligenceContext}${goalContextText}${liquidityContext}${stopLossDirective}
@@ -742,22 +777,55 @@ YOUR AUTHORITY & SAFETY ZONES:
   • ORANGE (R:R 0.5-1.0:1): Risky - requires override reasoning
   • RED (R:R<0.5:1): HARD BLOCK - cannot override
 
+⏳ WAIT vs NO_TRADE DECISION FRAMEWORK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Use WAIT when:
+✓ Edge detected, but timing is wrong
+✓ Need price to pull back into better zone
+✓ Awaiting structural confirmation
+✓ Setup valid but entry price currently unfavorable
+✓ Would execute if price reaches specific target zone
+
+Use NO_TRADE when:
+✗ No edge detected
+✗ Market conditions unfavorable
+✗ Risk/reward insufficient regardless of entry
+✗ Setup invalidated or uncertain
+✗ Would NOT execute even with better price
+
+WAIT example: "BUY bias confirmed, but price 20 pips above VWAP. WAIT for pullback to 1.0850-1.0870 zone."
+NO_TRADE example: "Mixed signals, no clear directional bias. NO_TRADE."
+
+When choosing WAIT, specify:
+• Target entry zone (min/max prices)
+• Invalidation price (where setup becomes invalid)
+• Wait reasoning (what you're waiting for)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 POSITIONING RULES:
 BUY: SL below entry, TP above | SELL: SL above entry, TP below
 
 Return JSON with structured reasoning:
 {
-  "action": "BUY|SELL|NO_TRADE",
+  "action": "BUY|SELL|NO_TRADE|WAIT",
   "entry": price,
   "stopLoss": price,
   "takeProfit": price,
   "confidence": 0-100,
   "reasoning": "[CONSENSUS: summary] [MARKET: key factors] [DECISION: rationale] [OVERRIDES: if any with justification]",
+  "wait_condition": {
+    "target_entry_zone_min": price,
+    "target_entry_zone_max": price,
+    "invalidation_price": price,
+    "wait_reasoning": "what you're waiting for"
+  },
   "override": {
     "type": "adversarial_block|regime_avoid|risk_limit|none",
     "justification": "statistical reasoning if override occurred"
   }
-}`;
+}
+
+Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omit wait_condition.`;
 
     try {
       const response = await openAIClient.chat(
@@ -916,8 +984,8 @@ Return JSON with structured reasoning:
         }
       }
 
-      // Omega-9 validation (final safety check)
-      if (decision.action !== 'NO_TRADE') {
+      // Omega-9 validation (final safety check) - skip for WAIT since we're not executing yet
+      if (decision.action !== 'NO_TRADE' && decision.action !== 'WAIT') {
         console.log('[Alpha Coordinator] 🛡️ Running Omega-9 validation...');
 
         const omega9Input: Omega9Input = {
@@ -1007,8 +1075,8 @@ Return JSON with structured reasoning:
         console.log('[Alpha Coordinator] ✅ Omega-9 validation passed');
       }
 
-      // Time-to-Fill validation (CRITICAL FOR INTRADAY FOCUS)
-      if (decision.action !== 'NO_TRADE') {
+      // Time-to-Fill validation (CRITICAL FOR INTRADAY FOCUS) - skip for WAIT
+      if (decision.action !== 'NO_TRADE' && decision.action !== 'WAIT') {
         console.log('[Alpha Coordinator] ⏱️  Running Time-to-Fill validation...');
 
         const tpDistancePips = Math.abs(decision.takeProfit - decision.entry) / (marketContext.symbol.includes('JPY') ? 0.01 : 0.0001);
@@ -1056,7 +1124,13 @@ Return JSON with structured reasoning:
       console.log('[Alpha Coordinator] Reasoning:', decision.reasoning);
       console.log('[Alpha Coordinator] Omega Summary:', decision.omega_summary);
 
-      if (decision.action !== 'NO_TRADE') {
+      if (decision.action === 'WAIT' && decision.wait_condition) {
+        console.log(`[Alpha Coordinator] ⏳ WAIT Decision: Targeting zone ${decision.wait_condition.target_entry_zone_min.toFixed(5)}-${decision.wait_condition.target_entry_zone_max.toFixed(5)}`);
+        console.log(`[Alpha Coordinator] ⏳ Invalidation: ${decision.wait_condition.invalidation_price.toFixed(5)}`);
+        console.log(`[Alpha Coordinator] ⏳ Reason: ${decision.wait_condition.wait_reasoning}`);
+      }
+
+      if (decision.action !== 'NO_TRADE' && decision.action !== 'WAIT') {
         try {
           const { EntryIntentClassifier } = await import('../services/entry-intent-classifier');
           const entryIntent = EntryIntentClassifier.classifyEntryIntent(
@@ -1097,7 +1171,7 @@ Return JSON with structured reasoning:
     votes: OmegaCouncilVotes,
     weights: Record<string, number>
   ): {
-    direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED';
+    direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED' | 'WAIT';
     score: number;
     agreementCount: number;
     totalVotes: number;
@@ -1465,7 +1539,7 @@ Return JSON with structured reasoning:
 
       // Validate and sanitize action
       let action = parsed.action || 'NO_TRADE';
-      if (!['BUY', 'SELL', 'NO_TRADE'].includes(action)) {
+      if (!['BUY', 'SELL', 'NO_TRADE', 'WAIT'].includes(action)) {
         action = 'NO_TRADE';
       }
 
@@ -1479,6 +1553,35 @@ Return JSON with structured reasoning:
           confidence: Math.min(100, Math.max(0, parsed.confidence || 0)),
           reasoning: parsed.reasoning || 'No reasoning provided',
           omega_summary: ''
+        };
+      }
+
+      // If WAIT, return with wait_condition
+      if (action === 'WAIT') {
+        const waitCondition = parsed.wait_condition;
+
+        if (!waitCondition || !waitCondition.target_entry_zone_min || !waitCondition.target_entry_zone_max || !waitCondition.invalidation_price) {
+          console.error('[Alpha Coordinator] WAIT action missing required wait_condition fields');
+          return {
+            action: 'NO_TRADE',
+            entry: currentPrice,
+            stopLoss: currentPrice,
+            takeProfit: currentPrice,
+            confidence: 0,
+            reasoning: 'WAIT decision malformed - missing target zones',
+            omega_summary: ''
+          };
+        }
+
+        return {
+          action: 'WAIT',
+          entry: (waitCondition.target_entry_zone_min + waitCondition.target_entry_zone_max) / 2,
+          stopLoss: waitCondition.invalidation_price,
+          takeProfit: currentPrice,
+          confidence: Math.min(100, Math.max(0, parsed.confidence || 0)),
+          reasoning: parsed.reasoning || 'Waiting for better entry conditions',
+          omega_summary: '',
+          wait_condition: waitCondition
         };
       }
 
