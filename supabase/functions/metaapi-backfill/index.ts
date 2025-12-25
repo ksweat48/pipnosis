@@ -17,6 +17,10 @@ const SYMBOL_CONFIGS: SymbolConfig[] = [
   { symbol: 'ETHUSD', daysBack: 7 },
   { symbol: 'NAS100', daysBack: 7 },
   { symbol: 'SPX500', daysBack: 7 },
+  { symbol: 'GBPJPY', daysBack: 90 },
+  { symbol: 'EURJPY', daysBack: 90 },
+  { symbol: 'AUDUSD', daysBack: 90 },
+  { symbol: 'NZDUSD', daysBack: 90 },
 ];
 
 interface MetaAPICandle {

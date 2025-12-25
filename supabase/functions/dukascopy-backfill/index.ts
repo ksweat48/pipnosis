@@ -39,10 +39,14 @@ const DUKASCOPY_SYMBOL_MAP: Record<string, string> = {
   'USDJPY': 'usdjpy',
   'XAUUSD': 'xauusd',
   'US30': 'us30',
+  'GBPJPY': 'gbpjpy',
+  'EURJPY': 'eurjpy',
+  'AUDUSD': 'audusd',
+  'NZDUSD': 'nzdusd',
 };
 
 interface DukascopyCandle {
-  timestamp: number; // milliseconds
+  timestamp: number;
   open: number;
   high: number;
   low: number;
@@ -78,7 +82,7 @@ Deno.serve(async (req: Request) => {
     const specificSymbol = url.searchParams.get('symbol');
     const specificTimeframe = url.searchParams.get('timeframe') as Timeframe | null;
     const daysBack = parseInt(url.searchParams.get('days') || '30', 10);
-    const overwrite = url.searchParams.get('overwrite') !== 'false'; // Default true
+    const overwrite = url.searchParams.get('overwrite') !== 'false';
 
     const symbolsToProcess = specificSymbol
       ? [specificSymbol]
@@ -92,7 +96,6 @@ Deno.serve(async (req: Request) => {
     console.log(`📅 Days back: ${daysBack}`);
     console.log(`♻️ Overwrite mode: ${overwrite ? 'ON (will replace existing candles)' : 'OFF (append only)'}`);
 
-    // Generate unique batch ID for this backfill operation
     const batchId = crypto.randomUUID();
     console.log(`🆔 Batch ID: ${batchId}`);
 
@@ -116,7 +119,6 @@ Deno.serve(async (req: Request) => {
           console.log(`\n📈 Processing ${symbol} ${timeframe}...`);
           progress.status = 'fetching';
 
-          // Fetch historical data from Dukascopy
           const candles = await fetchDukascopyHistoricalData(
             symbol,
             timeframe,
@@ -136,7 +138,6 @@ Deno.serve(async (req: Request) => {
           console.log(`  ✓ Fetched ${candles.length} candles from Dukascopy`);
           progress.status = 'saving';
 
-          // Delete existing candles if overwrite mode
           if (overwrite) {
             const { count, error: deleteError } = await supabase
               .from('forex_candles')
@@ -153,7 +154,6 @@ Deno.serve(async (req: Request) => {
             console.log(`  🗑️ Deleted ${count || 0} existing candles`);
           }
 
-          // Transform and save candles
           const transformedCandles = candles.map(candle => {
             const openTime = new Date(candle.timestamp);
             const closeTime = new Date(candle.timestamp + TIMEFRAME_MAP[timeframe].minutes * 60000);
@@ -176,7 +176,6 @@ Deno.serve(async (req: Request) => {
             };
           });
 
-          // Insert in batches
           const BATCH_SIZE = 1000;
           let savedCount = 0;
 
@@ -208,8 +207,6 @@ Deno.serve(async (req: Request) => {
         }
 
         results.push(progress);
-
-        // Rate limit: wait 500ms between requests
         await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
@@ -258,10 +255,6 @@ Deno.serve(async (req: Request) => {
   }
 });
 
-/**
- * Fetch historical data from Dukascopy API
- * Uses their free, publicly available historical data endpoint
- */
 async function fetchDukascopyHistoricalData(
   symbol: string,
   timeframe: Timeframe,
@@ -277,17 +270,11 @@ async function fetchDukascopyHistoricalData(
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - daysBack);
 
-  // Dukascopy API endpoint format
-  // Uses bi5 format (compressed binary) that gets auto-converted
-  const apiUrl = `https://datafeed.dukascopy.com/datafeed/${dukascopySymbol}/${timeframeConfig.dukascopyCode}/${startDate.getFullYear()}/${String(startDate.getMonth()).padStart(2, '0')}/${String(startDate.getDate()).padStart(2, '0')}/${endDate.getFullYear()}/${String(endDate.getMonth()).padStart(2, '0')}/${String(endDate.getDate()).padStart(2, '0')}`;
+  const jsonUrl = `https://freeserv.dukascopy.com/2.0/index.php?path=chart%2F${dukascopySymbol}%2F${timeframeConfig.dukascopyCode}&format=json&start=${Math.floor(startDate.getTime())}&end=${Math.floor(endDate.getTime())}`;
 
   console.log(`  📡 Fetching from Dukascopy: ${dukascopySymbol} ${timeframeConfig.dukascopyCode}`);
 
   try {
-    // Note: Dukascopy's API may require specific handling
-    // For now, we'll use a simpler approach with their JSON endpoint
-    const jsonUrl = `https://freeserv.dukascopy.com/2.0/index.php?path=chart%2F${dukascopySymbol}%2F${timeframeConfig.dukascopyCode}&format=json&start=${Math.floor(startDate.getTime())}&end=${Math.floor(endDate.getTime())}`;
-
     const response = await fetch(jsonUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; PipnosisBot/1.0)',
@@ -300,7 +287,6 @@ async function fetchDukascopyHistoricalData(
 
     const data = await response.json();
 
-    // Dukascopy returns data in format: [[timestamp, open, high, low, close, volume], ...]
     if (!Array.isArray(data) || data.length === 0) {
       return [];
     }
