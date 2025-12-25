@@ -48,7 +48,7 @@ export default defineConfig({
   },
   server: {
     // CRITICAL: Proper host configuration for Bolt preview
-    host: true, // MUST be true for Bolt/StackBlitz
+    host: '0.0.0.0', // Bind to all interfaces for bolt.new
     port: 5173,
     strictPort: false, // Allow fallback to different port
     cors: true, // Enable CORS for preview iframe
@@ -60,7 +60,11 @@ export default defineConfig({
     },
     // Ensure HMR works in preview
     hmr: {
-      clientPort: 5173
+      host: 'localhost',
+      protocol: 'ws'
+    },
+    watch: {
+      usePolling: true
     }
   },
   // Preview configuration for production builds
