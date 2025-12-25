@@ -4,14 +4,77 @@ export interface MarketStatus {
 }
 
 /**
+ * Check if today is a major market holiday
+ */
+function isTradingHoliday(estTime: Date): boolean {
+  const month = estTime.getMonth(); // 0 = January
+  const date = estTime.getDate();
+  const year = estTime.getFullYear();
+
+  // Christmas Day (December 25)
+  if (month === 11 && date === 25) return true;
+
+  // Christmas Eve (December 24) - typically closes early or fully closed
+  if (month === 11 && date === 24) return true;
+
+  // New Year's Day (January 1)
+  if (month === 0 && date === 1) return true;
+
+  // New Year's Eve (December 31) - typically closes early
+  if (month === 11 && date === 31) return true;
+
+  // Good Friday (calculate dynamically - Friday before Easter)
+  // Easter calculation (Computus algorithm)
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const easterMonth = Math.floor((h + l - 7 * m + 114) / 31) - 1;
+  const easterDay = ((h + l - 7 * m + 114) % 31) + 1;
+
+  // Good Friday is 2 days before Easter
+  const goodFridayDate = new Date(year, easterMonth, easterDay - 2);
+  if (month === goodFridayDate.getMonth() && date === goodFridayDate.getDate()) return true;
+
+  // Thanksgiving (4th Thursday of November)
+  if (month === 10) { // November
+    const firstDayOfMonth = new Date(year, 10, 1).getDay();
+    const fourthThursday = 1 + (11 - firstDayOfMonth) % 7 + 21;
+    if (date === fourthThursday) return true;
+  }
+
+  // Independence Day (July 4)
+  if (month === 6 && date === 4) return true;
+
+  return false;
+}
+
+/**
  * Determines if the Forex market is currently open
  * Forex market closes Friday 5:00 PM EST and reopens Sunday 5:00 PM EST
+ * Also accounts for major trading holidays
  */
 export function getForexMarketStatus(): MarketStatus {
   const now = new Date();
 
   // Convert current time to EST/EDT (New York timezone)
   const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+
+  // Check for holidays first
+  if (isTradingHoliday(estTime)) {
+    return {
+      isOpen: false,
+      status: 'Closed'
+    };
+  }
 
   const dayOfWeek = estTime.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
   const hours = estTime.getHours();

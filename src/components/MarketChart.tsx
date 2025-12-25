@@ -856,10 +856,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       return;
     }
 
-    // Check if market is open before processing poller update
-    if (!forexMarketStatus.isOpen) {
-      return;
-    }
+    // Allow historical data to display even when market is closed
+    // Only block if this is a "current" candle that's more recent than close time
+    // This ensures the chart shows historical data during closed hours
 
     const lastHistoricalTime = historicalCandlesRef.current.length > 0
       ? historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time

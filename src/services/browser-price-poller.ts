@@ -114,6 +114,14 @@ class BrowserPricePoller {
       return;
     }
 
+    // Check if market is open - stop polling during holidays and weekends
+    const { getForexMarketStatus } = await import('../utils/marketHours');
+    const marketStatus = getForexMarketStatus();
+    if (!marketStatus.isOpen) {
+      logger.info(LogCategory.BROWSER_POLLER, '🔒 Market closed (holiday/weekend) - skipping poll');
+      return;
+    }
+
     // Check if browser polling should be active on current page
     if (!pageContext.shouldEnableBrowserPolling()) {
       logger.info(
