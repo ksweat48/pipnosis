@@ -718,7 +718,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     }
 
     // Check if market is open before processing tick
-    if (!forexMarketStatus.isOpen) {
+    if (!symbolMarketStatus.isOpen) {
       return;
     }
 
