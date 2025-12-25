@@ -26,7 +26,7 @@ import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionS
 import { getRiskPercentage } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
 import { scanningStateMachine } from './scanning-state-machine';
-import { getForexMarketStatus } from '../utils/marketHours';
+import { hasAnyOpenMarket, isSymbolMarketOpen } from '../utils/marketHours';
 import { weekendProtectionService } from './weekend-protection-service';
 import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
 
@@ -464,13 +464,20 @@ class GoalSessionLiveEngine {
       console.log('[MULTI-SYMBOL] Open trades:', this.openTrades.length);
       console.log('[MULTI-SYMBOL] Max concurrent:', this.config.maxConcurrentTrades);
 
-      // 🛡️ CRITICAL: Check if market is open BEFORE any LLM calls or expensive operations
-      const marketStatus = getForexMarketStatus();
-      if (!marketStatus.isOpen) {
-        console.log('%c[MULTI-SYMBOL] 🛑 Market is CLOSED - Aborting scan to preserve LLM credits', 'color: #ff0000; font-weight: bold; font-size: 14px');
-        logger.info(LogCategory.AI_TRADING, '🛑 Market is closed - skipping scan to preserve LLM credits');
-        await this.sendAIMessage('⏸️ Market is closed. Scanning paused until market reopens. No LLM resources will be used while market is closed.');
+      // CRYPTO FIX: Check if ANY market is open BEFORE any LLM calls (crypto trades 24/7)
+      const anyMarketOpen = hasAnyOpenMarket(watchlist);
+      if (!anyMarketOpen) {
+        console.log('%c[MULTI-SYMBOL] 🛑 ALL MARKETS CLOSED - Aborting scan to preserve LLM credits', 'color: #ff0000; font-weight: bold; font-size: 14px');
+        logger.info(LogCategory.AI_TRADING, '🛑 All markets closed - skipping scan to preserve LLM credits');
+        await this.sendAIMessage('⏸️ All markets closed. Scanning paused until markets reopen. No LLM resources will be used while markets are closed.');
         return;
+      }
+
+      // Filter to only trade symbols with open markets
+      const openMarketSymbols = watchlist.filter(symbol => isSymbolMarketOpen(symbol));
+      if (openMarketSymbols.length < watchlist.length) {
+        console.log(`[MULTI-SYMBOL] 📊 Market filtering: ${openMarketSymbols.length}/${watchlist.length} symbols have open markets`);
+        console.log('[MULTI-SYMBOL] Open:', openMarketSymbols.join(', '));
       }
 
       // Additional check for weekend protection flags
@@ -507,11 +514,11 @@ class GoalSessionLiveEngine {
       }
 
       console.log('%c[MULTI-SYMBOL] ✅ Lock already held by parent - proceeding', 'color: #00ff00; font-weight: bold');
-      logger.debug(LogCategory.AI_TRADING, `📊 Building snapshots for ${watchlist.length} symbols...`);
+      logger.debug(LogCategory.AI_TRADING, `📊 Building snapshots for ${openMarketSymbols.length} symbols with open markets...`);
 
-      console.log('%c[MULTI-SYMBOL] 📊 Building market snapshots...', 'color: #2196f3; font-weight: bold');
+      console.log('%c[MULTI-SYMBOL] 📊 Building market snapshots for open markets...', 'color: #2196f3; font-weight: bold');
       const snapshotStartTime = Date.now();
-      const snapshotResult = await multiSymbolSnapshotBuilder.buildSnapshots(watchlist);
+      const snapshotResult = await multiSymbolSnapshotBuilder.buildSnapshots(openMarketSymbols);
       console.log('%c[MULTI-SYMBOL] ✅ Snapshots built in ' + (Date.now() - snapshotStartTime) + 'ms', 'color: #4caf50; font-weight: bold');
       console.log('[MULTI-SYMBOL] Snapshot result:', {
         totalSnapshots: snapshotResult.snapshots.length,

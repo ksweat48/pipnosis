@@ -599,20 +599,20 @@ class GlobalPollingCoordinator {
     this.marketCheckInterval = setInterval(() => {
       const marketStatus = getForexMarketStatus();
 
-      // Market just opened - resume polling
+      // CRYPTO FIX: Market just opened - resume forex polling (crypto never stopped)
       if (marketStatus.isOpen && this.isPaused && this.pauseReason === 'market_closed') {
-        console.log('🟢 Market opened! Resuming polling...');
+        console.log('🟢 Forex market opened! Resuming forex polling...');
         this.isPaused = false;
         this.pauseReason = null;
-        this.startAllPolling();
+        this.startForexPolling();
         this.notifyListeners();
       }
-      // Market just closed - stop polling immediately
+      // CRYPTO FIX: Market just closed - stop only forex polling (keep crypto active 24/7)
       else if (!marketStatus.isOpen && (!this.isPaused || this.pauseReason !== 'market_closed')) {
-        console.log('🔴 Market closed! Stopping all polling immediately...');
+        console.log('🔴 Forex market closed! Stopping forex polling (crypto continues 24/7)...');
         this.isPaused = true;
         this.pauseReason = 'market_closed';
-        this.stopAllPolling();
+        this.stopForexPolling();
         this.notifyListeners();
       }
     }, this.MARKET_CHECK_INTERVAL);

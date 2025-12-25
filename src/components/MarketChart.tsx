@@ -38,7 +38,7 @@ import {
   VolumeData,
   PatternDetection
 } from '@/utils/technicalIndicators';
-import { getForexMarketStatus, getTimeUntilMarketChange, type MarketStatus } from '@/utils/marketHours';
+import { getForexMarketStatus, getTimeUntilMarketChange, getSymbolMarketStatus, type MarketStatus, type SymbolMarketStatus } from '@/utils/marketHours';
 import { concurrentBulkLoader } from '@/services/concurrent-bulk-loader';
 import { ChartLoadingOverlay, BackgroundLoadingIndicator } from '@/components/ChartLoadingOverlay';
 import { priceValidationService } from '@/services/price-validation-service';
@@ -116,6 +116,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [priceSource, setPriceSource] = useState<'metaapi' | 'database' | 'offline'>('offline');
   const [directPollerActive, setDirectPollerActive] = useState(false);
   const [forexMarketStatus, setForexMarketStatus] = useState<MarketStatus>(() => getForexMarketStatus());
+  const [symbolMarketStatus, setSymbolMarketStatus] = useState<SymbolMarketStatus>(() => getSymbolMarketStatus(symbol));
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [cacheAge, setCacheAge] = useState<number | null>(null);
 
@@ -158,10 +159,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     const updateMarketStatus = () => {
       const newStatus = getForexMarketStatus();
+      const newSymbolStatus = getSymbolMarketStatus(symbol);
       const wasOpen = previousMarketStatus;
       const isNowOpen = newStatus.isOpen;
 
       setForexMarketStatus(newStatus);
+      setSymbolMarketStatus(newSymbolStatus);
 
       // Market just closed - freeze time range
       if (wasOpen && !isNowOpen && isMountedRef.current && chartRef.current) {
@@ -195,7 +198,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     const interval = setInterval(updateMarketStatus, 60000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [symbol]); // Re-check when symbol changes
 
   useEffect(() => {
     const handleVisibilityChange = async () => {
@@ -1919,8 +1922,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                   Data: {cacheAge < 1 ? 'Live' : `${Math.round(cacheAge)}min ago`}
                 </div>
               )}
-              <div className={`text-[10px] font-medium ${forexMarketStatus.isOpen ? 'text-green-400' : 'text-red-400'}`}>
-                Forex {forexMarketStatus.status}
+              <div className={`text-[10px] font-medium ${symbolMarketStatus.isOpen ? 'text-green-400' : 'text-red-400'}`}>
+                {symbolMarketStatus.is24Hour
+                  ? `Market Open 24/7`
+                  : symbolMarketStatus.isOpen
+                    ? 'Market Open'
+                    : 'Forex Closed'
+                }
               </div>
             </div>
           </div>

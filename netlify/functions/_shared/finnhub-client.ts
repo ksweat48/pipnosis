@@ -31,7 +31,9 @@ const SYMBOL_MAPPING: Record<string, string> = {
   'GBPUSD': 'OANDA:GBP_USD',
   'USDJPY': 'OANDA:USD_JPY',
   'XAUUSD': 'OANDA:XAU_USD',
-  'US30': 'OANDA:US30_USD'
+  'US30': 'OANDA:US30_USD',
+  'NAS100': 'OANDA:NAS100_USD',
+  'SPX500': 'OANDA:SPX500_USD'
 };
 
 const RESOLUTION_MAPPING: Record<string, string> = {

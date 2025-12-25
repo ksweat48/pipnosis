@@ -21,6 +21,8 @@ import { circuitBreakerService } from './circuit-breaker-service';
 import { pageContext } from './page-context';
 
 const FOREX_PAIRS = ['EURUSD', 'XAUUSD', 'US30', 'GBPUSD', 'USDJPY'];
+const CRYPTO_PAIRS = ['BTCUSD', 'ETHUSD'];
+const ALL_PAIRS = [...FOREX_PAIRS, ...CRYPTO_PAIRS];
 const POLL_INTERVAL_NORMAL_MS = 3000;
 const POLL_INTERVAL_DEGRADED_MS = 10000;
 const POLL_INTERVAL_CRITICAL_MS = 30000;
@@ -57,8 +59,8 @@ class BrowserPricePoller {
     this.mode = 'normal';
     this.totalConsecutiveErrors = 0;
 
-    // Initialize error tracking for each symbol
-    for (const symbol of FOREX_PAIRS) {
+    // Initialize error tracking for each symbol (forex + crypto)
+    for (const symbol of ALL_PAIRS) {
       this.symbolErrors.set(symbol, {
         consecutiveErrors: 0,
         lastError: null,
@@ -114,11 +116,11 @@ class BrowserPricePoller {
       return;
     }
 
-    // Check if market is open - stop polling during holidays and weekends
-    const { getForexMarketStatus } = await import('../utils/marketHours');
-    const marketStatus = getForexMarketStatus();
-    if (!marketStatus.isOpen) {
-      logger.info(LogCategory.BROWSER_POLLER, '🔒 Market closed (holiday/weekend) - skipping poll');
+    // CRYPTO FIX: Check if ANY market is open (crypto trades 24/7)
+    const { hasAnyOpenMarket, isSymbolMarketOpen } = await import('../utils/marketHours');
+    const anyMarketOpen = hasAnyOpenMarket(ALL_PAIRS);
+    if (!anyMarketOpen) {
+      logger.info(LogCategory.BROWSER_POLLER, '🔒 All markets closed - skipping poll');
       return;
     }
 
@@ -141,7 +143,12 @@ class BrowserPricePoller {
       let successCount = 0;
       let errorCount = 0;
 
-      for (const symbol of FOREX_PAIRS) {
+      for (const symbol of ALL_PAIRS) {
+        // CRYPTO FIX: Skip symbols with closed markets
+        if (!isSymbolMarketOpen(symbol)) {
+          logger.debug(LogCategory.BROWSER_POLLER, `⏸️ ${symbol} market closed - skipping`);
+          continue;
+        }
         try {
           // Skip if circuit is open and we should wait
           const canAttempt = circuitBreakerService.canAttemptRequest();

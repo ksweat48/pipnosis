@@ -7,7 +7,7 @@ import { validateSymbol, ValidatedSymbol } from '@/types/symbol';
 import { chartCircuitBreaker } from './chart-circuit-breaker';
 import { databaseResilienceWrapper } from './database-resilience-wrapper';
 import { chartMemoryManager } from './chart-memory-manager';
-import { getForexMarketStatus } from '@/utils/marketHours';
+import { getForexMarketStatus, isSymbolMarketOpen } from '@/utils/marketHours';
 
 interface PollResult {
   candles: CandleData[];
@@ -134,10 +134,9 @@ class ChartCandlePoller {
       return;
     }
 
-    // CRITICAL: Check market hours before polling
-    const marketStatus = getForexMarketStatus();
-    if (!marketStatus.isOpen) {
-      logger.debug(LogCategory.CHART_POLLER, `[ChartPoller] Market closed - skipping poll for ${symbol} ${timeframe}`);
+    // CRYPTO FIX: Check if this specific symbol's market is open (crypto trades 24/7)
+    if (!isSymbolMarketOpen(symbol)) {
+      logger.debug(LogCategory.CHART_POLLER, `[ChartPoller] Market closed for ${symbol} - skipping poll`);
       return;
     }
 
@@ -511,27 +510,28 @@ class ChartCandlePoller {
     // Initial check
     const initialStatus = getForexMarketStatus();
     this.lastMarketStatus = initialStatus.isOpen;
-    logger.info(LogCategory.CHART_POLLER, `[MarketHoursMonitor] Initial market status: ${initialStatus.status}`);
+    logger.info(LogCategory.CHART_POLLER, `[MarketHoursMonitor] Initial forex market status: ${initialStatus.status}`);
+    logger.info(LogCategory.CHART_POLLER, `[MarketHoursMonitor] Crypto markets: Always Open (24/7)`);
 
     this.marketHoursCheckInterval = setInterval(() => {
       const currentStatus = getForexMarketStatus();
       const isMarketOpen = currentStatus.isOpen;
 
-      // Detect market open/close transitions
+      // CRYPTO FIX: Detect market open/close transitions but DON'T pause/resume
+      // Per-symbol checks in pollCandles() will skip closed symbols
+      // This allows crypto to continue polling 24/7 even when forex is closed
       if (isMarketOpen !== this.lastMarketStatus) {
         if (!isMarketOpen) {
-          // Market just closed
-          logger.info(LogCategory.CHART_POLLER, '[MarketHoursMonitor] 🔴 Market closed - pausing all polling');
-          this.pause();
-          // Clear stale data trackers
+          // Forex market just closed - crypto continues
+          logger.info(LogCategory.CHART_POLLER, '[MarketHoursMonitor] 🔴 Forex market closed (crypto continues 24/7)');
+          // Clear stale data trackers for forex symbols only
           this.staleDataTracker.clear();
         } else {
-          // Market just opened
-          logger.info(LogCategory.CHART_POLLER, '[MarketHoursMonitor] 🟢 Market opened - resuming all polling');
+          // Forex market just opened
+          logger.info(LogCategory.CHART_POLLER, '[MarketHoursMonitor] 🟢 Forex market opened (crypto already active)');
           // Clear database cache to force fresh data fetch
           databaseResilienceWrapper.clearCache();
           this.staleDataTracker.clear();
-          this.resume();
         }
 
         this.lastMarketStatus = isMarketOpen;

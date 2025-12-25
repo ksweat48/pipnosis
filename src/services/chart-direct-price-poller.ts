@@ -25,7 +25,7 @@
 
 import { logger, LogCategory } from '@/lib/logger';
 import { priceValidationService } from './price-validation-service';
-import { getForexMarketStatus } from '@/utils/marketHours';
+import { isSymbolMarketOpen, hasAnyOpenMarket } from '@/utils/marketHours';
 
 interface LivePrice {
   symbol: string;
@@ -149,10 +149,12 @@ class ChartDirectPricePoller {
       return;
     }
 
-    // Check market hours before starting
-    const marketStatus = getForexMarketStatus();
-    if (!marketStatus.isOpen) {
-      logger.info(LogCategory.CHART, '🔴 Market closed - direct price polling not started');
+    // CRYPTO FIX: Check if ANY tracked symbol has an open market (crypto trades 24/7)
+    const trackedSymbolsArray = Array.from(this.trackedSymbols);
+    const hasOpenMarket = hasAnyOpenMarket(trackedSymbolsArray);
+
+    if (!hasOpenMarket && trackedSymbolsArray.length > 0) {
+      logger.info(LogCategory.CHART, '🔴 All markets closed - direct price polling not started');
       this.options.enabled = true; // Mark as enabled so it can resume when market opens
       return;
     }
@@ -207,12 +209,8 @@ class ChartDirectPricePoller {
       return;
     }
 
-    // CRITICAL: Check market hours before polling
-    const marketStatus = getForexMarketStatus();
-    if (!marketStatus.isOpen) {
-      logger.debug(LogCategory.CHART, '[DirectPricePoller] Market closed - skipping price poll');
-      return;
-    }
+    // CRYPTO FIX: No blanket market check - symbols are checked individually in fetchFromMetaAPI
+    // This allows crypto (24/7) to continue polling even when forex markets are closed
 
     try {
       // Try MetaAPI direct first
@@ -247,6 +245,12 @@ class ChartDirectPricePoller {
     const results: LivePrice[] = [];
 
     for (const symbol of this.trackedSymbols) {
+      // CRYPTO FIX: Check if this specific symbol's market is open before fetching
+      if (!isSymbolMarketOpen(symbol)) {
+        logger.debug(LogCategory.CHART, `[${symbol}] ⏸️ Market closed - skipping price fetch`);
+        continue;
+      }
+
       try {
         // CRITICAL FIX: Add symbol as URL param to prevent cache collisions between parallel requests
         const url = `/.netlify/functions/get-live-price?symbol=${encodeURIComponent(symbol)}&t=${Date.now()}`;
@@ -306,7 +310,14 @@ class ChartDirectPricePoller {
   private async fetchFromDatabase(): Promise<LivePrice[]> {
     const { supabase } = await import('@/lib/supabase');
 
-    const symbolList = Array.from(this.trackedSymbols);
+    // CRYPTO FIX: Only query symbols with open markets
+    const allSymbols = Array.from(this.trackedSymbols);
+    const symbolList = allSymbols.filter(symbol => isSymbolMarketOpen(symbol));
+
+    if (symbolList.length === 0) {
+      logger.debug(LogCategory.CHART, '[DirectPoller] No symbols with open markets to fetch from database');
+      return [];
+    }
 
     const { data, error } = await supabase
       .from('realtime_prices')
