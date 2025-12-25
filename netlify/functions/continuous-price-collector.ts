@@ -22,7 +22,39 @@ function markAccountSuccess(accountId: string): void {
   // No-op for now
 }
 
-const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
+const FOREX_PAIRS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'];
+const CRYPTO_PAIRS = ['BTCUSD', 'ETHUSD'];
+const ALL_TRADING_PAIRS = [...FOREX_PAIRS, ...CRYPTO_PAIRS];
+
+function isCryptoSymbol(symbol: string): boolean {
+  return CRYPTO_PAIRS.includes(symbol.toUpperCase());
+}
+
+function isForexMarketOpen(): boolean {
+  const now = new Date();
+  const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const dayOfWeek = estTime.getDay();
+  const hours = estTime.getHours();
+  const minutes = estTime.getMinutes();
+  const totalMinutes = hours * 60 + minutes;
+  const fridayCloseTime = 17 * 60;
+  const sundayOpenTime = 17 * 60;
+
+  if (dayOfWeek === 6) return false;
+  if (dayOfWeek === 5 && totalMinutes >= fridayCloseTime) return false;
+  if (dayOfWeek === 0 && totalMinutes < sundayOpenTime) return false;
+
+  return true;
+}
+
+function shouldCollectSymbol(symbol: string): boolean {
+  if (isCryptoSymbol(symbol)) {
+    return true;
+  }
+  return isForexMarketOpen();
+}
+
+const ACTIVE_SYMBOLS = ALL_TRADING_PAIRS;
 
 // OPTIMIZATION: Collect multiple ticks within the 1-minute window
 // This dramatically improves wick quality by getting 8 ticks instead of 1
@@ -116,20 +148,41 @@ export const handler: Handler = async (event, context) => {
   const executionId = `exec_${Date.now()}`;
   const metaApiAccountId = getWorkingMetaApiAccount();
 
+  const forexOpen = isForexMarketOpen();
+  const symbolsToCollect = ACTIVE_SYMBOLS.filter(shouldCollectSymbol);
+
   console.log(`[PriceCollector:${executionId}] 🚀 Starting continuous price collection...`);
   console.log(`[PriceCollector:${executionId}] Using MetaAPI Account: ${metaApiAccountId.slice(0, 8)}...`);
+  console.log(`[PriceCollector:${executionId}] Market Status: Forex ${forexOpen ? 'OPEN' : 'CLOSED'}, Crypto 24/7 OPEN`);
+  console.log(`[PriceCollector:${executionId}] Collecting: ${symbolsToCollect.join(', ')} (${symbolsToCollect.length}/${ACTIVE_SYMBOLS.length} symbols)`);
   console.log(`[PriceCollector:${executionId}] Environment check:`, {
     hasMetaApiToken: !!metaApiToken,
     accountId: metaApiAccountId.slice(0, 8) + '...',
     hasSupabaseUrl: !!supabaseUrl,
     hasSupabaseKey: !!supabaseServiceKey,
     metaApiRegion,
-    symbols: ACTIVE_SYMBOLS
+    allSymbols: ACTIVE_SYMBOLS,
+    activeSymbols: symbolsToCollect
   });
 
   const startTime = Date.now();
   let totalTicksCollected = 0;
   let totalTicksFailed = 0;
+
+  if (symbolsToCollect.length === 0) {
+    console.log(`[PriceCollector:${executionId}] ⏸️ All markets closed - skipping collection`);
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        success: true,
+        executionId,
+        skipped: true,
+        reason: 'All markets closed',
+        timestamp: new Date().toISOString()
+      })
+    };
+  }
 
   try {
     // BREAKTHROUGH: Collect multiple ticks per minute instead of just 1
@@ -145,9 +198,16 @@ export const handler: Handler = async (event, context) => {
         break;
       }
 
-      // Collect all symbols in parallel for this tick
+      // Collect all symbols in parallel for this tick (filter by market hours)
+      const symbolsToCollect = ACTIVE_SYMBOLS.filter(shouldCollectSymbol);
+
+      if (symbolsToCollect.length === 0) {
+        console.log(`[PriceCollector:${executionId}] No markets open - skipping collection`);
+        break;
+      }
+
       const results = await Promise.allSettled(
-        ACTIVE_SYMBOLS.map(async (symbol) => {
+        symbolsToCollect.map(async (symbol) => {
           const priceData = await fetchPriceFromMetaApi(symbol, metaApiAccountId);
           if (priceData) {
             const saved = await savePriceToDatabase(priceData);
