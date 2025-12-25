@@ -7,7 +7,7 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500'];
-const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'];
+const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
 const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS, ...CRYPTO_SYMBOLS];
 
 function isCryptoSymbol(symbol: string): boolean {

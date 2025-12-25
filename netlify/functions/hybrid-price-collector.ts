@@ -21,14 +21,12 @@ const metaApiAccountId = process.env.METAAPI_ACCOUNT_ID || '';
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500'];
-const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'];
+const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
 const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS, ...CRYPTO_SYMBOLS];
 
 const CRYPTO_TO_BINANCE: Record<string, string> = {
   'BTCUSD': 'BTCUSDT',
   'ETHUSD': 'ETHUSDT',
-  'SOLUSD': 'SOLUSDT',
-  'BNBUSD': 'BNBUSDT',
 };
 
 const BINANCE_API_URL = 'https://api.binance.com';

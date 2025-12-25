@@ -64,12 +64,8 @@ export function isCrypto(symbol: string): boolean {
   const normalized = safeNormalizeSymbol(symbol);
   return normalized === 'BTCUSD' ||
          normalized === 'ETHUSD' ||
-         normalized === 'SOLUSD' ||
-         normalized === 'BNBUSD' ||
          normalized.includes('BTC') ||
-         normalized.includes('ETH') ||
-         normalized.includes('SOL') ||
-         normalized.includes('BNB');
+         normalized.includes('ETH');
 }
 
 /**
@@ -115,26 +111,6 @@ export function getCurrencyPipInfo(symbol: string): CurrencyPipInfo {
       };
     }
     if (normalized === 'ETHUSD' || normalized.includes('ETH')) {
-      return {
-        pipValue: 0.1,
-        pipMultiplier: 1,
-        decimalPlaces: 2,
-        contractSize: 1,
-        dollarPerPipPerLot: 0.1,
-        symbolType: 'crypto'
-      };
-    }
-    if (normalized === 'SOLUSD' || normalized.includes('SOL')) {
-      return {
-        pipValue: 0.01,
-        pipMultiplier: 1,
-        decimalPlaces: 2,
-        contractSize: 1,
-        dollarPerPipPerLot: 0.01,
-        symbolType: 'crypto'
-      };
-    }
-    if (normalized === 'BNBUSD' || normalized.includes('BNB')) {
       return {
         pipValue: 0.1,
         pipMultiplier: 1,

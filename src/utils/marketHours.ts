@@ -268,7 +268,7 @@ export function getTimeframeLookbackHours(timeframe: string): number {
   return lookbackMap[timeframe] || 720; // Default to 30 days
 }
 
-const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'];
+const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
 
 export function isCryptoSymbol(symbol: string): boolean {
   return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());

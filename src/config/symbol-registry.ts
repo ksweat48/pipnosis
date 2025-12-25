@@ -9,7 +9,7 @@
  */
 
 export type SymbolCategory = 'forex' | 'crypto' | 'index' | 'metal' | 'energy';
-export type DataProvider = 'metaapi' | 'binance' | 'finnhub';
+export type DataProvider = 'metaapi' | 'twelvedata' | 'finnhub';
 export type MarketSchedule = 'forex' | '24/7';
 
 export interface SymbolConfig {
@@ -25,7 +25,6 @@ export interface SymbolConfig {
   dollarPerPipPerLot: number;
   minLotSize: number;
   maxLotSize: number;
-  binanceSymbol?: string;
 }
 
 export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
@@ -303,13 +302,13 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     maxLotSize: 5.0,
   },
 
-  // Crypto - 24/7 Trading
+  // Crypto - 24/7 Trading (via Twelve Data)
   BTCUSD: {
     symbol: 'BTCUSD',
     category: 'crypto',
     displayName: 'Bitcoin',
     marketSchedule: '24/7',
-    dataProvider: 'binance',
+    dataProvider: 'twelvedata',
     pipValue: 1.0,
     pipMultiplier: 1,
     decimalPlaces: 2,
@@ -317,14 +316,13 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 1.0,
     minLotSize: 0.001,
     maxLotSize: 10.0,
-    binanceSymbol: 'BTCUSDT',
   },
   ETHUSD: {
     symbol: 'ETHUSD',
     category: 'crypto',
     displayName: 'Ethereum',
     marketSchedule: '24/7',
-    dataProvider: 'binance',
+    dataProvider: 'twelvedata',
     pipValue: 0.1,
     pipMultiplier: 1,
     decimalPlaces: 2,
@@ -332,37 +330,6 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 0.1,
     minLotSize: 0.01,
     maxLotSize: 100.0,
-    binanceSymbol: 'ETHUSDT',
-  },
-  SOLUSD: {
-    symbol: 'SOLUSD',
-    category: 'crypto',
-    displayName: 'Solana',
-    marketSchedule: '24/7',
-    dataProvider: 'binance',
-    pipValue: 0.01,
-    pipMultiplier: 1,
-    decimalPlaces: 2,
-    contractSize: 1,
-    dollarPerPipPerLot: 0.01,
-    minLotSize: 0.1,
-    maxLotSize: 1000.0,
-    binanceSymbol: 'SOLUSDT',
-  },
-  BNBUSD: {
-    symbol: 'BNBUSD',
-    category: 'crypto',
-    displayName: 'BNB',
-    marketSchedule: '24/7',
-    dataProvider: 'binance',
-    pipValue: 0.1,
-    pipMultiplier: 1,
-    decimalPlaces: 2,
-    contractSize: 1,
-    dollarPerPipPerLot: 0.1,
-    minLotSize: 0.01,
-    maxLotSize: 100.0,
-    binanceSymbol: 'BNBUSDT',
   },
 
   // Energy - Forex Hours
@@ -427,16 +394,6 @@ export function is24HourMarket(symbol: string): boolean {
   return config?.marketSchedule === '24/7';
 }
 
-export function requiresBinance(symbol: string): boolean {
-  const config = getSymbolConfig(symbol);
-  return config?.dataProvider === 'binance';
-}
-
-export function getBinanceSymbol(symbol: string): string | undefined {
-  const config = getSymbolConfig(symbol);
-  return config?.binanceSymbol;
-}
-
 export const ALL_SYMBOLS = Object.keys(SYMBOL_REGISTRY);
 export const FOREX_SYMBOLS = getSymbolsByCategory('forex');
 export const CRYPTO_SYMBOLS = getSymbolsByCategory('crypto');
@@ -447,5 +404,5 @@ export const ENERGY_SYMBOLS = getSymbolsByCategory('energy');
 export const SYMBOLS_24_7 = getSymbolsByMarketSchedule('24/7');
 export const SYMBOLS_FOREX_HOURS = getSymbolsByMarketSchedule('forex');
 
-export const BINANCE_SYMBOLS = getSymbolsByDataProvider('binance');
+export const TWELVEDATA_SYMBOLS = getSymbolsByDataProvider('twelvedata');
 export const METAAPI_SYMBOLS = getSymbolsByDataProvider('metaapi');

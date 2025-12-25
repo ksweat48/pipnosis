@@ -48,8 +48,6 @@ export const KNOWN_SYMBOLS = [
   // Crypto (24/7)
   'BTCUSD',  // Bitcoin
   'ETHUSD',  // Ethereum
-  'SOLUSD',  // Solana
-  'BNBUSD',  // BNB
   // Energy
   'USOIL',   // WTI Crude
   'UKOIL',   // Brent Crude
@@ -187,13 +185,13 @@ export type SymbolCategory = 'forex' | 'metal' | 'index' | 'crypto' | 'energy';
 export function getSymbolCategory(symbol: ValidatedSymbol): SymbolCategory {
   if (symbol.startsWith('X') && symbol.endsWith('USD')) return 'metal';
   if (['US30', 'NAS100', 'SPX500', 'UK100', 'GER40'].includes(symbol)) return 'index';
-  if (['BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(symbol)) return 'crypto';
+  if (['BTCUSD', 'ETHUSD'].includes(symbol)) return 'crypto';
   if (symbol.includes('OIL')) return 'energy';
   if (symbol.includes('USD') || symbol.includes('JPY') || symbol.includes('GBP') || symbol.includes('EUR') || symbol.includes('CHF') || symbol.includes('AUD') || symbol.includes('NZD') || symbol.includes('CAD')) return 'forex';
   return 'forex';
 }
 
-export const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'] as const;
+export const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'] as const;
 export type CryptoSymbol = typeof CRYPTO_SYMBOLS[number];
 
 export function isCryptoSymbol(symbol: string): boolean {

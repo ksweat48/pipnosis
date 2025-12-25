@@ -1731,7 +1731,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const FOREX_PAIRS = [
     'XAUUSD', 'US30', 'NAS100', 'SPX500',
     'EURUSD', 'GBPUSD', 'USDJPY',
-    'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'
+    'BTCUSD', 'ETHUSD'
   ];
 
   const TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];

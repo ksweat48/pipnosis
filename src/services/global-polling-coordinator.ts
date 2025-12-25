@@ -82,7 +82,7 @@ class GlobalPollingCoordinator {
   ];
 
   private readonly CRYPTO_PAIRS = [
-    'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'
+    'BTCUSD', 'ETHUSD'
   ];
 
   private readonly ALL_TRADING_PAIRS = [
