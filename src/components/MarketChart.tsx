@@ -928,6 +928,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       }
 
       // CRITICAL FIX: Get the last candle time from the chart AND sanitize it
+      // Double-check refs still exist (component might have unmounted during async operations)
+      if (!isMountedRef.current || !candlestickSeriesRef.current) {
+        return;
+      }
+
       const chartData = candlestickSeriesRef.current.data();
 
       if (chartData.length > 0) {
@@ -1258,6 +1263,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         candlestickSeriesRef.current.setData(sanitizedCandles);
 
         // VERIFICATION: Check if data was actually set
+        if (!isMountedRef.current || !candlestickSeriesRef.current) {
+          return;
+        }
         const chartDataAfterSet = candlestickSeriesRef.current.data();
         console.log('[Chart Init] ✅ Chart data set successfully - Verification:', {
           sentToChart: sanitizedCandles.length,
@@ -1471,14 +1479,15 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       clearTimeout(safeguardTimeoutRef.current);
     }
     safeguardTimeoutRef.current = setTimeout(() => {
-      if (candlestickSeriesRef.current) {
-        const chartData = candlestickSeriesRef.current.data();
-        console.log(`[Chart] 🔍 SAFEGUARD CHECK: Chart has ${chartData.length} candles`);
-        if (chartData.length === 0) {
-          console.error('[Chart] ❌ SAFEGUARD TRIGGERED: Chart is empty after initialization!');
-          console.error('[Chart] Attempting forced reload...');
-          initializeChart(true);
-        }
+      if (!isMountedRef.current || !candlestickSeriesRef.current) {
+        return;
+      }
+      const chartData = candlestickSeriesRef.current.data();
+      console.log(`[Chart] 🔍 SAFEGUARD CHECK: Chart has ${chartData.length} candles`);
+      if (chartData.length === 0) {
+        console.error('[Chart] ❌ SAFEGUARD TRIGGERED: Chart is empty after initialization!');
+        console.error('[Chart] Attempting forced reload...');
+        initializeChart(true);
       }
     }, 2000);
 
