@@ -533,23 +533,35 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     window.addEventListener('resize', handleResize);
 
     return () => {
+      // First, mark as unmounted to stop all updates
       isMountedRef.current = false;
+
+      // Remove event listeners
       window.removeEventListener('resize', handleResize);
 
-      // Clear all refs before disposing chart
+      try {
+        // Unsubscribe from chart events before disposal
+        timeScale.unsubscribeVisibleLogicalRangeChange(handleUserInteraction);
+      } catch (error) {
+        console.warn('[Chart] Error unsubscribing from chart events:', error);
+      }
+
+      // Dispose chart BEFORE clearing refs (so other code can still check refs during cleanup)
+      try {
+        if (chart) {
+          chart.remove();
+        }
+      } catch (error) {
+        console.warn('[Chart] Error disposing chart:', error);
+      }
+
+      // NOW clear all refs AFTER chart is disposed
       chartRef.current = null;
       candlestickSeriesRef.current = null;
       vwapSeriesRef.current = null;
       ema20SeriesRef.current = null;
       ema50SeriesRef.current = null;
       ema200SeriesRef.current = null;
-
-      // Safely dispose chart
-      try {
-        chart.remove();
-      } catch (error) {
-        console.warn('[Chart] Error disposing chart:', error);
-      }
     };
   }, []);
 
