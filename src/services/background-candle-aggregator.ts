@@ -25,8 +25,19 @@ type CandleStateMap = Map<string, CandleState>;
 
 const ALL_TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
 
+// CRITICAL: Include both forex/indices AND crypto (24/7) symbols
 const FOREX_PAIRS = [
   'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'
+];
+
+const CRYPTO_PAIRS = [
+  'BTCUSD', 'ETHUSD'
+];
+
+// Combined list for aggregation - crypto trades 24/7, forex follows market hours
+const ALL_TRADING_PAIRS = [
+  ...FOREX_PAIRS,
+  ...CRYPTO_PAIRS
 ];
 
 class BackgroundCandleAggregator {
@@ -332,7 +343,7 @@ class BackgroundCandleAggregator {
     this.startHealthMonitoring();
     this.startCandleFinalizer();
 
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Monitoring ${FOREX_PAIRS.length} pairs across ${ALL_TIMEFRAMES.length} timeframes`);
+    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Monitoring ${ALL_TRADING_PAIRS.length} pairs across ${ALL_TIMEFRAMES.length} timeframes (${FOREX_PAIRS.length} forex + ${CRYPTO_PAIRS.length} crypto)`);
   }
 
   private startCandleFinalizer(): void {
@@ -353,7 +364,7 @@ class BackgroundCandleAggregator {
   private async checkAndFinalizeMissingCandles(): Promise<void> {
     const now = Date.now();
 
-    for (const symbol of FOREX_PAIRS) {
+    for (const symbol of ALL_TRADING_PAIRS) {
       const lastPrice = this.lastPriceCache.get(symbol);
       if (!lastPrice) continue;
 
@@ -646,7 +657,7 @@ class BackgroundCandleAggregator {
     logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' This ensures live candles start from the current period only');
     logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔇 Tick notifications paused during initialization');
 
-    for (const symbol of FOREX_PAIRS) {
+    for (const symbol of ALL_TRADING_PAIRS) {
       try {
         const lookbackMinutes = 15;
         const startTime = new Date(Date.now() - lookbackMinutes * 60 * 1000);
@@ -843,9 +854,9 @@ class BackgroundCandleAggregator {
         symbol,
         count: listeners.size
       })),
-      symbols: FOREX_PAIRS.length,
+      symbols: ALL_TRADING_PAIRS.length,
       timeframes: ALL_TIMEFRAMES.length,
-      totalCombinations: FOREX_PAIRS.length * ALL_TIMEFRAMES.length,
+      totalCombinations: ALL_TRADING_PAIRS.length * ALL_TIMEFRAMES.length,
       lastMessageTime: this.lastMessageTime,
       timeSinceLastMessageMs: timeSinceLastMessage,
       dataHealthy: timeSinceLastMessage !== null && timeSinceLastMessage < this.STALE_DATA_THRESHOLD_MS
