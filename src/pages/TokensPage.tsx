@@ -37,7 +37,7 @@ interface ReferralData {
 export function CreditsPage() {
   const { user } = useAuth();
   const { balance, isLoading } = useTokenBalance(user?.id || null);
-  const [activeTab, setActiveTab] = useState<'balance' | 'purchase' | 'history' | 'referral'>('balance');
+  const [activeTab, setActiveTab] = useState<'purchase' | 'history' | 'referral'>('purchase');
   const [packages, setPackages] = useState<TokenPackage[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [referralData, setReferralData] = useState<ReferralData | null>(null);
@@ -157,17 +157,6 @@ export function CreditsPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
           <button
-            onClick={() => setActiveTab('balance')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all whitespace-nowrap ${
-              activeTab === 'balance'
-                ? 'bg-gradient-to-r from-emerald-600 to-blue-600 text-white shadow-lg shadow-emerald-500/25'
-                : 'bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 text-gray-400 hover:text-white hover:border-emerald-500/50'
-            }`}
-          >
-            <Coins size={18} />
-            Balance
-          </button>
-          <button
             onClick={() => setActiveTab('purchase')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all whitespace-nowrap ${
               activeTab === 'purchase'
@@ -202,8 +191,8 @@ export function CreditsPage() {
           </button>
         </div>
 
-        {activeTab === 'balance' && (
-          <div className="space-y-6">
+        {activeTab === 'purchase' && (
+          <div className="space-y-8">
             <div className="relative group">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-green-500 rounded-xl opacity-20 group-hover:opacity-30 transition duration-300 blur" />
 
@@ -261,11 +250,6 @@ export function CreditsPage() {
                 </div>
               </div>
             </div>
-          </div>
-        )}
-
-        {activeTab === 'purchase' && (
-          <div className="space-y-8">
             <div>
               <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-green-400 mb-2">One-Time Packages</h2>
               <p className="text-gray-400 mb-4 flex items-center gap-2">
