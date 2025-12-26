@@ -43,38 +43,7 @@ export interface TradeSignal {
 class GoalScanner {
   async scanMarket(sessionId: string, userId: string): Promise<ScanResult[]> {
     try {
-      // STEP 1: Check if scanning is disabled (weekend shutdown)
-      if (weekendProtectionService.isScanningDisabled()) {
-        console.log(`[Goal Scanner] 🛡️ Scanning disabled for weekend shutdown`);
-
-        await goalSessionManager.addAIMessage(
-          sessionId,
-          userId,
-          `🛡️ All systems paused for weekend. Market reopens Sunday 5:00 PM EST.`,
-          { weekendShutdown: true },
-          'warning'
-        );
-
-        return [];
-      }
-
-      // STEP 2: Check weekend protection
-      const weekendCheck = weekendProtectionService.canOpenNewTrade();
-      if (!weekendCheck.allowed) {
-        console.log(`[Goal Scanner] 🛡️ Weekend protection blocked scanning: ${weekendCheck.reason}`);
-
-        await goalSessionManager.addAIMessage(
-          sessionId,
-          userId,
-          `🛡️ ${weekendCheck.reason}`,
-          { weekendProtection: true },
-          'warning'
-        );
-
-        return [];
-      }
-
-      // STEP 3: Check if scanning is allowed
+      // STEP 1: Check scanning timing permissions
       const scanPermission = await scanningStateMachine.canScanNow(sessionId);
 
       if (!scanPermission.allowed) {
@@ -109,8 +78,56 @@ class GoalScanner {
         return [];
       }
 
-      // STEP 2: Rank symbols and filter for quality opportunities
-      const watchlist = session.data.watchlist || getDefaultWatchlist();
+      // STEP 2: Filter watchlist by open markets
+      const fullWatchlist = session.data.watchlist || getDefaultWatchlist();
+      const marketCheck = weekendProtectionService.canScanAnySymbol(fullWatchlist);
+
+      if (!marketCheck.allowed) {
+        console.log(`[Goal Scanner] 🛡️ No markets open for scanning`);
+
+        await goalSessionManager.addAIMessage(
+          sessionId,
+          userId,
+          `🛡️ All markets closed. Trading resumes Sunday 5:00 PM EST.`,
+          {
+            allMarketsClosed: true,
+            closedSymbols: marketCheck.closedSymbols
+          },
+          'warning'
+        );
+
+        return [];
+      }
+
+      // Filter watchlist to only open markets
+      const watchlist = marketCheck.openSymbols;
+      const closedSymbols = marketCheck.closedSymbols;
+
+      // Add market status message if some symbols are closed
+      if (closedSymbols.length > 0) {
+        const cryptoOnly = watchlist.every(s => ['BTCUSD', 'ETHUSD'].includes(s));
+
+        console.log(`[Goal Scanner] 🕒 ${closedSymbols.length} symbols closed (Forex/Indices weekend). Scanning ${watchlist.length} open markets (${cryptoOnly ? 'Crypto only' : 'Mixed'}).`);
+
+        let marketMessage = '';
+        if (cryptoOnly) {
+          marketMessage = `📊 Forex markets closed for weekend. Scanning crypto markets only (${watchlist.join(', ')}). Note: Crypto has wider spreads and higher volatility during forex closed hours.`;
+        } else {
+          marketMessage = `📊 Scanning ${watchlist.length} open markets. ${closedSymbols.length} symbols temporarily unavailable (weekend).`;
+        }
+
+        await goalSessionManager.addAIMessage(
+          sessionId,
+          userId,
+          marketMessage,
+          {
+            openSymbols: watchlist,
+            closedSymbols: closedSymbols,
+            cryptoOnly
+          },
+          'info'
+        );
+      }
 
       console.log(`[Goal Scanner] 📊 Ranking ${watchlist.length} symbols by opportunity quality...`);
 

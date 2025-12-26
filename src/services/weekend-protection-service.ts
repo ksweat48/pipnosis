@@ -92,6 +92,29 @@ class WeekendProtectionService {
     return LLM_API_DISABLED;
   }
 
+  // Check if a specific symbol can be scanned (crypto always allowed, forex only during market hours)
+  canScanSymbol(symbol: string): boolean {
+    // Crypto can always be scanned (24/7 markets)
+    if (is24HourSymbol(symbol)) {
+      return true;
+    }
+
+    // Forex/Indices can only be scanned when systems are not disabled
+    return !SCANNING_DISABLED && !LLM_API_DISABLED;
+  }
+
+  // Check if any symbols are scannable (used to determine if scanning should continue)
+  canScanAnySymbol(symbols: string[]): { allowed: boolean; openSymbols: string[]; closedSymbols: string[] } {
+    const openSymbols = symbols.filter(s => this.canScanSymbol(s));
+    const closedSymbols = symbols.filter(s => !this.canScanSymbol(s));
+
+    return {
+      allowed: openSymbols.length > 0,
+      openSymbols,
+      closedSymbols
+    };
+  }
+
   // Enable systems on market reopen
   enableSystems(): void {
     SCANNING_DISABLED = false;
