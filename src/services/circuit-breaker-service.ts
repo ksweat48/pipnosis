@@ -285,6 +285,20 @@ class CircuitBreakerService {
     console.log('[CircuitBreaker] Manual reset requested');
     await this.transitionToClosed();
   }
+
+  /**
+   * Check if the circuit is open (blocking requests)
+   */
+  isOpen(): boolean {
+    return this.state === 'open';
+  }
+
+  /**
+   * Get current circuit state
+   */
+  getState(): CircuitState {
+    return this.state;
+  }
 }
 
 export const circuitBreakerService = new CircuitBreakerService();

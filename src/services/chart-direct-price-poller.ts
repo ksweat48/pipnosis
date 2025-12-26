@@ -26,6 +26,8 @@
 import { logger, LogCategory } from '@/lib/logger';
 import { priceValidationService } from './price-validation-service';
 import { isSymbolMarketOpen, hasAnyOpenMarket } from '@/utils/marketHours';
+import { shouldDisableMetaAPI } from '@/lib/environment';
+import { circuitBreakerService } from './circuit-breaker-service';
 
 interface LivePrice {
   symbol: string;
@@ -242,6 +244,18 @@ class ChartDirectPricePoller {
   }
 
   private async fetchFromMetaAPI(): Promise<LivePrice[]> {
+    // CRITICAL: Check if MetaAPI should be disabled (development/WebContainer)
+    if (shouldDisableMetaAPI()) {
+      logger.debug(LogCategory.CHART, '🔴 MetaAPI disabled in development environment - using database only');
+      return [];
+    }
+
+    // CRITICAL: Check circuit breaker state before attempting requests
+    if (circuitBreakerService.isOpen()) {
+      logger.debug(LogCategory.CHART, '⚡ Circuit breaker is OPEN - skipping MetaAPI requests, using database fallback');
+      return [];
+    }
+
     const results: LivePrice[] = [];
 
     for (const symbol of this.trackedSymbols) {

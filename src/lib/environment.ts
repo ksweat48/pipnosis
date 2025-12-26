@@ -63,6 +63,15 @@ export function areFunctionsAvailable(): boolean {
 }
 
 /**
+ * Check if MetaAPI should be disabled (for development/WebContainer)
+ */
+export function shouldDisableMetaAPI(): boolean {
+  // Disable MetaAPI in WebContainer and non-production environments
+  // to prevent circuit breaker spam and allow database-only mode
+  return isWebContainer() || !isProduction();
+}
+
+/**
  * Get the base URL for API calls
  */
 export function getApiBaseUrl(): string {

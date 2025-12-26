@@ -46,6 +46,8 @@ import { chartCircuitBreaker } from '@/services/chart-circuit-breaker';
 import { validateSymbol, type ValidatedSymbol } from '@/types/symbol';
 import { ChartDataGuarantor } from '@/services/chart-data-guarantor';
 import { currentCandleReconstructor } from '@/services/current-candle-reconstructor';
+import { shouldDisableMetaAPI, isWebContainer } from '@/lib/environment';
+import { circuitBreakerService } from '@/services/circuit-breaker-service';
 
 interface MarketChartProps {
   symbol: string;
@@ -115,6 +117,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [marketStatus, setMarketStatus] = useState<'live' | 'delayed' | 'offline'>('live');
   const [priceSource, setPriceSource] = useState<'metaapi' | 'database' | 'offline'>('offline');
   const [directPollerActive, setDirectPollerActive] = useState(false);
+  const [isDatabaseOnlyMode, setIsDatabaseOnlyMode] = useState(shouldDisableMetaAPI());
   const [forexMarketStatus, setForexMarketStatus] = useState<MarketStatus>(() => getForexMarketStatus());
   const [symbolMarketStatus, setSymbolMarketStatus] = useState<SymbolMarketStatus>(() => getSymbolMarketStatus(symbol));
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -1493,15 +1496,38 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       }
     }, 2000);
 
-    console.log(`[Chart] 🚀 Starting SMOOTH HYBRID mode: Direct MetaAPI + Fallback DB polling for ${symbol} ${timeframe}`);
-    setSystemStatus('connecting');
+    // Check if we should run in database-only mode (development/WebContainer or circuit breaker open)
+    const isDevEnvironment = shouldDisableMetaAPI();
+    const isCircuitOpen = circuitBreakerService.isOpen();
+    const databaseOnlyMode = isDevEnvironment || isCircuitOpen;
+
+    if (databaseOnlyMode) {
+      if (isDevEnvironment) {
+        console.log(`[Chart] 🔵 Running in DATABASE-ONLY mode (${isWebContainer() ? 'WebContainer' : 'Development'} environment)`);
+      } else if (isCircuitOpen) {
+        console.log(`[Chart] ⚡ Running in DATABASE-ONLY mode (Circuit breaker is OPEN)`);
+      }
+      setIsDatabaseOnlyMode(true);
+      setSystemStatus('connected');
+      setPriceSource('database');
+    } else {
+      console.log(`[Chart] 🚀 Starting SMOOTH HYBRID mode: Direct MetaAPI + Fallback DB polling for ${symbol} ${timeframe}`);
+      setSystemStatus('connecting');
+      setIsDatabaseOnlyMode(false);
+    }
 
     // PRIORITY 1: Start direct MetaAPI polling for smooth updates (every 3s)
-    console.log(`[Chart][${symbol}] 🎯 Starting direct MetaAPI price poller (3s interval)...`);
-    chartDirectPricePoller.addSymbol(symbol);
+    // Skip if in database-only mode to prevent circuit breaker spam
+    if (!databaseOnlyMode) {
+      console.log(`[Chart][${symbol}] 🎯 Starting direct MetaAPI price poller (3s interval)...`);
+      chartDirectPricePoller.addSymbol(symbol);
+    } else {
+      console.log(`[Chart][${symbol}] 💾 Database-only mode - MetaAPI polling disabled`);
+    }
 
     // CRITICAL FIX: Pass symbol to register listener for THIS symbol only
-    const unsubscribeDirectPrice = chartDirectPricePoller.onPriceUpdate(symbol, (price) => {
+    // Skip if in database-only mode
+    const unsubscribeDirectPrice = !databaseOnlyMode ? chartDirectPricePoller.onPriceUpdate(symbol, (price) => {
       // Symbol check now redundant (poller filters) but kept as safety guard
       if (price.symbol === symbol) {
         console.log(`[Chart][${symbol}] 📈 Direct price update from ${price.source}: ${price.midPrice.toFixed(5)}`);
@@ -1514,17 +1540,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         });
         setMarketStatus('live');
       }
-    });
+    }) : () => {};
 
     // Enable direct price poller status monitoring
-    const unsubscribeDirectStatus = chartDirectPricePoller.onStatusUpdate((status) => {
+    const unsubscribeDirectStatus = !databaseOnlyMode ? chartDirectPricePoller.onStatusUpdate((status) => {
       setPriceSource(status.source);
       setDirectPollerActive(status.isActive);
       console.log(`[Chart] 📊 Direct poller status: ${status.source}, active: ${status.isActive}`);
-    });
+    }) : () => {};
 
-    // ✅ START THE DIRECT PRICE POLLER FOR REALTIME UPDATES
-    chartDirectPricePoller.start();
+    // ✅ START THE DIRECT PRICE POLLER FOR REALTIME UPDATES (skip in database-only mode)
+    if (!databaseOnlyMode) {
+      chartDirectPricePoller.start();
+    }
 
     // DISABLED: Background aggregator causes conflicts - using direct price poller + database polling
     const unsubscribeTicks = () => {}; // Noop cleanup (aggregator not used)
@@ -1574,8 +1602,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     }, 15000);
 
     return () => {
-      console.log(`[Chart] 🛑 Stopping hybrid polling mode for ${symbol} ${timeframe}`);
-      chartDirectPricePoller.removeSymbol(symbol);
+      console.log(`[Chart] 🛑 Stopping ${databaseOnlyMode ? 'database-only' : 'hybrid polling'} mode for ${symbol} ${timeframe}`);
+      if (!databaseOnlyMode) {
+        chartDirectPricePoller.removeSymbol(symbol);
+      }
       unsubscribeDirectPrice();
       unsubscribeDirectStatus();
       unsubscribeTicks();
@@ -1920,6 +1950,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
               {cacheAge !== null && (
                 <div className={`text-[10px] ${cacheAge > 15 ? 'text-yellow-400' : 'text-blue-400'}`}>
                   Data: {cacheAge < 1 ? 'Live' : `${Math.round(cacheAge)}min ago`}
+                </div>
+              )}
+              {isDatabaseOnlyMode && (
+                <div className="text-[10px] text-blue-400 font-medium">
+                  💾 Database Mode {isWebContainer() ? '(Dev)' : ''}
                 </div>
               )}
               <div className={`text-[10px] font-medium ${symbolMarketStatus.isOpen ? 'text-green-400' : 'text-red-400'}`}>
