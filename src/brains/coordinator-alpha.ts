@@ -861,7 +861,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       });
 
       const content = response.choices[0]?.message?.content || '{}';
-      let decision = this.parseDecision(content, marketContext.price, marketContext.atr);
+      let decision = this.parseDecision(content, marketContext.price, marketContext.atr, stopLossAnchor);
 
       // Add decision field for compatibility
       decision.decision = decision.action;
@@ -1528,7 +1528,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
    * Parse Alpha decision with MINIMAL corrections (only catastrophic errors)
    * Elite Trader Directive educates Alpha - we trust professional judgment
    */
-  private parseDecision(response: string, currentPrice: number, atr: number): AlphaDecision {
+  private parseDecision(response: string, currentPrice: number, atr: number, stopLossAnchor: StopLossCalculation | null = null): AlphaDecision {
     try {
       const cleaned = response
         .replace(/```json\n?/g, '')
@@ -1599,8 +1599,14 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       if (stopLoss) {
         const slOnWrongSide = (isBuy && stopLoss > entry) || (!isBuy && stopLoss < entry);
         if (slOnWrongSide) {
-          errorReason = `Stop on WRONG SIDE of entry (${action}: SL ${stopLoss} vs Entry ${entry})`;
-          catastrophicError = true;
+          // AUTO-CORRECT: Use calculated anchor instead of blocking
+          if (stopLossAnchor) {
+            console.warn(`[Alpha Coordinator] ⚠️ Stop on WRONG SIDE (${action}: SL ${stopLoss} vs Entry ${entry}) - Auto-correcting to anchor: ${stopLossAnchor.stopLossPrice.toFixed(5)}`);
+            stopLoss = stopLossAnchor.stopLossPrice;
+          } else {
+            errorReason = `Stop on WRONG SIDE of entry (${action}: SL ${stopLoss} vs Entry ${entry}) - No anchor available`;
+            catastrophicError = true;
+          }
         }
       }
 
