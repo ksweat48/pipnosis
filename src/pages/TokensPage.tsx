@@ -155,19 +155,6 @@ export function CreditsPage() {
       <NavigationMenu />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        <div className="mb-8">
-          <div className="relative inline-block">
-            <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg blur opacity-20" />
-            <h1 className="relative text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-blue-400 to-emerald-400 mb-2">
-              Credits
-            </h1>
-          </div>
-          <p className="text-gray-400 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-emerald-400" />
-            Manage your credits, subscriptions, and referrals
-          </p>
-        </div>
-
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
           <button
             onClick={() => setActiveTab('balance')}
