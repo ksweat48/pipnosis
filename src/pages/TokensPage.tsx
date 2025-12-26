@@ -17,6 +17,7 @@ interface TokenPackage {
   priceUsd: number;
   tokenAmount: number;
   costPerToken: number;
+  badge?: string;
 }
 
 interface ReferralData {
@@ -72,7 +73,8 @@ export function CreditsPage() {
         description: pkg.description || '',
         priceUsd: parseFloat(pkg.price_usd),
         tokenAmount: pkg.token_amount,
-        costPerToken: parseFloat(pkg.cost_per_token)
+        costPerToken: parseFloat(pkg.cost_per_token),
+        badge: pkg.badge || undefined
       })));
     }
   };
@@ -293,8 +295,16 @@ export function CreditsPage() {
                         <div className="p-2 bg-emerald-500/10 rounded-lg">
                           <Package size={24} className="text-emerald-400" />
                         </div>
-                        <div>
-                          <h3 className="text-xl font-bold text-white">{pkg.tokenAmount} Credits</h3>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-xl font-bold text-white">{pkg.tokenAmount} Credits</h3>
+                            {pkg.tokenAmount > 60 && (
+                              <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 rounded-full text-emerald-400 text-xs font-semibold">
+                                <Sparkles className="w-3 h-3" />
+                                +{pkg.tokenAmount - (pkg.priceUsd === 25 ? 100 : 200)} Bonus
+                              </span>
+                            )}
+                          </div>
                           <p className="text-gray-400 text-sm">{pkg.description}</p>
                         </div>
                       </div>
@@ -320,6 +330,12 @@ export function CreditsPage() {
                     <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl opacity-20 group-hover:opacity-40 transition duration-300 blur" />
 
                     <div className="relative bg-gradient-to-br from-blue-900/40 to-purple-900/40 backdrop-blur-xl rounded-xl p-6 border-2 border-blue-500/30 hover:border-blue-500/60 transition-all shadow-2xl">
+                      {pkg.badge && (
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-full text-white text-xs font-bold shadow-lg flex items-center gap-1">
+                          <Sparkles className="w-3 h-3" />
+                          {pkg.badge}
+                        </div>
+                      )}
                       <div className="flex items-center gap-3 mb-4">
                         <div className="p-2 bg-blue-500/20 rounded-lg">
                           <Zap size={24} className="text-blue-400" />
