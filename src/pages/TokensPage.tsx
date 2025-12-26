@@ -196,58 +196,56 @@ export function CreditsPage() {
             <div className="relative group">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-green-500 rounded-xl opacity-20 group-hover:opacity-30 transition duration-300 blur" />
 
-              <div className="relative bg-gradient-to-br from-emerald-900/40 to-green-900/40 backdrop-blur-xl border-2 border-emerald-500/40 rounded-xl p-8 shadow-2xl">
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="relative">
-                    <div className="absolute inset-0 bg-emerald-500 rounded-full blur opacity-50 animate-pulse" />
-                    <div className="relative w-16 h-16 rounded-full bg-gradient-to-br from-emerald-600 to-green-600 flex items-center justify-center shadow-lg">
-                      <Coins size={32} className="text-white" />
+              <div className="relative bg-gradient-to-br from-emerald-900/40 to-green-900/40 backdrop-blur-xl border-2 border-emerald-500/40 rounded-xl p-6 shadow-2xl">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                  <div className="flex items-center gap-4">
+                    <div className="relative">
+                      <div className="absolute inset-0 bg-emerald-500 rounded-full blur opacity-50 animate-pulse" />
+                      <div className="relative w-16 h-16 rounded-full bg-gradient-to-br from-emerald-600 to-green-600 flex items-center justify-center shadow-lg">
+                        <Coins size={32} className="text-white" />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-gray-300 text-sm flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />
+                        Current Balance
+                      </div>
+                      <div className="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-green-400">
+                        {isLoading ? '...' : balance?.isAdmin ? '∞' : balance?.balance.toFixed(0) || '0'}
+                      </div>
+                      {balance?.isAdmin && (
+                        <div className="text-emerald-400 text-sm font-medium mt-1">Unlimited (Admin)</div>
+                      )}
                     </div>
                   </div>
-                  <div>
-                    <div className="text-gray-300 text-sm flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />
-                      Current Balance
+
+                  <div className="flex items-center gap-3 md:border-l md:border-emerald-500/30 md:pl-6">
+                    <div className="text-center md:text-left">
+                      <div className="text-gray-300 text-sm mb-1 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-emerald-400" />
+                        Credit Usage
+                      </div>
+                      <p className="text-gray-300 text-lg font-medium">1 credit per trade</p>
                     </div>
-                    <div className="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-green-400">
-                      {isLoading ? '...' : balance?.isAdmin ? '∞' : balance?.balance.toFixed(0) || '0'}
-                    </div>
-                    {balance?.isAdmin && (
-                      <div className="text-emerald-400 text-sm font-medium mt-1">Unlimited (Admin)</div>
-                    )}
                   </div>
                 </div>
 
-              {!balance?.isAdmin && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 hover:border-emerald-500/30 transition-all">
-                    <div className="text-gray-400 text-sm mb-1">Lifetime Earned</div>
-                    <div className="text-2xl font-bold text-emerald-400">
-                      {balance?.lifetimeEarned.toFixed(0) || '0'}
+                {!balance?.isAdmin && (
+                  <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-emerald-500/30">
+                    <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 hover:border-emerald-500/30 transition-all">
+                      <div className="text-gray-400 text-sm mb-1">Lifetime Earned</div>
+                      <div className="text-2xl font-bold text-emerald-400">
+                        {balance?.lifetimeEarned.toFixed(0) || '0'}
+                      </div>
+                    </div>
+                    <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 hover:border-red-500/30 transition-all">
+                      <div className="text-gray-400 text-sm mb-1">Lifetime Spent</div>
+                      <div className="text-2xl font-bold text-red-400">
+                        {balance?.lifetimeSpent.toFixed(0) || '0'}
+                      </div>
                     </div>
                   </div>
-                  <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 hover:border-red-500/30 transition-all">
-                    <div className="text-gray-400 text-sm mb-1">Lifetime Spent</div>
-                    <div className="text-2xl font-bold text-red-400">
-                      {balance?.lifetimeSpent.toFixed(0) || '0'}
-                    </div>
-                  </div>
-                </div>
-              )}
-              </div>
-            </div>
-
-            <div className="relative group">
-              <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-emerald-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
-
-              <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl p-6 border border-gray-700/50 shadow-xl">
-                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                  Credit Usage
-                  <Sparkles className="w-4 h-4 text-emerald-400" />
-                </h3>
-                <div className="text-center py-6">
-                  <p className="text-gray-300 text-lg">All trades cost 1 credit per trade.</p>
-                </div>
+                )}
               </div>
             </div>
             <div>
