@@ -252,8 +252,12 @@ export class FinnhubClient {
 export function createFinnhubClient(): FinnhubClient {
   const apiKey = process.env.FINNHUB_API_KEY;
 
-  if (!apiKey) {
-    throw new Error('FINNHUB_API_KEY environment variable is not set');
+  // PRODUCTION-ONLY FUNCTION: This serverless function only runs in Netlify production
+  // In Bolt/WebContainer environments, this function is never executed
+  // Dummy/placeholder API keys are acceptable for development
+  if (!apiKey || apiKey === 'not-needed-in-development') {
+    console.warn('FINNHUB_API_KEY not configured - Finnhub client disabled (expected in development)');
+    throw new Error('Finnhub API is disabled - not available in development environment');
   }
 
   return new FinnhubClient(apiKey);

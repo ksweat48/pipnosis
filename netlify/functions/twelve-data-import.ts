@@ -202,10 +202,16 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
     }
 
     const twelveDataApiKey = process.env.TWELVE_DATA_API_KEY;
-    if (!twelveDataApiKey) {
+    // PRODUCTION-ONLY FUNCTION: This Netlify function only runs in production
+    // Dummy/placeholder keys are acceptable in development (function won't be called)
+    if (!twelveDataApiKey || twelveDataApiKey === 'not-needed-in-development') {
+      console.warn('TWELVE_DATA_API_KEY not configured - function disabled (expected in development)');
       return {
-        statusCode: 500,
-        body: JSON.stringify({ error: 'TWELVE_DATA_API_KEY not configured' })
+        statusCode: 503,
+        body: JSON.stringify({
+          error: 'Twelve Data API not available in development environment',
+          message: 'This function is production-only and requires a valid Twelve Data API key'
+        })
       };
     }
 
