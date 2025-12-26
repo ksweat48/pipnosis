@@ -19,6 +19,7 @@ import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 import { multiSymbolScanner } from './multi-symbol-scanner';
 import { multiSymbolSnapshotBuilder, type SymbolSnapshot } from './multi-symbol-snapshot-builder';
 import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';
+import { contextAwareCouncilManager } from './context-aware-council-manager';
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
@@ -673,25 +674,35 @@ class GoalSessionLiveEngine {
       console.log('[MULTI-SYMBOL] User ID:', this.config.userId);
       console.log('[MULTI-SYMBOL] Goal Context:', goalContext);
 
-      console.log('%c[MULTI-SYMBOL] 🚀 CALLING ORCHESTRATOR NOW...', 'color: #ff0000; font-weight: bold; font-size: 20px; background: yellow');
+      console.log('%c[MULTI-SYMBOL] 🚀 CALLING CONTEXT-AWARE COUNCIL MANAGER...', 'color: #ff0000; font-weight: bold; font-size: 20px; background: yellow');
       const orchestratorStartTime = Date.now();
 
-      // Add timeout protection (60 seconds max - increased for LLM retry resilience)
-      const orchestratorPromise = alphaOmegaOrchestrator.evaluateMultipleSymbols(
+      // Use Context-Aware Council Manager (Alpha Scout + Full Council)
+      const councilResultPromise = contextAwareCouncilManager.evaluateSymbols(
+        this.config.userId,
+        this.config.sessionId,
         marketStates,
         traderScore,
-        this.config.userId,
-        goalContext // Pass goal context to orchestrator
+        goalContext
       );
 
-      const timeoutPromise = new Promise<Map<string, any>>((_, reject) => {
-        setTimeout(() => reject(new Error('Orchestrator timeout after 60s')), 60000);
+      const timeoutPromise = new Promise<any>((_, reject) => {
+        setTimeout(() => reject(new Error('Council timeout after 60s')), 60000);
       });
 
-      const omegaDecisions = await Promise.race([orchestratorPromise, timeoutPromise]);
+      const councilResult = await Promise.race([councilResultPromise, timeoutPromise]);
+      const omegaDecisions = councilResult.decisions;
 
       const orchestratorDuration = Date.now() - orchestratorStartTime;
-      console.log('%c[MULTI-SYMBOL] ✅ ORCHESTRATOR RETURNED in ' + orchestratorDuration + 'ms', 'color: #4caf50; font-weight: bold; font-size: 18px');
+      console.log(`%c[MULTI-SYMBOL] ✅ COUNCIL RETURNED in ${orchestratorDuration}ms (Mode: ${councilResult.mode})`, 'color: #4caf50; font-weight: bold; font-size: 18px');
+
+      if (councilResult.mode === 'alpha_scout') {
+        console.log(`%c💰 COST SAVED! Alpha Scout Cycle ${councilResult.scout_cycles}: ${councilResult.improvement_score}% improvement`, 'color: #4caf50; font-weight: bold');
+        console.log(`[Alpha Scout] ${councilResult.reasoning}`);
+      } else {
+        console.log('%c[Full Council] Complete Omega Council evaluation', 'color: #2196f3; font-weight: bold');
+      }
+
       console.log('[MULTI-SYMBOL] Decisions received:', omegaDecisions.size);
       console.log('[MULTI-SYMBOL] Decision details:', Array.from(omegaDecisions.entries()));
 
