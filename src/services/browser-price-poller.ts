@@ -19,6 +19,7 @@ logger.setCategoryLevel(LogCategory.BROWSER_POLLER, LogLevel.SILENT);
 // polling-health-monitor removed
 import { circuitBreakerService } from './circuit-breaker-service';
 import { pageContext } from './page-context';
+import { shouldDisableMetaAPI, areFunctionsAvailable } from '@/lib/environment';
 
 const FOREX_PAIRS = ['EURUSD', 'XAUUSD', 'US30', 'GBPUSD', 'USDJPY'];
 const CRYPTO_PAIRS = ['BTCUSD', 'ETHUSD'];
@@ -47,6 +48,14 @@ class BrowserPricePoller {
   private readonly ERROR_THRESHOLD_STOPPED = 50;
 
   async start(): Promise<void> {
+    // CRITICAL: Disable polling in development/WebContainer environments
+    // Netlify Functions don't exist in these environments, causing 900+ failed requests
+    if (shouldDisableMetaAPI() || !areFunctionsAvailable()) {
+      logger.info(LogCategory.BROWSER_POLLER, '🔴 Browser Price Poller disabled in development/WebContainer environment');
+      logger.info(LogCategory.BROWSER_POLLER, '   Charts will use database-only mode with historical data');
+      return;
+    }
+
     if (this.isActive) {
       logger.warn(LogCategory.BROWSER_POLLER, 'Already active');
       return;

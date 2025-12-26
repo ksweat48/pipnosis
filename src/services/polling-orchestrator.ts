@@ -12,6 +12,7 @@ import { browserPricePoller } from './browser-price-poller';
 import { circuitBreakerService } from './circuit-breaker-service';
 import { supabase } from '@/lib/supabase';
 import { logger, LogCategory } from '@/lib/logger';
+import { shouldDisableMetaAPI, areFunctionsAvailable } from '@/lib/environment';
 
 type ActivePoller = 'global' | 'browser' | 'none';
 
@@ -44,6 +45,16 @@ class PollingOrchestrator {
   async initialize(): Promise<void> {
     if (this.isInitialized) {
       logger.debug(LogCategory.POLLING_COORDINATOR, 'Already initialized');
+      return;
+    }
+
+    // CRITICAL: Disable polling orchestrator in development/WebContainer environments
+    // Netlify Functions don't exist, causing circuit breaker spam and chart loading failures
+    if (shouldDisableMetaAPI() || !areFunctionsAvailable()) {
+      logger.info(LogCategory.POLLING_COORDINATOR, '🔴 Polling Orchestrator disabled in development/WebContainer environment');
+      logger.info(LogCategory.POLLING_COORDINATOR, '   Application will operate in database-only mode');
+      this.isInitialized = true;
+      this.activePoller = 'none';
       return;
     }
 

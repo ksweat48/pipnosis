@@ -11,6 +11,7 @@
  */
 
 import { supabase } from '@/lib/supabase';
+import { shouldDisableMetaAPI } from '@/lib/environment';
 
 export type CircuitState = 'closed' | 'half_open' | 'open';
 
@@ -50,6 +51,17 @@ class CircuitBreakerService {
 
   async initialize(): Promise<void> {
     console.log('[CircuitBreaker] Initializing...');
+
+    // CRITICAL: In development mode, keep circuit permanently closed
+    // This prevents the circuit breaker from opening due to missing Netlify Functions
+    if (shouldDisableMetaAPI()) {
+      console.log('[CircuitBreaker] Development mode detected - circuit breaker disabled');
+      console.log('[CircuitBreaker] Circuit will remain CLOSED to allow database-only operations');
+      this.state = 'closed';
+      this.failureCount = 0;
+      return;
+    }
+
     await this.loadStateFromDatabase();
     this.startStateMonitoring();
     console.log(`[CircuitBreaker] Initialized in ${this.state} state`);
@@ -161,6 +173,12 @@ class CircuitBreakerService {
   }
 
   async recordFailure(error: Error): Promise<void> {
+    // CRITICAL: Skip circuit breaker logic in development mode
+    // This prevents the circuit from opening due to missing Netlify Functions
+    if (shouldDisableMetaAPI()) {
+      return;
+    }
+
     this.lastFailureTime = new Date();
 
     if (this.state === 'half_open') {
