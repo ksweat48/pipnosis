@@ -281,7 +281,7 @@ export function CreditsPage() {
               <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-green-400 mb-2">One-Time Packages</h2>
               <p className="text-gray-400 mb-4 flex items-center gap-2">
                 <Package className="w-4 h-4 text-emerald-400" />
-                Premium pricing: $0.30 per credit
+                Premium pricing: $0.25 per credit
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {onetimePackages.map(pkg => (
@@ -312,7 +312,7 @@ export function CreditsPage() {
               <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400 mb-2">Subscription Packages</h2>
               <p className="text-gray-400 mb-4 flex items-center gap-2">
                 <Zap className="w-4 h-4 text-blue-400 animate-pulse" />
-                Best value: $0.20 per credit (33% savings!)
+                Best value: $0.20 per credit (20% savings!)
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {subscriptionPackages.map(pkg => (
