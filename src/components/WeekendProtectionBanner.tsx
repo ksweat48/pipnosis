@@ -64,11 +64,6 @@ export function WeekendProtectionBanner() {
       <div className="max-w-7xl mx-auto flex items-center justify-center gap-2">
         {getIcon()}
         <span className="text-sm font-semibold">{status.message}</span>
-        {status.hoursUntilClose !== undefined && status.minutesUntilClose !== undefined && (
-          <span className="text-xs opacity-90">
-            ({status.hoursUntilClose}h {status.minutesUntilClose}m remaining)
-          </span>
-        )}
       </div>
     </div>
   );

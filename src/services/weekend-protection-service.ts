@@ -565,7 +565,7 @@ class WeekendProtectionService {
 
       return {
         isActive: true,
-        message: `⚠️ Market closes in ${hours}h ${minutes}m - All trades will be closed`,
+        message: `Forex market close in ${hours}h ${minutes}m`,
         hoursUntilClose: hours,
         minutesUntilClose: minutes
       };
