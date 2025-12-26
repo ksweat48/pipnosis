@@ -475,9 +475,26 @@ class GoalSessionLiveEngine {
 
       // Filter to only trade symbols with open markets
       const openMarketSymbols = watchlist.filter(symbol => isSymbolMarketOpen(symbol));
+      const closedSymbols = watchlist.filter(symbol => !isSymbolMarketOpen(symbol));
+
       if (openMarketSymbols.length < watchlist.length) {
         console.log(`[MULTI-SYMBOL] 📊 Market filtering: ${openMarketSymbols.length}/${watchlist.length} symbols have open markets`);
         console.log('[MULTI-SYMBOL] Open:', openMarketSymbols.join(', '));
+
+        // Send user-facing message explaining market status
+        const cryptoOnly = openMarketSymbols.every(s => ['BTCUSD', 'ETHUSD'].includes(s));
+
+        let marketMessage = '';
+        if (cryptoOnly && closedSymbols.length > 0) {
+          marketMessage = `📊 Forex markets closed for weekend. Scanning crypto markets only (${openMarketSymbols.join(', ')}). Note: Crypto has wider spreads and higher volatility during forex closed hours.`;
+        } else if (closedSymbols.length > 0) {
+          marketMessage = `📊 Scanning ${openMarketSymbols.length} open markets. ${closedSymbols.length} symbols temporarily unavailable (${closedSymbols.join(', ')}).`;
+        }
+
+        if (marketMessage) {
+          console.log(`[MULTI-SYMBOL] 📢 Sending market status message to user: ${marketMessage}`);
+          await this.sendAIMessage(marketMessage);
+        }
       }
 
       // Additional check for weekend protection flags
@@ -547,7 +564,11 @@ class GoalSessionLiveEngine {
       if (tradeableSnapshots.length === 0) {
         console.log('%c[MULTI-SYMBOL] 🚫 No tradeable opportunities', 'color: #ff9800; font-weight: bold');
         logger.debug(LogCategory.AI_TRADING, '🚫 No tradeable opportunities - WAIT mode');
-        await this.sendAIMessage('Scanning 5 markets... No tradeable opportunities detected. Continuing scan.');
+
+        // Provide context about which markets are being scanned
+        const marketCount = openMarketSymbols.length;
+        const marketList = openMarketSymbols.slice(0, 3).join(', ') + (marketCount > 3 ? `, +${marketCount - 3} more` : '');
+        await this.sendAIMessage(`Scanning ${marketCount} open markets (${marketList})... No tradeable opportunities detected. Continuing scan.`);
         return;
       }
 
