@@ -92,7 +92,7 @@ export function CreditsPage() {
       .from('referral_codes')
       .select('*')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
 
     const { data: refTracking } = await supabase
       .from('referral_tracking')

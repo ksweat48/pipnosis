@@ -104,7 +104,7 @@ class ReferralRiskEngine {
         .from('user_profiles')
         .select('email')
         .eq('id', referrerId)
-        .single();
+        .maybeSingle();
 
       if (referrerProfile?.email) {
         const emailDistance = this.calculateLevenshteinDistance(
@@ -161,7 +161,7 @@ class ReferralRiskEngine {
         .from('referral_codes')
         .select('monthly_referrals, last_monthly_reset')
         .eq('user_id', referrerId)
-        .single();
+        .maybeSingle();
 
       if (referralCodes) {
         const lastReset = new Date(referralCodes.last_monthly_reset);
