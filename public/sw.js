@@ -1,12 +1,15 @@
 // Pipnosis PWA Service Worker
 // Enables installation and "Add to Home Screen" functionality
 
-const BUILD_VERSION = '1.0.5';
+const BUILD_VERSION = '1.0.6';
 const CACHE_NAME = `pipnosis-v${BUILD_VERSION}`;
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/notification-badge.png',
   '/Pipnosis icon.png'
 ];
 
@@ -111,17 +114,18 @@ function getVibrationPattern(type, data) {
 
 // Get notification icon based on type
 // Use full URL for Android to properly display colored icon
+// Using 192x192 size for optimal notification display
 function getNotificationIcon(type) {
   const origin = self.location.origin;
-  return `${origin}/Pipnosis icon.png`;
+  return `${origin}/icon-192.png`;
 }
 
 // Get notification badge (monochrome icon for Android status bar)
 // Note: Android requires a monochrome icon (white silhouette on transparent)
-// Use the black and white notification badge for status bar
+// Using 96x96 monochrome badge for Android status bar
 function getNotificationBadge() {
   const origin = self.location.origin;
-  return `${origin}/notification-badge_3.png`;
+  return `${origin}/notification-badge.png`;
 }
 
 // Get notification color based on type and data
@@ -177,7 +181,7 @@ self.addEventListener('push', (event) => {
     }
 
     // Add action buttons based on notification type
-    const actionIcon = `${self.location.origin}/Pipnosis icon.png`;
+    const actionIcon = `${self.location.origin}/icon-192.png`;
     if (data?.type === 'trade-signal') {
       notificationOptions.actions = [
         { action: 'view', title: 'View Signal', icon: actionIcon },
@@ -224,7 +228,8 @@ self.addEventListener('push', (event) => {
     event.waitUntil(
       self.registration.showNotification('Pipnosis', {
         body: 'New notification (error parsing data)',
-        icon: `${self.location.origin}/Pipnosis icon.png`,
+        icon: `${self.location.origin}/icon-192.png`,
+        badge: `${self.location.origin}/notification-badge.png`,
         vibrate: [200],
         requireInteraction: false,
         silent: false
