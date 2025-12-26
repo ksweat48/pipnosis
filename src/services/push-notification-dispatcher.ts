@@ -109,7 +109,7 @@ class PushNotificationDispatcher {
         title: `Trade Signal: ${params.symbol}`,
         body: `${format.direction(params.direction, 'notification')} ${params.setupType} - ${format.percent(params.confidence, 0, 'notification')} confidence`,
         icon: '/Pipnosis icon.png',
-        badge: '/notification-badge_3.png',
+        badge: '/notification-badge.png',
         data: {
           type: 'trade-signal',
           priority,
@@ -155,7 +155,7 @@ class PushNotificationDispatcher {
         title: `Trade Entered: ${params.symbol}`,
         body: `${format.direction(params.direction, 'notification')} at ${format.price(params.entryPrice, params.symbol, 'notification')} - ${format.lots(params.lotSize, 'notification')} lots`,
         icon: '/Pipnosis icon.png',
-        badge: '/notification-badge_3.png',
+        badge: '/notification-badge.png',
         data: {
           type: 'trade-entry',
           priority,
@@ -200,7 +200,7 @@ class PushNotificationDispatcher {
         title: `Trade Closed: ${params.symbol}`,
         body: `${format.pnl(params.profit, 'notification')} - ${format.closeReason(params.closeReason, 'notification')}`,
         icon: '/Pipnosis icon.png',
-        badge: '/notification-badge_3.png',
+        badge: '/notification-badge.png',
         data: {
           type: 'trade-closed',
           priority,
@@ -243,7 +243,7 @@ class PushNotificationDispatcher {
         title: `Mid-Trade Alert: ${params.symbol}`,
         body: `${params.triggerReason} - ${params.llmRecommendation}`,
         icon: '/Pipnosis icon.png',
-        badge: '/notification-badge_3.png',
+        badge: '/notification-badge.png',
         data: {
           type: 'mid-trade-alert',
           priority,
@@ -283,7 +283,7 @@ class PushNotificationDispatcher {
         title: 'Goal Achieved!',
         body: `Congratulations! You reached your $${params.goalAmount} target with ${params.tradesCount} trades`,
         icon: '/Pipnosis icon.png',
-        badge: '/notification-badge_3.png',
+        badge: '/notification-badge.png',
         data: {
           type: 'goal-achieved',
           priority,
@@ -323,7 +323,7 @@ class PushNotificationDispatcher {
         title: 'Goal Progress Update',
         body: `${params.progressPercentage.toFixed(1)}% complete - $${params.currentProgress.toFixed(2)} of $${params.targetAmount}`,
         icon: '/Pipnosis icon.png',
-        badge: '/notification-badge_3.png',
+        badge: '/notification-badge.png',
         data: {
           type: 'goal-progress',
           priority,
@@ -364,7 +364,7 @@ class PushNotificationDispatcher {
         title: 'Scanning Paused',
         body: `No trades found in 15 minutes. Continue scanning or close session?`,
         icon: '/Pipnosis icon.png',
-        badge: '/notification-badge_3.png',
+        badge: '/notification-badge.png',
         data: {
           type: 'scanning-timeout',
           priority,
@@ -412,7 +412,7 @@ class PushNotificationDispatcher {
         title: '🚀 Smart Goal Session Started',
         body: `Scanning ${symbolsText} (${params.timeframe}) for ${params.riskMode} risk trades`,
         icon: '/Pipnosis icon.png',
-        badge: '/notification-badge_3.png',
+        badge: '/notification-badge.png',
         data: {
           type: 'session-started',
           priority,
@@ -466,7 +466,7 @@ class PushNotificationDispatcher {
         title: `${icon} Session ${reasonText}`,
         body: `${params.tradesInSession} trade${params.tradesInSession !== 1 ? 's' : ''} • $${params.currentProgress.toFixed(2)} of $${params.targetValue.toFixed(2)} • ${Math.round(params.durationMinutes)}min`,
         icon: '/Pipnosis icon.png',
-        badge: '/notification-badge_3.png',
+        badge: '/notification-badge.png',
         data: {
           type: 'session-ended',
           priority,
