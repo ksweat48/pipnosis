@@ -150,36 +150,23 @@ export function TradeSignalNotificationBar({
               <DirectionIcon className="w-8 h-8 flex-shrink-0" />
 
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="text-lg font-bold">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-bold">
                     {signal.direction} {signal.symbol}
                   </h3>
                   <span className={`${config.badge} px-2 py-0.5 rounded text-xs font-bold`}>
-                    {signal.priority.toUpperCase()} PRIORITY
+                    {signal.priority.toUpperCase()}
                   </span>
                   <span className="text-sm opacity-90">
-                    {signal.confidence}% Confidence
+                    {signal.confidence}%
                   </span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3 text-sm">
-                  <div className="flex items-center gap-1">
-                    <Clock className="w-4 h-4" />
-                    <span className="font-semibold">{config.urgency}</span>
-                  </div>
-                  <span>Entry: {signal.entryPrice.toFixed(5)}</span>
-                  <span>SL: {signal.stopLoss.toFixed(5)}</span>
-                  <span>TP: {signal.takeProfit.toFixed(5)}</span>
+                  <span className="text-sm">Entry: {signal.entryPrice.toFixed(5)}</span>
+                  <span className="text-sm">SL: {signal.stopLoss.toFixed(5)}</span>
+                  <span className="text-sm">TP: {signal.takeProfit.toFixed(5)}</span>
                   {signal.riskReward && (
-                    <span className="font-semibold">R:R 1:{signal.riskReward.toFixed(2)}</span>
+                    <span className="text-sm font-semibold">R:R 1:{signal.riskReward.toFixed(2)}</span>
                   )}
                 </div>
-
-                {signal.setupType && (
-                  <div className="text-xs opacity-90 mt-1 truncate">
-                    Setup: {signal.setupType}
-                  </div>
-                )}
               </div>
             </div>
 
@@ -211,13 +198,6 @@ export function TradeSignalNotificationBar({
               </button>
             </div>
           </div>
-
-          {signal.priority === 'high' && (
-            <div className="mt-2 flex items-start gap-2 text-sm bg-white/10 rounded p-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <p className="opacity-90">{signal.reasoning}</p>
-            </div>
-          )}
         </div>
       </div>
     </div>

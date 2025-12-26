@@ -470,7 +470,7 @@ class GoalSessionLiveEngine {
       if (!anyMarketOpen) {
         console.log('%c[MULTI-SYMBOL] 🛑 ALL MARKETS CLOSED - Aborting scan to preserve LLM credits', 'color: #ff0000; font-weight: bold; font-size: 14px');
         logger.info(LogCategory.AI_TRADING, '🛑 All markets closed - skipping scan to preserve LLM credits');
-        await this.sendAIMessage('⏸️ All markets closed. Scanning paused until markets reopen. No LLM resources will be used while markets are closed.');
+        await this.sendAIMessage('Markets closed - Scanning paused until reopen');
         return;
       }
 

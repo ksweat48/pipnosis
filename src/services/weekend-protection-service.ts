@@ -377,7 +377,7 @@ class WeekendProtectionService {
 
       // STEP 6: Notify all users
       globalToastManager.showToast(
-        `🛡️ Weekend Shutdown Complete - All positions closed. Market reopens Sunday 5 PM EST`,
+        `Weekend shutdown complete - All positions closed`,
         'info'
       );
 
@@ -546,7 +546,7 @@ class WeekendProtectionService {
     if (status.isWeekend) {
       return {
         isActive: true,
-        message: '🛡️ All systems paused until market reopen'
+        message: 'Markets closed until Sunday 5pm EST'
       };
     }
 
@@ -554,7 +554,7 @@ class WeekendProtectionService {
     if (SCANNING_DISABLED || LLM_API_DISABLED) {
       return {
         isActive: true,
-        message: '🛡️ Weekend Shutdown - Market reopens Sunday 5 PM EST'
+        message: 'Weekend shutdown - Markets reopen Sunday 5pm EST'
       };
     }
 

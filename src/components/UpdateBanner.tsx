@@ -47,14 +47,9 @@ export function UpdateBanner() {
               <div className="flex-shrink-0">
                 <RefreshCw className="h-5 w-5 animate-spin" />
               </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium">
-                  New version available
-                </p>
-                <p className="text-xs text-blue-100 mt-0.5">
-                  Update now for the latest features and improvements
-                </p>
-              </div>
+              <p className="text-sm font-medium">
+                New version available
+              </p>
             </div>
 
             <div className="flex items-center gap-2">
