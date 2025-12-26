@@ -13,7 +13,7 @@ export function usePullToRefresh({
   threshold = 80,
   resistance = 2.5,
   enabled = true,
-  topZonePercentage = 30
+  topZonePercentage = 40
 }: PullToRefreshOptions) {
   const [isPulling, setIsPulling] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);

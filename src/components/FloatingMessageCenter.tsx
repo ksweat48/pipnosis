@@ -271,7 +271,7 @@ export const FloatingMessageCenter: React.FC<FloatingMessageCenterProps> = ({ us
             onClick={handleClosePanel}
           />
 
-          <div className="fixed bottom-0 left-0 right-0 z-50 h-[40vh] bg-gray-900/95 backdrop-blur-md border-t border-gray-700/50 rounded-t-2xl shadow-2xl animate-slide-up">
+          <div className="fixed bottom-0 left-0 right-0 z-50 h-[50vh] bg-gray-900/95 backdrop-blur-md border-t border-gray-700/50 rounded-t-2xl shadow-2xl animate-slide-up">
             <div className="h-full flex flex-col">
               <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700/50">
                 <div className="flex items-center gap-3">
