@@ -43,16 +43,16 @@ export function getRiskModeDescription(riskMode: RiskMode | string): string {
  * CONFIDENCE THRESHOLDS BY RISK MODE
  *
  * Aligns minimum confidence requirements with risk tolerance:
- * - LOW: 75% - Very selective, only high-confidence setups
- * - MEDIUM: 65% - Balanced approach, solid setups
- * - HIGH: 50% - Aggressive, captures more opportunities
+ * - LOW: 69% - Very selective, only high-confidence setups
+ * - MEDIUM: 67% - Balanced approach, solid setups
+ * - HIGH: 65% - Aggressive, captures more opportunities
  *
  * These thresholds ensure risk mode consistency across the platform.
  */
 export const CONFIDENCE_THRESHOLDS = {
-  low: 75,
-  medium: 65,
-  high: 50,
+  low: 69,
+  medium: 67,
+  high: 65,
 } as const;
 
 /**
