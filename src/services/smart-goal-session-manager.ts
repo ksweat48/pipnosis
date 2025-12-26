@@ -25,7 +25,7 @@ export interface SmartGoalSession {
   sessionId: string;
   userId: string;
   config: SmartGoalConfig;
-  status: 'initializing' | 'scanning' | 'trade_pending' | 'in_trade' | 'goal_achieved' | 'expired' | 'user_stopped';
+  status: 'initializing' | 'scanning' | 'trade_pending' | 'in_trade' | 'goal_achieved' | 'expired' | 'user_stopped' | 'awaiting_continuation';
   strategy: {
     targetTradeCount: number;
     avgProfitPerTrade: number;
@@ -235,7 +235,7 @@ class SmartGoalSessionManager {
         .from('goal_sessions')
         .select('*')
         .eq('user_id', userId)
-        .in('status', ['initializing', 'scanning', 'trade_pending', 'in_trade'])
+        .in('status', ['initializing', 'scanning', 'trade_pending', 'in_trade', 'awaiting_continuation'])
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();

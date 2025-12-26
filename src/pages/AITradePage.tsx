@@ -6,11 +6,14 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { SmartGoalPanel } from '@/components/SmartGoalPanel';
 import { GoalSessionDashboard } from '@/components/GoalSessionDashboard';
 import { AchievementsHallOfFame } from '@/components/AchievementsHallOfFame';
+import { PendingContinuationModalHandler } from '@/components/PendingContinuationModalHandler';
+import { useAuth } from '@/hooks/useAuth';
 import { Target, Trophy } from 'lucide-react';
 
 type TabType = 'start' | 'achievements';
 
 export function AITradePage() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     // Check URL parameters first
     const urlParams = new URLSearchParams(window.location.search);
@@ -60,6 +63,7 @@ export function AITradePage() {
         pullDistance={pullToRefresh.pullDistance}
         threshold={pullToRefresh.threshold}
       />
+      {user && <PendingContinuationModalHandler userId={user.id} />}
       <NavigationMenu />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 relative z-10">
