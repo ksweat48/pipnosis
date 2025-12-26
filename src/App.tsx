@@ -36,7 +36,7 @@ const GetAppPage = lazy(() => import('./pages/GetAppPage'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 const SystemDiagnosticsPage = lazy(() => import('./pages/SystemDiagnosticsPage'));
 const AILearningCenterPage = lazy(() => import('./pages/AILearningCenterPage'));
-const CreditsPage = lazy(() => import('./pages/TokensPage').then(m => ({ default: m.CreditsPage })));
+const CreditsPage = lazy(() => import('./pages/CreditsPage').then(m => ({ default: m.CreditsPage })));
 const OptimizedCandleTestPage = lazy(() => import('./pages/OptimizedCandleTestPage'));
 
 // Loading component

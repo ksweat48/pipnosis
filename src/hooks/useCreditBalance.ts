@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { tokenMeterService, type TokenBalance } from '@/services/token-meter-service';
+import { creditMeterService, type CreditBalance } from '@/services/credit-meter-service';
 
-export function useTokenBalance(userId: string | null) {
-  const [balance, setBalance] = useState<TokenBalance | null>(null);
+export function useCreditBalance(userId: string | null) {
+  const [balance, setBalance] = useState<CreditBalance | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -16,14 +16,14 @@ export function useTokenBalance(userId: string | null) {
 
     const loadBalance = async () => {
       setIsLoading(true);
-      const data = await tokenMeterService.getBalance(userId);
+      const data = await creditMeterService.getBalance(userId);
       setBalance(data);
       setIsLoading(false);
     };
 
     loadBalance();
 
-    unsubscribe = tokenMeterService.subscribeToBalance(userId, (newBalance) => {
+    unsubscribe = creditMeterService.subscribeToBalance(userId, (newBalance) => {
       setBalance(newBalance);
     });
 

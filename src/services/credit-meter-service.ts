@@ -1,13 +1,13 @@
 import { supabase } from '@/lib/supabase';
 
-export interface TokenBalance {
+export interface CreditBalance {
   balance: number;
   lifetimeEarned: number;
   lifetimeSpent: number;
   isAdmin: boolean;
 }
 
-export interface TokenTransaction {
+export interface CreditTransaction {
   id: string;
   userId: string;
   transactionType: string;
@@ -18,8 +18,8 @@ export interface TokenTransaction {
   createdAt: string;
 }
 
-class TokenMeterService {
-  async getBalance(userId: string): Promise<TokenBalance | null> {
+class CreditMeterService {
+  async getBalance(userId: string): Promise<CreditBalance | null> {
     try {
       const { data, error } = await supabase
         .rpc('get_user_token_balance', { p_user_id: userId });
@@ -41,7 +41,7 @@ class TokenMeterService {
     }
   }
 
-  async deductTokens(
+  async deductCredits(
     userId: string,
     amount: number,
     transactionType: string,
@@ -65,7 +65,7 @@ class TokenMeterService {
     }
   }
 
-  async addTokens(
+  async addCredits(
     userId: string,
     amount: number,
     transactionType: string,
@@ -89,7 +89,7 @@ class TokenMeterService {
     }
   }
 
-  async getTransactionHistory(userId: string, limit: number = 50): Promise<TokenTransaction[]> {
+  async getTransactionHistory(userId: string, limit: number = 50): Promise<CreditTransaction[]> {
     try {
       const { data, error } = await supabase
         .from('token_transaction_history')
@@ -116,9 +116,9 @@ class TokenMeterService {
     }
   }
 
-  subscribeToBalance(userId: string, callback: (balance: TokenBalance) => void) {
+  subscribeToBalance(userId: string, callback: (balance: CreditBalance) => void) {
     const channel = supabase
-      .channel(`token-balance-${userId}`)
+      .channel(`credit-balance-${userId}`)
       .on(
         'postgres_changes',
         {
@@ -140,4 +140,4 @@ class TokenMeterService {
   }
 }
 
-export const tokenMeterService = new TokenMeterService();
+export const creditMeterService = new CreditMeterService();

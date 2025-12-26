@@ -1,21 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { Coins, CreditCard, History, Users, Copy, Check, Package, Zap, TrendingUp, AlertCircle, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useTokenBalance } from '@/hooks/useTokenBalance';
+import { useCreditBalance } from '@/hooks/useCreditBalance';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
-import { tokenMeterService } from '@/services/token-meter-service';
+import { creditMeterService } from '@/services/credit-meter-service';
 import { supabase } from '@/lib/supabase';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
 
-interface TokenPackage {
+interface CreditPackage {
   id: string;
   packageType: 'onetime' | 'subscription';
   name: string;
   description: string;
   priceUsd: number;
-  tokenAmount: number;
+  creditAmount: number;
   costPerToken: number;
   badge?: string;
 }
@@ -36,9 +36,9 @@ interface ReferralData {
 
 export function CreditsPage() {
   const { user } = useAuth();
-  const { balance, isLoading } = useTokenBalance(user?.id || null);
+  const { balance, isLoading } = useCreditBalance(user?.id || null);
   const [activeTab, setActiveTab] = useState<'purchase' | 'history' | 'referral'>('purchase');
-  const [packages, setPackages] = useState<TokenPackage[]>([]);
+  const [packages, setPackages] = useState<CreditPackage[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [referralData, setReferralData] = useState<ReferralData | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -72,7 +72,7 @@ export function CreditsPage() {
         name: pkg.name,
         description: pkg.description || '',
         priceUsd: parseFloat(pkg.price_usd),
-        tokenAmount: pkg.token_amount,
+        creditAmount: pkg.token_amount,
         costPerToken: parseFloat(pkg.cost_per_token),
         badge: pkg.badge || undefined
       })));
@@ -81,7 +81,7 @@ export function CreditsPage() {
 
   const loadTransactions = async () => {
     if (!user) return;
-    const txns = await tokenMeterService.getTransactionHistory(user.id, 50);
+    const txns = await creditMeterService.getTransactionHistory(user.id, 50);
     setTransactions(txns);
   };
 
@@ -266,11 +266,11 @@ export function CreditsPage() {
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-xl font-bold text-white">{pkg.tokenAmount} Credits</h3>
-                            {pkg.tokenAmount > 60 && (
+                            <h3 className="text-xl font-bold text-white">{pkg.creditAmount} Credits</h3>
+                            {pkg.creditAmount > 60 && (
                               <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 rounded-full text-emerald-400 text-xs font-semibold">
                                 <Sparkles className="w-3 h-3" />
-                                +{pkg.tokenAmount - (pkg.priceUsd === 25 ? 100 : 200)} Bonus
+                                +{pkg.creditAmount - (pkg.priceUsd === 25 ? 100 : 200)} Bonus
                               </span>
                             )}
                           </div>
@@ -310,7 +310,7 @@ export function CreditsPage() {
                           <Zap size={24} className="text-blue-400" />
                         </div>
                         <div>
-                          <h3 className="text-xl font-bold text-white">{pkg.tokenAmount} Credits</h3>
+                          <h3 className="text-xl font-bold text-white">{pkg.creditAmount} Credits</h3>
                           <p className="text-gray-300 text-sm">Monthly</p>
                         </div>
                       </div>

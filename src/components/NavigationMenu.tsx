@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity, Coins, Layers, Smartphone, MessageSquare, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
-import { useTokenBalance } from '@/hooks/useTokenBalance';
+import { useCreditBalance } from '@/hooks/useCreditBalance';
 import { supabase } from '@/lib/supabase';
 import { BetaFeedbackDialog } from './BetaFeedbackDialog';
 import { format } from '@/utils/displayFormatters';
@@ -18,7 +18,7 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
   const location = useLocation();
   const { user, isAdmin, adminLoading, signOut } = useAuth();
   const { balance, totalPnL, openPositionsCount } = useUserBalance(user?.id || null);
-  const { balance: tokenBalance } = useTokenBalance(user?.id || null);
+  const { balance: creditBalance } = useCreditBalance(user?.id || null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
 
@@ -47,8 +47,8 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                 <Coins size={18} className="text-emerald-400" />
                 <div className="flex flex-col items-start">
                   <div className="text-gray-400 text-xs leading-tight">Credits</div>
-                  <div className={`font-semibold text-sm leading-tight ${tokenBalance?.isAdmin ? 'text-purple-400' : 'text-emerald-400'}`}>
-                    {tokenBalance?.isAdmin ? '∞' : tokenBalance?.balance.toFixed(0) || '0'}
+                  <div className={`font-semibold text-sm leading-tight ${creditBalance?.isAdmin ? 'text-purple-400' : 'text-emerald-400'}`}>
+                    {creditBalance?.isAdmin ? '∞' : creditBalance?.balance.toFixed(0) || '0'}
                   </div>
                 </div>
               </div>
@@ -117,8 +117,8 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                         <div className="flex items-center gap-2 mt-2 text-sm">
                           <Coins size={14} className="text-emerald-400" />
                           <span className="text-gray-400">Credits:</span>
-                          <span className={`font-semibold ${tokenBalance?.isAdmin ? 'text-purple-400' : 'text-emerald-400'}`}>
-                            {tokenBalance?.isAdmin ? '∞' : tokenBalance?.balance.toFixed(0) || '0'}
+                          <span className={`font-semibold ${creditBalance?.isAdmin ? 'text-purple-400' : 'text-emerald-400'}`}>
+                            {creditBalance?.isAdmin ? '∞' : creditBalance?.balance.toFixed(0) || '0'}
                           </span>
                         </div>
                       </div>
