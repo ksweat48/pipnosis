@@ -194,16 +194,16 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   const reasonColor = getCloseReasonColor(displayReason);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
       {/* Blocking overlay - prevents all interactions */}
       <div className="absolute inset-0" onClick={(e) => e.stopPropagation()} />
 
-      <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-300 max-h-[700px] flex flex-col">
+      <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-300 max-h-[90vh] flex flex-col">
         <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl opacity-50 blur-xl" />
 
         <div className="relative bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 rounded-2xl border border-gray-700/50 shadow-2xl overflow-hidden flex flex-col">
           {/* Scrollable content area */}
-          <div className="overflow-y-auto flex-1" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
+          <div className="overflow-y-auto flex-1 pb-safe" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto', maxHeight: 'calc(90vh - 2rem)' }}>
             {/* Header */}
             <div className="relative pt-6 pb-4 px-6">
             <div className={`absolute inset-0 bg-gradient-to-b ${reasonColor} opacity-10`} />
@@ -325,7 +325,7 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
             </div>
 
             {/* Action Buttons */}
-            <div className="space-y-3">
+            <div className="space-y-3 pb-6">
               {!isGoalAchieved && (
                 <button
                   onClick={onContinueSession}

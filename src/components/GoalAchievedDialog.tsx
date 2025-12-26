@@ -37,14 +37,14 @@ export const GoalAchievedDialog: React.FC<GoalAchievedDialogProps> = ({
   const overPerformance = ((displayProfit - goalAmount) / goalAmount) * 100;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-300 max-h-[700px] flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+      <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-300 max-h-[90vh] flex flex-col">
         {/* Glow effect */}
         <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 via-blue-500 to-emerald-500 rounded-2xl opacity-75 blur-xl animate-pulse" />
 
         {/* Dialog content */}
         <div className="relative bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 rounded-2xl border border-emerald-500/50 shadow-2xl overflow-hidden flex flex-col">
-          <div className="overflow-y-auto flex-1" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
+          <div className="overflow-y-auto flex-1 pb-safe" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto', maxHeight: 'calc(90vh - 2rem)' }}>
           {/* Close button */}
           <button
             onClick={onClose}
@@ -142,7 +142,7 @@ export const GoalAchievedDialog: React.FC<GoalAchievedDialogProps> = ({
             </div>
 
             {/* Action buttons */}
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 pb-6">
               <button
                 onClick={onStartNewSession}
                 className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 rounded-xl font-semibold text-white transition-all duration-300 shadow-lg hover:shadow-emerald-500/25 hover:scale-105 active:scale-95"

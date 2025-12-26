@@ -90,6 +90,9 @@ class ModalQueueManager extends TinyEmitter {
    */
   async getPendingModals(userId: string): Promise<PendingModal[]> {
     try {
+      // Auto-dismiss stale modals first (older than 24 hours)
+      await this.autoCleanupStaleModals();
+
       const { data, error } = await supabase
         .from('pending_user_modals')
         .select('*')
@@ -285,6 +288,47 @@ class ModalQueueManager extends TinyEmitter {
       return { success: true };
     } catch (error) {
       console.error('[ModalQueueManager] Exception deleting modal:', error);
+      return { success: false, error };
+    }
+  }
+
+  /**
+   * Auto-cleanup stale modals (older than 24 hours)
+   * Called automatically when loading pending modals
+   */
+  private async autoCleanupStaleModals(): Promise<void> {
+    try {
+      const { data, error } = await supabase.rpc('auto_dismiss_stale_pending_modals');
+
+      if (error) {
+        console.error('[ModalQueueManager] Failed to auto-cleanup stale modals:', error);
+        return;
+      }
+
+      if (data && data > 0) {
+        console.log(`[ModalQueueManager] Auto-dismissed ${data} stale modal(s)`);
+      }
+    } catch (error) {
+      console.error('[ModalQueueManager] Exception during auto-cleanup:', error);
+    }
+  }
+
+  /**
+   * Clear all pending modals for all users (admin only)
+   */
+  async adminClearAllModals(): Promise<{ success: boolean; deletedCount?: number; error?: any }> {
+    try {
+      const { data, error } = await supabase.rpc('admin_clear_all_pending_modals');
+
+      if (error) {
+        console.error('[ModalQueueManager] Failed to clear all modals:', error);
+        return { success: false, error };
+      }
+
+      console.log('[ModalQueueManager] ✅ Cleared all pending modals:', data);
+      return { success: true, deletedCount: data?.[0]?.deleted_count || 0 };
+    } catch (error) {
+      console.error('[ModalQueueManager] Exception clearing all modals:', error);
       return { success: false, error };
     }
   }
