@@ -1057,6 +1057,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     try {
       console.log(`[Chart Init] ========================================`);
       console.log(`[Chart Init] Starting initialization for ${symbol} ${timeframe}`);
+      console.log(`[Chart Init] Environment: ${shouldDisableMetaAPI() ? 'Development/Bolt (Database Only)' : 'Production'}`);
       console.log(`[Chart Init] candlestickSeriesRef exists: ${!!candlestickSeriesRef.current}`);
       console.log(`[Chart Init] historicalCandlesRef length: ${historicalCandlesRef.current.length}`);
 
@@ -1068,10 +1069,21 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         setLoadingProgress(null);
       }
 
-      const targetCandleCount = 200;
-      console.log(`[Chart Init] Using ChartDataGuarantor with aggressive backfill - Target: ${targetCandleCount} candles`);
+      // Optimize candle count for development environments
+      const isDevEnvironment = shouldDisableMetaAPI();
+      const targetCandleCount = isDevEnvironment ? 50 : 200;
+      console.log(`[Chart Init] Using ChartDataGuarantor - Target: ${targetCandleCount} candles (${isDevEnvironment ? 'DEV MODE' : 'PRODUCTION'})`);
 
-      const result = await ChartDataGuarantor.guaranteeChartDataWithBackfill(symbol, timeframe, targetCandleCount);
+      // Add timeout protection for development environments
+      const timeoutMs = isDevEnvironment ? 10000 : 30000; // 10s for dev, 30s for production
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Chart initialization timeout')), timeoutMs);
+      });
+
+      const result = await Promise.race([
+        ChartDataGuarantor.guaranteeChartDataWithBackfill(symbol, timeframe, targetCandleCount),
+        timeoutPromise
+      ]);
       console.log(`[Chart Init] ⚠️ CRITICAL: Guarantor returned ${result.candles.length} candles (target: ${targetCandleCount})`);
 
       console.log(`[Chart Init] Guarantor result:`, {
@@ -1084,10 +1096,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
       if (result.candles.length === 0) {
         console.error('[Chart Init] ❌ ZERO CANDLES returned from guarantor!');
-        console.error('[Chart Init] This should NEVER happen for active symbols');
         console.error('[Chart Init] Checking database directly...');
 
-        // EMERGENCY: Try direct database query
+        // EMERGENCY: Try direct database query with reduced limit for development
+        const emergencyLimit = isDevEnvironment ? 50 : 200;
+        console.log(`[Chart Init] Emergency direct query with limit: ${emergencyLimit}`);
+
         // 🎯 Uses forex_candles_best for quality-filtered data
         const { data: directCandles, error: directError } = await supabase
           .from('forex_candles_best')
@@ -1095,10 +1109,17 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           .eq('symbol', symbol)
           .eq('timeframe', timeframe)
           .order('open_time', { ascending: false })
-          .limit(200);
+          .limit(emergencyLimit);
 
         if (directError) {
           console.error('[Chart Init] Direct query error:', directError);
+          const errorMessage = isDevEnvironment
+            ? `Development Mode: Unable to load data for ${symbol}. Database may be unavailable.`
+            : 'Failed to load chart data. Please check your connection.';
+          setError(errorMessage);
+          setIsLoading(false);
+          setLoadingProgress(null);
+          return;
         } else {
           console.log('[Chart Init] Direct query returned:', directCandles?.length || 0, 'candles');
           if (directCandles && directCandles.length > 0) {
@@ -1115,7 +1136,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         if (result.candles.length === 0) {
           console.warn('[Chart Init] No candle data found for symbol:', symbol);
-          setError('Waiting for price data... The price feed will start shortly.');
+          const message = isDevEnvironment
+            ? `Development Mode: No data available for ${symbol} ${timeframe}. The database may need to be populated with historical data.`
+            : 'Waiting for price data... The price feed will start shortly.';
+          setError(message);
           setIsLoading(false);
           setLoadingProgress(null);
           return;
@@ -1406,8 +1430,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       console.error('[Chart Init] Failed to initialize chart:', err);
       if (err instanceof Error) {
         console.error('[Chart Init] Error stack:', err.stack);
+
+        // Handle timeout specifically
+        if (err.message.includes('timeout')) {
+          const message = shouldDisableMetaAPI()
+            ? `Development Mode: Chart initialization timed out. The database connection may be slow or unavailable.`
+            : 'Chart loading timed out. Please refresh to try again.';
+          setError(message);
+        } else {
+          setError(err.message || 'Failed to load chart data');
+        }
+      } else {
+        setError('Failed to load chart data');
       }
-      setError('Failed to load chart data');
       setIsLoading(false);
       setLoadingProgress(null);
     }
@@ -1929,10 +1964,25 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         {error && (
           <div className="absolute inset-0 bg-gray-800 rounded-lg flex items-center justify-center z-10">
-            <div className="text-center p-6">
+            <div className="text-center p-6 max-w-md">
               <AlertCircle className="text-red-500 mx-auto mb-3" size={32} />
-              <p className="text-white font-semibold mb-2">Chart Error</p>
-              <p className="text-white/70 text-sm">{error}</p>
+              <p className="text-white font-semibold mb-2">Chart Loading Error</p>
+              <p className="text-white/70 text-sm mb-4">{error}</p>
+              <button
+                onClick={() => {
+                  setError(null);
+                  initializeChart(true);
+                }}
+                className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2 mx-auto"
+              >
+                <RefreshCw size={16} />
+                Retry
+              </button>
+              {shouldDisableMetaAPI() && (
+                <p className="text-white/50 text-xs mt-4">
+                  Development Mode: Ensure Supabase is configured and database contains data
+                </p>
+              )}
             </div>
           </div>
         )}

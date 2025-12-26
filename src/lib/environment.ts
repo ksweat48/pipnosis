@@ -22,7 +22,8 @@ export function detectEnvironment(): Environment {
     return 'production';
   }
 
-  if (hostname.includes('webcontainer') || userAgent.includes('WebContainer')) {
+  if (hostname.includes('bolt.new') || hostname.includes('webcontainer') ||
+      hostname.includes('stackblitz') || userAgent.includes('WebContainer')) {
     return 'webcontainer';
   }
 
@@ -53,6 +54,14 @@ export function isDevelopment(): boolean {
  */
 export function isWebContainer(): boolean {
   return detectEnvironment() === 'webcontainer';
+}
+
+/**
+ * Check if running specifically in Bolt.new environment
+ */
+export function isBoltEnvironment(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.location.hostname.includes('bolt.new');
 }
 
 /**

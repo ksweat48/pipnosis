@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity } from 'lucide-react';
+import { Activity, RefreshCw } from 'lucide-react';
 
 interface ChartLoadingOverlayProps {
   symbol: string;
@@ -7,9 +7,11 @@ interface ChartLoadingOverlayProps {
   loaded?: number;
   total?: number;
   message?: string;
+  showRetry?: boolean;
+  onRetry?: () => void;
 }
 
-export function ChartLoadingOverlay({ symbol, timeframe, loaded, total, message }: ChartLoadingOverlayProps) {
+export function ChartLoadingOverlay({ symbol, timeframe, loaded, total, message, showRetry, onRetry }: ChartLoadingOverlayProps) {
   const progress = loaded && total ? (loaded / total) * 100 : 0;
   const showProgress = loaded !== undefined && total !== undefined && total > 0;
 
@@ -39,10 +41,20 @@ export function ChartLoadingOverlay({ symbol, timeframe, loaded, total, message 
           </>
         )}
 
-        {!showProgress && (
+        {!showProgress && !showRetry && (
           <p className="text-white/60 text-sm">
             Fetching fresh market data...
           </p>
+        )}
+
+        {showRetry && onRetry && (
+          <button
+            onClick={onRetry}
+            className="mt-4 px-6 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2 mx-auto"
+          >
+            <RefreshCw size={16} />
+            Retry Loading
+          </button>
         )}
       </div>
     </div>

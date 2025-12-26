@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
 import { CandleData } from '../types/chart';
 import { databaseResilienceWrapper } from './database-resilience-wrapper';
+import { shouldDisableMetaAPI } from '../lib/environment';
 
 interface DatabaseCandleRecord {
   id: string;
@@ -29,6 +30,7 @@ export interface GuarantorResult {
 export class ChartDataGuarantor {
   private static readonly TARGET_CANDLES = 200;
   private static readonly EMERGENCY_LIMIT = 15000; // Increased from 250 to handle historical backfill data
+  private static readonly DEV_EMERGENCY_LIMIT = 100; // Reduced limit for development environments
   private static readonly TIMEFRAME_SECONDS: Record<string, number> = {
     'M1': 60,
     'M5': 300,
@@ -45,9 +47,10 @@ export class ChartDataGuarantor {
     targetCount: number = this.TARGET_CANDLES
   ): Promise<GuarantorResult> {
     const startTimeMs = Date.now();
+    const isDevEnvironment = shouldDisableMetaAPI();
 
     try {
-      logger.info(`[ChartDataGuarantor] Guaranteeing ${targetCount} candles for ${symbol} ${timeframe}`);
+      logger.info(`[ChartDataGuarantor] Guaranteeing ${targetCount} candles for ${symbol} ${timeframe} (${isDevEnvironment ? 'DEV' : 'PROD'} mode)`);
 
       if (targetCount <= 0) {
         throw new Error(`Invalid targetCount: ${targetCount}`);
@@ -73,6 +76,12 @@ export class ChartDataGuarantor {
 
       logger.info(`[ChartDataGuarantor] Query range: ${startTimeISO} to ${endTimeISO}`);
 
+      // Use reduced limits in development to speed up queries
+      const queryLimit = isDevEnvironment ? this.DEV_EMERGENCY_LIMIT : this.EMERGENCY_LIMIT;
+      const cacheDuration = isDevEnvironment ? 60000 : 30000; // 60s for dev, 30s for prod
+
+      logger.info(`[ChartDataGuarantor] Query limit: ${queryLimit}, cache: ${cacheDuration}ms`);
+
       // Order by descending to get the NEWEST candles first (fixes issue where
       // browser aggregator creates 500+ candles but we only fetch oldest 250)
       // Wrapped with database resilience for retry and caching
@@ -88,10 +97,10 @@ export class ChartDataGuarantor {
           .gte('open_time', startTimeISO)
           .lte('open_time', endTimeISO)
           .order('open_time', { ascending: false })  // Get newest first
-          .limit(this.EMERGENCY_LIMIT),
+          .limit(queryLimit),
         {
           cacheKey: `chart-guarantor:${symbol}:${timeframe}:${startTimeISO}`,
-          cacheDuration: 30000, // 30 seconds
+          cacheDuration: cacheDuration,
         }
       );
 
