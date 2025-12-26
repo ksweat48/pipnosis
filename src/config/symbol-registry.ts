@@ -404,6 +404,5 @@ export const ENERGY_SYMBOLS = getSymbolsByCategory('energy');
 export const SYMBOLS_24_7 = getSymbolsByMarketSchedule('24/7');
 export const SYMBOLS_FOREX_HOURS = getSymbolsByMarketSchedule('forex');
 
-export const TWELVEDATA_SYMBOLS = getSymbolsByDataProvider('twelvedata');
 export const METAAPI_SYMBOLS = getSymbolsByDataProvider('metaapi');
 export const KRAKEN_SYMBOLS = getSymbolsByDataProvider('kraken');

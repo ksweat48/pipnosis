@@ -2,7 +2,7 @@
  * Free Sentiment Scraper Pipeline - API-Based Version
  *
  * Scrapes 5 reliable free API sources with no CORS issues:
- * 1. Finnhub Market News (30% weight) - using existing API
+ * 1. Finnhub Market News (30% weight) - integrated server-side via Supabase Edge Function
  * 2. FMP Financial News (30% weight) - 250 calls/day
  * 3. Reddit JSON API (20% weight) - no key required
  * 4. Fear & Greed Index (15% weight) - no key required
@@ -26,7 +26,6 @@ class SentimentScrapers {
   private readonly TIMEOUT_MS = 10000;
   private readonly MAX_ITEMS_PER_SOURCE = 10;
   private readonly FMP_API_KEY = getEnv('VITE_FMP_API_KEY');
-  private readonly FINNHUB_API_KEY = getEnv('VITE_FINNHUB_API_KEY');
 
   /**
    * Scrape all sources and aggregate into SentimentInput
@@ -79,20 +78,15 @@ class SentimentScrapers {
   }
 
   /**
-   * Finnhub Market News API (via Netlify Function proxy)
+   * Finnhub Market News API (via Netlify Function proxy - integrated server-side)
    */
   private async scrapeFinnhub(): Promise<string[]> {
     try {
-      if (!this.FINNHUB_API_KEY) {
-        return [];
-      }
-
       const response = await this.fetchWithTimeout('/.netlify/functions/sentiment-proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          source: 'finnhub',
-          apiKey: this.FINNHUB_API_KEY
+          source: 'finnhub'
         })
       });
 
