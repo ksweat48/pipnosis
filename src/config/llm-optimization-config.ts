@@ -104,8 +104,8 @@ export const LLM_OPTIMIZATION_CONFIG: LLMOptimizationConfig = {
   },
 
   rateLimits: {
-    gpt4o_requests_per_hour: 60,
-    gpt4o_mini_requests_per_hour: 500,
+    gpt4o_requests_per_hour: 2000, // Conservative limit for expensive model
+    gpt4o_mini_requests_per_hour: 24000, // 80% of OpenAI Tier 1 capacity (30k/hour)
     enable_queuing: true,
   },
 
