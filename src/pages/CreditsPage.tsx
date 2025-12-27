@@ -252,7 +252,7 @@ export function CreditsPage() {
               <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-green-400 mb-2">One-Time Packages</h2>
               <p className="text-gray-400 mb-4 flex items-center gap-2">
                 <Package className="w-4 h-4 text-emerald-400" />
-                Premium pricing: $0.25 per credit
+                Starting at $0.25 per credit
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {onetimePackages.map(pkg => (
@@ -260,6 +260,12 @@ export function CreditsPage() {
                     <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-green-500 rounded-xl opacity-10 group-hover:opacity-30 transition duration-300 blur" />
 
                     <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl p-6 border border-gray-700/50 hover:border-emerald-500/50 transition-all shadow-xl">
+                      {pkg.badge && (
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-full text-white text-xs font-bold shadow-lg flex items-center gap-1">
+                          <Sparkles className="w-3 h-3" />
+                          {pkg.badge}
+                        </div>
+                      )}
                       <div className="flex items-center gap-3 mb-4">
                         <div className="p-2 bg-emerald-500/10 rounded-lg">
                           <Package size={24} className="text-emerald-400" />
@@ -267,10 +273,10 @@ export function CreditsPage() {
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
                             <h3 className="text-xl font-bold text-white">{pkg.creditAmount} Credits</h3>
-                            {pkg.creditAmount > 60 && (
+                            {pkg.creditAmount > 100 && (
                               <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 rounded-full text-emerald-400 text-xs font-semibold">
                                 <Sparkles className="w-3 h-3" />
-                                +{pkg.creditAmount - (pkg.priceUsd === 25 ? 100 : 200)} Bonus
+                                +{pkg.creditAmount === 210 ? 10 : 20} Bonus
                               </span>
                             )}
                           </div>
@@ -291,7 +297,7 @@ export function CreditsPage() {
               <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400 mb-2">Subscription Packages</h2>
               <p className="text-gray-400 mb-4 flex items-center gap-2">
                 <Zap className="w-4 h-4 text-blue-400 animate-pulse" />
-                Best value: $0.20 per credit (20% savings!)
+                Best value: Starting at $0.20 per credit (20% savings!)
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {subscriptionPackages.map(pkg => (
@@ -309,8 +315,16 @@ export function CreditsPage() {
                         <div className="p-2 bg-blue-500/20 rounded-lg">
                           <Zap size={24} className="text-blue-400" />
                         </div>
-                        <div>
-                          <h3 className="text-xl font-bold text-white">{pkg.creditAmount} Credits</h3>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-xl font-bold text-white">{pkg.creditAmount} Credits</h3>
+                            {pkg.creditAmount > 100 && (
+                              <span className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/20 border border-blue-500/40 rounded-full text-blue-400 text-xs font-semibold">
+                                <Sparkles className="w-3 h-3" />
+                                +{pkg.creditAmount === 210 ? 10 : 20} Bonus
+                              </span>
+                            )}
+                          </div>
                           <p className="text-gray-300 text-sm">Monthly</p>
                         </div>
                       </div>
