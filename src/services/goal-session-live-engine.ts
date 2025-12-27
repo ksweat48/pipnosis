@@ -23,7 +23,7 @@ import { contextAwareCouncilManager } from './context-aware-council-manager';
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
-import { calculateGoalBasedTakeProfit, calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalOptimalPosition, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
+import { calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalAwareLotSize, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
 import { getRiskPercentage } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
 import { scanningStateMachine } from './scanning-state-machine';
@@ -776,10 +776,10 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      // ✅ NEW: Smart goal-based position sizing + TP calculation
-      // Reuse goal context data from orchestrator call above
-      // 🎯 CRITICAL: Use reverse calculation to optimize for goal
-      const goalOptimal = calculateGoalOptimalPosition(
+      // ✅ CRITICAL FIX: Goal-aware LOT SIZING only (TP comes from Alpha's market analysis)
+      // This calculates position size appropriate for risk mode and goal context
+      // BUT lets Alpha determine TP based on market reality (liquidity zones, structure, R:R)
+      const goalAwareSizing = calculateGoalAwareLotSize(
         selectedSymbol,
         decision.action.toLowerCase() as 'buy' | 'sell',
         this.config.initialBalance,
@@ -790,18 +790,30 @@ class GoalSessionLiveEngine {
         this.config.riskMode
       );
 
-      console.log(`[Goal Session] 🎯 GOAL-OPTIMIZED TRADE:`);
-      console.log(`  Position Size: ${goalOptimal.lotSize.toFixed(3)} lots (goal-optimized)`);
-      console.log(`  Take Profit: ${goalOptimal.takeProfit.toFixed(5)} (${goalOptimal.pipsNeeded.toFixed(1)} pips)`);
-      console.log(`  AI Suggested TP: ${decision.takeProfit.toFixed(5)}`);
-      console.log(`  Feasibility: ${goalOptimal.goalFeasibility}`);
-      console.log(`  Reasoning: ${goalOptimal.reasoning}`);
+      // Calculate expected profit at Alpha's market-based TP
+      const alphaTPPips = calculatePipDistance(selectedSymbol, decision.entry, decision.takeProfit);
+      const dollarPerPipAtLotSize = calculateDollarPerPip(selectedSymbol, goalAwareSizing.lotSize);
+      const expectedProfitAtAlphaTP = alphaTPPips * dollarPerPipAtLotSize;
+      const progressPercent = (expectedProfitAtAlphaTP / goalContext.remainingGoal) * 100;
 
-      let calculatedLotSize = goalOptimal.lotSize;
-      const goalTPResult = {
-        takeProfit: goalOptimal.takeProfit,
-        reasoning: goalOptimal.reasoning
-      };
+      console.log(`[Goal Session] 🎯 MARKET-BASED TRADE EXECUTION:`);
+      console.log(`  Position Size: ${goalAwareSizing.lotSize.toFixed(3)} lots (${this.config.riskMode} risk)`);
+      console.log(`  Alpha's TP: ${decision.takeProfit.toFixed(5)} (${alphaTPPips.toFixed(1)} pips - MARKET REALISTIC)`);
+      console.log(`  Expected Profit: $${expectedProfitAtAlphaTP.toFixed(2)} (${progressPercent.toFixed(0)}% of $${goalContext.remainingGoal.toFixed(2)} remaining)`);
+      console.log(`  Goal Progress: Trade ${goalAwareSizing.estimatedTradesNeeded === 1 ? '1 of 1' : `1 of ~${goalAwareSizing.estimatedTradesNeeded}`}`);
+      console.log(`  Feasibility: ${goalAwareSizing.goalFeasibility}`);
+      console.log(`  Strategy: ${goalAwareSizing.reasoning}`);
+
+      let calculatedLotSize = goalAwareSizing.lotSize;
+
+      // Build comprehensive reasoning that explains the trade plan
+      const tradeReasoningAddendum = `\n\n💰 GOAL PROGRESS CONTEXT:\n` +
+        `Remaining to Goal: $${goalContext.remainingGoal.toFixed(2)}\n` +
+        `This Trade Target: $${expectedProfitAtAlphaTP.toFixed(2)} (${progressPercent.toFixed(0)}% progress)\n` +
+        `${goalAwareSizing.estimatedTradesNeeded > 1 ?
+          `Multi-Trade Strategy: Estimated ${goalAwareSizing.estimatedTradesNeeded} trades needed at realistic market-based TPs` :
+          `Single-Trade Strategy: Goal achievable in this trade if TP is reached`}\n` +
+        `\nTP Strategy: ${decision.reasoning.includes('liquidity') ? 'Liquidity-based placement' : 'Market structure-based placement'}`;
 
       // 🚨 CRITICAL PRE-EXECUTION SAFETY CHECK
       const stopPips = calculatePipDistance(selectedSymbol, decision.entry, decision.stopLoss);
@@ -843,10 +855,10 @@ class GoalSessionLiveEngine {
         entryTime: new Date(),
         entryPrice: decision.entry,
         stopLoss: decision.stopLoss,
-        takeProfit: goalTPResult.takeProfit, // ✅ Use goal-based TP instead of AI TP
+        takeProfit: decision.takeProfit, // ✅ CRITICAL FIX: Use Alpha's market-based TP, NOT goal-based TP
         positionSize: calculatedLotSize,
         confidence: decision.confidence,
-        reasoning: decision.reasoning + `\n\nTP Strategy: ${goalTPResult.reasoning}`, // Include TP reasoning
+        reasoning: decision.reasoning + tradeReasoningAddendum, // Include goal progress context
         triggerType: 'multi_symbol_best_opportunity',
         maxHoldMinutes: 240,
         pnl: 0,

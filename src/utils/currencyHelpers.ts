@@ -455,26 +455,31 @@ export function calculateAutonomousPositionSize(
 }
 
 /**
- * Calculate optimal position size and TP for achieving a goal in ONE trade
+ * Calculate goal-aware position size (LOT SIZE ONLY - TP comes from Alpha)
  *
- * CRITICAL: This is the REVERSE CALCULATION - work backward from goal
+ * CRITICAL CHANGE: This function now ONLY calculates lot size.
+ * TP placement is determined by Alpha based on market conditions (liquidity zones, structure, R:R)
  *
  * Strategy:
- * 1. Calculate remaining goal amount
- * 2. Find optimal lot size that reaches goal with realistic pip target
- * 3. Balance between goal achievement and market feasibility
+ * 1. Calculate lot size appropriate for risk mode
+ * 2. Provide goal progress context for informational purposes
+ * 3. Let Alpha determine realistic TP based on market conditions
+ *
+ * WHY THIS CHANGE:
+ * - Old: Set TP to hit goal amount → trades failed when market couldn't reach goal-based TP
+ * - New: Set TP where market can realistically go → take profit and run another trade if needed
  *
  * @param symbol Currency pair
- * @param direction Trade direction
+ * @param direction Trade direction (not used for lot sizing, kept for compatibility)
  * @param accountBalance Current account balance
  * @param entryPrice Entry price
  * @param stopLoss Stop loss price
  * @param currentProgress Current P&L toward goal
  * @param targetGoal Total goal amount
  * @param riskMode Risk tolerance
- * @returns Optimal position size, TP, and reasoning
+ * @returns Lot size and goal progress information (NO TP - that comes from Alpha)
  */
-export function calculateGoalOptimalPosition(
+export function calculateGoalAwareLotSize(
   symbol: string,
   direction: 'buy' | 'sell',
   accountBalance: number,
@@ -485,8 +490,9 @@ export function calculateGoalOptimalPosition(
   riskMode: 'low' | 'medium' | 'high' = 'medium'
 ): {
   lotSize: number;
-  takeProfit: number;
-  pipsNeeded: number;
+  expectedProfitAtCommonMove: number;
+  remainingGoal: number;
+  estimatedTradesNeeded: number;
   reasoning: string;
   goalFeasibility: 'single_trade' | 'multiple_trades' | 'unrealistic';
 } {
@@ -549,106 +555,98 @@ export function calculateGoalOptimalPosition(
   console.log(`  Dollar/Pip: $${dollarPerPip.toFixed(2)}`);
   console.log(`  Pips Needed for Goal: ${pipsNeededForGoal.toFixed(1)}`);
 
-  // Assess goal feasibility based on market reality (educational, not restrictive)
+  // Calculate expected profit at common market move (for informational purposes only)
+  const expectedProfitAtCommonMove = commonMovePips * dollarPerPip;
+
+  // Assess goal feasibility (informational - doesn't affect TP placement)
   let goalFeasibility: 'single_trade' | 'multiple_trades' | 'unrealistic';
-  let finalPips: number;
   let reasoning: string;
+  let estimatedTradesNeeded: number;
 
   const pipFeasibilityRatio = pipsNeededForGoal / typicalDailyRange;
 
   if (pipsNeededForGoal <= commonMovePips && pipsNeededForGoal >= minViablePips) {
-    // Goal achievable in single trade - realistic pip target
+    // Goal achievable in realistic single trade
     goalFeasibility = 'single_trade';
-    finalPips = pipsNeededForGoal;
-    reasoning = `Goal achievable in ONE trade: ${formatLotSize(actualLotSize)} lots × ${finalPips.toFixed(1)} pips = $${remainingGoal.toFixed(2)} (within common ${commonMovePips}-pip moves)`;
+    estimatedTradesNeeded = 1;
+    reasoning = `${formatLotSize(actualLotSize)} lots sized for ${riskMode} risk. At common ${commonMovePips}-pip moves: ~$${expectedProfitAtCommonMove.toFixed(2)} per trade. Goal achievable in 1 good trade if Alpha finds optimal TP.`;
   } else if (pipsNeededForGoal > commonMovePips && pipsNeededForGoal <= typicalDailyRange) {
-    // Goal possible but requires full daily range
+    // Goal possible but may need strong trend or multiple trades
     goalFeasibility = 'single_trade';
-    finalPips = pipsNeededForGoal;
-    reasoning = `Goal achievable if market provides full daily range: ${formatLotSize(actualLotSize)} lots × ${finalPips.toFixed(1)} pips = $${remainingGoal.toFixed(2)} (${pipFeasibilityRatio.toFixed(1)}x typical moves - needs strong trend)`;
+    estimatedTradesNeeded = 1;
+    reasoning = `${formatLotSize(actualLotSize)} lots. Goal needs ${pipsNeededForGoal.toFixed(0)} pips (${pipFeasibilityRatio.toFixed(1)}x common moves). Achievable if Alpha finds strong trend opportunity. Expected at common moves: $${expectedProfitAtCommonMove.toFixed(2)}.`;
   } else if (pipsNeededForGoal > typicalDailyRange) {
-    // Goal requires multiple trades - show realistic path
+    // Goal requires multiple trades
     goalFeasibility = 'multiple_trades';
-    finalPips = commonMovePips;
-    const partialProfit = finalPips * dollarPerPip;
-    const tradesNeeded = Math.ceil(remainingGoal / partialProfit);
-    reasoning = `Goal requires ~${tradesNeeded} trades (${pipsNeededForGoal.toFixed(0)} pips = ${pipFeasibilityRatio.toFixed(1)}x daily range). Recommended: ${formatLotSize(actualLotSize)} lots × ${finalPips.toFixed(1)} pips/trade = $${partialProfit.toFixed(2)} per win toward $${remainingGoal.toFixed(2)}`;
+    estimatedTradesNeeded = Math.ceil(remainingGoal / expectedProfitAtCommonMove);
+    reasoning = `${formatLotSize(actualLotSize)} lots. Goal needs ${pipsNeededForGoal.toFixed(0)} pips (${pipFeasibilityRatio.toFixed(1)}x daily range). Estimated ${estimatedTradesNeeded} trades needed at ~$${expectedProfitAtCommonMove.toFixed(2)} per win. Alpha will set realistic TPs based on market conditions.`;
   } else {
-    // Pips too small - increase lot size or unrealistic
-    goalFeasibility = 'unrealistic';
-    finalPips = minViablePips;
-    const achievableProfit = finalPips * dollarPerPip;
-    reasoning = `Min viable pip target (${finalPips.toFixed(1)}) gives $${achievableProfit.toFixed(2)}. Goal may need position size adjustment or multiple trades.`;
+    // Edge case: very small pip requirements
+    goalFeasibility = 'single_trade';
+    estimatedTradesNeeded = 1;
+    reasoning = `${formatLotSize(actualLotSize)} lots. Goal needs only ${pipsNeededForGoal.toFixed(1)} pips. Should be achievable in 1 trade if Alpha finds quality setup. Expected at common moves: $${expectedProfitAtCommonMove.toFixed(2)}.`;
   }
 
-  // Calculate TP price
-  const pipPriceDistance = finalPips * pipInfo.pipValue;
-  const takeProfit = direction === 'buy'
-    ? entryPrice + pipPriceDistance
-    : entryPrice - pipPriceDistance;
-
-  // Validate R:R
-  const slDistance = Math.abs(entryPrice - stopLoss);
-  const tpDistance = Math.abs(takeProfit - entryPrice);
-  const riskReward = tpDistance / slDistance;
-
-  console.log(`  Take Profit: ${takeProfit.toFixed(pipInfo.decimalPlaces)}`);
-  console.log(`  Risk:Reward: 1:${riskReward.toFixed(2)}`);
-  console.log(`  Feasibility: ${goalFeasibility}`);
-  console.log(`  Reasoning: ${reasoning}`);
-
-  // 🚨 FINAL VALIDATION: Calculate expected risk and profit
+  // 🚨 SAFETY VALIDATION: Ensure risk is within acceptable limits
   const stopDistance = Math.abs(entryPrice - stopLoss);
   const stopPips = stopDistance / pipInfo.pipValue;
   const expectedRisk = stopPips * dollarPerPip;
-  const expectedProfit = finalPips * dollarPerPip;
+  const maxRiskAllowed = accountBalance * 0.05;
 
-  console.log('%c[POSITION SIZING VALIDATION]', 'color: #00ff00; font-weight: bold');
+  console.log('%c[GOAL-AWARE LOT SIZING]', 'color: #00ff00; font-weight: bold');
   console.log(`  Lot Size: ${formatLotSize(actualLotSize)}`);
   console.log(`  Expected Risk (SL): $${expectedRisk.toFixed(2)}`);
-  console.log(`  Expected Profit (TP): $${expectedProfit.toFixed(2)}`);
-  console.log(`  Max Risk Allowed: $${(accountBalance * 0.05).toFixed(2)} (5% cap)`);
+  console.log(`  Expected Profit (at ${commonMovePips} pips): $${expectedProfitAtCommonMove.toFixed(2)}`);
+  console.log(`  Remaining Goal: $${remainingGoal.toFixed(2)}`);
+  console.log(`  Estimated Trades: ${estimatedTradesNeeded}`);
+  console.log(`  Feasibility: ${goalFeasibility}`);
+  console.log(`  Max Risk Allowed: $${maxRiskAllowed.toFixed(2)} (5% cap)`);
 
-  // ABSOLUTE SAFETY: If expected risk > 5% of balance, something is VERY wrong
-  const maxRiskAllowed = accountBalance * 0.05;
   if (expectedRisk > maxRiskAllowed) {
-    console.error('%c🚨 RISK TOO HIGH! REJECTING POSITION!', 'color: #ff0000; font-weight: bold; font-size: 18px');
+    console.error('%c🚨 RISK TOO HIGH! REDUCING POSITION!', 'color: #ff0000; font-weight: bold; font-size: 18px');
     console.error(`  Expected Risk: $${expectedRisk.toFixed(2)}`);
     console.error(`  Max Allowed: $${maxRiskAllowed.toFixed(2)}`);
 
     // Return minimum safe position
     return {
       lotSize: 0.01,
-      takeProfit,
-      pipsNeeded: finalPips,
-      reasoning: `⚠️ SAFETY OVERRIDE: Original calculation too risky. Using minimum position size.`,
-      goalFeasibility: 'unrealistic'
+      expectedProfitAtCommonMove: commonMovePips * calculateDollarPerPip(symbol, 0.01),
+      remainingGoal,
+      estimatedTradesNeeded: Math.ceil(remainingGoal / (commonMovePips * calculateDollarPerPip(symbol, 0.01))),
+      reasoning: `⚠️ SAFETY OVERRIDE: Risk too high. Using minimum position size (0.01 lots).`,
+      goalFeasibility: 'multiple_trades'
     };
   }
 
   return {
     lotSize: actualLotSize,
-    takeProfit,
-    pipsNeeded: finalPips,
+    expectedProfitAtCommonMove,
+    remainingGoal,
+    estimatedTradesNeeded,
     reasoning,
     goalFeasibility
   };
 }
 
 /**
- * Calculate Take Profit constrained by goal target amount
+ * @deprecated Backward compatibility export. Use calculateGoalAwareLotSize() instead.
+ * This alias exists only to prevent breaking existing code that references the old name.
+ */
+export const calculateGoalOptimalPosition = calculateGoalAwareLotSize;
+
+/**
+ * @deprecated This function is DEPRECATED and should NOT be used.
  *
- * CRITICAL: This ensures TP is set to reach the user's goal, not arbitrary technical levels
+ * CRITICAL DESIGN FLAW: Setting TP based on goal amount ignores market reality.
  *
- * @param symbol Currency pair
- * @param direction Trade direction ('buy' or 'sell')
- * @param entryPrice Entry price
- * @param stopLoss Stop loss price
- * @param positionSize Position size in lots
- * @param currentProgress Current P&L progress toward goal
- * @param targetGoal Total goal target amount (e.g., $200)
- * @param aiSuggestedTP AI's suggested TP based on technical analysis
- * @returns Adjusted TP price that aligns with goal
+ * PROBLEM:
+ * - Forces TP to hit goal amount regardless of market conditions
+ * - Causes trades to reverse from profit when TP is unrealistic
+ * - User watches $225 profit turn into $21 because TP was set at $300 goal
+ *
+ * SOLUTION: Use Alpha's market-based TP directly. Let multiple realistic trades reach goal.
+ *
+ * @deprecated Use Alpha's TP decisions directly. Calculate lot size with calculateGoalAwareLotSize().
  */
 export function calculateGoalBasedTakeProfit(
   symbol: string,
