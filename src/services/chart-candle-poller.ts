@@ -169,6 +169,10 @@ class ChartCandlePoller {
         return;
       }
 
+      // CRITICAL FIX: Also fetch forming candle from realtime_prices
+      // This ensures the chart updates BEFORE the 5-minute aggregation completes
+      await this.pollFormingCandle(symbol, timeframe, cache, data);
+
       // Convert database format to chart format with deduplication
       // CRITICAL: Sanitize IMMEDIATELY after database query to prevent Date objects
       const candleMap = new Map<number, CandleData>();
@@ -546,6 +550,64 @@ class ChartCandlePoller {
       clearInterval(this.marketHoursCheckInterval);
       this.marketHoursCheckInterval = null;
       logger.debug(LogCategory.CHART_POLLER, '[MarketHoursMonitor] Stopped monitoring');
+    }
+  }
+
+  /**
+   * BREAKTHROUGH: Poll forming candle from realtime_prices
+   * This allows the chart to show live updates BEFORE the 5-minute aggregation completes
+   */
+  private async pollFormingCandle(symbol: string, timeframe: Timeframe, cache: CandleCache, historicalCandles: any[]): Promise<void> {
+    try {
+      // Get the timeframe interval in minutes
+      const timeframeMap: Record<string, number> = {
+        'M1': 1, 'M5': 5, 'M15': 15, 'M30': 30, 'H1': 60, 'H4': 240, 'D1': 1440
+      };
+      const intervalMinutes = timeframeMap[timeframe] || 5;
+      const intervalMs = intervalMinutes * 60 * 1000;
+
+      // Calculate current candle start time
+      const now = Date.now();
+      const currentCandleStartMs = Math.floor(now / intervalMs) * intervalMs;
+      const currentCandleStart = new Date(currentCandleStartMs);
+
+      // Fetch all ticks since current candle start
+      const { data: prices, error: pricesError } = await supabase
+        .from('realtime_prices')
+        .select('bid, ask, created_at')
+        .eq('symbol', symbol)
+        .gte('created_at', currentCandleStart.toISOString())
+        .order('created_at', { ascending: true });
+
+      if (pricesError || !prices || prices.length === 0) {
+        return; // No forming candle data
+      }
+
+      // Aggregate ticks into forming candle
+      const midPrices = prices.map(p => (p.bid + p.ask) / 2);
+      const formingCandle = {
+        time: Math.floor(currentCandleStartMs / 1000),
+        open: midPrices[0],
+        high: Math.max(...midPrices),
+        low: Math.min(...midPrices),
+        close: midPrices[midPrices.length - 1],
+        volume: prices.length,
+        symbol
+      };
+
+      console.log(`[ChartPoller] 🔥 Forming candle for ${symbol} ${timeframe}: ${formingCandle.close.toFixed(5)} (${prices.length} ticks)`);
+
+      // Add forming candle to the result
+      const sanitizedForming = sanitizeCandleData(formingCandle);
+      const result: PollResult = {
+        candles: [sanitizedForming],
+        hasNewData: true,
+        latestCandleTime: sanitizedForming.time
+      };
+
+      this.notifyListeners(this.getCacheKey(symbol, timeframe), result);
+    } catch (error) {
+      console.error(`[ChartPoller] Error polling forming candle:`, error);
     }
   }
 
