@@ -276,7 +276,7 @@ export function CreditsPage() {
                             {pkg.creditAmount > 100 && (
                               <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 rounded-full text-emerald-400 text-xs font-semibold">
                                 <Sparkles className="w-3 h-3" />
-                                +{pkg.creditAmount - 200} Bonus
+                                +{pkg.creditAmount === 210 ? 10 : 20} Bonus
                               </span>
                             )}
                           </div>
@@ -321,7 +321,7 @@ export function CreditsPage() {
                             {pkg.creditAmount > 100 && (
                               <span className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/20 border border-blue-500/40 rounded-full text-blue-400 text-xs font-semibold">
                                 <Sparkles className="w-3 h-3" />
-                                +{pkg.creditAmount - 200} Bonus
+                                +{pkg.creditAmount === 210 ? 10 : 20} Bonus
                               </span>
                             )}
                           </div>
