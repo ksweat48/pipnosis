@@ -11,7 +11,7 @@ import { logger, LogCategory, LogLevel } from './logger';
 logger.setCategoryLevel(LogCategory.BROWSER_POLLER, LogLevel.SILENT);
 logger.setCategoryLevel(LogCategory.TICK_BUFFER, LogLevel.SILENT);
 logger.setCategoryLevel(LogCategory.BACKGROUND_AGGREGATOR, LogLevel.SILENT);
-logger.setCategoryLevel(LogCategory.CHART_POLLER, LogLevel.SILENT);
+logger.setCategoryLevel(LogCategory.CHART_POLLER, LogLevel.DEBUG);
 logger.setCategoryLevel(LogCategory.CHART_DATA, LogLevel.SILENT);
 logger.setCategoryLevel(LogCategory.BULK_LOADER, LogLevel.SILENT);
 logger.setCategoryLevel(LogCategory.CANDLE_VALIDATION, LogLevel.SILENT);
