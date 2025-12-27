@@ -413,6 +413,41 @@ export async function fetchPreAggregatedCandles(
             return;
           }
 
+          // CRITICAL FIX: Validate OHLC relationships
+          if (candleData.high < candleData.low) {
+            console.warn(`[fetchPreAggregatedCandles] ❌ REJECTED candle ${index}: high ${candleData.high} < low ${candleData.low}`);
+            return;
+          }
+
+          if (candleData.open < candleData.low || candleData.open > candleData.high) {
+            console.warn(`[fetchPreAggregatedCandles] ❌ REJECTED candle ${index}: open ${candleData.open} outside [${candleData.low}, ${candleData.high}]`);
+            return;
+          }
+
+          if (candleData.close < candleData.low || candleData.close > candleData.high) {
+            console.warn(`[fetchPreAggregatedCandles] ❌ REJECTED candle ${index}: close ${candleData.close} outside [${candleData.low}, ${candleData.high}]`);
+            return;
+          }
+
+          // CRITICAL FIX: Check for extreme candle range (> 5% indicates bad data)
+          const candleRange = candleData.high - candleData.low;
+          const avgPrice = (candleData.open + candleData.close) / 2;
+          const rangePercent = (candleRange / avgPrice) * 100;
+
+          if (rangePercent > 5) {
+            console.warn(`[fetchPreAggregatedCandles] ❌ REJECTED candle ${index} for ${symbol}: extreme range ${rangePercent.toFixed(2)}% (O:${candleData.open} H:${candleData.high} L:${candleData.low} C:${candleData.close})`);
+            return;
+          }
+
+          // CRITICAL FIX: Check for abnormal wick-to-body ratio
+          const candleBody = Math.abs(candleData.close - candleData.open);
+          const wickSize = candleRange - candleBody;
+
+          if (candleBody > 0 && wickSize / candleBody > 10) {
+            console.warn(`[fetchPreAggregatedCandles] ⚠️ WARNING candle ${index} for ${symbol}: excessive wick ${(wickSize/candleBody).toFixed(1)}x body (may skip)`);
+            // Still allow but log warning - might be valid spike
+          }
+
           candleMap.set(timestamp, candleData);
         }
       } catch (error) {
