@@ -1,5 +1,12 @@
 import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
+import { fetchKrakenTicker } from './_shared/kraken-client';
+
+const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
+
+function isCryptoSymbol(symbol: string): boolean {
+  return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
+}
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -108,6 +115,26 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
       throw new Error(`MetaAPI request timeout after 8 seconds for ${symbol}`);
     }
     console.error(`[get-live-price] Fetch error for ${symbol}:`, error);
+    throw error;
+  }
+}
+
+async function getKrakenPrice(symbol: string): Promise<{ bid: number; ask: number; timestamp: string; source: string }> {
+  console.log(`[get-live-price] Fetching ${symbol} from Kraken`);
+
+  try {
+    const krakenData = await fetchKrakenTicker(symbol);
+
+    console.log(`[get-live-price] Kraken response: bid=${krakenData.bid}, ask=${krakenData.ask}`);
+
+    return {
+      bid: krakenData.bid,
+      ask: krakenData.ask,
+      timestamp: new Date().toISOString(),
+      source: 'kraken-live'
+    };
+  } catch (error) {
+    console.error(`[get-live-price] Kraken fetch error for ${symbol}:`, error);
     throw error;
   }
 }
@@ -251,7 +278,7 @@ async function savePriceToDatabase(symbol: string, bid: number, ask: number, sou
     }
 
     // Also update fallback cache for live data
-    if (source === 'metaapi-live') {
+    if (source === 'metaapi-live' || source === 'kraken-live') {
       await supabase
         .from('polling_fallback_cache')
         .upsert({
@@ -304,18 +331,27 @@ export const handler: Handler = async (event) => {
     let fallbackLevel = 0;
 
     // Fallback chain:
-    // 1. Live MetaAPI
+    // 1. Live MetaAPI (forex) or Kraken (crypto)
     // 2. Recent cache (< 10 seconds)
     // 3. Stale cache (< 60 seconds)
     // 4. Emergency fallback cache
     // 5. Last resort (up to 5 minutes old)
 
     try {
-      console.log(`[get-live-price][${requestId}] Level 1: Attempting live MetaAPI with account ${accountId?.slice(0, 8)}...`);
-      priceData = await getMetaApiPrice(symbol);
-      fetchMethod = 'metaapi-live';
-      fallbackLevel = 1;
-      console.log(`[get-live-price][${requestId}] ✓ Live price fetched: ${priceData.bid}/${priceData.ask}`);
+      // CRITICAL: Use Kraken for crypto, MetaAPI for forex
+      if (isCryptoSymbol(symbol)) {
+        console.log(`[get-live-price][${requestId}] Level 1: Attempting live Kraken for crypto ${symbol}...`);
+        priceData = await getKrakenPrice(symbol);
+        fetchMethod = 'kraken-live';
+        fallbackLevel = 1;
+        console.log(`[get-live-price][${requestId}] ✓ Live Kraken price fetched: ${priceData.bid}/${priceData.ask}`);
+      } else {
+        console.log(`[get-live-price][${requestId}] Level 1: Attempting live MetaAPI with account ${accountId?.slice(0, 8)}...`);
+        priceData = await getMetaApiPrice(symbol);
+        fetchMethod = 'metaapi-live';
+        fallbackLevel = 1;
+        console.log(`[get-live-price][${requestId}] ✓ Live MetaAPI price fetched: ${priceData.bid}/${priceData.ask}`);
+      }
 
       await savePriceToDatabase(symbol, priceData.bid, priceData.ask, priceData.source);
     } catch (metaError) {
@@ -359,7 +395,7 @@ export const handler: Handler = async (event) => {
       }
     }
 
-    const isLive = fetchMethod === 'metaapi-live';
+    const isLive = fetchMethod === 'metaapi-live' || fetchMethod === 'kraken-live';
     const statusCode = isLive ? 200 : 206;
 
     // Determine data quality label
