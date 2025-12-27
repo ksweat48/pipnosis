@@ -571,6 +571,8 @@ class ChartCandlePoller {
       const currentCandleStartMs = Math.floor(now / intervalMs) * intervalMs;
       const currentCandleStart = new Date(currentCandleStartMs);
 
+      console.log(`[ChartPoller] 🔍 Forming candle query: ${symbol} ${timeframe} since ${currentCandleStart.toISOString()}`);
+
       // Fetch all ticks since current candle start
       const { data: prices, error: pricesError } = await supabase
         .from('realtime_prices')
@@ -579,23 +581,39 @@ class ChartCandlePoller {
         .gte('created_at', currentCandleStart.toISOString())
         .order('created_at', { ascending: true });
 
-      if (pricesError || !prices || prices.length === 0) {
+      if (pricesError) {
+        console.error(`[ChartPoller] ❌ Error fetching forming candle ticks:`, pricesError);
+        return;
+      }
+
+      if (!prices || prices.length === 0) {
+        console.log(`[ChartPoller] ⚠️ No ticks found for forming candle since ${currentCandleStart.toISOString()}`);
         return; // No forming candle data
       }
 
+      console.log(`[ChartPoller] ✅ Found ${prices.length} ticks for forming candle between ${prices[0].created_at} and ${prices[prices.length - 1].created_at}`);
+
       // Aggregate ticks into forming candle
-      const midPrices = prices.map(p => (p.bid + p.ask) / 2);
+      // CRITICAL: Convert strings to numbers to prevent calculation errors
+      const midPrices = prices.map(p => (parseFloat(p.bid) + parseFloat(p.ask)) / 2);
       const formingCandle = {
         time: Math.floor(currentCandleStartMs / 1000),
-        open: midPrices[0],
-        high: Math.max(...midPrices),
-        low: Math.min(...midPrices),
-        close: midPrices[midPrices.length - 1],
+        open: parseFloat(midPrices[0].toString()),
+        high: parseFloat(Math.max(...midPrices).toString()),
+        low: parseFloat(Math.min(...midPrices).toString()),
+        close: parseFloat(midPrices[midPrices.length - 1].toString()),
         volume: prices.length,
         symbol
       };
 
-      console.log(`[ChartPoller] 🔥 Forming candle for ${symbol} ${timeframe}: ${formingCandle.close.toFixed(5)} (${prices.length} ticks)`);
+      console.log(`[ChartPoller] 🔥 Forming candle for ${symbol} ${timeframe}:`, {
+        ticks: prices.length,
+        open: formingCandle.open.toFixed(2),
+        high: formingCandle.high.toFixed(2),
+        low: formingCandle.low.toFixed(2),
+        close: formingCandle.close.toFixed(2),
+        range: (formingCandle.high - formingCandle.low).toFixed(2)
+      });
 
       // Add forming candle to the result
       const sanitizedForming = sanitizeCandleData(formingCandle);
