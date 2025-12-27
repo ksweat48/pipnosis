@@ -43,9 +43,10 @@ const SYMBOL_PRICE_RANGES: Record<string, PriceRange> = {
   UK100: { min: 6500, max: 8800, typical: 7500 }, // FTSE 100
   GER40: { min: 14000, max: 20000, typical: 17200 }, // DAX
 
-  // Crypto (common pairs) - TIGHTENED RANGES
-  BTCUSD: { min: 40000, max: 100000, typical: 65000 },
-  ETHUSD: { min: 2000, max: 5000, typical: 3200 },
+  // Crypto (common pairs) - ULTRA-TIGHT RANGES (Dec 2025)
+  // CRITICAL FIX: Narrow ranges based on current market conditions to prevent stale data
+  BTCUSD: { min: 82000, max: 102000, typical: 95000 }, // BTC current trading range
+  ETHUSD: { min: 2800, max: 3800, typical: 3300 }, // ETH current trading range
 
   // Oil - TIGHTENED RANGES
   USOIL: { min: 50, max: 110, typical: 75 }, // WTI Crude
@@ -59,12 +60,16 @@ export interface PriceValidationResult {
   deviation?: number; // How far from typical price (as percentage)
 }
 
+// Crypto symbols for stricter validation
+const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
+
 export class PriceValidationService {
   // Track last prices for velocity validation
   private lastPrices: Map<string, { price: number; timestamp: number }> = new Map();
 
   // Maximum price change per second (as percentage of typical price)
-  private readonly MAX_VELOCITY_PERCENT_PER_SECOND = 1.0; // 1% per second max
+  private readonly MAX_VELOCITY_PERCENT_PER_SECOND = 1.0; // 1% per second max (forex/indices)
+  private readonly MAX_CRYPTO_VELOCITY_PERCENT_PER_SECOND = 0.5; // 0.5% per second max (crypto - stricter)
 
   /**
    * Validates if a price is within acceptable range for a symbol
@@ -169,11 +174,17 @@ export class PriceValidationService {
     // Calculate velocity (percent change per second)
     const velocity = timeDiff > 0 ? percentChange / timeDiff : 0;
 
+    // CRITICAL FIX: Use stricter velocity limit for crypto
+    const isCrypto = CRYPTO_SYMBOLS.includes(symbol);
+    const maxVelocity = isCrypto
+      ? this.MAX_CRYPTO_VELOCITY_PERCENT_PER_SECOND
+      : this.MAX_VELOCITY_PERCENT_PER_SECOND;
+
     // Check if velocity exceeds maximum
-    if (velocity > this.MAX_VELOCITY_PERCENT_PER_SECOND) {
+    if (velocity > maxVelocity) {
       logger.error(
         LogCategory.CHART,
-        `[PriceValidation] ❌ VELOCITY LIMIT EXCEEDED for ${symbol}: ${velocity.toFixed(2)}%/s (max: ${this.MAX_VELOCITY_PERCENT_PER_SECOND}%/s)`
+        `[PriceValidation] ❌ VELOCITY LIMIT EXCEEDED for ${symbol}: ${velocity.toFixed(2)}%/s (max: ${maxVelocity}%/s)${isCrypto ? ' [CRYPTO]' : ''}`
       );
 
       return {
@@ -185,10 +196,10 @@ export class PriceValidationService {
     }
 
     // Warn if velocity is high but under limit
-    if (velocity > this.MAX_VELOCITY_PERCENT_PER_SECOND * 0.7) {
+    if (velocity > maxVelocity * 0.7) {
       logger.warn(
         LogCategory.CHART,
-        `[PriceValidation] ⚠️ HIGH VELOCITY for ${symbol}: ${velocity.toFixed(2)}%/s`
+        `[PriceValidation] ⚠️ HIGH VELOCITY for ${symbol}: ${velocity.toFixed(2)}%/s (limit: ${maxVelocity}%/s)${isCrypto ? ' [CRYPTO]' : ''}`
       );
     }
 

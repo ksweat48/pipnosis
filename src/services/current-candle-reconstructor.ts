@@ -112,11 +112,36 @@ class CurrentCandleReconstructor {
         `[CandleReconstructor] Found ${ticks.length} ticks for current candle period`
       );
 
-      // Filter ticks to only include those in the CURRENT candle period
-      // This is important because the database might have ticks from slightly before
+      // CRITICAL FIX: Filter ticks with strict quality and timestamp validation
+      // This prevents stale/misaligned ticks from creating abnormal candles
       const currentPeriodTicks = ticks.filter(tick => {
         const tickTime = new Date(tick.broker_time || tick.created_at).getTime();
-        return tickTime >= currentCandleStartMs;
+
+        // Reject ticks outside current candle period
+        if (tickTime < currentCandleStartMs) {
+          return false;
+        }
+
+        // CRITICAL: Reject ticks older than 30 seconds from now (stale data protection)
+        const tickAge = now - tickTime;
+        if (tickAge > 30000) {
+          logger.debug(
+            LogCategory.CHART_POLLER,
+            `[CandleReconstructor] Rejecting stale tick: ${tickAge / 1000}s old`
+          );
+          return false;
+        }
+
+        // CRITICAL: Reject ticks from the future (clock skew protection)
+        if (tickTime > now + 5000) {
+          logger.debug(
+            LogCategory.CHART_POLLER,
+            `[CandleReconstructor] Rejecting future tick: ${(tickTime - now) / 1000}s ahead`
+          );
+          return false;
+        }
+
+        return true;
       });
 
       if (currentPeriodTicks.length === 0) {
@@ -171,6 +196,38 @@ class CurrentCandleReconstructor {
 
       const firstTick = currentPeriodTicks[0];
       const lastTick = currentPeriodTicks[currentPeriodTicks.length - 1];
+
+      // CRITICAL FIX: Validate candle OHLC values are reasonable
+      const candleRange = reconstructedCandle.high - reconstructedCandle.low;
+      const candleSize = Math.abs(reconstructedCandle.close - reconstructedCandle.open);
+      const wickSize = candleRange - candleSize;
+
+      // Check for abnormal wick-to-body ratio (wick should not be > 10x body)
+      if (candleSize > 0 && wickSize / candleSize > 10) {
+        logger.warn(
+          LogCategory.CHART_POLLER,
+          `[CandleReconstructor] ⚠️ ABNORMAL CANDLE detected - excessive wick: body=${candleSize.toFixed(2)}, wick=${wickSize.toFixed(2)} (ratio: ${(wickSize / candleSize).toFixed(1)}x)`
+        );
+      }
+
+      // Check for extreme candle range (> 5% of typical price indicates bad data)
+      const avgPrice = (reconstructedCandle.open + reconstructedCandle.close) / 2;
+      const rangePercent = (candleRange / avgPrice) * 100;
+      if (rangePercent > 5) {
+        logger.error(
+          LogCategory.CHART_POLLER,
+          `[CandleReconstructor] ❌ REJECTING candle with extreme range: ${rangePercent.toFixed(2)}% (>${5}%)`
+        );
+        return {
+          candle: null,
+          tickCount: currentPeriodTicks.length,
+          timeRange: {
+            start: new Date(firstTick.broker_time || firstTick.created_at),
+            end: new Date(lastTick.broker_time || lastTick.created_at)
+          },
+          wasReconstructed: false
+        };
+      }
 
       logger.debug(
         LogCategory.CHART_POLLER,

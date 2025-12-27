@@ -227,6 +227,7 @@ class BackgroundCandleAggregator {
   private processNewPrice(symbol: string, bid: number, ask: number, timestamp: string): void {
     const midPrice = (bid + ask) / 2;
     const timestampMs = new Date(timestamp).getTime();
+    const now = Date.now();
 
     if (isNaN(midPrice) || midPrice <= 0) {
       console.warn(`[BackgroundAggregator] Invalid price for ${symbol}: bid=${bid}, ask=${ask}`);
@@ -235,6 +236,19 @@ class BackgroundCandleAggregator {
 
     if (isNaN(timestampMs) || timestampMs <= 0) {
       console.warn(`[BackgroundAggregator] Invalid timestamp for ${symbol}: ${timestamp}`);
+      return;
+    }
+
+    // CRITICAL FIX: Reject stale ticks (older than 60 seconds)
+    const tickAge = now - timestampMs;
+    if (tickAge > 60000) {
+      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `[${symbol}] Rejecting stale tick: ${tickAge / 1000}s old`);
+      return;
+    }
+
+    // CRITICAL FIX: Reject future ticks (clock skew protection)
+    if (timestampMs > now + 10000) {
+      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `[${symbol}] Rejecting future tick: ${(timestampMs - now) / 1000}s ahead`);
       return;
     }
 
