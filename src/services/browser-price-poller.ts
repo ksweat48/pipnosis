@@ -206,8 +206,12 @@ class BrowserPricePoller {
             logger.error(LogCategory.BROWSER_POLLER, `❌ ${symbol} HTTP ${response.status}: ${errorText.substring(0, 100)}`);
             await this.recordSymbolError(symbol, `HTTP ${response.status}`);
 
-            // Record failure with circuit breaker
-            await circuitBreakerService.recordFailure(new Error(`HTTP ${response.status}`));
+            // CRYPTO FIX: Don't record circuit breaker failures for crypto (24/7 markets)
+            // Crypto errors shouldn't block forex polling globally
+            const { is24HourSymbol } = await import('../utils/marketHours');
+            if (!is24HourSymbol(symbol)) {
+              await circuitBreakerService.recordFailure(new Error(`HTTP ${response.status}`));
+            }
           }
         } catch (error) {
           errorCount++;
@@ -221,8 +225,12 @@ class BrowserPricePoller {
             await this.recordSymbolError(symbol, errorMsg);
           }
 
-          // Record failure with circuit breaker
-          await circuitBreakerService.recordFailure(error instanceof Error ? error : new Error(errorMsg));
+          // CRYPTO FIX: Don't record circuit breaker failures for crypto (24/7 markets)
+          // Crypto errors shouldn't block forex polling globally
+          const { is24HourSymbol } = await import('../utils/marketHours');
+          if (!is24HourSymbol(symbol)) {
+            await circuitBreakerService.recordFailure(error instanceof Error ? error : new Error(errorMsg));
+          }
         }
       }
 

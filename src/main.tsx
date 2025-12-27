@@ -168,6 +168,14 @@ if (typeof window !== 'undefined') {
     };
     console.log('💡 Debug utility available: Run refreshSymbols() in console');
   }
+
+  // Circuit breaker reset utility (available in all modes for emergency fixes)
+  (window as any).resetCircuitBreaker = async () => {
+    const { circuitBreakerService } = await import('@/services/circuit-breaker-service');
+    await circuitBreakerService.reset();
+    console.log('✅ Circuit breaker reset. Chart polling should resume immediately.');
+  };
+  console.log('💡 Emergency utility: Run resetCircuitBreaker() if chart stops updating');
 }
 
 window.addEventListener('unhandledrejection', (event) => {
