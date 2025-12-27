@@ -122,12 +122,14 @@ class CurrentCandleReconstructor {
           return false;
         }
 
-        // CRITICAL: Reject ticks older than 30 seconds from now (stale data protection)
+        // CRITICAL: Reject ticks older than the full timeframe window (stale data protection)
+        // For M5, allow ticks up to 5 minutes old; for H1, up to 1 hour old, etc.
+        const maxTickAge = timeframeMinutes * 60 * 1000 + 30000; // Add 30s buffer for clock skew
         const tickAge = now - tickTime;
-        if (tickAge > 30000) {
+        if (tickAge > maxTickAge) {
           logger.debug(
             LogCategory.CHART_POLLER,
-            `[CandleReconstructor] Rejecting stale tick: ${tickAge / 1000}s old`
+            `[CandleReconstructor] Rejecting stale tick: ${tickAge / 1000}s old (max: ${maxTickAge / 1000}s)`
           );
           return false;
         }
