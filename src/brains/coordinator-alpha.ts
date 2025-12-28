@@ -1620,7 +1620,16 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       }
 
       // 3. Check for zero/missing distance (< 5 pips minimum for survival)
-      const pipValue = 0.0001; // Standard, will be corrected by Omega-9 for JPY
+      // Calculate correct pip value based on symbol type
+      let pipValue = 0.0001; // Standard forex (4 decimals)
+      if (marketContext.symbol.includes('JPY')) {
+        pipValue = 0.01; // JPY pairs (2 decimals)
+      } else if (marketContext.symbol.includes('BTC') || marketContext.symbol.includes('ETH')) {
+        pipValue = 1.0; // Crypto - 1 full point = 1 pip
+      } else if (marketContext.symbol.includes('XAU') || marketContext.symbol.includes('GOLD')) {
+        pipValue = 0.1; // Gold - 10 cents = 1 pip
+      }
+
       const MIN_SURVIVAL_PIPS = 5;
       const minDistance = MIN_SURVIVAL_PIPS * pipValue;
 
@@ -1663,7 +1672,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
         entry,
         stopLoss,
         takeProfit,
-        confidence: Math.min(100, Math.max(0, parsed.confidence || 0)),
+        confidence: Math.round(Math.min(100, Math.max(0, parsed.confidence || 0))),
         reasoning: parsed.reasoning || 'No reasoning provided',
         omega_summary: ''
       };
