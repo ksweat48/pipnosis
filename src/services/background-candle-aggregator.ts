@@ -883,6 +883,60 @@ class BackgroundCandleAggregator {
     await new Promise(resolve => setTimeout(resolve, 1000));
     await this.start();
   }
+
+  /**
+   * Process external tick from DirectPoller and persist to database
+   * This ensures DirectPoller ticks are saved and included in database forming candles
+   */
+  async processExternalTick(symbol: string, bid: number, ask: number, timestamp: string): Promise<void> {
+    // Validate inputs
+    if (!symbol || isNaN(bid) || isNaN(ask) || bid <= 0 || ask <= 0) {
+      console.warn(`[BackgroundAggregator] Invalid external tick: ${symbol} bid=${bid} ask=${ask}`);
+      return;
+    }
+
+    const midPrice = (bid + ask) / 2;
+    const timestampMs = new Date(timestamp).getTime();
+    const now = Date.now();
+
+    // Reject stale or future ticks
+    const tickAge = now - timestampMs;
+    if (tickAge > 60000) {
+      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `[${symbol}] Rejecting stale external tick: ${tickAge / 1000}s old`);
+      return;
+    }
+    if (timestampMs > now + 10000) {
+      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `[${symbol}] Rejecting future external tick: ${(timestampMs - now) / 1000}s ahead`);
+      return;
+    }
+
+    // Save tick to database so it persists and can be queried by forming candle reconstruction
+    try {
+      const { error } = await supabase
+        .from('realtime_prices')
+        .insert({
+          symbol,
+          bid: bid.toString(),
+          ask: ask.toString(),
+          broker_time: timestamp,
+          source: 'direct-poller'
+        });
+
+      if (error) {
+        // Ignore duplicate key errors (tick already saved by backend)
+        if (!error.message?.includes('duplicate') && !error.code?.includes('23505')) {
+          console.error(`[BackgroundAggregator] Failed to save external tick for ${symbol}:`, error);
+        }
+      } else {
+        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `[${symbol}] ✓ Saved external tick: ${midPrice.toFixed(5)}`);
+      }
+    } catch (error) {
+      console.error(`[BackgroundAggregator] Error saving external tick for ${symbol}:`, error);
+    }
+
+    // Immediately process the tick to update candle states (don't wait for next poll)
+    this.processNewPrice(symbol, bid, ask, timestamp);
+  }
 }
 
 export const backgroundCandleAggregator = new BackgroundCandleAggregator();

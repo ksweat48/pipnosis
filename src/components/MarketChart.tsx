@@ -914,22 +914,26 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
       currentCandleRef.current = null;
     } else if (!isNewCompletedCandle) {
-      // CRITICAL FIX: Sync currentCandleRef with database forming candle
-      // This allows DirectPoller ticks to merge with database aggregated data
-      const candleTimeMs = latestCandle.time * 1000;
-      const timeframeMinutes = getTimeframeMinutes(timeframe);
-      const candleStartMs = Math.floor(candleTimeMs / (timeframeMinutes * 60 * 1000)) * (timeframeMinutes * 60 * 1000);
+      // If no current candle exists yet, initialize from database
+      // But if we already have a live candle, don't overwrite it - let the merge logic below handle it
+      if (!currentCandleRef.current) {
+        const candleTimeMs = latestCandle.time * 1000;
+        const timeframeMinutes = getTimeframeMinutes(timeframe);
+        const candleStartMs = Math.floor(candleTimeMs / (timeframeMinutes * 60 * 1000)) * (timeframeMinutes * 60 * 1000);
 
-      currentCandleRef.current = {
-        time: latestCandle.time,
-        open: latestCandle.open,
-        high: latestCandle.high,
-        low: latestCandle.low,
-        close: latestCandle.close,
-        startTime: candleStartMs
-      };
+        currentCandleRef.current = {
+          time: latestCandle.time,
+          open: latestCandle.open,
+          high: latestCandle.high,
+          low: latestCandle.low,
+          close: latestCandle.close,
+          startTime: candleStartMs
+        };
 
-      console.log(`[Chart] 📊 Synced currentCandleRef with database forming candle (OHLC: ${latestCandle.open.toFixed(2)}/${latestCandle.high.toFixed(2)}/${latestCandle.low.toFixed(2)}/${latestCandle.close.toFixed(2)})`);
+        console.log(`[Chart] 📊 Initialized currentCandleRef from database (OHLC: ${latestCandle.open.toFixed(2)}/${latestCandle.high.toFixed(2)}/${latestCandle.low.toFixed(2)}/${latestCandle.close.toFixed(2)})`);
+      } else {
+        console.log(`[Chart] 📊 Skipping currentCandleRef overwrite - preserving live tick data for merge`);
+      }
     }
 
     try {
@@ -1619,6 +1623,17 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         if (isCrypto && price.source) {
           setCryptoDataSource(price.source);
         }
+
+        // CRITICAL FIX: Save tick to database so it persists and can be queried by forming candle
+        // This ensures database polling sees the same live ticks as the chart
+        import('@/services/background-candle-aggregator').then(({ backgroundCandleAggregator }) => {
+          backgroundCandleAggregator.processExternalTick(
+            price.symbol,
+            price.bid,
+            price.ask,
+            price.timestamp
+          ).catch(err => console.error('[Chart] Failed to persist tick:', err));
+        });
 
         updateCurrentCandleFromTick({
           symbol: price.symbol,
