@@ -11,6 +11,7 @@ export class ActiveEntryMonitor {
   private lastNotificationTime: Map<string, number> = new Map();
   private readonly POLL_INTERVAL = 5000;
   private readonly NOTIFICATION_INTERVAL = 120000;
+  private resumeInProgress = false;
 
   private constructor() {}
 
@@ -63,10 +64,10 @@ export class ActiveEntryMonitor {
         .from('entry_intents')
         .select('*')
         .eq('id', intentId)
-        .single();
+        .maybeSingle();
 
       if (error || !intent) {
-        logger.error(`Failed to fetch intent ${intentId}:`, error);
+        logger.warn(`Intent ${intentId} no longer exists or was deleted - stopping monitoring`);
         await this.stopMonitoring(intentId);
         return;
       }
@@ -385,6 +386,17 @@ export class ActiveEntryMonitor {
     message: string
   ): Promise<void> {
     try {
+      const { data: intentExists } = await supabase
+        .from('entry_intents')
+        .select('id')
+        .eq('id', intentId)
+        .maybeSingle();
+
+      if (!intentExists) {
+        logger.warn(`Skipping log for non-existent intent ${intentId}`);
+        return;
+      }
+
       const payload = {
         intent_id: intentId,
         current_price: currentPrice,
@@ -408,14 +420,36 @@ export class ActiveEntryMonitor {
   }
 
   async resumeAllActiveIntents(userId: string): Promise<void> {
-    const intents = await EntryPlannerService.getActiveIntents(userId);
-
-    for (const intent of intents) {
-      await this.startMonitoring(intent.id, userId);
+    if (this.resumeInProgress) {
+      logger.debug('Resume already in progress, skipping duplicate call');
+      return;
     }
 
-    if (intents.length > 0) {
-      logger.info(`Resumed monitoring for ${intents.length} active intents`);
+    this.resumeInProgress = true;
+
+    try {
+      const intents = await EntryPlannerService.getActiveIntents(userId);
+
+      if (intents.length === 0) {
+        logger.debug('No active intents to resume');
+        return;
+      }
+
+      const validIntents = intents.filter(intent => intent.status === 'monitoring');
+
+      for (const intent of validIntents) {
+        if (!this.monitoringIntervals.has(intent.id)) {
+          await this.startMonitoring(intent.id, userId);
+        } else {
+          logger.debug(`Already monitoring intent ${intent.id}`);
+        }
+      }
+
+      logger.info(`Resumed monitoring for ${validIntents.length} active intents`);
+    } catch (error) {
+      logger.error('Error resuming active intents:', error);
+    } finally {
+      this.resumeInProgress = false;
     }
   }
 }

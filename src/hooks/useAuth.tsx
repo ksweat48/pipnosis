@@ -62,24 +62,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       (async () => {
+        const previousUser = user;
+
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
+          if (previousUser?.id !== session.user.id) {
+            const { activeEntryMonitor } = await import('@/services/active-entry-monitor');
+            activeEntryMonitor.stopAllMonitoring();
+            console.log('[Auth] Stopped monitoring for previous user');
+          }
+
           await fetchUserRole(session.user.id);
 
-          // Start live trade learning trigger for authenticated users
           if (!liveTradeLearningTrigger.isActive()) {
             console.log('[Auth] Starting live trade learning trigger for user:', session.user.id);
             liveTradeLearningTrigger.start(session.user.id);
           }
 
-          // Start continuous learning loop for authenticated users
           if (!continuousLearningLoop.isActive()) {
             console.log('[Auth] Starting continuous learning loop for user:', session.user.id);
             continuousLearningLoop.start(session.user.id);
           }
 
-          // Resume monitoring for any active entry intents (handles page refresh)
           try {
             const { activeEntryMonitor } = await import('@/services/active-entry-monitor');
             await activeEntryMonitor.resumeAllActiveIntents(session.user.id);
@@ -90,19 +95,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           setIsAdmin(false);
 
-          // Stop live trade learning trigger when user logs out
           if (liveTradeLearningTrigger.isActive()) {
             console.log('[Auth] Stopping live trade learning trigger');
             liveTradeLearningTrigger.stop();
           }
 
-          // Stop continuous learning loop when user logs out
           if (continuousLearningLoop.isActive()) {
             console.log('[Auth] Stopping continuous learning loop');
             continuousLearningLoop.stop();
           }
 
-          // Stop all entry monitoring when user logs out
           import('@/services/active-entry-monitor').then(({ activeEntryMonitor }) => {
             activeEntryMonitor.stopAllMonitoring();
             console.log('[Auth] Stopped all entry monitoring');

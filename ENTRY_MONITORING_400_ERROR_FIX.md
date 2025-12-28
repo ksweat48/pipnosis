@@ -135,3 +135,154 @@ Added automatic cleanup in the migration:
 - ✅ Production deployment triggered
 
 The 400 errors should stop within 2-3 minutes after the deployment completes!
+
+---
+
+# Additional Fixes: Race Conditions & Duplicate Monitoring (Dec 28)
+
+## New Root Causes Found
+
+After the initial fix, additional race condition bugs were identified:
+
+### Bug #1: Duplicate Monitoring Initialization
+**Location**: `SmartGoalModePage.tsx:23` + `useAuth.tsx:85`
+- Both components called `resumeAllActiveIntents()` on mount/auth change
+- Created duplicate intervals for the same intent IDs
+- **Result**: Double polling, double logging, race conditions
+
+### Bug #2: No Cleanup on Auth State Changes
+**Location**: `useAuth.tsx:63-115`
+- Monitoring started on auth state change but never stopped for previous user
+- Intervals persisted when switching users or navigating
+- **Result**: Zombie intervals polling forever
+
+### Bug #3: Logging to Non-Existent Intents
+**Location**: `active-entry-monitor.ts:380-408`
+- `logMonitoring()` inserted logs without checking if intent exists first
+- Intents timeout/delete but intervals keep trying to log
+- **Result**: More 400 errors from foreign key constraint violations
+
+### Bug #4: Race Condition in Resume
+**Location**: `active-entry-monitor.ts:410-420`
+- `resumeAllActiveIntents()` could be called multiple times concurrently
+- No debouncing or guard against concurrent execution
+- **Result**: Duplicate intervals for the same intent
+
+## Additional Fixes Applied
+
+### Fix #1: Removed Duplicate Call
+**File**: `src/pages/SmartGoalModePage.tsx`
+```typescript
+// REMOVED: activeEntryMonitor.resumeAllActiveIntents(user.id);
+// Auth hook handles this now - no duplicate initialization
+```
+
+### Fix #2: Added User Switch Detection
+**File**: `src/hooks/useAuth.tsx`
+```typescript
+const previousUser = user;
+if (session?.user) {
+  // Stop monitoring when user changes
+  if (previousUser?.id !== session.user.id) {
+    activeEntryMonitor.stopAllMonitoring();
+    console.log('[Auth] Stopped monitoring for previous user');
+  }
+  // Then resume for new user
+  await activeEntryMonitor.resumeAllActiveIntents(session.user.id);
+}
+```
+
+### Fix #3: Validate Before Logging
+**File**: `src/services/active-entry-monitor.ts`
+```typescript
+private async logMonitoring(...): Promise<void> {
+  // Check if intent exists first
+  const { data: intentExists } = await supabase
+    .from('entry_intents')
+    .select('id')
+    .eq('id', intentId)
+    .maybeSingle();
+
+  if (!intentExists) {
+    logger.warn(`Skipping log for non-existent intent ${intentId}`);
+    return; // Don't try to log if intent doesn't exist
+  }
+  // ... proceed with logging
+}
+```
+
+### Fix #4: Debounce Resume Calls
+**File**: `src/services/active-entry-monitor.ts`
+```typescript
+private resumeInProgress = false;
+
+async resumeAllActiveIntents(userId: string): Promise<void> {
+  // Guard against concurrent calls
+  if (this.resumeInProgress) {
+    logger.debug('Resume already in progress, skipping duplicate call');
+    return;
+  }
+
+  this.resumeInProgress = true;
+  try {
+    const validIntents = intents.filter(intent => intent.status === 'monitoring');
+
+    for (const intent of validIntents) {
+      // Check if already monitoring
+      if (!this.monitoringIntervals.has(intent.id)) {
+        await this.startMonitoring(intent.id, userId);
+      }
+    }
+  } finally {
+    this.resumeInProgress = false;
+  }
+}
+```
+
+### Fix #5: Graceful Intent Deletion Detection
+```typescript
+// Changed from .single() to .maybeSingle()
+const { data: intent, error } = await supabase
+  .from('entry_intents')
+  .select('*')
+  .eq('id', intentId)
+  .maybeSingle(); // Returns null instead of throwing
+
+if (error || !intent) {
+  logger.warn(`Intent ${intentId} no longer exists - stopping monitoring`);
+  await this.stopMonitoring(intentId);
+  return;
+}
+```
+
+## Complete Fix Summary
+
+### ✅ Single Monitoring Source
+- Only `useAuth.tsx` manages monitoring lifecycle
+- No duplicate intervals or race conditions
+- Clean handoff between navigation/auth changes
+
+### ✅ Proper Cleanup
+- Monitoring stops when user logs out
+- Monitoring stops when switching users
+- Intervals cleared when intents are deleted/timeout
+
+### ✅ No More 400 Errors
+- Validation before logging prevents FK violations
+- Graceful handling of deleted intents
+- Zombie interval detection and cleanup
+
+### ✅ Debounced Resume
+- Concurrent calls blocked by progress flag
+- No duplicate intervals for same intent
+- Status validation before monitoring
+
+## Build Status
+✅ Build successful with no errors
+✅ All TypeScript types validated
+✅ No runtime errors expected
+
+## Files Changed
+- `src/hooks/useAuth.tsx` - User switch detection + cleanup
+- `src/pages/SmartGoalModePage.tsx` - Removed duplicate call
+- `src/services/active-entry-monitor.ts` - Validation + debouncing

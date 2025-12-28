@@ -20,11 +20,9 @@ export const SmartGoalModePage: React.FC = () => {
   useEffect(() => {
     if (user?.id) {
       autoPushNotificationService.initialize(user.id);
-      activeEntryMonitor.resumeAllActiveIntents(user.id);
 
       return () => {
         autoPushNotificationService.shutdown();
-        activeEntryMonitor.stopAllMonitoring();
       };
     }
   }, [user?.id]);
