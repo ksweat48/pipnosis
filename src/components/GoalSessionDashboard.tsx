@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, AlertTriangle, Search, Shield, Sparkles, Eye, BarChart3 } from 'lucide-react';
+import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, AlertTriangle, Search, Shield, Sparkles, Eye, BarChart3, Wrench } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
 import { useAuth } from '../hooks/useAuth';
@@ -15,12 +15,14 @@ import { useNavigate } from 'react-router-dom';
 import { simpleScanningTimer } from '../services/simple-scanning-timer';
 import { getRiskPercentage } from '../config/risk-levels';
 import { calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
+import { useToast } from '../hooks/useToast';
 // GoalScanReadinessIndicator removed - using simple indicator
 
 export const GoalSessionDashboard: React.FC = () => {
   const { user } = useAuth();
   const { confirm } = useConfirmDialog();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [activeSession, setActiveSession] = useState<SmartGoalSession | null>(null);
   const [progress, setProgress] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -40,6 +42,8 @@ export const GoalSessionDashboard: React.FC = () => {
   const [showNoTradesModal, setShowNoTradesModal] = useState(false);
   const [noTradesLoading, setNoTradesLoading] = useState(false);
   const [forceCloseAttempted, setForceCloseAttempted] = useState<string | null>(null);
+  const [sessionHealth, setSessionHealth] = useState<any>(null);
+  const [unstickLoading, setUnstickLoading] = useState(false);
 
   useEffect(() => {
     loadSessionData();
@@ -351,6 +355,17 @@ export const GoalSessionDashboard: React.FC = () => {
           setShowNoTradesModal(false);
         }
 
+        // Check session health for stuck detection
+        try {
+          const health = await checkSessionHealth(session.sessionId);
+          setSessionHealth(health);
+          if (health?.is_stuck) {
+            console.log('[GoalSessionDashboard] Session stuck detected:', health.stuck_reason);
+          }
+        } catch (error) {
+          console.error('[GoalSessionDashboard] Error checking session health:', error);
+        }
+
         // Load data separately with individual error handling
         try {
           const progressData = await smartGoalSessionManager.getSessionProgress(session.sessionId);
@@ -536,6 +551,81 @@ export const GoalSessionDashboard: React.FC = () => {
     const success = await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
     if (success) {
       loadSessionData();
+    }
+  };
+
+  const checkSessionHealth = async (sessionId: string) => {
+    try {
+      const { data, error } = await supabase.rpc('get_session_health', {
+        p_session_id: sessionId
+      });
+
+      if (error) {
+        console.error('[GoalSessionDashboard] Error checking session health:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('[GoalSessionDashboard] Exception checking session health:', error);
+      return null;
+    }
+  };
+
+  const handleUnstickSession = async () => {
+    if (!activeSession || !user) return;
+
+    // Show warning dialog
+    const confirmed = await confirm({
+      title: 'Force Close Stuck Session',
+      message: `This will manually close your stuck session. This action cannot be undone.\n\nReason: ${sessionHealth?.stuck_reason || 'Session appears to be stuck'}\n\nOpen trades: ${sessionHealth?.open_trades || 0}`,
+      confirmText: 'Force Close',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+
+    if (!confirmed) return;
+
+    setUnstickLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('unstick_session', {
+        p_session_id: activeSession.sessionId
+      });
+
+      if (error) {
+        console.error('[GoalSessionDashboard] Error unsticking session:', error);
+        showToast({
+          type: 'error',
+          title: 'Failed to Unstick Session',
+          message: error.message || 'Could not unstick the session. Please try again.'
+        });
+        return;
+      }
+
+      if (data?.success) {
+        showToast({
+          type: 'success',
+          title: 'Session Recovered',
+          message: data.message || 'Your session has been successfully unstuck!'
+        });
+        setSessionHealth(null);
+        await loadSessionData();
+      } else {
+        showToast({
+          type: 'error',
+          title: 'Cannot Unstick Session',
+          message: data?.error || 'Session cannot be unstuck at this time.'
+        });
+      }
+    } catch (error: any) {
+      console.error('[GoalSessionDashboard] Exception unsticking session:', error);
+      showToast({
+        type: 'error',
+        title: 'Unstick Failed',
+        message: error.message || 'An unexpected error occurred.'
+      });
+    } finally {
+      setUnstickLoading(false);
     }
   };
 
@@ -815,14 +905,47 @@ export const GoalSessionDashboard: React.FC = () => {
                 )}
               </div>
             </div>
-            <button
-              onClick={handleStopSession}
-              className="px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 rounded-xl text-sm font-semibold text-white transition-all duration-300 flex items-center gap-2 shadow-lg hover:shadow-red-500/25 hover:scale-105 active:scale-95"
-            >
-              <Pause className="w-4 h-4" />
-              Stop Session
-            </button>
+            <div className="flex items-center gap-2">
+              {sessionHealth?.is_stuck && sessionHealth?.can_unstick && (
+                <button
+                  onClick={handleUnstickSession}
+                  disabled={unstickLoading}
+                  className="px-4 py-2 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 rounded-xl text-sm font-semibold text-white transition-all duration-300 flex items-center gap-2 shadow-lg hover:shadow-orange-500/25 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={`Session stuck: ${sessionHealth.stuck_reason}`}
+                >
+                  <Wrench className="w-4 h-4" />
+                  {unstickLoading ? 'Recovering...' : 'Force Close'}
+                </button>
+              )}
+              <button
+                onClick={handleStopSession}
+                className="px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 rounded-xl text-sm font-semibold text-white transition-all duration-300 flex items-center gap-2 shadow-lg hover:shadow-red-500/25 hover:scale-105 active:scale-95"
+              >
+                <Pause className="w-4 h-4" />
+                Stop Session
+              </button>
+            </div>
           </div>
+
+        {/* Stuck Session Warning Banner */}
+        {sessionHealth?.is_stuck && (
+          <div className="mb-4 p-4 bg-orange-900/20 border border-orange-500/30 rounded-lg">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h4 className="text-sm font-semibold text-orange-300 mb-1">Session Appears Stuck</h4>
+                <p className="text-xs text-orange-200/80 mb-2">{sessionHealth.stuck_reason}</p>
+                <div className="flex items-center gap-4 text-xs text-orange-200/60">
+                  <span>Status: {sessionHealth.status}</span>
+                  <span>Time in state: {sessionHealth.minutes_in_state} minutes</span>
+                  {sessionHealth.open_trades > 0 && (
+                    <span className="text-red-400 font-medium">Open trades: {sessionHealth.open_trades} (close them first)</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Server-Side Status Indicator */}
         {activeSession.serverHeartbeat && (
