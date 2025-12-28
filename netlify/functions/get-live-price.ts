@@ -15,7 +15,9 @@ const lastKrakenPrices: Map<string, { bid: number; ask: number; timestamp: numbe
 
 // Track price history for staleness detection
 const priceHistory: Map<string, Array<{ bid: number; ask: number; timestamp: number; source: string }>> = new Map();
-const STALENESS_THRESHOLD_MS = 30000; // 30 seconds without price change = stale
+// PHASE 2 FIX: Separate thresholds for crypto vs forex
+const CRYPTO_STALENESS_THRESHOLD_MS = 120000; // 2 minutes for crypto (low volatility OK)
+const FOREX_STALENESS_THRESHOLD_MS = 30000; // 30 seconds for forex
 const MAX_PRICE_HISTORY = 10;
 
 // Track source failures for cooldown
@@ -151,6 +153,10 @@ function isPriceStale(symbol: string, currentPrice: { bid: number; ask: number }
     return false;
   }
 
+  // PHASE 2 FIX: Use different thresholds for crypto vs forex
+  const isCrypto = isCryptoSymbol(symbol);
+  const STALENESS_THRESHOLD_MS = isCrypto ? CRYPTO_STALENESS_THRESHOLD_MS : FOREX_STALENESS_THRESHOLD_MS;
+
   const now = Date.now();
   const recentPrices = history.filter(p => now - p.timestamp < STALENESS_THRESHOLD_MS);
 
@@ -168,7 +174,7 @@ function isPriceStale(symbol: string, currentPrice: { bid: number; ask: number }
     const staleDuration = now - oldestRecentPrice.timestamp;
 
     if (staleDuration > STALENESS_THRESHOLD_MS) {
-      console.warn(`[get-live-price] ⚠️ STALE PRICE DETECTED for ${symbol}: unchanged for ${(staleDuration/1000).toFixed(1)}s`);
+      console.warn(`[get-live-price] ⚠️ STALE PRICE DETECTED for ${symbol}: unchanged for ${(staleDuration/1000).toFixed(1)}s (threshold: ${STALENESS_THRESHOLD_MS/1000}s for ${isCrypto ? 'crypto' : 'forex'})`);
       return true;
     }
   }
@@ -299,12 +305,34 @@ async function getKrakenPrice(symbol: string): Promise<{ bid: number; ask: numbe
     const lastPrice = lastKrakenPrices.get(symbol);
     const priceChanged = !lastPrice || lastPrice.bid !== krakenData.bid || lastPrice.ask !== krakenData.ask;
 
+    // PHASE 1 INVESTIGATION: Detailed price change tracking
     if (priceChanged) {
-      console.log(`[get-live-price] ✨ PRICE CHANGED for ${symbol}: bid=${krakenData.bid}, ask=${krakenData.ask}${lastPrice ? ` (was bid=${lastPrice.bid}, ask=${lastPrice.ask})` : ''}`);
+      const bidChange = lastPrice ? (krakenData.bid - lastPrice.bid) : 0;
+      const askChange = lastPrice ? (krakenData.ask - lastPrice.ask) : 0;
+      const midPrice = (krakenData.bid + krakenData.ask) / 2;
+
+      console.log(`[get-live-price] ✨ PRICE CHANGED for ${symbol}:`, {
+        bid_new: krakenData.bid,
+        ask_new: krakenData.ask,
+        mid_new: midPrice.toFixed(5),
+        bid_old: lastPrice?.bid || 'N/A',
+        ask_old: lastPrice?.ask || 'N/A',
+        bid_change: bidChange.toFixed(5),
+        ask_change: askChange.toFixed(5),
+        spread: (krakenData.ask - krakenData.bid).toFixed(5),
+        age_since_last_change_ms: lastPrice ? (now - lastPrice.timestamp) : 0
+      });
       lastKrakenPrices.set(symbol, { bid: krakenData.bid, ask: krakenData.ask, timestamp: now });
     } else {
       const ageMs = now - (lastPrice?.timestamp || now);
-      console.log(`[get-live-price] ⚠️ SAME PRICE for ${symbol}: bid=${krakenData.bid}, ask=${krakenData.ask} (unchanged for ${(ageMs/1000).toFixed(1)}s)`);
+      console.log(`[get-live-price] ⚠️ SAME PRICE for ${symbol}:`, {
+        bid: krakenData.bid,
+        ask: krakenData.ask,
+        unchanged_duration_s: (ageMs/1000).toFixed(1),
+        unchanged_duration_ms: ageMs,
+        might_be_stale: ageMs > 30000,
+        last_change_at: lastPrice ? new Date(lastPrice.timestamp).toISOString() : 'never'
+      });
     }
 
     return {

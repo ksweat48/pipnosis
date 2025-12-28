@@ -44,12 +44,16 @@ export async function fetchKrakenTicker(symbol: string): Promise<{ bid: number; 
     throw new Error(`Symbol ${symbol} not supported by Kraken client`);
   }
 
-  const url = `${KRAKEN_API_BASE}/Ticker?pair=${krakenSymbol}`;
+  // PHASE 1 INVESTIGATION: Add cache-busting timestamp
+  const cacheBuster = Date.now();
+  const url = `${KRAKEN_API_BASE}/Ticker?pair=${krakenSymbol}&_t=${cacheBuster}`;
 
   const response = await fetch(url, {
     method: 'GET',
     headers: {
       'Accept': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache'
     },
   });
 
@@ -71,12 +75,31 @@ export async function fetchKrakenTicker(symbol: string): Promise<{ bid: number; 
   const tickerKey = resultKeys[0];
   const ticker = data.result[tickerKey];
 
+  // PHASE 1 INVESTIGATION: Log raw Kraken response for precision audit
+  console.log(`[Kraken] Raw response for ${symbol}:`, {
+    bid_raw: ticker.b[0],
+    ask_raw: ticker.a[0],
+    bid_type: typeof ticker.b[0],
+    ask_type: typeof ticker.a[0],
+    last_trade: ticker.c[0],
+    timestamp: new Date().toISOString()
+  });
+
   const bid = parseFloat(ticker.b[0]);
   const ask = parseFloat(ticker.a[0]);
 
   if (isNaN(bid) || isNaN(ask)) {
     throw new Error(`Invalid price data from Kraken: bid=${ticker.b[0]}, ask=${ticker.a[0]}`);
   }
+
+  // PHASE 1 INVESTIGATION: Log precision details
+  console.log(`[Kraken] Parsed prices for ${symbol}:`, {
+    bid_parsed: bid,
+    ask_parsed: ask,
+    bid_full_precision: bid.toFixed(8),
+    ask_full_precision: ask.toFixed(8),
+    price_changed: true // Will be compared in get-live-price
+  });
 
   return { bid, ask };
 }

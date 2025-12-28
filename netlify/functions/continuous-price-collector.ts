@@ -1,5 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
+import { fetchKrakenTicker } from './_shared/kraken-client';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -57,9 +58,10 @@ function shouldCollectSymbol(symbol: string): boolean {
 const ACTIVE_SYMBOLS = ALL_TRADING_PAIRS;
 
 // OPTIMIZATION: Collect multiple ticks within the 1-minute window
-// This dramatically improves wick quality by getting 8 ticks instead of 1
-const TICKS_PER_MINUTE = 8;
-const TICK_INTERVAL_MS = 3000; // 3 seconds between ticks
+// This dramatically improves wick quality by getting more ticks
+// PHASE 2 FIX: Increased from 8 to 12 ticks for better crypto granularity
+const TICKS_PER_MINUTE = 12;
+const TICK_INTERVAL_MS = 2000; // 2 seconds between ticks (reduced from 3s)
 const MAX_EXECUTION_TIME_MS = 24000; // 24 seconds max (within 26s timeout)
 
 interface MetaApiPrice {
@@ -68,6 +70,24 @@ interface MetaApiPrice {
   ask: number;
   time: string;
   brokerTime: string;
+}
+
+async function fetchPriceFromKraken(symbol: string): Promise<MetaApiPrice | null> {
+  try {
+    const krakenData = await fetchKrakenTicker(symbol);
+    const now = new Date().toISOString();
+
+    return {
+      symbol,
+      bid: krakenData.bid,
+      ask: krakenData.ask,
+      time: now,
+      brokerTime: now
+    };
+  } catch (error) {
+    console.error(`[PriceCollector] Kraken error for ${symbol}:`, error);
+    return null;
+  }
 }
 
 async function fetchPriceFromMetaApi(symbol: string, accountId: string): Promise<MetaApiPrice | null> {
@@ -114,10 +134,24 @@ async function fetchPriceFromMetaApi(symbol: string, accountId: string): Promise
   }
 }
 
+async function fetchPrice(symbol: string, accountId: string): Promise<MetaApiPrice | null> {
+  // PHASE 2 FIX: Use Kraken for crypto, MetaAPI for forex
+  if (isCryptoSymbol(symbol)) {
+    return await fetchPriceFromKraken(symbol);
+  } else {
+    return await fetchPriceFromMetaApi(symbol, accountId);
+  }
+}
+
 async function savePriceToDatabase(priceData: MetaApiPrice): Promise<boolean> {
   try {
     const mid = (priceData.bid + priceData.ask) / 2;
     const spread = priceData.ask - priceData.bid;
+
+    // PHASE 2 FIX: Track source for debugging
+    const source = isCryptoSymbol(priceData.symbol)
+      ? 'netlify_continuous_collector_kraken'
+      : 'netlify_continuous_collector_metaapi';
 
     const { error } = await supabase
       .from('realtime_prices')
@@ -128,7 +162,7 @@ async function savePriceToDatabase(priceData: MetaApiPrice): Promise<boolean> {
         mid: mid,
         spread: spread,
         broker_time: priceData.brokerTime,
-        source: 'netlify_continuous_collector',
+        source: source,
         created_at: new Date().toISOString()
       });
 
@@ -208,7 +242,7 @@ export const handler: Handler = async (event, context) => {
 
       const results = await Promise.allSettled(
         symbolsToCollect.map(async (symbol) => {
-          const priceData = await fetchPriceFromMetaApi(symbol, metaApiAccountId);
+          const priceData = await fetchPrice(symbol, metaApiAccountId);
           if (priceData) {
             const saved = await savePriceToDatabase(priceData);
             return { symbol, success: saved, price: priceData };
