@@ -743,6 +743,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     }
 
     renderFrameRef.current = requestAnimationFrame(() => {
+      console.log(`[Chart][${symbol}] 🎬 Tick callback executing - processing tick at ${tick.midPrice.toFixed(5)}`);
+
       const price = tick.midPrice;
       const timestampMs = new Date(tick.timestamp).getTime();
       const timeframeMinutes = getTimeframeMinutes(timeframe);
@@ -754,24 +756,29 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         ? historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time
         : 0;
 
-      // STRICT OVERLAP PREVENTION: Reject any candle with timestamp <= last historical
-      if (candleTimeSeconds <= lastHistoricalTime) {
-        // Silently ignore old ticks that would create overlaps
+      console.log(`[Chart][${symbol}] 🔍 Tick validation: candleTime=${candleTimeSeconds}, lastHistorical=${lastHistoricalTime}, current=${currentCandleRef.current?.time || 'none'}`);
+
+      // FIX: Changed from <= to < so ticks for the CURRENT forming candle aren't rejected
+      // The forming candle matches lastHistoricalTime, so we need to allow it
+      if (candleTimeSeconds < lastHistoricalTime) {
+        console.warn(`[Chart][${symbol}] ⏭️ REJECTING old tick: ${candleTimeSeconds} < ${lastHistoricalTime} (${new Date(candleTimeSeconds * 1000).toLocaleTimeString()} < ${new Date(lastHistoricalTime * 1000).toLocaleTimeString()})`);
         return;
       }
 
       // Also reject if this tick would create a candle older than our current forming candle
       if (currentCandleRef.current && candleTimeSeconds < currentCandleRef.current.time) {
-        // This is an old tick, ignore it
+        console.warn(`[Chart][${symbol}] ⏭️ REJECTING tick older than current candle: ${candleTimeSeconds} < ${currentCandleRef.current.time}`);
         return;
       }
 
-      // Validate this candle is at least one interval after the last historical
+      // FIX: Allow ticks for the current candle by checking >= instead of >
       const expectedMinTime = lastHistoricalTime + (getTimeframeMinutes(timeframe) * 60);
-      if (candleTimeSeconds < expectedMinTime && lastHistoricalTime > 0) {
-        console.warn(`[Chart] Rejecting tick: candle time ${candleTimeSeconds} < expected min time ${expectedMinTime}`);
+      if (candleTimeSeconds < expectedMinTime && lastHistoricalTime > 0 && candleTimeSeconds !== lastHistoricalTime) {
+        console.warn(`[Chart][${symbol}] ⏭️ REJECTING tick: candle time ${candleTimeSeconds} < expected min time ${expectedMinTime}`);
         return;
       }
+
+      console.log(`[Chart][${symbol}] ✅ Tick passed all validation checks!`);
 
       if (!currentCandleRef.current || currentCandleRef.current.startTime !== candleTime) {
         currentCandleRef.current = {
@@ -782,11 +789,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           close: price,
           startTime: candleTime
         };
-        console.log(`[Chart] 🆕 New forming candle started for ${symbol} at ${new Date(candleTime).toLocaleTimeString()}`);
+        console.log(`[Chart][${symbol}] 🆕 New forming candle started at ${new Date(candleTime).toLocaleTimeString()} with price ${price.toFixed(5)}`);
       } else {
+        const oldClose = currentCandleRef.current.close;
         currentCandleRef.current.high = Math.max(currentCandleRef.current.high, price);
         currentCandleRef.current.low = Math.min(currentCandleRef.current.low, price);
         currentCandleRef.current.close = price;
+        console.log(`[Chart][${symbol}] 🔄 Updating forming candle: close ${oldClose.toFixed(5)} → ${price.toFixed(5)}`);
       }
 
       try {
@@ -822,7 +831,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           close: Number(currentCandleRef.current.close)
         };
 
+        console.log(`[Chart][${symbol}] 📊 About to update chart with tick:`, {
+          time: new Date(safeCandle.time * 1000).toLocaleTimeString(),
+          ohlc: `${safeCandle.open.toFixed(2)}/${safeCandle.high.toFixed(2)}/${safeCandle.low.toFixed(2)}/${safeCandle.close.toFixed(2)}`
+        });
+
         candlestickSeriesRef.current?.update(safeCandle);
+
+        console.log(`[Chart][${symbol}] ✅ Chart updated successfully with live tick!`);
 
         setCurrentPrice(price);
         setLastUpdate(new Date());
