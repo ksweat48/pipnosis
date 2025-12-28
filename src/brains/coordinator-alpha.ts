@@ -319,9 +319,12 @@ class AlphaCoordinatorBrain {
         console.error('[Alpha Coordinator] Failed to load intelligence snapshot:', error);
       }
     }
+
+    // Declare risk mode at function scope (used throughout function)
+    const riskMode = goalContext?.riskMode || 'medium';
+
     // Calculate vote weights (with Omega-10 overrides if available)
-    const riskModeForWeights = goalContext?.riskMode || 'medium';
-    const weights = await this.calculateWeights(votes, marketContext, traderScore, riskModeForWeights, userId);
+    const weights = await this.calculateWeights(votes, marketContext, traderScore, riskMode, userId);
 
     // Calculate weighted consensus score
     const consensus = this.calculateWeightedConsensus(votes, weights);
@@ -404,9 +407,8 @@ class AlphaCoordinatorBrain {
     if (goalContext && goalContext.hasGoal) {
       const riskPercent = goalContext.riskPercent || 5;
       const recentATR = marketContext.atr || 60;
-      const riskMode = goalContext.riskMode || 'medium';
 
-      // Add comprehensive risk profile strategy
+      // Add comprehensive risk profile strategy (riskMode already declared at function scope)
       riskProfileText = formatRiskProfileForLLM(riskMode);
 
       goalContextText = `\n🎯 GOAL: $${goalContext.currentBalance.toFixed(0)} → +$${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}% gain) | Progress: $${goalContext.currentProgress.toFixed(0)}/${goalContext.targetGoal.toFixed(0)} | Remaining: $${goalContext.remainingGoal.toFixed(0)}\n${riskProfileText}\n`;
@@ -484,10 +486,10 @@ class AlphaCoordinatorBrain {
     let stopLossAnchor: StopLossCalculation | null = null;
     let stopLossDirective = '';
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED') {
-      const riskMode = goalContext?.riskMode || 'medium';
       const entryPrice = marketContext.price;
       const direction = consensus.direction === 'BUY' ? 'buy' : 'sell';
 
+      // riskMode already declared at function scope
       stopLossAnchor = riskAwareStopCalculator.calculateStopLoss({
         symbol: marketContext.symbol,
         entryPrice,
