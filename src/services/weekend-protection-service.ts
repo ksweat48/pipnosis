@@ -546,7 +546,7 @@ class WeekendProtectionService {
     if (status.isWeekend) {
       return {
         isActive: true,
-        message: 'Markets closed until Sunday 5pm EST'
+        message: 'Forex markets closed until Sunday 5pm EST (Crypto 24/7)'
       };
     }
 
@@ -554,7 +554,7 @@ class WeekendProtectionService {
     if (SCANNING_DISABLED || LLM_API_DISABLED) {
       return {
         isActive: true,
-        message: 'Weekend shutdown - Markets reopen Sunday 5pm EST'
+        message: 'Forex shutdown - Reopens Sunday 5pm EST (Crypto active)'
       };
     }
 
@@ -565,7 +565,7 @@ class WeekendProtectionService {
 
       return {
         isActive: true,
-        message: `Forex market close in ${hours}h ${minutes}m`,
+        message: `Forex market close in ${hours}h ${minutes}m (Crypto unaffected)`,
         hoursUntilClose: hours,
         minutesUntilClose: minutes
       };

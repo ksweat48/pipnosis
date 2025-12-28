@@ -158,20 +158,21 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   }, [currentPrice, priceChange, onPriceUpdate]);
 
   useEffect(() => {
-    let previousMarketStatus = forexMarketStatus.isOpen;
+    // CRITICAL FIX: Track symbol-specific market status, not forex-only status
+    let previousMarketStatus = symbolMarketStatus.isOpen;
 
     const updateMarketStatus = () => {
       const newStatus = getForexMarketStatus();
       const newSymbolStatus = getSymbolMarketStatus(symbol);
       const wasOpen = previousMarketStatus;
-      const isNowOpen = newStatus.isOpen;
+      const isNowOpen = newSymbolStatus.isOpen; // Use symbol-specific status
 
       setForexMarketStatus(newStatus);
       setSymbolMarketStatus(newSymbolStatus);
 
-      // Market just closed - freeze time range
-      if (wasOpen && !isNowOpen && isMountedRef.current && chartRef.current) {
-        console.log('[Chart] 🔒 Market closed - freezing time range');
+      // Market just closed - freeze time range (ONLY for forex, crypto never closes)
+      if (wasOpen && !isNowOpen && isMountedRef.current && chartRef.current && !newSymbolStatus.is24Hour) {
+        console.log(`[Chart] 🔒 ${symbol} market closed - freezing time range`);
         try {
           const timeScale = chartRef.current.timeScale();
           const currentRange = timeScale.getVisibleLogicalRange();
@@ -184,9 +185,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         }
       }
 
-      // Market just opened - resume real-time scrolling
-      if (!wasOpen && isNowOpen && isMountedRef.current && chartRef.current) {
-        console.log('[Chart] 🔓 Market opened - resuming updates');
+      // Market just opened - resume real-time scrolling (ONLY for forex, crypto never stopped)
+      if (!wasOpen && isNowOpen && isMountedRef.current && chartRef.current && !newSymbolStatus.is24Hour) {
+        console.log(`[Chart] 🔓 ${symbol} market opened - resuming updates`);
         try {
           chartRef.current.timeScale().scrollToRealTime();
         } catch (error) {
