@@ -9,6 +9,7 @@ import type {
   EntryIntentRequest
 } from '../types/entry';
 import { logger } from '../lib/logger';
+import { getSessionAdjustedTimeout, getCurrentMarketSession } from '../utils/marketHours';
 
 export class EntryPlannerService {
   private static readonly VWAP_TOLERANCE_PIPS = 2;
@@ -21,8 +22,19 @@ export class EntryPlannerService {
     request: EntryIntentRequest
   ): Promise<EntryIntent | null> {
     try {
+      // Apply session-based timeout adjustment
+      const adjustedTimeout = getSessionAdjustedTimeout(request.timeout_minutes, request.symbol);
+      const session = getCurrentMarketSession();
+
+      if (adjustedTimeout !== request.timeout_minutes) {
+        logger.info(
+          `Timeout adjusted for ${session.description}: ` +
+          `${request.timeout_minutes}min -> ${adjustedTimeout}min`
+        );
+      }
+
       const timeoutAt = new Date();
-      timeoutAt.setMinutes(timeoutAt.getMinutes() + request.timeout_minutes);
+      timeoutAt.setMinutes(timeoutAt.getMinutes() + adjustedTimeout);
 
       const { data, error } = await supabase
         .from('entry_intents')
@@ -35,7 +47,7 @@ export class EntryPlannerService {
           direction: request.direction,
           entry_zone_min: request.entry_zone_min,
           entry_zone_max: request.entry_zone_max,
-          timeout_minutes: request.timeout_minutes,
+          timeout_minutes: adjustedTimeout,
           timeout_at: timeoutAt.toISOString(),
           alpha_reasoning: request.alpha_reasoning,
           market_context: request.market_context || {},
@@ -49,7 +61,7 @@ export class EntryPlannerService {
         return null;
       }
 
-      logger.info(`Entry intent created: ${data.id} (${request.intent_type}, ${request.urgency})`);
+      logger.info(`Entry intent created: ${data.id} (${request.intent_type}, ${request.urgency}, ${adjustedTimeout}min timeout)`);
       return data;
     } catch (error) {
       logger.error('Error creating entry intent:', error);
@@ -66,9 +78,14 @@ export class EntryPlannerService {
     const intentType = intent.intent_type;
     const conditions: EntryConditions = {};
 
+    // Calculate timeout progress for progressive relaxation
+    const timeElapsed = Date.now() - new Date(intent.created_at).getTime();
+    const timeoutTotal = intent.timeout_minutes * 60 * 1000;
+    const timeoutProgress = Math.min(1.0, timeElapsed / timeoutTotal);
+
     switch (intentType) {
       case 'immediate_momentum':
-        return this.validateImmediateMomentum(intent, currentPrice, candleData, conditions);
+        return this.validateImmediateMomentum(intent, currentPrice, candleData, conditions, timeoutProgress);
 
       case 'pullback_to_vwap':
         return this.validatePullbackToVWAP(intent, currentPrice, candleData, marketConditions, conditions);
@@ -102,7 +119,8 @@ export class EntryPlannerService {
     intent: EntryIntent,
     currentPrice: number,
     candleData: any,
-    conditions: EntryConditions
+    conditions: EntryConditions,
+    timeoutProgress: number
   ): EntryValidationResult {
     const distanceToPips = this.calculateDistanceToZone(currentPrice, intent);
 
@@ -125,20 +143,59 @@ export class EntryPlannerService {
     conditions.momentum_sustained = this.checkMomentumSustained(candleData, intent.direction);
     conditions.volume_confirmation = this.checkVolumeConfirmation(candleData);
 
-    // IMMEDIATE MOMENTUM LOGIC: Be aggressive about execution
-    // If perfect conditions: execute immediately
-    if (conditions.momentum_sustained && conditions.volume_confirmation) {
-      return {
-        is_valid: true,
-        conditions_met: conditions,
-        should_execute: true,
-        should_wait: false,
-        should_cancel: false,
-        message: 'Momentum confirmed. Executing entry.'
-      };
+    // PROGRESSIVE RELAXATION: As timeout approaches, relax conditions
+    // 0-25%: Require both momentum AND volume
+    // 25-50%: Require either momentum OR volume (current default)
+    // 50-75%: Require price in zone only
+    // 75-100%: Execute anyway (handled by timeout logic)
+
+    if (timeoutProgress < 0.25) {
+      // Strict: Both conditions required
+      if (conditions.momentum_sustained && conditions.volume_confirmation) {
+        return {
+          is_valid: true,
+          conditions_met: conditions,
+          should_execute: true,
+          should_wait: false,
+          should_cancel: false,
+          message: 'Momentum confirmed (full). Executing entry.'
+        };
+      }
+    } else if (timeoutProgress < 0.5) {
+      // RELAXED: Execute with either momentum OR volume
+      if (conditions.momentum_sustained || conditions.volume_confirmation) {
+        const confirmationType = conditions.momentum_sustained && conditions.volume_confirmation
+          ? 'full'
+          : conditions.momentum_sustained
+            ? 'momentum'
+            : 'volume';
+
+        return {
+          is_valid: true,
+          conditions_met: conditions,
+          should_execute: true,
+          should_wait: false,
+          should_cancel: false,
+          message: `Momentum confirmed (${confirmationType}). Executing entry.`
+        };
+      }
+    } else if (timeoutProgress < 0.75) {
+      // VERY RELAXED: Execute if price is in zone (conditions already checked)
+      const inZone = this.isPriceInZone(currentPrice, intent);
+      if (inZone) {
+        logger.info(`Progressive relaxation at ${(timeoutProgress * 100).toFixed(0)}% - executing with price in zone`);
+        return {
+          is_valid: true,
+          conditions_met: conditions,
+          should_execute: true,
+          should_wait: false,
+          should_cancel: false,
+          message: `Entry window closing (${(timeoutProgress * 100).toFixed(0)}% elapsed). Executing.`
+        };
+      }
     }
 
-    // If monitored for 15+ seconds: execute with partial confirmation
+    // If monitored for 15+ seconds: execute with partial confirmation (legacy fallback)
     if (monitoringSeconds >= 15) {
       logger.info(`Immediate momentum monitored for ${monitoringSeconds.toFixed(0)}s - executing with partial confirmation`);
       return {
@@ -158,7 +215,7 @@ export class EntryPlannerService {
       should_execute: false,
       should_wait: true,
       should_cancel: false,
-      message: `Momentum setup active. Current price: ${currentPrice.toFixed(5)}. Waiting for confirmation.`
+      message: `Momentum setup active (${(timeoutProgress * 100).toFixed(0)}% timeout). Current price: ${currentPrice.toFixed(5)}. Waiting for confirmation.`
     };
   }
 
@@ -423,7 +480,9 @@ export class EntryPlannerService {
 
   private static checkMomentumSustained(candleData: any, direction: string): boolean {
     if (!candleData || !candleData.candles || candleData.candles.length < this.MOMENTUM_CANDLE_COUNT) {
-      return false;
+      // RESILIENT: If no candle data, assume conditions could be met (don't fail validation)
+      logger.warn('No candle data available for momentum check - assuming conditions could be valid');
+      return true;
     }
 
     const recentCandles = candleData.candles.slice(-this.MOMENTUM_CANDLE_COUNT);
@@ -502,10 +561,11 @@ export class EntryPlannerService {
     const upperWick = candle.high - Math.max(candle.open, candle.close);
     const lowerWick = Math.min(candle.open, candle.close) - candle.low;
 
+    // RELAXED: Reduced from 2x to 1.5x body for more realistic patterns
     if (direction === 'long') {
-      return lowerWick > bodySize * 2 && candle.close > candle.open;
+      return lowerWick > bodySize * 1.5 && candle.close > candle.open;
     } else {
-      return upperWick > bodySize * 2 && candle.close < candle.open;
+      return upperWick > bodySize * 1.5 && candle.close < candle.open;
     }
   }
 

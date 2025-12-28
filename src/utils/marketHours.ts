@@ -362,3 +362,102 @@ export function getAllMarketsStatus(symbols: string[]): {
     closedCount
   };
 }
+
+/**
+ * Market session detection for entry intent timeout adjustment
+ */
+export type MarketSession =
+  | 'london_ny_overlap'  // High liquidity: 08:00-12:00 EST (13:00-17:00 UTC)
+  | 'london_session'     // Good liquidity: 03:00-12:00 EST (08:00-17:00 UTC)
+  | 'ny_session'         // Good liquidity: 08:00-17:00 EST (13:00-22:00 UTC)
+  | 'tokyo_session'      // Low liquidity for EUR/GBP: 19:00-04:00 EST (00:00-09:00 UTC)
+  | 'dead_zone';         // Very low liquidity: 17:00-19:00 EST (22:00-00:00 UTC)
+
+export interface SessionInfo {
+  session: MarketSession;
+  liquidity: 'high' | 'medium' | 'low' | 'very_low';
+  timeoutMultiplier: number; // Multiply base timeout by this
+  description: string;
+}
+
+export function getCurrentMarketSession(): SessionInfo {
+  const now = new Date();
+  const utcHours = now.getUTCHours();
+
+  // London/NY Overlap: 13:00-17:00 UTC (8am-12pm EST)
+  if (utcHours >= 13 && utcHours < 17) {
+    return {
+      session: 'london_ny_overlap',
+      liquidity: 'high',
+      timeoutMultiplier: 1.0,
+      description: 'London/NY overlap - highest liquidity'
+    };
+  }
+
+  // London Session: 08:00-17:00 UTC (3am-12pm EST)
+  if (utcHours >= 8 && utcHours < 17) {
+    return {
+      session: 'london_session',
+      liquidity: 'medium',
+      timeoutMultiplier: 1.0,
+      description: 'London session - good liquidity'
+    };
+  }
+
+  // NY Session: 13:00-22:00 UTC (8am-5pm EST)
+  if (utcHours >= 13 && utcHours < 22) {
+    return {
+      session: 'ny_session',
+      liquidity: 'medium',
+      timeoutMultiplier: 1.0,
+      description: 'NY session - good liquidity'
+    };
+  }
+
+  // Dead Zone: 22:00-00:00 UTC (5pm-7pm EST)
+  if (utcHours >= 22 || utcHours < 0) {
+    return {
+      session: 'dead_zone',
+      liquidity: 'very_low',
+      timeoutMultiplier: 0.2, // Reduce timeouts to 20% (e.g., 90min -> 18min)
+      description: 'Dead zone - very low liquidity, reduce timeouts'
+    };
+  }
+
+  // Tokyo Session: 00:00-09:00 UTC (7pm-4am EST)
+  return {
+    session: 'tokyo_session',
+    liquidity: 'low',
+    timeoutMultiplier: 0.5, // Reduce timeouts to 50% for non-JPY pairs
+    description: 'Tokyo session - low liquidity for EUR/GBP'
+  };
+}
+
+/**
+ * Adjust entry intent timeout based on market session
+ * @param baseTimeoutMinutes - Original timeout in minutes
+ * @param symbol - Trading symbol (JPY pairs get different treatment)
+ * @returns Adjusted timeout in minutes
+ */
+export function getSessionAdjustedTimeout(baseTimeoutMinutes: number, symbol?: string): number {
+  const session = getCurrentMarketSession();
+
+  // JPY pairs perform better in Tokyo session
+  const isJPYPair = symbol?.includes('JPY');
+
+  if (session.session === 'tokyo_session' && isJPYPair) {
+    // Don't reduce timeout for JPY pairs during Tokyo session
+    return baseTimeoutMinutes;
+  }
+
+  const adjusted = Math.max(
+    5, // Minimum 5 minutes
+    Math.round(baseTimeoutMinutes * session.timeoutMultiplier)
+  );
+
+  if (adjusted !== baseTimeoutMinutes) {
+    console.log(`[Session Timeout] ${session.description}: ${baseTimeoutMinutes}min -> ${adjusted}min`);
+  }
+
+  return adjusted;
+}

@@ -109,6 +109,31 @@ export class EntryExecutionCoordinator {
       }
 
       const marketContext = intent.market_context as any;
+      const idealEntryPrice = (intent.entry_zone_min + intent.entry_zone_max) / 2;
+
+      // CRITICAL: Adjust SL/TP when entry price slips to maintain original R:R ratio
+      let adjustedStopLoss = marketContext?.stop_loss;
+      let adjustedTakeProfit = marketContext?.take_profit;
+
+      if (marketContext?.stop_loss && marketContext?.take_profit && actualEntryPrice !== idealEntryPrice) {
+        const originalStopDistance = Math.abs(idealEntryPrice - marketContext.stop_loss);
+        const originalTPDistance = Math.abs(marketContext.take_profit - idealEntryPrice);
+        const originalRR = originalTPDistance / originalStopDistance;
+
+        // Recalculate SL and TP based on actual entry
+        if (intent.direction === 'long') {
+          adjustedStopLoss = actualEntryPrice - originalStopDistance;
+          adjustedTakeProfit = actualEntryPrice + (originalStopDistance * originalRR);
+        } else {
+          adjustedStopLoss = actualEntryPrice + originalStopDistance;
+          adjustedTakeProfit = actualEntryPrice - (originalStopDistance * originalRR);
+        }
+
+        const slippagePips = Math.abs(actualEntryPrice - idealEntryPrice) * 10000;
+        logger.info(`Entry slipped ${slippagePips.toFixed(2)} pips. Adjusted SL/TP to maintain ${originalRR.toFixed(2)}:1 R:R`);
+        logger.info(`Original: SL=${marketContext.stop_loss.toFixed(5)}, TP=${marketContext.take_profit.toFixed(5)}`);
+        logger.info(`Adjusted: SL=${adjustedStopLoss.toFixed(5)}, TP=${adjustedTakeProfit.toFixed(5)}`);
+      }
 
       const tradeData = {
         user_id: intent.user_id,
@@ -116,14 +141,14 @@ export class EntryExecutionCoordinator {
         symbol: intent.symbol,
         direction: intent.direction,
         entry_price: actualEntryPrice,
-        stop_loss: marketContext?.stop_loss,
-        take_profit: marketContext?.take_profit,
+        stop_loss: adjustedStopLoss,
+        take_profit: adjustedTakeProfit,
         status: 'open',
         confidence: marketContext?.confidence || 70,
         reasoning: intent.alpha_reasoning,
         entry_intent_type: intent.intent_type,
         entry_urgency: intent.urgency,
-        ideal_entry_price: (intent.entry_zone_min + intent.entry_zone_max) / 2,
+        ideal_entry_price: idealEntryPrice,
         time_to_entry_seconds: Math.floor((new Date().getTime() - new Date(intent.created_at).getTime()) / 1000)
       };
 

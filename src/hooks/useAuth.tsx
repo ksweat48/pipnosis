@@ -78,6 +78,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log('[Auth] Starting continuous learning loop for user:', session.user.id);
             continuousLearningLoop.start(session.user.id);
           }
+
+          // Resume monitoring for any active entry intents (handles page refresh)
+          try {
+            const { activeEntryMonitor } = await import('@/services/active-entry-monitor');
+            await activeEntryMonitor.resumeAllActiveIntents(session.user.id);
+            console.log('[Auth] ✅ Resumed entry intent monitoring');
+          } catch (error) {
+            console.error('[Auth] Failed to resume entry monitoring:', error);
+          }
         } else {
           setIsAdmin(false);
 
@@ -92,6 +101,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log('[Auth] Stopping continuous learning loop');
             continuousLearningLoop.stop();
           }
+
+          // Stop all entry monitoring when user logs out
+          import('@/services/active-entry-monitor').then(({ activeEntryMonitor }) => {
+            activeEntryMonitor.stopAllMonitoring();
+            console.log('[Auth] Stopped all entry monitoring');
+          }).catch(console.error);
         }
         setLoading(false);
       })();

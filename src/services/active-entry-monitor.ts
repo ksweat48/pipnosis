@@ -247,7 +247,7 @@ export class ActiveEntryMonitor {
     try {
       const { data, error } = await supabase
         .from('realtime_prices')
-        .select('bid, ask')
+        .select('bid, ask, created_at')
         .eq('symbol', symbol)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -255,6 +255,22 @@ export class ActiveEntryMonitor {
 
       if (error || !data) {
         return null;
+      }
+
+      // CRITICAL: Validate price freshness to avoid executing on stale data
+      const priceAge = Date.now() - new Date(data.created_at).getTime();
+      const maxAgeMs = 30000; // 30 seconds max
+
+      if (priceAge > maxAgeMs) {
+        logger.warn(
+          `Price data is stale for ${symbol}: ${(priceAge / 1000).toFixed(0)}s old ` +
+          `(max ${maxAgeMs / 1000}s). Skipping validation check.`
+        );
+        return null;
+      }
+
+      if (priceAge > 10000) {
+        logger.debug(`Price data age: ${(priceAge / 1000).toFixed(0)}s for ${symbol}`);
       }
 
       return (data.bid + data.ask) / 2;
