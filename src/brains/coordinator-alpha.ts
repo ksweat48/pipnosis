@@ -498,8 +498,49 @@ class AlphaCoordinatorBrain {
       });
 
       console.log(`[Alpha Coordinator] 🎯 Stop-Loss Anchor Calculated: ${stopLossAnchor.stopLossPrice.toFixed(5)} (${stopLossAnchor.stopLossPips.toFixed(1)} pips, ${stopLossAnchor.atrMultiplier.toFixed(2)}x ATR)`);
+    }
 
-      // Build Elite Trader Stop-Loss Directive
+    // Calculate TP ceiling for physics-based constraint enforcement (MUST happen before prompt construction)
+    let tpCeilingResult: TPCeilingResult | null = null;
+    if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
+      // Determine current session
+      const hour = new Date().getUTCHours();
+      let currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
+      if (hour >= 8 && hour < 12) currentSession = 'london';
+      else if (hour >= 13 && hour < 17) currentSession = 'ny';
+      else if (hour >= 12 && hour < 13) currentSession = 'overlap';
+      else if (hour >= 0 && hour < 8) currentSession = 'asian';
+      else if ((hour >= 22 && hour < 24) || (hour >= 0 && hour < 1)) currentSession = 'sydney';
+      else currentSession = 'closed';
+
+      // Calculate session time remaining (approximate)
+      const sessionEndHours: Record<string, number> = {
+        london: 12,
+        ny: 17,
+        overlap: 13,
+        asian: 8,
+        sydney: 1,
+        closed: 24
+      };
+      const sessionEnd = sessionEndHours[currentSession];
+      const sessionTimeRemaining = sessionEnd > hour ? (sessionEnd - hour) * 60 : 60; // minutes
+
+      tpCeilingResult = tpCeilingCalculator.calculateMaximumFeasibleTP({
+        symbol: marketContext.symbol,
+        entry: marketContext.price,
+        direction: consensus.direction as 'BUY' | 'SELL',
+        atr: marketContext.atr,
+        currentSession,
+        sessionTimeRemainingMinutes: sessionTimeRemaining,
+        volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high'
+      });
+
+      console.log(`[Alpha Coordinator] 📐 TP Ceiling calculated: ${tpCeilingResult.maxDistancePips.toFixed(1)} pips (${tpCeilingResult.ceilingPrice.toFixed(5)})`);
+      console.log(`[Alpha Coordinator] 📐 Limiting factor: ${tpCeilingResult.limitingFactor} | ${tpCeilingResult.reasoning}`);
+    }
+
+    // Build Elite Trader Stop-Loss Directive
+    if (stopLossAnchor) {
       stopLossDirective = `
 
 🧠 ALPHA STOP-LOSS DIRECTIVE (ELITE TRADER VERSION)
@@ -902,45 +943,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
       const content = response.choices[0]?.message?.content || '{}';
 
-      // Calculate TP ceiling for physics-based constraint enforcement
-      let tpCeilingResult: TPCeilingResult | null = null;
-      if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
-        // Determine current session
-        const hour = new Date().getUTCHours();
-        let currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
-        if (hour >= 8 && hour < 12) currentSession = 'london';
-        else if (hour >= 13 && hour < 17) currentSession = 'ny';
-        else if (hour >= 12 && hour < 13) currentSession = 'overlap';
-        else if (hour >= 0 && hour < 8) currentSession = 'asian';
-        else if ((hour >= 22 && hour < 24) || (hour >= 0 && hour < 1)) currentSession = 'sydney';
-        else currentSession = 'closed';
-
-        // Calculate session time remaining (approximate)
-        const sessionEndHours: Record<string, number> = {
-          london: 12,
-          ny: 17,
-          overlap: 13,
-          asian: 8,
-          sydney: 1,
-          closed: 24
-        };
-        const sessionEnd = sessionEndHours[currentSession];
-        const sessionTimeRemaining = sessionEnd > hour ? (sessionEnd - hour) * 60 : 60; // minutes
-
-        tpCeilingResult = tpCeilingCalculator.calculateMaximumFeasibleTP({
-          symbol: marketContext.symbol,
-          entry: marketContext.price,
-          direction: consensus.direction as 'BUY' | 'SELL',
-          atr: marketContext.atr,
-          currentSession,
-          sessionTimeRemainingMinutes: sessionTimeRemaining,
-          volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high'
-        });
-
-        console.log(`[Alpha Coordinator] 📐 TP Ceiling calculated: ${tpCeilingResult.maxDistancePips.toFixed(1)} pips (${tpCeilingResult.ceilingPrice.toFixed(5)})`);
-        console.log(`[Alpha Coordinator] 📐 Limiting factor: ${tpCeilingResult.limitingFactor} | ${tpCeilingResult.reasoning}`);
-      }
-
+      // TP ceiling was already calculated before prompt construction (no need to recalculate)
       let decision = this.parseDecision(content, marketContext.price, marketContext.atr, marketContext.symbol, stopLossAnchor, tpCeilingResult);
 
       // Add decision field for compatibility
