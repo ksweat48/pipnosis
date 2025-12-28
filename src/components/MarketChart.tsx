@@ -721,10 +721,15 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       return;
     }
 
-    // Check if market is open before processing tick
-    if (!symbolMarketStatus.isOpen) {
+    // CRITICAL FIX: Check if market is open before processing tick
+    // BUT ALWAYS allow 24/7 symbols (crypto) to process ticks regardless of isOpen state
+    if (!symbolMarketStatus.isOpen && !symbolMarketStatus.is24Hour) {
+      console.log(`[Chart][${symbol}] ⏸️ Market closed - rejecting tick (not 24/7)`);
       return;
     }
+
+    // DEBUG: Log successful tick processing
+    console.log(`[Chart][${symbol}] ✅ Processing tick: ${tick.midPrice.toFixed(5)} (isOpen: ${symbolMarketStatus.isOpen}, is24Hour: ${symbolMarketStatus.is24Hour})`);
 
     const now = Date.now();
     if (now - lastTickUpdateRef.current < 16) {
