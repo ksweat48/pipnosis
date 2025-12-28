@@ -29,6 +29,8 @@ class SentimentScrapers {
 
   /**
    * Scrape all sources and aggregate into SentimentInput
+   * Primary sources: Finnhub, FMP, Reddit, Fear & Greed, CoinGecko
+   * Fallback sources: NewsAPI, Alpha Vantage (used if primary fails)
    */
   async scrapeAll(): Promise<SentimentInput> {
     const results = await Promise.allSettled([
@@ -39,11 +41,33 @@ class SentimentScrapers {
       this.scrapeCoinGeckoTrending()
     ]);
 
-    const finnhubNews = this.extractResult(results[0]);
-    const fmpNews = this.extractResult(results[1]);
+    let finnhubNews = this.extractResult(results[0]);
+    let fmpNews = this.extractResult(results[1]);
     const redditSignals = this.extractResult(results[2]);
     const fearGreed = this.extractResult(results[3]);
     const coinGecko = this.extractResult(results[4]);
+
+    // Fallback to alternative sources if primary news sources failed
+    const primaryNewsSourcesSucceeded = finnhubNews.length > 0 || fmpNews.length > 0;
+
+    if (!primaryNewsSourcesSucceeded) {
+      console.log('[Scrapers] Primary news sources failed, trying alternatives...');
+      const fallbackResults = await Promise.allSettled([
+        this.scrapeNewsAPI(),
+        this.scrapeAlphaVantage()
+      ]);
+
+      const newsApiHeadlines = this.extractResult(fallbackResults[0]);
+      const alphaVantageHeadlines = this.extractResult(fallbackResults[1]);
+
+      // Use fallback sources if they succeeded
+      if (finnhubNews.length === 0) {
+        finnhubNews = newsApiHeadlines; // Replace Finnhub with NewsAPI
+      }
+      if (fmpNews.length === 0) {
+        fmpNews = alphaVantageHeadlines; // Replace FMP with Alpha Vantage
+      }
+    }
 
     const successfulSources: string[] = [];
     if (finnhubNews.length > 0) successfulSources.push(`Finnhub(${finnhubNews.length})`);
@@ -78,7 +102,7 @@ class SentimentScrapers {
   }
 
   /**
-   * Finnhub Market News API (via Netlify Function proxy - integrated server-side)
+   * Finnhub Market News API (via Netlify Function proxy - server-side key)
    */
   private async scrapeFinnhub(): Promise<string[]> {
     try {
@@ -87,12 +111,14 @@ class SentimentScrapers {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           source: 'finnhub'
+          // API key read from server-side environment
         })
       });
 
       const result = await response.json();
 
       if (!result.success || !Array.isArray(result.data)) {
+        console.warn('[Finnhub] Response not successful or invalid format:', result.error);
         return [];
       }
 
@@ -101,6 +127,7 @@ class SentimentScrapers {
         .map((item: any) => this.sanitizeText(item.headline || ''))
         .filter((h: string) => h.length > 0);
 
+      console.log(`[Finnhub] ✓ Fetched ${headlines.length} headlines`);
       return headlines;
 
     } catch (error) {
@@ -115,6 +142,7 @@ class SentimentScrapers {
   private async scrapeFMPNews(): Promise<string[]> {
     try {
       if (!this.FMP_API_KEY) {
+        console.warn('[FMP] Missing API key');
         return [];
       }
 
@@ -130,13 +158,15 @@ class SentimentScrapers {
       const result = await response.json();
 
       if (!result.success || !Array.isArray(result.data)) {
+        console.warn('[FMP] Response not successful or invalid format:', result.error);
         return [];
       }
 
       const headlines = result.data
-        .map((item: any) => this.sanitizeText(item.title || ''))
+        .map((item: any) => this.sanitizeText(item.title || item.text || ''))
         .filter((h: string) => h.length > 0);
 
+      console.log(`[FMP] ✓ Fetched ${headlines.length} headlines`);
       return headlines;
 
     } catch (error) {
@@ -238,7 +268,7 @@ class SentimentScrapers {
   }
 
   /**
-   * Reddit JSON API
+   * Reddit JSON API (via Netlify Function proxy - CORS bypass)
    */
   private async scrapeReddit(): Promise<string[]> {
     try {
@@ -256,33 +286,54 @@ class SentimentScrapers {
         .filter(r => r.status === 'fulfilled')
         .flatMap(r => (r as PromiseFulfilledResult<string[]>).value);
 
+      if (allItems.length > 0) {
+        console.log(`[Reddit] ✓ Fetched ${allItems.length} posts from ${results.filter(r => r.status === 'fulfilled').length} subreddits`);
+      }
+
       return allItems.slice(0, this.MAX_ITEMS_PER_SOURCE);
 
     } catch (error) {
+      console.error('[Reddit] Failed to fetch posts:', error);
       return [];
     }
   }
 
 
   /**
-   * Scrape Reddit JSON feed
+   * Scrape Reddit JSON feed (via proxy to bypass CORS)
    */
   private async scrapeRedditFeed(url: string): Promise<string[]> {
-    const response = await this.fetchWithTimeout(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; TradingBot/1.0)'
+    try {
+      // Use Netlify proxy to avoid CORS issues
+      const response = await this.fetchWithTimeout('/.netlify/functions/sentiment-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'reddit',
+          redditUrl: url
+        })
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        console.warn('[Reddit] Proxy returned error:', result.error);
+        return [];
       }
-    });
 
-    const json = await response.json();
+      const json = result.data;
+      const posts = json?.data?.children || [];
+      const titles = posts
+        .map((post: any) => post?.data?.title || '')
+        .filter((title: string) => title.length > 0)
+        .map((title: string) => this.sanitizeText(title));
 
-    const posts = json?.data?.children || [];
-    const titles = posts
-      .map((post: any) => post?.data?.title || '')
-      .filter((title: string) => title.length > 0)
-      .map((title: string) => this.sanitizeText(title));
+      return titles;
 
-    return titles;
+    } catch (error) {
+      console.error('[Reddit] Failed to fetch feed:', error);
+      return [];
+    }
   }
 
   /**
@@ -309,6 +360,85 @@ class SentimentScrapers {
     }
   }
 
+
+  /**
+   * NewsAPI - Top Business Headlines (fallback for Finnhub)
+   * Free tier: 100 requests/day, good quality financial news
+   */
+  private async scrapeNewsAPI(): Promise<string[]> {
+    try {
+      const response = await this.fetchWithTimeout('/.netlify/functions/sentiment-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'newsapi'
+        })
+      });
+
+      const result = await response.json();
+
+      if (!result.success || !result.data?.articles) {
+        console.warn('[NewsAPI] Response not successful or invalid format:', result.error);
+        return [];
+      }
+
+      const headlines = result.data.articles
+        .slice(0, 10)
+        .map((item: any) => this.sanitizeText(item.title || ''))
+        .filter((h: string) => h.length > 0);
+
+      console.log(`[NewsAPI] ✓ Fetched ${headlines.length} headlines`);
+      return headlines;
+
+    } catch (error) {
+      console.error('[NewsAPI] Failed to fetch news:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Alpha Vantage News & Sentiment (fallback for FMP)
+   * Free tier: 25 requests/day, includes sentiment scores
+   */
+  private async scrapeAlphaVantage(): Promise<string[]> {
+    try {
+      const response = await this.fetchWithTimeout('/.netlify/functions/sentiment-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'alphavantage'
+        })
+      });
+
+      const result = await response.json();
+
+      if (!result.success || !result.data?.feed) {
+        console.warn('[AlphaVantage] Response not successful or invalid format:', result.error);
+        return [];
+      }
+
+      const headlines = result.data.feed
+        .slice(0, 10)
+        .map((item: any) => {
+          const title = this.sanitizeText(item.title || '');
+          // Include sentiment score if available
+          const sentiment = item.overall_sentiment_score;
+          if (sentiment !== undefined) {
+            const sentimentLabel = sentiment > 0.15 ? 'bullish' : sentiment < -0.15 ? 'bearish' : 'neutral';
+            return `${title} [${sentimentLabel}]`;
+          }
+          return title;
+        })
+        .filter((h: string) => h.length > 0);
+
+      console.log(`[AlphaVantage] ✓ Fetched ${headlines.length} headlines with sentiment`);
+      return headlines;
+
+    } catch (error) {
+      console.error('[AlphaVantage] Failed to fetch news:', error);
+      return [];
+    }
+  }
 
   /**
    * Sanitize text (remove HTML, trim, clean)

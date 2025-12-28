@@ -112,6 +112,11 @@ class SentimentAggregator {
 
   /**
    * Calculate weighted confidence based on sources available
+   *
+   * Examples:
+   * - All 5 sources (100%): confidence unchanged
+   * - Finnhub + FMP only (60%): confidence * 0.6
+   * - Fear & Greed + CoinGecko only (20%): confidence * 0.2
    */
   private calculateWeightedConfidence(baseConfidence: number, sourcesUsed: string[]): number {
     let totalWeight = 0;
@@ -140,6 +145,13 @@ class SentimentAggregator {
     // If all sources available (totalWeight = 1.0), no adjustment
     // If only some sources (e.g., 0.7), reduce confidence proportionally
     const adjustedConfidence = Math.round(baseConfidence * totalWeight);
+
+    // Log warning if confidence significantly reduced
+    if (totalWeight < 0.5) {
+      console.warn(`[SentimentAgg] ⚠️ LOW DATA QUALITY: Only ${(totalWeight * 100).toFixed(0)}% of sentiment sources available. Confidence reduced to ${adjustedConfidence}%`);
+    } else if (totalWeight < 0.8) {
+      console.log(`[SentimentAgg] ⚡ Degraded sentiment data: ${(totalWeight * 100).toFixed(0)}% of sources available`);
+    }
 
     return Math.max(1, Math.min(100, adjustedConfidence));
   }
