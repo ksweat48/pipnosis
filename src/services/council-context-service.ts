@@ -76,15 +76,20 @@ class CouncilContextService {
       });
 
       if (error) {
+        console.error('%c❌ DATABASE ERROR: Failed to retrieve council context', 'color: white; background: #ff0000; font-size: 14px; font-weight: bold; padding: 5px;');
+        console.error('   Error:', error);
+        console.error('   This means the database function is failing - Alpha Scout will not work!');
         logger.error('[CouncilContext] Failed to retrieve context', { error });
         return null;
       }
 
       if (!data || Object.keys(data).length === 0) {
+        console.log('%c📭 No existing context - first scan for this session', 'color: #666; font-size: 12px;');
         logger.info('[CouncilContext] No context found for session', { sessionId });
         return null;
       }
 
+      console.log('%c✅ Context retrieved successfully from database', 'color: #00aa00; font-size: 12px; font-weight: bold;');
       logger.info('[CouncilContext] Retrieved context', {
         session_id: sessionId,
         confidence: data.confidence,
@@ -93,6 +98,8 @@ class CouncilContextService {
 
       return data as CouncilContext;
     } catch (error) {
+      console.error('%c❌ EXCEPTION: Error retrieving council context', 'color: white; background: #ff0000; font-size: 14px; font-weight: bold; padding: 5px;');
+      console.error('   Exception:', error);
       logger.error('[CouncilContext] Exception retrieving context', { error });
       return null;
     }

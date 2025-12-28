@@ -33,6 +33,7 @@ class ContextAwareCouncilManager {
       const existingContext = await councilContextService.getLatestContext(userId, sessionId);
 
       if (!existingContext) {
+        console.log('%c🎯 FULL COUNCIL MODE: First scan - establishing baseline', 'color: white; background: #ff0000; font-size: 16px; font-weight: bold; padding: 5px 10px;');
         logger.info('[CouncilManager] No context - running full council (first scan)');
         return await this.runFullCouncil(
           userId,
@@ -44,8 +45,16 @@ class ContextAwareCouncilManager {
         );
       }
 
+      console.log('%c✅ CONTEXT FOUND - Checking if Alpha Scout can handle this...', 'color: white; background: #00aa00; font-size: 14px; font-weight: bold; padding: 5px 10px;');
+      console.log('   📊 Existing Context:', {
+        confidence: existingContext.confidence,
+        scout_cycles: existingContext.scout_cycles || 0,
+        created_at: existingContext.created_at,
+      });
+
       const shouldForceRefresh = councilContextService.shouldForceRefresh(existingContext);
       if (shouldForceRefresh) {
+        console.log('%c🔄 FORCE REFRESH: Context too old or max scout cycles reached', 'color: white; background: #ff6600; font-size: 14px; font-weight: bold; padding: 5px 10px;');
         logger.info('[CouncilManager] Context stale - running full council (refresh)');
         return await this.runFullCouncil(
           userId,
@@ -58,6 +67,8 @@ class ContextAwareCouncilManager {
       }
 
       const currentSnapshot = this.buildCurrentSnapshot(marketStates);
+
+      console.log('%c🔍 ALPHA SCOUT: Analyzing market conditions...', 'color: white; background: #0066cc; font-size: 14px; font-weight: bold; padding: 5px 10px;');
 
       const scoutDecision = await alphaScoutService.performScout(
         userId,
@@ -72,6 +83,9 @@ class ContextAwareCouncilManager {
       });
 
       if (scoutDecision.should_reconvene) {
+        console.log('%c🚨 ALPHA SCOUT: Market improved! Reconvening Full Council...', 'color: white; background: #ff0000; font-size: 16px; font-weight: bold; padding: 5px 10px;');
+        console.log('   Improvement Score:', scoutDecision.improvement_score + '%');
+        console.log('   Reason:', scoutDecision.reasoning);
         logger.info('[CouncilManager] Alpha Scout triggered reconvene - running full council');
         return await this.runFullCouncil(
           userId,
@@ -83,6 +97,10 @@ class ContextAwareCouncilManager {
         );
       }
 
+      console.log('%c💰 ALPHA SCOUT: No reconvene needed - COST SAVED!', 'color: white; background: #00aa00; font-size: 16px; font-weight: bold; padding: 5px 10px;');
+      console.log('   Scout Cycle:', (existingContext.scout_cycles || 0) + 1);
+      console.log('   Improvement Score:', scoutDecision.improvement_score + '%');
+      console.log('   Reasoning:', scoutDecision.reasoning);
       logger.info('[CouncilManager] Alpha Scout: No reconvene needed', {
         improvement_score: scoutDecision.improvement_score,
         reasoning: scoutDecision.reasoning,
