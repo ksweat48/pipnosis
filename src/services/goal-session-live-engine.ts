@@ -681,10 +681,15 @@ class GoalSessionLiveEngine {
       console.log('%c[MULTI-SYMBOL] 🚀 CALLING CONTEXT-AWARE COUNCIL MANAGER...', 'color: #ff0000; font-weight: bold; font-size: 20px; background: yellow');
       const orchestratorStartTime = Date.now();
 
+      // Validate required parameters
+      if (!this.config.goalSessionId) {
+        throw new Error('[Goal Session Live Engine] Goal session ID is required for council evaluation');
+      }
+
       // Use Context-Aware Council Manager (Alpha Scout + Full Council)
       const councilResultPromise = contextAwareCouncilManager.evaluateSymbols(
         this.config.userId,
-        this.config.sessionId,
+        this.config.goalSessionId,
         marketStates,
         traderScore,
         goalContext
