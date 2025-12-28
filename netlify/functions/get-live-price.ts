@@ -1,6 +1,9 @@
 import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { fetchKrakenTicker } from './_shared/kraken-client';
+import { fetchBinanceTicker } from './_shared/binance-client';
+import { fetchCoinGeckoPrice } from './_shared/coingecko-client';
+import { fetchCryptoComparePrice } from './_shared/cryptocompare-client';
 
 const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
 
@@ -9,6 +12,26 @@ function isCryptoSymbol(symbol: string): boolean {
 }
 
 const lastKrakenPrices: Map<string, { bid: number; ask: number; timestamp: number }> = new Map();
+
+// Track price history for staleness detection
+const priceHistory: Map<string, Array<{ bid: number; ask: number; timestamp: number; source: string }>> = new Map();
+const STALENESS_THRESHOLD_MS = 30000; // 30 seconds without price change = stale
+const MAX_PRICE_HISTORY = 10;
+
+// Track source failures for cooldown
+const sourceFailures: Map<string, { count: number; lastFailure: number; cooldownUntil: number }> = new Map();
+const SOURCE_COOLDOWN_MS = 120000; // 2 minutes cooldown after failure
+
+type CryptoSource = 'kraken' | 'binance' | 'coingecko' | 'cryptocompare';
+
+interface PriceResult {
+  bid: number;
+  ask: number;
+  timestamp: string;
+  source: string;
+  staleness?: number;
+  priceVariance?: number;
+}
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -119,6 +142,151 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
     console.error(`[get-live-price] Fetch error for ${symbol}:`, error);
     throw error;
   }
+}
+
+function isPriceStale(symbol: string, currentPrice: { bid: number; ask: number }): boolean {
+  const history = priceHistory.get(symbol) || [];
+
+  if (history.length === 0) {
+    return false;
+  }
+
+  const now = Date.now();
+  const recentPrices = history.filter(p => now - p.timestamp < STALENESS_THRESHOLD_MS);
+
+  if (recentPrices.length === 0) {
+    return false;
+  }
+
+  // Check if all recent prices are identical
+  const allSame = recentPrices.every(p =>
+    p.bid === currentPrice.bid && p.ask === currentPrice.ask
+  );
+
+  if (allSame && recentPrices.length > 0) {
+    const oldestRecentPrice = recentPrices[0];
+    const staleDuration = now - oldestRecentPrice.timestamp;
+
+    if (staleDuration > STALENESS_THRESHOLD_MS) {
+      console.warn(`[get-live-price] ⚠️ STALE PRICE DETECTED for ${symbol}: unchanged for ${(staleDuration/1000).toFixed(1)}s`);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function addPriceToHistory(symbol: string, bid: number, ask: number, source: string): void {
+  const history = priceHistory.get(symbol) || [];
+
+  history.push({
+    bid,
+    ask,
+    timestamp: Date.now(),
+    source
+  });
+
+  // Keep only last MAX_PRICE_HISTORY entries
+  if (history.length > MAX_PRICE_HISTORY) {
+    history.shift();
+  }
+
+  priceHistory.set(symbol, history);
+}
+
+function isSourceInCooldown(source: CryptoSource): boolean {
+  const failure = sourceFailures.get(source);
+  if (!failure) return false;
+
+  const now = Date.now();
+  if (now < failure.cooldownUntil) {
+    const remainingSeconds = Math.ceil((failure.cooldownUntil - now) / 1000);
+    console.warn(`[get-live-price] Source ${source} is in cooldown for ${remainingSeconds}s more`);
+    return true;
+  }
+
+  return false;
+}
+
+function recordSourceFailure(source: CryptoSource): void {
+  const now = Date.now();
+  const existing = sourceFailures.get(source);
+
+  const newFailure = {
+    count: (existing?.count || 0) + 1,
+    lastFailure: now,
+    cooldownUntil: now + SOURCE_COOLDOWN_MS
+  };
+
+  sourceFailures.set(source, newFailure);
+  console.warn(`[get-live-price] Recorded failure for ${source} (${newFailure.count} total), cooldown until ${new Date(newFailure.cooldownUntil).toISOString()}`);
+}
+
+function recordSourceSuccess(source: CryptoSource): void {
+  // Clear failure count on success
+  sourceFailures.delete(source);
+}
+
+async function fetchFromCryptoSource(symbol: string, source: CryptoSource): Promise<{ bid: number; ask: number }> {
+  switch (source) {
+    case 'kraken':
+      return await fetchKrakenTicker(symbol);
+    case 'binance':
+      return await fetchBinanceTicker(symbol);
+    case 'coingecko':
+      return await fetchCoinGeckoPrice(symbol);
+    case 'cryptocompare':
+      return await fetchCryptoComparePrice(symbol);
+    default:
+      throw new Error(`Unknown crypto source: ${source}`);
+  }
+}
+
+async function getMultiSourceCryptoPrice(symbol: string): Promise<PriceResult> {
+  const sources: CryptoSource[] = ['kraken', 'binance', 'coingecko', 'cryptocompare'];
+  const now = Date.now();
+
+  console.log(`[get-live-price] 🔄 Multi-source crypto price fetch for ${symbol}...`);
+
+  for (const source of sources) {
+    // Skip sources in cooldown
+    if (isSourceInCooldown(source)) {
+      continue;
+    }
+
+    try {
+      console.log(`[get-live-price] 📡 Trying ${source} for ${symbol}...`);
+      const priceData = await fetchFromCryptoSource(symbol, source);
+
+      // Check for staleness
+      const isStale = isPriceStale(symbol, priceData);
+
+      if (isStale) {
+        console.warn(`[get-live-price] ⚠️ ${source} returned stale price for ${symbol}, trying next source...`);
+        recordSourceFailure(source);
+        continue;
+      }
+
+      // Price looks good, record it
+      addPriceToHistory(symbol, priceData.bid, priceData.ask, source);
+      recordSourceSuccess(source);
+
+      console.log(`[get-live-price] ✅ ${source} SUCCESS: ${symbol} = ${priceData.bid}/${priceData.ask}`);
+
+      return {
+        bid: priceData.bid,
+        ask: priceData.ask,
+        timestamp: new Date().toISOString(),
+        source: `${source}-live`
+      };
+    } catch (error) {
+      console.error(`[get-live-price] ❌ ${source} failed for ${symbol}:`, error instanceof Error ? error.message : String(error));
+      recordSourceFailure(source);
+      continue;
+    }
+  }
+
+  throw new Error(`All crypto sources failed for ${symbol}`);
 }
 
 async function getKrakenPrice(symbol: string): Promise<{ bid: number; ask: number; timestamp: string; source: string }> {
@@ -350,13 +518,13 @@ export const handler: Handler = async (event) => {
     // 5. Last resort (up to 5 minutes old)
 
     try {
-      // CRITICAL: Use Kraken for crypto, MetaAPI for forex
+      // CRITICAL: Use multi-source for crypto, MetaAPI for forex
       if (isCryptoSymbol(symbol)) {
-        console.log(`[get-live-price][${requestId}] Level 1: Attempting live Kraken for crypto ${symbol}...`);
-        priceData = await getKrakenPrice(symbol);
-        fetchMethod = 'kraken-live';
+        console.log(`[get-live-price][${requestId}] Level 1: Attempting multi-source crypto fetch for ${symbol}...`);
+        priceData = await getMultiSourceCryptoPrice(symbol);
+        fetchMethod = priceData.source;
         fallbackLevel = 1;
-        console.log(`[get-live-price][${requestId}] ✓ Live Kraken price fetched: ${priceData.bid}/${priceData.ask}`);
+        console.log(`[get-live-price][${requestId}] ✓ Multi-source crypto price fetched from ${priceData.source}: ${priceData.bid}/${priceData.ask}`);
       } else {
         console.log(`[get-live-price][${requestId}] Level 1: Attempting live MetaAPI with account ${accountId?.slice(0, 8)}...`);
         priceData = await getMetaApiPrice(symbol);
@@ -407,7 +575,11 @@ export const handler: Handler = async (event) => {
       }
     }
 
-    const isLive = fetchMethod === 'metaapi-live' || fetchMethod === 'kraken-live';
+    const isLive = fetchMethod === 'metaapi-live' ||
+                   fetchMethod === 'kraken-live' ||
+                   fetchMethod === 'binance-live' ||
+                   fetchMethod === 'coingecko-live' ||
+                   fetchMethod === 'cryptocompare-live';
     const statusCode = isLive ? 200 : 206;
 
     // Determine data quality label
@@ -454,7 +626,9 @@ export const handler: Handler = async (event) => {
         ...priceData,
         dataQuality: dataQualityLabel,
         fallbackLevel,
-        warning: warningMessage
+        warning: warningMessage,
+        activeSource: priceData.source,
+        isCrypto: isCryptoSymbol(symbol)
       })
     };
 

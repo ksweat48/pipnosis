@@ -35,7 +35,7 @@ interface LivePrice {
   ask: number;
   timestamp: string;
   midPrice: number;
-  source: 'metaapi' | 'database';
+  source: string; // Can be 'metaapi', 'database', 'kraken-live', 'binance-live', 'coingecko-live', 'cryptocompare-live'
 }
 
 interface PollerOptions {
@@ -311,13 +311,17 @@ class ChartDirectPricePoller {
           }
 
           const midPrice = (data.bid + data.ask) / 2;
+
+          // Use the actual source from API response (supports multi-source crypto feeds)
+          const actualSource = data.activeSource || data.source || 'metaapi';
+
           results.push({
             symbol,
             bid: data.bid,
             ask: data.ask,
             timestamp: new Date().toISOString(),
             midPrice,
-            source: 'metaapi'
+            source: actualSource
           });
         }
       } catch (error) {

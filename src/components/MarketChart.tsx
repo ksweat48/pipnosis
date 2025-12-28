@@ -116,6 +116,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [systemStatus, setSystemStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
   const [marketStatus, setMarketStatus] = useState<'live' | 'delayed' | 'offline'>('live');
   const [priceSource, setPriceSource] = useState<'metaapi' | 'database' | 'offline'>('offline');
+  const [cryptoDataSource, setCryptoDataSource] = useState<string | null>(null);
   const [directPollerActive, setDirectPollerActive] = useState(false);
   const [isDatabaseOnlyMode, setIsDatabaseOnlyMode] = useState(shouldDisableMetaAPI());
   const [forexMarketStatus, setForexMarketStatus] = useState<MarketStatus>(() => getForexMarketStatus());
@@ -1572,6 +1573,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       // Symbol check now redundant (poller filters) but kept as safety guard
       if (price.symbol === symbol) {
         console.log(`[Chart][${symbol}] 📈 Direct price update from ${price.source}: ${price.midPrice.toFixed(5)}`);
+
+        // Track crypto data source for UI display
+        const isCrypto = ['BTCUSD', 'ETHUSD'].includes(symbol);
+        if (isCrypto && price.source) {
+          setCryptoDataSource(price.source);
+        }
+
         updateCurrentCandleFromTick({
           symbol: price.symbol,
           bid: price.bid,
@@ -1905,6 +1913,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                   <Activity size={10} />
                   {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
                 </div>
+                {/* Crypto source badge - mobile */}
+                {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
+                  <div className="text-[10px] text-gray-400 mt-0.5">
+                    {cryptoDataSource.replace('-live', '').toUpperCase()}
+                  </div>
+                )}
               </div>
 
               {/* Desktop: Price horizontal */}
@@ -1916,11 +1930,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                 }`}>
                   {currentPrice.toFixed(5)}
                 </div>
-                <div className={`text-sm flex items-center gap-1 ${
-                  priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
-                }`}>
-                  <Activity size={14} />
-                  {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
+                <div className="flex flex-col items-start gap-0.5">
+                  <div className={`text-sm flex items-center gap-1 ${
+                    priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
+                  }`}>
+                    <Activity size={14} />
+                    {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
+                  </div>
+                  {/* Crypto source badge - desktop */}
+                  {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
+                    <div className="px-2 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                      {cryptoDataSource.replace('-live', '').toUpperCase()}
+                    </div>
+                  )}
                 </div>
               </div>
 
