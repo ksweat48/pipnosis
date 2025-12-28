@@ -169,10 +169,6 @@ class ChartCandlePoller {
         return;
       }
 
-      // CRITICAL FIX: Also fetch forming candle from realtime_prices
-      // This ensures the chart updates BEFORE the 5-minute aggregation completes
-      await this.pollFormingCandle(symbol, timeframe, cache, data);
-
       // Convert database format to chart format with deduplication
       // CRITICAL: Sanitize IMMEDIATELY after database query to prevent Date objects
       const candleMap = new Map<number, CandleData>();
@@ -268,45 +264,56 @@ class ChartCandlePoller {
       const latestCandle = candles[candles.length - 1];
       const hasNewData = cache.lastCandleTime === null || latestCandle.time > cache.lastCandleTime;
 
+      // CRITICAL FIX: Fetch forming candle from realtime_prices BEFORE stale detection
+      // This ensures we detect live activity and merge it with historical data
+      const formingCandle = await this.pollFormingCandle(symbol, timeframe, cache, data);
+      const hasFormingCandle = formingCandle !== null;
+
       // Track stale data to prevent wasteful notifications during market closure
       const staleKey = `${symbol}_${timeframe}`;
       const staleTracker = this.staleDataTracker.get(staleKey) || { lastCandleTime: 0, staleCount: 0 };
 
-      // Check if we have recent tick activity (forming candle)
-      const now = Date.now();
-      const intervalMinutes = getTimeframeMinutes(timeframe);
-      const intervalMs = intervalMinutes * 60 * 1000;
-      const currentCandleStartMs = Math.floor(now / intervalMs) * intervalMs;
-      const currentCandleStart = new Date(currentCandleStartMs);
-
-      // Quick check for recent ticks to determine if market is active
-      const { data: recentTicks } = await supabase
-        .from('realtime_prices')
-        .select('created_at')
-        .eq('symbol', symbol)
-        .gte('created_at', currentCandleStart.toISOString())
-        .limit(1);
-
-      const hasRecentActivity = recentTicks && recentTicks.length > 0;
-
+      // CRITICAL FIX: Check for forming candle activity BEFORE incrementing stale counter
+      // This prevents suppression during active trading when historical candles haven't updated yet
       if (latestCandle.time === staleTracker.lastCandleTime) {
-        staleTracker.staleCount++;
-        this.staleDataTracker.set(staleKey, staleTracker);
+        // Only increment stale counter if there's NO forming candle activity
+        if (!hasFormingCandle) {
+          staleTracker.staleCount++;
+          this.staleDataTracker.set(staleKey, staleTracker);
 
-        // If we've seen the same candle 10+ times AND no recent tick activity, stop notifying listeners
-        // CRITICAL FIX: Don't suppress if there's live market activity (forming candle)
-        if (staleTracker.staleCount >= 10 && !hasRecentActivity) {
-          logger.debug(LogCategory.CHART_POLLER, `[ChartPoller] Stale data detected for ${symbol} ${timeframe} - suppressing notifications`);
-          return; // Don't update cache or notify listeners
-        } else if (hasRecentActivity) {
-          // Market is active - reset stale counter even if historical candles unchanged
+          // If we've seen the same candle 10+ times AND no forming candle, stop notifying listeners
+          if (staleTracker.staleCount >= 10) {
+            logger.debug(LogCategory.CHART_POLLER, `[ChartPoller] Stale data detected for ${symbol} ${timeframe} - suppressing notifications`);
+            return; // Don't update cache or notify listeners
+          }
+        } else {
+          // Market is active with forming candle - reset stale counter
           staleTracker.staleCount = 0;
           this.staleDataTracker.set(staleKey, staleTracker);
-          logger.debug(LogCategory.CHART_POLLER, `[ChartPoller] Live market activity detected for ${symbol} - allowing notifications`);
+          logger.debug(LogCategory.CHART_POLLER, `[ChartPoller] Live forming candle detected for ${symbol} - resetting stale counter`);
         }
       } else {
-        // New candle detected - reset stale counter
+        // New historical candle detected - reset stale counter
         this.staleDataTracker.set(staleKey, { lastCandleTime: latestCandle.time, staleCount: 0 });
+      }
+
+      // CRITICAL FIX: Merge forming candle with historical candles
+      if (hasFormingCandle) {
+        // Check if forming candle time matches any existing historical candle
+        const existingIndex = candles.findIndex(c => c.time === formingCandle.time);
+
+        if (existingIndex !== -1) {
+          // Replace historical candle with forming candle (live update)
+          candles[existingIndex] = formingCandle;
+          console.log(`[ChartPoller] 🔄 Replaced historical candle at index ${existingIndex} with forming candle for ${symbol}`);
+        } else {
+          // Append forming candle to array
+          candles.push(formingCandle);
+          console.log(`[ChartPoller] ➕ Appended forming candle to ${symbol} candles (now ${candles.length} total)`);
+        }
+
+        // Ensure proper sorting after merge
+        candles.sort((a, b) => a.time - b.time);
       }
 
       if (hasNewData) {
@@ -315,8 +322,13 @@ class ChartCandlePoller {
         );
       }
 
-      // Update cache
-      cache.lastCandleTime = latestCandle.time;
+      // CRITICAL FIX: Update hasNewData if we have a forming candle
+      // This ensures chart updates even when historical candles haven't changed
+      const hasNewOrFormingData = hasNewData || hasFormingCandle;
+
+      // Update cache with final merged candles
+      const finalLatestCandle = candles[candles.length - 1];
+      cache.lastCandleTime = finalLatestCandle.time;
       cache.lastPollTime = Date.now();
       cache.candles = candles;
 
@@ -334,21 +346,22 @@ class ChartCandlePoller {
         }
       }
 
-      // Notify listeners
+      // Notify listeners with merged dataset
       // CRITICAL: Sanitize candles one more time before notifying to ensure no objects slip through
       const sanitizedForNotification = sanitizeCandleArray(candles);
 
       const result: PollResult = {
         candles: sanitizedForNotification,
-        hasNewData,
-        latestCandleTime: latestCandle.time
+        hasNewData: hasNewOrFormingData,
+        latestCandleTime: finalLatestCandle.time
       };
 
-      console.log(`[ChartPoller] Notifying listeners for ${symbol} with ${sanitizedForNotification.length} candles, types:`, {
+      console.log(`[ChartPoller] 📡 Notifying listeners for ${symbol} with ${sanitizedForNotification.length} candles (${hasFormingCandle ? 'including forming candle' : 'historical only'}):`, {
         firstTime: sanitizedForNotification[0]?.time,
         firstTimeType: typeof sanitizedForNotification[0]?.time,
         lastTime: sanitizedForNotification[sanitizedForNotification.length - 1]?.time,
-        lastTimeType: typeof sanitizedForNotification[sanitizedForNotification.length - 1]?.time
+        lastTimeType: typeof sanitizedForNotification[sanitizedForNotification.length - 1]?.time,
+        hasFormingCandle
       });
 
       this.notifyListeners(key, result);
@@ -579,8 +592,9 @@ class ChartCandlePoller {
   /**
    * BREAKTHROUGH: Poll forming candle from realtime_prices
    * This allows the chart to show live updates BEFORE the 5-minute aggregation completes
+   * Returns the forming candle to be merged with historical candles
    */
-  private async pollFormingCandle(symbol: string, timeframe: Timeframe, cache: CandleCache, historicalCandles: any[]): Promise<void> {
+  private async pollFormingCandle(symbol: string, timeframe: Timeframe, cache: CandleCache, historicalCandles: any[]): Promise<CandleData | null> {
     try {
       // Get the timeframe interval in minutes
       const timeframeMap: Record<string, number> = {
@@ -606,12 +620,12 @@ class ChartCandlePoller {
 
       if (pricesError) {
         console.error(`[ChartPoller] ❌ Error fetching forming candle ticks:`, pricesError);
-        return;
+        return null;
       }
 
       if (!prices || prices.length === 0) {
         console.log(`[ChartPoller] ⚠️ No ticks found for forming candle since ${currentCandleStart.toISOString()}`);
-        return; // No forming candle data
+        return null; // No forming candle data
       }
 
       console.log(`[ChartPoller] ✅ Found ${prices.length} ticks for forming candle between ${prices[0].created_at} and ${prices[prices.length - 1].created_at}`);
@@ -638,17 +652,12 @@ class ChartCandlePoller {
         range: (formingCandle.high - formingCandle.low).toFixed(2)
       });
 
-      // Add forming candle to the result
+      // Return sanitized forming candle
       const sanitizedForming = sanitizeCandleData(formingCandle);
-      const result: PollResult = {
-        candles: [sanitizedForming],
-        hasNewData: true,
-        latestCandleTime: sanitizedForming.time
-      };
-
-      this.notifyListeners(this.getCacheKey(symbol, timeframe), result);
+      return sanitizedForming;
     } catch (error) {
       console.error(`[ChartPoller] Error polling forming candle:`, error);
+      return null;
     }
   }
 
