@@ -913,6 +913,23 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       chartCandlePoller.setFullHistoricalCandles(symbol, timeframe, historicalCandlesRef.current);
 
       currentCandleRef.current = null;
+    } else if (!isNewCompletedCandle) {
+      // CRITICAL FIX: Sync currentCandleRef with database forming candle
+      // This allows DirectPoller ticks to merge with database aggregated data
+      const candleTimeMs = latestCandle.time * 1000;
+      const timeframeMinutes = getTimeframeMinutes(timeframe);
+      const candleStartMs = Math.floor(candleTimeMs / (timeframeMinutes * 60 * 1000)) * (timeframeMinutes * 60 * 1000);
+
+      currentCandleRef.current = {
+        time: latestCandle.time,
+        open: latestCandle.open,
+        high: latestCandle.high,
+        low: latestCandle.low,
+        close: latestCandle.close,
+        startTime: candleStartMs
+      };
+
+      console.log(`[Chart] 📊 Synced currentCandleRef with database forming candle (OHLC: ${latestCandle.open.toFixed(2)}/${latestCandle.high.toFixed(2)}/${latestCandle.low.toFixed(2)}/${latestCandle.close.toFixed(2)})`);
     }
 
     try {
@@ -1014,7 +1031,30 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           timeType: typeof safeCandle.time,
           candle: safeCandle
         });
-        candlestickSeriesRef.current.update(safeCandle);
+
+        // CRITICAL FIX: Merge database candle with live tick data
+        // This prevents database updates from overwriting real-time DirectPoller ticks
+        let finalCandle = safeCandle;
+        if (currentCandleRef.current && currentCandleRef.current.time === safeCandle.time) {
+          // Database candle has aggregated historical ticks
+          // currentCandleRef has the latest live tick updates from DirectPoller
+          // Merge them: use database open, but combine high/low and use most recent close
+          finalCandle = {
+            ...safeCandle,
+            high: Math.max(safeCandle.high, currentCandleRef.current.high),
+            low: Math.min(safeCandle.low, currentCandleRef.current.low),
+            close: currentCandleRef.current.close // Most recent tick
+          };
+
+          console.log(`[Chart] 🔄 Merged DB candle with live tick: close ${safeCandle.close.toFixed(2)} → ${finalCandle.close.toFixed(2)}`);
+
+          // Update currentCandleRef with merged values so next tick has accurate baseline
+          currentCandleRef.current.high = finalCandle.high;
+          currentCandleRef.current.low = finalCandle.low;
+          currentCandleRef.current.close = finalCandle.close;
+        }
+
+        candlestickSeriesRef.current.update(finalCandle);
       } catch (updateError) {
         console.error('[Chart] Update error:', updateError);
         console.error('[Chart] Failed candle:', safeCandle);
