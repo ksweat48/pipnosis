@@ -73,6 +73,7 @@ import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-na
 import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ranker';
 import { riskAwareStopCalculator, type StopLossCalculation } from '../services/risk-aware-stop-calculator';
 import { eliteProfitTargetCalculator, type LiquidityZone, type TPCalculationResult } from '../services/profit-target-calculator';
+import { tpCeilingCalculator, type TPCeilingResult } from '../services/tp-ceiling-calculator';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -607,6 +608,45 @@ Act accordingly.
 🎯 ALPHA TAKE-PROFIT DIRECTIVE (ELITE TRADER VERSION)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+⚡ TP CEILING (MARKET PHYSICS CONSTRAINT)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CRITICAL: You are provided a MAXIMUM FEASIBLE TP CEILING.
+This is NOT a suggestion - it's a PHYSICAL LIMIT based on market reality.
+
+Current TP Ceiling: ${tpCeilingResult ? `${tpCeilingResult.maxDistancePips.toFixed(1)} pips (${tpCeilingResult.ceilingPrice.toFixed(5)})` : 'Calculating...'}
+Limiting Factor: ${tpCeilingResult ? tpCeilingResult.limitingFactor.replace('_', ' ') : 'N/A'}
+Reasoning: ${tpCeilingResult ? tpCeilingResult.reasoning : 'N/A'}
+
+Think of this as gravity for price targets:
+• You decide WHERE to take profit (strategy, liquidity zones, structure)
+• The ceiling enforces HOW FAR price can realistically travel intraday
+• You may choose ANY TP below this ceiling
+• You CANNOT exceed this ceiling (would require multi-session holding)
+
+If you propose a TP beyond this ceiling:
+→ It will be AUTO-CORRECTED to the ceiling
+→ Your confidence will be reduced by 18%
+→ This counts as a hallucination, not strategic choice
+
+This ceiling is calculated from:
+• ATR multiples (10x ATR maximum for intraday)
+• Session time remaining × expected volatility per hour
+• Daily range remaining × safety buffer (1.1x)
+
+The MINIMUM of these three factors determines your ceiling.
+
+You retain FULL AUTONOMY to:
+✓ Choose any TP below the ceiling
+✓ Target specific liquidity zones within range
+✓ Use structure-based exits within feasibility
+✓ Adjust based on conviction and market structure
+
+You DO NOT have authority to:
+✗ Exceed the physical ceiling
+✗ Propose multi-day TP targets for intraday trading
+✗ Ignore market velocity constraints
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 PRIMARY PHILOSOPHY
 Elite traders NEVER accept R:R < 1.0. This is non-negotiable.
 Your take-profit determines trade quality, position expectancy, and systematic profitability.
@@ -861,7 +901,47 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       });
 
       const content = response.choices[0]?.message?.content || '{}';
-      let decision = this.parseDecision(content, marketContext.price, marketContext.atr, marketContext.symbol, stopLossAnchor);
+
+      // Calculate TP ceiling for physics-based constraint enforcement
+      let tpCeilingResult: TPCeilingResult | null = null;
+      if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
+        // Determine current session
+        const hour = new Date().getUTCHours();
+        let currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
+        if (hour >= 8 && hour < 12) currentSession = 'london';
+        else if (hour >= 13 && hour < 17) currentSession = 'ny';
+        else if (hour >= 12 && hour < 13) currentSession = 'overlap';
+        else if (hour >= 0 && hour < 8) currentSession = 'asian';
+        else if ((hour >= 22 && hour < 24) || (hour >= 0 && hour < 1)) currentSession = 'sydney';
+        else currentSession = 'closed';
+
+        // Calculate session time remaining (approximate)
+        const sessionEndHours: Record<string, number> = {
+          london: 12,
+          ny: 17,
+          overlap: 13,
+          asian: 8,
+          sydney: 1,
+          closed: 24
+        };
+        const sessionEnd = sessionEndHours[currentSession];
+        const sessionTimeRemaining = sessionEnd > hour ? (sessionEnd - hour) * 60 : 60; // minutes
+
+        tpCeilingResult = tpCeilingCalculator.calculateMaximumFeasibleTP({
+          symbol: marketContext.symbol,
+          entry: marketContext.price,
+          direction: consensus.direction as 'BUY' | 'SELL',
+          atr: marketContext.atr,
+          currentSession,
+          sessionTimeRemainingMinutes: sessionTimeRemaining,
+          volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high'
+        });
+
+        console.log(`[Alpha Coordinator] 📐 TP Ceiling calculated: ${tpCeilingResult.maxDistancePips.toFixed(1)} pips (${tpCeilingResult.ceilingPrice.toFixed(5)})`);
+        console.log(`[Alpha Coordinator] 📐 Limiting factor: ${tpCeilingResult.limitingFactor} | ${tpCeilingResult.reasoning}`);
+      }
+
+      let decision = this.parseDecision(content, marketContext.price, marketContext.atr, marketContext.symbol, stopLossAnchor, tpCeilingResult);
 
       // Add decision field for compatibility
       decision.decision = decision.action;
@@ -1535,8 +1615,17 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
   /**
    * Parse Alpha decision with MINIMAL corrections (only catastrophic errors)
    * Elite Trader Directive educates Alpha - we trust professional judgment
+   *
+   * NEW: TP Ceiling enforcement - prevents unrealistic TP targets
    */
-  private parseDecision(response: string, currentPrice: number, atr: number, symbol: string, stopLossAnchor: StopLossCalculation | null = null): AlphaDecision {
+  private parseDecision(
+    response: string,
+    currentPrice: number,
+    atr: number,
+    symbol: string,
+    stopLossAnchor: StopLossCalculation | null = null,
+    tpCeiling: TPCeilingResult | null = null
+  ): AlphaDecision {
     try {
       const cleaned = response
         .replace(/```json\n?/g, '')
@@ -1664,6 +1753,47 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
           reasoning: `BLOCKED: ${errorReason}`,
           omega_summary: ''
         };
+      }
+
+      // 5. TP CEILING VALIDATION (Physics-based constraint enforcement)
+      // This enforces market physics: prevents TP targets that are physically unrealistic for intraday trading
+      if (tpCeiling && takeProfit) {
+        const ceilingCheck = tpCeilingCalculator.isTPWithinCeiling(
+          takeProfit,
+          entry,
+          action as 'BUY' | 'SELL',
+          tpCeiling
+        );
+
+        if (!ceilingCheck.isValid) {
+          const originalTP = takeProfit;
+          const originalTPPips = Math.abs(originalTP - entry) / pipValue;
+
+          // AUTO-CORRECT: Apply ceiling (market physics guardrail)
+          console.warn(`[Alpha Coordinator] ⚠️ TP EXCEEDS PHYSICAL CEILING`);
+          console.warn(`[Alpha Coordinator] Alpha proposed: ${originalTP.toFixed(5)} (${originalTPPips.toFixed(1)} pips)`);
+          console.warn(`[Alpha Coordinator] Ceiling: ${tpCeiling.ceilingPrice.toFixed(5)} (${tpCeiling.maxDistancePips.toFixed(1)} pips)`);
+          console.warn(`[Alpha Coordinator] Exceeded by: ${ceilingCheck.exceededByPips.toFixed(1)} pips`);
+          console.warn(`[Alpha Coordinator] Limiting factor: ${tpCeiling.limitingFactor}`);
+          console.warn(`[Alpha Coordinator] AUTO-CORRECTING to ceiling: ${tpCeiling.ceilingPrice.toFixed(5)}`);
+
+          takeProfit = tpCeiling.ceilingPrice;
+
+          // Apply confidence penalty (15-20% reduction for hallucination)
+          const originalConfidence = parsed.confidence || 0;
+          const penalizedConfidence = Math.max(0, originalConfidence - 18);
+          parsed.confidence = penalizedConfidence;
+
+          console.warn(`[Alpha Coordinator] Confidence reduced: ${originalConfidence}% → ${penalizedConfidence}% (-18% penalty for unrealistic TP)`);
+
+          // Update reasoning to reflect auto-correction
+          const correctionNote = ` [TP AUTO-CORRECTED: Original ${originalTPPips.toFixed(1)} pips exceeded ${tpCeiling.limitingFactor.toLowerCase().replace('_', ' ')} ceiling (${tpCeiling.maxDistancePips.toFixed(1)} pips max). Adjusted to ${(Math.abs(takeProfit - entry) / pipValue).toFixed(1)} pips for intraday feasibility.]`;
+          parsed.reasoning = (parsed.reasoning || '') + correctionNote;
+        } else {
+          // TP is within ceiling - log for tracking
+          const tpPips = Math.abs(takeProfit - entry) / pipValue;
+          console.log(`[Alpha Coordinator] ✅ TP within ceiling: ${tpPips.toFixed(1)} pips (ceiling: ${tpCeiling.maxDistancePips.toFixed(1)} pips)`);
+        }
       }
 
       // Calculate R:R for logging (NOT enforced here - Omega-9's job)

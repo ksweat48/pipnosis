@@ -237,6 +237,8 @@ class AlphaOmegaOrchestrator {
         // Calculate dynamic stop loss based on volatility regime
         const { stopLossMultiplier, takeProfitMultiplier } = this.calculateDynamicMultipliers(marketState);
 
+        // Calculate SL/TP (direction will be determined by Alpha, use default BUY for initial calculation)
+        // Alpha will adjust these based on actual trade direction
         const proposedSL = marketState.price - (marketState.atr * stopLossMultiplier);
         const proposedTP = marketState.price + (marketState.atr * takeProfitMultiplier);
 
