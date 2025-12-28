@@ -861,7 +861,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       });
 
       const content = response.choices[0]?.message?.content || '{}';
-      let decision = this.parseDecision(content, marketContext.price, marketContext.atr, stopLossAnchor);
+      let decision = this.parseDecision(content, marketContext.price, marketContext.atr, marketContext.symbol, stopLossAnchor);
 
       // Add decision field for compatibility
       decision.decision = decision.action;
@@ -1528,7 +1528,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
    * Parse Alpha decision with MINIMAL corrections (only catastrophic errors)
    * Elite Trader Directive educates Alpha - we trust professional judgment
    */
-  private parseDecision(response: string, currentPrice: number, atr: number, stopLossAnchor: StopLossCalculation | null = null): AlphaDecision {
+  private parseDecision(response: string, currentPrice: number, atr: number, symbol: string, stopLossAnchor: StopLossCalculation | null = null): AlphaDecision {
     try {
       const cleaned = response
         .replace(/```json\n?/g, '')
@@ -1622,11 +1622,11 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       // 3. Check for zero/missing distance (< 5 pips minimum for survival)
       // Calculate correct pip value based on symbol type
       let pipValue = 0.0001; // Standard forex (4 decimals)
-      if (marketContext.symbol.includes('JPY')) {
+      if (symbol.includes('JPY')) {
         pipValue = 0.01; // JPY pairs (2 decimals)
-      } else if (marketContext.symbol.includes('BTC') || marketContext.symbol.includes('ETH')) {
+      } else if (symbol.includes('BTC') || symbol.includes('ETH')) {
         pipValue = 1.0; // Crypto - 1 full point = 1 pip
-      } else if (marketContext.symbol.includes('XAU') || marketContext.symbol.includes('GOLD')) {
+      } else if (symbol.includes('XAU') || symbol.includes('GOLD')) {
         pipValue = 0.1; // Gold - 10 cents = 1 pip
       }
 
