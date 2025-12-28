@@ -19,7 +19,10 @@ This document outlines the mission-critical systems that power Pipnosis's real-t
 - `netlify/functions/continuous-price-collector.ts` - Server-side price collection
 
 **Critical Configuration:**
-- **Chart Update Interval:** `3000ms` (3 seconds) - Industry standard for retail forex
+- **Chart Update Interval (Dynamic):**
+  - **Crypto symbols (BTCUSD, ETHUSD):** `500ms` - High-frequency updates for 24/7 markets
+  - **Forex symbols:** `3000ms` (3 seconds) - Industry standard for retail forex
+  - Interval adjusts automatically based on tracked symbols
 - **Priority-based Intervals:**
   - Critical (active positions): 1000ms
   - High (viewed pairs): 2000ms
@@ -29,10 +32,11 @@ This document outlines the mission-critical systems that power Pipnosis's real-t
 - **Heartbeat Monitoring:** Every 5 seconds
 
 **Why These Values:**
-- 3 seconds matches TradingView and MetaTrader standards
-- Balances real-time feel with API rate limits (20 requests/min)
+- 500ms for crypto provides smooth, flowing price movement (6x faster than forex)
+- 3 seconds for forex matches TradingView and MetaTrader standards
+- Crypto APIs (Kraken, Binance) support higher request rates than forex MetaAPI
+- Balances real-time feel with API rate limits
 - Prevents browser throttling in background tabs
-- Allows 60 requests/minute within MetaAPI free tier limits
 
 ---
 
@@ -42,15 +46,17 @@ This document outlines the mission-critical systems that power Pipnosis's real-t
 
 **Components:**
 - `src/components/MarketChart.tsx` - Main chart component
-- `src/services/chart-direct-price-poller.ts` - Chart-specific polling
+- `src/services/chart-direct-price-poller.ts` - Chart-specific polling (dynamic interval)
 - `src/services/chart-candle-poller.ts` - Candle data management
 - `src/services/candle-data-service.ts` - Candle data layer
 
 **Critical Configuration:**
-- **Price Update Frequency:** 3 seconds
+- **Price Update Frequency:** Dynamic based on symbol type
+  - Crypto: 500ms (real-time streaming feel)
+  - Forex: 3 seconds (standard)
 - **Visibility Detection:** Pauses when tab hidden
 - **Source Fallback:** MetaAPI → Database → Offline
-- **Blue Indicator:** Live MetaAPI data
+- **Blue Indicator:** Live MetaAPI/Kraken data
 - **Yellow Indicator:** Database fallback
 
 **Data Flow:**
@@ -61,7 +67,7 @@ Netlify Function (continuous-price-collector)
     ↓
 Supabase (realtime_prices table)
     ↓
-Chart Direct Price Poller (3s interval)
+Chart Direct Price Poller (500ms crypto / 3s forex)
     ↓
 MarketChart Component
     ↓
@@ -145,8 +151,9 @@ Supabase pg_cron is permanently disabled. See `docs/ARCHITECTURE_DECISION.md` fo
 ## ⚠️ Common Mistakes to Avoid
 
 ### 1. Changing Polling Intervals
-**DON'T:** Reduce chart polling below 2 seconds
+**DON'T:** Reduce forex chart polling below 2 seconds
 **WHY:** API rate limits (20 req/min max) and browser throttling
+**NOTE:** Crypto polling at 500ms is approved (Kraken/Binance support higher rates)
 
 ### 2. Modifying Cron Expressions
 **DON'T:** Use 6-field cron format (includes seconds)
@@ -218,8 +225,9 @@ Supabase pg_cron is permanently disabled. See `docs/ARCHITECTURE_DECISION.md` fo
 ## 📊 System Health Indicators
 
 **Healthy System:**
-- ✅ Blue indicator on chart (live MetaAPI data)
-- ✅ Prices update every 3 seconds
+- ✅ Blue indicator on chart (live MetaAPI/Kraken data)
+- ✅ Crypto prices update every 500ms (smooth flow)
+- ✅ Forex prices update every 3 seconds
 - ✅ Global polling shows "active" for all pairs
 - ✅ Console logs show successful polls
 - ✅ No error messages in console
@@ -266,9 +274,9 @@ Supabase pg_cron is permanently disabled. See `docs/ARCHITECTURE_DECISION.md` fo
 
 ## 📝 Version History
 
-**Last Updated:** 2025-11-28
-**Current Configuration Version:** 1.0
-**Last Major Change:** Implemented browser-based polling with server-side fallback
+**Last Updated:** 2025-12-28
+**Current Configuration Version:** 1.1
+**Last Major Change:** Implemented dynamic polling intervals (500ms crypto / 3s forex)
 
 ---
 

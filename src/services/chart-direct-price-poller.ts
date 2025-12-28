@@ -10,12 +10,14 @@
  * Falls back to database polling if MetaAPI is unavailable.
  *
  * CRITICAL CONFIGURATION:
- * - Update interval: 3000ms (3 seconds) - Industry standard for retail forex
- * - Matches TradingView and MetaTrader 5 behavior
+ * - Crypto symbols (BTCUSD, ETHUSD): 500ms - High-frequency updates for 24/7 markets
+ * - Forex symbols: 3000ms (3 seconds) - Industry standard for retail forex
+ * - Interval adjusts dynamically based on tracked symbols
  * - Balances real-time feel with API rate limits
  *
  * DO NOT CHANGE:
- * - interval: 3000 (line 50)
+ * - CRYPTO_POLL_INTERVAL: 500ms
+ * - FOREX_POLL_INTERVAL: 3000ms
  * - Visibility detection logic
  * - Fallback mechanism (MetaAPI → Database)
  *
@@ -28,6 +30,17 @@ import { priceValidationService } from './price-validation-service';
 import { isSymbolMarketOpen, hasAnyOpenMarket } from '@/utils/marketHours';
 import { shouldDisableMetaAPI } from '@/lib/environment';
 import { circuitBreakerService } from './circuit-breaker-service';
+
+// CRITICAL: Polling interval constants
+const CRYPTO_POLL_INTERVAL = 500;  // 500ms for crypto (6x faster than forex)
+const FOREX_POLL_INTERVAL = 3000;  // 3000ms for forex (industry standard)
+
+// Crypto symbols that get high-frequency updates
+const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
+
+function isCryptoSymbol(symbol: string): boolean {
+  return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
+}
 
 interface LivePrice {
   symbol: string;
@@ -69,13 +82,14 @@ class ChartDirectPricePoller {
   };
 
   private options: PollerOptions = {
-    interval: 3000, // 🚨 CRITICAL: 3 seconds - DO NOT CHANGE (industry standard)
+    interval: FOREX_POLL_INTERVAL, // Default to forex interval, will adjust dynamically
     enabled: false
   };
 
   private trackedSymbols: Set<string> = new Set();
   private isVisible = true;
   private lastPriceCache = new Map<string, LivePrice>();
+  private currentInterval: number = FOREX_POLL_INTERVAL;
 
   constructor() {
     this.setupVisibilityDetection();
@@ -108,6 +122,10 @@ class ChartDirectPricePoller {
     if (!this.priceListeners.has(symbol)) {
       this.priceListeners.set(symbol, new Set());
     }
+
+    // Recalculate polling interval when symbols change
+    this.updatePollingInterval();
+
     logger.debug(LogCategory.CHART, `📊 Tracking ${symbol} (${this.trackedSymbols.size} total)`);
   }
 
@@ -116,6 +134,10 @@ class ChartDirectPricePoller {
     this.lastPriceCache.delete(symbol);
     // Clean up listeners for this symbol
     this.priceListeners.delete(symbol);
+
+    // Recalculate polling interval when symbols change
+    this.updatePollingInterval();
+
     logger.debug(LogCategory.CHART, `📊 Stopped tracking ${symbol} (${this.trackedSymbols.size} remaining)`);
   }
 
@@ -140,6 +162,31 @@ class ChartDirectPricePoller {
     return () => this.statusListeners.delete(callback);
   }
 
+  private updatePollingInterval(): void {
+    // Check if any tracked symbol is crypto
+    const hasCrypto = Array.from(this.trackedSymbols).some(symbol => isCryptoSymbol(symbol));
+
+    const newInterval = hasCrypto ? CRYPTO_POLL_INTERVAL : FOREX_POLL_INTERVAL;
+
+    // Only restart polling if interval actually changed and poller is active
+    if (newInterval !== this.currentInterval) {
+      const wasActive = this.status.isActive;
+      this.currentInterval = newInterval;
+      this.options.interval = newInterval;
+
+      logger.info(
+        LogCategory.CHART,
+        `🔄 Polling interval changed to ${newInterval}ms (${hasCrypto ? 'CRYPTO MODE - High frequency' : 'FOREX MODE - Standard'})`
+      );
+
+      // Restart polling with new interval if currently active
+      if (wasActive) {
+        this.pause();
+        this.start();
+      }
+    }
+  }
+
   async start(): Promise<void> {
     if (this.status.isActive) {
       return;
@@ -161,7 +208,11 @@ class ChartDirectPricePoller {
       return;
     }
 
-    logger.info(LogCategory.CHART, '🚀 Starting direct price polling (3s interval)');
+    // Determine if we're tracking crypto symbols
+    const hasCrypto = trackedSymbolsArray.some(symbol => isCryptoSymbol(symbol));
+    const intervalLabel = hasCrypto ? '500ms (CRYPTO - High frequency)' : '3s (FOREX - Standard)';
+
+    logger.info(LogCategory.CHART, `🚀 Starting direct price polling - ${intervalLabel}`);
 
     this.status.isActive = true;
     this.status.errorCount = 0;
@@ -171,8 +222,8 @@ class ChartDirectPricePoller {
     // Immediate first poll
     await this.poll();
 
-    // Start interval
-    this.pollInterval = setInterval(() => this.poll(), this.options.interval);
+    // Start interval with current interval setting
+    this.pollInterval = setInterval(() => this.poll(), this.currentInterval);
   }
 
   pause(): void {
