@@ -118,9 +118,15 @@ export class EntryPlannerService {
       };
     }
 
+    // Check how long we've been monitoring
+    const monitoringDuration = Date.now() - new Date(intent.created_at).getTime();
+    const monitoringSeconds = monitoringDuration / 1000;
+
     conditions.momentum_sustained = this.checkMomentumSustained(candleData, intent.direction);
     conditions.volume_confirmation = this.checkVolumeConfirmation(candleData);
 
+    // IMMEDIATE MOMENTUM LOGIC: Be aggressive about execution
+    // If perfect conditions: execute immediately
     if (conditions.momentum_sustained && conditions.volume_confirmation) {
       return {
         is_valid: true,
@@ -132,6 +138,20 @@ export class EntryPlannerService {
       };
     }
 
+    // If monitored for 15+ seconds: execute with partial confirmation
+    if (monitoringSeconds >= 15) {
+      logger.info(`Immediate momentum monitored for ${monitoringSeconds.toFixed(0)}s - executing with partial confirmation`);
+      return {
+        is_valid: true,
+        conditions_met: conditions,
+        should_execute: true,
+        should_wait: false,
+        should_cancel: false,
+        message: `Executing after ${monitoringSeconds.toFixed(0)}s monitoring. Entry window closing.`
+      };
+    }
+
+    // Otherwise: wait a bit longer for better confirmation
     return {
       is_valid: true,
       conditions_met: conditions,

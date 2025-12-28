@@ -37,6 +37,12 @@ export class EntryExecutionCoordinator {
       return { shouldExecuteImmediately: false, waitConditionId };
     }
 
+    // HIGH CONFIDENCE OVERRIDE: Execute immediately for strong signals (70%+)
+    if (decision.confidence >= 70) {
+      logger.info(`High confidence signal (${decision.confidence}%) - executing immediately`);
+      return { shouldExecuteImmediately: true };
+    }
+
     if (!decision.entry_intent) {
       logger.info('No entry intent specified, executing immediately');
       return { shouldExecuteImmediately: true };
@@ -44,9 +50,16 @@ export class EntryExecutionCoordinator {
 
     const entryIntent = decision.entry_intent;
 
+    // IMMEDIATE MOMENTUM: Execute immediately for high urgency
     if (entryIntent.urgency === 'HIGH' && entryIntent.intent_type === 'immediate_momentum') {
       logger.info('High urgency momentum - executing immediately');
       return { shouldExecuteImmediately: true };
+    }
+
+    // IMMEDIATE MOMENTUM with MEDIUM urgency: Execute after short delay (30 seconds max)
+    if (entryIntent.intent_type === 'immediate_momentum') {
+      logger.info('Immediate momentum with medium urgency - using short timeout (30s)');
+      entryIntent.timeout_minutes = 0.5; // 30 seconds
     }
 
     const request: EntryIntentRequest = {

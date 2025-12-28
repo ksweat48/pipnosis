@@ -77,7 +77,18 @@ export class ActiveEntryMonitor {
       }
 
       if (new Date(intent.timeout_at) < new Date()) {
-        await this.handleTimeout(intent);
+        // TIMEOUT BEHAVIOR: For immediate_momentum, execute anyway instead of canceling
+        if (intent.intent_type === 'immediate_momentum') {
+          logger.info(`Intent ${intentId} timed out - executing anyway (immediate momentum)`);
+          const currentPrice = await this.getCurrentPrice(intent.symbol);
+          if (currentPrice) {
+            await this.handleExecution(intent, currentPrice, 'Timeout reached - executing immediately');
+          } else {
+            await this.handleTimeout(intent);
+          }
+        } else {
+          await this.handleTimeout(intent);
+        }
         await this.stopMonitoring(intentId);
         return;
       }
@@ -100,15 +111,22 @@ export class ActiveEntryMonitor {
 
       const distanceToPips = this.calculateDistanceToZone(currentPrice, intent);
 
+      // Enhanced logging for debugging
+      const monitoringSeconds = Math.floor((Date.now() - new Date(intent.created_at).getTime()) / 1000);
+      logger.debug(`Intent ${intentId} check: ${monitoringSeconds}s elapsed, should_execute=${validation.should_execute}, should_wait=${validation.should_wait}, should_cancel=${validation.should_cancel}`);
+
       await this.logMonitoring(intentId, currentPrice, distanceToPips, validation.conditions_met, validation.message);
 
       if (validation.should_execute) {
+        logger.info(`Executing intent ${intentId} after ${monitoringSeconds}s: ${validation.message}`);
         await this.handleExecution(intent, currentPrice, validation.message);
         await this.stopMonitoring(intentId);
       } else if (validation.should_cancel) {
+        logger.warn(`Canceling intent ${intentId} after ${monitoringSeconds}s: ${validation.cancel_reason}`);
         await this.handleCancel(intent, validation.cancel_reason || 'Conditions changed');
         await this.stopMonitoring(intentId);
       } else if (validation.should_wait) {
+        logger.debug(`Intent ${intentId} waiting: ${validation.message}`);
         await this.notifyUserIfNeeded(intentId, userId, validation.message, currentPrice, distanceToPips);
       }
     } catch (error) {
@@ -155,12 +173,13 @@ export class ActiveEntryMonitor {
   }
 
   private async handleTimeout(intent: EntryIntent): Promise<void> {
-    logger.info(`Intent ${intent.id} timed out`);
+    logger.info(`Intent ${intent.id} timed out after ${intent.timeout_minutes} minutes`);
+    logger.info(`Intent type: ${intent.intent_type}, Urgency: ${intent.urgency}`);
 
     await EntryPlannerService.updateIntentStatus(
       intent.id,
       'timeout',
-      'Entry conditions not met within timeout window'
+      `Entry conditions not met within ${intent.timeout_minutes} minute(s)`
     );
 
     const { data: session } = await supabase
@@ -174,12 +193,14 @@ export class ActiveEntryMonitor {
         user_id: session.user_id,
         type: 'entry_timeout',
         title: 'Entry Window Expired',
-        message: `${intent.symbol} entry conditions not met within ${intent.timeout_minutes} minutes`,
+        message: `${intent.symbol} ${intent.intent_type} conditions not met within ${intent.timeout_minutes} minute(s)`,
         metadata: {
           intent_id: intent.id,
           session_id: intent.session_id,
           symbol: intent.symbol,
-          intent_type: intent.intent_type
+          intent_type: intent.intent_type,
+          urgency: intent.urgency,
+          timeout_minutes: intent.timeout_minutes
         }
       });
     }
