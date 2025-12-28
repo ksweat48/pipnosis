@@ -30,7 +30,7 @@ Deno.serve(async (req: Request) => {
     // Query for active sessions that need scanning
     const query = supabase
       .from('goal_sessions')
-      .select('id, user_id, target_value, current_pnl, status, next_scan_time')
+      .select('id, user_id, target_value, current_progress, status, next_scan_time')
       .in('status', ['scanning', 'trade_pending']);
 
     // If specific session requested, filter to that
