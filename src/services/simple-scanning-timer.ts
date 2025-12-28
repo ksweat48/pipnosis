@@ -25,8 +25,10 @@ export interface ScanningTimerStatus {
 
 const TIMEOUT_THRESHOLD_MINUTES = 15;
 const SAFETY_NET_MINUTES = 20;
+const MAX_RETRY_ATTEMPTS = 3;
 
 class SimpleScanningTimerService {
+  private forceCloseAttempts: Map<string, number> = new Map();
   /**
    * Check if we should show the continuation modal
    */
@@ -324,10 +326,25 @@ class SimpleScanningTimerService {
 
   /**
    * CLIENT-SIDE FALLBACK: Force close a stale session
+   * Includes circuit breaker to prevent infinite retry loops
    */
   async forceCloseStaleSession(sessionId: string): Promise<boolean> {
     try {
+      // Circuit breaker: Check retry count
+      const attempts = this.forceCloseAttempts.get(sessionId) || 0;
+      if (attempts >= MAX_RETRY_ATTEMPTS) {
+        console.warn(`[Scanning Timer] ⛔ Circuit breaker engaged - exceeded ${MAX_RETRY_ATTEMPTS} attempts for session ${sessionId}`);
+        // Clear the counter after sufficient backoff
+        setTimeout(() => {
+          this.forceCloseAttempts.delete(sessionId);
+        }, 60000); // Reset after 1 minute
+        return false;
+      }
+
       console.log('[Scanning Timer] 🛑 CLIENT-SIDE: Force closing stale session');
+
+      // Increment attempt counter
+      this.forceCloseAttempts.set(sessionId, attempts + 1);
 
       const { data, error } = await supabase.rpc('force_close_stale_session', {
         p_session_id: sessionId
@@ -335,11 +352,14 @@ class SimpleScanningTimerService {
 
       if (error) {
         console.error('[Scanning Timer] Error force closing:', error);
+        // Keep the attempt counter (will prevent retries if max reached)
         return false;
       }
 
       if (data) {
         console.log('[Scanning Timer] ✅ CLIENT-SIDE: Session force closed');
+        // Success - clear the counter
+        this.forceCloseAttempts.delete(sessionId);
       }
 
       return data || false;
