@@ -1,9 +1,8 @@
 import { Handler } from '@netlify/functions';
 
 interface SentimentProxyEvent {
-  source: 'finnhub' | 'fmp' | 'feargreed' | 'coingecko' | 'reddit' | 'newsapi' | 'alphavantage';
+  source: 'finnhub' | 'fmp' | 'feargreed' | 'coingecko' | 'newsapi' | 'alphavantage';
   apiKey?: string;
-  redditUrl?: string;
 }
 
 export const handler: Handler = async (event) => {
@@ -28,7 +27,7 @@ export const handler: Handler = async (event) => {
 
   try {
     const body: SentimentProxyEvent = JSON.parse(event.body || '{}');
-    const { source, apiKey, redditUrl } = body;
+    const { source, apiKey } = body;
 
     // Get API keys from environment (secure server-side storage)
     const finnhubKey = process.env.FINNHUB_API_KEY;
@@ -43,14 +42,15 @@ export const handler: Handler = async (event) => {
     switch (source) {
       case 'finnhub':
         if (!finnhubKey) {
-          console.warn('[SentimentProxy] Missing FINNHUB_API_KEY');
+          console.warn('[SentimentProxy] Missing FINNHUB_API_KEY - gracefully skipping');
           return {
-            statusCode: 500,
+            statusCode: 200,
             headers,
             body: JSON.stringify({
               success: false,
               error: 'Finnhub API key not configured',
-              source: 'finnhub'
+              source: 'finnhub',
+              data: []
             })
           };
         }
@@ -59,14 +59,15 @@ export const handler: Handler = async (event) => {
 
       case 'fmp':
         if (!fmpKey) {
-          console.warn('[SentimentProxy] Missing FMP_API_KEY');
+          console.warn('[SentimentProxy] Missing FMP_API_KEY - gracefully skipping');
           return {
-            statusCode: 500,
+            statusCode: 200,
             headers,
             body: JSON.stringify({
               success: false,
               error: 'FMP API key not configured',
-              source: 'fmp'
+              source: 'fmp',
+              data: []
             })
           };
         }
@@ -82,33 +83,17 @@ export const handler: Handler = async (event) => {
         url = 'https://api.coingecko.com/api/v3/search/trending';
         break;
 
-      case 'reddit':
-        if (!redditUrl) {
-          return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({ error: 'Reddit URL required' })
-          };
-        }
-        url = redditUrl;
-        // Add User-Agent to avoid Reddit blocking
-        fetchOptions = {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; PipnosisBot/1.0)'
-          }
-        };
-        break;
-
       case 'newsapi':
         if (!newsApiKey) {
-          console.warn('[SentimentProxy] Missing NEWSAPI_KEY');
+          console.warn('[SentimentProxy] Missing NEWSAPI_KEY - gracefully skipping');
           return {
-            statusCode: 500,
+            statusCode: 200,
             headers,
             body: JSON.stringify({
               success: false,
               error: 'NewsAPI key not configured',
-              source: 'newsapi'
+              source: 'newsapi',
+              data: []
             })
           };
         }
@@ -118,14 +103,15 @@ export const handler: Handler = async (event) => {
 
       case 'alphavantage':
         if (!alphaVantageKey) {
-          console.warn('[SentimentProxy] Missing ALPHA_VANTAGE_KEY');
+          console.warn('[SentimentProxy] Missing ALPHA_VANTAGE_KEY - gracefully skipping');
           return {
-            statusCode: 500,
+            statusCode: 200,
             headers,
             body: JSON.stringify({
               success: false,
               error: 'Alpha Vantage key not configured',
-              source: 'alphavantage'
+              source: 'alphavantage',
+              data: []
             })
           };
         }

@@ -1,13 +1,13 @@
 /**
  * Free Sentiment Scraper Pipeline - API-Based Version
  *
- * Scrapes 5 reliable free API sources with no CORS issues:
- * 1. Finnhub Market News (30% weight) - integrated server-side via Supabase Edge Function
- * 2. FMP Financial News (30% weight) - 250 calls/day
- * 3. Reddit JSON API (20% weight) - no key required
- * 4. Fear & Greed Index (15% weight) - no key required
- * 5. CoinGecko Trending (5% weight) - 30 calls/min, 10k/month
+ * Scrapes 4 reliable free API sources with no CORS issues:
+ * 1. Finnhub Market News (35% weight) - integrated server-side via Supabase Edge Function
+ * 2. FMP Financial News (35% weight) - 250 calls/day
+ * 3. Fear & Greed Index (20% weight) - no key required
+ * 4. CoinGecko Trending (10% weight) - 30 calls/min, 10k/month
  *
+ * Fallback sources: NewsAPI, Alpha Vantage (if primary fails)
  * All scrapers use proper APIs to avoid CORS issues.
  * 10-minute cache means ~144 calls/day maximum.
  */
@@ -29,23 +29,21 @@ class SentimentScrapers {
 
   /**
    * Scrape all sources and aggregate into SentimentInput
-   * Primary sources: Finnhub, FMP, Reddit, Fear & Greed, CoinGecko
+   * Primary sources: Finnhub, FMP, Fear & Greed, CoinGecko
    * Fallback sources: NewsAPI, Alpha Vantage (used if primary fails)
    */
   async scrapeAll(): Promise<SentimentInput> {
     const results = await Promise.allSettled([
       this.scrapeFinnhub(),
       this.scrapeFMPNews(),
-      this.scrapeReddit(),
       this.scrapeFearGreedIndex(),
       this.scrapeCoinGeckoTrending()
     ]);
 
     let finnhubNews = this.extractResult(results[0]);
     let fmpNews = this.extractResult(results[1]);
-    const redditSignals = this.extractResult(results[2]);
-    const fearGreed = this.extractResult(results[3]);
-    const coinGecko = this.extractResult(results[4]);
+    const fearGreed = this.extractResult(results[2]);
+    const coinGecko = this.extractResult(results[3]);
 
     // Fallback to alternative sources if primary news sources failed
     const primaryNewsSourcesSucceeded = finnhubNews.length > 0 || fmpNews.length > 0;
@@ -72,7 +70,6 @@ class SentimentScrapers {
     const successfulSources: string[] = [];
     if (finnhubNews.length > 0) successfulSources.push(`Finnhub(${finnhubNews.length})`);
     if (fmpNews.length > 0) successfulSources.push(`FMP(${fmpNews.length})`);
-    if (redditSignals.length > 0) successfulSources.push(`Reddit(${redditSignals.length})`);
     if (fearGreed.length > 0) successfulSources.push(`FearGreed(${fearGreed.length})`);
     if (coinGecko.length > 0) successfulSources.push(`CoinGecko(${coinGecko.length})`);
 
@@ -83,7 +80,7 @@ class SentimentScrapers {
     return {
       finnhubNews: finnhubNews.slice(0, this.MAX_ITEMS_PER_SOURCE),
       fmpNews: fmpNews.slice(0, this.MAX_ITEMS_PER_SOURCE),
-      redditSignals: redditSignals.slice(0, this.MAX_ITEMS_PER_SOURCE),
+      redditSignals: [], // Reddit removed - unreliable with rate limits
       fearGreedSignals: fearGreed.slice(0, 3),
       coinGeckoTrending: coinGecko.slice(0, 5)
     };
@@ -96,8 +93,7 @@ class SentimentScrapers {
     if (result.status === 'fulfilled') {
       return result.value;
     }
-    // Scrapers expected to fail in browser due to CORS - this is normal
-    // System gracefully degrades to working sources (Reddit)
+    // Some scrapers may fail - system gracefully degrades to working sources
     return [];
   }
 
@@ -263,75 +259,6 @@ class SentimentScrapers {
 
     } catch (error) {
       console.error('[CoinGecko] Failed to fetch trending:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Reddit JSON API (via Netlify Function proxy - CORS bypass)
-   */
-  private async scrapeReddit(): Promise<string[]> {
-    try {
-      const subreddits = [
-        'https://www.reddit.com/r/Forex/top.json?limit=5&t=day',
-        'https://www.reddit.com/r/Gold/top.json?limit=5&t=day',
-        'https://www.reddit.com/r/wallstreetbets/top.json?limit=5&t=day'
-      ];
-
-      const results = await Promise.allSettled(
-        subreddits.map(url => this.scrapeRedditFeed(url))
-      );
-
-      const allItems = results
-        .filter(r => r.status === 'fulfilled')
-        .flatMap(r => (r as PromiseFulfilledResult<string[]>).value);
-
-      if (allItems.length > 0) {
-        console.log(`[Reddit] ✓ Fetched ${allItems.length} posts from ${results.filter(r => r.status === 'fulfilled').length} subreddits`);
-      }
-
-      return allItems.slice(0, this.MAX_ITEMS_PER_SOURCE);
-
-    } catch (error) {
-      console.error('[Reddit] Failed to fetch posts:', error);
-      return [];
-    }
-  }
-
-
-  /**
-   * Scrape Reddit JSON feed (via proxy to bypass CORS)
-   */
-  private async scrapeRedditFeed(url: string): Promise<string[]> {
-    try {
-      // Use Netlify proxy to avoid CORS issues
-      const response = await this.fetchWithTimeout('/.netlify/functions/sentiment-proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          source: 'reddit',
-          redditUrl: url
-        })
-      });
-
-      const result = await response.json();
-
-      if (!result.success) {
-        console.warn('[Reddit] Proxy returned error:', result.error);
-        return [];
-      }
-
-      const json = result.data;
-      const posts = json?.data?.children || [];
-      const titles = posts
-        .map((post: any) => post?.data?.title || '')
-        .filter((title: string) => title.length > 0)
-        .map((title: string) => this.sanitizeText(title));
-
-      return titles;
-
-    } catch (error) {
-      console.error('[Reddit] Failed to fetch feed:', error);
       return [];
     }
   }

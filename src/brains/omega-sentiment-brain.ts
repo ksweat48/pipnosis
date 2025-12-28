@@ -13,7 +13,7 @@ import { llmTokenTracker } from '@/services/llm-token-tracker';
 export interface SentimentInput {
   finnhubNews: string[];
   fmpNews: string[];
-  redditSignals: string[];
+  redditSignals: string[]; // Deprecated - always empty, kept for backward compatibility
   fearGreedSignals: string[];
   coinGeckoTrending: string[];
 }

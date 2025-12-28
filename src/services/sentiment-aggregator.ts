@@ -2,12 +2,12 @@
  * Sentiment Aggregator + Weighting Engine
  *
  * Combines sentiment from multiple reliable API sources:
- * - Finnhub: 30% (professional financial news, no CORS issues)
- * - FMP: 30% (financial market headlines, 250 calls/day)
- * - Reddit: 20% (retail sentiment, no key required)
- * - Fear & Greed: 15% (sentiment gauge, no key required)
- * - CoinGecko: 5% (risk appetite indicator, 30 calls/min)
+ * - Finnhub: 35% (professional financial news, no CORS issues)
+ * - FMP: 35% (financial market headlines, 250 calls/day)
+ * - Fear & Greed: 20% (sentiment gauge, no key required)
+ * - CoinGecko: 10% (risk appetite indicator, 30 calls/min)
  *
+ * Note: Reddit removed due to unreliable JSON feeds and rate limiting.
  * All sources use proper APIs to avoid CORS issues.
  * 10-minute cache = ~144 calls/day maximum.
  */
@@ -37,11 +37,11 @@ interface AggregatedSentiment {
 
 class SentimentAggregator {
   private readonly WEIGHTS: SourceWeights = {
-    finnhub: 0.30,
-    fmp: 0.30,
-    reddit: 0.20,
-    feargreed: 0.15,
-    coingecko: 0.05
+    finnhub: 0.35,
+    fmp: 0.35,
+    reddit: 0.00, // Removed - unreliable, kept for backward compatibility
+    feargreed: 0.20,
+    coingecko: 0.10
   };
 
   private readonly CACHE_DURATION_MINUTES = 10;
@@ -114,9 +114,9 @@ class SentimentAggregator {
    * Calculate weighted confidence based on sources available
    *
    * Examples:
-   * - All 5 sources (100%): confidence unchanged
-   * - Finnhub + FMP only (60%): confidence * 0.6
-   * - Fear & Greed + CoinGecko only (20%): confidence * 0.2
+   * - All 4 sources (100%): confidence unchanged
+   * - Finnhub + FMP only (70%): confidence * 0.7
+   * - Fear & Greed + CoinGecko only (30%): confidence * 0.3
    */
   private calculateWeightedConfidence(baseConfidence: number, sourcesUsed: string[]): number {
     let totalWeight = 0;
