@@ -8,6 +8,8 @@ function isCryptoSymbol(symbol: string): boolean {
   return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
 }
 
+const lastKrakenPrices: Map<string, { bid: number; ask: number; timestamp: number }> = new Map();
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
@@ -120,12 +122,22 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
 }
 
 async function getKrakenPrice(symbol: string): Promise<{ bid: number; ask: number; timestamp: string; source: string }> {
-  console.log(`[get-live-price] Fetching ${symbol} from Kraken`);
+  const now = Date.now();
+  console.log(`[get-live-price] Fetching ${symbol} from Kraken at ${new Date(now).toISOString()}`);
 
   try {
     const krakenData = await fetchKrakenTicker(symbol);
 
-    console.log(`[get-live-price] Kraken response: bid=${krakenData.bid}, ask=${krakenData.ask}`);
+    const lastPrice = lastKrakenPrices.get(symbol);
+    const priceChanged = !lastPrice || lastPrice.bid !== krakenData.bid || lastPrice.ask !== krakenData.ask;
+
+    if (priceChanged) {
+      console.log(`[get-live-price] ✨ PRICE CHANGED for ${symbol}: bid=${krakenData.bid}, ask=${krakenData.ask}${lastPrice ? ` (was bid=${lastPrice.bid}, ask=${lastPrice.ask})` : ''}`);
+      lastKrakenPrices.set(symbol, { bid: krakenData.bid, ask: krakenData.ask, timestamp: now });
+    } else {
+      const ageMs = now - (lastPrice?.timestamp || now);
+      console.log(`[get-live-price] ⚠️ SAME PRICE for ${symbol}: bid=${krakenData.bid}, ask=${krakenData.ask} (unchanged for ${(ageMs/1000).toFixed(1)}s)`);
+    }
 
     return {
       bid: krakenData.bid,

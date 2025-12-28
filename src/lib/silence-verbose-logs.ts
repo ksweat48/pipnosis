@@ -24,8 +24,8 @@ logger.setCategoryLevel(LogCategory.AUTO_REFRESH, LogLevel.SILENT);
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
 logger.setCategoryLevel(LogCategory.POSITION_MONITOR, LogLevel.INFO);
 logger.setCategoryLevel(LogCategory.TRADE_LIFECYCLE, LogLevel.INFO);
-logger.setCategoryLevel(LogCategory.CHART, LogLevel.WARN);
-logger.setCategoryLevel(LogCategory.CHART_INIT, LogLevel.WARN);
+logger.setCategoryLevel(LogCategory.CHART, LogLevel.DEBUG);
+logger.setCategoryLevel(LogCategory.CHART_INIT, LogLevel.DEBUG);
 
 console.log('%c[Logger] Production mode: Verbose logs silenced ✅', 'color: #10b981; font-weight: bold');
 console.log('%cTo enable debug logs: logger.setGlobalLevel(LogLevel.DEBUG)', 'color: #6b7280');

@@ -211,6 +211,8 @@ class ChartDirectPricePoller {
       return;
     }
 
+    logger.debug(LogCategory.CHART, `[DirectPoller] 🔄 Poll executing for ${this.trackedSymbols.size} symbols: ${Array.from(this.trackedSymbols).join(', ')}`);
+
     // CRYPTO FIX: No blanket market check - symbols are checked individually in fetchFromMetaAPI
     // This allows crypto (24/7) to continue polling even when forex markets are closed
 
@@ -218,14 +220,19 @@ class ChartDirectPricePoller {
       // Try MetaAPI direct first
       const prices = await this.fetchFromMetaAPI();
 
+      logger.debug(LogCategory.CHART, `[DirectPoller] fetchFromMetaAPI returned ${prices.length} prices`);
+
       if (prices.length > 0) {
         this.status.source = 'metaapi';
         this.status.errorCount = 0;
+        logger.info(LogCategory.CHART, `[DirectPoller] ✅ Processing ${prices.length} prices from MetaAPI`);
         this.processPrices(prices);
         return;
+      } else {
+        logger.warn(LogCategory.CHART, '[DirectPoller] ⚠️ fetchFromMetaAPI returned 0 prices, falling back to database');
       }
     } catch (error) {
-      logger.debug(LogCategory.CHART, 'MetaAPI fetch failed, falling back to database');
+      logger.error(LogCategory.CHART, '[DirectPoller] MetaAPI fetch failed with error, falling back to database:', error);
       this.status.errorCount++;
     }
 
@@ -314,7 +321,10 @@ class ChartDirectPricePoller {
           });
         }
       } catch (error) {
-        // Silent fail - will fallback to database
+        logger.error(LogCategory.CHART, `[DirectPoller][${symbol}] ❌ Failed to fetch price:`, error);
+        if (error instanceof Error) {
+          logger.error(LogCategory.CHART, `[DirectPoller][${symbol}] Error details: ${error.message}`);
+        }
       }
     }
 
