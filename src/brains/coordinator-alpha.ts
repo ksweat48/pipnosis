@@ -472,6 +472,14 @@ class AlphaCoordinatorBrain {
       }
     }
 
+    // Detect market volatility level (needed by both SL and TP calculations)
+    let marketVolatilityLevel: 'low' | 'normal' | 'high' = 'normal';
+    if (marketContext.volatility === 'high') {
+      marketVolatilityLevel = 'high';
+    } else if (marketContext.volatility === 'low') {
+      marketVolatilityLevel = 'low';
+    }
+
     // Calculate professional stop-loss anchor for Alpha
     let stopLossAnchor: StopLossCalculation | null = null;
     let stopLossDirective = '';
@@ -479,14 +487,6 @@ class AlphaCoordinatorBrain {
       const riskMode = goalContext?.riskMode || 'medium';
       const entryPrice = marketContext.price;
       const direction = consensus.direction === 'BUY' ? 'buy' : 'sell';
-
-      // Detect market volatility from volatilityRegime
-      let marketVolatilityLevel: 'low' | 'normal' | 'high' = 'normal';
-      if (marketContext.volatility === 'high') {
-        marketVolatilityLevel = 'high';
-      } else if (marketContext.volatility === 'low') {
-        marketVolatilityLevel = 'low';
-      }
 
       stopLossAnchor = riskAwareStopCalculator.calculateStopLoss({
         symbol: marketContext.symbol,

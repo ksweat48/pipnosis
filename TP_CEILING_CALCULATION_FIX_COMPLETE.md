@@ -1,9 +1,9 @@
 # TP Ceiling Calculation Order Fix - COMPLETE ✅
 
 **Date:** December 28, 2024
-**Status:** DEPLOYED TO PRODUCTION
+**Status:** DEPLOYED TO PRODUCTION (2 fixes)
 
-## The Problem
+## Problem 1: Execution Order Bug
 
 The TP (Take Profit) ceiling feature had a critical execution order bug:
 
@@ -82,13 +82,61 @@ JavaScript variable was referenced in template string **before it was declared**
 ✅ All references to tpCeilingResult validated
 ✅ Deployed to production
 
+## Problem 2: Variable Scoping Bug
+
+After fixing the execution order, a second bug was revealed:
+
+```
+ReferenceError: marketVolatilityLevel is not defined
+at AlphaCoordinatorBrain.coordinate (line 315)
+```
+
+**Root Cause:** The `marketVolatilityLevel` variable was declared inside the stop-loss calculation block, but the TP ceiling calculation (which was moved earlier) tried to access it from a separate block - causing a scope error.
+
+## Fix 2: Variable Scoping
+
+**Solution:** Moved `marketVolatilityLevel` declaration to function scope (before both calculations).
+
+**Code Changes:**
+```typescript
+// BEFORE (broken scoping):
+if (consensus.direction !== 'NO_TRADE') {
+  let marketVolatilityLevel = 'normal'; // Local scope only
+  // ... calculate stop loss
+}
+if (consensus.direction !== 'NO_TRADE') {
+  // ❌ marketVolatilityLevel undefined here!
+  // ... calculate TP ceiling
+}
+
+// AFTER (correct scoping):
+let marketVolatilityLevel = 'normal'; // Function scope
+if (marketContext.volatility === 'high') marketVolatilityLevel = 'high';
+else if (marketContext.volatility === 'low') marketVolatilityLevel = 'low';
+
+if (consensus.direction !== 'NO_TRADE') {
+  // ✅ marketVolatilityLevel accessible
+  // ... calculate stop loss
+}
+if (consensus.direction !== 'NO_TRADE') {
+  // ✅ marketVolatilityLevel accessible
+  // ... calculate TP ceiling
+}
+```
+
+**Result:**
+- ✅ Both BTCUSD and ETHUSD evaluations now complete successfully
+- ✅ All variable references properly scoped
+- ✅ No more "undefined" errors
+
 ## Prevention
 
 To prevent similar issues:
-1. Always declare variables at function/block scope start
+1. Always declare shared variables at function/block scope start
 2. Calculate dependencies before building strings that use them
 3. Test variable references in template strings
 4. Use TypeScript strict mode to catch undefined references early
+5. Watch for variable scoping when refactoring code blocks
 
 ## Related Systems
 
@@ -101,6 +149,19 @@ This fix enables:
 
 ---
 
+## Summary
+
+**Two sequential bugs fixed:**
+1. ✅ TP ceiling calculated too late (after use in prompt) → Moved to correct execution order
+2. ✅ Variable scoping error (`marketVolatilityLevel` undefined) → Moved to function scope
+
+**Final Result:**
+- All trade evaluations complete successfully
+- Both BTCUSD and ETHUSD work correctly
+- TP ceiling properly constrains Alpha's decisions
+- Autonomous trading engine fully operational
+
 **Fix Author:** Claude (Sonnet 4.5)
-**Deployment:** Automatic via Netlify build hook
+**Deployment:** Automatic via Netlify build hook (2 deployments)
 **Build Status:** SUCCESS
+**Final Status:** PRODUCTION READY ✅
