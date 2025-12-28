@@ -385,15 +385,25 @@ export class ActiveEntryMonitor {
     message: string
   ): Promise<void> {
     try {
-      await supabase.from('entry_monitoring_logs').insert({
+      const payload = {
         intent_id: intentId,
         current_price: currentPrice,
         distance_to_zone_pips: distanceToPips,
-        conditions_met: conditionsMet,
-        message
-      });
+        conditions_met: conditionsMet || {},
+        message: message || 'Monitoring...'
+      };
+
+      const { error } = await supabase.from('entry_monitoring_logs').insert(payload);
+
+      if (error) {
+        logger.error('Supabase error logging monitoring update:', {
+          error,
+          payload,
+          errorDetails: JSON.stringify(error)
+        });
+      }
     } catch (error) {
-      logger.error('Error logging monitoring update:', error);
+      logger.error('Exception logging monitoring update:', error);
     }
   }
 
