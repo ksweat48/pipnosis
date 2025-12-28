@@ -272,14 +272,37 @@ class ChartCandlePoller {
       const staleKey = `${symbol}_${timeframe}`;
       const staleTracker = this.staleDataTracker.get(staleKey) || { lastCandleTime: 0, staleCount: 0 };
 
+      // Check if we have recent tick activity (forming candle)
+      const now = Date.now();
+      const intervalMinutes = getTimeframeMinutes(timeframe);
+      const intervalMs = intervalMinutes * 60 * 1000;
+      const currentCandleStartMs = Math.floor(now / intervalMs) * intervalMs;
+      const currentCandleStart = new Date(currentCandleStartMs);
+
+      // Quick check for recent ticks to determine if market is active
+      const { data: recentTicks } = await supabase
+        .from('realtime_prices')
+        .select('created_at')
+        .eq('symbol', symbol)
+        .gte('created_at', currentCandleStart.toISOString())
+        .limit(1);
+
+      const hasRecentActivity = recentTicks && recentTicks.length > 0;
+
       if (latestCandle.time === staleTracker.lastCandleTime) {
         staleTracker.staleCount++;
         this.staleDataTracker.set(staleKey, staleTracker);
 
-        // If we've seen the same candle 10+ times, stop notifying listeners
-        if (staleTracker.staleCount >= 10) {
+        // If we've seen the same candle 10+ times AND no recent tick activity, stop notifying listeners
+        // CRITICAL FIX: Don't suppress if there's live market activity (forming candle)
+        if (staleTracker.staleCount >= 10 && !hasRecentActivity) {
           logger.debug(LogCategory.CHART_POLLER, `[ChartPoller] Stale data detected for ${symbol} ${timeframe} - suppressing notifications`);
           return; // Don't update cache or notify listeners
+        } else if (hasRecentActivity) {
+          // Market is active - reset stale counter even if historical candles unchanged
+          staleTracker.staleCount = 0;
+          this.staleDataTracker.set(staleKey, staleTracker);
+          logger.debug(LogCategory.CHART_POLLER, `[ChartPoller] Live market activity detected for ${symbol} - allowing notifications`);
         }
       } else {
         // New candle detected - reset stale counter
