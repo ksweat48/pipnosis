@@ -870,7 +870,15 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
       // Log Alpha's stop placement vs anchor (Enhanced Stop Tracking)
       if (decision.action !== 'NO_TRADE' && stopLossAnchor) {
-        const pipValue = marketContext.symbol.includes('JPY') ? 0.01 : 0.0001;
+        // Use same pip calculation as validation logic (consistent with lines 1624-1631)
+        let pipValue = 0.0001; // Standard forex (4 decimals)
+        if (marketContext.symbol.includes('JPY')) {
+          pipValue = 0.01; // JPY pairs (2 decimals)
+        } else if (marketContext.symbol.includes('BTC') || marketContext.symbol.includes('ETH')) {
+          pipValue = 1.0; // Crypto - 1 full point = 1 pip
+        } else if (marketContext.symbol.includes('XAU') || marketContext.symbol.includes('GOLD')) {
+          pipValue = 0.1; // Gold - 10 cents = 1 pip
+        }
         const alphaSLPips = Math.abs(decision.entry - decision.stopLoss) / pipValue;
         const anchorSLPips = stopLossAnchor.stopLossPips;
         const deviation = alphaSLPips - anchorSLPips;
