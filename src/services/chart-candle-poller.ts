@@ -28,7 +28,7 @@ class ChartCandlePoller {
   private cache: Map<string, CandleCache> = new Map();
   private pollIntervals: Map<string, NodeJS.Timeout> = new Map();
   private listeners: Map<string, Set<(result: PollResult) => void>> = new Map();
-  private readonly POLL_INTERVAL_MS = 2000; // 2 seconds
+  private readonly POLL_INTERVAL_MS = 3000; // 3 seconds - unified with DirectPoller
   private readonly CACHE_STALE_MS = 5000; // Consider cache stale after 5 seconds
   private isPollingActive = true;
   private memoryManagerRegistered = false;

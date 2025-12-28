@@ -800,11 +800,25 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           return;
         }
 
+        let mergedHigh = Number(currentCandleRef.current.high);
+        let mergedLow = Number(currentCandleRef.current.low);
+
+        const chartData = candlestickSeriesRef.current?.data();
+        if (chartData && chartData.length > 0) {
+          const existingCandle = chartData.find(c => c.time === timeValue);
+          if (existingCandle) {
+            mergedHigh = Math.max(mergedHigh, Number(existingCandle.high));
+            mergedLow = Math.min(mergedLow, Number(existingCandle.low));
+            currentCandleRef.current.high = mergedHigh;
+            currentCandleRef.current.low = mergedLow;
+          }
+        }
+
         const safeCandle: CandleData = {
           time: timeValue,
           open: Number(currentCandleRef.current.open),
-          high: Number(currentCandleRef.current.high),
-          low: Number(currentCandleRef.current.low),
+          high: mergedHigh,
+          low: mergedLow,
           close: Number(currentCandleRef.current.close)
         };
 
