@@ -546,7 +546,7 @@ class WeekendProtectionService {
     if (status.isWeekend) {
       return {
         isActive: true,
-        message: 'Forex markets closed until Sunday 5pm EST (Crypto 24/7)'
+        message: 'Forex closed (Crypto 24/7)'
       };
     }
 
