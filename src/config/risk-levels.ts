@@ -67,16 +67,19 @@ export function getMinConfidenceThreshold(riskMode: RiskMode | string): number {
  * POSITION SIZE MULTIPLIERS BY RISK MODE
  *
  * Adjusts position size based on risk tolerance:
- * - LOW: 0.8x - Smaller positions for conservative approach
+ * - LOW: 1.2x - Larger positions (fewer, higher quality trades)
  * - MEDIUM: 1.0x - Standard position sizing
- * - HIGH: 1.2x - Larger positions for aggressive approach
+ * - HIGH: 0.8x - Smaller positions (more trades, lower confidence)
+ *
+ * Logic: High risk takes MORE trades (lower threshold) but SMALLER positions
+ *        Low risk takes FEWER trades (higher threshold) but LARGER positions
  *
  * These multipliers are applied after the base risk calculation.
  */
 export const POSITION_SIZE_MULTIPLIERS = {
-  low: 0.8,
+  low: 1.2,
   medium: 1.0,
-  high: 1.2,
+  high: 0.8,
 } as const;
 
 /**
