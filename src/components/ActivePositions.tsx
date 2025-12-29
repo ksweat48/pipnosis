@@ -10,6 +10,7 @@ import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 import { useNavigate } from 'react-router-dom';
 import { TradeWellnessIndicator } from './TradeWellnessIndicator';
 import { format } from '@/utils/displayFormatters';
+import { calculatePipDistance } from '@/utils/currencyHelpers';
 
 interface Position {
   id: string;
@@ -447,11 +448,10 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
                 {pendingOrders.map((order) => {
                   const currentPrice = livePrices[order.symbol];
                   const distanceToPips = currentPrice && order.limit_price
-                    ? Math.abs(
-                        (order.position_type === 'buy'
-                          ? currentPrice.ask - order.limit_price
-                          : order.limit_price - currentPrice.bid) *
-                        (order.symbol.includes('JPY') ? 100 : 10000)
+                    ? calculatePipDistance(
+                        order.symbol,
+                        order.position_type === 'buy' ? currentPrice.ask : currentPrice.bid,
+                        order.limit_price
                       ).toFixed(1)
                     : null;
 

@@ -27,6 +27,7 @@ import type { Omega9ValidationResult, Omega9Corrections, OmegaVote } from '../ty
 import type { AlphaDecision } from './coordinator-alpha';
 import { llmTokenTracker } from '../services/llm-token-tracker';
 import { alphaSafetyZoneEvaluator, type SafetyEvaluation } from '../config/alpha-safety-zones';
+import { calculatePipDistance } from '../utils/currencyHelpers';
 
 export interface Omega9Input {
   alphaDecision: AlphaDecision;
@@ -153,8 +154,8 @@ class Omega9HallucinationBrain {
       flags.push(...voteConflicts);
     }
 
-    const slDistancePips = slDistance * (marketContext.symbol.includes('JPY') ? 100 : 10000);
-    const tpDistancePips = tpDistance * (marketContext.symbol.includes('JPY') ? 100 : 10000);
+    const slDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry_price, alphaDecision.stop_loss);
+    const tpDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry_price, alphaDecision.take_profit);
 
     const safetyEval = alphaSafetyZoneEvaluator.evaluateTrade({
       rrRatio: rr,

@@ -20,6 +20,7 @@ import {
   detectTrueCloseReason,
   getCloseReasonText
 } from '@/utils/close-reason-detector';
+import { calculatePipDistance } from '@/utils/currencyHelpers';
 import {
   TrendingUp,
   TrendingDown,
@@ -720,11 +721,11 @@ export function PositionsPage() {
                         : 0;
 
                       const distanceToSL = position.entryPrice && currentPrice && position.symbol
-                        ? Math.abs(currentPrice - position.stopLoss) * (position.symbol.includes('JPY') ? 100 : 10000)
+                        ? calculatePipDistance(position.symbol, currentPrice, position.stopLoss)
                         : 0;
 
                       const distanceToTP = position.entryPrice && currentPrice && position.symbol
-                        ? Math.abs(currentPrice - position.takeProfit) * (position.symbol.includes('JPY') ? 100 : 10000)
+                        ? calculatePipDistance(position.symbol, currentPrice, position.takeProfit)
                         : 0;
 
                       return (
@@ -835,11 +836,10 @@ export function PositionsPage() {
                     {pendingOrders.map((order) => {
                       const currentPrice = livePrices[order.symbol];
                       const distanceToPips = currentPrice && order.limitPrice && order.symbol
-                        ? Math.abs(
-                            (order.positionType === 'buy'
-                              ? currentPrice.ask - order.limitPrice
-                              : order.limitPrice - currentPrice.bid) *
-                            (order.symbol.includes('JPY') ? 100 : 10000)
+                        ? calculatePipDistance(
+                            order.symbol,
+                            order.positionType === 'buy' ? currentPrice.ask : currentPrice.bid,
+                            order.limitPrice
                           ).toFixed(1)
                         : null;
 
