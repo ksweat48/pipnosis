@@ -83,6 +83,22 @@ class Omega9HallucinationBrain {
     }
 
     const safetyZone = localValidation.safety_zone || 'YELLOW';
+    const safetyScore = localValidation.safety_evaluation?.safety_score ?? 0;
+
+    // If safety score is invalid (NaN), treat as a critical issue
+    if (!isFinite(safetyScore)) {
+      console.log('[Omega-9] ⚠️ Invalid safety score detected - blocking trade');
+      return {
+        pass: false,
+        flags: [...localValidation.flags, 'INVALID_SAFETY_SCORE'],
+        confidence_adjustment: -100,
+        corrections: { sl: null, tp: null, risk_pct: null },
+        reasoning: 'Invalid safety score calculation - trade blocked',
+        safety_zone: 'RED',
+        safety_evaluation: localValidation.safety_evaluation
+      };
+    }
+
     const onlyVoteConflicts = localValidation.flags.every(f =>
       f.includes('VOTE_SPLIT') ||
       f.includes('MAJORITY_NO_TRADE') ||
@@ -167,8 +183,8 @@ class Omega9HallucinationBrain {
       flags.push(...voteConflicts);
     }
 
-    const slDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry_price, alphaDecision.stop_loss);
-    const tpDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry_price, alphaDecision.take_profit);
+    const slDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry, alphaDecision.stopLoss);
+    const tpDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry, alphaDecision.takeProfit);
 
     const safetyEval = alphaSafetyZoneEvaluator.evaluateTrade({
       rrRatio: rr,

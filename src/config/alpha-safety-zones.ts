@@ -180,11 +180,19 @@ export class AlphaSafetyZoneEvaluator {
    * Calculate a safety score (0-100) based on R:R and TP distance
    */
   private calculateSafetyScore(rrRatio: number, tpDistanceATR: number, zone: SafetyZone): number {
+    // Handle NaN/Infinity cases
+    if (!isFinite(rrRatio) || !isFinite(tpDistanceATR)) {
+      return 0;
+    }
+
     const rrScore = Math.min(100, (rrRatio / 2.0) * 100);
     const tpScore = Math.min(100, (tpDistanceATR / 5.0) * 100);
     const zoneMultiplier = zone === 'GREEN' ? 1.0 : zone === 'YELLOW' ? 0.8 : zone === 'ORANGE' ? 0.5 : 0.2;
 
-    return Math.round((rrScore * 0.6 + tpScore * 0.4) * zoneMultiplier);
+    const score = (rrScore * 0.6 + tpScore * 0.4) * zoneMultiplier;
+
+    // Ensure final score is a valid number
+    return isFinite(score) ? Math.round(score) : 0;
   }
 
   /**
