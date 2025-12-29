@@ -133,19 +133,13 @@ class Omega9HallucinationBrain {
     const tpDistance = Math.abs(tp - entry);
     const rr = slDistance > 0 ? tpDistance / slDistance : 0;
 
-    // ELITE TRADER TP SYSTEM: R:R < 1.0 HARD BLOCK
+    // R:R < 1.0 ADVISORY (no longer hard-blocks, will be auto-corrected by constraint system)
+    // This allows Alpha to learn and adjust rather than being instantly blocked
     if (rr < 1.0) {
-      flags.push('RR_BELOW_1_HARD_BLOCK');
-      console.log(`[Omega-9] 🚨 ELITE TP VIOLATION: R:R ${rr.toFixed(3)} < 1.0 - HARD BLOCKING TRADE`);
-      return {
-        pass: false,
-        flags,
-        confidence_adjustment: -100,
-        corrections: { sl: null, tp: null, risk_pct: null },
-        reasoning: `ELITE TRADER VIOLATION: R:R ratio ${rr.toFixed(3)} is below minimum 1.0. Elite traders NEVER accept R:R < 1.0. Trade BLOCKED.`,
-        safety_zone: 'RED' as const,
-        safety_evaluation: undefined
-      };
+      flags.push('RR_BELOW_1_ADVISORY');
+      console.log(`[Omega-9] ⚠️ R:R ${rr.toFixed(3)} < 1.0 - ADVISORY (will be auto-corrected if not revised)`);
+      // DO NOT return early - let other validations run
+      // Auto-correction happens in coordinator-alpha via constraint provider
     }
 
     const voteConflicts = this.detectVoteConflicts(omegaVotes);
@@ -206,7 +200,9 @@ class Omega9HallucinationBrain {
     // Alpha is now educated via Elite Trader Directive with professional anchor
     // Trust Alpha's judgment unless catastrophic error
 
-    const hasHardBlock = flags.some(f => f.includes('HARD_BLOCK'));
+    // Only HARD_BLOCK flags prevent trade (catastrophic errors only)
+    // Advisory flags (like RR_BELOW_1_ADVISORY) do NOT block - they trigger auto-correction
+    const hasHardBlock = flags.some(f => f.includes('HARD_BLOCK') && !f.includes('ADVISORY'));
     const pass = flags.length === 0 || (!hasHardBlock && safetyEval.can_proceed);
 
     let confidenceAdjustment = 0;

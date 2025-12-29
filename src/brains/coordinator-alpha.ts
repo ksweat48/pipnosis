@@ -76,6 +76,9 @@ import { eliteProfitTargetCalculator, type LiquidityZone, type TPCalculationResu
 import { tpCeilingCalculator, type TPCeilingResult } from '../services/tp-ceiling-calculator';
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { EntryIntentClassifier } from '../services/entry-intent-classifier';
+import { omega9ConstraintProvider } from '../services/omega9-constraint-provider';
+import { alphaRevisionHandler } from '../services/alpha-revision-handler';
+import type { Omega9Constraints } from '../types/omega9-constraints';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -543,6 +546,25 @@ class AlphaCoordinatorBrain {
       console.log(`[Alpha Coordinator] 📐 Limiting factor: ${tpCeilingResult.limitingFactor} | ${tpCeilingResult.reasoning}`);
     }
 
+    // Generate Omega-9 constraints (constraint-first approach)
+    let omega9Constraints: Omega9Constraints | null = null;
+    let constraintsText = '';
+    if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
+      omega9Constraints = omega9ConstraintProvider.generateConstraints({
+        symbol: marketContext.symbol,
+        entry: marketContext.price,
+        direction: consensus.direction as 'BUY' | 'SELL',
+        atr: marketContext.atr,
+        riskMode,
+        currentSession,
+        sessionTimeRemainingMinutes: sessionTimeRemaining,
+        volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high',
+        proposedStopLoss: stopLossAnchor?.stopLossPrice
+      });
+
+      constraintsText = omega9ConstraintProvider.formatConstraintsForPrompt(omega9Constraints);
+    }
+
     // Build Elite Trader Stop-Loss Directive
     if (stopLossAnchor) {
       stopLossDirective = `
@@ -841,7 +863,7 @@ Confidence bands:
 
 ${context}
 
-WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${intelligenceContext}${goalContextText}${liquidityContext}${stopLossDirective}
+WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${intelligenceContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
 
 🎯 ALPHA DECISION INTELLIGENCE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -949,6 +971,77 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
       // TP ceiling was already calculated before prompt construction (no need to recalculate)
       let decision = this.parseDecision(content, marketContext.price, marketContext.atr, marketContext.symbol, stopLossAnchor, tpCeilingResult);
+
+      // CONSTRAINT-FIRST VALIDATION (Phase 1: Check violations, Phase 2: Revision loop, Phase 3: Auto-correction)
+      if (decision.action !== 'NO_TRADE' && decision.action !== 'WAIT' && omega9Constraints) {
+        console.log('[Alpha Coordinator] 🔍 Checking decision against constraints...');
+
+        // Validate decision against constraints
+        const violations = omega9ConstraintProvider.validateAgainstConstraints(
+          {
+            entry: decision.entry,
+            stopLoss: decision.stopLoss,
+            takeProfit: decision.takeProfit,
+            direction: decision.action as 'BUY' | 'SELL'
+          },
+          omega9Constraints,
+          marketContext.symbol
+        );
+
+        if (violations.length > 0) {
+          console.log(`[Alpha Coordinator] ⚠️ ${violations.length} constraint violation(s) detected`);
+
+          // Phase 2: Trigger revision loop (ONE OPPORTUNITY for Alpha to adjust)
+          const revisionResponse = await alphaRevisionHandler.requestRevision(
+            decision,
+            violations,
+            omega9Constraints,
+            marketContext.symbol,
+            userId
+          );
+
+          if (revisionResponse.revised && revisionResponse.revisedDecision) {
+            console.log('[Alpha Coordinator] ✅ Alpha revised decision');
+            // Update decision with revised values
+            decision.stopLoss = revisionResponse.revisedDecision.stopLoss;
+            decision.takeProfit = revisionResponse.revisedDecision.takeProfit;
+            decision.confidence = revisionResponse.revisedDecision.confidence;
+            decision.reasoning = revisionResponse.revisedDecision.reasoning;
+
+            // Apply small confidence boost for accepting revision (+5%)
+            decision.confidence = Math.min(100, decision.confidence + 5);
+            decision.reasoning += ` [Revised based on constraints: ${revisionResponse.revisionReasoning}]`;
+          } else {
+            console.log('[Alpha Coordinator] ⚠️ Alpha did not revise - applying auto-corrections if needed');
+
+            // Phase 3: Auto-correct decision to meet minimum constraints
+            const autoCorrection = omega9ConstraintProvider.autoCorrectDecision(
+              {
+                entry: decision.entry,
+                stopLoss: decision.stopLoss,
+                takeProfit: decision.takeProfit,
+                direction: decision.action as 'BUY' | 'SELL'
+              },
+              omega9Constraints,
+              marketContext.symbol
+            );
+
+            if (autoCorrection.corrected) {
+              console.log('[Alpha Coordinator] 🔧 Auto-corrections applied:');
+              autoCorrection.corrections.forEach(c => console.log(`  - ${c}`));
+
+              if (autoCorrection.newStopLoss) decision.stopLoss = autoCorrection.newStopLoss;
+              if (autoCorrection.newTakeProfit) decision.takeProfit = autoCorrection.newTakeProfit;
+
+              // Apply moderate confidence penalty for auto-correction (-10%)
+              decision.confidence = Math.max(0, decision.confidence - 10);
+              decision.reasoning += ` [Auto-corrected: ${autoCorrection.corrections.join('; ')}]`;
+            }
+          }
+        } else {
+          console.log('[Alpha Coordinator] ✅ Decision within all constraints');
+        }
+      }
 
       // Add decision field for compatibility
       decision.decision = decision.action;
