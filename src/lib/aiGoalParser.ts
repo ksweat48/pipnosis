@@ -33,7 +33,14 @@ class AIGoalParser {
     }
 
     try {
-      const systemPrompt = `You are an expert trading goal interpreter. Parse user trading goals into structured configuration. Consider their account balance and provide realistic assessments.`;
+      const systemPrompt = `You are an expert trading goal interpreter. Parse user trading goals into structured configuration. Consider their account balance and provide realistic assessments.
+
+RISK MODE GUIDELINES:
+- "low": Conservative, safe, careful, patient trading
+- "medium": Balanced, moderate exposure, standard trading
+- "high": Aggressive, scalping, fast trades, quick moves, high-frequency
+
+IMPORTANT: Scalping and "quick" trades are HIGH risk due to tight stops and fast execution requirements.`;
 
       const userPrompt = `Parse this trading goal into structured format:
 Goal: "${prompt}"
@@ -151,7 +158,7 @@ Respond with ONLY valid JSON in this format:
 
     const exposureKeywords = {
       conservative: /safe|careful|conservative|low\s+risk|conservative\s+exposure/i,
-      aggressive: /aggressive|fast|risky|high\s+risk|aggressive\s+exposure/i
+      aggressive: /aggressive|fast|risky|high\s+risk|aggressive\s+exposure|scalp|quick\s+scalp/i
     };
 
     let riskMode: 'low' | 'medium' | 'high' = 'medium';

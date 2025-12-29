@@ -27,7 +27,7 @@ const GOAL_TEMPLATES: GoalTemplate[] = [
   {
     label: 'Quick Scalp $200',
     prompt: 'Find me a quick scalp move for $200 today, fast entry and exit, close before market close',
-    description: 'Fast intraday scalp, in and out quickly'
+    description: 'High risk scalp, fast in and out'
   },
   {
     label: 'Aggressive $300',
