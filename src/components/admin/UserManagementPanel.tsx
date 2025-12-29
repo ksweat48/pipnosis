@@ -228,7 +228,7 @@ export const UserManagementPanel: React.FC = () => {
               <UsersIcon className="w-5 h-5 text-blue-400" />
               <div className="text-xs text-gray-400">Total Users</div>
             </div>
-            <div className="text-2xl font-bold text-white">{platformKPIs.total_users.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-white">{Number(platformKPIs?.total_users || 0).toLocaleString()}</div>
           </div>
 
           <div className="bg-gradient-to-br from-green-600/20 to-green-800/20 backdrop-blur-sm border-2 border-green-500/30 rounded-xl p-4">
@@ -236,7 +236,7 @@ export const UserManagementPanel: React.FC = () => {
               <Activity className="w-5 h-5 text-green-400" />
               <div className="text-xs text-gray-400">Active Users</div>
             </div>
-            <div className="text-2xl font-bold text-white">{platformKPIs.active_users.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-white">{Number(platformKPIs?.active_users || 0).toLocaleString()}</div>
             <div className="text-[10px] text-gray-500 mt-1">Last 7 days</div>
           </div>
 
@@ -245,7 +245,7 @@ export const UserManagementPanel: React.FC = () => {
               <TrendingUp className="w-5 h-5 text-purple-400" />
               <div className="text-xs text-gray-400">Total Trades</div>
             </div>
-            <div className="text-2xl font-bold text-white">{platformKPIs.total_trades.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-white">{Number(platformKPIs?.total_trades || 0).toLocaleString()}</div>
           </div>
 
           <div className="bg-gradient-to-br from-emerald-600/20 to-emerald-800/20 backdrop-blur-sm border-2 border-emerald-500/30 rounded-xl p-4">
@@ -253,7 +253,7 @@ export const UserManagementPanel: React.FC = () => {
               <Target className="w-5 h-5 text-emerald-400" />
               <div className="text-xs text-gray-400">Won</div>
             </div>
-            <div className="text-2xl font-bold text-emerald-300">{platformKPIs.winning_trades.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-emerald-300">{Number(platformKPIs?.winning_trades || 0).toLocaleString()}</div>
           </div>
 
           <div className="bg-gradient-to-br from-red-600/20 to-red-800/20 backdrop-blur-sm border-2 border-red-500/30 rounded-xl p-4">
@@ -261,20 +261,20 @@ export const UserManagementPanel: React.FC = () => {
               <Target className="w-5 h-5 text-red-400" />
               <div className="text-xs text-gray-400">Lost</div>
             </div>
-            <div className="text-2xl font-bold text-red-300">{platformKPIs.losing_trades.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-red-300">{Number(platformKPIs?.losing_trades || 0).toLocaleString()}</div>
           </div>
 
           <div className={`bg-gradient-to-br backdrop-blur-sm border-2 rounded-xl p-4 ${
-            platformKPIs.overall_win_rate >= 50
+            (platformKPIs?.overall_win_rate || 0) >= 50
               ? 'from-green-600/20 to-green-800/20 border-green-500/30'
               : 'from-amber-600/20 to-amber-800/20 border-amber-500/30'
           }`}>
             <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className={`w-5 h-5 ${platformKPIs.overall_win_rate >= 50 ? 'text-green-400' : 'text-amber-400'}`} />
+              <TrendingUp className={`w-5 h-5 ${(platformKPIs?.overall_win_rate || 0) >= 50 ? 'text-green-400' : 'text-amber-400'}`} />
               <div className="text-xs text-gray-400">Win Rate</div>
             </div>
-            <div className={`text-2xl font-bold ${platformKPIs.overall_win_rate >= 50 ? 'text-green-300' : 'text-amber-300'}`}>
-              {platformKPIs.overall_win_rate.toFixed(1)}%
+            <div className={`text-2xl font-bold ${(platformKPIs?.overall_win_rate || 0) >= 50 ? 'text-green-300' : 'text-amber-300'}`}>
+              {Number(platformKPIs?.overall_win_rate || 0).toFixed(1)}%
             </div>
           </div>
         </div>
