@@ -15,6 +15,17 @@ import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator
 import { computeOmegaSensors, type OmegaSensors } from './omega-sensors';
 import type { TraderScore } from './ai-identity';
 
+export interface SessionConfig {
+  starting_balance: number;
+  risk_mode: 'conservative' | 'moderate' | 'aggressive';
+  goal_context?: {
+    goal_type: string;
+    target_amount: number;
+    session_duration: number;
+  };
+  current_profit?: number;
+}
+
 export interface ScanResult {
   symbol: string;
   hasValidSetup: boolean;
@@ -226,7 +237,7 @@ class GoalScanner {
     }
   }
 
-  async scanSymbol(symbol: string, sessionConfig: any): Promise<ScanResult> {
+  async scanSymbol(symbol: string, sessionConfig: SessionConfig): Promise<ScanResult> {
     try {
       const { data: candles } = await supabase
         .from('forex_candles')
@@ -271,7 +282,7 @@ class GoalScanner {
     }
   }
 
-  async detectSetup(symbol: string, candles: any[], sessionConfig: any): Promise<ScanResult> {
+  async detectSetup(symbol: string, candles: any[], sessionConfig: SessionConfig): Promise<ScanResult> {
     const recentCandles = candles.slice(0, 50).reverse();
     const prices = recentCandles.map(c => c.close);
     const currentPrice = prices[prices.length - 1];
@@ -618,11 +629,11 @@ class GoalScanner {
   async evaluateSignal(
     sessionId: string,
     scanResult: ScanResult,
-    sessionConfig: any
+    sessionConfig: SessionConfig
   ): Promise<TradeSignal | null> {
     if (!scanResult.hasValidSetup) return null;
 
-    const direction: 'buy' | 'sell' = scanResult.reasoning?.toLowerCase().includes('bearish') ? 'sell' : 'buy';
+    const direction: 'buy' | 'sell' = scanResult.setupType?.toUpperCase().includes('SELL') ? 'sell' : 'buy';
 
     // CRITICAL FIX: Use proper position sizing formula
     const balance = sessionConfig.starting_balance || 10000;
@@ -716,7 +727,7 @@ class GoalScanner {
     };
   }
 
-  calculateRiskAmount(sessionConfig: any): number {
+  calculateRiskAmount(sessionConfig: SessionConfig): number {
     const balance = sessionConfig.starting_balance;
     const riskPercent = getRiskPercentage(sessionConfig.risk_mode) / 100;
     return balance * riskPercent;

@@ -145,7 +145,7 @@ class CacheWarmingService {
 
   private async fetchCandles(symbol: string, timeframe: string, limit: number): Promise<CandleData[]> {
     const { data, error } = await supabase
-      .from('candles')
+      .from('forex_candles')
       .select('time, open, high, low, close, volume')
       .eq('symbol', symbol)
       .eq('timeframe', timeframe)

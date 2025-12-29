@@ -260,7 +260,7 @@ class GlobalScoutRunner {
   private async fetchCandlesForSymbol(symbol: string, timeframe: string): Promise<CandleData[]> {
     try {
       const { data, error } = await supabase
-        .from('candles')
+        .from('forex_candles')
         .select('time, open, high, low, close, volume')
         .eq('symbol', symbol)
         .eq('timeframe', timeframe)

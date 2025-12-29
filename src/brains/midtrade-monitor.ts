@@ -388,7 +388,7 @@ Return JSON:
 
     const prompt = `Mid-Trade Hard Check:
 ${JSON.stringify(snapshot)}
-Trader: ${traderScore.confidence_level} (Score: ${traderScore.current_score}, Streak: ${traderScore.win_streak})${sentimentContext}
+Trader: ${traderScore.confidence_level} (Score: ${traderScore.current_score}, Streak: ${traderScore.streak_wins})${sentimentContext}
 
 Position ${snapshot.dd.toFixed(0)}% toward SL. SERIOUS evaluation needed.
 Analyze: Is trend still valid? Should we exit early? Trail SL?

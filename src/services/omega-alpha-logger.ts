@@ -58,7 +58,6 @@ class OmegaAlphaLogger {
     const specialists = [
       { key: 'trend', name: 'trend', vote: votes.trend, weight: weights.trend },
       { key: 'scalper', name: 'scalper', vote: votes.scalper, weight: weights.scalper },
-      { key: 'swing', name: 'swing', vote: votes.swing, weight: weights.swing },
       { key: 'reversal', name: 'reversal', vote: votes.reversal, weight: weights.reversal },
       { key: 'volatility', name: 'volatility', vote: votes.volatility, weight: weights.volatility },
       { key: 'risk', name: 'risk', vote: votes.risk, weight: weights.risk }
@@ -116,7 +115,6 @@ class OmegaAlphaLogger {
     const votesList = [
       votes.trend,
       votes.scalper,
-      votes.swing,
       votes.reversal,
       votes.volatility,
       votes.risk
@@ -130,7 +128,6 @@ class OmegaAlphaLogger {
     const voteDetails = {
       trend: votes.trend ? { vote: votes.trend.vote, confidence: votes.trend.confidence, reasoning: votes.trend.reasoning } : null,
       scalper: votes.scalper ? { vote: votes.scalper.vote, confidence: votes.scalper.confidence, reasoning: votes.scalper.reasoning } : null,
-      swing: votes.swing ? { vote: votes.swing.vote, confidence: votes.swing.confidence, reasoning: votes.swing.reasoning } : null,
       reversal: votes.reversal ? { vote: votes.reversal.vote, confidence: votes.reversal.confidence, reasoning: votes.reversal.reasoning } : null,
       volatility: votes.volatility ? { vote: votes.volatility.vote, confidence: votes.volatility.confidence, reasoning: votes.volatility.reasoning } : null,
       risk: votes.risk ? { vote: votes.risk.vote, confidence: votes.risk.confidence, reasoning: votes.risk.reasoning } : null
@@ -298,7 +295,7 @@ class OmegaAlphaLogger {
     }
 
     // Update performance metrics for each specialist
-    const specialists = ['trend', 'scalper', 'swing', 'reversal', 'volatility', 'risk'];
+    const specialists = ['trend', 'scalper', 'reversal', 'volatility', 'risk'];
     for (const specialist of specialists) {
       try {
         await supabase.rpc('update_omega_performance_metrics', {

@@ -17,7 +17,8 @@ logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.ERROR);
 type BrainName =
   | 'Alpha'
   | 'Omega-1' | 'Omega-2' | 'Omega-3' | 'Omega-4' | 'Omega-5'
-  | 'Omega-6' | 'Omega-7' | 'Omega-8' | 'Omega-9' | 'Omega-10';
+  | 'Omega-6' | 'Omega-7' | 'Omega-8' | 'Omega-9' | 'Omega-10'
+  | 'MidTrade-Monitor' | 'MidTrade-Periodic';
 
 type Model = 'gpt-4o' | 'gpt-4o-mini';
 

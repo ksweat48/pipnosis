@@ -1240,6 +1240,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       console.error('[Alpha Coordinator] Error:', error);
       return {
         action: 'NO_TRADE',
+        decision: 'NO_TRADE',
         entry: marketContext.price,
         stopLoss: marketContext.price,
         takeProfit: marketContext.price,
@@ -1273,21 +1274,21 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
     let totalVotes = 0;
 
     const voteEntries = [
-      { name: 'trend', vote: votes.trend, weight: weights.trend },
-      { name: 'scalper', vote: votes.scalper, weight: weights.scalper },
-      { name: 'confirmation', vote: votes.confirmation, weight: weights.confirmation },
-      { name: 'reversal', vote: votes.reversal, weight: weights.reversal },
-      { name: 'volatility', vote: votes.volatility, weight: weights.volatility },
-      { name: 'risk', vote: votes.risk, weight: weights.risk * 0.5 }, // Reduce Risk weight to advisory level
-      { name: 'omega8', vote: votes.omega8, weight: weights.omega8 }
+      { name: 'trend', vote: votes.trend, weight: weights.trend ?? 0 },
+      { name: 'scalper', vote: votes.scalper, weight: weights.scalper ?? 0 },
+      { name: 'confirmation', vote: votes.confirmation, weight: weights.confirmation ?? 0 },
+      { name: 'reversal', vote: votes.reversal, weight: weights.reversal ?? 0 },
+      { name: 'volatility', vote: votes.volatility, weight: weights.volatility ?? 0 },
+      { name: 'risk', vote: votes.risk, weight: (weights.risk ?? 0) * 0.5 }, // Reduce Risk weight to advisory level
+      { name: 'omega8', vote: votes.omega8, weight: weights.omega8 ?? 0 }
     ];
 
     for (const entry of voteEntries) {
       if (!entry.vote) continue;
 
       totalVotes++;
-      const weightedConfidence = entry.weight * entry.vote.confidence;
-      totalWeight += entry.weight;
+      const weightedConfidence = (entry.weight ?? 0) * entry.vote.confidence;
+      totalWeight += (entry.weight ?? 0);
 
       if (entry.vote.vote === 'BUY') {
         buyScore += weightedConfidence;
@@ -1360,55 +1361,55 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
     console.log(`[Alpha Coordinator] 🎯 Applying ${riskMode.toUpperCase()} risk profile base weights:`, riskProfileWeights);
 
     const weights: Record<string, number> = {
-      trend: riskProfileWeights.trend,
-      scalper: riskProfileWeights.scalper,
-      confirmation: riskProfileWeights.confirmation,
-      reversal: riskProfileWeights.reversal,
-      volatility: riskProfileWeights.volatility,
-      risk: riskProfileWeights.risk,
+      trend: riskProfileWeights.trend ?? 1.0,
+      scalper: riskProfileWeights.scalper ?? 1.0,
+      confirmation: riskProfileWeights.confirmation ?? 1.0,
+      reversal: riskProfileWeights.reversal ?? 1.0,
+      volatility: riskProfileWeights.volatility ?? 1.0,
+      risk: riskProfileWeights.risk ?? 1.0,
       omega8: 1.0  // Omega8 weighted separately
     };
 
     // Adjust by market regime (multiplicative to preserve risk profile intent)
     if (marketContext.regime === 'bull' || marketContext.regime === 'bear') {
-      weights.trend *= 1.3;      // Trending - boost trend specialist
-      weights.confirmation *= 1.2;      // Structure matters in trends
-      weights.scalper *= 0.9;    // Slightly reduce scalping in strong trends
+      weights.trend = (weights.trend ?? 1.0) * 1.3;      // Trending - boost trend specialist
+      weights.confirmation = (weights.confirmation ?? 1.0) * 1.2;      // Structure matters in trends
+      weights.scalper = (weights.scalper ?? 1.0) * 0.9;    // Slightly reduce scalping in strong trends
     } else if (marketContext.regime === 'side') {
-      weights.scalper *= 1.3;    // Ranging - boost scalper
-      weights.reversal *= 1.2;   // Reversals common in ranges
-      weights.trend *= 0.9;      // Slightly reduce trend following
+      weights.scalper = (weights.scalper ?? 1.0) * 1.3;    // Ranging - boost scalper
+      weights.reversal = (weights.reversal ?? 1.0) * 1.2;   // Reversals common in ranges
+      weights.trend = (weights.trend ?? 1.0) * 0.9;      // Slightly reduce trend following
     }
 
     // Adjust by volatility (multiplicative)
     if (marketContext.volatility === 'high') {
-      weights.volatility *= 1.4; // Boost volatility specialist
-      weights.risk *= 1.3;       // Risk is critical in volatility
-      weights.scalper *= 0.8;    // Scalping riskier in high vol
+      weights.volatility = (weights.volatility ?? 1.0) * 1.4; // Boost volatility specialist
+      weights.risk = (weights.risk ?? 1.0) * 1.3;       // Risk is critical in volatility
+      weights.scalper = (weights.scalper ?? 1.0) * 0.8;    // Scalping riskier in high vol
     } else if (marketContext.volatility === 'low') {
-      weights.scalper *= 1.2;    // Scalping good in low vol
-      weights.volatility *= 0.95;
+      weights.scalper = (weights.scalper ?? 1.0) * 1.2;    // Scalping good in low vol
+      weights.volatility = (weights.volatility ?? 1.0) * 0.95;
     }
 
     // Adjust by trader personality
     if (traderScore.confidence_level === 'aggressive') {
-      weights.scalper = weights.scalper * 1.2;
-      weights.reversal = weights.reversal * 1.1;
-      weights.risk = weights.risk * 0.9;
+      weights.scalper = (weights.scalper ?? 1.0) * 1.2;
+      weights.reversal = (weights.reversal ?? 1.0) * 1.1;
+      weights.risk = (weights.risk ?? 1.0) * 0.9;
     } else if (traderScore.confidence_level === 'cautious') {
-      weights.risk = weights.risk * 1.5;     // Risk is VERY important
-      weights.confirmation = weights.confirmation * 1.2;   // Structure confirmation
-      weights.scalper = weights.scalper * 0.8;
+      weights.risk = (weights.risk ?? 1.0) * 1.5;     // Risk is VERY important
+      weights.confirmation = (weights.confirmation ?? 1.0) * 1.2;   // Structure confirmation
+      weights.scalper = (weights.scalper ?? 1.0) * 0.8;
     }
 
     // Losing streak - weight risk more heavily (but still advisory)
-    if (traderScore.winRate < 0.5) {
-      weights.risk = weights.risk * 1.3;
+    if (traderScore.win_rate < 0.5) {
+      weights.risk = (weights.risk ?? 1.0) * 1.3;
     }
 
     // High score - trust trend more
     if (traderScore.current_score >= 85) {
-      weights.trend = weights.trend * 1.2;
+      weights.trend = (weights.trend ?? 1.0) * 1.2;
     }
 
     // Risk remains advisory - do NOT enforce minimum weight
@@ -1419,13 +1420,13 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       weights.omega8 = 1.5;  // High confidence orderflow analysis
     }
     if (marketContext.regime === 'side') {
-      weights.omega8 = weights.omega8 * 1.2;  // Boost in ranging markets (stop-run risk higher)
+      weights.omega8 = (weights.omega8 ?? 1.0) * 1.2;  // Boost in ranging markets (stop-run risk higher)
     }
     if (marketContext.volatility === 'high') {
-      weights.omega8 = weights.omega8 * 1.15;  // Boost in high volatility (liquidity matters more)
+      weights.omega8 = (weights.omega8 ?? 1.0) * 1.15;  // Boost in high volatility (liquidity matters more)
     }
     if (traderScore.confidence_level === 'cautious') {
-      weights.omega8 = weights.omega8 * 1.1;  // Cautious traders value liquidity analysis
+      weights.omega8 = (weights.omega8 ?? 1.0) * 1.1;  // Cautious traders value liquidity analysis
     }
 
     // Omega-10 Meta-Reasoning Overrides (System-Level Intelligence)
@@ -1504,7 +1505,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
     parts.push(`Market: ${marketContext.symbol} | ${marketContext.regime} | ${marketContext.volatility} vol`);
     parts.push(`Price: ${marketContext.price} | ATR: ${marketContext.atr}`);
-    parts.push(`Trader: ${traderScore.confidence_level} (Score: ${traderScore.current_score}, Win Rate: ${(traderScore.winRate * 100).toFixed(1)}%)`);
+    parts.push(`Trader: ${traderScore.confidence_level} (Score: ${traderScore.current_score}, Win Rate: ${(traderScore.win_rate * 100).toFixed(1)}%)`);
 
     if (platformIntelligence) {
       parts.push('');
@@ -1659,6 +1660,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
           console.error('[Alpha Coordinator] WAIT action missing required wait_condition fields');
           return {
             action: 'NO_TRADE',
+            decision: 'NO_TRADE',
             entry: currentPrice,
             stopLoss: currentPrice,
             takeProfit: currentPrice,
@@ -1670,6 +1672,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
         return {
           action: 'WAIT',
+          decision: 'WAIT',
           entry: (waitCondition.target_entry_zone_min + waitCondition.target_entry_zone_max) / 2,
           stopLoss: waitCondition.invalidation_price,
           takeProfit: currentPrice,
@@ -1737,6 +1740,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
         console.error(`[Alpha Coordinator] 🚨 CATASTROPHIC ERROR: ${errorReason}`);
         return {
           action: 'NO_TRADE',
+          decision: 'NO_TRADE',
           entry: currentPrice,
           stopLoss: currentPrice,
           takeProfit: currentPrice,
@@ -1810,6 +1814,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       console.error('[Alpha Coordinator] Parse error:', error);
       return {
         action: 'NO_TRADE',
+        decision: 'NO_TRADE',
         entry: currentPrice,
         stopLoss: currentPrice,
         takeProfit: currentPrice,

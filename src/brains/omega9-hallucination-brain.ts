@@ -34,7 +34,6 @@ export interface Omega9Input {
   omegaVotes: {
     trend: OmegaVote | null;
     scalper: OmegaVote | null;
-    swing: OmegaVote | null;
     reversal: OmegaVote | null;
     volatility: OmegaVote | null;
     risk: OmegaVote | null;

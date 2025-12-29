@@ -23,7 +23,6 @@ describe('Omega-9 Hallucination Defense Brain', () => {
       omegaVotes: {
         trend: { vote: 'BUY', confidence: 80, reasoning: 'Bullish trend' },
         scalper: { vote: 'BUY', confidence: 70, reasoning: 'Good entry' },
-        swing: { vote: 'BUY', confidence: 75, reasoning: 'Structure supports' },
         reversal: { vote: 'NO_TRADE', confidence: 60, reasoning: 'Wait for confirmation' },
         volatility: { vote: 'BUY', confidence: 65, reasoning: 'Acceptable vol' },
         risk: { vote: 'BUY', confidence: 85, reasoning: 'Risk acceptable' }
@@ -204,7 +203,6 @@ describe('Omega-9 Hallucination Defense Brain', () => {
         omegaVotes: {
           trend: { vote: 'BUY', confidence: 80, reasoning: 'Bullish' },
           scalper: { vote: 'SELL', confidence: 70, reasoning: 'Bearish' },
-          swing: { vote: 'BUY', confidence: 75, reasoning: 'Structure' },
           reversal: { vote: 'SELL', confidence: 60, reasoning: 'Reversal' },
           volatility: { vote: 'BUY', confidence: 65, reasoning: 'Vol ok' },
           risk: { vote: 'BUY', confidence: 85, reasoning: 'Risk ok' }
