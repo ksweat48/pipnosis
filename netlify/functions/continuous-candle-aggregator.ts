@@ -732,11 +732,14 @@ async function aggregateCandlesForSymbol(
       }
 
       if (candle) {
-        // CRITICAL: Check if candle is during market open hours
-        // Skip weekend candles for forex (crypto trades 24/7)
-        if (!isMarketOpenAtTime(candle.open_time, symbol)) {
-          currentCandleToCreate = new Date(currentCandleToCreate.getTime() + timeframeMinutes * 60 * 1000);
-          continue;
+        // CRITICAL FIX: ALWAYS save candles to maintain historical continuity
+        // The market hours filter was causing M1/M5 candles to disappear every weekend
+        // We MUST save ALL candles (including weekend) to preserve chart history
+        // Weekend candles can be filtered during DISPLAY if needed, but must exist in DB
+
+        const wasMarketOpen = isMarketOpenAtTime(candle.open_time, symbol);
+        if (!wasMarketOpen) {
+          console.log(`[CandleAggregator]       💾 Including weekend/closed candle for ${symbol} ${timeframe} at ${candle.open_time.toISOString()} (preserves history)`);
         }
 
         // OPTIMIZATION: Collect candles for batch insert

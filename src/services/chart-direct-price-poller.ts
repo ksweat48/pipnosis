@@ -10,12 +10,14 @@
  * Falls back to database polling if MetaAPI is unavailable.
  *
  * CRITICAL CONFIGURATION:
- * - All symbols: 3000ms (3 seconds) - Unified polling for consistent behavior
- * - Standardized interval prevents race conditions between pollers
+ * - Crypto: 1000ms (1 second) - Faster for 24/7 markets
+ * - Forex: 3000ms (3 seconds) - Industry standard for 5-day markets
+ * - Market-optimized intervals prevent race conditions
  * - Balances real-time feel with API rate limits
  *
  * DO NOT CHANGE:
- * - POLL_INTERVAL: 3000ms (unified for all markets)
+ * - CRYPTO_POLL_INTERVAL: 1000ms
+ * - FOREX_POLL_INTERVAL: 3000ms
  * - Visibility detection logic
  * - Fallback mechanism (MetaAPI → Database)
  *
@@ -29,9 +31,9 @@ import { isSymbolMarketOpen, hasAnyOpenMarket } from '@/utils/marketHours';
 import { shouldDisableMetaAPI } from '@/lib/environment';
 import { circuitBreakerService } from './circuit-breaker-service';
 
-// CRITICAL: Unified polling interval for all markets
-const CRYPTO_POLL_INTERVAL = 3000;  // 3000ms - unified with forex for consistent behavior
-const FOREX_POLL_INTERVAL = 3000;   // 3000ms - industry standard for retail forex
+// CRITICAL: Optimized polling intervals for market characteristics
+const CRYPTO_POLL_INTERVAL = 1000;  // 1000ms (1 second) - faster for 24/7 markets
+const FOREX_POLL_INTERVAL = 3000;   // 3000ms (3 seconds) - industry standard for retail forex
 
 // Crypto symbols that get high-frequency updates
 const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];

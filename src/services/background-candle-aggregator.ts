@@ -91,15 +91,18 @@ class BackgroundCandleAggregator {
   }
 
   private async saveCompletedCandle(symbol: string, timeframe: Timeframe, candle: CandleState): Promise<void> {
-    // CRITICAL: Check if candle timestamp is during open market hours
-    // Prevent saving fake candles from Saturday/Sunday
-    if (!isMarketOpenAt(candle.time)) {
+    // CRITICAL FIX: ALWAYS save candles to maintain historical continuity
+    // Weekend candles are essential for chart history - they must be persisted!
+    // The market hours filter was causing M1/M5 candles to disappear every weekend
+    // We save ALL candles but can filter during display if needed
+
+    const wasMarketOpen = isMarketOpenAt(candle.time);
+    if (!wasMarketOpen) {
       const dateStr = new Date(candle.time * 1000).toISOString();
       logger.debug(
         LogCategory.BACKGROUND_AGGREGATOR,
-        `🚫 Skipping save for ${symbol} ${timeframe} - market was closed at ${dateStr}`
+        `💾 Saving weekend/closed candle for ${symbol} ${timeframe} at ${dateStr} (preserves history)`
       );
-      return;
     }
 
     const openTime = new Date(candle.startTime);
