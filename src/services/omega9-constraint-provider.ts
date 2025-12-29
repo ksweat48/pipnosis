@@ -70,7 +70,7 @@ class Omega9ConstraintProvider {
 
     // Calculate MINIMUM TP for R:R ≥ 1.0
     // This is the critical constraint that prevents the "0.99 R:R block" problem
-    const minTakeProfitPips = referenceSLPips * 1.0; // Exactly 1:1 minimum
+    const idealMinTakeProfitPips = referenceSLPips * 1.0; // Exactly 1:1 minimum
     const targetTakeProfitPips = referenceSLPips * 1.5; // Professional target
     const optimalTakeProfitPips = Math.min(referenceSLPips * 2.0, tpCeiling.maxDistancePips); // Elite target, capped by ceiling
 
@@ -80,6 +80,29 @@ class Omega9ConstraintProvider {
 
     // Build constraint violations (empty initially, used for validation later)
     const violations: ConstraintViolation[] = [];
+
+    // CRITICAL: Check if 1:1 R:R is even possible given the TP ceiling
+    // This prevents impossible constraint ranges (minTP > maxTP)
+    let minTakeProfitPips = idealMinTakeProfitPips;
+    let minRiskReward = 1.0;
+    let constraintFeasibilityWarning = '';
+
+    if (idealMinTakeProfitPips > tpCeiling.maxDistancePips) {
+      // INFEASIBLE: SL too wide for the ceiling - 1:1 R:R is impossible
+      minTakeProfitPips = tpCeiling.maxDistancePips; // Cap minimum to ceiling
+      minRiskReward = tpCeiling.maxDistancePips / referenceSLPips; // Actual achievable R:R
+      constraintFeasibilityWarning = `⚠️ CONSTRAINT INFEASIBILITY: SL ${referenceSLPips.toFixed(1)} pips requires ${idealMinTakeProfitPips.toFixed(1)} pips TP for 1:1 R:R, but ceiling is only ${tpCeiling.maxDistancePips.toFixed(1)} pips. Maximum achievable R:R is ${minRiskReward.toFixed(2)}:1`;
+
+      console.warn('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.warn('[Omega-9 Constraints] ⚠️ INFEASIBLE SETUP DETECTED:');
+      console.warn(`[Omega-9 Constraints] • SL: ${referenceSLPips.toFixed(1)} pips`);
+      console.warn(`[Omega-9 Constraints] • TP Ceiling: ${tpCeiling.maxDistancePips.toFixed(1)} pips`);
+      console.warn(`[Omega-9 Constraints] • Minimum 1:1 R:R needs: ${idealMinTakeProfitPips.toFixed(1)} pips`);
+      console.warn(`[Omega-9 Constraints] • Maximum achievable R:R: ${minRiskReward.toFixed(2)}:1`);
+      console.warn('[Omega-9 Constraints] • This setup cannot achieve professional 1:1 R:R minimum');
+      console.warn('[Omega-9 Constraints] • Recommendation: NO_TRADE or tighten SL');
+      console.warn('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    }
 
     const constraints: Omega9Constraints = {
       // Stop-Loss Constraints
@@ -92,10 +115,10 @@ class Omega9ConstraintProvider {
       minTakeProfitPips,
       maxTakeProfitPips: tpCeiling.maxDistancePips,
       recommendedTakeProfitPips: Math.min(targetTakeProfitPips, tpCeiling.maxDistancePips),
-      takeProfitReasoning: `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ 1.0). Target: ${targetTakeProfitPips.toFixed(1)} pips (R:R ≥ 1.5). Ceiling: ${tpCeiling.maxDistancePips.toFixed(1)} pips (${tpCeiling.limitingFactor})`,
+      takeProfitReasoning: constraintFeasibilityWarning || `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${minRiskReward.toFixed(1)}:1). Target: ${targetTakeProfitPips.toFixed(1)} pips (R:R ≥ 1.5:1). Ceiling: ${tpCeiling.maxDistancePips.toFixed(1)} pips (${tpCeiling.limitingFactor})`,
 
       // Risk:Reward Constraints
-      minRiskReward: 1.0,
+      minRiskReward,
       targetRiskReward: 1.5,
       optimalRiskReward: 2.0,
 
@@ -208,6 +231,7 @@ class Omega9ConstraintProvider {
     newStopLoss?: number;
     newTakeProfit?: number;
     corrections: string[];
+    infeasible?: boolean;
   } {
     const corrections: string[] = [];
     let newStopLoss = decision.stopLoss;
@@ -218,24 +242,36 @@ class Omega9ConstraintProvider {
     const tpPips = calculatePipDistance(symbol, decision.entry, decision.takeProfit);
     const rr = slPips > 0 ? tpPips / slPips : 0;
 
-    // Auto-correct R:R < 1.0 (minimum professional standard)
-    if (rr < 1.0) {
-      const minTPPips = slPips * 1.0; // Exactly 1:1
-      const isBuy = decision.direction === 'BUY';
-
-      if (isBuy) {
-        newTakeProfit = decision.entry + (minTPPips / 10000); // Convert pips to price
-      } else {
-        newTakeProfit = decision.entry - (minTPPips / 10000);
-      }
-
-      corrections.push(`Auto-corrected TP from ${tpPips.toFixed(1)} pips to ${minTPPips.toFixed(1)} pips (R:R ${rr.toFixed(2)} → 1.00)`);
-      corrected = true;
+    // Check if constraints themselves are infeasible (minRiskReward < 1.0)
+    // This means even the maximum TP can't achieve 1:1 R:R
+    if (constraints.minRiskReward < 1.0) {
+      corrections.push(`Trade infeasible: Maximum achievable R:R is ${constraints.minRiskReward.toFixed(2)}:1 (below 1:1 professional minimum)`);
+      corrections.push(`SL ${slPips.toFixed(1)} pips too wide for TP ceiling ${constraints.maxTakeProfitPips.toFixed(1)} pips`);
+      corrections.push(`Recommendation: NO_TRADE or tighten SL to ≤ ${constraints.maxTakeProfitPips.toFixed(1)} pips`);
+      return {
+        corrected: false,
+        infeasible: true,
+        corrections
+      };
     }
 
-    // Auto-correct TP ceiling violation (physics constraint)
-    const correctedTPPips = calculatePipDistance(symbol, decision.entry, newTakeProfit);
-    if (correctedTPPips > constraints.maxTakeProfitPips) {
+    // Check if TP ceiling makes 1:1 R:R impossible for this specific SL
+    const minTPForRR = slPips * 1.0;
+    if (minTPForRR > constraints.maxTakeProfitPips) {
+      // INFEASIBLE: SL too wide for ceiling - cannot achieve 1:1 R:R
+      const actualRR = constraints.maxTakeProfitPips / slPips;
+      corrections.push(`Trade infeasible: SL ${slPips.toFixed(1)} pips requires ${minTPForRR.toFixed(1)} pips TP for 1:1 R:R`);
+      corrections.push(`TP ceiling is ${constraints.maxTakeProfitPips.toFixed(1)} pips, maximum R:R is ${actualRR.toFixed(2)}:1`);
+      corrections.push(`Recommendation: NO_TRADE or tighten SL to ≤ ${constraints.maxTakeProfitPips.toFixed(1)} pips`);
+      return {
+        corrected: false,
+        infeasible: true,
+        corrections
+      };
+    }
+
+    // Auto-correct TP ceiling violation first (physics constraint)
+    if (tpPips > constraints.maxTakeProfitPips) {
       const isBuy = decision.direction === 'BUY';
 
       if (isBuy) {
@@ -244,15 +280,48 @@ class Omega9ConstraintProvider {
         newTakeProfit = decision.entry - (constraints.maxTakeProfitPips / 10000);
       }
 
-      corrections.push(`Auto-corrected TP from ${correctedTPPips.toFixed(1)} pips to ${constraints.maxTakeProfitPips.toFixed(1)} pips (ceiling constraint)`);
+      corrections.push(`Auto-corrected TP from ${tpPips.toFixed(1)} pips to ${constraints.maxTakeProfitPips.toFixed(1)} pips (ceiling constraint)`);
       corrected = true;
+    }
+
+    // Now check R:R with the potentially corrected TP
+    const finalTPPips = calculatePipDistance(symbol, decision.entry, newTakeProfit);
+    const finalRR = slPips > 0 ? finalTPPips / slPips : 0;
+
+    // Auto-correct R:R < minRiskReward (respects the constraint's actual minimum)
+    // Only if it won't violate the ceiling we just applied
+    if (finalRR < constraints.minRiskReward) {
+      const minTPPips = slPips * constraints.minRiskReward;
+
+      // Double-check ceiling (should not happen after previous check, but safety)
+      if (minTPPips <= constraints.maxTakeProfitPips) {
+        const isBuy = decision.direction === 'BUY';
+
+        if (isBuy) {
+          newTakeProfit = decision.entry + (minTPPips / 10000);
+        } else {
+          newTakeProfit = decision.entry - (minTPPips / 10000);
+        }
+
+        corrections.push(`Auto-corrected TP from ${finalTPPips.toFixed(1)} pips to ${minTPPips.toFixed(1)} pips (R:R ${finalRR.toFixed(2)} → ${constraints.minRiskReward.toFixed(2)})`);
+        corrected = true;
+      } else {
+        // This should have been caught earlier but just in case
+        corrections.push(`Cannot correct R:R: would violate ceiling constraint`);
+        return {
+          corrected: false,
+          infeasible: true,
+          corrections
+        };
+      }
     }
 
     return {
       corrected,
       newStopLoss: corrected ? newStopLoss : undefined,
       newTakeProfit: corrected ? newTakeProfit : undefined,
-      corrections
+      corrections,
+      infeasible: false
     };
   }
 
@@ -260,10 +329,18 @@ class Omega9ConstraintProvider {
    * Format constraints for inclusion in Alpha's prompt
    */
   formatConstraintsForPrompt(constraints: Omega9Constraints): string {
+    const infeasibleSetup = constraints.minRiskReward < 1.0;
+    const infeasibleWarning = infeasibleSetup ? `
+⚠️ INFEASIBLE SETUP WARNING:
+The TP ceiling (${constraints.maxTakeProfitPips.toFixed(1)} pips) prevents achieving 1:1 R:R.
+Maximum achievable R:R is ${constraints.minRiskReward.toFixed(2)}:1.
+STRONG RECOMMENDATION: Return NO_TRADE or tighten SL to ≤ ${constraints.maxTakeProfitPips.toFixed(1)} pips.
+` : '';
+
     return `
 🎯 OMEGA-9 TRADING CONSTRAINTS (Your Operating Boundaries)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+${infeasibleWarning}
 These are your DECISION BOUNDARIES, not vetoes.
 You have FULL AUTHORITY to choose within these ranges.
 
@@ -274,13 +351,13 @@ STOP-LOSS BOUNDARIES:
 • Rationale: ${constraints.stopLossReasoning}
 
 TAKE-PROFIT BOUNDARIES:
-• Minimum: ${constraints.minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${constraints.minRiskReward}:1)
+• Minimum: ${constraints.minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${constraints.minRiskReward.toFixed(2)}:1)
 • Recommended: ${constraints.recommendedTakeProfitPips.toFixed(1)} pips (R:R ≥ ${constraints.targetRiskReward}:1)
 • Maximum: ${constraints.maxTakeProfitPips.toFixed(1)} pips (session ceiling)
 • Rationale: ${constraints.takeProfitReasoning}
 
 RISK:REWARD REQUIREMENTS:
-• MINIMUM: ${constraints.minRiskReward}:1 (professional floor - auto-corrected if violated)
+• MINIMUM: ${constraints.minRiskReward.toFixed(2)}:1 ${infeasibleSetup ? '(⚠️ BELOW PROFESSIONAL STANDARD)' : '(professional floor - auto-corrected if violated)'}
 • TARGET: ${constraints.targetRiskReward}:1 (standard professional expectation)
 • OPTIMAL: ${constraints.optimalRiskReward}:1 (elite trader standard)
 
@@ -294,9 +371,10 @@ YOUR AUTHORITY:
 ✅ You may choose ANY TP within min-max range
 ✅ You may override recommendations with reasoning
 ✅ You may tighten or widen based on structure
+${infeasibleSetup ? '⚠️ STRONG RECOMMENDATION: NO_TRADE due to infeasible constraints' : ''}
 
 WHAT HAPPENS IF YOU VIOLATE:
-• R:R < ${constraints.minRiskReward}:1 → Auto-corrected to minimum (small confidence penalty)
+• R:R < ${constraints.minRiskReward.toFixed(2)}:1 → Auto-corrected to minimum (confidence penalty)
 • TP > ceiling → Auto-corrected to ceiling (moderate confidence penalty)
 • SL outside range → Warning only (no correction, your choice)
 
