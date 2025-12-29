@@ -74,6 +74,7 @@ import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ra
 import { riskAwareStopCalculator, type StopLossCalculation } from '../services/risk-aware-stop-calculator';
 import { eliteProfitTargetCalculator, type LiquidityZone, type TPCalculationResult } from '../services/profit-target-calculator';
 import { tpCeilingCalculator, type TPCeilingResult } from '../services/tp-ceiling-calculator';
+import { calculatePipDistance } from '../utils/currencyHelpers';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -955,16 +956,8 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
       // Log Alpha's stop placement vs anchor (Enhanced Stop Tracking)
       if (decision.action !== 'NO_TRADE' && stopLossAnchor) {
-        // Use same pip calculation as validation logic (consistent with lines 1624-1631)
-        let pipValue = 0.0001; // Standard forex (4 decimals)
-        if (marketContext.symbol.includes('JPY')) {
-          pipValue = 0.01; // JPY pairs (2 decimals)
-        } else if (marketContext.symbol.includes('BTC') || marketContext.symbol.includes('ETH')) {
-          pipValue = 1.0; // Crypto - 1 full point = 1 pip
-        } else if (marketContext.symbol.includes('XAU') || marketContext.symbol.includes('GOLD')) {
-          pipValue = 0.1; // Gold - 10 cents = 1 pip
-        }
-        const alphaSLPips = Math.abs(decision.entry - decision.stopLoss) / pipValue;
+        // Use centralized pip calculation for consistency across all symbols (forex, crypto, indices)
+        const alphaSLPips = calculatePipDistance(marketContext.symbol, decision.entry, decision.stopLoss);
         const anchorSLPips = stopLossAnchor.stopLossPips;
         const deviation = alphaSLPips - anchorSLPips;
         const deviationPercent = (deviation / anchorSLPips) * 100;
@@ -1172,7 +1165,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       if (decision.action !== 'NO_TRADE' && decision.action !== 'WAIT') {
         console.log('[Alpha Coordinator] ⏱️  Running Time-to-Fill validation...');
 
-        const tpDistancePips = Math.abs(decision.takeProfit - decision.entry) / (marketContext.symbol.includes('JPY') ? 0.01 : 0.0001);
+        const tpDistancePips = calculatePipDistance(marketContext.symbol, decision.entry, decision.takeProfit);
         const atrPips = marketContext.atr;
 
         // Determine current session
@@ -1722,22 +1715,15 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       }
 
       // 3. Check for zero/missing distance (< 5 pips minimum for survival)
-      // Calculate correct pip value based on symbol type
-      let pipValue = 0.0001; // Standard forex (4 decimals)
-      if (symbol.includes('JPY')) {
-        pipValue = 0.01; // JPY pairs (2 decimals)
-      } else if (symbol.includes('BTC') || symbol.includes('ETH')) {
-        pipValue = 1.0; // Crypto - 1 full point = 1 pip
-      } else if (symbol.includes('XAU') || symbol.includes('GOLD')) {
-        pipValue = 0.1; // Gold - 10 cents = 1 pip
-      }
-
+      // Use centralized pip calculation for consistency across all symbols
       const MIN_SURVIVAL_PIPS = 5;
-      const minDistance = MIN_SURVIVAL_PIPS * pipValue;
 
-      if (stopLoss && Math.abs(entry - stopLoss) < minDistance) {
-        errorReason = `Stop distance < ${MIN_SURVIVAL_PIPS} pips - below survival minimum`;
-        catastrophicError = true;
+      if (stopLoss) {
+        const stopDistancePips = calculatePipDistance(symbol, entry, stopLoss);
+        if (stopDistancePips < MIN_SURVIVAL_PIPS) {
+          errorReason = `Stop distance < ${MIN_SURVIVAL_PIPS} pips - below survival minimum`;
+          catastrophicError = true;
+        }
       }
 
       // 4. Missing SL/TP entirely
