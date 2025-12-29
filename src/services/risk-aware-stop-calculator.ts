@@ -11,7 +11,7 @@
  */
 
 import { getRiskStrategyProfile, getStopLossMultiplierRange, getTypicalStopPipsRange } from '../config/risk-strategy-profiles';
-import { getCurrencyPipInfo, isXAUUSD, isJPYPair, isIndex } from '../utils/currencyHelpers';
+import { getCurrencyPipInfo, isXAUUSD, isJPYPair, isIndex, isCrypto } from '../utils/currencyHelpers';
 
 export interface StopLossCalculation {
   stopLossPips: number;
@@ -38,6 +38,11 @@ class RiskAwareStopCalculator {
    */
   calculateStopLoss(inputs: StopCalculatorInputs): StopLossCalculation {
     const { symbol, entryPrice, direction, riskMode, atr, marketVolatility = 'normal' } = inputs;
+
+    // CRYPTO SPECIAL HANDLING: Use percentage-based stops instead of pip-based
+    if (isCrypto(symbol)) {
+      return this.calculateCryptoStopLoss(inputs);
+    }
 
     const profile = getRiskStrategyProfile(riskMode);
     const pipInfo = getCurrencyPipInfo(symbol);
@@ -111,6 +116,113 @@ class RiskAwareStopCalculator {
       withinProfileRange,
       profileMinPips: minPips,
       profileMaxPips: maxPips
+    };
+  }
+
+  /**
+   * Calculate crypto-specific stop loss using PERCENTAGE instead of pips
+   * This prevents microscopic stops like $20 on $90k BTC
+   */
+  private calculateCryptoStopLoss(inputs: StopCalculatorInputs): StopLossCalculation {
+    const { symbol, entryPrice, direction, riskMode, atr, marketVolatility = 'normal' } = inputs;
+
+    const profile = getRiskStrategyProfile(riskMode);
+
+    // Percentage-based stop ranges for crypto
+    let minPercent: number;
+    let maxPercent: number;
+
+    switch (riskMode) {
+      case 'high': // Aggressive/Scalp
+        minPercent = 0.5;
+        maxPercent = 1.5;
+        break;
+      case 'medium': // Balanced/Day
+        minPercent = 1.0;
+        maxPercent = 2.5;
+        break;
+      case 'low': // Conservative/Swing
+        minPercent = 2.0;
+        maxPercent = 4.0;
+        break;
+    }
+
+    console.log(`[Crypto Stop Calculator] ${symbol} ${riskMode.toUpperCase()} mode:`);
+    console.log(`  Entry Price: $${entryPrice.toFixed(2)}`);
+    console.log(`  Profile: ${profile.tradingStyle}`);
+    console.log(`  Percentage Range: ${minPercent}% - ${maxPercent}%`);
+
+    // Calculate stop percentage
+    let stopPercent: number;
+
+    if (atr && atr > 0) {
+      // ATR-based: Convert ATR to percentage and scale
+      const atrPercent = (atr / entryPrice) * 100;
+      stopPercent = atrPercent * 1.5; // Scale ATR by 1.5x
+      console.log(`  ATR: $${atr.toFixed(2)} (${atrPercent.toFixed(2)}%)`);
+      console.log(`  ATR-based stop: ${stopPercent.toFixed(2)}%`);
+    } else {
+      // No ATR: Use middle of range
+      stopPercent = (minPercent + maxPercent) / 2;
+      console.log(`  No ATR: Using mid-range ${stopPercent.toFixed(2)}%`);
+    }
+
+    // Adjust for market volatility
+    if (marketVolatility === 'high') {
+      stopPercent *= 1.2; // Wider stops in high volatility
+      console.log(`  High volatility: Adjusted to ${stopPercent.toFixed(2)}%`);
+    } else if (marketVolatility === 'low') {
+      stopPercent *= 0.9; // Tighter stops in low volatility
+      console.log(`  Low volatility: Adjusted to ${stopPercent.toFixed(2)}%`);
+    }
+
+    // Clamp to min/max range
+    const beforeClamp = stopPercent;
+    stopPercent = Math.max(minPercent, Math.min(maxPercent, stopPercent));
+    const withinProfileRange = (beforeClamp === stopPercent);
+
+    if (!withinProfileRange) {
+      console.log(`  Clamped: ${beforeClamp.toFixed(2)}% → ${stopPercent.toFixed(2)}%`);
+    }
+
+    // Calculate stop distance and price
+    const stopDistance = entryPrice * (stopPercent / 100);
+    const stopLossPrice = direction === 'buy'
+      ? entryPrice - stopDistance
+      : entryPrice + stopDistance;
+
+    // Convert to "pips" for compatibility (for crypto, 1 pip = $1)
+    const pipInfo = getCurrencyPipInfo(symbol);
+    const stopLossPips = stopDistance / pipInfo.pipValue;
+
+    // Generate reasoning
+    let reasoning = `${profile.tradingStyle.toUpperCase()} crypto: ${stopPercent.toFixed(2)}% = $${stopDistance.toFixed(2)}`;
+
+    if (!withinProfileRange) {
+      if (stopPercent === minPercent) {
+        reasoning += ' - clamped to minimum';
+      } else if (stopPercent === maxPercent) {
+        reasoning += ' - clamped to maximum';
+      }
+    }
+
+    if (marketVolatility !== 'normal') {
+      reasoning += ` - ${marketVolatility} volatility`;
+    }
+
+    console.log(`  Final Stop: ${stopPercent.toFixed(2)}% at $${stopLossPrice.toFixed(2)}`);
+    console.log(`  Stop Distance: $${stopDistance.toFixed(2)} (${stopLossPips.toFixed(1)} "pips")`);
+    console.log(`  Reasoning: ${reasoning}`);
+    console.log(`  ✅ MUCH BETTER than old 20 pip = $20 = 0.022% stop!`);
+
+    return {
+      stopLossPips,
+      stopLossPrice,
+      atrMultiplier: stopPercent / ((atr / entryPrice) * 100), // Back-calculate for compatibility
+      reasoning,
+      withinProfileRange,
+      profileMinPips: (entryPrice * minPercent / 100) / pipInfo.pipValue,
+      profileMaxPips: (entryPrice * maxPercent / 100) / pipInfo.pipValue
     };
   }
 
