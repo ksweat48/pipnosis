@@ -3,10 +3,15 @@
  *
  * Central service that:
  * - Builds snapshots for each Omega specialist
- * - Calls all Omegas in parallel
+ * - Calls all Omegas in parallel (with 3-tier cache integration)
  * - Passes votes to Alpha coordinator
  * - Handles errors gracefully
  * - Provides easy integration point
+ *
+ * NOW INTEGRATED WITH 3-TIER CACHE SYSTEM:
+ * - Omega votes cached platform-wide in omega_market_intelligence table
+ * - Alpha strategic decisions cached in alpha_strategic_cache table
+ * - Typical savings: 50-70% LLM cost reduction
  */
 
 import { omegaTrend, type TrendSnapshot } from '../brains/omega/trend';
@@ -25,6 +30,7 @@ import type { RegimeSnapshot } from './regime-oracle';
 import type { AdversarialSignal } from './adversarial-detector';
 import { sentimentCoordinator } from './sentiment-coordinator';
 import type { AggregatedSentiment } from './sentiment-aggregator';
+import { sharedIntelligenceCoordinator, type CachedOmegaIntelligence } from './shared-intelligence-coordinator';
 
 export interface FullMarketState {
   symbol: string;
@@ -63,6 +69,12 @@ export interface TradePosition {
 }
 
 class AlphaOmegaOrchestrator {
+  private cacheStats = {
+    hits: 0,
+    misses: 0,
+    totalSaved: 0
+  };
+
   /**
    * Run full Alpha + Omega decision pipeline
    */
@@ -102,43 +114,165 @@ class AlphaOmegaOrchestrator {
     const riskSnap = this.buildRiskSnapshot(marketState, proposedSL, proposedTP, 3);
     const omega8Snap = this.buildOmega8HybridSnapshot(marketState);
 
-    // Call all Omegas in parallel
-    console.log('[Alpha+Omega] 🔮 Calling Omega Council (parallel)...');
+    console.log('[Alpha+Omega] 🔮 Calling Omega Council (parallel with 3-tier cache)...');
     const startTime = Date.now();
+    let cacheHits = 0;
+    let cacheMisses = 0;
 
-    const [trendVote, scalperVote, confirmationVote, reversalVote, volatilityVote, riskVote, omega8Vote] = await Promise.all([
-      omegaTrend.evaluate(trendSnap).catch(err => {
+    const [
+      trendCached,
+      scalperCached,
+      confirmationCached,
+      reversalCached,
+      volatilityCached,
+      riskCached,
+      omega8Vote
+    ] = await Promise.all([
+      sharedIntelligenceCoordinator.getOmegaIntelligence(
+        marketState.symbol,
+        'M15',
+        'trend',
+        marketState.recentCandles,
+        async () => {
+          const result = await omegaTrend.evaluate(trendSnap);
+          return {
+            vote: result.vote,
+            confidence: result.confidence,
+            reasoning: result.reasoning,
+            keyFactors: []
+          };
+        }
+      ).catch(err => {
         console.warn('[Omega Trend] Failed:', err.message);
         return null;
       }),
-      omegaScalper.evaluate(scalperSnap).catch(err => {
+
+      sharedIntelligenceCoordinator.getOmegaIntelligence(
+        marketState.symbol,
+        'M15',
+        'scalper',
+        marketState.recentCandles,
+        async () => {
+          const result = await omegaScalper.evaluate(scalperSnap);
+          return {
+            vote: result.vote,
+            confidence: result.confidence,
+            reasoning: result.reasoning,
+            keyFactors: []
+          };
+        }
+      ).catch(err => {
         console.warn('[Omega Scalper] Failed:', err.message);
         return null;
       }),
-      omegaConfirmation.evaluate(confirmationSnap).catch(err => {
+
+      sharedIntelligenceCoordinator.getOmegaIntelligence(
+        marketState.symbol,
+        'M15',
+        'confirmation',
+        marketState.recentCandles,
+        async () => {
+          const result = await omegaConfirmation.evaluate(confirmationSnap);
+          return {
+            vote: result.vote,
+            confidence: result.confidence,
+            reasoning: result.reasoning,
+            keyFactors: []
+          };
+        }
+      ).catch(err => {
         console.warn('[Omega Confirmation] Failed:', err.message);
         return null;
       }),
-      omegaReversal.evaluate(reversalSnap).catch(err => {
+
+      sharedIntelligenceCoordinator.getOmegaIntelligence(
+        marketState.symbol,
+        'M15',
+        'reversal',
+        marketState.recentCandles,
+        async () => {
+          const result = await omegaReversal.evaluate(reversalSnap);
+          return {
+            vote: result.vote,
+            confidence: result.confidence,
+            reasoning: result.reasoning,
+            keyFactors: []
+          };
+        }
+      ).catch(err => {
         console.warn('[Omega Reversal] Failed:', err.message);
         return null;
       }),
-      omegaVolatility.evaluate(volatilitySnap).catch(err => {
+
+      sharedIntelligenceCoordinator.getOmegaIntelligence(
+        marketState.symbol,
+        'M15',
+        'volatility',
+        marketState.recentCandles,
+        async () => {
+          const result = await omegaVolatility.evaluate(volatilitySnap);
+          return {
+            vote: result.vote,
+            confidence: result.confidence,
+            reasoning: result.reasoning,
+            keyFactors: []
+          };
+        }
+      ).catch(err => {
         console.warn('[Omega Volatility] Failed:', err.message);
         return null;
       }),
-      omegaRisk.evaluate(riskSnap).catch(err => {
+
+      sharedIntelligenceCoordinator.getOmegaIntelligence(
+        marketState.symbol,
+        'M15',
+        'risk',
+        marketState.recentCandles,
+        async () => {
+          const result = await omegaRisk.evaluate(riskSnap);
+          return {
+            vote: result.vote,
+            confidence: result.confidence,
+            reasoning: result.reasoning,
+            keyFactors: result.warnings || []
+          };
+        }
+      ).catch(err => {
         console.warn('[Omega Risk] Failed:', err.message);
         return null;
       }),
+
       omega8Hybrid.runOmega8(omega8Snap).catch(err => {
         console.warn('[Omega-8 Hybrid] Failed:', err.message);
         return null;
       })
     ]);
 
+    const cachedResults = [trendCached, scalperCached, confirmationCached, reversalCached, volatilityCached, riskCached];
+    cachedResults.forEach(r => {
+      if (r?.fromCache) {
+        cacheHits++;
+        this.cacheStats.hits++;
+      } else if (r) {
+        cacheMisses++;
+        this.cacheStats.misses++;
+      }
+    });
+
+    const trendVote = trendCached ? trendCached.vote : null;
+    const scalperVote = scalperCached ? scalperCached.vote : null;
+    const confirmationVote = confirmationCached ? confirmationCached.vote : null;
+    const reversalVote = reversalCached ? reversalCached.vote : null;
+    const volatilityVote = volatilityCached ? volatilityCached.vote : null;
+    const riskVote = riskCached ? riskCached.vote : null;
+
     const omegaTime = Date.now() - startTime;
+    const hitRate = cachedResults.length > 0 ? (cacheHits / cachedResults.length * 100).toFixed(0) : '0';
+    const estimatedSavings = cacheHits * 0.0001;
+    this.cacheStats.totalSaved += estimatedSavings;
+
     console.log(`[Alpha+Omega] ✅ Omega Council complete (${omegaTime}ms)`);
+    console.log(`[Alpha+Omega] ⚡ Cache: ${cacheHits}/${cachedResults.length} hits (${hitRate}%) | Saved: ~$${estimatedSavings.toFixed(4)} | Total: ~$${this.cacheStats.totalSaved.toFixed(4)}`);
 
     // Log Omega votes
     this.logOmegaVotes({

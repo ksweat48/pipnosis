@@ -87,6 +87,7 @@ class SharedIntelligenceCoordinator {
   ): Promise<CachedOmegaIntelligence> {
     const snapshot = buildMarketStateSnapshot(symbol, timeframe, candles);
     if (!snapshot) {
+      console.log(`[SharedIntelligence] ⚠️ ${brainName}@${symbol}: No snapshot (insufficient data)`);
       const fresh = await fetchFreshFn();
       return {
         brainName,
@@ -101,6 +102,7 @@ class SharedIntelligenceCoordinator {
     const localKey = `omega:${symbol}:${timeframe}:${brainName}:${hash}`;
     const localCached = this.localOmegaCache.get(localKey);
     if (localCached && localCached.expiresAt > Date.now()) {
+      console.log(`[SharedIntelligence] ⚡ ${brainName}@${symbol}: LOCAL HIT (age: ${localCached.data.cacheAgeSeconds}s)`);
       await this.logCacheStat('omega', symbol, timeframe, 'lookup', 'hit', localCached.data.cacheAgeSeconds);
       return localCached.data;
     }
@@ -132,6 +134,7 @@ class SharedIntelligenceCoordinator {
           expiresAt: Date.now() + getTTLForTimeframe(timeframe)
         });
 
+        console.log(`[SharedIntelligence] ⚡ ${brainName}@${symbol}: DB HIT (age: ${result.cacheAgeSeconds}s, saved ~$0.0001)`);
         await this.logCacheStat('omega', symbol, timeframe, 'lookup', 'hit', result.cacheAgeSeconds, 1);
         return result;
       }
@@ -139,6 +142,7 @@ class SharedIntelligenceCoordinator {
       console.warn('[SharedIntelligence] DB cache lookup failed, fetching fresh:', err);
     }
 
+    console.log(`[SharedIntelligence] 🔄 ${brainName}@${symbol}: MISS - calling LLM`);
     await this.logCacheStat('omega', symbol, timeframe, 'lookup', 'miss', 0);
 
     const fresh = await fetchFreshFn();

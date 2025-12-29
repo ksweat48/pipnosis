@@ -9,7 +9,11 @@
  *
  * Note: Reddit removed due to unreliable JSON feeds and rate limiting.
  * All sources use proper APIs to avoid CORS issues.
- * 10-minute cache = ~144 calls/day maximum.
+ *
+ * NOW INTEGRATED WITH 3-TIER CACHE SYSTEM:
+ * - Uses omega_market_intelligence table (brain_name: 'sentiment')
+ * - Platform-wide cache sharing across all users
+ * - 15-minute TTL for sentiment data
  */
 
 import { supabase } from '@/lib/supabase';
@@ -39,42 +43,51 @@ class SentimentAggregator {
   private readonly WEIGHTS: SourceWeights = {
     finnhub: 0.35,
     fmp: 0.35,
-    reddit: 0.00, // Removed - unreliable, kept for backward compatibility
+    reddit: 0.00,
     feargreed: 0.20,
     coingecko: 0.10
   };
 
-  private readonly CACHE_DURATION_MINUTES = 10;
+  private readonly CACHE_DURATION_MINUTES = 15;
+  private readonly SENTIMENT_CACHE_KEY = 'GLOBAL_MARKET_SENTIMENT';
   private cachedSentiment: AggregatedSentiment | null = null;
   private cacheExpiry: Date | null = null;
 
-  /**
-   * Get aggregated sentiment (from cache or fresh)
-   */
+  private cacheStats = {
+    hits: 0,
+    misses: 0,
+    lastCost: 0
+  };
+
   async getAggregatedSentiment(input: SentimentInput): Promise<AggregatedSentiment> {
-    // Check cache first
     if (this.isCacheValid()) {
-      console.log('[SentimentAgg] Using cached sentiment');
+      this.cacheStats.hits++;
+      console.log(`[SentimentAgg] ⚡ Memory cache HIT (${this.cacheStats.hits} hits, saved ~$0.00014)`);
       return this.cachedSentiment!;
     }
 
-    // Check database cache
-    const dbCached = await this.getFromDatabase();
+    const dbCached = await this.getFromThreeTierCache();
     if (dbCached) {
-      console.log('[SentimentAgg] Using database cached sentiment');
-      this.cachedSentiment = dbCached;
+      this.cacheStats.hits++;
+      this.cachedSentiment = dbCached.sentiment;
       this.cacheExpiry = new Date(Date.now() + this.CACHE_DURATION_MINUTES * 60 * 1000);
-      return dbCached;
+      console.log(`[SentimentAgg] ⚡ 3-Tier cache HIT (age: ${dbCached.ageSeconds}s, saved ~$0.00014)`);
+      await this.logCacheStat('hit', dbCached.ageSeconds);
+      return dbCached.sentiment;
     }
 
-    // Generate fresh sentiment
-    console.log('[SentimentAgg] Generating fresh sentiment analysis...');
-    const sentiment = await this.generateFreshSentiment(input);
+    this.cacheStats.misses++;
+    console.log(`[SentimentAgg] 🔄 Cache MISS - Generating fresh analysis...`);
+    await this.logCacheStat('miss', 0);
 
-    // Cache in memory and database
+    const sentiment = await this.generateFreshSentiment(input);
     this.cachedSentiment = sentiment;
     this.cacheExpiry = new Date(Date.now() + this.CACHE_DURATION_MINUTES * 60 * 1000);
+    await this.saveToThreeTierCache(sentiment);
     await this.saveToDatabase(sentiment);
+
+    const hitRate = this.cacheStats.hits / (this.cacheStats.hits + this.cacheStats.misses) * 100;
+    console.log(`[SentimentAgg] 📊 Cache stats: ${hitRate.toFixed(0)}% hit rate (${this.cacheStats.hits}/${this.cacheStats.hits + this.cacheStats.misses})`);
 
     return sentiment;
   }
@@ -198,7 +211,7 @@ class SentimentAggregator {
   }
 
   /**
-   * Save sentiment to database
+   * Save sentiment to database (legacy table)
    */
   private async saveToDatabase(sentiment: AggregatedSentiment): Promise<void> {
     try {
@@ -215,6 +228,114 @@ class SentimentAggregator {
 
     } catch (error) {
       console.error('[SentimentAgg] Database save error:', error);
+    }
+  }
+
+  /**
+   * Get sentiment from 3-tier omega_market_intelligence cache
+   * This is platform-wide (all users share the same sentiment analysis)
+   */
+  private async getFromThreeTierCache(): Promise<{ sentiment: AggregatedSentiment; ageSeconds: number } | null> {
+    try {
+      const { data, error } = await supabase
+        .rpc('get_omega_intelligence', {
+          p_symbol: 'GLOBAL',
+          p_timeframe: 'SENTIMENT',
+          p_brain_name: 'sentiment',
+          p_market_state_hash: this.SENTIMENT_CACHE_KEY
+        });
+
+      if (error || !data || data.length === 0) {
+        return null;
+      }
+
+      const cached = data[0];
+      const rawSnapshot = cached.raw_snapshot;
+
+      if (!rawSnapshot || !rawSnapshot.sentiment) {
+        return null;
+      }
+
+      const sentiment: AggregatedSentiment = {
+        sentiment: rawSnapshot.sentiment,
+        usd_strength: rawSnapshot.usd_strength,
+        volatility: rawSnapshot.volatility,
+        bias: rawSnapshot.bias || 'neutral',
+        confidence: cached.confidence,
+        warnings: rawSnapshot.warnings || [],
+        summary: cached.reasoning || '',
+        timestamp: new Date(cached.created_at),
+        sources_used: rawSnapshot.sources_used || []
+      };
+
+      return {
+        sentiment,
+        ageSeconds: cached.cache_age_seconds
+      };
+    } catch (error) {
+      console.warn('[SentimentAgg] 3-tier cache lookup failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Save sentiment to 3-tier omega_market_intelligence cache
+   */
+  private async saveToThreeTierCache(sentiment: AggregatedSentiment): Promise<void> {
+    try {
+      const ttlMinutes = this.CACHE_DURATION_MINUTES;
+      const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
+
+      const voteMapping: Record<string, string> = {
+        'risk_on': 'BUY',
+        'risk_off': 'SELL',
+        'mixed': 'NEUTRAL'
+      };
+
+      await supabase.from('omega_market_intelligence').upsert({
+        symbol: 'GLOBAL',
+        timeframe: 'SENTIMENT',
+        brain_name: 'sentiment',
+        atr_price_bucket: 0,
+        market_state_hash: this.SENTIMENT_CACHE_KEY,
+        vote: voteMapping[sentiment.sentiment] || 'NEUTRAL',
+        confidence: sentiment.confidence,
+        reasoning: sentiment.summary,
+        key_factors: sentiment.warnings,
+        raw_snapshot: {
+          sentiment: sentiment.sentiment,
+          usd_strength: sentiment.usd_strength,
+          volatility: sentiment.volatility,
+          bias: sentiment.bias,
+          warnings: sentiment.warnings,
+          sources_used: sentiment.sources_used
+        },
+        expires_at: expiresAt.toISOString()
+      }, {
+        onConflict: 'symbol,timeframe,brain_name,market_state_hash'
+      });
+
+      console.log(`[SentimentAgg] ✅ Saved to 3-tier cache (TTL: ${ttlMinutes}min)`);
+    } catch (error) {
+      console.warn('[SentimentAgg] Failed to save to 3-tier cache:', error);
+    }
+  }
+
+  /**
+   * Log cache statistics to cache_stats_log
+   */
+  private async logCacheStat(hitOrMiss: 'hit' | 'miss', cacheAgeSeconds: number): Promise<void> {
+    try {
+      await supabase.from('cache_stats_log').insert({
+        cache_tier: 'omega',
+        symbol: 'GLOBAL',
+        timeframe: 'SENTIMENT',
+        event_type: 'lookup',
+        hit_or_miss: hitOrMiss,
+        cache_age_seconds: cacheAgeSeconds,
+        llm_calls_saved: hitOrMiss === 'hit' ? 1 : 0
+      });
+    } catch {
     }
   }
 
