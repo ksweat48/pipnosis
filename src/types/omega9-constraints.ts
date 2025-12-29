@@ -37,7 +37,7 @@ export interface Omega9Constraints {
 }
 
 export interface ConstraintViolation {
-  type: 'MIN_RR' | 'MAX_TP' | 'MIN_SL' | 'MAX_SL' | 'SESSION_TIME';
+  type: 'MIN_RR' | 'MAX_TP' | 'MIN_SL' | 'MAX_SL';
   severity: 'WARNING' | 'ERROR' | 'CATASTROPHIC';
   message: string;
   suggestedFix?: string;

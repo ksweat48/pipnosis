@@ -146,16 +146,13 @@ class AlphaRevisionHandler {
           suggestions.push(`Increase TP to ${constraints.minTakeProfitPips.toFixed(1)} pips for R:R ≥ 1.0`);
           break;
         case 'MAX_TP':
-          suggestions.push(`Reduce TP to ${constraints.maxTakeProfitPips.toFixed(1)} pips (session ceiling)`);
+          suggestions.push(`Reduce TP to ${constraints.maxTakeProfitPips.toFixed(1)} pips (maximum)`);
           break;
         case 'MIN_SL':
           suggestions.push(`Consider widening SL to ${constraints.recommendedStopLossPips.toFixed(1)} pips`);
           break;
         case 'MAX_SL':
           suggestions.push(`Consider tightening SL to ${constraints.recommendedStopLossPips.toFixed(1)} pips`);
-          break;
-        case 'SESSION_TIME':
-          suggestions.push(`Reduce TP to ${constraints.feasibleTravelPips.toFixed(1)} pips for session feasibility`);
           break;
       }
     }
