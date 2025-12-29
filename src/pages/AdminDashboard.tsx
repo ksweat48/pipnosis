@@ -71,6 +71,8 @@ export function AdminDashboard() {
   const [cacheMetrics, setCacheMetrics] = useState<CacheMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [newFeedbackCount, setNewFeedbackCount] = useState(0);
+  const [tradingEnabled, setTradingEnabled] = useState(true);
+  const [toggleLoading, setToggleLoading] = useState(false);
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -111,6 +113,46 @@ export function AdminDashboard() {
     const count = await userFeedbackService.getNewFeedbackCount();
     setNewFeedbackCount(count);
   };
+
+  const loadTradingStatus = async () => {
+    try {
+      const { data } = await supabase
+        .from('platform_settings')
+        .select('setting_value')
+        .eq('setting_key', 'trading_enabled')
+        .single();
+
+      if (data) {
+        setTradingEnabled(data.setting_value as boolean);
+      }
+    } catch (error) {
+      console.error('Error loading trading status:', error);
+    }
+  };
+
+  const toggleTrading = async () => {
+    try {
+      setToggleLoading(true);
+      const { data, error } = await supabase.rpc('toggle_platform_trading', {
+        enabled: !tradingEnabled
+      });
+
+      if (error) throw error;
+
+      setTradingEnabled(!tradingEnabled);
+    } catch (error) {
+      console.error('Error toggling trading:', error);
+      alert('Failed to toggle trading. Please try again.');
+    } finally {
+      setToggleLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      loadTradingStatus();
+    }
+  }, [user]);
 
   const loadAIMetrics = async () => {
     if (!user) return;
@@ -343,6 +385,61 @@ export function AdminDashboard() {
 
         {activeTab === 'overview' && (
           <div className="space-y-6">
+            {/* Platform Trading Control - ADMIN ONLY */}
+            <div className={`border-2 rounded-xl p-6 ${
+              tradingEnabled
+                ? 'bg-gradient-to-r from-green-900/30 to-emerald-900/30 border-green-500/30'
+                : 'bg-gradient-to-r from-red-900/30 to-orange-900/30 border-red-500/30'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className={`p-3 rounded-lg ${tradingEnabled ? 'bg-green-600/20' : 'bg-red-600/20'}`}>
+                    {tradingEnabled ? (
+                      <Play className="w-8 h-8 text-green-400" />
+                    ) : (
+                      <Pause className="w-8 h-8 text-red-400" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold text-white mb-1">
+                      Platform Trading: {tradingEnabled ? 'ENABLED' : 'DISABLED'}
+                    </h3>
+                    <p className={tradingEnabled ? 'text-green-200' : 'text-red-200'}>
+                      {tradingEnabled
+                        ? 'Users can start goal sessions and trade normally'
+                        : 'All users blocked from starting sessions - Maintenance mode active'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={toggleTrading}
+                  disabled={toggleLoading}
+                  className={`px-6 py-3 rounded-lg font-medium transition-all flex items-center gap-2 ${
+                    tradingEnabled
+                      ? 'bg-red-600 hover:bg-red-700 text-white'
+                      : 'bg-green-600 hover:bg-green-700 text-white'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  {toggleLoading ? (
+                    <>
+                      <Clock className="w-5 h-5 animate-spin" />
+                      Processing...
+                    </>
+                  ) : tradingEnabled ? (
+                    <>
+                      <Pause size={18} />
+                      Disable Trading
+                    </>
+                  ) : (
+                    <>
+                      <Play size={18} />
+                      Enable Trading
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
             {/* Pipnosis Mastery Curve - TOP PRIORITY */}
             <PipnosisMasteryCurve userId={null} />
 

@@ -125,6 +125,20 @@ export const SmartGoalPanel: React.FC = () => {
     setError('');
 
     try {
+      // Check if trading is enabled platform-wide
+      const { data: tradingStatus } = await supabase.rpc('is_trading_enabled');
+
+      if (tradingStatus === false) {
+        toast.error(
+          'Trading Temporarily Disabled',
+          'We are currently upgrading and improving Pipnosis. Trading will be back live soon.',
+          10000
+        );
+        setError('We are currently upgrading and improving Pipnosis. Trading will be back live soon.');
+        setLoading(false);
+        return;
+      }
+
       const session = await smartGoalSessionManager.createSmartGoalSession(
         user.id,
         goalPrompt,
