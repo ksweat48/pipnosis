@@ -75,6 +75,7 @@ import { riskAwareStopCalculator, type StopLossCalculation } from '../services/r
 import { eliteProfitTargetCalculator, type LiquidityZone, type TPCalculationResult } from '../services/profit-target-calculator';
 import { tpCeilingCalculator, type TPCeilingResult } from '../services/tp-ceiling-calculator';
 import { calculatePipDistance } from '../utils/currencyHelpers';
+import { EntryIntentClassifier } from '../services/entry-intent-classifier';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -1218,7 +1219,6 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
       if (decision.action !== 'NO_TRADE' && decision.action !== 'WAIT') {
         try {
-          const { EntryIntentClassifier } = await import('../services/entry-intent-classifier');
           const entryIntent = EntryIntentClassifier.classifyEntryIntent(
             decision,
             marketContext,
@@ -1758,7 +1758,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
         if (!ceilingCheck.isValid) {
           const originalTP = takeProfit;
-          const originalTPPips = Math.abs(originalTP - entry) / pipValue;
+          const originalTPPips = calculatePipDistance(symbol, entry, originalTP);
 
           // AUTO-CORRECT: Apply ceiling (market physics guardrail)
           console.warn(`[Alpha Coordinator] ⚠️ TP EXCEEDS PHYSICAL CEILING`);
@@ -1778,11 +1778,12 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
           console.warn(`[Alpha Coordinator] Confidence reduced: ${originalConfidence}% → ${penalizedConfidence}% (-18% penalty for unrealistic TP)`);
 
           // Update reasoning to reflect auto-correction
-          const correctionNote = ` [TP AUTO-CORRECTED: Original ${originalTPPips.toFixed(1)} pips exceeded ${tpCeiling.limitingFactor.toLowerCase().replace('_', ' ')} ceiling (${tpCeiling.maxDistancePips.toFixed(1)} pips max). Adjusted to ${(Math.abs(takeProfit - entry) / pipValue).toFixed(1)} pips for intraday feasibility.]`;
+          const correctedTPPips = calculatePipDistance(symbol, entry, takeProfit);
+          const correctionNote = ` [TP AUTO-CORRECTED: Original ${originalTPPips.toFixed(1)} pips exceeded ${tpCeiling.limitingFactor.toLowerCase().replace('_', ' ')} ceiling (${tpCeiling.maxDistancePips.toFixed(1)} pips max). Adjusted to ${correctedTPPips.toFixed(1)} pips for intraday feasibility.]`;
           parsed.reasoning = (parsed.reasoning || '') + correctionNote;
         } else {
           // TP is within ceiling - log for tracking
-          const tpPips = Math.abs(takeProfit - entry) / pipValue;
+          const tpPips = calculatePipDistance(symbol, entry, takeProfit);
           console.log(`[Alpha Coordinator] ✅ TP within ceiling: ${tpPips.toFixed(1)} pips (ceiling: ${tpCeiling.maxDistancePips.toFixed(1)} pips)`);
         }
       }
@@ -1791,8 +1792,8 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       const slDistance = Math.abs(entry - stopLoss);
       const tpDistance = Math.abs(takeProfit - entry);
       const rr = slDistance > 0 ? tpDistance / slDistance : 0;
-      const slPips = slDistance / pipValue;
-      const tpPips = tpDistance / pipValue;
+      const slPips = calculatePipDistance(symbol, entry, stopLoss);
+      const tpPips = calculatePipDistance(symbol, entry, takeProfit);
 
       console.log(`[Alpha Decision] Stop: ${slPips.toFixed(1)} pips | TP: ${tpPips.toFixed(1)} pips | R:R: ${rr.toFixed(2)}:1`);
 

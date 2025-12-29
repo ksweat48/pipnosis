@@ -137,8 +137,17 @@ export const handler: Handler = async (event) => {
       });
 
       if (!response.ok) {
-        console.error(`[SentimentProxy] ${source} returned ${response.status}`);
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        console.warn(`[SentimentProxy] ${source} returned ${response.status} - gracefully degrading`);
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: `External API returned ${response.status}`,
+            source,
+            data: []
+          })
+        };
       }
 
       data = await response.json();
