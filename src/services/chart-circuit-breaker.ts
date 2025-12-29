@@ -282,15 +282,16 @@ class ChartCircuitBreaker {
     console.error('Recovery: Manual intervention required');
     console.error('═══════════════════════════════════════════════════════════════');
 
-    // Trigger browser notification if supported
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification('Pipnosis Chart Alert', {
-        body: `Critical: Chart contamination detected for ${symbol}`,
-        icon: '/Pipnosis icon.png',
-        tag: 'chart-contamination',
-        requireInteraction: true,
-      });
-    }
+    // DISABLED: Desktop notifications should NOT be shown to end users for technical issues
+    // This is for developer debugging only - users should not see contamination alerts
+    // if ('Notification' in window && Notification.permission === 'granted') {
+    //   new Notification('Pipnosis Chart Alert', {
+    //     body: `Critical: Chart contamination detected for ${symbol}`,
+    //     icon: '/Pipnosis icon.png',
+    //     tag: 'chart-contamination',
+    //     requireInteraction: true,
+    //   });
+    // }
   }
 
   /**

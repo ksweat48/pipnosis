@@ -31,7 +31,7 @@ const SYMBOL_PRICE_RANGES: Record<string, PriceRange> = {
   EURAUD: { min: 1.40, max: 1.90, typical: 1.70 },
 
   // Commodities - UPDATED RANGES (Dec 2025)
-  XAUUSD: { min: 2000, max: 4500, typical: 4200 }, // Gold - updated for current rally
+  XAUUSD: { min: 2000, max: 5500, typical: 4500 }, // Gold - updated for current rally (Dec 29: trading at 4480-4520)
   XAGUSD: { min: 18, max: 50, typical: 30 }, // Silver
   XPTUSD: { min: 700, max: 1300, typical: 950 }, // Platinum
   XPDUSD: { min: 700, max: 1800, typical: 1000 }, // Palladium

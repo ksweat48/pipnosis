@@ -652,7 +652,11 @@ class ChartCandlePoller {
         range: (formingCandle.high - formingCandle.low).toFixed(2)
       });
 
-      // Return sanitized forming candle
+      // Return sanitized forming candle with null safety
+      if (!formingCandle || typeof formingCandle.time === 'undefined') {
+        console.warn(`[ChartPoller] ⚠️ Forming candle missing time property, skipping`);
+        return null;
+      }
       const sanitizedForming = sanitizeCandleData(formingCandle);
       return sanitizedForming;
     } catch (error) {
