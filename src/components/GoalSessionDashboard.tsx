@@ -1002,9 +1002,7 @@ export const GoalSessionDashboard: React.FC = () => {
                 const priceDiff = isLong
                   ? (currentPrice - trade.entry_price)
                   : (trade.entry_price - currentPrice);
-                const isJPY = trade.symbol.includes('JPY');
-                const pipSize = isJPY ? 0.01 : 0.0001;
-                const pips = priceDiff / pipSize;
+                const pips = calculatePipDistance(trade.symbol, trade.entry_price, currentPrice);
                 const currentPnL = calculateCurrentPnL(trade);
 
                 return (
