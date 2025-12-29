@@ -82,6 +82,26 @@ class Omega9HallucinationBrain {
       return localValidation;
     }
 
+    const safetyZone = localValidation.safety_zone || 'YELLOW';
+    const onlyVoteConflicts = localValidation.flags.every(f =>
+      f.includes('VOTE_SPLIT') ||
+      f.includes('MAJORITY_NO_TRADE') ||
+      f.includes('ADVISORY') ||
+      f.includes('YELLOW_ZONE') ||
+      f.includes('ORANGE_ZONE')
+    );
+
+    if (safetyZone === 'GREEN' && onlyVoteConflicts) {
+      console.log('[Omega-9] ✅ GREEN zone with vote conflicts - trusting Alpha decision (skipping LLM)');
+      console.log('[Omega-9] Alpha has already resolved conflicts via weighted consensus');
+      return localValidation;
+    }
+
+    if (safetyZone === 'YELLOW' && onlyVoteConflicts) {
+      console.log('[Omega-9] ⚡ YELLOW zone with vote conflicts - trusting Alpha decision (skipping LLM)');
+      return localValidation;
+    }
+
     console.log('[Omega-9] 🔍 Requesting LLM validation...');
     return await this.llmValidation(input, localValidation.flags);
   }
