@@ -680,7 +680,7 @@ class PositionMonitorService {
       await supabase.from('goal_ai_conversations').insert({
         goal_session_id: position.goal_session_id,
         user_id: position.user_id,
-        role: 'assistant',
+        role: 'ai',
         content: decision.reasoning, // Full comprehensive message
         conversation_type: 'periodic_wellness',
         trade_id: position.id,
@@ -782,7 +782,7 @@ class PositionMonitorService {
           await supabase.from('goal_ai_conversations').insert({
             goal_session_id: position.goal_session_id,
             user_id: position.user_id,
-            role: 'assistant',
+            role: 'ai',
             content: alertMessage,
             conversation_type: 'mid_trade_alert',
             trade_id: position.id,
@@ -898,7 +898,7 @@ class PositionMonitorService {
           await supabase.from('goal_ai_conversations').insert({
             goal_session_id: position.goal_session_id,
             user_id: position.user_id,
-            role: 'assistant',
+            role: 'ai',
             content: conversationMessage,
             conversation_type: 'trade_closure',
             trade_id: position.id,

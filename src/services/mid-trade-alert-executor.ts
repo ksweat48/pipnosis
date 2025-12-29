@@ -192,7 +192,7 @@ class MidTradeAlertExecutor {
         .insert({
           user_id: alert.user_id,
           goal_session_id: alert.goal_session_id,
-          role: 'assistant',
+          role: 'ai',
           content: conversationMessage,
           created_at: new Date().toISOString()
         });
@@ -249,7 +249,7 @@ class MidTradeAlertExecutor {
         .insert({
           user_id: alert.user_id,
           goal_session_id: alert.goal_session_id,
-          role: 'assistant',
+          role: 'ai',
           content: `✓ Stop Loss adjusted to ${newStopLoss.toFixed(5)} by Alpha. ${alert.recommendation_data?.reasoning}`,
           created_at: new Date().toISOString()
         });
@@ -303,7 +303,7 @@ class MidTradeAlertExecutor {
         .insert({
           user_id: alert.user_id,
           goal_session_id: alert.goal_session_id,
-          role: 'assistant',
+          role: 'ai',
           content: `✓ Take Profit adjusted to ${newTakeProfit.toFixed(5)} by Alpha. ${alert.recommendation_data?.reasoning}`,
           created_at: new Date().toISOString()
         });
