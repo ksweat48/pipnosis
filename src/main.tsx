@@ -176,6 +176,30 @@ if (typeof window !== 'undefined') {
     console.log('✅ Circuit breaker reset. Chart polling should resume immediately.');
   };
   console.log('💡 Emergency utility: Run resetCircuitBreaker() if chart stops updating');
+
+  // Modal cleanup utility (available in all modes for clearing stuck modals)
+  (window as any).clearAllModals = async () => {
+    const { modalQueueManager } = await import('@/services/modal-queue-manager');
+    const { supabase } = await import('@/lib/supabase');
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.error('❌ Must be logged in to clear modals');
+        return;
+      }
+
+      const result = await modalQueueManager.deleteAllModalsForUser(user.id);
+      if (result.success) {
+        console.log(`✅ Deleted ${result.deletedCount} pending modal(s). Refresh the page.`);
+      } else {
+        console.error('❌ Failed to clear modals:', result.error);
+      }
+    } catch (error) {
+      console.error('❌ Error clearing modals:', error);
+    }
+  };
+  console.log('💡 Modal stuck? Run clearAllModals() to clear all notifications');
 }
 
 window.addEventListener('unhandledrejection', (event) => {

@@ -87,19 +87,13 @@ class ModalQueueManager extends TinyEmitter {
 
   /**
    * Get all pending modals for a user (oldest first)
+   * UPDATED: Uses database function that auto-deletes stale modals
    */
   async getPendingModals(userId: string): Promise<PendingModal[]> {
     try {
-      // Auto-dismiss stale modals first (older than 24 hours)
-      await this.autoCleanupStaleModals();
-
+      // Use database function that auto-deletes stale modals
       const { data, error } = await supabase
-        .from('pending_user_modals')
-        .select('*')
-        .eq('user_id', userId)
-        .is('dismissed_at', null)
-        .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
-        .order('created_at', { ascending: true });
+        .rpc('get_pending_modals_for_user', { p_user_id: userId });
 
       if (error) {
         console.error('[ModalQueueManager] Failed to fetch pending modals:', error);
@@ -140,28 +134,37 @@ class ModalQueueManager extends TinyEmitter {
 
   /**
    * Dismiss a modal after user interacts with it
+   * UPDATED: Now DELETES modal instead of just marking dismissed
    */
   async dismissModal(
     modalId: string,
     userAction: 'continue' | 'close' | 'acknowledged'
   ): Promise<{ success: boolean; error?: any }> {
     try {
-      console.log('[ModalQueueManager] Dismissing modal:', { modalId, userAction });
+      console.log('[ModalQueueManager] Dismissing (deleting) modal:', { modalId, userAction });
 
-      const { error } = await supabase
-        .from('pending_user_modals')
-        .update({
-          dismissed_at: new Date().toISOString(),
-          user_action: userAction
-        })
-        .eq('id', modalId);
+      // Use database function that DELETES the modal
+      const { data, error } = await supabase
+        .rpc('dismiss_pending_modal', {
+          p_modal_id: modalId,
+          p_user_action: userAction
+        });
 
       if (error) {
         console.error('[ModalQueueManager] Failed to dismiss modal:', error);
-        return { success: false, error };
+        // Fallback: direct delete if RPC fails
+        const { error: deleteError } = await supabase
+          .from('pending_user_modals')
+          .delete()
+          .eq('id', modalId);
+
+        if (deleteError) {
+          console.error('[ModalQueueManager] Fallback delete also failed:', deleteError);
+          return { success: false, error: deleteError };
+        }
       }
 
-      console.log('[ModalQueueManager] ✅ Modal dismissed');
+      console.log('[ModalQueueManager] ✅ Modal deleted');
 
       // Emit event for real-time updates
       this.emit('modal-dismissed', { modalId, userAction });
@@ -310,6 +313,33 @@ class ModalQueueManager extends TinyEmitter {
       }
     } catch (error) {
       console.error('[ModalQueueManager] Exception during auto-cleanup:', error);
+    }
+  }
+
+  /**
+   * Clear all pending modals for current user
+   */
+  async deleteAllModalsForUser(userId: string): Promise<{ success: boolean; deletedCount?: number; error?: any }> {
+    try {
+      console.log('[ModalQueueManager] Deleting ALL modals for user:', userId);
+
+      const { data, error } = await supabase
+        .rpc('delete_all_pending_modals_for_user', { p_user_id: userId });
+
+      if (error) {
+        console.error('[ModalQueueManager] Failed to delete all modals:', error);
+        return { success: false, error };
+      }
+
+      console.log('[ModalQueueManager] ✅ Deleted all pending modals:', data);
+
+      // Emit event for real-time updates
+      this.emit('modals-cleared', { userId, deletedCount: data });
+
+      return { success: true, deletedCount: data || 0 };
+    } catch (error) {
+      console.error('[ModalQueueManager] Exception deleting all modals:', error);
+      return { success: false, error };
     }
   }
 
