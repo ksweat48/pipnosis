@@ -79,6 +79,7 @@ import { EntryIntentClassifier } from '../services/entry-intent-classifier';
 import { omega9ConstraintProvider } from '../services/omega9-constraint-provider';
 import { alphaRevisionHandler } from '../services/alpha-revision-handler';
 import type { Omega9Constraints } from '../types/omega9-constraints';
+import { getRecommendedConsensusCount, calculateConsensusStrengthModifier, getConsensusDescription } from '../services/omega-consensus-advisory';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -334,6 +335,12 @@ class AlphaCoordinatorBrain {
     // Calculate weighted consensus score
     const consensus = this.calculateWeightedConsensus(votes, weights);
     console.log(`[Alpha Coordinator] 📊 Weighted Consensus: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} Omegas)`);
+
+    // Calculate consensus strength modifier and advisory recommendation
+    const recommendedConsensusCount = getRecommendedConsensusCount(riskMode);
+    const consensusStrengthModifier = calculateConsensusStrengthModifier(consensus.agreementCount, riskMode);
+    const consensusDescription = getConsensusDescription(riskMode);
+    console.log(`[Alpha Coordinator] 🎯 Consensus Advisory: ${recommendedConsensusCount}/7 recommended for ${riskMode} risk | Actual: ${consensus.agreementCount}/7 | Strength Modifier: ${consensusStrengthModifier > 0 ? '+' : ''}${(consensusStrengthModifier * 100).toFixed(1)}%`);
 
     // Fetch platform-wide intelligence for this symbol
     const platformIntelligence = await this.fetchPlatformIntelligence(marketContext.symbol);
@@ -863,7 +870,22 @@ Confidence bands:
 
 ${context}
 
-WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${intelligenceContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
+WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)
+
+🎯 CONSENSUS STRENGTH ANALYSIS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Risk Mode: ${riskMode.toUpperCase()} (${consensusDescription})
+Advisory Minimum: ${recommendedConsensusCount}/7 Omegas
+Actual Consensus: ${consensus.agreementCount}/7 Omegas
+Strength Modifier: ${consensusStrengthModifier > 0 ? '+' : ''}${(consensusStrengthModifier * 100).toFixed(1)}% confidence adjustment
+
+${consensus.agreementCount === 7 ? '🏆 UNANIMOUS (7/7) - Maximum consensus strength' :
+  consensus.agreementCount === 6 ? '✅ STRONG (6/7) - High agreement' :
+  consensus.agreementCount >= recommendedConsensusCount ? '✓ MEETS ADVISORY - Adequate consensus' :
+  '⚠️ BELOW ADVISORY - Proceed with caution'}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${intelligenceContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
 
 🎯 ALPHA DECISION INTELLIGENCE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━

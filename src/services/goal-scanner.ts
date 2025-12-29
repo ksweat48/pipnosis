@@ -4,6 +4,7 @@ import { goalSessionManager } from './goal-session-manager';
 import { tradeExecutionEngine } from './trade-execution-engine';
 import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 import { calculatePositionSize, getCurrencyPipInfo, calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
+import { getPositionSizeMultiplier } from '../config/risk-levels';
 import { positionSafetyValidator } from './position-safety-validator';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { getRiskPercentage } from '../config/risk-levels';
@@ -680,6 +681,12 @@ class GoalScanner {
       console.warn('[Goal Scanner] ⚠️  Position size adjusted by safety validator');
       safetyResult.safetyAdjustments.forEach(adj => console.warn(`  ${adj}`));
     }
+
+    // Apply risk mode position size multiplier
+    const positionSizeMultiplier = getPositionSizeMultiplier(sessionConfig.risk_mode);
+    const positionSizeBeforeMultiplier = positionSize;
+    positionSize = positionSize * positionSizeMultiplier;
+    console.log(`[Goal Scanner] 📊 Risk mode position sizing: ${sessionConfig.risk_mode} (${positionSizeMultiplier}x) | ${positionSizeBeforeMultiplier.toFixed(3)} → ${positionSize.toFixed(3)} lots`);
 
     // Calculate actual dollar risk
     const dollarPerPip = calculateDollarPerPip(scanResult.symbol, positionSize);

@@ -43,16 +43,16 @@ export function getRiskModeDescription(riskMode: RiskMode | string): string {
  * CONFIDENCE THRESHOLDS BY RISK MODE
  *
  * Aligns minimum confidence requirements with risk tolerance:
- * - LOW: 69% - Very selective, only high-confidence setups
- * - MEDIUM: 67% - Balanced approach, solid setups
- * - HIGH: 65% - Aggressive, captures more opportunities
+ * - LOW: 70% - Very selective, only high-confidence setups
+ * - MEDIUM: 65% - Balanced approach, solid setups
+ * - HIGH: 60% - Aggressive, captures more opportunities
  *
  * These thresholds ensure risk mode consistency across the platform.
  */
 export const CONFIDENCE_THRESHOLDS = {
-  low: 69,
-  medium: 67,
-  high: 65,
+  low: 70,
+  medium: 65,
+  high: 60,
 } as const;
 
 /**
@@ -61,4 +61,28 @@ export const CONFIDENCE_THRESHOLDS = {
 export function getMinConfidenceThreshold(riskMode: RiskMode | string): number {
   const mode = riskMode as RiskMode;
   return CONFIDENCE_THRESHOLDS[mode] || CONFIDENCE_THRESHOLDS.medium;
+}
+
+/**
+ * POSITION SIZE MULTIPLIERS BY RISK MODE
+ *
+ * Adjusts position size based on risk tolerance:
+ * - LOW: 0.8x - Smaller positions for conservative approach
+ * - MEDIUM: 1.0x - Standard position sizing
+ * - HIGH: 1.2x - Larger positions for aggressive approach
+ *
+ * These multipliers are applied after the base risk calculation.
+ */
+export const POSITION_SIZE_MULTIPLIERS = {
+  low: 0.8,
+  medium: 1.0,
+  high: 1.2,
+} as const;
+
+/**
+ * Get the position size multiplier for a given risk mode
+ */
+export function getPositionSizeMultiplier(riskMode: RiskMode | string): number {
+  const mode = riskMode as RiskMode;
+  return POSITION_SIZE_MULTIPLIERS[mode] || POSITION_SIZE_MULTIPLIERS.medium;
 }
