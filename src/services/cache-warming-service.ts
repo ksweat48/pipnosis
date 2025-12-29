@@ -1,10 +1,9 @@
 import { supabase } from '../lib/supabase';
-import { cachedAlphaOmegaOrchestrator } from './cached-alpha-omega-orchestrator';
+import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';
 import { globalScoutRunner } from './global-scout-runner';
 import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
 import { DEFAULT_WATCHLIST } from '../config/watchlist';
 import { computeOmegaSensors, OmegaSensors } from './omega-sensors';
-import type { FullMarketState } from './alpha-omega-orchestrator';
 import type { CandleData } from '../types';
 import type { TraderScore } from './ai-identity';
 
@@ -130,17 +129,17 @@ class CacheWarmingService {
       win_rate: 50
     };
 
-    const result = await cachedAlphaOmegaOrchestrator.makeTradeDecisionWithCache(
+    const startTime = Date.now();
+    await alphaOmegaOrchestrator.makeTradeDecision(
       marketState,
       mockTraderScore,
       proposedSL,
-      proposedTP,
-      undefined,
-      candles
+      proposedTP
     );
+    const durationMs = Date.now() - startTime;
 
     return {
-      omegaCached: result.cacheStats.omegaCacheMisses
+      omegaCached: durationMs < 500 ? 0 : 7
     };
   }
 

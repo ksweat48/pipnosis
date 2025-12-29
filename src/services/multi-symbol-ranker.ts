@@ -24,6 +24,11 @@ export interface SymbolScore {
   manipulationRisk: number;  // Lower is better (inverted for total)
   intradayMomentum: number;
 
+  // Cache-aware bonus (0-15 points max)
+  cacheBonus: number;
+  hasCachedIntelligence: boolean;
+  cachedConsensus?: 'bullish' | 'bearish' | 'mixed' | 'none';
+
   // Supporting data
   currentPrice: number;
   atr: number;
@@ -62,7 +67,6 @@ class MultiSymbolRanker {
    */
   private async scoreSymbol(symbol: string): Promise<SymbolScore | null> {
     try {
-      // Fetch recent candles (last 24 hours of M15 data)
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
       const { data: candles, error } = await supabase
@@ -82,38 +86,38 @@ class MultiSymbolRanker {
       const currentPrice = candles[0].close;
       const pipFactor = symbol.includes('JPY') ? 0.01 : 0.0001;
 
-      // Calculate ATR (simplified - average range of last 20 candles)
       const atr = this.calculateATR(candles.slice(0, 20), pipFactor);
 
-      // Calculate daily range
       const dailyHigh = Math.max(...candles.map(c => c.high));
       const dailyLow = Math.min(...candles.map(c => c.low));
       const dailyRange = (dailyHigh - dailyLow) / pipFactor;
 
-      // Score each dimension
       const trendStrength = this.scoreTrendStrength(candles);
       const volatilityHealth = this.scoreVolatilityHealth(atr, dailyRange);
       const structureClarity = this.scoreStructureClarity(candles);
       const manipulationRisk = this.scoreManipulationRisk(candles);
       const intradayMomentum = this.scoreIntradayMomentum(candles);
 
-      // Calculate total score (weighted average)
+      const cacheResult = await this.getCacheAwareBonus(symbol);
+
       const weights = {
-        trendStrength: 0.25,
-        volatilityHealth: 0.20,
-        structureClarity: 0.20,
-        manipulationRisk: 0.15,  // Inverted - low risk is good
-        intradayMomentum: 0.20
+        trendStrength: 0.22,
+        volatilityHealth: 0.18,
+        structureClarity: 0.18,
+        manipulationRisk: 0.14,
+        intradayMomentum: 0.18,
+        cacheBonus: 0.10
       };
 
-      const totalScore =
+      const baseScore =
         trendStrength * weights.trendStrength +
         volatilityHealth * weights.volatilityHealth +
         structureClarity * weights.structureClarity +
-        (100 - manipulationRisk) * weights.manipulationRisk + // Invert manipulation
+        (100 - manipulationRisk) * weights.manipulationRisk +
         intradayMomentum * weights.intradayMomentum;
 
-      // Determine recommendation
+      const totalScore = baseScore + (cacheResult.bonus * weights.cacheBonus * 100);
+
       const recommendation = this.getRecommendation(totalScore);
       const reasoning = this.generateReasoning({
         symbol,
@@ -122,17 +126,22 @@ class MultiSymbolRanker {
         structureClarity,
         manipulationRisk,
         intradayMomentum,
-        totalScore
+        totalScore,
+        cacheBonus: cacheResult.bonus,
+        cachedConsensus: cacheResult.consensus
       });
 
       return {
         symbol,
-        totalScore: Math.round(totalScore),
+        totalScore: Math.round(Math.min(100, totalScore)),
         trendStrength: Math.round(trendStrength),
         volatilityHealth: Math.round(volatilityHealth),
         structureClarity: Math.round(structureClarity),
         manipulationRisk: Math.round(manipulationRisk),
         intradayMomentum: Math.round(intradayMomentum),
+        cacheBonus: Math.round(cacheResult.bonus),
+        hasCachedIntelligence: cacheResult.hasCachedIntelligence,
+        cachedConsensus: cacheResult.consensus,
         currentPrice,
         atr,
         dailyRange,
@@ -142,6 +151,74 @@ class MultiSymbolRanker {
     } catch (error) {
       console.error(`[Multi-Symbol Ranker] Error scoring ${symbol}:`, error);
       return null;
+    }
+  }
+
+  private async getCacheAwareBonus(symbol: string): Promise<{
+    bonus: number;
+    hasCachedIntelligence: boolean;
+    consensus: 'bullish' | 'bearish' | 'mixed' | 'none';
+  }> {
+    try {
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+      const { data: cachedIntel, error } = await supabase
+        .from('omega_market_intelligence')
+        .select('brain_name, vote, confidence, created_at')
+        .eq('symbol', symbol)
+        .eq('timeframe', 'M15')
+        .gte('created_at', fiveMinutesAgo.toISOString())
+        .limit(10);
+
+      if (error || !cachedIntel || cachedIntel.length === 0) {
+        return { bonus: 0, hasCachedIntelligence: false, consensus: 'none' };
+      }
+
+      let buyVotes = 0;
+      let sellVotes = 0;
+      let totalConfidence = 0;
+
+      for (const intel of cachedIntel) {
+        if (intel.vote === 'BUY') {
+          buyVotes++;
+          totalConfidence += intel.confidence || 0;
+        } else if (intel.vote === 'SELL') {
+          sellVotes++;
+          totalConfidence += intel.confidence || 0;
+        }
+      }
+
+      const avgConfidence = cachedIntel.length > 0 ? totalConfidence / cachedIntel.length : 0;
+
+      let consensus: 'bullish' | 'bearish' | 'mixed' | 'none' = 'none';
+      let directionBonus = 0;
+
+      if (buyVotes > sellVotes + 2) {
+        consensus = 'bullish';
+        directionBonus = 5;
+      } else if (sellVotes > buyVotes + 2) {
+        consensus = 'bearish';
+        directionBonus = 5;
+      } else if (buyVotes > 0 && sellVotes > 0) {
+        consensus = 'mixed';
+        directionBonus = -2;
+      }
+
+      const cacheBonus = Math.min(15,
+        5 +
+        directionBonus +
+        (avgConfidence > 60 ? 3 : 0) +
+        (cachedIntel.length >= 5 ? 2 : 0)
+      );
+
+      return {
+        bonus: Math.max(0, cacheBonus),
+        hasCachedIntelligence: true,
+        consensus
+      };
+    } catch (error) {
+      console.warn(`[Multi-Symbol Ranker] Cache lookup error for ${symbol}:`, error);
+      return { bonus: 0, hasCachedIntelligence: false, consensus: 'none' };
     }
   }
 
@@ -293,6 +370,8 @@ class MultiSymbolRanker {
     manipulationRisk: number;
     intradayMomentum: number;
     totalScore: number;
+    cacheBonus?: number;
+    cachedConsensus?: 'bullish' | 'bearish' | 'mixed' | 'none';
   }): string {
     const strengths = [];
     const weaknesses = [];
@@ -311,6 +390,12 @@ class MultiSymbolRanker {
 
     if (input.intradayMomentum >= 70) strengths.push('strong momentum');
     else if (input.intradayMomentum < 40) weaknesses.push('weak momentum');
+
+    if (input.cacheBonus && input.cacheBonus >= 10) {
+      strengths.push(`warm cache (${input.cachedConsensus} consensus)`);
+    } else if (input.cachedConsensus === 'mixed') {
+      weaknesses.push('mixed omega signals');
+    }
 
     const parts = [];
     if (strengths.length > 0) parts.push(`Strengths: ${strengths.join(', ')}`);

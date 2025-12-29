@@ -2,8 +2,6 @@ import { supabase } from '../lib/supabase';
 import { forecastEngine, MarketConditions } from './forecast-engine';
 import { goalSessionManager } from './goal-session-manager';
 import { tradeExecutionEngine } from './trade-execution-engine';
-import { eventBasedLLMEngine } from './event-based-llm-engine';
-import { llmContextEnricher } from './llm-context-enricher';
 import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 import { calculatePositionSize, getCurrencyPipInfo, calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
 import { positionSafetyValidator } from './position-safety-validator';
@@ -12,6 +10,10 @@ import { getRiskPercentage } from '../config/risk-levels';
 import { scanningStateMachine } from './scanning-state-machine';
 import { weekendProtectionService } from './weekend-protection-service';
 import { multiSymbolRanker, type SymbolScore } from './multi-symbol-ranker';
+import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';
+import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
+import { computeOmegaSensors, type OmegaSensors } from './omega-sensors';
+import type { TraderScore } from './ai-identity';
 
 export interface ScanResult {
   symbol: string;
@@ -276,13 +278,10 @@ class GoalScanner {
 
     const ema20 = this.calculateEMA(prices, 20);
     const ema50 = this.calculateEMA(prices, 50);
-
+    const ema200 = this.calculateEMA(prices, Math.min(200, prices.length - 1));
     const vwap = this.calculateVWAP(recentCandles.slice(-20));
-
     const atr = this.calculateATR(recentCandles.slice(-14));
-
-    const priceToEma20 = ((currentPrice - ema20) / currentPrice) * 100;
-    const priceToVwap = ((currentPrice - vwap) / currentPrice) * 100;
+    const rsi = this.calculateRSI(prices, 14);
 
     const volatilityAnalysis = await forecastEngine.analyzeVolatility(symbol, candles);
     const trendAnalysis = await forecastEngine.analyzeTrendFormation(symbol, candles);
@@ -296,55 +295,212 @@ class GoalScanner {
       priceAction: this.analyzePriceAction(recentCandles.slice(-5)),
     };
 
-    let hasValidSetup = false;
-    let setupType = '';
-    let entry = currentPrice;
-    let stopLoss = 0;
-    let takeProfit = 0;
-    let confidence = 0;
-    let reasoning = '';
+    const passesBasicFilter = this.passesBasicFilter(currentPrice, ema20, ema50, rsi, atr, marketConditions);
 
-    if (Math.abs(priceToVwap) < 0.1 && ema20 > ema50 && priceToEma20 > -0.2 && priceToEma20 < 0.3) {
-      hasValidSetup = true;
-      setupType = 'VWAP Bounce Long';
-      entry = currentPrice;
-      stopLoss = currentPrice - (atr * 1.5);
-      takeProfit = currentPrice + (atr * 2.5);
-      confidence = 75;
-      reasoning = `Bullish setup on ${symbol}. Price testing VWAP support with EMA alignment. Entry: ${entry.toFixed(5)}, SL: ${stopLoss.toFixed(5)}, TP: ${takeProfit.toFixed(5)}`;
-    } else if (Math.abs(priceToVwap) < 0.1 && ema20 < ema50 && priceToEma20 < 0.2 && priceToEma20 > -0.3) {
-      hasValidSetup = true;
-      setupType = 'VWAP Rejection Short';
-      entry = currentPrice;
-      stopLoss = currentPrice + (atr * 1.5);
-      takeProfit = currentPrice - (atr * 2.5);
-      confidence = 75;
-      reasoning = `Bearish setup on ${symbol}. Price rejecting VWAP resistance with EMA alignment. Entry: ${entry.toFixed(5)}, SL: ${stopLoss.toFixed(5)}, TP: ${takeProfit.toFixed(5)}`;
-    } else if (trendAnalysis.forming && trendAnalysis.confidence > 70) {
-      hasValidSetup = true;
-      setupType = 'EMA Trend Following';
-      entry = currentPrice;
-      const direction = ema20 > ema50 ? 1 : -1;
-      stopLoss = currentPrice - (direction * atr * 1.5);
-      takeProfit = currentPrice + (direction * atr * 2.5);
-      confidence = trendAnalysis.confidence;
-      reasoning = `${direction > 0 ? 'Bullish' : 'Bearish'} trend setup on ${symbol}. EMA crossover confirmed with momentum. Entry: ${entry.toFixed(5)}, SL: ${stopLoss.toFixed(5)}, TP: ${takeProfit.toFixed(5)}`;
+    if (!passesBasicFilter) {
+      console.log(`[Goal Scanner] ❌ ${symbol}: Failed basic filter - skipping Alpha-Omega`);
+      return {
+        symbol,
+        hasValidSetup: false,
+        marketConditions,
+      };
     }
 
-    // LLM controls confidence thresholds autonomously based on internal state
-    // User's exposure_level only affects position sizing, not setup filtering
+    console.log(`[Goal Scanner] ✅ ${symbol}: Passed basic filter - calling Alpha-Omega...`);
+
+    try {
+      const scoutState = await sharedIntelligenceCoordinator.getScoutState(symbol, 'M15');
+      if (scoutState && !scoutState.shouldReconvene && scoutState.cacheAgeSeconds < 300) {
+        console.log(`[Goal Scanner] ⚡ ${symbol}: Scout says no opportunity (cache age: ${scoutState.cacheAgeSeconds}s)`);
+        return {
+          symbol,
+          hasValidSetup: false,
+          reasoning: `Scout: ${scoutState.marketSummary}`,
+          marketConditions,
+        };
+      }
+
+      const marketState = this.buildMarketState(symbol, recentCandles, {
+        ema20, ema50, ema200, vwap, atr, rsi, volatilityAnalysis, trendAnalysis
+      });
+
+      const mockTraderScore: TraderScore = {
+        current_score: 75,
+        lifetime_profit: sessionConfig.current_profit || 0,
+        lifetime_loss: 0,
+        streak_wins: 0,
+        streak_losses: 0,
+        confidence_level: 'medium',
+        risk_appetite: sessionConfig.risk_mode === 'aggressive' ? 3 : sessionConfig.risk_mode === 'conservative' ? 1 : 2,
+        trading_style: 'balanced',
+        total_trades: 0,
+        win_rate: 50
+      };
+
+      const proposedSL = currentPrice - (atr * 1.8);
+      const proposedTP = currentPrice + (atr * 3.0);
+
+      const alphaDecision = await alphaOmegaOrchestrator.makeTradeDecision(
+        marketState,
+        mockTraderScore,
+        proposedSL,
+        proposedTP,
+        sessionConfig.goal_context
+      );
+
+      const hasValidSetup = (alphaDecision.action === 'BUY' || alphaDecision.action === 'SELL') &&
+                            alphaDecision.confidence >= 60;
+
+      const setupType = hasValidSetup
+        ? `Alpha ${alphaDecision.action} (${alphaDecision.confidence}%)`
+        : alphaDecision.action === 'WAIT' ? 'WAIT' : 'NO_TRADE';
+
+      return {
+        symbol,
+        hasValidSetup,
+        setupType,
+        entry: alphaDecision.entry,
+        stopLoss: alphaDecision.stopLoss,
+        takeProfit: alphaDecision.takeProfit,
+        confidence: alphaDecision.confidence,
+        reasoning: alphaDecision.reasoning,
+        marketConditions,
+      };
+    } catch (error) {
+      console.error(`[Goal Scanner] Alpha-Omega error for ${symbol}:`, error);
+      return {
+        symbol,
+        hasValidSetup: false,
+        reasoning: `Alpha-Omega error: ${error instanceof Error ? error.message : 'Unknown'}`,
+        marketConditions,
+      };
+    }
+  }
+
+  private passesBasicFilter(
+    price: number,
+    ema20: number,
+    ema50: number,
+    rsi: number,
+    atr: number,
+    conditions: MarketConditions
+  ): boolean {
+    if (atr <= 0) return false;
+    const atrPercent = (atr / price) * 100;
+    if (atrPercent < 0.05) return false;
+    if (rsi < 15 || rsi > 85) return false;
+    if (conditions.priceAction === 'insufficient' || conditions.priceAction === 'error') return false;
+    return true;
+  }
+
+  private buildMarketState(
+    symbol: string,
+    candles: any[],
+    indicators: {
+      ema20: number;
+      ema50: number;
+      ema200: number;
+      vwap: number;
+      atr: number;
+      rsi: number;
+      volatilityAnalysis: any;
+      trendAnalysis: any;
+    }
+  ): FullMarketState {
+    const currentCandle = candles[candles.length - 1];
+    const price = currentCandle.close;
+
+    const { support, resistance } = this.calculateSupportResistance(candles);
+    const { swingHigh, swingLow } = this.calculateSwings(candles);
+
+    const trend = indicators.ema20 > indicators.ema50 ? 'bull' : indicators.ema20 < indicators.ema50 ? 'bear' : 'sideways';
+    const volatility = indicators.volatilityAnalysis.level;
+    const momentum = indicators.trendAnalysis.confidence;
+
+    const sensors: OmegaSensors = {
+      sh: swingHigh,
+      sl: swingLow,
+      bos: 'none',
+      cho: 'none',
+      eqh: 0,
+      eql: 0,
+      vol_ratio: 1,
+      vol_trend: 'stable',
+      vol_spike: false,
+      cvd: 0,
+      rsi: indicators.rsi,
+      macd: 0,
+      macd_sig: 0,
+      momentum,
+      stoch: { k: 50, d: 50 },
+      pat: { engulf: false, pin: false, doji: false, inside: false },
+      mic: { wick_ratio: 0, body_size: 0, gap: false, trap: 'none' },
+      ema20: indicators.ema20,
+      ema50: indicators.ema50,
+      ema200: indicators.ema200,
+      atr: indicators.atr,
+      vwap: indicators.vwap
+    };
 
     return {
       symbol,
-      hasValidSetup,
-      setupType,
-      entry,
-      stopLoss,
-      takeProfit,
-      confidence,
-      reasoning,
-      marketConditions,
+      price,
+      ema20: indicators.ema20,
+      ema50: indicators.ema50,
+      ema200: indicators.ema200,
+      rsi: indicators.rsi,
+      stochRsi: 50,
+      atr: indicators.atr,
+      vwap: indicators.vwap,
+      trend,
+      volatility,
+      momentum,
+      support,
+      resistance,
+      swingHigh,
+      swingLow,
+      recentCandles: candles.slice(-30),
+      omegaSensors: sensors
     };
+  }
+
+  private calculateSupportResistance(candles: any[]): { support: number[]; resistance: number[] } {
+    const recentCandles = candles.slice(-20);
+    const lows = recentCandles.map(c => c.low).sort((a: number, b: number) => a - b);
+    const highs = recentCandles.map(c => c.high).sort((a: number, b: number) => b - a);
+
+    return {
+      support: lows.slice(0, 3),
+      resistance: highs.slice(0, 3)
+    };
+  }
+
+  private calculateSwings(candles: any[]): { swingHigh: number; swingLow: number } {
+    const recentCandles = candles.slice(-10);
+    let swingHigh = -Infinity;
+    let swingLow = Infinity;
+
+    for (const candle of recentCandles) {
+      if (candle.high > swingHigh) swingHigh = candle.high;
+      if (candle.low < swingLow) swingLow = candle.low;
+    }
+
+    return { swingHigh, swingLow };
+  }
+
+  private calculateRSI(prices: number[], period: number): number {
+    if (prices.length < period + 1) return 50;
+    let gains = 0, losses = 0;
+    for (let i = prices.length - period; i < prices.length; i++) {
+      const change = (prices[i] || 0) - (prices[i - 1] || 0);
+      if (change > 0) gains += change;
+      else losses -= change;
+    }
+    const avgGain = gains / period;
+    const avgLoss = losses / period;
+    if (avgLoss === 0) return 100;
+    const rs = avgGain / avgLoss;
+    return 100 - (100 / (1 + rs));
   }
 
   // REMOVED: getRiskThreshold - User exposure level no longer overrides LLM confidence
@@ -543,55 +699,6 @@ class GoalScanner {
     const stopDistance = Math.abs(scanResult.entry! - scanResult.stopLoss!);
     const riskReward = Math.abs(scanResult.takeProfit! - scanResult.entry!) / stopDistance;
     const expectedProfit = Math.abs(scanResult.takeProfit! - scanResult.entry!) * dollarPerPip;
-
-    // NEW: LLM-enhanced decision validation for Smart Goal Mode
-    const userId = sessionConfig.user_id;
-    if (userId && sessionConfig.use_llm_validation) {
-      console.log('[Goal Scanner] 🤖 Running LLM validation on setup...');
-
-      try {
-        // Get enriched context from historical performance
-        const enrichedContext = await llmContextEnricher.enrichDecisionContext(
-          userId,
-          scanResult.symbol,
-          scanResult.confidence!,
-          scanResult.marketConditions
-        );
-
-        // Build market snapshot for LLM
-        const snapshot = {
-          symbol: scanResult.symbol,
-          currentPrice: scanResult.entry!,
-          direction,
-          setupType: scanResult.setupType!,
-          confidence: scanResult.confidence!,
-          marketConditions: scanResult.marketConditions,
-          riskReward,
-          historicalContext: enrichedContext
-        };
-
-        // Run through 5-layer LLM pipeline
-        await eventBasedLLMEngine.initialize(userId, sessionId);
-        const llmResult = await eventBasedLLMEngine.execute5LayerPipeline(
-          snapshot,
-          'goal_mode_signal'
-        );
-
-        if (!llmResult.shouldExecute) {
-          console.log(`[Goal Scanner] ❌ LLM rejected trade: ${llmResult.reasoning}`);
-          return null;
-        }
-
-        // Update confidence and reasoning with LLM insights
-        scanResult.confidence = llmResult.finalConfidence;
-        scanResult.reasoning = `${scanResult.reasoning} | LLM Analysis: ${llmResult.reasoning}`;
-
-        console.log(`[Goal Scanner] ✅ LLM approved trade (${llmResult.finalConfidence}% confidence)`);
-      } catch (error) {
-        console.error('[Goal Scanner] LLM validation error:', error);
-        // Continue with original signal if LLM fails
-      }
-    }
 
     return {
       sessionId,
