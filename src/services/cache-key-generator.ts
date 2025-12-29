@@ -33,9 +33,13 @@ function calculateATR(candles: CandleData[], period: number = 14): number {
 
   let atrSum = 0;
   for (let i = candles.length - period; i < candles.length; i++) {
-    const high = candles[i].high;
-    const low = candles[i].low;
-    const prevClose = candles[i - 1]?.close || candles[i].open;
+    const candle = candles[i];
+    const prevCandle = candles[i - 1];
+    if (!candle) continue;
+
+    const high = candle.high;
+    const low = candle.low;
+    const prevClose = prevCandle?.close ?? candle.open;
 
     const tr = Math.max(
       high - low,
@@ -55,7 +59,11 @@ function calculateRSI(candles: CandleData[], period: number = 14): number {
   let losses = 0;
 
   for (let i = candles.length - period; i < candles.length; i++) {
-    const change = candles[i].close - candles[i - 1].close;
+    const candle = candles[i];
+    const prevCandle = candles[i - 1];
+    if (!candle || !prevCandle) continue;
+
+    const change = candle.close - prevCandle.close;
     if (change > 0) {
       gains += change;
     } else {
@@ -73,13 +81,18 @@ function calculateRSI(candles: CandleData[], period: number = 14): number {
 }
 
 function calculateEMA(candles: CandleData[], period: number): number {
-  if (candles.length < period) return candles[candles.length - 1]?.close || 0;
+  if (candles.length < period) return candles[candles.length - 1]?.close ?? 0;
+
+  const startCandle = candles[candles.length - period];
+  if (!startCandle) return 0;
 
   const multiplier = 2 / (period + 1);
-  let ema = candles[candles.length - period].close;
+  let ema = startCandle.close;
 
   for (let i = candles.length - period + 1; i < candles.length; i++) {
-    ema = (candles[i].close - ema) * multiplier + ema;
+    const candle = candles[i];
+    if (!candle) continue;
+    ema = (candle.close - ema) * multiplier + ema;
   }
 
   return ema;
@@ -90,7 +103,8 @@ function calculateAverageVolume(candles: CandleData[], period: number = 20): num
 
   let sum = 0;
   for (let i = candles.length - period; i < candles.length; i++) {
-    sum += candles[i].volume || 0;
+    const candle = candles[i];
+    sum += candle?.volume ?? 0;
   }
 
   return sum / period;
@@ -106,6 +120,10 @@ export function buildMarketStateSnapshot(
   }
 
   const currentCandle = candles[candles.length - 1];
+  if (!currentCandle) {
+    return null;
+  }
+
   const atr = calculateATR(candles);
   const rsi = calculateRSI(candles);
   const emaFast = calculateEMA(candles, 8);

@@ -6,8 +6,7 @@ import {
   calculateVolatilityBucket,
   calculateTrendBucket
 } from './cache-key-generator';
-import { candleDataService } from './candle-data-service';
-import { WATCHLIST_SYMBOLS } from '../config/watchlist';
+import { DEFAULT_WATCHLIST } from '../config/watchlist';
 import type { CandleData } from '../types';
 
 export interface GlobalScoutResult {
@@ -34,7 +33,7 @@ class GlobalScoutRunner {
   private readonly MIN_RUN_INTERVAL_MS = 30000;
 
   async runGlobalScout(
-    symbols: string[] = WATCHLIST_SYMBOLS,
+    symbols: string[] = [...DEFAULT_WATCHLIST],
     timeframe: string = 'M15'
   ): Promise<GlobalScoutResult[]> {
     if (this.runningScout) {
@@ -260,7 +259,28 @@ class GlobalScoutRunner {
 
   private async fetchCandlesForSymbol(symbol: string, timeframe: string): Promise<CandleData[]> {
     try {
-      const candles = await candleDataService.getCandles(symbol, timeframe, 100);
+      const { data, error } = await supabase
+        .from('candles')
+        .select('time, open, high, low, close, volume')
+        .eq('symbol', symbol)
+        .eq('timeframe', timeframe)
+        .order('time', { ascending: false })
+        .limit(100);
+
+      if (error) {
+        console.error(`[GlobalScout] Supabase error for ${symbol}:`, error);
+        return [];
+      }
+
+      const candles = (data || []).reverse().map(c => ({
+        time: typeof c.time === 'number' ? c.time : new Date(c.time).getTime() / 1000,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume
+      }));
+
       return candles;
     } catch (error) {
       console.error(`[GlobalScout] Failed to fetch candles for ${symbol}:`, error);
@@ -275,7 +295,7 @@ class GlobalScoutRunner {
   async getAllScoutStates(timeframe: string = 'M15'): Promise<Map<string, ScoutState>> {
     const results = new Map<string, ScoutState>();
 
-    for (const symbol of WATCHLIST_SYMBOLS) {
+    for (const symbol of DEFAULT_WATCHLIST) {
       const state = await sharedIntelligenceCoordinator.getScoutState(symbol, timeframe);
       if (state) {
         results.set(symbol, state);
