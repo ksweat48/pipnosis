@@ -226,7 +226,7 @@ class TradeExecutionEngine {
     // Calculate risk dollars for R-normalized metrics
     const pipInfo = getCurrencyPipInfo(signal.symbol);
     const riskPips = Math.abs(signal.entryPrice - signal.stopLoss) / pipInfo.pipValue;
-    const dollarPerPip = roundedLotSize * 10; // Standard forex calculation
+    const dollarPerPip = roundedLotSize * pipInfo.dollarPerPipPerLot; // Use symbol-specific calculation
     const riskDollars = roundPnL(riskPips * dollarPerPip);
 
     console.log('[Trade Execution] Creating pending trade:', {
@@ -417,7 +417,7 @@ class TradeExecutionEngine {
     // Calculate risk dollars for R-normalized metrics
     const pipInfo = getCurrencyPipInfo(signal.symbol);
     const riskPips = Math.abs(signal.entryPrice - signal.stopLoss) / pipInfo.pipValue;
-    const dollarPerPip = signal.positionSize * 10; // Standard forex calculation
+    const dollarPerPip = signal.positionSize * pipInfo.dollarPerPipPerLot; // Use symbol-specific calculation
     const riskDollars = riskPips * dollarPerPip;
 
     console.log(`[Playbook] Trade context: bucket=${regimeBucket}, playbook=${activePlaybook?.variant_id || 'none'}, risk=$${riskDollars.toFixed(2)}`);

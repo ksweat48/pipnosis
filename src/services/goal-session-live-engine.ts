@@ -3063,7 +3063,7 @@ Provide:
 
 Keep response under 100 words, educational tone.`;
 
-      const response = await openAIClient.createChatCompletion([
+      const response = await openAIClient.chat([
         {
           role: 'system',
           content: 'You are a professional trading mentor providing concise, educational post-trade analysis. Focus on learning and improvement.'
@@ -3078,7 +3078,7 @@ Keep response under 100 words, educational tone.`;
         max_tokens: 200
       });
 
-      return `💡 ${response.content}`;
+      return `💡 ${response.choices[0]?.message?.content || ''}`;
 
     } catch (error) {
       console.error('[Post-Trade Analysis] LLM error:', error);

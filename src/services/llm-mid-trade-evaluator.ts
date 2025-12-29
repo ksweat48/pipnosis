@@ -61,7 +61,7 @@ class LLMMidTradeEvaluator {
       const prompt = this.buildOptimizedPrompt(request);
 
       // Call GPT-4o-mini
-      const response = await openAIClient.createChatCompletion([
+      const response = await openAIClient.chat([
         {
           role: 'system',
           content: 'You are a professional forex trading advisor specializing in intraday risk management. Analyze the trade situation and provide a clear recommendation with confidence level and reasoning. Be concise but thorough.'
