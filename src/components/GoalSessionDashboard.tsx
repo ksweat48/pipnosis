@@ -16,6 +16,7 @@ import { simpleScanningTimer } from '../services/simple-scanning-timer';
 import { getRiskPercentage } from '../config/risk-levels';
 import { calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
 import { useToast } from '../hooks/useToast';
+import { calculatePnL } from '../types/position';
 // GoalScanReadinessIndicator removed - using simple indicator
 
 export const GoalSessionDashboard: React.FC = () => {
@@ -707,35 +708,31 @@ export const GoalSessionDashboard: React.FC = () => {
   };
 
   const calculateCurrentPnL = (trade: any): number => {
-    // If we don't have live prices, fall back to stored P&L
+    // If we don't have live prices or entry price, fall back to stored P&L
     if (!livePrices[trade.symbol] || !trade.entry_price) {
-      return trade.profit_loss || 0;
+      return trade.current_pnl || trade.profit_loss || 0;
     }
 
     const currentPrice = trade.direction === 'buy'
       ? livePrices[trade.symbol].bid
       : livePrices[trade.symbol].ask;
 
-    const isLong = trade.direction === 'buy';
-    const priceDiff = isLong
-      ? (currentPrice - trade.entry_price)
-      : (trade.entry_price - currentPrice);
-
-    // Calculate P&L: price difference * position size * pip value
-    // For forex pairs (except JPY pairs), 1 pip = 0.0001
-    // For JPY pairs, 1 pip = 0.01
-    const isJPY = trade.symbol.includes('JPY');
-    const pipSize = isJPY ? 0.01 : 0.0001;
     const lotSize = trade.lot_size || trade.position_size || 0;
 
-    // Standard lot = 100,000 units, so $10 per pip for standard lot (non-JPY)
-    // Mini lot = 10,000 units, so $1 per pip
-    // Micro lot = 1,000 units, so $0.10 per pip
-    const pipValue = isJPY ? 10 : 10; // $10 per pip per standard lot
-    const pips = priceDiff / pipSize;
-    const pnl = pips * pipValue * lotSize;
+    if (!lotSize || lotSize <= 0) {
+      console.warn(`[GoalSessionDashboard] Invalid lot size for ${trade.symbol}:`, lotSize);
+      return trade.current_pnl || trade.profit_loss || 0;
+    }
 
-    return pnl;
+    // CRITICAL: Use centralized calculatePnL function that handles ALL asset types
+    // (forex, crypto, indices, gold) with correct pip values and calculations
+    return calculatePnL(
+      trade.direction,
+      trade.entry_price,
+      currentPrice,
+      lotSize,
+      trade.symbol
+    );
   };
 
   const calculateLiveProgressPercentage = (): number => {
