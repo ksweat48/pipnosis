@@ -13,6 +13,7 @@ import { PipnosisMasteryCurve } from '@/components/PipnosisMasteryCurve';
 import { OpenAIUsageDashboard } from '@/components/OpenAIUsageDashboard';
 import { ServerSidePollingMonitor } from '@/components/ServerSidePollingMonitor';
 import { LLMTokenUsageDashboard } from '@/components/LLMTokenUsageDashboard';
+import { CacheMetricsDashboard } from '@/components/CacheMetricsDashboard';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import {
@@ -32,14 +33,15 @@ import {
   Clock,
   Users,
   MessageSquare,
-  Bell
+  Bell,
+  Layers
 } from 'lucide-react';
 import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
 import { UserFeedbackPanel } from '@/components/admin/UserFeedbackPanel';
 import { PushNotificationTester } from '@/components/admin/PushNotificationTester';
 import { userFeedbackService } from '@/services/user-feedback-service';
 
-type AdminTab = 'overview' | 'data' | 'api-usage' | 'settings' | 'users' | 'feedback' | 'push-notifications';
+type AdminTab = 'overview' | 'data' | 'cache' | 'api-usage' | 'settings' | 'users' | 'feedback' | 'push-notifications';
 
 interface AIMetrics {
   skillLevel: number;
@@ -54,11 +56,19 @@ interface AIMetrics {
   recentSessionsCount: number;
 }
 
+interface CacheMetrics {
+  totalHitRate: number;
+  totalCallsSaved: number;
+  estimatedSavings: number;
+  cacheHealth: 'healthy' | 'degraded' | 'stale';
+}
+
 export function AdminDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [aiMetrics, setAIMetrics] = useState<AIMetrics | null>(null);
+  const [cacheMetrics, setCacheMetrics] = useState<CacheMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [newFeedbackCount, setNewFeedbackCount] = useState(0);
 
@@ -72,9 +82,13 @@ export function AdminDashboard() {
   useEffect(() => {
     if (user) {
       loadAIMetrics();
+      loadCacheMetrics();
 
       // Refresh metrics every 30 seconds
-      const interval = setInterval(loadAIMetrics, 30000);
+      const interval = setInterval(() => {
+        loadAIMetrics();
+        loadCacheMetrics();
+      }, 30000);
       return () => clearInterval(interval);
     }
   }, [user]);
@@ -181,6 +195,48 @@ export function AdminDashboard() {
     }
   };
 
+  const loadCacheMetrics = async () => {
+    if (!user) return;
+
+    try {
+      const { data: stats, error } = await supabase.rpc('get_cache_stats', { p_hours: 24 });
+
+      if (error) {
+        console.error('[Admin Dashboard] Error loading cache stats:', error);
+        return;
+      }
+
+      if (!stats || stats.length === 0) {
+        setCacheMetrics({
+          totalHitRate: 0,
+          totalCallsSaved: 0,
+          estimatedSavings: 0,
+          cacheHealth: 'stale'
+        });
+        return;
+      }
+
+      const totalLookups = stats.reduce((sum: number, s: any) => sum + (s.total_lookups || 0), 0);
+      const totalHits = stats.reduce((sum: number, s: any) => sum + (s.cache_hits || 0), 0);
+      const totalSaved = stats.reduce((sum: number, s: any) => sum + (s.total_llm_calls_saved || 0), 0);
+      const hitRate = totalLookups > 0 ? (totalHits / totalLookups) * 100 : 0;
+      const estimatedSavings = totalSaved * 0.002;
+
+      let health: 'healthy' | 'degraded' | 'stale' = 'healthy';
+      if (hitRate < 50) health = 'degraded';
+      if (hitRate < 20) health = 'stale';
+
+      setCacheMetrics({
+        totalHitRate: hitRate,
+        totalCallsSaved: totalSaved,
+        estimatedSavings: estimatedSavings,
+        cacheHealth: health
+      });
+    } catch (error) {
+      console.error('[Admin Dashboard] Error loading cache metrics:', error);
+    }
+  };
+
   const handleToggleAutoBacktest = async () => {
     // Backtest system removed - using goal sessions only
     console.log('[Admin Dashboard] Auto-backtest system removed');
@@ -233,6 +289,17 @@ export function AdminDashboard() {
           >
             <Activity size={18} />
             API Usage
+          </button>
+          <button
+            onClick={() => setActiveTab('cache')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+              activeTab === 'cache'
+                ? 'bg-cyan-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            <Layers size={18} />
+            Cache Intelligence
           </button>
           <button
             onClick={() => setActiveTab('users')}
@@ -305,37 +372,92 @@ export function AdminDashboard() {
 
             {/* AI Metrics Grid */}
             {!loading && aiMetrics && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <MetricCard
-                  title="Platform Skill Level"
-                  value={`${aiMetrics.skillLevel.toFixed(1)}%`}
-                  icon={Brain}
-                  color="blue"
-                  trend={aiMetrics.skillLevelChange > 0 ? 'up' : aiMetrics.skillLevelChange < 0 ? 'down' : 'neutral'}
-                  subtitle={`${aiMetrics.skillLevelChange >= 0 ? '+' : ''}${aiMetrics.skillLevelChange.toFixed(1)}% change`}
-                />
-                <MetricCard
-                  title="Total Goal Sessions"
-                  value={aiMetrics.totalBacktests.toString()}
-                  icon={Activity}
-                  color="green"
-                  subtitle={`${aiMetrics.autoBacktests} total trades`}
-                />
-                <MetricCard
-                  title="Learning Insights"
-                  value={aiMetrics.learningInsights.toString()}
-                  icon={Sparkles}
-                  color="purple"
-                  subtitle={`${aiMetrics.patternDiscoveries} patterns found`}
-                />
-                <MetricCard
-                  title="24h Win Rate (All Users)"
-                  value={`${aiMetrics.avgWinRate.toFixed(1)}%`}
-                  icon={Target}
-                  color={aiMetrics.avgWinRate >= 55 ? 'green' : 'amber'}
-                  subtitle={`${aiMetrics.recentSessionsCount} trades`}
-                />
-              </div>
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <MetricCard
+                    title="Platform Skill Level"
+                    value={`${aiMetrics.skillLevel.toFixed(1)}%`}
+                    icon={Brain}
+                    color="blue"
+                    trend={aiMetrics.skillLevelChange > 0 ? 'up' : aiMetrics.skillLevelChange < 0 ? 'down' : 'neutral'}
+                    subtitle={`${aiMetrics.skillLevelChange >= 0 ? '+' : ''}${aiMetrics.skillLevelChange.toFixed(1)}% change`}
+                  />
+                  <MetricCard
+                    title="Total Goal Sessions"
+                    value={aiMetrics.totalBacktests.toString()}
+                    icon={Activity}
+                    color="green"
+                    subtitle={`${aiMetrics.autoBacktests} total trades`}
+                  />
+                  <MetricCard
+                    title="Learning Insights"
+                    value={aiMetrics.learningInsights.toString()}
+                    icon={Sparkles}
+                    color="purple"
+                    subtitle={`${aiMetrics.patternDiscoveries} patterns found`}
+                  />
+                  <MetricCard
+                    title="24h Win Rate (All Users)"
+                    value={`${aiMetrics.avgWinRate.toFixed(1)}%`}
+                    icon={Target}
+                    color={aiMetrics.avgWinRate >= 55 ? 'green' : 'amber'}
+                    subtitle={`${aiMetrics.recentSessionsCount} trades`}
+                  />
+                </div>
+
+                {/* Cache Intelligence Overview */}
+                {cacheMetrics && (
+                  <div className="bg-gradient-to-br from-cyan-600/20 to-cyan-800/20 backdrop-blur-sm border-2 border-cyan-500/30 rounded-xl p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="p-3 bg-gray-900/50 rounded-lg">
+                          <Layers className="text-cyan-400" size={28} />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold text-white">Intelligence Cache Performance</h3>
+                          <p className="text-cyan-200 text-sm">Three-tier platform-wide LLM caching system</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setActiveTab('cache')}
+                        className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg font-medium transition-all flex items-center gap-2"
+                      >
+                        View Details
+                        <ArrowRight size={16} />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div className="bg-gray-900/30 rounded-lg p-4">
+                        <div className="text-cyan-300 text-sm mb-1">Cache Hit Rate</div>
+                        <div className="text-white text-2xl font-bold">{cacheMetrics.totalHitRate.toFixed(1)}%</div>
+                        <div className={`text-xs mt-1 ${
+                          cacheMetrics.cacheHealth === 'healthy' ? 'text-emerald-400' :
+                          cacheMetrics.cacheHealth === 'degraded' ? 'text-amber-400' : 'text-red-400'
+                        }`}>
+                          {cacheMetrics.cacheHealth === 'healthy' ? 'Healthy' :
+                           cacheMetrics.cacheHealth === 'degraded' ? 'Degraded' : 'Needs Warming'}
+                        </div>
+                      </div>
+                      <div className="bg-gray-900/30 rounded-lg p-4">
+                        <div className="text-cyan-300 text-sm mb-1">LLM Calls Saved</div>
+                        <div className="text-white text-2xl font-bold">{cacheMetrics.totalCallsSaved.toLocaleString()}</div>
+                        <div className="text-emerald-400 text-xs mt-1">Last 24 hours</div>
+                      </div>
+                      <div className="bg-gray-900/30 rounded-lg p-4">
+                        <div className="text-cyan-300 text-sm mb-1">Estimated Savings</div>
+                        <div className="text-white text-2xl font-bold">${cacheMetrics.estimatedSavings.toFixed(2)}</div>
+                        <div className="text-emerald-400 text-xs mt-1">Cost reduction</div>
+                      </div>
+                      <div className="bg-gray-900/30 rounded-lg p-4">
+                        <div className="text-cyan-300 text-sm mb-1">Cache Tiers</div>
+                        <div className="text-white text-2xl font-bold">3</div>
+                        <div className="text-cyan-400 text-xs mt-1">Omega • Alpha • Scout</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Quick Actions */}
@@ -346,11 +468,11 @@ export function AdminDashboard() {
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <QuickActionCard
-                  title="Backtest Lab"
-                  description="Run backtests and generate learning insights"
-                  icon={Brain}
-                  color="blue"
-                  onClick={() => navigate('/admin/ai-training')}
+                  title="Cache Intelligence"
+                  description="Monitor three-tier LLM cache performance and savings"
+                  icon={Layers}
+                  color="cyan"
+                  onClick={() => setActiveTab('cache')}
                 />
                 <QuickActionCard
                   title="API Usage & KPIs"
@@ -363,8 +485,15 @@ export function AdminDashboard() {
                   title="Data Management"
                   description="Manage historical data and backfills"
                   icon={Database}
-                  color="cyan"
+                  color="blue"
                   onClick={() => setActiveTab('data')}
+                />
+                <QuickActionCard
+                  title="Backtest Lab"
+                  description="Run backtests and generate learning insights"
+                  icon={Brain}
+                  color="purple"
+                  onClick={() => navigate('/admin/ai-training')}
                 />
               </div>
             </div>
@@ -420,6 +549,21 @@ export function AdminDashboard() {
           <div className="space-y-6">
             <LLMTokenUsageDashboard />
             <OpenAIUsageDashboard />
+          </div>
+        )}
+
+        {activeTab === 'cache' && (
+          <div className="space-y-6">
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <Layers size={24} className="text-cyan-400" />
+                <div>
+                  <h2 className="text-2xl font-semibold text-white">Three-Tier Intelligence Cache</h2>
+                  <p className="text-gray-400 text-sm mt-1">Platform-wide LLM response caching for cost optimization</p>
+                </div>
+              </div>
+              <CacheMetricsDashboard />
+            </div>
           </div>
         )}
 
