@@ -21,6 +21,7 @@ export interface AdminUser {
   scanning_sessions: number;
   scanning_duration_minutes: number | null;
   awaiting_response_sessions: number;
+  prompt_risk: 'low' | 'medium' | 'high' | null;
   last_activity: string;
 }
 
@@ -112,6 +113,15 @@ export interface StaleSessionResult {
   session_id: string;
   user_id: string;
   minutes_scanning: number;
+}
+
+export interface PlatformKPIs {
+  total_users: number;
+  active_users: number;
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  overall_win_rate: number;
 }
 
 export const adminUserService = {
@@ -233,5 +243,19 @@ export const adminUserService = {
     return () => {
       supabase.removeChannel(channel);
     };
+  },
+
+  /**
+   * Get platform-wide KPIs
+   */
+  async getPlatformKPIs(): Promise<PlatformKPIs> {
+    const { data, error } = await supabase.rpc('admin_get_platform_kpis');
+
+    if (error) {
+      console.error('Error fetching platform KPIs:', error);
+      throw new Error(error.message);
+    }
+
+    return data;
   },
 };

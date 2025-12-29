@@ -293,77 +293,81 @@ export function AdminDashboard() {
         threshold={pullToRefresh.threshold}
       />
       <NavigationMenu />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold text-white">Admin Dashboard</h1>
+      <main className="w-full max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-4 md:py-8">
+        <div className="flex items-center justify-between mb-4 md:mb-6">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white">Admin Dashboard</h1>
         </div>
 
-        <div className="flex gap-2 mb-6 overflow-x-auto">
+        <div className="flex gap-1.5 sm:gap-2 mb-4 md:mb-6 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-900">
           <button
             onClick={() => setActiveTab('overview')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'overview'
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
             }`}
           >
-            <Brain size={18} />
-            AI Overview
+            <Brain size={16} className="sm:w-[18px] sm:h-[18px]" />
+            <span className="hidden xs:inline">AI Overview</span>
+            <span className="xs:hidden">AI</span>
           </button>
           <button
             onClick={() => setActiveTab('data')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'data'
                 ? 'bg-emerald-600 text-white'
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
             }`}
           >
-            <Database size={18} />
-            Data Management
+            <Database size={16} className="sm:w-[18px] sm:h-[18px]" />
+            <span className="hidden xs:inline">Data Management</span>
+            <span className="xs:hidden">Data</span>
           </button>
           <button
             onClick={() => setActiveTab('api-usage')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'api-usage'
                 ? 'bg-emerald-600 text-white'
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
             }`}
           >
-            <Activity size={18} />
-            API Usage
+            <Activity size={16} className="sm:w-[18px] sm:h-[18px]" />
+            <span className="hidden xs:inline">API Usage</span>
+            <span className="xs:hidden">API</span>
           </button>
           <button
             onClick={() => setActiveTab('cache')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'cache'
                 ? 'bg-cyan-600 text-white'
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
             }`}
           >
-            <Layers size={18} />
-            Cache Intelligence
+            <Layers size={16} className="sm:w-[18px] sm:h-[18px]" />
+            <span className="hidden sm:inline">Cache Intelligence</span>
+            <span className="sm:hidden">Cache</span>
           </button>
           <button
             onClick={() => setActiveTab('users')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'users'
                 ? 'bg-amber-600 text-white'
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
             }`}
           >
-            <Users size={18} />
+            <Users size={16} className="sm:w-[18px] sm:h-[18px]" />
             Users
           </button>
           <button
             onClick={() => setActiveTab('feedback')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap relative ${
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 relative text-xs sm:text-sm ${
               activeTab === 'feedback'
                 ? 'bg-purple-600 text-white'
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
             }`}
           >
-            <MessageSquare size={18} />
-            Feedback
+            <MessageSquare size={16} className="sm:w-[18px] sm:h-[18px]" />
+            <span className="hidden xs:inline">Feedback</span>
             {newFeedbackCount > 0 && (
               <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
                 {newFeedbackCount}
@@ -372,14 +376,15 @@ export function AdminDashboard() {
           </button>
           <button
             onClick={() => setActiveTab('push-notifications')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'push-notifications'
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
             }`}
           >
-            <Bell size={18} />
-            Push Notifications
+            <Bell size={16} className="sm:w-[18px] sm:h-[18px]" />
+            <span className="hidden sm:inline">Push Notifications</span>
+            <span className="sm:hidden">Push</span>
           </button>
         </div>
 
@@ -470,7 +475,7 @@ export function AdminDashboard() {
             {/* AI Metrics Grid */}
             {!loading && aiMetrics && (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
                   <MetricCard
                     title="Platform Skill Level"
                     value={`${aiMetrics.skillLevel.toFixed(1)}%`}
@@ -563,7 +568,7 @@ export function AdminDashboard() {
                 <Zap className="text-yellow-400" size={24} />
                 Quick Actions
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <QuickActionCard
                   title="Cache Intelligence"
                   description="Monitor three-tier LLM cache performance and savings"
@@ -718,13 +723,13 @@ function MetricCard({ title, value, icon: Icon, color, trend, subtitle }: Metric
   };
 
   return (
-    <div className={`bg-gradient-to-br ${colorClasses[color]} backdrop-blur-sm border-2 rounded-xl p-6 hover:scale-105 transition-transform`}>
-      <div className="flex items-start justify-between mb-3">
-        <div className="p-3 bg-gray-900/50 rounded-lg">
-          <Icon className={iconColorClasses[color]} size={24} />
+    <div className={`bg-gradient-to-br ${colorClasses[color]} backdrop-blur-sm border-2 rounded-xl p-4 sm:p-5 md:p-6 hover:scale-105 transition-transform`}>
+      <div className="flex items-start justify-between mb-2 sm:mb-3">
+        <div className="p-2 sm:p-3 bg-gray-900/50 rounded-lg">
+          <Icon className={iconColorClasses[color]} size={20} />
         </div>
         {trend && (
-          <div className={`text-xs font-semibold px-2 py-1 rounded ${
+          <div className={`text-xs font-semibold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded ${
             trend === 'up' ? 'bg-green-500/20 text-green-400' :
             trend === 'down' ? 'bg-red-500/20 text-red-400' :
             'bg-gray-500/20 text-gray-400'
@@ -733,9 +738,9 @@ function MetricCard({ title, value, icon: Icon, color, trend, subtitle }: Metric
           </div>
         )}
       </div>
-      <div className="text-gray-300 text-sm mb-1">{title}</div>
-      <div className="text-white text-3xl font-bold mb-2">{value}</div>
-      {subtitle && <div className="text-gray-400 text-xs">{subtitle}</div>}
+      <div className="text-gray-300 text-xs sm:text-sm mb-1">{title}</div>
+      <div className="text-white text-2xl sm:text-3xl font-bold mb-1 sm:mb-2">{value}</div>
+      {subtitle && <div className="text-gray-400 text-[10px] sm:text-xs">{subtitle}</div>}
     </div>
   );
 }

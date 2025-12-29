@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, MoreVertical, User, DollarSign, RefreshCw, Eye, Copy, Clock, AlertTriangle } from 'lucide-react';
-import { adminUserService, AdminUser } from '../../services/admin-user-service';
+import { Search, MoreVertical, User, DollarSign, RefreshCw, Eye, Copy, Clock, AlertTriangle, Users as UsersIcon, Activity, TrendingUp, Target } from 'lucide-react';
+import { adminUserService, AdminUser, PlatformKPIs } from '../../services/admin-user-service';
 import { useToast } from '../../hooks/useToast';
 import { UserDetailsModal } from './UserDetailsModal';
 import { AddCreditsDialog } from './AddCreditsDialog';
@@ -19,6 +19,8 @@ export const UserManagementPanel: React.FC = () => {
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [stuckSessionsCount, setStuckSessionsCount] = useState(0);
   const [forceClosing, setForceClosing] = useState(false);
+  const [platformKPIs, setPlatformKPIs] = useState<PlatformKPIs | null>(null);
+  const [kpisLoading, setKpisLoading] = useState(true);
   const { showToast } = useToast();
   const { showConfirm } = useConfirmDialog();
 
@@ -55,8 +57,21 @@ export const UserManagementPanel: React.FC = () => {
     }
   }, [showToast]);
 
+  const loadPlatformKPIs = useCallback(async () => {
+    try {
+      setKpisLoading(true);
+      const data = await adminUserService.getPlatformKPIs();
+      setPlatformKPIs(data);
+    } catch (error) {
+      console.error('[UserManagementPanel] Error loading KPIs:', error);
+    } finally {
+      setKpisLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadUsers();
+    loadPlatformKPIs();
 
     // Subscribe to real-time price updates to refresh PnL values
     let updateTimeout: NodeJS.Timeout | null = null;
@@ -74,7 +89,7 @@ export const UserManagementPanel: React.FC = () => {
       unsubscribe();
       if (updateTimeout) clearTimeout(updateTimeout);
     };
-  }, [loadUsers, searchTerm]);
+  }, [loadUsers, loadPlatformKPIs, searchTerm]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -205,6 +220,66 @@ export const UserManagementPanel: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {/* Platform KPIs */}
+      {!kpisLoading && platformKPIs && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6">
+          <div className="bg-gradient-to-br from-blue-600/20 to-blue-800/20 backdrop-blur-sm border-2 border-blue-500/30 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <UsersIcon className="w-5 h-5 text-blue-400" />
+              <div className="text-xs text-gray-400">Total Users</div>
+            </div>
+            <div className="text-2xl font-bold text-white">{platformKPIs.total_users.toLocaleString()}</div>
+          </div>
+
+          <div className="bg-gradient-to-br from-green-600/20 to-green-800/20 backdrop-blur-sm border-2 border-green-500/30 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Activity className="w-5 h-5 text-green-400" />
+              <div className="text-xs text-gray-400">Active Users</div>
+            </div>
+            <div className="text-2xl font-bold text-white">{platformKPIs.active_users.toLocaleString()}</div>
+            <div className="text-[10px] text-gray-500 mt-1">Last 7 days</div>
+          </div>
+
+          <div className="bg-gradient-to-br from-purple-600/20 to-purple-800/20 backdrop-blur-sm border-2 border-purple-500/30 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="w-5 h-5 text-purple-400" />
+              <div className="text-xs text-gray-400">Total Trades</div>
+            </div>
+            <div className="text-2xl font-bold text-white">{platformKPIs.total_trades.toLocaleString()}</div>
+          </div>
+
+          <div className="bg-gradient-to-br from-emerald-600/20 to-emerald-800/20 backdrop-blur-sm border-2 border-emerald-500/30 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Target className="w-5 h-5 text-emerald-400" />
+              <div className="text-xs text-gray-400">Won</div>
+            </div>
+            <div className="text-2xl font-bold text-emerald-300">{platformKPIs.winning_trades.toLocaleString()}</div>
+          </div>
+
+          <div className="bg-gradient-to-br from-red-600/20 to-red-800/20 backdrop-blur-sm border-2 border-red-500/30 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Target className="w-5 h-5 text-red-400" />
+              <div className="text-xs text-gray-400">Lost</div>
+            </div>
+            <div className="text-2xl font-bold text-red-300">{platformKPIs.losing_trades.toLocaleString()}</div>
+          </div>
+
+          <div className={`bg-gradient-to-br backdrop-blur-sm border-2 rounded-xl p-4 ${
+            platformKPIs.overall_win_rate >= 50
+              ? 'from-green-600/20 to-green-800/20 border-green-500/30'
+              : 'from-amber-600/20 to-amber-800/20 border-amber-500/30'
+          }`}>
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className={`w-5 h-5 ${platformKPIs.overall_win_rate >= 50 ? 'text-green-400' : 'text-amber-400'}`} />
+              <div className="text-xs text-gray-400">Win Rate</div>
+            </div>
+            <div className={`text-2xl font-bold ${platformKPIs.overall_win_rate >= 50 ? 'text-green-300' : 'text-amber-300'}`}>
+              {platformKPIs.overall_win_rate.toFixed(1)}%
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-white">User Management</h2>
         <div className="flex items-center gap-3">
@@ -222,7 +297,10 @@ export const UserManagementPanel: React.FC = () => {
             </button>
           )}
           <button
-            onClick={() => loadUsers(searchTerm || undefined)}
+            onClick={() => {
+              loadUsers(searchTerm || undefined);
+              loadPlatformKPIs();
+            }}
             className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors flex items-center gap-2"
           >
             <RefreshCw size={16} />
@@ -291,6 +369,9 @@ export const UserManagementPanel: React.FC = () => {
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Scanning
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Prompt Risk
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Joined
@@ -400,6 +481,21 @@ export const UserManagementPanel: React.FC = () => {
                         </div>
                       ) : (
                         <span className="text-gray-500">0</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-center">
+                      {user.prompt_risk && user.scanning_sessions > 0 ? (
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                          user.prompt_risk === 'low'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : user.prompt_risk === 'medium'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                        }`}>
+                          {user.prompt_risk === 'low' ? 'Low' : user.prompt_risk === 'medium' ? 'Medium' : 'High'}
+                        </span>
+                      ) : (
+                        <span className="text-gray-500">-</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-400">

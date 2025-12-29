@@ -1,40 +1,73 @@
-import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, AlertCircle, Loader2, Zap, AlertTriangle, CheckCircle, Sparkles, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Target, TrendingUp, Clock, AlertCircle, Loader2, Zap, AlertTriangle, CheckCircle, Sparkles, ChevronDown, Shield } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalConfig } from '../services/smart-goal-session-manager';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { aiGoalParser } from '../lib/aiGoalParser';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { supabase } from '../lib/supabase';
+import { getRiskPercentage, getRiskModeDescription } from '../config/risk-levels';
 
 interface GoalTemplate {
   label: string;
   prompt: string;
   description: string;
+  riskLevel: 'low' | 'medium' | 'high';
 }
 
-const GOAL_TEMPLATES: GoalTemplate[] = [
-  {
-    label: 'Conservative $50',
-    prompt: 'Make me $50 today with conservative exposure, close all positions before market close',
-    description: 'Low risk, patient intraday trades only'
-  },
-  {
-    label: 'Moderate $100',
-    prompt: 'Make me $100 today with moderate exposure, close all positions before market close',
-    description: 'Balanced intraday approach, closes today'
-  },
-  {
-    label: 'Quick Scalp $200',
-    prompt: 'Find me a quick scalp move for $200 today, fast entry and exit, close before market close',
-    description: 'High risk scalp, fast in and out'
-  },
-  {
-    label: 'Aggressive $300',
-    prompt: 'Make me $300 today with aggressive exposure, close all positions before market close',
-    description: 'Higher risk intraday trades, closes today'
-  },
-];
+/**
+ * Calculate dynamic goal amounts based on user's account balance
+ * Ensures goals are realistic and scale with account size
+ */
+const calculateDynamicGoalAmounts = (balance: number) => {
+  // Conservative: 0.5% of balance (min $10, max $100)
+  const conservative = Math.max(10, Math.min(100, Math.round(balance * 0.005)));
+
+  // Moderate: 1% of balance (min $25, max $250)
+  const moderate = Math.max(25, Math.min(250, Math.round(balance * 0.01)));
+
+  // Quick Scalp: 2% of balance (min $50, max $500)
+  const quickScalp = Math.max(50, Math.min(500, Math.round(balance * 0.02)));
+
+  // Aggressive: 3% of balance (min $75, max $750)
+  const aggressive = Math.max(75, Math.min(750, Math.round(balance * 0.03)));
+
+  return { conservative, moderate, quickScalp, aggressive };
+};
+
+/**
+ * Generate dynamic goal templates based on user's balance
+ */
+const generateGoalTemplates = (balance: number): GoalTemplate[] => {
+  const amounts = calculateDynamicGoalAmounts(balance);
+
+  return [
+    {
+      label: `Conservative $${amounts.conservative}`,
+      prompt: `Make me $${amounts.conservative} today with conservative exposure, close all positions before market close`,
+      description: 'Low risk, patient intraday trades only',
+      riskLevel: 'low'
+    },
+    {
+      label: `Moderate $${amounts.moderate}`,
+      prompt: `Make me $${amounts.moderate} today with moderate exposure, close all positions before market close`,
+      description: 'Balanced intraday approach, closes today',
+      riskLevel: 'medium'
+    },
+    {
+      label: `Quick Scalp $${amounts.quickScalp}`,
+      prompt: `Find me a quick scalp move for $${amounts.quickScalp} today, fast entry and exit, close before market close`,
+      description: 'High risk scalp, fast in and out',
+      riskLevel: 'high'
+    },
+    {
+      label: `Aggressive $${amounts.aggressive}`,
+      prompt: `Make me $${amounts.aggressive} today with aggressive exposure, close all positions before market close`,
+      description: 'Higher risk intraday trades, closes today',
+      riskLevel: 'high'
+    },
+  ];
+};
 
 interface ValidationResult {
   isRealistic: boolean;
@@ -55,6 +88,9 @@ export const SmartGoalPanel: React.FC = () => {
   const [isTradingModeExpanded, setIsTradingModeExpanded] = useState(false);
   const [multiTradeEnabled, setMultiTradeEnabled] = useState(false);
   const [loadingPreferences, setLoadingPreferences] = useState(true);
+
+  // Generate dynamic templates based on current balance
+  const goalTemplates = useMemo(() => generateGoalTemplates(accountBalance), [accountBalance]);
 
   useEffect(() => {
     const loadUserPreferences = async () => {
@@ -176,7 +212,7 @@ export const SmartGoalPanel: React.FC = () => {
       <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl p-6 border border-gray-700/50 shadow-2xl">
         <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
-          {GOAL_TEMPLATES.map((template, index) => (
+          {goalTemplates.map((template, index) => (
             <button
               key={index}
               onClick={() => handleTemplateClick(template)}
@@ -260,7 +296,24 @@ export const SmartGoalPanel: React.FC = () => {
             <div className="flex items-start gap-3">
               <CheckCircle className="w-5 h-5 text-green-400 mt-0.5" />
               <div className="flex-1">
-                <div className="text-sm font-medium text-green-400 mb-2">Realistic Goal - Ready to Start!</div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-medium text-green-400">Realistic Goal - Ready to Start!</div>
+                  {parsedGoal?.config?.riskMode && (
+                    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                      parsedGoal.config.riskMode === 'low'
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        : parsedGoal.config.riskMode === 'medium'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                        : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                    }`}>
+                      <Shield className="w-3.5 h-3.5" />
+                      {parsedGoal.config.riskMode === 'low' ? 'Low Risk' : parsedGoal.config.riskMode === 'medium' ? 'Medium Risk' : 'High Risk'}
+                      <span className="text-[10px] opacity-75">
+                        ({getRiskPercentage(parsedGoal.config.riskMode)}% per trade)
+                      </span>
+                    </div>
+                  )}
+                </div>
                 {parsedGoal && (
                   <div className="text-xs text-gray-300 mb-2">
                     <p><strong>Target:</strong> {parsedGoal.interpretation}</p>
