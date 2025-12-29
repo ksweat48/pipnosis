@@ -516,10 +516,12 @@ class AlphaCoordinatorBrain {
 
     // Calculate TP ceiling for physics-based constraint enforcement (MUST happen before prompt construction)
     let tpCeilingResult: TPCeilingResult | null = null;
+    let currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed' = 'closed';
+    let sessionTimeRemaining = 60;
+
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
       // Determine current session
       const hour = new Date().getUTCHours();
-      let currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
       if (hour >= 8 && hour < 12) currentSession = 'london';
       else if (hour >= 13 && hour < 17) currentSession = 'ny';
       else if (hour >= 12 && hour < 13) currentSession = 'overlap';
@@ -537,7 +539,7 @@ class AlphaCoordinatorBrain {
         closed: 24
       };
       const sessionEnd = sessionEndHours[currentSession];
-      const sessionTimeRemaining = sessionEnd > hour ? (sessionEnd - hour) * 60 : 60; // minutes
+      sessionTimeRemaining = sessionEnd > hour ? (sessionEnd - hour) * 60 : 60; // minutes
 
       tpCeilingResult = tpCeilingCalculator.calculateMaximumFeasibleTP({
         symbol: marketContext.symbol,
