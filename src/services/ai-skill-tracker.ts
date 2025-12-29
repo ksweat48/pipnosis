@@ -690,7 +690,7 @@ class AISkillTracker {
     try {
       const { data: sessions, error } = await supabase
         .from('goal_sessions')
-        .select('win_rate, profit_factor, total_trades, winning_trades')
+        .select('win_rate, profit_factor, total_trades')
         .eq('user_id', userId)
         .eq('status', 'completed')
         .not('win_rate', 'is', null)
@@ -1268,7 +1268,7 @@ class AISkillTracker {
       if (!sessionResults) {
         const { data } = await supabase
           .from('daily_session_results')
-          .select('total_trades, win_rate, profit_factor, key_learnings, pnl, winning_trades, losing_trades')
+          .select('total_trades, win_rate, profit_factor, key_learnings, pnl')
           .eq('user_id', userId)
           .order('session_date', { ascending: false })
           .limit(1)
