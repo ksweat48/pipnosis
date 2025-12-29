@@ -226,8 +226,8 @@ export function PositionsPage() {
         opened_at: trade.opened_at,
         closed_at: trade.closed_at,
         close_reason: trade.close_reason || 'unknown',
-        stop_loss: parseFloat(trade.stop_loss) || 0,
-        take_profit: parseFloat(trade.take_profit) || 0,
+        stop_loss: trade.stop_loss != null ? parseFloat(trade.stop_loss) : 0,
+        take_profit: trade.take_profit != null ? parseFloat(trade.take_profit) : 0,
         max_drawdown: trade.max_drawdown !== null && trade.max_drawdown !== undefined ? parseFloat(trade.max_drawdown) : undefined,
         max_profit: trade.max_profit !== null && trade.max_profit !== undefined ? parseFloat(trade.max_profit) : undefined,
         total_pips: trade.total_pips !== null && trade.total_pips !== undefined ? parseFloat(trade.total_pips) : undefined

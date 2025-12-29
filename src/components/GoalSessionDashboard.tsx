@@ -165,14 +165,26 @@ export const GoalSessionDashboard: React.FC = () => {
             if (closeReason !== 'goal_met' && !showGoalAchieved) {
               console.log('[GoalSessionDashboard] 🎯 Showing TradeClosedActionDialog');
               loadSessionData().then(() => {
+                // Parse SL/TP with proper null handling
+                const stopLoss = payload.new.stop_loss != null ? parseFloat(payload.new.stop_loss) : 0;
+                const takeProfit = payload.new.take_profit != null ? parseFloat(payload.new.take_profit) : 0;
+
+                console.log('[GoalSessionDashboard] Trade Close Data:', {
+                  symbol: payload.new.symbol,
+                  stopLoss: stopLoss,
+                  takeProfit: takeProfit,
+                  stopLossRaw: payload.new.stop_loss,
+                  takeProfitRaw: payload.new.take_profit
+                });
+
                 setTradeClosedData({
                   symbol: payload.new.symbol,
                   direction: payload.new.direction,
                   entryPrice: payload.new.entry_price,
                   exitPrice: payload.new.exit_price,
                   profitLoss: profitLoss,
-                  stopLoss: payload.new.stop_loss,
-                  takeProfit: payload.new.take_profit,
+                  stopLoss: stopLoss,
+                  takeProfit: takeProfit,
                   closeReason
                 });
                 setShowTradeClosedAction(true);

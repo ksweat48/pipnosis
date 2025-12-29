@@ -329,23 +329,35 @@ export class EliteProfitTargetCalculator {
   }
 
   private getPipValue(symbol: string): number {
-    const jpy_pairs = ['JPY'];
-    const is_jpy = jpy_pairs.some(curr => symbol.includes(curr));
-    return is_jpy ? 0.01 : 0.0001;
+    const sym = symbol.toUpperCase();
+
+    // ETHUSD uses 0.1
+    if (sym === 'ETHUSD' || sym.includes('ETH')) return 0.1;
+
+    // BTCUSD and indices use 1.0
+    if (sym === 'BTCUSD' || sym.includes('BTC')) return 1.0;
+    if (sym.includes('US30') || sym.includes('NAS') || sym.includes('SPX') || sym.includes('DJI')) return 1.0;
+
+    // JPY pairs and metals use 0.01
+    if (sym.includes('JPY') || sym.includes('XAU') || sym.includes('XAG')) return 0.01;
+
+    // Standard forex pairs use 0.0001
+    return 0.0001;
   }
 
   public detectLiquidityZones(
     candles: Array<{ high: number; low: number; close: number; volume?: number }>,
     current_price: number,
-    direction: 'long' | 'short'
+    direction: 'long' | 'short',
+    symbol: string = 'EURUSD'
   ): LiquidityZone[] {
     const zones: LiquidityZone[] = [];
-    const pip_value = 0.0001;
+    const pip_value = this.getPipValue(symbol);
 
-    const psychological_levels = this.findPsychologicalLevels(current_price, direction);
+    const psychological_levels = this.findPsychologicalLevels(current_price, direction, pip_value);
     zones.push(...psychological_levels);
 
-    const swing_highs_lows = this.findSwingPoints(candles, direction);
+    const swing_highs_lows = this.findSwingPoints(candles, direction, pip_value);
     zones.push(...swing_highs_lows);
 
     return zones.sort((a, b) =>
@@ -355,17 +367,24 @@ export class EliteProfitTargetCalculator {
     );
   }
 
-  private findPsychologicalLevels(price: number, direction: 'long' | 'short'): LiquidityZone[] {
+  private findPsychologicalLevels(price: number, direction: 'long' | 'short', pip_value: number): LiquidityZone[] {
     const zones: LiquidityZone[] = [];
-    const base = Math.floor(price * 10000);
-    const pip_value = 0.0001;
+
+    // Calculate psychological levels based on pip value
+    // For BTCUSD (pip=1.0): levels every 50-100 points
+    // For ETHUSD (pip=0.1): levels every 5-10 points
+    // For forex (pip=0.0001): levels every 50 pips
+    const level_spacing = pip_value >= 1.0 ? 50 : pip_value >= 0.1 ? 5 : 50;
 
     for (let i = 1; i <= 5; i++) {
+      const level_offset = level_spacing * i * pip_value;
       const level = direction === 'long'
-        ? (base + i * 50) / 10000
-        : (base - i * 50) / 10000;
+        ? price + level_offset
+        : price - level_offset;
 
-      const is_round_number = (level * 10000) % 100 === 0;
+      // Check if it's a round number (divisible by 100 for BTCUSD, by 10 for others)
+      const round_threshold = pip_value >= 1.0 ? 100 : 10;
+      const is_round_number = Math.abs(level) % round_threshold < 0.01;
 
       zones.push({
         price: level,
@@ -380,12 +399,12 @@ export class EliteProfitTargetCalculator {
 
   private findSwingPoints(
     candles: Array<{ high: number; low: number; close: number }>,
-    direction: 'long' | 'short'
+    direction: 'long' | 'short',
+    pip_value: number
   ): LiquidityZone[] {
     const zones: LiquidityZone[] = [];
     const lookback = Math.min(50, candles.length);
     const recent_candles = candles.slice(-lookback);
-    const pip_value = 0.0001;
     const current_price = candles[candles.length - 1].close;
 
     if (direction === 'long') {
