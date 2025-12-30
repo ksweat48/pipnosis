@@ -98,7 +98,7 @@ export class AlphaMetaLearningEngine {
   private async analyzePerformanceTrends(userId: string) {
     try {
       const { data: trades } = await supabase
-        .from('goal_trades')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: true })
@@ -255,7 +255,7 @@ export class AlphaMetaLearningEngine {
   private async calculateLearningVelocity(userId: string) {
     try {
       const { data: trades } = await supabase
-        .from('goal_trades')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })

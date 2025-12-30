@@ -11,6 +11,8 @@ class LiveTradeLearningTrigger {
   private isRunning = false;
   private pollInterval = 30000; // Check every 30 seconds
   private lastCheckTime: Date = new Date();
+  private failedTrades: Map<string, number> = new Map(); // tradeId -> retry count
+  private readonly MAX_RETRIES = 3;
 
   /**
    * Start monitoring for new closed trades
@@ -43,6 +45,7 @@ class LiveTradeLearningTrigger {
       this.intervalId = null;
     }
     this.isRunning = false;
+    this.failedTrades.clear(); // Clear retry queue on stop
     console.log('[LiveTradeLearningTrigger] Stopped live trade learning monitor');
   }
 
@@ -88,14 +91,22 @@ class LiveTradeLearningTrigger {
    * Analyze a single trade and update skill progression
    */
   private async analyzeTrade(userId: string, tradeId: string, symbol: string, riskWeight: number = 1.0) {
-    try {
-      console.log(`[LiveTradeLearningTrigger] Analyzing trade ${tradeId} (${symbol}) with ${riskWeight}x risk weight`);
+    const retryCount = this.failedTrades.get(tradeId) || 0;
 
-      // Trigger AI learning analysis
-      const learningResult = await aiLearningEngine.analyzeLiveTrade(userId, tradeId);
+    try {
+      console.log(`[LiveTradeLearningTrigger] Analyzing trade ${tradeId} (${symbol}) with ${riskWeight}x risk weight (attempt ${retryCount + 1}/${this.MAX_RETRIES})`);
+
+      // Trigger AI learning analysis with timeout
+      const learningResult = await this.withTimeout(
+        aiLearningEngine.analyzeLiveTrade(userId, tradeId),
+        60000 // 60 second timeout
+      );
 
       if (learningResult.success) {
         console.log(`[LiveTradeLearningTrigger] ✅ Analysis complete: ${learningResult.learningsExtracted} insights extracted (2x weighted * ${riskWeight}x risk)`);
+
+        // Clear from failed trades map on success
+        this.failedTrades.delete(tradeId);
 
         // Fetch the trade details for skill tracker
         const { data: trade } = await supabase
@@ -160,11 +171,42 @@ class LiveTradeLearningTrigger {
           }
         }
       } else {
-        console.error(`[LiveTradeLearningTrigger] ❌ Failed to analyze trade ${tradeId}`);
+        // Analysis failed - implement retry logic
+        this.handleAnalysisFailure(tradeId, userId, symbol, riskWeight, 'Analysis returned failure');
       }
     } catch (error) {
-      console.error(`[LiveTradeLearningTrigger] Error analyzing trade ${tradeId}:`, error);
+      // Error during analysis - implement retry logic
+      this.handleAnalysisFailure(tradeId, userId, symbol, riskWeight, error);
     }
+  }
+
+  /**
+   * Handle analysis failures with retry logic
+   */
+  private handleAnalysisFailure(tradeId: string, userId: string, symbol: string, riskWeight: number, error: any): void {
+    const retryCount = this.failedTrades.get(tradeId) || 0;
+
+    if (retryCount < this.MAX_RETRIES) {
+      this.failedTrades.set(tradeId, retryCount + 1);
+      console.warn(`[LiveTradeLearningTrigger] ⚠️ Trade ${tradeId} analysis failed (${retryCount + 1}/${this.MAX_RETRIES}). Will retry on next cycle.`);
+      console.warn(`[LiveTradeLearningTrigger] Error:`, error);
+    } else {
+      console.error(`[LiveTradeLearningTrigger] ❌ Trade ${tradeId} analysis failed after ${this.MAX_RETRIES} attempts. Giving up.`);
+      console.error(`[LiveTradeLearningTrigger] Final error:`, error);
+      this.failedTrades.delete(tradeId); // Remove from retry queue
+    }
+  }
+
+  /**
+   * Utility to run a promise with timeout
+   */
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`Operation timed out after ${timeoutMs}ms`)), timeoutMs)
+      )
+    ]);
   }
 
   /**
@@ -214,6 +256,24 @@ class LiveTradeLearningTrigger {
    */
   isActive(): boolean {
     return this.isRunning;
+  }
+
+  /**
+   * Get health monitoring stats
+   */
+  getHealthStats() {
+    return {
+      isRunning: this.isRunning,
+      pollIntervalMs: this.pollInterval,
+      lastCheckTime: this.lastCheckTime,
+      failedTradesCount: this.failedTrades.size,
+      failedTrades: Array.from(this.failedTrades.entries()).map(([tradeId, retryCount]) => ({
+        tradeId,
+        retryCount,
+        maxRetries: this.MAX_RETRIES,
+        willRetry: retryCount < this.MAX_RETRIES
+      }))
+    };
   }
 }
 

@@ -1,6 +1,8 @@
 import { supabase } from '../lib/supabase';
 import { midTradeNotificationQueue } from './mid-trade-notification-queue';
 import { calculateDollarPerPip, calculatePipDistance, getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { liveTradeLearningTrigger } from './live-trade-learning-trigger';
+import { llmPostSessionAnalyzer } from './llm-post-session-analyzer';
 
 export interface GoalSessionConfig {
   goalType: 'profit_target' | 'percentage_gain' | 'account_growth';
@@ -155,6 +157,10 @@ class GoalSessionManager {
 
       await this.transitionStatus(data.id, 'scanning');
 
+      // Start live trade learning trigger to monitor closed trades
+      console.log(`[Goal Session] Starting live trade learning trigger for user ${userId}`);
+      liveTradeLearningTrigger.start(userId);
+
       return data;
     } catch (error) {
       console.error('Error in createSession:', error);
@@ -293,6 +299,15 @@ class GoalSessionManager {
       // Clear mid-trade notifications for this session
       await midTradeNotificationQueue.clearSessionNotifications(sessionId);
 
+      // Stop live trade learning trigger
+      console.log(`[Goal Session] Stopping live trade learning trigger for user ${userId}`);
+      liveTradeLearningTrigger.stop();
+
+      // Queue deep session analysis in background
+      this.queueDeepSessionAnalysis(userId, sessionId).catch(err =>
+        console.error('[Goal Session] Error queuing deep analysis:', err)
+      );
+
       return true;
     } catch (error) {
       console.error('Error in stopSession:', error);
@@ -319,6 +334,15 @@ class GoalSessionManager {
 
           // Clear mid-trade notifications for expired session
           await midTradeNotificationQueue.clearSessionNotifications(session.id);
+
+          // Stop live trade learning trigger for expired session
+          console.log(`[Goal Session] Stopping live trade learning trigger for expired session ${session.id}`);
+          liveTradeLearningTrigger.stop();
+
+          // Queue deep session analysis in background
+          this.queueDeepSessionAnalysis(session.user_id, session.id).catch(err =>
+            console.error('[Goal Session] Error queuing deep analysis for expired session:', err)
+          );
         }
       }
     } catch (error) {
@@ -528,6 +552,12 @@ class GoalSessionManager {
       // Clear mid-trade notifications for this session
       await midTradeNotificationQueue.clearSessionNotifications(goalSessionId);
 
+      // Stop learning trigger and queue deep session analysis
+      liveTradeLearningTrigger.stop();
+      this.queueDeepSessionAnalysis(userId, goalSessionId).catch(err =>
+        console.error('[Goal Session] Error queuing deep analysis:', err)
+      );
+
       // Update achievement record
       const { data: achievement } = await supabase
         .from('goal_achievements')
@@ -660,6 +690,63 @@ class GoalSessionManager {
     } catch (error) {
       console.error('[Goal Session] Error moving stop loss to safety:', error);
       return { success: false, message: 'Failed to move stop loss' };
+    }
+  }
+
+  /**
+   * Queue deep session analysis with LLM (batched after session completion)
+   * This provides strategic insights across all trades in the session
+   */
+  private async queueDeepSessionAnalysis(userId: string, sessionId: string): Promise<void> {
+    try {
+      console.log(`[Goal Session] 🧠 Queueing deep session analysis for ${sessionId}`);
+
+      // Fetch all trades from this session
+      const { data: trades, error } = await supabase
+        .from('goal_session_trades')
+        .select('*')
+        .eq('goal_session_id', sessionId)
+        .eq('user_id', userId)
+        .eq('status', 'closed')
+        .order('closed_at', { ascending: true });
+
+      if (error || !trades || trades.length === 0) {
+        console.log('[Goal Session] No trades to analyze for session');
+        return;
+      }
+
+      // Convert to analysis format
+      const tradesForAnalysis = trades.map(t => ({
+        id: t.id,
+        symbol: t.symbol,
+        direction: t.direction as 'buy' | 'sell',
+        outcome: t.profit_loss > 0 ? 'win' : (t.profit_loss < 0 ? 'loss' : 'breakeven'),
+        pnl: parseFloat(t.profit_loss.toString()),
+        entryTime: new Date(t.opened_at),
+        exitTime: new Date(t.closed_at),
+        entryPrice: parseFloat(t.entry_price.toString()),
+        exitPrice: parseFloat(t.exit_price.toString()),
+        stopLoss: parseFloat(t.stop_loss.toString()),
+        takeProfit: parseFloat(t.take_profit.toString()),
+        confidence: parseFloat(t.confidence_score?.toString() || '75'),
+        marketConditions: t.market_conditions || {},
+        setupType: t.setup_type || 'Unknown'
+      }));
+
+      console.log(`[Goal Session] 🤖 Running LLM deep analysis on ${tradesForAnalysis.length} trades...`);
+
+      // Run deep LLM analysis (async, non-blocking)
+      await llmPostSessionAnalyzer.analyzeSession(
+        userId,
+        sessionId,
+        tradesForAnalysis,
+        'real'
+      );
+
+      console.log('[Goal Session] ✅ Deep session analysis complete');
+    } catch (error) {
+      console.error('[Goal Session] Error in deep session analysis:', error);
+      // Non-blocking - don't throw
     }
   }
 }
