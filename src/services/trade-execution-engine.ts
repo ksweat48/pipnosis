@@ -1,13 +1,19 @@
 import { supabase } from '../lib/supabase';
 import { goalSessionManager } from './goal-session-manager';
 import { positionService } from './position-service';
-import { getCurrencyPipInfo, roundLotSize, roundPnL } from '../utils/currencyHelpers';
+import { getCurrencyPipInfo, roundLotSize, roundPnL, calculatePipDistance } from '../utils/currencyHelpers';
 import { strategyPlaybookManager } from './strategy-playbook-manager';
 import { getRegimeBucket } from './regime-bucketing';
 import { prodLogger } from '../lib/production-logger';
 import { globalDialogManager } from './global-dialog-manager';
 import { llmReasoningLogger } from './llm-reasoning-logger';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
+
+interface LivePriceResult {
+  price: number;
+  source: string;
+  timestamp: Date;
+}
 
 export interface TradeSignal {
   sessionId: string;
@@ -37,22 +43,118 @@ export interface TradeExecutionResult {
 
 class TradeExecutionEngine {
   /**
+   * Fetch the CURRENT live price for a symbol at execution time
+   * This ensures trades execute at actual market price, not stale analysis price
+   */
+  private async fetchLivePrice(symbol: string): Promise<LivePriceResult | null> {
+    try {
+      const { data: latestCandle, error } = await supabase
+        .from('forex_candles')
+        .select('close, open_time')
+        .eq('symbol', symbol)
+        .order('open_time', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !latestCandle) {
+        console.warn(`[Trade Execution] Could not fetch live price for ${symbol}:`, error?.message);
+
+        const { data: realtimePrice } = await supabase
+          .from('realtime_prices')
+          .select('price, updated_at')
+          .eq('symbol', symbol)
+          .maybeSingle();
+
+        if (realtimePrice?.price) {
+          return {
+            price: realtimePrice.price,
+            source: 'realtime_prices',
+            timestamp: new Date(realtimePrice.updated_at)
+          };
+        }
+        return null;
+      }
+
+      return {
+        price: latestCandle.close,
+        source: 'forex_candles',
+        timestamp: new Date(latestCandle.open_time)
+      };
+    } catch (error) {
+      console.error(`[Trade Execution] Error fetching live price for ${symbol}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Get maximum allowed price slippage for a symbol type
+   * Indices like NAS100 are much more volatile than forex pairs
+   */
+  private getMaxAllowedSlippage(symbol: string): number {
+    const pipInfo = getCurrencyPipInfo(symbol);
+
+    if (pipInfo.symbolType === 'index') {
+      return 30 * pipInfo.pipValue;
+    } else if (pipInfo.symbolType === 'crypto') {
+      return 50 * pipInfo.pipValue;
+    } else {
+      return 5 * pipInfo.pipValue;
+    }
+  }
+
+  /**
    * Apply realistic slippage to entry price
-   * Simulates 0.5-1.0 pip slippage in the unfavorable direction
+   * Adjusted for symbol type - indices have higher slippage than forex
    */
   private applySlippage(symbol: string, entryPrice: number, direction: 'buy' | 'sell'): number {
     const pipInfo = getCurrencyPipInfo(symbol);
 
-    // Random slippage between 0.5 and 1.0 pips
-    const slippagePips = 0.5 + Math.random() * 0.5;
+    let slippagePips: number;
+    if (pipInfo.symbolType === 'index') {
+      slippagePips = 1 + Math.random() * 3;
+    } else if (pipInfo.symbolType === 'crypto') {
+      slippagePips = 2 + Math.random() * 5;
+    } else {
+      slippagePips = 0.5 + Math.random() * 0.5;
+    }
+
     const slippagePrice = slippagePips * pipInfo.pipValue;
 
-    // Apply in unfavorable direction
     if (direction === 'buy') {
-      return entryPrice + slippagePrice; // Pay more for buy
+      return entryPrice + slippagePrice;
     } else {
-      return entryPrice - slippagePrice; // Get less for sell
+      return entryPrice - slippagePrice;
     }
+  }
+
+  /**
+   * Adjust SL and TP relative to a new entry price while maintaining pip distances
+   */
+  private adjustLevelsForNewEntry(
+    symbol: string,
+    originalEntry: number,
+    newEntry: number,
+    originalSL: number,
+    originalTP: number,
+    direction: 'buy' | 'sell'
+  ): { stopLoss: number; takeProfit: number } {
+    const pipInfo = getCurrencyPipInfo(symbol);
+
+    const slPips = Math.abs(originalEntry - originalSL) / pipInfo.pipValue;
+    const tpPips = Math.abs(originalTP - originalEntry) / pipInfo.pipValue;
+
+    let newSL: number;
+    let newTP: number;
+
+    if (direction === 'buy') {
+      newSL = newEntry - (slPips * pipInfo.pipValue);
+      newTP = newEntry + (tpPips * pipInfo.pipValue);
+    } else {
+      newSL = newEntry + (slPips * pipInfo.pipValue);
+      newTP = newEntry - (tpPips * pipInfo.pipValue);
+    }
+
+    return { stopLoss: newSL, takeProfit: newTP };
   }
 
   async executeSignal(
@@ -422,21 +524,67 @@ class TradeExecutionEngine {
 
     console.log(`[Playbook] Trade context: bucket=${regimeBucket}, playbook=${activePlaybook?.variant_id || 'none'}, risk=$${riskDollars.toFixed(2)}`);
 
-    // Apply realistic slippage to entry price BEFORE inserting
-    const actualEntryPrice = this.applySlippage(signal.symbol, signal.entryPrice, signal.direction);
-    const slippagePips = Math.abs(actualEntryPrice - signal.entryPrice) / getCurrencyPipInfo(signal.symbol).pipValue;
+    // CRITICAL FIX: Fetch LIVE price at execution time, not stale signal price
+    const livePrice = await this.fetchLivePrice(signal.symbol);
+    const executionBasePrice = livePrice?.price || signal.entryPrice;
+    const priceSource = livePrice ? livePrice.source : 'signal';
 
-    console.log(`[Trade Execution] Slippage applied: ${slippagePips.toFixed(1)} pips (${signal.entryPrice.toFixed(5)} → ${actualEntryPrice.toFixed(5)})`);
+    // Check if price has moved too far from signal price (reject if excessive)
+    const priceDifference = Math.abs(executionBasePrice - signal.entryPrice);
+    const maxAllowedSlippage = this.getMaxAllowedSlippage(signal.symbol);
+    const priceDiffPips = calculatePipDistance(signal.symbol, signal.entryPrice, executionBasePrice);
 
-    // Insert trade with all required fields populated
+    console.log(`[Trade Execution] Price check: Signal=${signal.entryPrice.toFixed(5)}, Live=${executionBasePrice.toFixed(5)}, Diff=${priceDiffPips.toFixed(1)} pips (max allowed: ${(maxAllowedSlippage / pipInfo.pipValue).toFixed(1)} pips)`);
+
+    if (priceDifference > maxAllowedSlippage) {
+      console.error(`[Trade Execution] REJECTED: Price moved too far from signal! ${priceDiffPips.toFixed(1)} pips > ${(maxAllowedSlippage / pipInfo.pipValue).toFixed(1)} pips max`);
+      return {
+        success: false,
+        error: 'Price moved too far',
+        message: `Market price moved ${priceDiffPips.toFixed(1)} pips from analysis. Signal expired - will re-scan for fresh opportunity.`
+      };
+    }
+
+    // Adjust SL and TP to maintain the same pip distances from the new entry
+    let adjustedSL = signal.stopLoss;
+    let adjustedTP = signal.takeProfit;
+    const useLivePrice = livePrice && priceDifference > (pipInfo.pipValue * 2);
+
+    if (useLivePrice) {
+      const adjustedLevels = this.adjustLevelsForNewEntry(
+        signal.symbol,
+        signal.entryPrice,
+        executionBasePrice,
+        signal.stopLoss,
+        signal.takeProfit,
+        signal.direction
+      );
+      adjustedSL = adjustedLevels.stopLoss;
+      adjustedTP = adjustedLevels.takeProfit;
+      console.log(`[Trade Execution] Levels adjusted for live price: SL=${adjustedSL.toFixed(5)}, TP=${adjustedTP.toFixed(5)}`);
+    }
+
+    // Apply realistic slippage to live entry price
+    const actualEntryPrice = this.applySlippage(signal.symbol, executionBasePrice, signal.direction);
+    const slippagePips = Math.abs(actualEntryPrice - executionBasePrice) / pipInfo.pipValue;
+    const totalPriceShift = calculatePipDistance(signal.symbol, signal.entryPrice, actualEntryPrice);
+
+    console.log(`[Trade Execution] LIVE EXECUTION: Signal=${signal.entryPrice.toFixed(5)} -> Live=${executionBasePrice.toFixed(5)} -> Final=${actualEntryPrice.toFixed(5)} (${priceSource})`);
+    console.log(`[Trade Execution] Total shift from signal: ${totalPriceShift.toFixed(1)} pips | Slippage: ${slippagePips.toFixed(1)} pips`);
+
+    // Recalculate risk with adjusted levels
+    const finalRiskPips = Math.abs(actualEntryPrice - adjustedSL) / pipInfo.pipValue;
+    const finalRiskDollars = finalRiskPips * dollarPerPip;
+
+    // Insert trade with all required fields populated (using adjusted SL/TP)
     const tradeData = {
       goal_session_id: signal.sessionId,
       user_id: userId,
       symbol: signal.symbol,
       direction: signal.direction,
       entry_price: actualEntryPrice,
-      stop_loss: signal.stopLoss,
-      take_profit: signal.takeProfit,
+      stop_loss: adjustedSL,
+      take_profit: adjustedTP,
       position_size: signal.positionSize,
       lot_size: signal.positionSize,
       status: 'open',
@@ -446,7 +594,7 @@ class TradeExecutionEngine {
       opened_at: new Date().toISOString(),
       playbook_id: activePlaybook?.id || null,
       regime_bucket: regimeBucket,
-      risk_dollars: riskDollars,
+      risk_dollars: finalRiskDollars,
       ai_confidence: signal.confidence,
       ai_reasoning: signal.reasoning,
       ai_strategy_used: signal.setupType
@@ -514,11 +662,11 @@ class TradeExecutionEngine {
         direction: signal.direction,
         entryTime: new Date(),
         entryPrice: actualEntryPrice,
-        stopLoss: signal.stopLoss,
-        takeProfit: signal.takeProfit,
+        stopLoss: adjustedSL,
+        takeProfit: adjustedTP,
         llmReasoning: signal.reasoning || `AI took ${signal.direction.toUpperCase()} trade on ${signal.symbol} with ${signal.confidence}% confidence. Setup: ${signal.setupType}`,
-        marketRead: `Market conditions evaluated for ${signal.symbol}. Entry at ${actualEntryPrice.toFixed(5)} with ${slippagePips.toFixed(1)} pips slippage. ${signal.setupType} setup identified.`,
-        expectedOutcome: `Expecting price to move to take profit at ${signal.takeProfit.toFixed(5)} (${signal.riskReward.toFixed(2)}:1 R:R). Stop loss placed at ${signal.stopLoss.toFixed(5)}.`,
+        marketRead: `Market conditions evaluated for ${signal.symbol}. LIVE entry at ${actualEntryPrice.toFixed(5)} (signal was ${signal.entryPrice.toFixed(5)}, shift: ${totalPriceShift.toFixed(1)} pips). ${signal.setupType} setup identified.`,
+        expectedOutcome: `Expecting price to move to take profit at ${adjustedTP.toFixed(5)} (${signal.riskReward.toFixed(2)}:1 R:R). Stop loss placed at ${adjustedSL.toFixed(5)}.`,
         patternIdentified: signal.setupType || 'AI Setup',
         convictionLevel: signal.confidence,
         rankAtTime: 'Autonomous AI'
@@ -552,11 +700,12 @@ class TradeExecutionEngine {
     prodLogger.trade('OPENED', signal.symbol, {
       direction: signal.direction.toUpperCase(),
       entry: actualEntryPrice,
-      sl: signal.stopLoss,
-      tp: signal.takeProfit,
+      sl: adjustedSL,
+      tp: adjustedTP,
       size: signal.positionSize,
       confidence: `${signal.confidence}%`,
-      setup: signal.setupType
+      setup: signal.setupType,
+      priceShift: `${totalPriceShift.toFixed(1)} pips from signal`
     });
 
     await supabase
@@ -567,8 +716,8 @@ class TradeExecutionEngine {
     await goalSessionManager.addAIMessage(
       signal.sessionId,
       userId,
-      `Trade executed on ${signal.symbol}! ${signal.direction.toUpperCase()} at ${signal.entryPrice}. ${signal.setupType} setup with ${signal.confidence}% confidence. Stop Loss: ${signal.stopLoss}, Take Profit: ${signal.takeProfit}. Expected R:R = ${signal.riskReward.toFixed(2)}:1 ($${signal.expectedProfit.toFixed(2)})`,
-      { signal, trade },
+      `Trade executed on ${signal.symbol}! ${signal.direction.toUpperCase()} at ${actualEntryPrice.toFixed(5)}. ${signal.setupType} setup with ${signal.confidence}% confidence. Stop Loss: ${adjustedSL.toFixed(5)}, Take Profit: ${adjustedTP.toFixed(5)}. Expected R:R = ${signal.riskReward.toFixed(2)}:1 ($${signal.expectedProfit.toFixed(2)})`,
+      { signal, trade, actualEntryPrice, adjustedSL, adjustedTP },
       'encouraging'
     );
 
@@ -578,7 +727,7 @@ class TradeExecutionEngine {
       type: 'trade_entry',
       priority: 'urgent',
       title: `Trade Executed: ${signal.symbol}`,
-      message: `${signal.direction.toUpperCase()} trade opened at ${actualEntryPrice.toFixed(5)}. SL: ${signal.stopLoss.toFixed(5)}, TP: ${signal.takeProfit.toFixed(5)}. Expected R:R = ${signal.riskReward.toFixed(2)}:1`,
+      message: `${signal.direction.toUpperCase()} trade opened at ${actualEntryPrice.toFixed(5)}. SL: ${adjustedSL.toFixed(5)}, TP: ${adjustedTP.toFixed(5)}. Expected R:R = ${signal.riskReward.toFixed(2)}:1`,
       metadata: {
         signal,
         tradeId: trade.id,
@@ -586,11 +735,12 @@ class TradeExecutionEngine {
           symbol: signal.symbol,
           direction: signal.direction,
           entry_price: actualEntryPrice,
-          stop_loss: signal.stopLoss,
-          take_profit: signal.takeProfit,
+          stop_loss: adjustedSL,
+          take_profit: adjustedTP,
           lot_size: signal.positionSize,
           confidence: signal.confidence,
-          setup_type: signal.setupType
+          setup_type: signal.setupType,
+          price_shift_pips: totalPriceShift
         }
       },
       channels: ['in_app']
@@ -603,13 +753,13 @@ class TradeExecutionEngine {
       console.log('[Trade Execution] ✅ Notification logged successfully for', signal.symbol);
     }
 
-    // Trigger immediate trade entry modal
+    // Trigger immediate trade entry modal with ACTUAL execution values
     globalDialogManager.showTradeEntry({
       symbol: signal.symbol,
       direction: signal.direction,
       entryPrice: actualEntryPrice,
-      stopLoss: signal.stopLoss,
-      takeProfit: signal.takeProfit,
+      stopLoss: adjustedSL,
+      takeProfit: adjustedTP,
       lotSize: signal.positionSize,
       confidence: signal.confidence,
       priority: signal.confidence >= 85 ? 'urgent' : signal.confidence >= 75 ? 'high' : 'medium',
@@ -618,7 +768,7 @@ class TradeExecutionEngine {
       expectedProfit: signal.expectedProfit,
       riskReward: signal.riskReward,
       autoExecuted: true,
-      goal_session_id: signal.sessionId  // Add goal_session_id for notification persistence
+      goal_session_id: signal.sessionId
     }, signal.confidence >= 85 ? 'urgent' : signal.confidence >= 75 ? 'high' : 'medium');
 
     return {
