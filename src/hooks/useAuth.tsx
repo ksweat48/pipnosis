@@ -26,7 +26,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
+    console.log('🔐 [useAuth] Initializing auth...');
+
     const fetchUserRole = async (userId: string) => {
+      console.log('👤 [useAuth] Fetching user role for:', userId);
       setAdminLoading(true);
       try {
         const { data, error } = await supabase
@@ -36,29 +39,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .maybeSingle();
 
         if (!error && data) {
+          console.log('✅ [useAuth] User role:', data.role);
           setIsAdmin(data.role === 'admin');
         } else {
+          console.log('ℹ️ [useAuth] No admin role found, treating as regular user');
           setIsAdmin(false);
         }
       } catch (error) {
-        console.error('Error fetching user role:', error);
+        console.error('❌ [useAuth] Error fetching user role:', error);
         setIsAdmin(false);
       } finally {
         setAdminLoading(false);
       }
     };
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchUserRole(session.user.id).finally(() => {
+    console.log('🔍 [useAuth] Getting session...');
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        console.log('📋 [useAuth] Session retrieved:', session ? 'Logged in' : 'Not logged in');
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          fetchUserRole(session.user.id).finally(() => {
+            console.log('✅ [useAuth] Auth initialization complete (with user)');
+            setLoading(false);
+          });
+        } else {
+          console.log('✅ [useAuth] Auth initialization complete (no user)');
           setLoading(false);
-        });
-      } else {
+        }
+      })
+      .catch((error) => {
+        console.error('❌ [useAuth] Failed to get session:', error);
+        // Continue anyway - don't block the app
         setLoading(false);
-      }
-    });
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       (async () => {

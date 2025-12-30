@@ -18,11 +18,26 @@ const supabaseUrl = getEnvVar('VITE_SUPABASE_URL');
 const supabaseAnonKey = getEnvVar('VITE_SUPABASE_ANON_KEY');
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing Supabase environment variables');
+  console.error('❌ [Supabase] Missing environment variables!');
+  console.error('❌ [Supabase] URL:', supabaseUrl || 'MISSING');
+  console.error('❌ [Supabase] Key:', supabaseAnonKey ? 'Set' : 'MISSING');
+  console.error('❌ [Supabase] The app will continue but database features will not work');
+
+  // Use dummy values to prevent crashes - the app will work in offline mode
+  if (!supabaseUrl) {
+    console.warn('⚠️ [Supabase] Using dummy URL');
+  }
+  if (!supabaseAnonKey) {
+    console.warn('⚠️ [Supabase] Using dummy key');
+  }
 }
 
 // Create Supabase client with request logging
-const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+// Use fallback values to prevent crashes if env vars are missing
+const supabaseClient = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder-key',
+  {
   auth: {
     autoRefreshToken: true,
     persistSession: true,

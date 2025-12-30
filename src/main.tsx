@@ -7,6 +7,13 @@ import { errorHandler } from '@/lib/error-handler';
 import App from './App.tsx';
 import './index.css';
 
+// STARTUP DIAGNOSTICS
+console.log('🚀 [STARTUP] Pipnosis AI Trading Platform');
+console.log('🔍 [STARTUP] Environment:', import.meta.env.MODE);
+console.log('🔍 [STARTUP] Host:', window.location.hostname);
+console.log('🔍 [STARTUP] Supabase URL:', import.meta.env.VITE_SUPABASE_URL ? '✅ Set' : '❌ Missing');
+console.log('🔍 [STARTUP] Supabase Key:', import.meta.env.VITE_SUPABASE_ANON_KEY ? '✅ Set' : '❌ Missing');
+
 // Application startup (debug info available via logger if needed)
 
 // Silence verbose logs in production
@@ -67,37 +74,45 @@ if (typeof window !== 'undefined') {
   const isDevelopment = !import.meta.env.PROD;
 
   // CRITICAL: Aggressively unregister service worker in dev/Bolt to fix preview
+  // NON-BLOCKING: All cleanup happens in background without blocking render
   if ('serviceWorker' in navigator && (isDevelopment || isBoltEnvironment)) {
     console.log('🔧 Development/Bolt environment detected - unregistering all service workers');
 
-    // Unregister immediately
-    navigator.serviceWorker.getRegistrations().then(registrations => {
-      if (registrations.length > 0) {
-        console.log(`🔧 Found ${registrations.length} service worker(s) - unregistering...`);
-        registrations.forEach(registration => {
-          registration.unregister().then(success => {
-            if (success) {
-              console.log('✅ Service Worker unregistered successfully');
-            }
+    // Unregister immediately with proper error handling (non-blocking)
+    navigator.serviceWorker.getRegistrations()
+      .then(registrations => {
+        if (registrations.length > 0) {
+          console.log(`🔧 Found ${registrations.length} service worker(s) - unregistering...`);
+          registrations.forEach(registration => {
+            registration.unregister()
+              .then(success => {
+                if (success) {
+                  console.log('✅ Service Worker unregistered successfully');
+                }
+              })
+              .catch(err => console.warn('⚠️ Service worker unregister failed:', err));
           });
-        });
-      } else {
-        console.log('✅ No service workers found - preview should work correctly');
-      }
-    });
-
-    // Clear all caches to ensure clean state
-    if ('caches' in window) {
-      caches.keys().then(cacheNames => {
-        if (cacheNames.length > 0) {
-          console.log(`🔧 Clearing ${cacheNames.length} cache(s)...`);
-          return Promise.all(
-            cacheNames.map(cacheName => caches.delete(cacheName))
-          );
+        } else {
+          console.log('✅ No service workers found - preview should work correctly');
         }
-      }).then(() => {
-        console.log('✅ All caches cleared');
-      });
+      })
+      .catch(err => console.warn('⚠️ Could not get service worker registrations:', err));
+
+    // Clear all caches to ensure clean state (non-blocking)
+    if ('caches' in window) {
+      caches.keys()
+        .then(cacheNames => {
+          if (cacheNames.length > 0) {
+            console.log(`🔧 Clearing ${cacheNames.length} cache(s)...`);
+            return Promise.all(
+              cacheNames.map(cacheName => caches.delete(cacheName))
+            );
+          }
+        })
+        .then(() => {
+          console.log('✅ All caches cleared');
+        })
+        .catch(err => console.warn('⚠️ Cache cleanup failed:', err));
     }
   }
 
