@@ -261,6 +261,12 @@ class ChartCandlePoller {
         logger.debug(LogCategory.CHART_POLLER, `Deduplicated ${data.length - candles.length} overlapping candles for ${symbol} ${timeframe}`);
       }
 
+      // CRITICAL FIX: Check if candles array is empty (all candles rejected by validation)
+      if (candles.length === 0) {
+        logger.error(LogCategory.CHART_POLLER, `[ChartPoller] ❌ No valid candles for ${symbol} ${timeframe} after validation - all ${data.length} candles rejected`);
+        return; // Don't update cache or notify listeners
+      }
+
       const latestCandle = candles[candles.length - 1];
       const hasNewData = cache.lastCandleTime === null || latestCandle.time > cache.lastCandleTime;
 

@@ -36,10 +36,10 @@ const SYMBOL_PRICE_RANGES: Record<string, PriceRange> = {
   XPTUSD: { min: 700, max: 1300, typical: 950 }, // Platinum
   XPDUSD: { min: 700, max: 1800, typical: 1000 }, // Palladium
 
-  // Indices (CFD) - UPDATED RANGES (Dec 2025)
-  US30: { min: 35000, max: 52000, typical: 47500 }, // Dow Jones
-  NAS100: { min: 12000, max: 21000, typical: 16200 }, // NASDAQ
-  SPX500: { min: 3800, max: 6200, typical: 5000 }, // S&P 500
+  // Indices (CFD) - UPDATED RANGES (Dec 30, 2025)
+  US30: { min: 35000, max: 52000, typical: 42500 }, // Dow Jones - Updated Dec 30, 2025 (trading at ~42,500)
+  NAS100: { min: 20000, max: 30000, typical: 25500 }, // NASDAQ - Updated Dec 30, 2025 (trading at ~25,500)
+  SPX500: { min: 4500, max: 6500, typical: 5900 }, // S&P 500 - Updated Dec 30, 2025 (trading at ~5,900)
   UK100: { min: 6500, max: 8800, typical: 7500 }, // FTSE 100
   GER40: { min: 14000, max: 20000, typical: 17200 }, // DAX
 
