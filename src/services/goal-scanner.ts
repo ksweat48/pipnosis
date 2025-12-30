@@ -37,6 +37,7 @@ export interface ScanResult {
   confidence?: number;
   reasoning?: string;
   marketConditions: MarketConditions;
+  alphaDecision?: any;
 }
 
 export interface TradeSignal {
@@ -189,12 +190,13 @@ class GoalScanner {
         console.log(`[Goal Scanner] 🎯 Found ${validSetups.length} valid setup(s), evaluating for execution...`);
 
         for (const setup of validSetups) {
-          const signal = await this.evaluateSignal(sessionId, setup, session.data);
-          if (signal) {
+          const result = await this.evaluateSignal(sessionId, setup, session.data);
+          if (result) {
             const executionResult = await tradeExecutionEngine.executeSignal(
-              signal,
+              result.signal,
               userId,
-              session.data.auto_execute
+              session.data.auto_execute,
+              result.alphaDecision
             );
 
             if (executionResult.success) {
@@ -377,6 +379,7 @@ class GoalScanner {
         confidence: alphaDecision.confidence,
         reasoning: alphaDecision.reasoning,
         marketConditions,
+        alphaDecision,
       };
     } catch (error) {
       console.error(`[Goal Scanner] Alpha-Omega error for ${symbol}:`, error);
@@ -631,7 +634,7 @@ class GoalScanner {
     sessionId: string,
     scanResult: ScanResult,
     sessionConfig: SessionConfig
-  ): Promise<TradeSignal | null> {
+  ): Promise<{ signal: TradeSignal; alphaDecision?: any } | null> {
     if (!scanResult.hasValidSetup) return null;
 
     const direction: 'buy' | 'sell' = scanResult.setupType?.toUpperCase().includes('SELL') ? 'sell' : 'buy';
@@ -719,18 +722,21 @@ class GoalScanner {
     const expectedProfit = Math.abs(scanResult.takeProfit! - scanResult.entry!) * dollarPerPip;
 
     return {
-      sessionId,
-      symbol: scanResult.symbol,
-      direction,
-      entryPrice: scanResult.entry!,
-      stopLoss: scanResult.stopLoss!,
-      takeProfit: scanResult.takeProfit!,
-      positionSize,
-      confidence: scanResult.confidence!,
-      setupType: scanResult.setupType!,
-      reasoning: scanResult.reasoning!,
-      riskReward,
-      expectedProfit: Math.abs(expectedProfit),
+      signal: {
+        sessionId,
+        symbol: scanResult.symbol,
+        direction,
+        entryPrice: scanResult.entry!,
+        stopLoss: scanResult.stopLoss!,
+        takeProfit: scanResult.takeProfit!,
+        positionSize,
+        confidence: scanResult.confidence!,
+        setupType: scanResult.setupType!,
+        reasoning: scanResult.reasoning!,
+        riskReward,
+        expectedProfit: Math.abs(expectedProfit),
+      },
+      alphaDecision: scanResult.alphaDecision,
     };
   }
 
