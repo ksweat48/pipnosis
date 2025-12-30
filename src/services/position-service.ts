@@ -381,14 +381,16 @@ class PositionService {
     closePrice: number,
     closeReason: CloseReason = 'manual',
     userId?: string,
-    goalSessionId?: string
+    goalSessionId?: string,
+    forceClose: boolean = false
   ): Promise<ClosePositionResult> {
     try {
       console.log('[PositionService] Closing position:', {
         positionId,
         closePrice,
         closeReason,
-        goalSessionId
+        goalSessionId,
+        forceClose
       });
 
       // Use the secure RPC function with session verification
@@ -398,14 +400,28 @@ class PositionService {
           p_trade_id: positionId,
           p_close_price: closePrice,
           p_close_reason: closeReason,
-          p_goal_session_id: goalSessionId || null
+          p_goal_session_id: goalSessionId || null,
+          p_force_close: forceClose
         });
 
       if (error) {
         console.error('[PositionService] Failed to close position:', error);
+
+        // Parse error message to provide more helpful feedback
+        let userMessage = error.message || 'Failed to close position';
+
+        // Check for specific error patterns
+        if (error.message?.includes('status')) {
+          userMessage = `Cannot close: ${error.message}. Try force-close if position is stuck.`;
+        } else if (error.message?.includes('not found')) {
+          userMessage = 'Position not found or already closed.';
+        } else if (error.message?.includes('Access denied')) {
+          userMessage = 'You do not have permission to close this position.';
+        }
+
         return {
           success: false,
-          message: error.message || 'Failed to close position'
+          message: userMessage
         };
       }
 
@@ -446,7 +462,9 @@ class PositionService {
 
       return {
         success: true,
-        message: `Position closed with P&L: $${closedTrade.profit_loss?.toFixed(2) || '0.00'}`,
+        message: forceClose
+          ? `Position force-closed with P&L: $${closedTrade.profit_loss?.toFixed(2) || '0.00'}`
+          : `Position closed with P&L: $${closedTrade.profit_loss?.toFixed(2) || '0.00'}`,
         position: closedTrade,
         pnl: closedTrade.profit_loss
       };
@@ -457,6 +475,26 @@ class PositionService {
         message: error.message || 'Failed to close position'
       };
     }
+  }
+
+  /**
+   * Force-close a stuck position (bypasses status validation)
+   */
+  async forceClosePosition(
+    positionId: string,
+    closePrice: number,
+    userId?: string,
+    goalSessionId?: string
+  ): Promise<ClosePositionResult> {
+    console.log('[PositionService] FORCE CLOSING stuck position:', positionId);
+    return this.closePosition(
+      positionId,
+      closePrice,
+      'manual',
+      userId,
+      goalSessionId,
+      true // force close enabled
+    );
   }
 
   /**

@@ -174,7 +174,7 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
     setLivePrices(prices);
   };
 
-  const handleClosePosition = async (position: Position) => {
+  const handleClosePosition = async (position: Position, forceClose: boolean = false) => {
     let currentPrice: number;
     let pnl = position.current_pnl;
 
@@ -203,11 +203,13 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
     }
 
     const confirmed = await confirm({
-      title: 'Close Position',
-      message: `Close ${format.direction(position.position_type, 'desktop')} ${position.symbol} ${format.lots(position.lot_size, 'desktop')} lots?\nCurrent P&L: ${format.pnl(pnl, 'desktop')}`,
-      confirmText: 'Close',
+      title: forceClose ? 'Force Close Position?' : 'Close Position',
+      message: forceClose
+        ? `FORCE CLOSE ${position.symbol}?\n\nThis will close the position regardless of its status. This is a recovery action for stuck positions.\n\nCurrent P&L: ${format.pnl(pnl, 'desktop')}`
+        : `Close ${format.direction(position.position_type, 'desktop')} ${position.symbol} ${format.lots(position.lot_size, 'desktop')} lots?\nCurrent P&L: ${format.pnl(pnl, 'desktop')}`,
+      confirmText: forceClose ? 'Force Close' : 'Close',
       cancelText: 'Cancel',
-      variant: pnl >= 0 ? 'info' : 'warning'
+      variant: forceClose ? 'danger' : (pnl >= 0 ? 'info' : 'warning')
     });
 
     if (!confirmed) return;
@@ -218,19 +220,47 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
-      const result = await positionService.closePosition(
-        position.id,
-        currentPrice,
-        'manual',
-        user.id,
-        goalSessionId
-      );
+      const result = forceClose
+        ? await positionService.forceClosePosition(
+            position.id,
+            currentPrice,
+            user.id,
+            goalSessionId
+          )
+        : await positionService.closePosition(
+            position.id,
+            currentPrice,
+            'manual',
+            user.id,
+            goalSessionId
+          );
 
       if (result.success) {
         notificationManager.playSound('trade_exit');
-        toast.success('Position Closed', result.message || 'Position closed successfully');
+        toast.success(
+          forceClose ? 'Position Force-Closed' : 'Position Closed',
+          result.message || 'Position closed successfully'
+        );
         await fetchPositions();
       } else {
+        // If normal close failed and message suggests using force-close
+        if (!forceClose && result.message?.includes('force-close')) {
+          const tryForceClose = await confirm({
+            title: 'Normal Close Failed',
+            message: `${result.message}\n\nWould you like to try FORCE CLOSING this position? This bypasses status validation.`,
+            confirmText: 'Yes, Force Close',
+            cancelText: 'Cancel',
+            variant: 'danger'
+          });
+
+          if (tryForceClose) {
+            // Recursively call with force-close enabled
+            setClosingPosition(null);
+            await handleClosePosition(position, true);
+            return;
+          }
+        }
+
         toast.error('Failed to Close', result.message || 'Could not close position');
       }
     } catch (error) {

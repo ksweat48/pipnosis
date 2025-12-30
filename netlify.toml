@@ -71,6 +71,12 @@
   timeout = 30
   schedule = "* * * * *"  # 🚨 5-field format ONLY - processes active goal sessions
 
+# 🚨 EMERGENCY: Position recovery backup monitor (runs every minute)
+# CRITICAL SAFETY NET: Force-recovers stuck positions that didn't close at TP/SL
+[functions."emergency-position-recovery"]
+  timeout = 30
+  schedule = "* * * * *"  # 🚨 5-field format ONLY - final safety net for stuck positions
+
 # 🔧 AUTOMATIC GAP FILLER: Detects and fills gaps every 5 minutes
 [functions."automatic-gap-filler"]
   timeout = 120  # 2 minutes to detect and fill gaps
