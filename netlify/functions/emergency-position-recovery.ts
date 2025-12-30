@@ -14,9 +14,9 @@
  * Scheduled: Every 60 seconds (configured in netlify.toml)
  */
 
-import { Handler, schedule } from '@netlify/functions';
+import type { Handler } from '@netlify/functions';
 
-const handler: Handler = async (event, context) => {
+export const handler: Handler = async (event, context) => {
   console.log('[Netlify Emergency Recovery] Starting emergency position recovery check...');
 
   try {
@@ -84,6 +84,3 @@ const handler: Handler = async (event, context) => {
     };
   }
 };
-
-// Export as scheduled function (runs every minute as emergency backup)
-export { handler };

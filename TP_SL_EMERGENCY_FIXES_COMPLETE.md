@@ -177,9 +177,11 @@ Logs every close attempt with:
 
 - ✅ Database migrations applied
 - ✅ Frontend code built successfully
-- ✅ Netlify deployment triggered
+- ✅ Netlify deployment triggered (2nd attempt - function export fixed)
 - ✅ Emergency cron job scheduled
 - ⏳ Deployment in progress (check Netlify dashboard)
+
+**Note:** First deployment failed due to incorrect function export. Fixed by removing unused `schedule` import and duplicate export statement.
 
 ---
 
