@@ -434,6 +434,89 @@ Return ONLY this JSON format (no markdown, no explanations):
       strategicNotes: 'Conservative fallback strategy'
     };
   }
+
+  /**
+   * Calculate dual take profit targets for a goal
+   * TP1: Conservative "safe zone" target with higher probability
+   * TP2: Realistic market target that Alpha believes market will give
+   */
+  async calculateDualTargets(
+    userGoal: number,
+    currentBalance: number,
+    riskMode: 'low' | 'medium' | 'high'
+  ): Promise<{ tp1: number; tp2: number; reasoning: string }> {
+    try {
+      // Classify the goal
+      const classification = goalIntelligenceClassifier.classify({
+        goalAmount: userGoal,
+        accountBalance: currentBalance,
+        timeframe: '1 day' // Default for calculation
+      });
+
+      // Base TP1 on conservative probability (45-60% of user's goal)
+      // This is the "safe zone" where Alpha is confident user can reach
+      let tp1Percentage: number;
+      let tp2Percentage: number;
+
+      switch (classification.mode) {
+        case 'precision':
+          // For precision mode, user's goal is already small and realistic
+          tp1Percentage = 0.55; // 55% of goal is very achievable
+          tp2Percentage = 0.85; // 85% of goal is what market will likely give
+          break;
+
+        case 'execution':
+          // For execution mode, goals are moderate but achievable
+          tp1Percentage = 0.50; // 50% is high probability
+          tp2Percentage = 0.75; // 75% is realistic market target
+          break;
+
+        case 'campaign':
+          // For campaign mode, goals are ambitious
+          tp1Percentage = 0.45; // 45% is conservative
+          tp2Percentage = 0.65; // 65% is realistic for this session
+          break;
+
+        case 'growth':
+          // For growth mode (shouldn't execute, but calculate anyway)
+          tp1Percentage = 0.40; // 40% would be impressive
+          tp2Percentage = 0.55; // 55% would be exceptional
+          break;
+
+        default:
+          tp1Percentage = 0.50;
+          tp2Percentage = 0.75;
+      }
+
+      const tp1 = Math.round(userGoal * tp1Percentage * 100) / 100;
+      const tp2 = Math.round(userGoal * tp2Percentage * 100) / 100;
+
+      const reasoning = `Based on ${classification.mode} mode classification: TP1 ($${tp1}) represents a ${(tp1Percentage * 100).toFixed(0)}% conservative target with high probability. TP2 ($${tp2}) represents a ${(tp2Percentage * 100).toFixed(0)}% realistic target that market conditions suggest is achievable.`;
+
+      logger.info(
+        LogCategory.AI_TRADING,
+        `[Alpha TP Calculator] User Goal: $${userGoal} → TP1: $${tp1} (${(tp1Percentage * 100).toFixed(0)}%) | TP2: $${tp2} (${(tp2Percentage * 100).toFixed(0)}%)`
+      );
+
+      return {
+        tp1,
+        tp2,
+        reasoning
+      };
+    } catch (error) {
+      logger.error(LogCategory.AI_TRADING, '[Alpha TP Calculator] Error calculating targets:', error);
+
+      // Fallback to simple calculation
+      const tp1 = Math.round(userGoal * 0.50 * 100) / 100;
+      const tp2 = Math.round(userGoal * 0.75 * 100) / 100;
+
+      return {
+        tp1,
+        tp2,
+        reasoning: 'Fallback calculation: TP1 at 50%, TP2 at 75% of user goal'
+      };
+    }
+  }
 }
 
 export const alphaExecutionPlanner = new AlphaExecutionPlanner();

@@ -11,6 +11,7 @@ import { PIPNOSIS_CORE_RULES, PipnosisCoreRules } from '../lib/pipnosis-core-rul
 import { goalSessionLiveEngine, GoalSessionLiveConfig } from './goal-session-live-engine';
 import { v4 as uuidv4 } from 'uuid';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
+import { alphaExecutionPlanner } from './alpha-execution-planner';
 
 export interface SmartGoalConfig {
   goalAmount: number;
@@ -40,6 +41,13 @@ export interface SmartGoalSession {
   serverLastCheck?: string;
   serverEnabled?: boolean;
   autonomousEnabled?: boolean;
+  tp1_target?: number;
+  tp2_target?: number;
+  tp1_hit?: boolean;
+  tp1_hit_at?: string;
+  tp1_learning_awarded?: boolean;
+  tp2_hit?: boolean;
+  tp2_hit_at?: string;
 }
 
 class SmartGoalSessionManager {
@@ -81,10 +89,20 @@ class SmartGoalSessionManager {
 
     const minConfidence = getMinConfidenceThreshold(config.riskMode);
 
+    // Calculate dual take profit targets
+    const dualTargets = await alphaExecutionPlanner.calculateDualTargets(
+      config.goalAmount,
+      accountBalance,
+      config.riskMode
+    );
+
     console.log('[Smart Goal] Creating session with settings:', {
       sessionId,
       multi_trade_enabled: multiTradeEnabled,
       target: config.goalAmount,
+      tp1_target: dualTargets.tp1,
+      tp2_target: dualTargets.tp2,
+      tp_reasoning: dualTargets.reasoning,
       risk_mode: config.riskMode,
       min_confidence: minConfidence
     });
@@ -94,6 +112,8 @@ class SmartGoalSessionManager {
       user_id: userId,
       goal_type: 'profit_target',
       target_value: config.goalAmount,
+      tp1_target: dualTargets.tp1,
+      tp2_target: dualTargets.tp2,
       timeframe: config.timeframe,
       risk_mode: config.riskMode,
       min_confidence: minConfidence,

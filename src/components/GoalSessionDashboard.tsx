@@ -1220,6 +1220,51 @@ export const GoalSessionDashboard: React.FC = () => {
           </div>
           <div className="relative w-full bg-gray-700/50 backdrop-blur-sm rounded-full h-4 overflow-hidden border border-gray-600/50">
             <div className="absolute inset-0 bg-gradient-to-r from-gray-700 to-gray-800" />
+
+            {/* TP1 Marker (Conservative Target) */}
+            {activeSession.tp1_target && activeSession.config.goalAmount > 0 && (
+              <div
+                className="absolute top-0 bottom-0 w-1 z-10"
+                style={{ left: `${(activeSession.tp1_target / activeSession.config.goalAmount) * 100}%` }}
+                title={`TP1: $${activeSession.tp1_target.toFixed(2)} (Conservative Target)`}
+              >
+                <div className="relative h-full">
+                  <div className={`absolute inset-0 ${activeSession.tp1_hit ? 'bg-green-400' : 'bg-yellow-400'} shadow-lg`} />
+                  <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap">
+                    <div className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                      activeSession.tp1_hit
+                        ? 'bg-green-500 text-white'
+                        : 'bg-yellow-500 text-gray-900'
+                    }`}>
+                      {activeSession.tp1_hit ? '✓ TP1' : 'TP1'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TP2 Marker (Realistic Target) */}
+            {activeSession.tp2_target && activeSession.config.goalAmount > 0 && (
+              <div
+                className="absolute top-0 bottom-0 w-1 z-10"
+                style={{ left: `${(activeSession.tp2_target / activeSession.config.goalAmount) * 100}%` }}
+                title={`TP2: $${activeSession.tp2_target.toFixed(2)} (Realistic Target)`}
+              >
+                <div className="relative h-full">
+                  <div className={`absolute inset-0 ${activeSession.tp2_hit ? 'bg-green-400' : 'bg-blue-400'} shadow-lg`} />
+                  <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap">
+                    <div className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                      activeSession.tp2_hit
+                        ? 'bg-green-500 text-white'
+                        : 'bg-blue-500 text-white'
+                    }`}>
+                      {activeSession.tp2_hit ? '✓ TP2' : 'TP2'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div
               className={`relative h-full transition-all duration-500 shadow-lg ${
                 openTrades.length > 0
