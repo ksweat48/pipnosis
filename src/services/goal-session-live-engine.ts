@@ -1142,7 +1142,7 @@ class GoalSessionLiveEngine {
       // Prevents memory desync from losing track of open positions
       const { data: dbPositions, error: dbSyncError } = await supabase
         .from('goal_session_trades')
-        .select('id, symbol, direction, entry_price, stop_loss, take_profit, position_size')
+        .select('id, symbol, direction, entry_price, stop_loss, take_profit, position_size, opened_at, created_at')
         .eq('goal_session_id', this.activeSession!)
         .eq('status', 'open');
 
@@ -1171,13 +1171,16 @@ class GoalSessionLiveEngine {
               symbol: pos.symbol,
               direction: pos.direction as 'buy' | 'sell',
               entryPrice: pos.entry_price,
+              entryTime: new Date(pos.opened_at || pos.created_at),
               stopLoss: pos.stop_loss,
               takeProfit: pos.take_profit,
               positionSize: pos.position_size,
               outcome: 'open' as const,
               confidence: 0,
               reasoning: 'Resynced from database',
-              triggerType: 'resync'
+              triggerType: 'resync',
+              maxHoldMinutes: 240,
+              pnl: 0
             });
           }
 
@@ -3311,7 +3314,7 @@ Keep response under 100 words, educational tone.`;
     // 🚨 CRITICAL: Sync with database to prevent memory loss
     const { data: dbPositions, error: dbError } = await supabase
       .from('goal_session_trades')
-      .select('id, symbol, direction, entry_price, stop_loss, take_profit, position_size, status')
+      .select('id, symbol, direction, entry_price, stop_loss, take_profit, position_size, status, opened_at, created_at')
       .eq('goal_session_id', this.activeSession!)
       .eq('status', 'open');
 
@@ -3335,13 +3338,16 @@ Keep response under 100 words, educational tone.`;
         symbol: pos.symbol,
         direction: pos.direction as 'buy' | 'sell',
         entryPrice: pos.entry_price,
+        entryTime: new Date(pos.opened_at || pos.created_at),
         stopLoss: pos.stop_loss,
         takeProfit: pos.take_profit,
         positionSize: pos.position_size,
         outcome: 'open' as const,
         confidence: 0, // Unknown
         reasoning: 'Resynced from database',
-        triggerType: 'resync'
+        triggerType: 'resync',
+        maxHoldMinutes: 240,
+        pnl: 0
       }));
 
       console.log('%c[MONITORING MODE] ✅ Resynced ' + this.openTrades.length + ' positions from database',
@@ -3493,8 +3499,8 @@ Keep response under 100 words, educational tone.`;
       await supabase
         .from('goal_sessions')
         .update({
-          progress_amount: totalProfit,
-          progress_percent: Math.min(progressPercent, 100)
+          current_progress: totalProfit,
+          progress_percentage: Math.min(progressPercent, 100)
         })
         .eq('id', this.activeSession);
 
