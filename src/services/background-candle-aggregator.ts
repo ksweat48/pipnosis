@@ -913,30 +913,7 @@ class BackgroundCandleAggregator {
       return;
     }
 
-    // Save tick to database so it persists and can be queried by forming candle reconstruction
-    try {
-      const { error } = await supabase
-        .from('realtime_prices')
-        .insert({
-          symbol,
-          bid: bid.toString(),
-          ask: ask.toString(),
-          broker_time: timestamp,
-          source: 'direct-poller'
-        });
-
-      if (error) {
-        // Ignore duplicate key errors (tick already saved by backend)
-        if (!error.message?.includes('duplicate') && !error.code?.includes('23505')) {
-          console.error(`[BackgroundAggregator] Failed to save external tick for ${symbol}:`, error);
-        }
-      } else {
-        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `[${symbol}] ✓ Saved external tick: ${midPrice.toFixed(5)}`);
-      }
-    } catch (error) {
-      console.error(`[BackgroundAggregator] Error saving external tick for ${symbol}:`, error);
-    }
-
+    // Backend Netlify function handles database persistence - client only processes ticks in-memory
     // Immediately process the tick to update candle states (don't wait for next poll)
     this.processNewPrice(symbol, bid, ask, timestamp);
   }
