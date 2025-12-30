@@ -312,6 +312,17 @@ export function AdminDashboard() {
             <span className="xs:hidden">AI</span>
           </button>
           <button
+            onClick={() => setActiveTab('users')}
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
+              activeTab === 'users'
+                ? 'bg-amber-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            <Users size={16} className="sm:w-[18px] sm:h-[18px]" />
+            Users
+          </button>
+          <button
             onClick={() => setActiveTab('data')}
             className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'data'
@@ -346,17 +357,6 @@ export function AdminDashboard() {
             <Layers size={16} className="sm:w-[18px] sm:h-[18px]" />
             <span className="hidden sm:inline">Cache Intelligence</span>
             <span className="sm:hidden">Cache</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
-              activeTab === 'users'
-                ? 'bg-amber-600 text-white'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            <Users size={16} className="sm:w-[18px] sm:h-[18px]" />
-            Users
           </button>
           <button
             onClick={() => setActiveTab('feedback')}

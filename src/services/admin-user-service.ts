@@ -256,6 +256,22 @@ export const adminUserService = {
       throw new Error(error.message);
     }
 
-    return data;
+    // Supabase RPC returns an array for TABLE-returning functions
+    // Extract first row or return defaults
+    const kpis = Array.isArray(data) && data.length > 0 ? data[0] : null;
+
+    if (!kpis) {
+      console.warn('[Admin Service] No KPI data returned from database');
+      return {
+        total_users: 0,
+        active_users: 0,
+        total_trades: 0,
+        winning_trades: 0,
+        losing_trades: 0,
+        overall_win_rate: 0,
+      };
+    }
+
+    return kpis;
   },
 };
