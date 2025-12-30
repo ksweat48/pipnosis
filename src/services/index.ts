@@ -31,5 +31,5 @@ export * from './trade-level-integration';
 export * from './openai-client';
 export * from './database-service';
 export * from './candle-data-service';
-export * from './simulated-trading';
+// export * from './simulated-trading'; // REMOVED: File doesn't exist - functionality moved to position-service
 export * from './chart-data-guarantor';
