@@ -74,14 +74,32 @@ export function isCrypto(symbol: string): boolean {
 export function getCurrencyPipInfo(symbol: string): CurrencyPipInfo {
   const normalized = safeNormalizeSymbol(symbol);
 
-  // XAUUSD (Gold) - Most critical for proper calculation
+  // XAUUSD (Gold) - CRITICAL: Fixed pip calculation for position sizing
+  //
+  // IMPORTANT: In this system, 1 pip = 1.0 point for XAUUSD (not 0.01)
+  // This allows Alpha to reason naturally: "20 pip stop" = 20 points (e.g., 4357 to 4377)
+  //
+  // Dollar values remain correct:
+  // - 1 standard lot (100 oz) = $100 per pip
+  // - 0.01 lot (1 oz) = $1 per pip
+  // - 0.03 lot (3 oz) = $3 per pip
+  //
+  // Example with fix:
+  // - Entry: 4357.00, Stop: 4377.00 (20 points)
+  // - Stop distance: 20 / 1.0 = 20 pips (CORRECT)
+  // - Position: 0.03 lots = $3/pip
+  // - Risk: 20 pips × $3/pip = $60 (CORRECT) ✅
+  //
+  // Before fix (BROKEN):
+  // - Stop distance: 20 / 0.01 = 2000 pips (WRONG)
+  // - Risk: 2000 pips × $3/pip = $6,000 (WRONG) ❌
   if (isXAUUSD(symbol)) {
     return {
-      pipValue: 0.01,           // 1 pip = $0.01 movement
+      pipValue: 1.0,            // 1 pip = 1 point (e.g., 4357 to 4358 = 1 pip)
       pipMultiplier: 1,
       decimalPlaces: 2,
       contractSize: 100,        // 100 troy ounces per lot
-      dollarPerPipPerLot: 1.0,  // $1 per pip per 0.01 lot ($100 per full lot)
+      dollarPerPipPerLot: 100,  // $100 per full lot ($1 per 0.01 lot)
       symbolType: 'metal'
     };
   }
