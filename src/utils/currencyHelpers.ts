@@ -111,7 +111,7 @@ export function getCurrencyPipInfo(symbol: string): CurrencyPipInfo {
       pipMultiplier: 1,
       decimalPlaces: 2,
       contractSize: 1,          // 1 contract
-      dollarPerPipPerLot: 1.0,  // Varies by broker, typically $1-10 per point
+      dollarPerPipPerLot: 100,  // $100 per pip per 1 lot (industry standard)
       symbolType: 'index'
     };
   }
@@ -244,25 +244,16 @@ export function formatCurrencyPrice(
  * This is the CRITICAL function for risk calculation
  *
  * IMPORTANT: position size is in LOTS (0.01, 0.1, 1.0, etc.)
+ *
+ * SINGLE SOURCE OF TRUTH: Uses ONLY pipInfo.dollarPerPipPerLot
+ * NO hardcoded multipliers allowed
  */
 export function calculateDollarPerPip(
   symbol: string,
   positionSize: number
 ): number {
-  if (isXAUUSD(symbol)) {
-    return positionSize * 100;
-  }
-
-  if (isIndex(symbol)) {
-    return positionSize * 100;
-  }
-
-  if (isCrypto(symbol)) {
-    const pipInfo = getCurrencyPipInfo(symbol);
-    return positionSize * pipInfo.dollarPerPipPerLot;
-  }
-
-  return positionSize * 10;
+  const pipInfo = getCurrencyPipInfo(symbol);
+  return positionSize * pipInfo.dollarPerPipPerLot;
 }
 
 /**
@@ -289,19 +280,10 @@ export function calculatePositionSize(
     return 0.01; // Minimum position
   }
 
-  // Calculate position size using correct formulas
-  let positionSize: number;
-
-  if (isXAUUSD(symbol)) {
-    positionSize = riskAmount / (stopDistancePips * 100);
-  } else if (isIndex(symbol)) {
-    positionSize = riskAmount / (stopDistancePips * 100);
-  } else if (isCrypto(symbol)) {
-    const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
-    positionSize = riskAmount / (stopDistancePips * dollarPerPipPerLot);
-  } else {
-    positionSize = riskAmount / (stopDistancePips * 10);
-  }
+  // Calculate position size using SINGLE SOURCE OF TRUTH
+  // Formula: Position Size = Risk Amount / (Stop Distance × Dollar Per Pip at 0.01 lot)
+  const dollarPerPipAt001Lot = calculateDollarPerPip(symbol, 0.01);
+  let positionSize = riskAmount / (stopDistancePips * dollarPerPipAt001Lot);
 
   // Clamp to reasonable ranges
   const minSize = 0.01;
@@ -548,7 +530,7 @@ export function calculateGoalAwareLotSize(
 
   // REVERSE CALCULATION: What lot size gives us goal profit at optimal pips?
   const optimalPips = commonMovePips;
-  const dollarPerPipAtOneLot = isXAUUSD(symbol) ? 100 : isIndex(symbol) ? 100 : isCrypto(symbol) ? pipInfo.dollarPerPipPerLot : 10;
+  const dollarPerPipAtOneLot = calculateDollarPerPip(symbol, 1.0);
   const requiredLotSizeForOptimal = remainingGoal / (optimalPips * dollarPerPipAtOneLot);
 
   console.log(`  Required Lot Size for ${optimalPips} pips: ${requiredLotSizeForOptimal.toFixed(3)}`);
