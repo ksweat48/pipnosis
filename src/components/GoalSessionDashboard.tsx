@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, AlertTriangle, Search, Shield, Sparkles, Eye, BarChart3, Wrench } from 'lucide-react';
+import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, AlertTriangle, Search, Shield, Sparkles, Eye, BarChart3, Wrench, StopCircle } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
 import { useAuth } from '../hooks/useAuth';
@@ -17,6 +17,8 @@ import { getRiskPercentage } from '../config/risk-levels';
 import { calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
 import { useToast } from '../hooks/useToast';
 import { calculatePnL } from '../types/position';
+import { positionService } from '../services/position-service';
+import { continuationHandler } from '../services/continuation-handler';
 // GoalScanReadinessIndicator removed - using simple indicator
 
 export const GoalSessionDashboard: React.FC = () => {
@@ -45,6 +47,7 @@ export const GoalSessionDashboard: React.FC = () => {
   const [forceCloseAttempted, setForceCloseAttempted] = useState<string | null>(null);
   const [sessionHealth, setSessionHealth] = useState<any>(null);
   const [unstickLoading, setUnstickLoading] = useState(false);
+  const [closingPosition, setClosingPosition] = useState<string | null>(null);
 
   useEffect(() => {
     loadSessionData();
@@ -467,6 +470,8 @@ export const GoalSessionDashboard: React.FC = () => {
     if (!user || !activeSession) return;
 
     try {
+      console.log('[GoalSessionDashboard] ✅ Continue Session clicked - resuming scanning');
+
       // Record user's choice
       if (tradeClosedData) {
         await supabase.from('goal_trade_actions').insert({
@@ -479,6 +484,12 @@ export const GoalSessionDashboard: React.FC = () => {
           target_value: activeSession.config.goalAmount
         });
       }
+
+      // CRITICAL FIX: Properly resume the session by updating status to 'scanning'
+      // This ensures the goal scanner starts looking for the next opportunity
+      await continuationHandler.handleContinue(activeSession.sessionId);
+
+      console.log('[GoalSessionDashboard] ✅ Session resumed - scanner will look for next opportunity');
 
       setShowTradeClosedAction(false);
       await loadSessionData();
@@ -564,6 +575,77 @@ export const GoalSessionDashboard: React.FC = () => {
     const success = await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
     if (success) {
       loadSessionData();
+    }
+  };
+
+  const handleManualClose = async (trade: any) => {
+    if (!user || !activeSession) return;
+
+    // Show confirmation dialog
+    const confirmed = await confirm({
+      title: 'Close Position Manually?',
+      message: `Are you sure you want to manually close your ${trade.direction.toUpperCase()} position on ${trade.symbol}? This will close the trade at the current market price.`,
+      confirmText: 'Close Position',
+      cancelText: 'Cancel',
+      variant: 'warning'
+    });
+
+    if (!confirmed) return;
+
+    setClosingPosition(trade.id);
+    try {
+      console.log('[GoalSessionDashboard] 📤 Manually closing position:', trade.id);
+
+      // Fetch current live price for the symbol
+      const { data: priceData, error: priceError } = await supabase
+        .from('realtime_prices')
+        .select('bid, ask')
+        .eq('symbol', trade.symbol)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (priceError || !priceData) {
+        throw new Error('Could not fetch current price. Please try again.');
+      }
+
+      // Use bid for long positions, ask for short positions
+      const closePrice = trade.direction === 'buy' ? priceData.bid : priceData.ask;
+
+      console.log('[GoalSessionDashboard] 💵 Closing at price:', closePrice);
+
+      // Close the position
+      const result = await positionService.closePosition(
+        trade.id,
+        closePrice,
+        'manual',
+        user.id,
+        activeSession.sessionId
+      );
+
+      if (result.success) {
+        showToast({
+          type: 'success',
+          title: 'Position Closed',
+          message: `Successfully closed ${trade.symbol} at ${closePrice.toFixed(5)}`
+        });
+
+        console.log('[GoalSessionDashboard] ✅ Position closed successfully');
+
+        // Reload session data to update UI
+        await loadSessionData();
+      } else {
+        throw new Error(result.message || 'Failed to close position');
+      }
+    } catch (error: any) {
+      console.error('[GoalSessionDashboard] ❌ Error closing position:', error);
+      showToast({
+        type: 'error',
+        title: 'Close Failed',
+        message: error.message || 'Could not close position. Please try again.'
+      });
+    } finally {
+      setClosingPosition(null);
     }
   };
 
@@ -1017,13 +1099,23 @@ export const GoalSessionDashboard: React.FC = () => {
                 return (
                   <div key={trade.id} className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
                     <div className="flex items-start justify-between gap-3 mb-3">
-                      <button
-                        onClick={() => navigate(`/trade?symbol=${trade.symbol}`)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 rounded-lg text-xs font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-blue-500/25 hover:scale-105 active:scale-95"
-                      >
-                        <BarChart3 className="w-3.5 h-3.5" />
-                        View Chart
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => navigate(`/trade?symbol=${trade.symbol}`)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 rounded-lg text-xs font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-blue-500/25 hover:scale-105 active:scale-95"
+                        >
+                          <BarChart3 className="w-3.5 h-3.5" />
+                          View Chart
+                        </button>
+                        <button
+                          onClick={() => handleManualClose(trade)}
+                          disabled={closingPosition === trade.id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 rounded-lg text-xs font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-red-500/25 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <StopCircle className="w-3.5 h-3.5" />
+                          {closingPosition === trade.id ? 'Closing...' : 'Close Position'}
+                        </button>
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                       <div>
