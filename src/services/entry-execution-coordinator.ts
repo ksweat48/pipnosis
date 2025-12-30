@@ -37,12 +37,7 @@ export class EntryExecutionCoordinator {
       return { shouldExecuteImmediately: false, waitConditionId };
     }
 
-    // HIGH CONFIDENCE OVERRIDE: Execute immediately for strong signals (70%+)
-    if (decision.confidence >= 70) {
-      logger.info(`High confidence signal (${decision.confidence}%) - executing immediately`);
-      return { shouldExecuteImmediately: true };
-    }
-
+    // FALLBACK: Only execute immediately if no entry intent was provided (rare edge case)
     if (!decision.entry_intent) {
       logger.info('No entry intent specified, executing immediately');
       return { shouldExecuteImmediately: true };
@@ -50,17 +45,16 @@ export class EntryExecutionCoordinator {
 
     const entryIntent = decision.entry_intent;
 
-    // IMMEDIATE MOMENTUM: Execute immediately for high urgency
-    if (entryIntent.urgency === 'HIGH' && entryIntent.intent_type === 'immediate_momentum') {
-      logger.info('High urgency momentum - executing immediately');
-      return { shouldExecuteImmediately: true };
-    }
+    // CONFIDENCE-AWARE TIMEOUT: Calculate optimal timeout based on confidence and intent
+    entryIntent.timeout_minutes = this.calculateConfidenceAwareTimeout(
+      decision.confidence,
+      entryIntent.urgency,
+      entryIntent.intent_type
+    );
 
-    // IMMEDIATE MOMENTUM with MEDIUM urgency: Execute after short delay (30 seconds max)
-    if (entryIntent.intent_type === 'immediate_momentum') {
-      logger.info('Immediate momentum with medium urgency - using short timeout (30s)');
-      entryIntent.timeout_minutes = 0.5; // 30 seconds
-    }
+    logger.info(
+      `Confidence ${decision.confidence}% → ${entryIntent.intent_type} with ${(entryIntent.timeout_minutes * 60).toFixed(0)}s precision window`
+    );
 
     const request: EntryIntentRequest = {
       session_id: sessionId,
@@ -250,6 +244,52 @@ export class EntryExecutionCoordinator {
 
   static async getUserActiveIntents(userId: string): Promise<EntryIntent[]> {
     return EntryPlannerService.getActiveIntents(userId);
+  }
+
+  /**
+   * Calculate timeout based on confidence level and intent type
+   * High confidence = shorter wait (don't miss the trade)
+   * Low confidence = longer wait (require strict confirmation)
+   */
+  private static calculateConfidenceAwareTimeout(
+    confidence: number,
+    urgency: string,
+    intentType: string
+  ): number {
+    // High confidence (70%+): Tight precision windows
+    if (confidence >= 70) {
+      if (intentType === 'immediate_momentum') {
+        return 1.0; // 60 seconds for momentum plays
+      }
+      if (intentType === 'pullback_to_vwap' || intentType === 'break_and_retest') {
+        return 1.5; // 90 seconds for pullback/retest
+      }
+      return 2.0; // 120 seconds for other setups
+    }
+
+    // Medium confidence (60-69%): Standard windows
+    if (confidence >= 60) {
+      if (intentType === 'immediate_momentum') {
+        return 2.0; // 120 seconds
+      }
+      if (intentType === 'pullback_to_vwap' || intentType === 'break_and_retest') {
+        return 3.0; // 180 seconds
+      }
+      return 4.0; // 240 seconds
+    }
+
+    // Low confidence (50-59%): Patient windows, require strict confirmation
+    if (intentType === 'immediate_momentum') {
+      return 1.5; // 90 seconds (quick cancel if momentum doesn't develop)
+    }
+    if (intentType === 'range_extreme') {
+      return 8.0; // 480 seconds (8 minutes for range trades)
+    }
+    if (intentType === 'pullback_to_vwap' || intentType === 'pullback_to_support') {
+      return 6.0; // 360 seconds (6 minutes)
+    }
+
+    return 5.0; // 300 seconds (5 minutes) default
   }
 
   private static async createWaitCondition(

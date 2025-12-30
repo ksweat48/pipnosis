@@ -16,7 +16,7 @@ export class EntryPlannerService {
   private static readonly VWAP_TOLERANCE_PIPS = 2;
   private static readonly SUPPORT_RESISTANCE_TOLERANCE_PIPS = 3;
   private static readonly MOMENTUM_CANDLE_COUNT = 2;
-  private static readonly CHASE_THRESHOLD_PIPS = 30;
+  private static readonly CHASE_THRESHOLD_PIPS = 30; // Default for medium confidence
 
   static async createEntryIntent(
     userId: string,
@@ -125,10 +125,10 @@ export class EntryPlannerService {
   ): EntryValidationResult {
     const distanceToPips = this.calculateDistanceToZone(currentPrice, intent);
 
-    // Symbol-aware chase threshold: indices move more so need larger threshold
-    const effectiveThreshold = isIndex(intent.symbol) ? 100 : this.CHASE_THRESHOLD_PIPS;
+    // CONFIDENCE-AWARE CHASE THRESHOLD: Higher confidence = more chase room
+    const effectiveThreshold = this.getConfidenceAwareChaseThreshold(intent, intent.symbol);
 
-    // IMMEDIATE MOMENTUM: More lenient chase logic - these are momentum plays
+    // IMMEDIATE MOMENTUM: Confidence-scaled chase logic
     if (Math.abs(distanceToPips) > effectiveThreshold) {
       logger.warn(`[Entry Monitor] ${intent.symbol} distance check:
   Current: ${currentPrice.toFixed(5)}
@@ -162,55 +162,109 @@ export class EntryPlannerService {
     conditions.momentum_sustained = this.checkMomentumSustained(candleData, intent.direction);
     conditions.volume_confirmation = this.checkVolumeConfirmation(candleData);
 
-    // PROGRESSIVE RELAXATION: As timeout approaches, relax conditions
-    // 0-25%: Require both momentum AND volume
-    // 25-50%: Require either momentum OR volume (current default)
-    // 50-75%: Require price in zone only
-    // 75-100%: Execute anyway (handled by timeout logic)
+    // CONFIDENCE-AWARE PROGRESSIVE RELAXATION
+    const marketContext = intent.market_context as any;
+    const confidence = marketContext?.confidence || 60;
 
-    if (timeoutProgress < 0.25) {
-      // Strict: Both conditions required
-      if (conditions.momentum_sustained && conditions.volume_confirmation) {
-        return {
-          is_valid: true,
-          conditions_met: conditions,
-          should_execute: true,
-          should_wait: false,
-          should_cancel: false,
-          message: 'Momentum confirmed (full). Executing entry.'
-        };
-      }
-    } else if (timeoutProgress < 0.5) {
-      // RELAXED: Execute with either momentum OR volume
-      if (conditions.momentum_sustained || conditions.volume_confirmation) {
-        const confirmationType = conditions.momentum_sustained && conditions.volume_confirmation
-          ? 'full'
-          : conditions.momentum_sustained
-            ? 'momentum'
-            : 'volume';
+    // High confidence (70%+): Relax faster (don't miss the trade)
+    // Medium confidence (60-69%): Standard relaxation
+    // Low confidence (50-59%): Relax slower (require more confirmation)
 
-        return {
-          is_valid: true,
-          conditions_met: conditions,
-          should_execute: true,
-          should_wait: false,
-          should_cancel: false,
-          message: `Momentum confirmed (${confirmationType}). Executing entry.`
-        };
+    if (confidence >= 70) {
+      // HIGH CONFIDENCE: Execute with partial confirmation early
+      if (timeoutProgress < 0.4) {
+        // First 40%: Require either momentum OR volume
+        if (conditions.momentum_sustained || conditions.volume_confirmation) {
+          return {
+            is_valid: true,
+            conditions_met: conditions,
+            should_execute: true,
+            should_wait: false,
+            should_cancel: false,
+            message: 'High confidence momentum - executing with confirmation.'
+          };
+        }
+      } else {
+        // After 40%: Execute if in zone (trust the conviction)
+        const inZone = this.isPriceInZone(currentPrice, intent);
+        if (inZone) {
+          return {
+            is_valid: true,
+            conditions_met: conditions,
+            should_execute: true,
+            should_wait: false,
+            should_cancel: false,
+            message: `High confidence setup - executing (${(timeoutProgress * 100).toFixed(0)}% elapsed).`
+          };
+        }
       }
-    } else if (timeoutProgress < 0.75) {
-      // VERY RELAXED: Execute if price is in zone (conditions already checked)
-      const inZone = this.isPriceInZone(currentPrice, intent);
-      if (inZone) {
-        logger.info(`Progressive relaxation at ${(timeoutProgress * 100).toFixed(0)}% - executing with price in zone`);
-        return {
-          is_valid: true,
-          conditions_met: conditions,
-          should_execute: true,
-          should_wait: false,
-          should_cancel: false,
-          message: `Entry window closing (${(timeoutProgress * 100).toFixed(0)}% elapsed). Executing.`
-        };
+    } else if (confidence >= 60) {
+      // MEDIUM CONFIDENCE: Standard relaxation
+      if (timeoutProgress < 0.25) {
+        // First 25%: Require both conditions
+        if (conditions.momentum_sustained && conditions.volume_confirmation) {
+          return {
+            is_valid: true,
+            conditions_met: conditions,
+            should_execute: true,
+            should_wait: false,
+            should_cancel: false,
+            message: 'Momentum confirmed (full). Executing entry.'
+          };
+        }
+      } else if (timeoutProgress < 0.6) {
+        // 25-60%: Require either condition
+        if (conditions.momentum_sustained || conditions.volume_confirmation) {
+          return {
+            is_valid: true,
+            conditions_met: conditions,
+            should_execute: true,
+            should_wait: false,
+            should_cancel: false,
+            message: 'Momentum confirmed. Executing entry.'
+          };
+        }
+      } else {
+        // After 60%: Execute if in zone
+        const inZone = this.isPriceInZone(currentPrice, intent);
+        if (inZone) {
+          return {
+            is_valid: true,
+            conditions_met: conditions,
+            should_execute: true,
+            should_wait: false,
+            should_cancel: false,
+            message: `Entry window closing (${(timeoutProgress * 100).toFixed(0)}% elapsed). Executing.`
+          };
+        }
+      }
+    } else {
+      // LOW CONFIDENCE: Strict requirements
+      if (timeoutProgress < 0.7) {
+        // First 70%: Require both conditions
+        if (conditions.momentum_sustained && conditions.volume_confirmation) {
+          return {
+            is_valid: true,
+            conditions_met: conditions,
+            should_execute: true,
+            should_wait: false,
+            should_cancel: false,
+            message: 'Low confidence setup - full confirmation required. Executing.'
+          };
+        }
+      } else {
+        // After 70%: Require at least one condition + in zone
+        const inZone = this.isPriceInZone(currentPrice, intent);
+        if (inZone && (conditions.momentum_sustained || conditions.volume_confirmation)) {
+          return {
+            is_valid: true,
+            conditions_met: conditions,
+            should_execute: true,
+            should_wait: false,
+            should_cancel: false,
+            message: 'Marginal setup - executing with partial confirmation.'
+          };
+        }
       }
     }
 
@@ -297,8 +351,8 @@ export class EntryPlannerService {
     if (!inZone) {
       const distanceToPips = this.calculateDistanceToZone(currentPrice, intent);
 
-      // Symbol-aware chase threshold
-      const effectiveThreshold = isIndex(intent.symbol) ? 100 : this.CHASE_THRESHOLD_PIPS;
+      // CONFIDENCE-AWARE CHASE THRESHOLD
+      const effectiveThreshold = this.getConfidenceAwareChaseThreshold(intent, intent.symbol);
 
       if (Math.abs(distanceToPips) > effectiveThreshold) {
         logger.warn(`[Entry Monitor] ${intent.symbol} too far from support:
@@ -487,6 +541,32 @@ export class EntryPlannerService {
       should_cancel: false,
       message: `Price at structure level. Waiting for hold confirmation.`
     };
+  }
+
+  /**
+   * Calculate confidence-aware chase threshold
+   * High confidence = larger threshold (don't miss the trade)
+   * Low confidence = smaller threshold (quick cancel if price runs)
+   */
+  private static getConfidenceAwareChaseThreshold(intent: EntryIntent, symbol: string): number {
+    const marketContext = intent.market_context as any;
+    const confidence = marketContext?.confidence || 60;
+
+    // Base threshold for symbol type
+    const baseThreshold = isIndex(symbol) ? 100 : this.CHASE_THRESHOLD_PIPS;
+
+    // High confidence (70%+): Allow more chase room
+    if (confidence >= 70) {
+      return baseThreshold * 1.5; // 45 pips for forex, 150 for indices
+    }
+
+    // Medium confidence (60-69%): Standard threshold
+    if (confidence >= 60) {
+      return baseThreshold; // 30 pips for forex, 100 for indices
+    }
+
+    // Low confidence (50-59%): Tight threshold
+    return baseThreshold * 0.5; // 15 pips for forex, 50 for indices
   }
 
   private static isPriceInZone(price: number, intent: EntryIntent): boolean {

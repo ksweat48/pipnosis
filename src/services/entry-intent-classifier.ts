@@ -21,10 +21,14 @@ export class EntryIntentClassifier {
 
     const urgency = this.determineUrgency(decision, marketContext, votes);
     const intentType = this.determineIntentType(decision, marketContext, votes, vwap);
-    const entryZone = this.calculateEntryZone(decision, intentType, marketContext);
+    const entryZone = this.calculateEntryZone(decision, intentType, marketContext, decision.confidence);
     const timeoutMinutes = this.calculateTimeout(urgency, intentType);
 
-    logger.info(`Entry intent classified: ${intentType} (${urgency}) - Entry zone: ${entryZone.min.toFixed(5)}-${entryZone.max.toFixed(5)}`);
+    logger.info(
+      `Entry intent classified (${decision.confidence}% conf): ${intentType} (${urgency}) - ` +
+      `Entry zone: ${entryZone.min.toFixed(5)}-${entryZone.max.toFixed(5)} ` +
+      `(${((entryZone.max - entryZone.min) * 10000).toFixed(1)} pips)`
+    );
 
     return {
       intent_type: intentType,
@@ -137,7 +141,8 @@ export class EntryIntentClassifier {
   private static calculateEntryZone(
     decision: AlphaDecision,
     intentType: EntryIntentType,
-    marketContext: MarketContext
+    marketContext: MarketContext,
+    confidence: number
   ): { min: number; max: number } {
     const pipValue = marketContext.symbol.includes('JPY') ? 0.01 : 0.0001;
     const atr = marketContext.atr;
@@ -148,16 +153,25 @@ export class EntryIntentClassifier {
     const isHighVolatility = marketContext.volatility === 'high';
     const volatilityMultiplier = isHighVolatility ? 1.5 : 1.0;
 
+    // CONFIDENCE-AWARE ZONES: Higher confidence = tighter zones (demand precision)
+    // High confidence (70%+): 0.8x multiplier (tighter zones, better entries)
+    // Medium confidence (60-69%): 1.0x multiplier (standard zones)
+    // Low confidence (50-59%): 1.2x multiplier (wider zones, more flexibility)
+    const confidenceMultiplier = confidence >= 70 ? 0.8 : confidence >= 60 ? 1.0 : 1.2;
+
     switch (intentType) {
       case 'immediate_momentum': {
         // High volatility: Allow up to ATR * 0.45 (no hard cap)
         // Normal: Cap at 5 pips
-        const baseWidth = atr * 0.3 * volatilityMultiplier;
+        const baseWidth = atr * 0.3 * volatilityMultiplier * confidenceMultiplier;
         const zoneWidth = isHighVolatility
           ? baseWidth
-          : Math.min(baseWidth, 5 * pipValue);
+          : Math.min(baseWidth, 5 * pipValue * confidenceMultiplier);
 
-        logger.debug(`Entry zone width: ${(zoneWidth * 10000).toFixed(1)} pips (volatility: ${marketContext.volatility})`);
+        logger.debug(
+          `Entry zone width: ${(zoneWidth * 10000).toFixed(1)} pips ` +
+          `(volatility: ${marketContext.volatility}, confidence: ${confidence}%)`
+        );
 
         return {
           min: idealEntry - zoneWidth,
@@ -166,7 +180,7 @@ export class EntryIntentClassifier {
       }
 
       case 'pullback_to_vwap': {
-        const baseWidth = 2 * pipValue;
+        const baseWidth = 2 * pipValue * confidenceMultiplier;
         const zoneWidth = isHighVolatility ? baseWidth * 1.5 : baseWidth;
         return {
           min: idealEntry - zoneWidth,
@@ -175,10 +189,10 @@ export class EntryIntentClassifier {
       }
 
       case 'pullback_to_support': {
-        const baseWidth = atr * 0.4 * volatilityMultiplier;
+        const baseWidth = atr * 0.4 * volatilityMultiplier * confidenceMultiplier;
         const zoneWidth = isHighVolatility
           ? baseWidth
-          : Math.min(baseWidth, 10 * pipValue);
+          : Math.min(baseWidth, 10 * pipValue * confidenceMultiplier);
 
         if (direction > 0) {
           return {
@@ -194,10 +208,10 @@ export class EntryIntentClassifier {
       }
 
       case 'break_and_retest': {
-        const baseWidth = atr * 0.5 * volatilityMultiplier;
+        const baseWidth = atr * 0.5 * volatilityMultiplier * confidenceMultiplier;
         const zoneWidth = isHighVolatility
           ? baseWidth
-          : Math.min(baseWidth, 8 * pipValue);
+          : Math.min(baseWidth, 8 * pipValue * confidenceMultiplier);
 
         return {
           min: idealEntry - zoneWidth * 0.5,
@@ -206,10 +220,10 @@ export class EntryIntentClassifier {
       }
 
       case 'range_extreme': {
-        const baseWidth = atr * 0.3 * volatilityMultiplier;
+        const baseWidth = atr * 0.3 * volatilityMultiplier * confidenceMultiplier;
         const zoneWidth = isHighVolatility
           ? baseWidth
-          : Math.min(baseWidth, 5 * pipValue);
+          : Math.min(baseWidth, 5 * pipValue * confidenceMultiplier);
 
         return {
           min: idealEntry - zoneWidth * 0.4,
@@ -218,10 +232,10 @@ export class EntryIntentClassifier {
       }
 
       case 'retest_structure': {
-        const baseWidth = atr * 0.35 * volatilityMultiplier;
+        const baseWidth = atr * 0.35 * volatilityMultiplier * confidenceMultiplier;
         const zoneWidth = isHighVolatility
           ? baseWidth
-          : Math.min(baseWidth, 7 * pipValue);
+          : Math.min(baseWidth, 7 * pipValue * confidenceMultiplier);
 
         return {
           min: idealEntry - zoneWidth * 0.5,
@@ -230,7 +244,7 @@ export class EntryIntentClassifier {
       }
 
       default: {
-        const zoneWidth = 3 * pipValue * volatilityMultiplier;
+        const zoneWidth = 3 * pipValue * volatilityMultiplier * confidenceMultiplier;
         return {
           min: idealEntry - zoneWidth,
           max: idealEntry + zoneWidth

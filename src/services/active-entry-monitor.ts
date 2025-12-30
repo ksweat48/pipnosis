@@ -136,7 +136,13 @@ export class ActiveEntryMonitor {
   }
 
   private async handleExecution(intent: EntryIntent, entryPrice: number, message: string): Promise<void> {
-    logger.info(`Executing entry for intent ${intent.id} at ${entryPrice}`);
+    const marketContext = intent.market_context as any;
+    const confidence = marketContext?.confidence || 60;
+
+    logger.info(
+      `Executing entry for intent ${intent.id} at ${entryPrice} ` +
+      `(${confidence}% confidence, ${intent.intent_type})`
+    );
 
     await EntryPlannerService.updateIntentStatus(intent.id, 'executed', undefined, entryPrice);
 
@@ -156,26 +162,42 @@ export class ActiveEntryMonitor {
       .single();
 
     if (session) {
+      // Confidence-aware execution messages
+      let executionMessage: string;
+      if (confidence >= 70) {
+        executionMessage = `${intent.symbol} ${intent.direction} executed at ${entryPrice.toFixed(5)} (${confidence}% conviction - optimal entry secured)`;
+      } else if (confidence >= 60) {
+        executionMessage = `${intent.symbol} ${intent.direction} executed at ${entryPrice.toFixed(5)} (${confidence}% confidence)`;
+      } else {
+        executionMessage = `${intent.symbol} ${intent.direction} executed at ${entryPrice.toFixed(5)} (${confidence}% marginal setup with confirmation)`;
+      }
+
       await supabase.from('notifications').insert({
         user_id: session.user_id,
         type: 'entry_executed',
         title: 'Entry Executed',
-        message: `${intent.symbol} ${intent.direction} entry executed at ${entryPrice.toFixed(5)}`,
+        message: executionMessage,
         metadata: {
           intent_id: intent.id,
           session_id: intent.session_id,
           symbol: intent.symbol,
           entry_price: entryPrice,
           intent_type: intent.intent_type,
-          trade_id: result.tradeId
+          trade_id: result.tradeId,
+          confidence
         }
       });
     }
   }
 
   private async handleTimeout(intent: EntryIntent): Promise<void> {
-    logger.info(`Intent ${intent.id} timed out after ${intent.timeout_minutes} minutes`);
-    logger.info(`Intent type: ${intent.intent_type}, Urgency: ${intent.urgency}`);
+    const marketContext = intent.market_context as any;
+    const confidence = marketContext?.confidence || 60;
+
+    logger.info(
+      `Intent ${intent.id} timed out after ${intent.timeout_minutes} minutes ` +
+      `(${confidence}% confidence, ${intent.intent_type})`
+    );
 
     await EntryPlannerService.updateIntentStatus(
       intent.id,
@@ -190,18 +212,29 @@ export class ActiveEntryMonitor {
       .single();
 
     if (session) {
+      // Confidence-aware timeout messages
+      let timeoutMessage: string;
+      if (confidence >= 70) {
+        timeoutMessage = `${intent.symbol} precision entry window closed (${confidence}% confidence setup didn't develop)`;
+      } else if (confidence >= 60) {
+        timeoutMessage = `${intent.symbol} entry conditions not confirmed within ${intent.timeout_minutes}min`;
+      } else {
+        timeoutMessage = `${intent.symbol} marginal setup didn't meet strict confirmation requirements`;
+      }
+
       await supabase.from('notifications').insert({
         user_id: session.user_id,
         type: 'entry_timeout',
         title: 'Entry Window Expired',
-        message: `${intent.symbol} ${intent.intent_type} conditions not met within ${intent.timeout_minutes} minute(s)`,
+        message: timeoutMessage,
         metadata: {
           intent_id: intent.id,
           session_id: intent.session_id,
           symbol: intent.symbol,
           intent_type: intent.intent_type,
           urgency: intent.urgency,
-          timeout_minutes: intent.timeout_minutes
+          timeout_minutes: intent.timeout_minutes,
+          confidence
         }
       });
     }
