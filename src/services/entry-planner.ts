@@ -10,6 +10,7 @@ import type {
 } from '../types/entry';
 import { logger } from '../lib/logger';
 import { getSessionAdjustedTimeout, getCurrentMarketSession } from '../utils/marketHours';
+import { calculatePipDistance, isIndex } from '../utils/currencyHelpers';
 
 export class EntryPlannerService {
   private static readonly VWAP_TOLERANCE_PIPS = 2;
@@ -124,7 +125,18 @@ export class EntryPlannerService {
   ): EntryValidationResult {
     const distanceToPips = this.calculateDistanceToZone(currentPrice, intent);
 
-    if (Math.abs(distanceToPips) > this.CHASE_THRESHOLD_PIPS) {
+    // Symbol-aware chase threshold: indices move more so need larger threshold
+    const effectiveThreshold = isIndex(intent.symbol) ? 100 : this.CHASE_THRESHOLD_PIPS;
+
+    // IMMEDIATE MOMENTUM: More lenient chase logic - these are momentum plays
+    if (Math.abs(distanceToPips) > effectiveThreshold) {
+      logger.warn(`[Entry Monitor] ${intent.symbol} distance check:
+  Current: ${currentPrice.toFixed(5)}
+  Zone: ${intent.entry_zone_min.toFixed(5)} - ${intent.entry_zone_max.toFixed(5)}
+  Distance: ${Math.abs(distanceToPips).toFixed(1)} pips
+  Threshold: ${effectiveThreshold} pips
+  ❌ Beyond threshold - canceling`);
+
       return {
         is_valid: false,
         conditions_met: conditions,
@@ -132,9 +144,16 @@ export class EntryPlannerService {
         should_wait: false,
         should_cancel: true,
         cancel_reason: 'Move extended beyond chase threshold',
-        message: `Price moved ${Math.abs(distanceToPips).toFixed(1)} pips away. No chase.`
+        message: `Price moved ${Math.abs(distanceToPips).toFixed(1)} pips away (threshold: ${effectiveThreshold}). No chase.`
       };
     }
+
+    logger.info(`[Entry Monitor] ${intent.symbol} distance check:
+  Current: ${currentPrice.toFixed(5)}
+  Zone: ${intent.entry_zone_min.toFixed(5)} - ${intent.entry_zone_max.toFixed(5)}
+  Distance: ${Math.abs(distanceToPips).toFixed(1)} pips
+  Threshold: ${effectiveThreshold} pips
+  ✅ Within threshold`);
 
     // Check how long we've been monitoring
     const monitoringDuration = Date.now() - new Date(intent.created_at).getTime();
@@ -227,7 +246,7 @@ export class EntryPlannerService {
     conditions: EntryConditions
   ): EntryValidationResult {
     const vwap = marketConditions?.vwap || 0;
-    const distanceToVWAP = Math.abs(currentPrice - vwap) * 10000;
+    const distanceToVWAP = calculatePipDistance(intent.symbol, currentPrice, vwap);
 
     conditions.vwap_touch = distanceToVWAP <= this.VWAP_TOLERANCE_PIPS;
 
@@ -278,7 +297,14 @@ export class EntryPlannerService {
     if (!inZone) {
       const distanceToPips = this.calculateDistanceToZone(currentPrice, intent);
 
-      if (distanceToPips > this.CHASE_THRESHOLD_PIPS) {
+      // Symbol-aware chase threshold
+      const effectiveThreshold = isIndex(intent.symbol) ? 100 : this.CHASE_THRESHOLD_PIPS;
+
+      if (Math.abs(distanceToPips) > effectiveThreshold) {
+        logger.warn(`[Entry Monitor] ${intent.symbol} too far from support:
+  Distance: ${Math.abs(distanceToPips).toFixed(1)} pips
+  Threshold: ${effectiveThreshold} pips`);
+
         return {
           is_valid: false,
           conditions_met: conditions,
@@ -286,7 +312,7 @@ export class EntryPlannerService {
           should_wait: false,
           should_cancel: true,
           cancel_reason: 'Price moved too far from support zone',
-          message: `Price ${distanceToPips.toFixed(1)} pips away from zone. No chase.`
+          message: `Price ${Math.abs(distanceToPips).toFixed(1)} pips away from zone (threshold: ${effectiveThreshold}). No chase.`
         };
       }
 
@@ -472,10 +498,16 @@ export class EntryPlannerService {
       return 0;
     }
 
-    const distanceToMin = (price - intent.entry_zone_min) * 10000;
-    const distanceToMax = (price - intent.entry_zone_max) * 10000;
+    // Use symbol-aware pip calculation instead of hardcoded * 10000
+    const distanceToMin = calculatePipDistance(intent.symbol, price, intent.entry_zone_min);
+    const distanceToMax = calculatePipDistance(intent.symbol, price, intent.entry_zone_max);
 
-    return Math.abs(distanceToMin) < Math.abs(distanceToMax) ? distanceToMin : distanceToMax;
+    // Return the closest distance with proper sign (+ if above zone, - if below)
+    if (distanceToMin < distanceToMax) {
+      return price > intent.entry_zone_min ? distanceToMin : -distanceToMin;
+    } else {
+      return price > intent.entry_zone_max ? distanceToMax : -distanceToMax;
+    }
   }
 
   private static checkMomentumSustained(candleData: any, direction: string): boolean {
