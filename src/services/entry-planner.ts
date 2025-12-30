@@ -37,6 +37,8 @@ export class EntryPlannerService {
       const timeoutAt = new Date();
       timeoutAt.setMinutes(timeoutAt.getMinutes() + adjustedTimeout);
 
+      const maxWaitSeconds = request.max_wait_seconds || adjustedTimeout * 60;
+
       const { data, error } = await supabase
         .from('entry_intents')
         .insert({
@@ -50,6 +52,9 @@ export class EntryPlannerService {
           entry_zone_max: request.entry_zone_max,
           timeout_minutes: adjustedTimeout,
           timeout_at: timeoutAt.toISOString(),
+          max_wait_seconds: maxWaitSeconds,
+          timeout_action: request.timeout_action || 'CANCEL',
+          invalidation_price: request.invalidation_price,
           alpha_reasoning: request.alpha_reasoning,
           market_context: request.market_context || {},
           status: 'monitoring'
@@ -79,29 +84,33 @@ export class EntryPlannerService {
     const intentType = intent.intent_type;
     const conditions: EntryConditions = {};
 
-    // Calculate timeout progress for progressive relaxation
-    const timeElapsed = Date.now() - new Date(intent.created_at).getTime();
-    const timeoutTotal = intent.timeout_minutes * 60 * 1000;
-    const timeoutProgress = Math.min(1.0, timeElapsed / timeoutTotal);
+    const maxWaitSeconds = (intent as any).max_wait_seconds || intent.timeout_minutes * 60;
+    const elapsedSeconds = Math.floor((Date.now() - new Date(intent.created_at).getTime()) / 1000);
+    const timeoutProgress = Math.min(1.0, elapsedSeconds / maxWaitSeconds);
+
+    const invalidationCheck = this.checkInvalidationPrice(intent, currentPrice);
+    if (invalidationCheck.should_cancel) {
+      return invalidationCheck;
+    }
 
     switch (intentType) {
       case 'immediate_momentum':
         return this.validateImmediateMomentum(intent, currentPrice, candleData, conditions, timeoutProgress);
 
       case 'pullback_to_vwap':
-        return this.validatePullbackToVWAP(intent, currentPrice, candleData, marketConditions, conditions);
+        return this.validatePullbackToVWAP(intent, currentPrice, candleData, marketConditions, conditions, timeoutProgress);
 
       case 'pullback_to_support':
-        return this.validatePullbackToSupport(intent, currentPrice, candleData, conditions);
+        return this.validatePullbackToSupport(intent, currentPrice, candleData, conditions, timeoutProgress);
 
       case 'break_and_retest':
-        return this.validateBreakAndRetest(intent, currentPrice, candleData, conditions);
+        return this.validateBreakAndRetest(intent, currentPrice, candleData, conditions, timeoutProgress);
 
       case 'range_extreme':
-        return this.validateRangeExtreme(intent, currentPrice, candleData, conditions);
+        return this.validateRangeExtreme(intent, currentPrice, candleData, conditions, timeoutProgress);
 
       case 'retest_structure':
-        return this.validateRetestStructure(intent, currentPrice, candleData, conditions);
+        return this.validateRetestStructure(intent, currentPrice, candleData, conditions, timeoutProgress);
 
       default:
         return {
@@ -114,6 +123,49 @@ export class EntryPlannerService {
           message: 'Invalid entry intent type'
         };
     }
+  }
+
+  private static checkInvalidationPrice(intent: EntryIntent, currentPrice: number): EntryValidationResult {
+    const invalidationPrice = (intent as any).invalidation_price;
+    const marketContext = intent.market_context as any;
+    const stopLoss = invalidationPrice || marketContext?.stop_loss;
+
+    if (!stopLoss) {
+      return {
+        is_valid: true,
+        conditions_met: {},
+        should_execute: false,
+        should_wait: true,
+        should_cancel: false,
+        message: 'No invalidation check needed'
+      };
+    }
+
+    const isInvalidated = intent.direction === 'long'
+      ? currentPrice <= stopLoss
+      : currentPrice >= stopLoss;
+
+    if (isInvalidated) {
+      logger.warn(`Setup invalidated: ${intent.direction} but price ${currentPrice.toFixed(5)} crossed SL ${stopLoss.toFixed(5)}`);
+      return {
+        is_valid: false,
+        conditions_met: {},
+        should_execute: false,
+        should_wait: false,
+        should_cancel: true,
+        cancel_reason: 'Price reached invalidation level',
+        message: `Setup invalidated - price crossed stop loss level`
+      };
+    }
+
+    return {
+      is_valid: true,
+      conditions_met: {},
+      should_execute: false,
+      should_wait: true,
+      should_cancel: false,
+      message: 'Setup still valid'
+    };
   }
 
   private static validateImmediateMomentum(
@@ -297,7 +349,8 @@ export class EntryPlannerService {
     currentPrice: number,
     candleData: any,
     marketConditions: any,
-    conditions: EntryConditions
+    conditions: EntryConditions,
+    timeoutProgress: number
   ): EntryValidationResult {
     const vwap = marketConditions?.vwap || 0;
     const distanceToVWAP = calculatePipDistance(intent.symbol, currentPrice, vwap);
@@ -306,13 +359,28 @@ export class EntryPlannerService {
 
     if (!conditions.vwap_touch) {
       const distanceToPips = this.calculateDistanceToZone(currentPrice, intent);
+
+      if (timeoutProgress >= 0.8) {
+        const inZone = this.isPriceInZone(currentPrice, intent);
+        if (inZone) {
+          return {
+            is_valid: true,
+            conditions_met: conditions,
+            should_execute: true,
+            should_wait: false,
+            should_cancel: false,
+            message: `Entry window closing (${(timeoutProgress * 100).toFixed(0)}%). Executing in zone.`
+          };
+        }
+      }
+
       return {
         is_valid: true,
         conditions_met: conditions,
         should_execute: false,
         should_wait: true,
         should_cancel: false,
-        message: `Waiting for pullback to VWAP at ${vwap.toFixed(5)}. Current distance: ${Math.abs(distanceToPips).toFixed(1)} pips.`
+        message: `Waiting for pullback to VWAP at ${vwap.toFixed(5)}. Distance: ${Math.abs(distanceToPips).toFixed(1)} pips. (${(timeoutProgress * 100).toFixed(0)}% elapsed)`
       };
     }
 
@@ -329,13 +397,24 @@ export class EntryPlannerService {
       };
     }
 
+    if (conditions.vwap_touch && timeoutProgress >= 0.6) {
+      return {
+        is_valid: true,
+        conditions_met: conditions,
+        should_execute: true,
+        should_wait: false,
+        should_cancel: false,
+        message: `VWAP touched, deadline approaching (${(timeoutProgress * 100).toFixed(0)}%). Executing without pattern confirmation.`
+      };
+    }
+
     return {
       is_valid: true,
       conditions_met: conditions,
       should_execute: false,
       should_wait: true,
       should_cancel: false,
-      message: `Price at VWAP. Waiting for rejection confirmation.`
+      message: `Price at VWAP. Waiting for rejection confirmation. (${(timeoutProgress * 100).toFixed(0)}% elapsed)`
     };
   }
 
@@ -343,21 +422,18 @@ export class EntryPlannerService {
     intent: EntryIntent,
     currentPrice: number,
     candleData: any,
-    conditions: EntryConditions
+    conditions: EntryConditions,
+    timeoutProgress: number
   ): EntryValidationResult {
     const inZone = this.isPriceInZone(currentPrice, intent);
     conditions.support_resistance_hold = inZone;
 
     if (!inZone) {
       const distanceToPips = this.calculateDistanceToZone(currentPrice, intent);
-
-      // CONFIDENCE-AWARE CHASE THRESHOLD
       const effectiveThreshold = this.getConfidenceAwareChaseThreshold(intent, intent.symbol);
 
       if (Math.abs(distanceToPips) > effectiveThreshold) {
-        logger.warn(`[Entry Monitor] ${intent.symbol} too far from support:
-  Distance: ${Math.abs(distanceToPips).toFixed(1)} pips
-  Threshold: ${effectiveThreshold} pips`);
+        logger.warn(`[Entry Monitor] ${intent.symbol} too far from support: ${Math.abs(distanceToPips).toFixed(1)} pips (threshold: ${effectiveThreshold})`);
 
         return {
           is_valid: false,
@@ -376,7 +452,7 @@ export class EntryPlannerService {
         should_execute: false,
         should_wait: true,
         should_cancel: false,
-        message: `Waiting for pullback to support zone ${intent.entry_zone_min.toFixed(5)}-${intent.entry_zone_max.toFixed(5)}. Distance: ${Math.abs(distanceToPips).toFixed(1)} pips.`
+        message: `Waiting for pullback to support zone. Distance: ${Math.abs(distanceToPips).toFixed(1)} pips. (${(timeoutProgress * 100).toFixed(0)}% elapsed)`
       };
     }
 
@@ -393,13 +469,24 @@ export class EntryPlannerService {
       };
     }
 
+    if (inZone && timeoutProgress >= 0.6) {
+      return {
+        is_valid: true,
+        conditions_met: conditions,
+        should_execute: true,
+        should_wait: false,
+        should_cancel: false,
+        message: `In support zone, deadline approaching (${(timeoutProgress * 100).toFixed(0)}%). Executing without candle confirmation.`
+      };
+    }
+
     return {
       is_valid: true,
       conditions_met: conditions,
       should_execute: false,
       should_wait: true,
       should_cancel: false,
-      message: `Price in support zone. Waiting for bullish confirmation.`
+      message: `Price in support zone. Waiting for confirmation. (${(timeoutProgress * 100).toFixed(0)}% elapsed)`
     };
   }
 
@@ -407,7 +494,8 @@ export class EntryPlannerService {
     intent: EntryIntent,
     currentPrice: number,
     candleData: any,
-    conditions: EntryConditions
+    conditions: EntryConditions,
+    timeoutProgress: number
   ): EntryValidationResult {
     const breakoutLevel = (intent.entry_zone_min + intent.entry_zone_max) / 2;
     const hasBreakout = intent.direction === 'long'
@@ -423,7 +511,7 @@ export class EntryPlannerService {
         should_execute: false,
         should_wait: true,
         should_cancel: false,
-        message: `Waiting for break above ${breakoutLevel.toFixed(5)}.`
+        message: `Waiting for break above ${breakoutLevel.toFixed(5)}. (${(timeoutProgress * 100).toFixed(0)}% elapsed)`
       };
     }
 
@@ -443,6 +531,17 @@ export class EntryPlannerService {
           message: 'Break and retest confirmed. Executing entry.'
         };
       }
+
+      if (timeoutProgress >= 0.6) {
+        return {
+          is_valid: true,
+          conditions_met: conditions,
+          should_execute: true,
+          should_wait: false,
+          should_cancel: false,
+          message: `Breakout + retest zone, deadline approaching (${(timeoutProgress * 100).toFixed(0)}%). Executing.`
+        };
+      }
     }
 
     return {
@@ -451,7 +550,7 @@ export class EntryPlannerService {
       should_execute: false,
       should_wait: true,
       should_cancel: false,
-      message: `Breakout occurred. Waiting for retest of ${breakoutLevel.toFixed(5)}.`
+      message: `Breakout occurred. Waiting for retest of ${breakoutLevel.toFixed(5)}. (${(timeoutProgress * 100).toFixed(0)}% elapsed)`
     };
   }
 
@@ -459,7 +558,8 @@ export class EntryPlannerService {
     intent: EntryIntent,
     currentPrice: number,
     candleData: any,
-    conditions: EntryConditions
+    conditions: EntryConditions,
+    timeoutProgress: number
   ): EntryValidationResult {
     const inZone = this.isPriceInZone(currentPrice, intent);
     conditions.range_boundary_reached = inZone;
@@ -472,7 +572,7 @@ export class EntryPlannerService {
         should_execute: false,
         should_wait: true,
         should_cancel: false,
-        message: `Waiting for price at range extreme. Distance: ${Math.abs(distanceToPips).toFixed(1)} pips.`
+        message: `Waiting for price at range extreme. Distance: ${Math.abs(distanceToPips).toFixed(1)} pips. (${(timeoutProgress * 100).toFixed(0)}% elapsed)`
       };
     }
 
@@ -489,13 +589,24 @@ export class EntryPlannerService {
       };
     }
 
+    if (inZone && timeoutProgress >= 0.6) {
+      return {
+        is_valid: true,
+        conditions_met: conditions,
+        should_execute: true,
+        should_wait: false,
+        should_cancel: false,
+        message: `At range extreme, deadline approaching (${(timeoutProgress * 100).toFixed(0)}%). Executing.`
+      };
+    }
+
     return {
       is_valid: true,
       conditions_met: conditions,
       should_execute: false,
       should_wait: true,
       should_cancel: false,
-      message: `Price at range boundary. Waiting for reversal confirmation.`
+      message: `Price at range boundary. Waiting for reversal confirmation. (${(timeoutProgress * 100).toFixed(0)}% elapsed)`
     };
   }
 
@@ -503,7 +614,8 @@ export class EntryPlannerService {
     intent: EntryIntent,
     currentPrice: number,
     candleData: any,
-    conditions: EntryConditions
+    conditions: EntryConditions,
+    timeoutProgress: number
   ): EntryValidationResult {
     const inZone = this.isPriceInZone(currentPrice, intent);
     conditions.retest_hold = inZone;
@@ -516,7 +628,7 @@ export class EntryPlannerService {
         should_execute: false,
         should_wait: true,
         should_cancel: false,
-        message: `Waiting for retest of structure at ${intent.entry_zone_min.toFixed(5)}-${intent.entry_zone_max.toFixed(5)}. Distance: ${Math.abs(distanceToPips).toFixed(1)} pips.`
+        message: `Waiting for retest of structure. Distance: ${Math.abs(distanceToPips).toFixed(1)} pips. (${(timeoutProgress * 100).toFixed(0)}% elapsed)`
       };
     }
 
@@ -533,13 +645,24 @@ export class EntryPlannerService {
       };
     }
 
+    if (inZone && timeoutProgress >= 0.6) {
+      return {
+        is_valid: true,
+        conditions_met: conditions,
+        should_execute: true,
+        should_wait: false,
+        should_cancel: false,
+        message: `Structure retest zone, deadline approaching (${(timeoutProgress * 100).toFixed(0)}%). Executing.`
+      };
+    }
+
     return {
       is_valid: true,
       conditions_met: conditions,
       should_execute: false,
       should_wait: true,
       should_cancel: false,
-      message: `Price at structure level. Waiting for hold confirmation.`
+      message: `Price at structure level. Waiting for hold confirmation. (${(timeoutProgress * 100).toFixed(0)}% elapsed)`
     };
   }
 

@@ -8,6 +8,8 @@ export type EntryIntentType =
 
 export type EntryUrgencyLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 
+export type TimeoutAction = 'EXECUTE_AT_MARKET' | 'CANCEL';
+
 export type EntryIntentStatus =
   | 'monitoring'
   | 'executed'
@@ -27,6 +29,9 @@ export interface EntryIntent {
   entry_zone_max: number;
   timeout_minutes: number;
   timeout_at: string;
+  max_wait_seconds: number;
+  timeout_action: TimeoutAction;
+  invalidation_price?: number;
   status: EntryIntentStatus;
   alpha_reasoning?: string;
   market_context?: Record<string, any>;
@@ -78,6 +83,10 @@ export interface ActiveEntryIntent {
   created_at: string;
   alpha_reasoning?: string;
   minutes_remaining: number;
+  seconds_remaining: number;
+  max_wait_seconds: number;
+  timeout_action: TimeoutAction;
+  invalidation_price?: number;
   latest_price?: number;
   distance_to_zone_pips?: number;
 }
@@ -122,6 +131,9 @@ export interface EntryIntentRequest {
   entry_zone_min: number;
   entry_zone_max: number;
   timeout_minutes: number;
+  max_wait_seconds: number;
+  timeout_action: TimeoutAction;
+  invalidation_price?: number;
   alpha_reasoning: string;
   market_context?: Record<string, any>;
 }

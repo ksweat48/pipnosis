@@ -17,7 +17,6 @@ export class EntryExecutionCoordinator {
       return { shouldExecuteImmediately: false };
     }
 
-    // Handle WAIT decision - create wait_condition and monitor
     if (decision.action === 'WAIT' && decision.wait_condition) {
       logger.info('Alpha decided to WAIT for better entry conditions');
 
@@ -37,7 +36,6 @@ export class EntryExecutionCoordinator {
       return { shouldExecuteImmediately: false, waitConditionId };
     }
 
-    // FALLBACK: Only execute immediately if no entry intent was provided (rare edge case)
     if (!decision.entry_intent) {
       logger.info('No entry intent specified, executing immediately');
       return { shouldExecuteImmediately: true };
@@ -45,16 +43,10 @@ export class EntryExecutionCoordinator {
 
     const entryIntent = decision.entry_intent;
 
-    // CONFIDENCE-AWARE TIMEOUT: Calculate optimal timeout based on confidence and intent
-    entryIntent.timeout_minutes = this.calculateConfidenceAwareTimeout(
-      decision.confidence,
-      entryIntent.urgency,
-      entryIntent.intent_type
-    );
-
-    logger.info(
-      `Confidence ${decision.confidence}% → ${entryIntent.intent_type} with ${(entryIntent.timeout_minutes * 60).toFixed(0)}s precision window`
-    );
+    if (entryIntent.should_execute_immediately) {
+      logger.info(`Price already in zone - EXECUTING IMMEDIATELY (no monitoring needed)`);
+      return { shouldExecuteImmediately: true };
+    }
 
     const request: EntryIntentRequest = {
       session_id: sessionId,
@@ -64,7 +56,10 @@ export class EntryExecutionCoordinator {
       direction: decision.action === 'BUY' ? 'long' : 'short',
       entry_zone_min: entryIntent.entry_zone_min,
       entry_zone_max: entryIntent.entry_zone_max,
-      timeout_minutes: entryIntent.timeout_minutes,
+      timeout_minutes: entryIntent.timeout_minutes || Math.ceil(entryIntent.max_wait_seconds / 60),
+      max_wait_seconds: entryIntent.max_wait_seconds,
+      timeout_action: entryIntent.timeout_action,
+      invalidation_price: entryIntent.invalidation_price,
       alpha_reasoning: decision.reasoning,
       market_context: {
         confidence: decision.confidence,
@@ -73,6 +68,11 @@ export class EntryExecutionCoordinator {
         omega_summary: decision.omega_summary
       }
     };
+
+    logger.info(
+      `Creating entry intent: ${entryIntent.intent_type} (${entryIntent.urgency}) | ` +
+      `Max wait: ${entryIntent.max_wait_seconds}s | Timeout action: ${entryIntent.timeout_action}`
+    );
 
     const intent = await EntryPlannerService.createEntryIntent(userId, request);
 
@@ -244,52 +244,6 @@ export class EntryExecutionCoordinator {
 
   static async getUserActiveIntents(userId: string): Promise<EntryIntent[]> {
     return EntryPlannerService.getActiveIntents(userId);
-  }
-
-  /**
-   * Calculate timeout based on confidence level and intent type
-   * High confidence = shorter wait (don't miss the trade)
-   * Low confidence = longer wait (require strict confirmation)
-   */
-  private static calculateConfidenceAwareTimeout(
-    confidence: number,
-    urgency: string,
-    intentType: string
-  ): number {
-    // High confidence (70%+): Tight precision windows
-    if (confidence >= 70) {
-      if (intentType === 'immediate_momentum') {
-        return 1.0; // 60 seconds for momentum plays
-      }
-      if (intentType === 'pullback_to_vwap' || intentType === 'break_and_retest') {
-        return 1.5; // 90 seconds for pullback/retest
-      }
-      return 2.0; // 120 seconds for other setups
-    }
-
-    // Medium confidence (60-69%): Standard windows
-    if (confidence >= 60) {
-      if (intentType === 'immediate_momentum') {
-        return 2.0; // 120 seconds
-      }
-      if (intentType === 'pullback_to_vwap' || intentType === 'break_and_retest') {
-        return 3.0; // 180 seconds
-      }
-      return 4.0; // 240 seconds
-    }
-
-    // Low confidence (50-59%): Patient windows, require strict confirmation
-    if (intentType === 'immediate_momentum') {
-      return 1.5; // 90 seconds (quick cancel if momentum doesn't develop)
-    }
-    if (intentType === 'range_extreme') {
-      return 8.0; // 480 seconds (8 minutes for range trades)
-    }
-    if (intentType === 'pullback_to_vwap' || intentType === 'pullback_to_support') {
-      return 6.0; // 360 seconds (6 minutes)
-    }
-
-    return 5.0; // 300 seconds (5 minutes) default
   }
 
   private static async createWaitCondition(

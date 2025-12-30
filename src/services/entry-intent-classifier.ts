@@ -1,141 +1,247 @@
 import type { AlphaDecision, MarketContext, OmegaCouncilVotes } from '../brains/coordinator-alpha';
-import type { EntryIntentType, EntryUrgencyLevel } from '../types/entry';
+import type { EntryIntentType, EntryUrgencyLevel, TimeoutAction } from '../types/entry';
 import { logger } from '../lib/logger';
+import { calculatePipDistance } from '../utils/currencyHelpers';
+
+export interface ClassifiedEntryIntent {
+  intent_type: EntryIntentType;
+  urgency: EntryUrgencyLevel;
+  entry_zone_min: number;
+  entry_zone_max: number;
+  timeout_minutes: number;
+  max_wait_seconds: number;
+  timeout_action: TimeoutAction;
+  invalidation_price: number;
+  should_execute_immediately: boolean;
+}
 
 export class EntryIntentClassifier {
+  private static readonly IMMEDIATE_ZONE_PIPS = 3;
+  private static readonly CLOSE_ENOUGH_PIPS = 8;
+
   static classifyEntryIntent(
     decision: AlphaDecision,
     marketContext: MarketContext,
     votes: OmegaCouncilVotes,
     vwap?: number
-  ): {
-    intent_type: EntryIntentType;
-    urgency: EntryUrgencyLevel;
-    entry_zone_min: number;
-    entry_zone_max: number;
-    timeout_minutes: number;
-  } | null {
+  ): ClassifiedEntryIntent | null {
     if (decision.action === 'NO_TRADE') {
       return null;
     }
 
-    const urgency = this.determineUrgency(decision, marketContext, votes);
-    const intentType = this.determineIntentType(decision, marketContext, votes, vwap);
-    const entryZone = this.calculateEntryZone(decision, intentType, marketContext, decision.confidence);
-    const timeoutMinutes = this.calculateTimeout(urgency, intentType);
+    const entryZone = this.calculateEntryZone(decision, 'immediate_momentum', marketContext, decision.confidence);
+    const distanceToZonePips = this.calculateDistanceToZone(
+      marketContext.price,
+      entryZone.min,
+      entryZone.max,
+      marketContext.symbol
+    );
+
+    const intentType = this.determineIntentTypeByPosition(
+      distanceToZonePips,
+      decision,
+      marketContext,
+      votes,
+      vwap
+    );
+
+    const finalEntryZone = this.calculateEntryZone(decision, intentType, marketContext, decision.confidence);
+
+    const urgency = this.determineUrgency(decision, marketContext, votes, intentType, distanceToZonePips);
+    const maxWaitSeconds = this.calculateMaxWaitSeconds(urgency, intentType, marketContext);
+    const timeoutMinutes = Math.ceil(maxWaitSeconds / 60);
+    const timeoutAction = this.determineTimeoutAction(intentType, urgency);
+    const invalidationPrice = this.calculateInvalidationPrice(decision, marketContext);
+
+    const shouldExecuteImmediately = Math.abs(distanceToZonePips) <= this.IMMEDIATE_ZONE_PIPS;
 
     logger.info(
       `Entry intent classified (${decision.confidence}% conf): ${intentType} (${urgency}) - ` +
-      `Entry zone: ${entryZone.min.toFixed(5)}-${entryZone.max.toFixed(5)} ` +
-      `(${((entryZone.max - entryZone.min) * 10000).toFixed(1)} pips)`
+      `Entry zone: ${finalEntryZone.min.toFixed(5)}-${finalEntryZone.max.toFixed(5)} | ` +
+      `Distance: ${distanceToZonePips.toFixed(1)} pips | ` +
+      `Max wait: ${maxWaitSeconds}s | Timeout action: ${timeoutAction} | ` +
+      `Execute immediately: ${shouldExecuteImmediately}`
     );
 
     return {
       intent_type: intentType,
       urgency,
-      entry_zone_min: entryZone.min,
-      entry_zone_max: entryZone.max,
-      timeout_minutes: timeoutMinutes
+      entry_zone_min: finalEntryZone.min,
+      entry_zone_max: finalEntryZone.max,
+      timeout_minutes: timeoutMinutes,
+      max_wait_seconds: maxWaitSeconds,
+      timeout_action: timeoutAction,
+      invalidation_price: invalidationPrice,
+      should_execute_immediately: shouldExecuteImmediately
     };
   }
 
-  private static determineUrgency(
-    decision: AlphaDecision,
-    marketContext: MarketContext,
-    votes: OmegaCouncilVotes
-  ): EntryUrgencyLevel {
-    const confidence = decision.confidence;
-    const reasoning = decision.reasoning.toLowerCase();
-
-    if (reasoning.includes('momentum') || reasoning.includes('breakout')) {
-      if (confidence >= 75) {
-        return 'HIGH';
-      }
-      return 'MEDIUM';
+  private static calculateDistanceToZone(
+    currentPrice: number,
+    zoneMin: number,
+    zoneMax: number,
+    symbol: string
+  ): number {
+    if (currentPrice >= zoneMin && currentPrice <= zoneMax) {
+      return 0;
     }
 
-    if (reasoning.includes('reversal') || reasoning.includes('extreme')) {
-      return 'MEDIUM';
-    }
-
-    if (reasoning.includes('pullback') || reasoning.includes('retest') || reasoning.includes('range')) {
-      if (marketContext.volatility === 'high' && confidence >= 70) {
-        return 'MEDIUM';
-      }
-      return 'LOW';
-    }
-
-    const trendVote = votes.trend;
-    if (trendVote && trendVote.action !== 'NO_TRADE') {
-      if (trendVote.confidence >= 75) {
-        return 'HIGH';
-      }
-      return 'MEDIUM';
-    }
-
-    if (confidence >= 80) {
-      return 'HIGH';
-    } else if (confidence >= 60) {
-      return 'MEDIUM';
-    }
-
-    return 'LOW';
+    const closestEdge = currentPrice < zoneMin ? zoneMin : zoneMax;
+    return calculatePipDistance(symbol, currentPrice, closestEdge);
   }
 
-  private static determineIntentType(
+  private static determineIntentTypeByPosition(
+    distanceToZonePips: number,
     decision: AlphaDecision,
     marketContext: MarketContext,
     votes: OmegaCouncilVotes,
     vwap?: number
   ): EntryIntentType {
+    const absDistance = Math.abs(distanceToZonePips);
+
+    if (absDistance <= this.IMMEDIATE_ZONE_PIPS) {
+      return 'immediate_momentum';
+    }
+
+    if (absDistance <= this.CLOSE_ENOUGH_PIPS) {
+      return 'immediate_momentum';
+    }
+
     const reasoning = decision.reasoning.toLowerCase();
-    const currentPrice = marketContext.price;
 
-    if (reasoning.includes('momentum') && (reasoning.includes('continuation') || reasoning.includes('strong'))) {
-      return 'immediate_momentum';
+    if (reasoning.includes('breakout') && (reasoning.includes('retest') || reasoning.includes('pullback'))) {
+      return 'break_and_retest';
     }
 
-    if (reasoning.includes('breakout')) {
-      if (reasoning.includes('retest') || reasoning.includes('pullback')) {
-        return 'break_and_retest';
-      }
-      return 'immediate_momentum';
-    }
-
-    if (vwap && Math.abs(currentPrice - vwap) / vwap < 0.002) {
+    if (vwap && Math.abs(marketContext.price - vwap) / vwap < 0.002) {
       if (reasoning.includes('vwap') || reasoning.includes('mean')) {
         return 'pullback_to_vwap';
       }
     }
 
-    if (reasoning.includes('support') || reasoning.includes('resistance')) {
-      return 'pullback_to_support';
+    if (marketContext.regime === 'side' || reasoning.includes('range')) {
+      return 'range_extreme';
     }
 
     if (reasoning.includes('retest') || reasoning.includes('structure')) {
       return 'retest_structure';
     }
 
-    if (reasoning.includes('range') || (marketContext.regime === 'side' && reasoning.includes('extreme'))) {
-      return 'range_extreme';
+    return 'pullback_to_support';
+  }
+
+  private static calculateInvalidationPrice(
+    decision: AlphaDecision,
+    marketContext: MarketContext
+  ): number {
+    if (decision.stopLoss) {
+      return decision.stopLoss;
     }
 
-    if (marketContext.regime === 'bull' || marketContext.regime === 'bear') {
-      const distanceFromEntry = Math.abs(currentPrice - decision.entry) / currentPrice;
+    const atr = marketContext.atr;
+    const entry = decision.entry;
 
-      if (distanceFromEntry < 0.0005) {
-        return 'immediate_momentum';
-      } else {
-        return 'pullback_to_support';
+    if (decision.action === 'BUY') {
+      return entry - (atr * 1.5);
+    } else {
+      return entry + (atr * 1.5);
+    }
+  }
+
+  private static determineTimeoutAction(
+    intentType: EntryIntentType,
+    urgency: EntryUrgencyLevel
+  ): TimeoutAction {
+    if (intentType === 'immediate_momentum') {
+      return 'EXECUTE_AT_MARKET';
+    }
+
+    if (urgency === 'HIGH') {
+      return 'EXECUTE_AT_MARKET';
+    }
+
+    if (intentType === 'break_and_retest' || intentType === 'retest_structure') {
+      return 'EXECUTE_AT_MARKET';
+    }
+
+    return 'CANCEL';
+  }
+
+  private static calculateMaxWaitSeconds(
+    urgency: EntryUrgencyLevel,
+    intentType: EntryIntentType,
+    marketContext: MarketContext
+  ): number {
+    const isHighVolatility = marketContext.volatility === 'high';
+    const volatilityMultiplier = isHighVolatility ? 0.6 : 1.0;
+
+    let baseSeconds: number;
+
+    switch (intentType) {
+      case 'immediate_momentum':
+        baseSeconds = urgency === 'HIGH' ? 30 : urgency === 'MEDIUM' ? 45 : 60;
+        break;
+      case 'pullback_to_vwap':
+        baseSeconds = urgency === 'HIGH' ? 90 : urgency === 'MEDIUM' ? 180 : 300;
+        break;
+      case 'break_and_retest':
+        baseSeconds = urgency === 'HIGH' ? 120 : urgency === 'MEDIUM' ? 240 : 360;
+        break;
+      case 'pullback_to_support':
+        baseSeconds = urgency === 'HIGH' ? 180 : urgency === 'MEDIUM' ? 420 : 600;
+        break;
+      case 'range_extreme':
+        baseSeconds = urgency === 'HIGH' ? 120 : urgency === 'MEDIUM' ? 300 : 600;
+        break;
+      case 'retest_structure':
+        baseSeconds = urgency === 'HIGH' ? 120 : urgency === 'MEDIUM' ? 240 : 420;
+        break;
+      default:
+        baseSeconds = 120;
+    }
+
+    return Math.round(baseSeconds * volatilityMultiplier);
+  }
+
+  private static determineUrgency(
+    decision: AlphaDecision,
+    marketContext: MarketContext,
+    votes: OmegaCouncilVotes,
+    intentType: EntryIntentType,
+    distanceToZonePips: number
+  ): EntryUrgencyLevel {
+    const confidence = decision.confidence;
+    const absDistance = Math.abs(distanceToZonePips);
+
+    if (intentType === 'immediate_momentum') {
+      if (absDistance <= 2) {
+        return 'HIGH';
       }
+      if (confidence >= 75) {
+        return 'HIGH';
+      }
+      return 'MEDIUM';
     }
 
-    const confirmationVote = votes.confirmation;
-    if (confirmationVote && confirmationVote.action !== 'NO_TRADE') {
-      return 'pullback_to_support';
+    if (marketContext.volatility === 'high') {
+      if (confidence >= 70) {
+        return 'HIGH';
+      }
+      return 'MEDIUM';
     }
 
-    return 'immediate_momentum';
+    const trendVote = votes.trend;
+    if (trendVote && trendVote.action !== 'NO_TRADE' && trendVote.confidence >= 75) {
+      return 'HIGH';
+    }
+
+    if (confidence >= 80) {
+      return 'HIGH';
+    } else if (confidence >= 65) {
+      return 'MEDIUM';
+    }
+
+    return 'LOW';
   }
 
   private static calculateEntryZone(

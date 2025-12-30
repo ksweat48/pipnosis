@@ -1,9 +1,10 @@
 import { supabase } from '../lib/supabase';
 import { EntryPlannerService } from './entry-planner';
-import type { EntryIntent, EntryMonitoringLog } from '../types/entry';
+import type { EntryIntent, EntryMonitoringLog, TimeoutAction } from '../types/entry';
 import { logger } from '../lib/logger';
 import { globalToastManager } from './global-toast-manager';
 import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
+import { calculatePipDistance } from '../utils/currencyHelpers';
 
 export class ActiveEntryMonitor {
   private static instance: ActiveEntryMonitor;
@@ -77,19 +78,33 @@ export class ActiveEntryMonitor {
         return;
       }
 
-      if (new Date(intent.timeout_at) < new Date()) {
-        // TIMEOUT BEHAVIOR: For immediate_momentum, execute anyway instead of canceling
-        if (intent.intent_type === 'immediate_momentum') {
-          logger.info(`Intent ${intentId} timed out - executing anyway (immediate momentum)`);
-          const currentPrice = await this.getCurrentPrice(intent.symbol);
-          if (currentPrice) {
-            await this.handleExecution(intent, currentPrice, 'Timeout reached - executing immediately');
+      const maxWaitSeconds = (intent as any).max_wait_seconds || intent.timeout_minutes * 60;
+      const elapsedSeconds = Math.floor((Date.now() - new Date(intent.created_at).getTime()) / 1000);
+      const isTimedOut = elapsedSeconds >= maxWaitSeconds;
+
+      if (isTimedOut) {
+        const timeoutAction: TimeoutAction = (intent as any).timeout_action || 'CANCEL';
+        const currentPrice = await this.getCurrentPrice(intent.symbol);
+
+        logger.info(
+          `Intent ${intentId} deadline reached after ${elapsedSeconds}s | ` +
+          `Action: ${timeoutAction} | Current price: ${currentPrice?.toFixed(5) || 'N/A'}`
+        );
+
+        if (timeoutAction === 'EXECUTE_AT_MARKET' && currentPrice) {
+          const isStillValid = this.validateSetupStillValid(intent, currentPrice);
+
+          if (isStillValid) {
+            logger.info(`Deadline reached - executing at market (setup still valid)`);
+            await this.handleExecution(intent, currentPrice, 'Deadline reached - executing at market');
           } else {
-            await this.handleTimeout(intent);
+            logger.warn(`Deadline reached but setup invalidated - canceling`);
+            await this.handleCancel(intent, 'Setup invalidated before deadline execution');
           }
         } else {
           await this.handleTimeout(intent);
         }
+
         await this.stopMonitoring(intentId);
         return;
       }
@@ -405,10 +420,40 @@ export class ActiveEntryMonitor {
       return 0;
     }
 
-    const distanceToMin = (price - intent.entry_zone_min) * 10000;
-    const distanceToMax = (price - intent.entry_zone_max) * 10000;
+    const closestEdge = price < intent.entry_zone_min ? intent.entry_zone_min : intent.entry_zone_max;
+    return calculatePipDistance(intent.symbol, price, closestEdge);
+  }
 
-    return Math.abs(distanceToMin) < Math.abs(distanceToMax) ? distanceToMin : distanceToMax;
+  private validateSetupStillValid(intent: EntryIntent, currentPrice: number): boolean {
+    const invalidationPrice = (intent as any).invalidation_price;
+    const marketContext = intent.market_context as any;
+    const stopLoss = invalidationPrice || marketContext?.stop_loss;
+
+    if (!stopLoss) {
+      return true;
+    }
+
+    if (intent.direction === 'long') {
+      if (currentPrice <= stopLoss) {
+        logger.warn(`Setup invalidated: Long entry but price ${currentPrice.toFixed(5)} <= SL ${stopLoss.toFixed(5)}`);
+        return false;
+      }
+    } else {
+      if (currentPrice >= stopLoss) {
+        logger.warn(`Setup invalidated: Short entry but price ${currentPrice.toFixed(5)} >= SL ${stopLoss.toFixed(5)}`);
+        return false;
+      }
+    }
+
+    const distanceToZonePips = this.calculateDistanceToZone(currentPrice, intent);
+    const MAX_CHASE_PIPS = 15;
+
+    if (Math.abs(distanceToZonePips) > MAX_CHASE_PIPS) {
+      logger.warn(`Setup invalidated: Price ${distanceToZonePips.toFixed(1)} pips from zone (max chase: ${MAX_CHASE_PIPS})`);
+      return false;
+    }
+
+    return true;
   }
 
   private async logMonitoring(
