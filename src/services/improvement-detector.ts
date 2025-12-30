@@ -19,7 +19,7 @@ export interface SnapshotComparison {
 }
 
 class ImprovementDetector {
-  private readonly RECONVENE_THRESHOLD = 60;
+  private readonly RECONVENE_THRESHOLD = 40; // Lowered from 60 to make scout more responsive
 
   compareSnapshots(
     lastSnapshot: Record<string, any>,
@@ -30,6 +30,11 @@ class ImprovementDetector {
     const keyChanges: string[] = [];
     const categoryScores: Record<string, number> = {};
 
+    logger.info('[ImprovementDetector] Starting comparison', {
+      lastSnapshotSymbols: Object.keys(lastSnapshot).length,
+      currentSnapshotSymbols: Object.keys(currentSnapshot).length,
+    });
+
     for (const symbol of Object.keys(lastSnapshot)) {
       if (!currentSnapshot[symbol]) continue;
 
@@ -38,6 +43,17 @@ class ImprovementDetector {
 
       const symbolComparisons = this.compareSymbolData(symbol, oldData, newData);
       comparisons.push(...symbolComparisons);
+
+      if (symbolComparisons.length > 0) {
+        logger.info(`[ImprovementDetector] ${symbol} changes`, {
+          comparisons: symbolComparisons.slice(0, 3).map(c => ({
+            metric: c.metric,
+            change: `${c.old_value.toFixed(2)} -> ${c.new_value.toFixed(2)}`,
+            change_pct: `${c.change_percent.toFixed(1)}%`,
+            improved: c.improved
+          }))
+        });
+      }
     }
 
     for (const [category, requirements] of Object.entries(requiredImprovements)) {
@@ -77,7 +93,7 @@ class ImprovementDetector {
   ): SnapshotComparison[] {
     const comparisons: SnapshotComparison[] = [];
 
-    const metrics = ['ema20', 'ema50', 'ema200', 'rsi', 'atr', 'volume', 'spread'];
+    const metrics = ['price', 'ema20', 'ema50', 'ema200', 'rsi', 'atr', 'volume', 'spread'];
 
     for (const metric of metrics) {
       if (oldData[metric] === undefined || newData[metric] === undefined) continue;
@@ -117,19 +133,34 @@ class ImprovementDetector {
 
   private isImprovement(metric: string, oldValue: number, newValue: number): boolean {
     switch (metric) {
+      case 'price':
+        // Any significant price movement (>0.05%) indicates market activity
+        return Math.abs(newValue - oldValue) > oldValue * 0.0005;
+
       case 'atr':
+        // ATR increase = more volatility = better trading opportunities
+        return newValue > oldValue * 1.05; // 5% increase
+
       case 'volume':
-        return newValue > oldValue;
+        // Volume increase = better liquidity
+        // Only count as improvement if both values are non-zero
+        if (oldValue === 0 || newValue === 0) return false;
+        return newValue > oldValue * 1.1; // 10% increase
 
       case 'spread':
-        return newValue < oldValue;
+        // Spread decrease = better execution
+        // Only count if both values are non-zero
+        if (oldValue === 0 || newValue === 0) return false;
+        return newValue < oldValue * 0.9; // 10% decrease
 
       case 'rsi':
+        // RSI moving toward neutral zone = better entry conditions
         return (newValue >= 40 && newValue <= 60) || (oldValue < 30 && newValue > 30) || (oldValue > 70 && newValue < 70);
 
       case 'ema20':
       case 'ema50':
       case 'ema200':
+        // Any EMA movement > 0.1% is considered a change
         return Math.abs(newValue - oldValue) > oldValue * 0.001;
 
       default:
@@ -174,10 +205,10 @@ class ImprovementDetector {
 
   private isRelevantToCategory(category: string, metric: string): boolean {
     const categoryMetrics: Record<string, string[]> = {
-      trend: ['ema20', 'ema50', 'ema200', 'ema_cross'],
-      volatility: ['atr'],
+      trend: ['price', 'ema20', 'ema50', 'ema200', 'ema_cross'],
+      volatility: ['atr', 'price'],
       liquidity: ['volume', 'spread'],
-      momentum: ['rsi'],
+      momentum: ['rsi', 'price'],
       structure: ['ema_cross'],
       sentiment: [],
       other: [],

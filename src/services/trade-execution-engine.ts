@@ -529,23 +529,14 @@ class TradeExecutionEngine {
     const executionBasePrice = livePrice?.price || signal.entryPrice;
     const priceSource = livePrice ? livePrice.source : 'signal';
 
-    // Check if price has moved too far from signal price (reject if excessive)
+    // Calculate price movement from signal to adjust entry/SL/TP accordingly
     const priceDifference = Math.abs(executionBasePrice - signal.entryPrice);
-    const maxAllowedSlippage = this.getMaxAllowedSlippage(signal.symbol);
     const priceDiffPips = calculatePipDistance(signal.symbol, signal.entryPrice, executionBasePrice);
 
-    console.log(`[Trade Execution] Price check: Signal=${signal.entryPrice.toFixed(5)}, Live=${executionBasePrice.toFixed(5)}, Diff=${priceDiffPips.toFixed(1)} pips (max allowed: ${(maxAllowedSlippage / pipInfo.pipValue).toFixed(1)} pips)`);
+    console.log(`[Trade Execution] Price check: Signal=${signal.entryPrice.toFixed(5)}, Live=${executionBasePrice.toFixed(5)}, Diff=${priceDiffPips.toFixed(1)} pips`);
 
-    if (priceDifference > maxAllowedSlippage) {
-      console.error(`[Trade Execution] REJECTED: Price moved too far from signal! ${priceDiffPips.toFixed(1)} pips > ${(maxAllowedSlippage / pipInfo.pipValue).toFixed(1)} pips max`);
-      return {
-        success: false,
-        error: 'Price moved too far',
-        message: `Market price moved ${priceDiffPips.toFixed(1)} pips from analysis. Signal expired - will re-scan for fresh opportunity.`
-      };
-    }
-
-    // Adjust SL and TP to maintain the same pip distances from the new entry
+    // Always adjust SL and TP to maintain the same pip distances from the new entry
+    // Never reject trades - adapt to current market price instead
     let adjustedSL = signal.stopLoss;
     let adjustedTP = signal.takeProfit;
     const useLivePrice = livePrice && priceDifference > (pipInfo.pipValue * 2);

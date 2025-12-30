@@ -295,6 +295,16 @@ class ContextAwareCouncilManager {
     const snapshot: Record<string, any> = {};
 
     for (const state of marketStates) {
+      // Extract volume from recent candles if available
+      let volume = 0;
+      if (state.recentCandles && state.recentCandles.length > 0) {
+        const latestCandle = state.recentCandles[state.recentCandles.length - 1];
+        volume = latestCandle.volume || 0;
+      }
+
+      // Calculate spread as percentage of price (ATR-based estimate)
+      const spread = state.atr ? (state.atr / state.price) * 100 : 0;
+
       snapshot[state.symbol] = {
         price: state.price,
         ema20: state.ema20,
@@ -302,11 +312,20 @@ class ContextAwareCouncilManager {
         ema200: state.ema200,
         rsi: state.rsi,
         atr: state.atr,
-        volume: 0,
-        spread: 0,
+        volume: volume,
+        spread: spread,
         timestamp: new Date().toISOString(),
       };
     }
+
+    logger.info('[CouncilManager] Built snapshot', {
+      symbols: Object.keys(snapshot).length,
+      sample: Object.keys(snapshot).slice(0, 2).map(sym => ({
+        symbol: sym,
+        volume: snapshot[sym].volume,
+        spread: snapshot[sym].spread
+      }))
+    });
 
     return snapshot;
   }
