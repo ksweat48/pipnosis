@@ -3,3 +3,87 @@ For all designs I ask you to make, have them be beautiful, not cookie cutter. Ma
 By default, this template supports JSX syntax with Tailwind CSS classes, React hooks, and Lucide React for icons. Do not install other packages for UI themes, icons, etc unless absolutely necessary or I request them.
 
 Use icons from lucide-react for logos.
+
+🧠 Project Knowledge — Build & Architecture Standards
+
+For all designs and code changes, produce work that is production-ready, intentional, and maintainable. Avoid cookie-cutter solutions. Build systems that scale cleanly as complexity grows.
+
+🎨 UI & Frontend Standards
+
+Create beautiful, fully-featured interfaces suitable for production
+
+Default stack:
+
+JSX syntax
+
+Tailwind CSS
+
+React hooks
+
+lucide-react for icons
+
+Do not install additional UI libraries, themes, or icon packs unless explicitly requested
+
+Use lucide-react icons for logos and interface elements
+
+🧱 Architecture & Code Quality (Non-Negotiable)
+
+Build and modify code using Single Source of Truth (SSOT) principles.
+
+Every responsibility must have one authoritative owner
+
+Never duplicate business logic across files, services, or layers
+
+If similar logic exists elsewhere, refactor to a shared authority
+
+Prefer composition and delegation over copy-paste or re-implementation
+
+Avoid direct database mutations outside designated coordinators or services
+
+If a bug can be fixed in more than one place, the architecture is incorrect
+
+Anti-Regression & Maintainability
+
+When fixing bugs or adding features:
+
+Identify whether the same responsibility exists elsewhere
+
+Fix the root cause, not just the local symptom
+
+Assume similar bugs may exist in other parts of the system
+
+Refactor so fixing one place automatically fixes all consumers
+
+Prefer solutions that reduce overall system complexity over quick patches
+
+Future code should inherit correct behavior by default.
+
+Reasoning, Transparency & Change Intent
+
+For non-trivial changes:
+
+Explain why the change is needed
+
+Identify who owns the responsibility being modified
+
+Call out affected files, flows, or side effects
+
+Avoid silent behavior changes or undocumented fallbacks
+
+Code should be understandable without tribal knowledge
+
+Architectural Guardrails
+
+Enforce existing abstractions consistently rather than creating new parallel ones
+
+Centralize shared logic behind clear interfaces or coordinators
+
+Fail loudly on misuse instead of silently diverging behavior
+
+Design with future instruments, markets, and features in mind
+
+Guiding Principle
+
+If the same problem can be fixed more than once, the system is architecturally broken.
+
+All changes should correct the architecture, not just the symptoms.
