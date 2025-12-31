@@ -10,6 +10,7 @@ export interface MarketStateSnapshot {
   emaSlow: number;
   volume?: number;
   avgVolume?: number;
+  candleCloseTime?: number; // Timestamp of latest candle close
 }
 
 export interface CacheKeyComponents {
@@ -139,7 +140,8 @@ export function buildMarketStateSnapshot(
     emaFast,
     emaSlow,
     volume: currentCandle.volume,
-    avgVolume
+    avgVolume,
+    candleCloseTime: currentCandle.timestamp || Date.now()
   };
 }
 
@@ -238,7 +240,10 @@ export function generateMarketStateHash(
     volumeBucket
   };
 
-  const hashInput = `${snapshot.symbol}|${snapshot.timeframe}|${priceBucket}|${rsiBucket}|${trendBucket}|${volatilityBucket}`;
+  const candleTimeStr = snapshot.candleCloseTime
+    ? Math.floor(snapshot.candleCloseTime / 1000).toString()
+    : '';
+  const hashInput = `${snapshot.symbol}|${snapshot.timeframe}|${priceBucket}|${rsiBucket}|${trendBucket}|${volatilityBucket}|${candleTimeStr}`;
   const hash = simpleHash(hashInput);
 
   return {

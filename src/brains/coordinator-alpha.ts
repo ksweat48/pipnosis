@@ -17,6 +17,13 @@
  * Alpha is the ONLY decision-maker. No rule-based system may block trades.
  *
  * Authority Hierarchy:
+ * 0. Freshness Gate = P0 CIRCUIT BREAKER (operates BEFORE Alpha)
+ *    - Validates intelligence age (Omega/Alpha cache)
+ *    - Validates price drift (signal vs current)
+ *    - Validates realtime price freshness
+ *    - BLOCKS execution if data is stale (P0 safety)
+ *    - This is NOT a trading decision, it's data integrity
+ *
  * 1. Rule-based modules (Regime Oracle, Adversarial Detector) = ADVISORS ONLY
  *    - Provide risk modifiers (0.55x - 1.0x confidence)
  *    - Flag dangerous conditions
@@ -33,8 +40,8 @@
  *    - Decides IF trade should happen
  *    - Can override any recommendation if justified
  *
- * 4. Omega-9 Hallucination = ONLY safety module allowed to block
- *    - Validates execution parameters
+ * 4. Omega-9 Hallucination = ONLY safety module allowed to block (after Alpha)
+ *    - Validates execution parameters AFTER Alpha decides
  *    - Blocks only catastrophic errors
  *    - Ensures R:R ratios, position sizing
  *
@@ -79,6 +86,7 @@ import { omega9ConstraintProvider } from '../services/omega9-constraint-provider
 import { alphaRevisionHandler } from '../services/alpha-revision-handler';
 import type { Omega9Constraints } from '../types/omega9-constraints';
 import { getRecommendedConsensusCount, calculateConsensusStrengthModifier, getConsensusDescription } from '../services/omega-consensus-advisory';
+import { tradeExecutionFreshnessGate } from '../services/trade-execution-freshness-gate';
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;

@@ -8,6 +8,7 @@ import {
   getTTLForScoutCache,
   MarketStateSnapshot
 } from './cache-key-generator';
+import { priceDriftDetector } from './price-drift-detector';
 import type { CandleData } from '../types';
 
 export interface OmegaVote {
@@ -117,6 +118,29 @@ class SharedIntelligenceCoordinator {
         });
 
       if (!error && cached && cached.length > 0) {
+        const cachedSnapshot = await this.getCachedSnapshotPrice(symbol, timeframe, hash);
+        if (cachedSnapshot && snapshot.price && snapshot.atr) {
+          const { shouldInvalidateCache } = priceDriftDetector.calculateDriftFromSnapshot(
+            symbol,
+            cachedSnapshot.price,
+            snapshot.price,
+            snapshot.atr
+          );
+
+          if (shouldInvalidateCache) {
+            console.log(`[SharedIntelligence] 🔄 ${brainName}@${symbol}: Cache invalidated due to price drift`);
+            await this.logCacheStat('omega', symbol, timeframe, 'lookup', 'miss', cached[0].cache_age_seconds);
+            const fresh = await fetchFreshFn();
+            await this.writeFreshOmegaCache(symbol, timeframe, brainName, atrPriceBucket, hash, fresh, localKey);
+            return {
+              brainName,
+              vote: fresh,
+              cacheAgeSeconds: 0,
+              fromCache: false
+            };
+          }
+        }
+
         const result: CachedOmegaIntelligence = {
           brainName,
           vote: {
@@ -151,7 +175,7 @@ class SharedIntelligenceCoordinator {
     const expiresAt = new Date(Date.now() + ttl);
 
     try {
-      await supabase.from('omega_market_intelligence').upsert({
+      const { error: upsertError } = await supabase.from('omega_market_intelligence').upsert({
         symbol,
         timeframe,
         brain_name: brainName,
@@ -165,8 +189,16 @@ class SharedIntelligenceCoordinator {
       }, {
         onConflict: 'symbol,timeframe,brain_name,market_state_hash'
       });
+
+      if (upsertError) {
+        console.error('[SharedIntelligence] ❌ Omega cache upsert failed:', upsertError);
+        this.localOmegaCache.delete(localKey);
+      } else {
+        console.log(`[SharedIntelligence] ✅ ${brainName}@${symbol}: Cache written successfully`);
+      }
     } catch (err) {
-      console.warn('[SharedIntelligence] Failed to write omega cache:', err);
+      console.error('[SharedIntelligence] ❌ Failed to write omega cache:', err);
+      this.localOmegaCache.delete(localKey);
     }
 
     const result: CachedOmegaIntelligence = {
@@ -271,7 +303,7 @@ class SharedIntelligenceCoordinator {
     const expiresAt = new Date(Date.now() + ttl);
 
     try {
-      await supabase.from('alpha_strategic_cache').upsert({
+      const { error: upsertError } = await supabase.from('alpha_strategic_cache').upsert({
         symbol,
         timeframe,
         omega_votes_hash: omegaVotesHash,
@@ -287,8 +319,16 @@ class SharedIntelligenceCoordinator {
       }, {
         onConflict: 'symbol,timeframe,omega_votes_hash'
       });
+
+      if (upsertError) {
+        console.error('[SharedIntelligence] ❌ Alpha cache upsert failed:', upsertError);
+        this.localAlphaCache.delete(localKey);
+      } else {
+        console.log(`[SharedIntelligence] ✅ Alpha@${symbol}: Cache written successfully`);
+      }
     } catch (err) {
-      console.warn('[SharedIntelligence] Failed to write alpha cache:', err);
+      console.error('[SharedIntelligence] ❌ Failed to write alpha cache:', err);
+      this.localAlphaCache.delete(localKey);
     }
 
     const result: AlphaStrategicInsight = {
@@ -358,7 +398,7 @@ class SharedIntelligenceCoordinator {
     const expiresAt = new Date(Date.now() + ttl);
 
     try {
-      await supabase.from('scout_market_state').upsert({
+      const { error: upsertError } = await supabase.from('scout_market_state').upsert({
         symbol,
         timeframe,
         improvement_score: state.improvementScore,
@@ -374,13 +414,22 @@ class SharedIntelligenceCoordinator {
         onConflict: 'symbol,timeframe'
       });
 
-      const localKey = `scout:${symbol}:${timeframe}`;
-      this.localScoutCache.set(localKey, {
-        data: { ...state, cacheAgeSeconds: 0 },
-        expiresAt: Date.now() + ttl
-      });
+      if (upsertError) {
+        console.error('[SharedIntelligence] ❌ Scout state upsert failed:', upsertError);
+        const localKey = `scout:${symbol}:${timeframe}`;
+        this.localScoutCache.delete(localKey);
+      } else {
+        const localKey = `scout:${symbol}:${timeframe}`;
+        this.localScoutCache.set(localKey, {
+          data: { ...state, cacheAgeSeconds: 0 },
+          expiresAt: Date.now() + ttl
+        });
+        console.log(`[SharedIntelligence] ✅ Scout@${symbol}: Cache written successfully`);
+      }
     } catch (err) {
-      console.warn('[SharedIntelligence] Failed to update scout state:', err);
+      console.error('[SharedIntelligence] ❌ Failed to update scout state:', err);
+      const localKey = `scout:${symbol}:${timeframe}`;
+      this.localScoutCache.delete(localKey);
     }
   }
 
@@ -494,6 +543,81 @@ class SharedIntelligenceCoordinator {
     this.localAlphaCache.clear();
     this.localScoutCache.clear();
     console.log('[SharedIntelligence] Local cache cleared');
+  }
+
+  private async getCachedSnapshotPrice(
+    symbol: string,
+    timeframe: string,
+    hash: string
+  ): Promise<{ price: number } | null> {
+    try {
+      const { data, error } = await supabase
+        .from('omega_market_intelligence')
+        .select('raw_snapshot')
+        .eq('symbol', symbol)
+        .eq('timeframe', timeframe)
+        .eq('market_state_hash', hash)
+        .limit(1)
+        .single();
+
+      if (!error && data && data.raw_snapshot) {
+        return { price: data.raw_snapshot.price || null };
+      }
+    } catch (err) {
+    }
+    return null;
+  }
+
+  private async writeFreshOmegaCache(
+    symbol: string,
+    timeframe: string,
+    brainName: OmegaBrainName,
+    atrPriceBucket: number,
+    hash: string,
+    fresh: OmegaVote,
+    localKey: string
+  ): Promise<void> {
+    const ttl = getTTLForTimeframe(timeframe);
+    const expiresAt = new Date(Date.now() + ttl);
+
+    try {
+      const { error: upsertError } = await supabase.from('omega_market_intelligence').upsert({
+        symbol,
+        timeframe,
+        brain_name: brainName,
+        atr_price_bucket: atrPriceBucket,
+        market_state_hash: hash,
+        vote: fresh.vote,
+        confidence: fresh.confidence,
+        reasoning: fresh.reasoning,
+        key_factors: fresh.keyFactors || [],
+        expires_at: expiresAt.toISOString()
+      }, {
+        onConflict: 'symbol,timeframe,brain_name,market_state_hash'
+      });
+
+      if (upsertError) {
+        console.error('[SharedIntelligence] ❌ Omega cache upsert failed:', upsertError);
+        this.localOmegaCache.delete(localKey);
+      } else {
+        console.log(`[SharedIntelligence] ✅ ${brainName}@${symbol}: Cache written successfully`);
+      }
+    } catch (err) {
+      console.error('[SharedIntelligence] ❌ Failed to write omega cache:', err);
+      this.localOmegaCache.delete(localKey);
+    }
+
+    const result: CachedOmegaIntelligence = {
+      brainName,
+      vote: fresh,
+      cacheAgeSeconds: 0,
+      fromCache: false
+    };
+
+    this.localOmegaCache.set(localKey, {
+      data: result,
+      expiresAt: Date.now() + ttl
+    });
   }
 
   private async logCacheStat(
