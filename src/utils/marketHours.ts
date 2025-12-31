@@ -14,14 +14,13 @@ function isTradingHoliday(estTime: Date): boolean {
   // Christmas Day (December 25)
   if (month === 11 && date === 25) return true;
 
-  // Christmas Eve (December 24) - typically closes early or fully closed
-  if (month === 11 && date === 24) return true;
+  // Note: Christmas Eve (Dec 24) is NOT a full holiday - forex markets trade until early afternoon
+  // Some brokers close early (1-2pm EST), but spot forex remains open until then
 
   // New Year's Day (January 1)
   if (month === 0 && date === 1) return true;
 
-  // New Year's Eve (December 31) - typically closes early
-  if (month === 11 && date === 31) return true;
+  // Note: New Year's Eve (Dec 31) is NOT a full holiday - forex markets trade normal hours until 5pm EST
 
   // Good Friday (calculate dynamically - Friday before Easter)
   // Easter calculation (Computus algorithm)
