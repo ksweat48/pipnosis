@@ -6,6 +6,7 @@ interface UseAdminDashboardReturn {
   users: AdminUser[];
   platformKPIs: PlatformKPIs | null;
   loading: boolean;
+  refreshing: boolean;
   error: string | null;
   lastUpdate: Date;
   connectionStatus: 'connected' | 'disconnected' | 'reconnecting';
@@ -49,6 +50,7 @@ export function useAdminDashboard(): UseAdminDashboardReturn {
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('disconnected');
   const [refreshCount, setRefreshCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isStale, setIsStale] = useState(false);
 
@@ -56,10 +58,14 @@ export function useAdminDashboard(): UseAdminDashboardReturn {
   const refresh = useCallback(async () => {
     try {
       setError(null);
+      setRefreshing(true);
       await adminDataCoordinator.forceRefresh();
     } catch (err: any) {
       console.error('[useAdminDashboard] Error during manual refresh:', err);
       setError(err?.message || 'Failed to refresh data');
+    } finally {
+      // Keep refreshing state for a brief moment to provide visual feedback
+      setTimeout(() => setRefreshing(false), 300);
     }
   }, []);
 
@@ -137,6 +143,7 @@ export function useAdminDashboard(): UseAdminDashboardReturn {
     users,
     platformKPIs,
     loading,
+    refreshing,
     error,
     lastUpdate,
     connectionStatus,

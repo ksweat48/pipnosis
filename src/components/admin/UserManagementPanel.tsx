@@ -9,7 +9,7 @@ import { ResetSessionDialog } from './ResetSessionDialog';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 export const UserManagementPanel: React.FC = () => {
-  const { users: allUsers, platformKPIs, loading, error, refresh, isStale } = useAdminDashboard();
+  const { users: allUsers, platformKPIs, loading, refreshing, error, refresh, isStale, lastUpdate } = useAdminDashboard();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -214,8 +214,19 @@ export const UserManagementPanel: React.FC = () => {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-white">User Management</h2>
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-white">User Management</h2>
+          <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
+            <Clock size={12} />
+            <span>Last updated: {new Date(lastUpdate).toLocaleTimeString()}</span>
+            {isStale && (
+              <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded">
+                Data may be stale
+              </span>
+            )}
+          </div>
+        </div>
         <div className="flex items-center gap-3">
           {stuckSessionsCount > 0 && (
             <button
@@ -231,11 +242,15 @@ export const UserManagementPanel: React.FC = () => {
             </button>
           )}
           <button
-            onClick={refresh}
-            className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors flex items-center gap-2"
+            onClick={async () => {
+              await refresh();
+              showToast('Dashboard refreshed successfully', 'success');
+            }}
+            disabled={refreshing}
+            className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-wait transition-colors flex items-center gap-2"
           >
-            <RefreshCw size={16} />
-            Refresh
+            <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -287,15 +302,21 @@ export const UserManagementPanel: React.FC = () => {
                     Credits
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Total Trades
+                    <div className="flex flex-col items-center">
+                      <span>Closed Trades</span>
+                      <span className="text-[10px] text-gray-500 normal-case font-normal">(Historical)</span>
+                    </div>
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    <div className="flex items-center justify-center gap-2">
-                      Active Trades
-                      <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[10px] font-semibold rounded flex items-center gap-1">
-                        <span className="w-1 h-1 rounded-full bg-green-400 animate-pulse"></span>
-                        LIVE
-                      </span>
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="flex items-center gap-2">
+                        <span>Open Trades</span>
+                        <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[10px] font-semibold rounded flex items-center gap-1">
+                          <span className="w-1 h-1 rounded-full bg-green-400 animate-pulse"></span>
+                          LIVE
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-gray-500 normal-case font-normal">(Real-time P&L)</span>
                     </div>
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
@@ -344,6 +365,13 @@ export const UserManagementPanel: React.FC = () => {
                           </div>
                           <span className="text-xs text-gray-500">
                             ({user.total_trades} total)
+                          </span>
+                        </div>
+                      ) : user.active_trades > 0 ? (
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span className="text-gray-500 text-xs">0</span>
+                          <span className="text-[10px] text-blue-400">
+                            (trade active)
                           </span>
                         </div>
                       ) : (
