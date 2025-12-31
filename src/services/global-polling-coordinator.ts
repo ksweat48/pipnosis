@@ -429,8 +429,19 @@ class GlobalPollingCoordinator {
     this.protectedSymbols.get(symbol)!.add(sessionId);
     console.log(`[GlobalCoordinator] 🛡️ Protected ${symbol} for session ${sessionId}`);
 
-    // Upgrade to critical priority
-    this.setSymbolHasPosition(symbol, true);
+    // Upgrade to ultra-critical priority (250ms polling for active goal sessions)
+    const status = this.pollStatus.get(symbol);
+    if (status) {
+      status.priority = 'ultra-critical';
+      status.currentInterval = pollingConfigService.getIntervalForPriority('ultra-critical');
+      console.log(`[GlobalCoordinator] ⚡ Upgraded ${symbol} to ULTRA-CRITICAL (${status.currentInterval}ms polling)`);
+
+      // Restart polling with new interval
+      if (this.pollIntervals.has(symbol)) {
+        this.stopPollingForSymbol(symbol);
+      }
+      this.startPollingForSymbol(symbol);
+    }
   }
 
   unprotectSymbol(symbol: string, sessionId: string): void {
@@ -440,8 +451,13 @@ class GlobalPollingCoordinator {
       if (sessions.size === 0) {
         this.protectedSymbols.delete(symbol);
         console.log(`[GlobalCoordinator] ✅ Unprotected ${symbol} - no active sessions`);
-        // Downgrade priority
-        this.setSymbolHasPosition(symbol, false);
+
+        // Downgrade to normal priority
+        const status = this.pollStatus.get(symbol);
+        if (status) {
+          this.updateSymbolPriority(symbol);
+          console.log(`[GlobalCoordinator] ⬇️ Downgraded ${symbol} to ${status.priority} (${status.currentInterval}ms polling)`);
+        }
       } else {
         console.log(`[GlobalCoordinator] 🛡️ ${symbol} still protected by ${sessions.size} session(s)`);
       }

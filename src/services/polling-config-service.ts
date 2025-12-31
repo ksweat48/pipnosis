@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 
 export type PollingSpeed = 'conservative' | 'balanced' | 'aggressive';
-export type SymbolPriority = 'critical' | 'high' | 'normal' | 'low';
+export type SymbolPriority = 'ultra-critical' | 'critical' | 'high' | 'normal' | 'low';
 
 export interface PollingConfig {
   speed: PollingSpeed;
@@ -22,6 +22,7 @@ export interface MetaApiRateLimits {
 }
 
 export interface PollingStrategy {
+  ultraCriticalInterval: number;
   criticalInterval: number;
   highInterval: number;
   normalInterval: number;
@@ -40,24 +41,27 @@ export const META_API_LIMITS: MetaApiRateLimits = {
 
 export const POLLING_STRATEGIES: Record<PollingSpeed, PollingStrategy> = {
   conservative: {
-    criticalInterval: 1500,
+    ultraCriticalInterval: 500,
+    criticalInterval: 1000,
     highInterval: 2000,
     normalInterval: 3000,
     lowInterval: 5000,
     maxConcurrentSymbols: 8,
   },
   balanced: {
-    criticalInterval: 1000,
-    highInterval: 1500,
+    ultraCriticalInterval: 250,
+    criticalInterval: 500,
+    highInterval: 1000,
     normalInterval: 2000,
     lowInterval: 5000,
     maxConcurrentSymbols: 10,
   },
   aggressive: {
+    ultraCriticalInterval: 250,
     criticalInterval: 500,
-    highInterval: 1000,
-    normalInterval: 2000,
-    lowInterval: 5000,
+    highInterval: 750,
+    normalInterval: 1500,
+    lowInterval: 3000,
     maxConcurrentSymbols: 12,
   },
 };
@@ -124,6 +128,8 @@ export class PollingConfigService {
     if (customInterval) return customInterval;
 
     switch (priority) {
+      case 'ultra-critical':
+        return strategy.ultraCriticalInterval;
       case 'critical':
         return strategy.criticalInterval;
       case 'high':

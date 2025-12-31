@@ -93,6 +93,17 @@ export interface PricePollingMetric {
   latest_poll: string;
 }
 
+export interface RateLimitStats {
+  current_usage_percentage: number;
+  credits_used: number;
+  credits_limit: number;
+  calls_per_second: number;
+  projected_usage_percentage: number;
+  is_throttling: boolean;
+  is_approaching_limit: boolean;
+  calls_remaining: number;
+}
+
 class SystemMonitoringService {
   private refreshInterval: NodeJS.Timeout | null = null;
   private listeners: Set<(data: SystemDashboard) => void> = new Set();
@@ -244,6 +255,25 @@ class SystemMonitoringService {
       clearInterval(this.refreshInterval);
       this.refreshInterval = null;
     }
+  }
+
+  getRateLimitStats(): RateLimitStats {
+    // Import here to avoid circular dependencies
+    const { pollingConfigService } = require('./polling-config-service');
+
+    const usage = pollingConfigService.getCreditUsage();
+    const stats = pollingConfigService.getUsageStats();
+
+    return {
+      current_usage_percentage: usage.percentage,
+      credits_used: usage.used,
+      credits_limit: usage.limit,
+      calls_per_second: stats.callsPerSecond,
+      projected_usage_percentage: stats.projectedUsage,
+      is_throttling: pollingConfigService.shouldThrottle(),
+      is_approaching_limit: pollingConfigService.isApproachingLimit(),
+      calls_remaining: usage.callsRemaining
+    };
   }
 }
 

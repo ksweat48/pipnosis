@@ -59,10 +59,11 @@ const ACTIVE_SYMBOLS = ALL_TRADING_PAIRS;
 
 // OPTIMIZATION: Collect multiple ticks within the 1-minute window
 // This dramatically improves wick quality by getting more ticks
-// PHASE 2 FIX: Increased from 8 to 12 ticks for better crypto granularity
-const TICKS_PER_MINUTE = 12;
-const TICK_INTERVAL_MS = 2000; // 2 seconds between ticks (reduced from 3s)
-const MAX_EXECUTION_TIME_MS = 24000; // 24 seconds max (within 26s timeout)
+// PHASE 3 OPTIMIZATION: Increased from 12 to 30 ticks for professional-grade accuracy
+// With 30 ticks per minute, we get tick-by-tick precision (every 2 seconds)
+const TICKS_PER_MINUTE = 30;
+const TICK_INTERVAL_MS = 2000; // 2 seconds between ticks
+const MAX_EXECUTION_TIME_MS = 55000; // 55 seconds max (within 60s timeout)
 
 interface MetaApiPrice {
   symbol: string;

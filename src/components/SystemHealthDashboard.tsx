@@ -1,6 +1,7 @@
-import React from 'react';
-import { Activity, CheckCircle, AlertTriangle, XCircle, TrendingUp, Clock } from 'lucide-react';
-import type { SystemDashboard, SystemAlert } from '@/services/system-monitoring-service';
+import React, { useState, useEffect } from 'react';
+import { Activity, CheckCircle, AlertTriangle, XCircle, TrendingUp, Clock, Gauge, Zap } from 'lucide-react';
+import type { SystemDashboard, SystemAlert, RateLimitStats } from '@/services/system-monitoring-service';
+import { systemMonitoringService } from '@/services/system-monitoring-service';
 
 interface SystemHealthDashboardProps {
   dashboard: SystemDashboard | null;
@@ -8,6 +9,24 @@ interface SystemHealthDashboardProps {
 }
 
 export function SystemHealthDashboard({ dashboard, alerts }: SystemHealthDashboardProps) {
+  const [rateLimitStats, setRateLimitStats] = useState<RateLimitStats | null>(null);
+
+  useEffect(() => {
+    const updateRateLimitStats = () => {
+      try {
+        const stats = systemMonitoringService.getRateLimitStats();
+        setRateLimitStats(stats);
+      } catch (error) {
+        console.error('Error fetching rate limit stats:', error);
+      }
+    };
+
+    updateRateLimitStats();
+    const interval = setInterval(updateRateLimitStats, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   if (!dashboard) {
     return (
       <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
@@ -145,6 +164,129 @@ export function SystemHealthDashboard({ dashboard, alerts }: SystemHealthDashboa
           </div>
         </div>
       </div>
+
+      {rateLimitStats && (
+        <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+          <div className="flex items-center gap-3 mb-6">
+            <Gauge className="text-blue-500" size={24} />
+            <h3 className="text-lg font-bold text-white">Rate Limit Monitor</h3>
+            {rateLimitStats.is_throttling && (
+              <span className="px-2 py-1 text-xs font-medium bg-red-500/20 text-red-400 rounded animate-pulse">
+                THROTTLING
+              </span>
+            )}
+            {rateLimitStats.is_approaching_limit && !rateLimitStats.is_throttling && (
+              <span className="px-2 py-1 text-xs font-medium bg-yellow-500/20 text-yellow-400 rounded">
+                APPROACHING LIMIT
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-gray-900 rounded-lg p-6">
+              <h4 className="text-sm font-semibold text-gray-300 mb-4">Current Usage</h4>
+
+              <div className="space-y-4">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-gray-400">Credit Usage</span>
+                    <span className={`text-lg font-bold ${
+                      rateLimitStats.current_usage_percentage > 90 ? 'text-red-400' :
+                      rateLimitStats.current_usage_percentage > 80 ? 'text-yellow-400' :
+                      'text-green-400'
+                    }`}>
+                      {rateLimitStats.current_usage_percentage.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all ${
+                        rateLimitStats.current_usage_percentage > 90 ? 'bg-red-500' :
+                        rateLimitStats.current_usage_percentage > 80 ? 'bg-yellow-500' :
+                        'bg-green-500'
+                      }`}
+                      style={{ width: `${Math.min(rateLimitStats.current_usage_percentage, 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-xs text-gray-500">
+                      {rateLimitStats.credits_used} / {rateLimitStats.credits_limit} credits
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      {rateLimitStats.calls_remaining} calls remaining
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-gray-400">Projected Usage</span>
+                    <span className={`text-lg font-bold ${
+                      rateLimitStats.projected_usage_percentage > 90 ? 'text-red-400' :
+                      rateLimitStats.projected_usage_percentage > 80 ? 'text-yellow-400' :
+                      'text-green-400'
+                    }`}>
+                      {rateLimitStats.projected_usage_percentage.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all ${
+                        rateLimitStats.projected_usage_percentage > 90 ? 'bg-red-500' :
+                        rateLimitStats.projected_usage_percentage > 80 ? 'bg-yellow-500' :
+                        'bg-green-500'
+                      }`}
+                      style={{ width: `${Math.min(rateLimitStats.projected_usage_percentage, 100)}%` }}
+                    />
+                  </div>
+                  <div className="mt-1 text-xs text-gray-500">
+                    Based on current rate over 10 seconds
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gray-900 rounded-lg p-6">
+              <h4 className="text-sm font-semibold text-gray-300 mb-4">Performance Metrics</h4>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Zap className="text-yellow-400" size={16} />
+                    <span className="text-sm text-gray-400">Calls/Second</span>
+                  </div>
+                  <span className="text-xl font-bold text-white">
+                    {rateLimitStats.calls_per_second.toFixed(2)}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Activity className="text-blue-400" size={16} />
+                    <span className="text-sm text-gray-400">Credits/Second</span>
+                  </div>
+                  <span className="text-xl font-bold text-white">
+                    {(rateLimitStats.credits_used / 10).toFixed(0)}
+                  </span>
+                </div>
+
+                <div className="mt-6 p-3 bg-gray-800 rounded-lg border border-gray-700">
+                  <div className="text-xs text-gray-400 mb-1">Status</div>
+                  <div className={`text-sm font-semibold ${
+                    rateLimitStats.is_throttling ? 'text-red-400' :
+                    rateLimitStats.is_approaching_limit ? 'text-yellow-400' :
+                    'text-green-400'
+                  }`}>
+                    {rateLimitStats.is_throttling ? 'System is throttling requests' :
+                     rateLimitStats.is_approaching_limit ? 'Approaching rate limit' :
+                     'Operating normally'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {alerts.length > 0 && (
         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
