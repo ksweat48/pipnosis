@@ -1,9 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
+/**
+ * useUserBalance Hook
+ *
+ * SINGLE SOURCE OF TRUTH: Uses database functions to calculate balance and P&L
+ * - Never calculates locally
+ * - Database guarantees consistency
+ * - All logic in one place (database functions)
+ */
 export function useUserBalance(userId: string | null) {
   const [balance, setBalance] = useState(10000);
   const [totalPnL, setTotalPnL] = useState(0);
+  const [totalBalance, setTotalBalance] = useState(10000);
   const [openPositionsCount, setOpenPositionsCount] = useState(0);
   const [loading, setLoading] = useState(false);
 
@@ -13,17 +22,24 @@ export function useUserBalance(userId: string | null) {
     try {
       setLoading(true);
 
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('account_balance')
-        .eq('id', userId)
-        .maybeSingle();
+      // SINGLE SOURCE OF TRUTH: Call database function
+      const { data, error } = await supabase
+        .rpc('get_total_balance', { p_user_id: userId });
 
-      if (profile) {
-        setBalance(profile.account_balance || 10000);
+      if (error) {
+        console.error('[useUserBalance] Failed to fetch balance:', error);
+        return;
+      }
+
+      if (data) {
+        // Database returns all calculated values
+        setBalance(data.balance || 10000);
+        setTotalPnL(data.unrealized_pnl || 0);
+        setTotalBalance(data.total_balance || 10000);
+        setOpenPositionsCount(data.open_positions_count || 0);
       }
     } catch (error) {
-      console.error('Failed to fetch balance:', error);
+      console.error('[useUserBalance] Failed to fetch balance:', error);
     } finally {
       setLoading(false);
     }
@@ -33,30 +49,30 @@ export function useUserBalance(userId: string | null) {
     if (!userId) return;
 
     try {
-      const { data: positions } = await supabase
-        .from('goal_session_trades')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('status', 'open');
+      // SINGLE SOURCE OF TRUTH: Call database function
+      const { data, error } = await supabase
+        .rpc('get_total_balance', { p_user_id: userId });
 
-      if (positions) {
-        setOpenPositionsCount(positions.length);
+      if (error) {
+        console.error('[useUserBalance] Failed to refresh positions:', error);
+        return;
+      }
 
-        const pnl = positions.reduce((sum, pos) => {
-          return sum + (pos.current_pnl || 0);
-        }, 0);
-        setTotalPnL(pnl);
+      if (data) {
+        setTotalPnL(data.unrealized_pnl || 0);
+        setTotalBalance(data.total_balance || 10000);
+        setOpenPositionsCount(data.open_positions_count || 0);
       }
     } catch (error) {
-      console.error('Failed to fetch positions:', error);
+      console.error('[useUserBalance] Failed to refresh positions:', error);
     }
   }, [userId]);
 
   useEffect(() => {
     if (userId) {
       refreshBalance();
-      refreshPositions();
 
+      // Refresh positions more frequently (every 5 seconds)
       const interval = setInterval(() => {
         refreshPositions();
       }, 5000);
@@ -66,8 +82,9 @@ export function useUserBalance(userId: string | null) {
   }, [userId, refreshBalance, refreshPositions]);
 
   return {
-    balance,
-    totalPnL,
+    balance,           // Realized balance
+    totalPnL,          // Unrealized P&L from open positions
+    totalBalance,      // balance + totalPnL
     openPositionsCount,
     loading,
     refreshBalance,

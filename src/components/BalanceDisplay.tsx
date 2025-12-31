@@ -24,39 +24,40 @@ export function BalanceDisplay({ refreshTrigger }: BalanceDisplayProps) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: profile, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('account_balance')
-        .eq('id', user.id)
-        .single();
+      // SINGLE SOURCE OF TRUTH: Use database function
+      const { data: balanceData, error: balanceError } = await supabase
+        .rpc('get_total_balance', { p_user_id: user.id });
 
-      if (profileError) throw profileError;
+      if (balanceError) throw balanceError;
 
-      const currentBalance = parseFloat(profile?.account_balance || '10000');
-      setBalance(currentBalance);
+      if (balanceData) {
+        setBalance(balanceData.balance || 10000);
+        setUnrealizedPnL(balanceData.unrealized_pnl || 0);
+      }
 
+      // Get positions for margin calculation
       const { data: positions, error: positionsError } = await supabase
         .from('goal_session_trades')
-        .select('position_size, current_pnl, status')
+        .select('position_size, lot_size')
         .eq('user_id', user.id)
         .eq('status', 'open');
 
       if (positionsError) throw positionsError;
 
       if (positions && positions.length > 0) {
-        const totalMargin = positions.reduce((sum, pos) => sum + (pos.position_size * 1000), 0);
-        const totalPnL = positions.reduce((sum, pos) => sum + (pos.current_pnl || 0), 0);
-
+        // Calculate used margin (lot_size * 1000 per position)
+        const totalMargin = positions.reduce((sum, pos) => {
+          const lotSize = pos.lot_size || pos.position_size || 0;
+          return sum + (lotSize * 1000);
+        }, 0);
         setUsedMargin(totalMargin);
-        setUnrealizedPnL(totalPnL);
       } else {
         setUsedMargin(0);
-        setUnrealizedPnL(0);
       }
 
       setLoading(false);
     } catch (error) {
-      console.error('Failed to fetch balance:', error);
+      console.error('[BalanceDisplay] Failed to fetch balance:', error);
       setLoading(false);
     }
   };
