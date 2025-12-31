@@ -1,4 +1,5 @@
 import { logger, LogCategory } from '../lib/logger';
+import { FreshnessBlockCategory, type BlockMetadata } from '../types/freshness-block';
 
 export interface FreshnessValidationResult {
   isValid: boolean;
@@ -6,6 +7,8 @@ export interface FreshnessValidationResult {
   ageSeconds?: number;
   maxAgeSeconds?: number;
   staleBrains?: string[];
+  blockCategory?: FreshnessBlockCategory;
+  blockMetadata?: BlockMetadata;
 }
 
 export interface IntelligenceData {
@@ -58,9 +61,17 @@ export class IntelligenceFreshnessValidator {
       const minutesOld = Math.floor(oldestAge / 60);
       const secondsOld = oldestAge % 60;
 
+      const blockMetadata: BlockMetadata = {
+        staleBrains,
+        ageSeconds: oldestAge,
+        maxAgeSeconds: maxAge,
+        timeframe
+      };
+
       logger.error(
         LogCategory.AI_TRADING,
-        `[Freshness Gate] 🚫 BLOCKED: ${staleBrains.length} stale Omega brain(s): ${staleBrains.join(', ')}. Oldest: ${minutesOld}m ${secondsOld}s (max: ${Math.floor(maxAge / 60)}m)`
+        `[Freshness Gate] 🚫 ${FreshnessBlockCategory.BLOCK_STALE_OMEGA_INTELLIGENCE}: ${staleBrains.length} stale brain(s): ${staleBrains.join(', ')}. Oldest: ${minutesOld}m ${secondsOld}s (max: ${Math.floor(maxAge / 60)}m)`,
+        blockMetadata
       );
 
       return {
@@ -68,7 +79,9 @@ export class IntelligenceFreshnessValidator {
         reason: `Stale intelligence detected: ${staleBrains.join(', ')} are ${minutesOld}m ${secondsOld}s old (max allowed: ${Math.floor(maxAge / 60)}m)`,
         ageSeconds: oldestAge,
         maxAgeSeconds: maxAge,
-        staleBrains
+        staleBrains,
+        blockCategory: FreshnessBlockCategory.BLOCK_STALE_OMEGA_INTELLIGENCE,
+        blockMetadata
       };
     }
 
@@ -95,16 +108,25 @@ export class IntelligenceFreshnessValidator {
       const minutesOld = Math.floor(cacheAgeSeconds / 60);
       const secondsOld = cacheAgeSeconds % 60;
 
+      const blockMetadata: BlockMetadata = {
+        ageSeconds: cacheAgeSeconds,
+        maxAgeSeconds: maxAge,
+        timeframe
+      };
+
       logger.error(
         LogCategory.AI_TRADING,
-        `[Freshness Gate] 🚫 BLOCKED: Alpha intelligence is ${minutesOld}m ${secondsOld}s old (max: ${Math.floor(maxAge / 60)}m)`
+        `[Freshness Gate] 🚫 ${FreshnessBlockCategory.BLOCK_STALE_ALPHA_INTELLIGENCE}: ${minutesOld}m ${secondsOld}s old (max: ${Math.floor(maxAge / 60)}m)`,
+        blockMetadata
       );
 
       return {
         isValid: false,
         reason: `Alpha intelligence is ${minutesOld}m ${secondsOld}s old (max allowed: ${Math.floor(maxAge / 60)}m)`,
         ageSeconds: cacheAgeSeconds,
-        maxAgeSeconds: maxAge
+        maxAgeSeconds: maxAge,
+        blockCategory: FreshnessBlockCategory.BLOCK_STALE_ALPHA_INTELLIGENCE,
+        blockMetadata
       };
     }
 

@@ -1,4 +1,5 @@
 import { logger, LogCategory } from '../lib/logger';
+import { FreshnessBlockCategory, type BlockMetadata } from '../types/freshness-block';
 
 export interface PriceDriftResult {
   isValid: boolean;
@@ -8,6 +9,8 @@ export interface PriceDriftResult {
   maxDriftPercent?: number;
   reason?: string;
   shouldBlock: boolean;
+  blockCategory?: FreshnessBlockCategory;
+  blockMetadata?: BlockMetadata;
 }
 
 const DRIFT_THRESHOLDS_BY_ASSET: Record<string, { pips?: number; percent?: number }> = {
@@ -47,9 +50,18 @@ export class PriceDriftDetector {
       const driftPips = priceDiff / pipValue;
 
       if (driftPips > threshold.pips) {
+        const blockMetadata: BlockMetadata = {
+          symbol,
+          driftPips,
+          maxDrift: threshold.pips,
+          signalPrice,
+          currentPrice
+        };
+
         logger.error(
           LogCategory.AI_TRADING,
-          `[Price Drift Gate] 🚫 BLOCKED: ${symbol} drifted ${driftPips.toFixed(1)} pips (max: ${threshold.pips} pips). Signal: ${signalPrice}, Current: ${currentPrice}`
+          `[Price Drift Gate] 🚫 ${FreshnessBlockCategory.BLOCK_PRICE_DRIFT}: ${symbol} drifted ${driftPips.toFixed(1)} pips (max: ${threshold.pips} pips). Signal: ${signalPrice}, Current: ${currentPrice}`,
+          blockMetadata
         );
 
         return {
@@ -57,7 +69,9 @@ export class PriceDriftDetector {
           driftPips,
           maxDriftPips: threshold.pips,
           reason: `Price drifted ${driftPips.toFixed(1)} pips from signal price (max: ${threshold.pips} pips)`,
-          shouldBlock: true
+          shouldBlock: true,
+          blockCategory: FreshnessBlockCategory.BLOCK_PRICE_DRIFT,
+          blockMetadata
         };
       }
 
@@ -78,9 +92,18 @@ export class PriceDriftDetector {
       const driftPercent = (priceDiff / signalPrice) * 100;
 
       if (driftPercent > threshold.percent) {
+        const blockMetadata: BlockMetadata = {
+          symbol,
+          driftPercent,
+          maxDrift: threshold.percent,
+          signalPrice,
+          currentPrice
+        };
+
         logger.error(
           LogCategory.AI_TRADING,
-          `[Price Drift Gate] 🚫 BLOCKED: ${symbol} drifted ${driftPercent.toFixed(2)}% (max: ${threshold.percent}%). Signal: ${signalPrice}, Current: ${currentPrice}`
+          `[Price Drift Gate] 🚫 ${FreshnessBlockCategory.BLOCK_PRICE_DRIFT}: ${symbol} drifted ${driftPercent.toFixed(2)}% (max: ${threshold.percent}%). Signal: ${signalPrice}, Current: ${currentPrice}`,
+          blockMetadata
         );
 
         return {
@@ -88,7 +111,9 @@ export class PriceDriftDetector {
           driftPercent,
           maxDriftPercent: threshold.percent,
           reason: `Price drifted ${driftPercent.toFixed(2)}% from signal price (max: ${threshold.percent}%)`,
-          shouldBlock: true
+          shouldBlock: true,
+          blockCategory: FreshnessBlockCategory.BLOCK_PRICE_DRIFT,
+          blockMetadata
         };
       }
 

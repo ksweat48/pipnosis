@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { logger, LogCategory } from '../lib/logger';
+import { FreshnessBlockCategory, type BlockMetadata } from '../types/freshness-block';
 
 export interface PriceStalenessResult {
   isValid: boolean;
@@ -7,6 +8,8 @@ export interface PriceStalenessResult {
   maxAgeSeconds: number;
   reason?: string;
   shouldBlockTrading: boolean;
+  blockCategory?: FreshnessBlockCategory;
+  blockMetadata?: BlockMetadata;
 }
 
 const MAX_PRICE_AGE_SECONDS = 120;
@@ -24,16 +27,24 @@ export class RealtimePriceStalenessValidator {
         .single();
 
       if (error || !data) {
+        const blockMetadata: BlockMetadata = {
+          symbol,
+          maxAgeSeconds: MAX_PRICE_AGE_SECONDS
+        };
+
         logger.error(
           LogCategory.AI_TRADING,
-          `[Price Staleness Gate] 🚫 BLOCKED: No price data for ${symbol}`
+          `[Price Staleness Gate] 🚫 ${FreshnessBlockCategory.BLOCK_NO_PRICE_DATA}: No price data for ${symbol}`,
+          blockMetadata
         );
 
         return {
           isValid: false,
           maxAgeSeconds: MAX_PRICE_AGE_SECONDS,
           reason: `No realtime price data available for ${symbol}`,
-          shouldBlockTrading: true
+          shouldBlockTrading: true,
+          blockCategory: FreshnessBlockCategory.BLOCK_NO_PRICE_DATA,
+          blockMetadata
         };
       }
 
@@ -44,9 +55,16 @@ export class RealtimePriceStalenessValidator {
         const minutesOld = Math.floor(ageSeconds / 60);
         const secondsOld = ageSeconds % 60;
 
+        const blockMetadata: BlockMetadata = {
+          symbol,
+          ageSeconds,
+          maxAgeSeconds: MAX_PRICE_AGE_SECONDS
+        };
+
         logger.error(
           LogCategory.AI_TRADING,
-          `[Price Staleness Gate] 🚫 BLOCKED: ${symbol} price is ${minutesOld}m ${secondsOld}s old (max: ${Math.floor(MAX_PRICE_AGE_SECONDS / 60)}m)`
+          `[Price Staleness Gate] 🚫 ${FreshnessBlockCategory.BLOCK_STALE_PRICE_FEED}: ${symbol} price is ${minutesOld}m ${secondsOld}s old (max: ${Math.floor(MAX_PRICE_AGE_SECONDS / 60)}m)`,
+          blockMetadata
         );
 
         return {
@@ -54,7 +72,9 @@ export class RealtimePriceStalenessValidator {
           ageSeconds,
           maxAgeSeconds: MAX_PRICE_AGE_SECONDS,
           reason: `Realtime price is ${minutesOld}m ${secondsOld}s old (max: ${Math.floor(MAX_PRICE_AGE_SECONDS / 60)}m)`,
-          shouldBlockTrading: true
+          shouldBlockTrading: true,
+          blockCategory: FreshnessBlockCategory.BLOCK_STALE_PRICE_FEED,
+          blockMetadata
         };
       }
 

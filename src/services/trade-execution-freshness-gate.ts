@@ -17,6 +17,7 @@ import { intelligenceFreshnessValidator, type IntelligenceData } from './intelli
 import { priceDriftDetector } from './price-drift-detector';
 import { realtimePriceStalenessValidator } from './realtime-price-staleness-validator';
 import type { CachedOmegaIntelligence, AlphaStrategicInsight } from './shared-intelligence-coordinator';
+import { FreshnessBlockCategory, type BlockMetadata } from '../types/freshness-block';
 
 export interface FreshnessGateResult {
   canExecute: boolean;
@@ -28,6 +29,9 @@ export interface FreshnessGateResult {
     priceDrift?: any;
     priceStaleness?: any;
   };
+  wasAutoRefreshed?: boolean;
+  blockCategories?: FreshnessBlockCategory[];
+  blockMetadata?: BlockMetadata[];
 }
 
 export interface ExecutionContext {
@@ -39,6 +43,8 @@ export interface ExecutionContext {
   alphaInsight?: AlphaStrategicInsight;
 }
 
+export type RefreshCallback = () => Promise<void>;
+
 export class TradeExecutionFreshnessGate {
   /**
    * P0 CIRCUIT BREAKER: Validate all freshness requirements before execution
@@ -47,6 +53,8 @@ export class TradeExecutionFreshnessGate {
     const blockingReasons: string[] = [];
     const warnings: string[] = [];
     const validationResults: any = {};
+    const blockCategories: FreshnessBlockCategory[] = [];
+    const blockMetadata: BlockMetadata[] = [];
 
     logger.info(
       LogCategory.AI_TRADING,
@@ -70,6 +78,12 @@ export class TradeExecutionFreshnessGate {
 
       if (!omegaValidation.isValid) {
         blockingReasons.push(`Omega Intelligence: ${omegaValidation.reason}`);
+        if (omegaValidation.blockCategory) {
+          blockCategories.push(omegaValidation.blockCategory);
+        }
+        if (omegaValidation.blockMetadata) {
+          blockMetadata.push(omegaValidation.blockMetadata);
+        }
       }
     }
 
@@ -84,6 +98,12 @@ export class TradeExecutionFreshnessGate {
 
       if (!alphaValidation.isValid) {
         blockingReasons.push(`Alpha Intelligence: ${alphaValidation.reason}`);
+        if (alphaValidation.blockCategory) {
+          blockCategories.push(alphaValidation.blockCategory);
+        }
+        if (alphaValidation.blockMetadata) {
+          blockMetadata.push(alphaValidation.blockMetadata);
+        }
       }
     }
 
@@ -99,6 +119,12 @@ export class TradeExecutionFreshnessGate {
 
       if (driftValidation.shouldBlock) {
         blockingReasons.push(`Price Drift: ${driftValidation.reason}`);
+        if (driftValidation.blockCategory) {
+          blockCategories.push(driftValidation.blockCategory);
+        }
+        if (driftValidation.blockMetadata) {
+          blockMetadata.push(driftValidation.blockMetadata);
+        }
       }
     }
 
@@ -111,6 +137,12 @@ export class TradeExecutionFreshnessGate {
 
     if (priceValidation.shouldBlockTrading) {
       blockingReasons.push(`Realtime Price: ${priceValidation.reason}`);
+      if (priceValidation.blockCategory) {
+        blockCategories.push(priceValidation.blockCategory);
+      }
+      if (priceValidation.blockMetadata) {
+        blockMetadata.push(priceValidation.blockMetadata);
+      }
     }
 
     // Final Decision
@@ -135,8 +167,107 @@ export class TradeExecutionFreshnessGate {
       canExecute,
       blockingReasons,
       warnings,
-      validationResults
+      validationResults,
+      blockCategories,
+      blockMetadata
     };
+  }
+
+  /**
+   * SOFT-REFRESH FLOW: Validate with automatic refresh on first failure
+   *
+   * Pattern:
+   * 1. Initial validation
+   * 2. If failed -> refresh data -> retry once
+   * 3. If still failed -> BLOCK (persistent staleness)
+   *
+   * This avoids blocking on cache expiry while maintaining safety.
+   */
+  async validateWithAutoRefresh(
+    context: ExecutionContext,
+    refreshCallback: RefreshCallback
+  ): Promise<FreshnessGateResult> {
+    logger.info(
+      LogCategory.AI_TRADING,
+      `[Freshness Gate] 🛡️ Starting soft-refresh validation for ${context.symbol}@${context.timeframe}`
+    );
+
+    // Initial validation
+    const firstCheck = await this.validateExecution(context);
+
+    if (firstCheck.canExecute) {
+      logger.info(
+        LogCategory.AI_TRADING,
+        `[Freshness Gate] ✅ Initial check PASSED - no refresh needed`
+      );
+      return { ...firstCheck, wasAutoRefreshed: false };
+    }
+
+    // First check failed - attempt auto-refresh
+    logger.warn(
+      LogCategory.AI_TRADING,
+      `[Freshness Gate] ⚠️ Initial check FAILED - attempting auto-refresh`,
+      { blockingReasons: firstCheck.blockingReasons }
+    );
+
+    try {
+      // Refresh stale data
+      await refreshCallback();
+
+      logger.info(
+        LogCategory.AI_TRADING,
+        `[Freshness Gate] 🔄 Refresh complete - re-validating`
+      );
+
+      // Re-validate with fresh data
+      const secondCheck = await this.validateExecution(context);
+
+      if (!secondCheck.canExecute) {
+        // Still failed after refresh - this is persistent staleness
+        const persistentMetadata: BlockMetadata = {
+          symbol: context.symbol,
+          timeframe: context.timeframe,
+          refreshAttempted: true,
+          wasAutoRefreshed: false
+        };
+
+        logger.error(
+          LogCategory.AI_TRADING,
+          `[Freshness Gate] 🚫 ${FreshnessBlockCategory.BLOCK_PERSISTENT_STALENESS}: Failed after refresh`,
+          persistentMetadata
+        );
+
+        return {
+          ...secondCheck,
+          wasAutoRefreshed: false,
+          blockCategories: [
+            ...(secondCheck.blockCategories || []),
+            FreshnessBlockCategory.BLOCK_PERSISTENT_STALENESS
+          ],
+          blockMetadata: [
+            ...(secondCheck.blockMetadata || []),
+            persistentMetadata
+          ]
+        };
+      }
+
+      // Success after refresh
+      logger.info(
+        LogCategory.AI_TRADING,
+        `[Freshness Gate] ✅ PASSED after refresh - execution cleared`
+      );
+
+      return { ...secondCheck, wasAutoRefreshed: true };
+    } catch (error) {
+      logger.error(
+        LogCategory.AI_TRADING,
+        `[Freshness Gate] ❌ Refresh callback failed:`,
+        error
+      );
+
+      // Return original failure if refresh fails
+      return { ...firstCheck, wasAutoRefreshed: false };
+    }
   }
 
   /**
