@@ -790,31 +790,9 @@ export const GoalSessionDashboard: React.FC = () => {
   };
 
   const calculateCurrentPnL = (trade: any): number => {
-    // If we don't have live prices or entry price, fall back to stored P&L
-    if (!livePrices[trade.symbol] || !trade.entry_price) {
-      return trade.current_pnl || trade.profit_loss || 0;
-    }
-
-    const currentPrice = trade.direction === 'buy'
-      ? livePrices[trade.symbol].bid
-      : livePrices[trade.symbol].ask;
-
-    const lotSize = trade.lot_size || trade.position_size || 0;
-
-    if (!lotSize || lotSize <= 0) {
-      console.warn(`[GoalSessionDashboard] Invalid lot size for ${trade.symbol}:`, lotSize);
-      return trade.current_pnl || trade.profit_loss || 0;
-    }
-
-    // CRITICAL: Use centralized calculatePnL function that handles ALL asset types
-    // (forex, crypto, indices, gold) with correct pip values and calculations
-    return calculatePnL(
-      trade.direction,
-      trade.entry_price,
-      currentPrice,
-      lotSize,
-      trade.symbol
-    );
+    // SINGLE SOURCE OF TRUTH: Use stored P&L from database
+    // Database updates this via position monitoring system
+    return trade.current_pnl || trade.profit_loss || 0;
   };
 
   const calculateLiveProgressPercentage = (): number => {
@@ -823,9 +801,10 @@ export const GoalSessionDashboard: React.FC = () => {
     // Get closed trades profit
     const closedProfit = progress.stats?.closedProfit || 0;
 
-    // Calculate current unrealized P&L from open trades
+    // SINGLE SOURCE OF TRUTH: Use current_pnl from database for open trades
+    // Database updates this in real-time via position monitoring
     const openUnrealizedPnL = openTrades.reduce((sum, trade) => {
-      return sum + calculateCurrentPnL(trade);
+      return sum + (trade.current_pnl || 0);
     }, 0);
 
     // Total progress = closed + open unrealized

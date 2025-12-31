@@ -71,13 +71,13 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      let openQuery = supabase
-        .from('goal_session_trades')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'open')
-        .order('created_at', { ascending: false });
+      // SINGLE SOURCE OF TRUTH: Use database function for open positions
+      const { data: openPositionsSummary, error: openError } = await supabase
+        .rpc('get_open_positions_summary', { p_user_id: user.id });
 
+      if (openError) throw openError;
+
+      // Still fetch pending orders separately (not included in summary)
       let pendingQuery = supabase
         .from('goal_session_trades')
         .select('*')
@@ -87,35 +87,45 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
 
       // Filter by goalSessionId if provided
       if (goalSessionId) {
-        openQuery = openQuery.eq('goal_session_id', goalSessionId);
         pendingQuery = pendingQuery.eq('goal_session_id', goalSessionId);
       }
 
-      const [openResult, pendingResult] = await Promise.all([
-        openQuery,
-        pendingQuery
-      ]);
+      const pendingResult = await pendingQuery;
 
-      if (openResult.error) throw openResult.error;
       if (pendingResult.error) throw pendingResult.error;
 
-      // Convert database records to Position objects
-      const openPositions = (openResult.data || []).map(trade => ({
+      // Convert open positions from database function (already has current_pnl and current_price)
+      let openPositions = (openPositionsSummary || []).map(trade => ({
         id: trade.id,
         symbol: trade.symbol,
-        position_type: trade.direction || trade.position_type,
-        order_type: trade.order_type || 'market',
-        lot_size: trade.lot_size || trade.position_size,
+        position_type: trade.direction,
+        order_type: 'market',
+        lot_size: trade.lot_size,
         entry_price: trade.entry_price,
-        limit_price: trade.limit_price,
+        limit_price: null,
         stop_loss: trade.stop_loss,
         take_profit: trade.take_profit,
-        status: trade.status,
-        current_price: trade.current_price,
+        status: 'open' as const,
+        current_price: trade.current_price || trade.entry_price,
         current_pnl: trade.current_pnl || 0,
-        opened_at: trade.created_at
+        opened_at: trade.opened_at
       } as Position));
 
+      // Filter by goalSessionId if provided (for open positions)
+      if (goalSessionId) {
+        // Need to fetch full data to filter by goal_session_id
+        const { data: filteredOpen } = await supabase
+          .from('goal_session_trades')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('status', 'open')
+          .eq('goal_session_id', goalSessionId);
+
+        const filteredIds = new Set((filteredOpen || []).map(t => t.id));
+        openPositions = openPositions.filter(p => filteredIds.has(p.id));
+      }
+
+      // Convert pending orders
       const pendingPositions = (pendingResult.data || []).map(trade => ({
         id: trade.id,
         symbol: trade.symbol,
@@ -128,7 +138,7 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
         take_profit: trade.take_profit,
         status: trade.status,
         current_price: trade.current_price,
-        current_pnl: trade.current_pnl || 0,
+        current_pnl: 0,
         opened_at: trade.created_at
       } as Position));
 
@@ -136,7 +146,7 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
       setPendingOrders(pendingPositions);
       setLoading(false);
     } catch (error) {
-      console.error('Failed to fetch positions:', error);
+      console.error('[ActivePositions] Failed to fetch positions:', error);
       setLoading(false);
     }
   };
@@ -147,17 +157,12 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
     await Promise.all(
       symbols.map(async (symbol) => {
         try {
-          // Read from database
+          // SINGLE SOURCE OF TRUTH: Use database function
           const { data, error } = await supabase
-            .from('realtime_prices')
-            .select('bid, ask')
-            .eq('symbol', symbol)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .rpc('get_latest_price', { p_symbol: symbol });
 
-          if (error || !data) {
-            console.error(`Failed to fetch price for ${symbol}:`, error);
+          if (error || !data || data.error) {
+            console.error(`[ActivePositions] Failed to fetch price for ${symbol}:`, error || data?.error);
             return;
           }
 
@@ -166,7 +171,7 @@ export function ActivePositions({ refreshTrigger, onPositionClick, currentSymbol
             ask: parseFloat(data.ask)
           };
         } catch (error) {
-          console.error(`Failed to fetch price for ${symbol}:`, error);
+          console.error(`[ActivePositions] Failed to fetch price for ${symbol}:`, error);
         }
       })
     );
