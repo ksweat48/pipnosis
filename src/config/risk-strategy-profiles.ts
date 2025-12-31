@@ -8,6 +8,9 @@
  * It means "trade faster, tighter stops, scalp entries, reach goals quicker"
  */
 
+import { getAssetClassRiskProfile } from './asset-class-risk-profiles';
+import { getSymbolConfig } from './symbol-registry';
+
 export interface RiskStrategyProfile {
   riskMode: 'low' | 'medium' | 'high';
   displayName: string;
@@ -287,10 +290,40 @@ export function getStopLossMultiplierRange(riskMode: 'low' | 'medium' | 'high'):
 }
 
 /**
- * Get typical stop loss pip range for forex pairs
+ * Get typical stop loss pip range for any symbol (asset-class aware)
+ * @param riskMode - Risk mode (low, medium, high)
+ * @param symbol - Optional symbol to get asset-class-specific ranges
  */
-export function getTypicalStopPipsRange(riskMode: 'low' | 'medium' | 'high'): { min: number; max: number } {
+export function getTypicalStopPipsRange(
+  riskMode: 'low' | 'medium' | 'high',
+  symbol?: string
+): { min: number; max: number } {
   const profile = getRiskStrategyProfile(riskMode);
+
+  if (!symbol) {
+    return profile.typicalStopPips;
+  }
+
+  const assetProfile = getAssetClassRiskProfile(symbol);
+
+  if (assetProfile.typicalStopRange.unit === 'atr') {
+    const config = getSymbolConfig(symbol);
+    if (config) {
+      const avgATR = config.typicalSessionMovePoints * 0.5;
+      return {
+        min: Math.round(avgATR * assetProfile.typicalStopRange.min),
+        max: Math.round(avgATR * assetProfile.typicalStopRange.max)
+      };
+    }
+  }
+
+  if (assetProfile.typicalStopRange.unit === 'points' || assetProfile.typicalStopRange.unit === 'pips') {
+    return {
+      min: assetProfile.typicalStopRange.min,
+      max: assetProfile.typicalStopRange.max
+    };
+  }
+
   return profile.typicalStopPips;
 }
 

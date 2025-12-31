@@ -7,6 +7,8 @@
 
 import { getRiskPercentage } from '../config/risk-levels';
 import { getRiskStrategyProfile } from '../config/risk-strategy-profiles';
+import { getSymbolConfig } from '../config/symbol-registry';
+import { getAssetClassRiskProfile } from '../config/asset-class-risk-profiles';
 
 export interface CurrencyPipInfo {
   pipValue: number;
@@ -495,9 +497,14 @@ export function calculateGoalAwareLotSize(
   estimatedTradesNeeded: number;
   reasoning: string;
   goalFeasibility: 'single_trade' | 'multiple_trades' | 'unrealistic';
+  feasible: boolean;
+  infeasibilityReason?: string;
+  alternatives?: string[];
 } {
   const pipInfo = getCurrencyPipInfo(symbol);
   const remainingGoal = targetGoal - currentProgress;
+  const symbolConfig = getSymbolConfig(symbol);
+  const assetProfile = getAssetClassRiskProfile(symbol);
 
   // Get risk profile for strategy-aware pip targets
   const riskProfile = getRiskStrategyProfile(riskMode);
@@ -509,17 +516,17 @@ export function calculateGoalAwareLotSize(
   console.log(`  Remaining: $${remainingGoal.toFixed(2)}`);
   console.log(`  Risk Mode: ${riskMode.toUpperCase()} (${riskProfile.tradingStyle})`);
 
-  // Typical pip ranges by asset type AND risk mode strategy
-  const typicalDailyRange = isXAUUSD(symbol) ? 200 : isJPYPair(symbol) ? 100 : 60;
+  // ✅ FIX 2: Asset-class-aware ranges (NOT forex assumptions for crypto/indices)
+  const typicalDailyRange = symbolConfig?.typicalDailyRangePoints || 100;
+  const typicalSessionMove = symbolConfig?.typicalSessionMovePoints || 50;
 
-  // Use risk profile to determine target pips
-  // Aggressive = fewer pips with bigger size, Conservative = more pips with smaller size
-  const minViablePips = riskProfile.typicalStopPips.min;
-  const maxViablePips = riskProfile.typicalStopPips.max;
-  const commonMovePips = (minViablePips + maxViablePips) / 2; // Average of risk profile range
+  // Asset-class-aware common move calculation
+  const minViablePips = assetProfile.commonMove.min;
+  const maxViablePips = assetProfile.commonMove.max;
+  const commonMovePips = (minViablePips + maxViablePips) / 2;
 
-  console.log(`  ${riskMode.toUpperCase()} Profile: ${minViablePips}-${maxViablePips} pips (avg ${commonMovePips.toFixed(0)})`);
-  console.log(`  Daily Range: ${typicalDailyRange} pips`);
+  console.log(`  ${riskMode.toUpperCase()} Profile: ${minViablePips}-${maxViablePips} ${assetProfile.commonMove.unit} (avg ${commonMovePips.toFixed(0)})`);
+  console.log(`  Daily Range: ${typicalDailyRange} points`);
 
   // Calculate position size using risk profile base risk percent
   const riskPercent = riskProfile.baseRiskPercent;
@@ -538,9 +545,9 @@ export function calculateGoalAwareLotSize(
   // Cap at max risk-based position size
   let actualLotSize = Math.min(requiredLotSizeForOptimal, maxPositionSize);
 
-  // Apply absolute minimums and maximums
-  const minLotSize = 0.01;
-  const maxLotSize = isXAUUSD(symbol) ? 10.0 : isIndex(symbol) ? 1.0 : isCrypto(symbol) ? 10.0 : 5.0;
+  // ✅ FIX 1: Use symbol registry for broker min/max lot sizes
+  const minLotSize = symbolConfig?.minLotSize || 0.01;
+  const maxLotSize = symbolConfig?.maxLotSize || 5.0;
   actualLotSize = Math.max(minLotSize, Math.min(maxLotSize, actualLotSize));
 
   // Round to broker standard precision (0.01 lots)
@@ -587,7 +594,7 @@ export function calculateGoalAwareLotSize(
     reasoning = `${formatLotSize(actualLotSize)} lots. Goal needs only ${pipsNeededForGoal.toFixed(1)} pips. Should be achievable in 1 trade if Alpha finds quality setup. Expected at common moves: $${expectedProfitAtCommonMove.toFixed(2)}.`;
   }
 
-  // 🚨 SAFETY VALIDATION: Ensure risk is within acceptable limits
+  // ✅ FIX 1: REPLACE min lot override with max safe lot calculation
   const stopDistance = Math.abs(entryPrice - stopLoss);
   const stopPips = stopDistance / pipInfo.pipValue;
   const expectedRisk = stopPips * dollarPerPip;
@@ -602,20 +609,98 @@ export function calculateGoalAwareLotSize(
   console.log(`  Feasibility: ${goalFeasibility}`);
   console.log(`  Max Risk Allowed: $${maxRiskAllowed.toFixed(2)} (5% cap)`);
 
+  // ✅ FIX 1: Max Safe Lot Calculation (NOT min lot fallback)
   if (expectedRisk > maxRiskAllowed) {
-    console.error('%c🚨 RISK TOO HIGH! REDUCING POSITION!', 'color: #ff0000; font-weight: bold; font-size: 18px');
+    console.error('%c🚨 RISK EXCEEDS CAP - CALCULATING MAX SAFE LOT', 'color: #ff9800; font-weight: bold; font-size: 16px');
     console.error(`  Expected Risk: $${expectedRisk.toFixed(2)}`);
     console.error(`  Max Allowed: $${maxRiskAllowed.toFixed(2)}`);
 
-    // Return minimum safe position
+    // Calculate maximum safe lot size
+    const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
+    const safeLot = maxRiskAllowed / (stopPips * dollarPerPipPerLot);
+
+    // Clamp to broker min/max/step
+    let clampedSafeLot = Math.max(minLotSize, Math.min(maxLotSize, safeLot));
+    clampedSafeLot = roundLotSize(clampedSafeLot);
+
+    console.log(`  Calculated Safe Lot: ${clampedSafeLot.toFixed(3)}`);
+    console.log(`  Broker Min Lot: ${minLotSize}`);
+
+    // ✅ FIX 4: Feasibility gate - if safe lot < broker min, REJECT trade
+    if (clampedSafeLot < minLotSize) {
+      console.error('%c🚫 TRADE NOT FEASIBLE - Safe lot below broker minimum', 'color: #ff0000; font-weight: bold; font-size: 18px');
+
+      const minGoalContribution = riskMode === 'high' ? 0.05 : riskMode === 'medium' ? 0.03 : 0.02;
+      const expectedProfitAtMin = commonMovePips * calculateDollarPerPip(symbol, minLotSize);
+
+      return {
+        lotSize: minLotSize,
+        expectedProfitAtCommonMove: expectedProfitAtMin,
+        remainingGoal,
+        estimatedTradesNeeded: Math.ceil(remainingGoal / expectedProfitAtMin),
+        reasoning: `This goal is not feasible for ${symbol} under current risk limits and stop distance.`,
+        goalFeasibility: 'unrealistic',
+        feasible: false,
+        infeasibilityReason: 'GOAL_NOT_FEASIBLE_AT_CURRENT_RISK',
+        alternatives: [
+          'Increase allowed risk percentage',
+          'Choose different instrument with tighter spreads',
+          'Wait for setup with tighter stop loss',
+          'Reduce goal aggressiveness'
+        ]
+      };
+    }
+
+    // Safe lot is valid - recalculate with it
+    actualLotSize = clampedSafeLot;
+    const newDollarPerPip = calculateDollarPerPip(symbol, actualLotSize);
+    const newExpectedProfit = commonMovePips * newDollarPerPip;
+    const newEstimatedTrades = Math.ceil(remainingGoal / newExpectedProfit);
+
+    console.log(`  ✅ Using safe lot: ${formatLotSize(actualLotSize)}`);
+    console.log(`  New expected profit: $${newExpectedProfit.toFixed(2)}`);
+    console.log(`  New estimated trades: ${newEstimatedTrades}`);
+
     return {
-      lotSize: 0.01,
-      expectedProfitAtCommonMove: commonMovePips * calculateDollarPerPip(symbol, 0.01),
+      lotSize: actualLotSize,
+      expectedProfitAtCommonMove: newExpectedProfit,
       remainingGoal,
-      estimatedTradesNeeded: Math.ceil(remainingGoal / (commonMovePips * calculateDollarPerPip(symbol, 0.01))),
-      reasoning: `⚠️ SAFETY OVERRIDE: Risk too high. Using minimum position size (0.01 lots).`,
-      goalFeasibility: 'multiple_trades'
+      estimatedTradesNeeded: newEstimatedTrades,
+      reasoning: `Position size reduced to ${formatLotSize(actualLotSize)} lots for safe risk of $${maxRiskAllowed.toFixed(2)}. Estimated ${newEstimatedTrades} trades needed at ~$${newExpectedProfit.toFixed(2)} per win.`,
+      goalFeasibility: newEstimatedTrades <= 3 ? 'multiple_trades' : 'unrealistic',
+      feasible: true
     };
+  }
+
+  // ✅ FIX 3 & 4: Additional feasibility checks
+  const minGoalContribution = riskMode === 'high' ? 0.05 : riskMode === 'medium' ? 0.03 : 0.02;
+  const progressPercentage = expectedProfitAtCommonMove / remainingGoal;
+
+  // Guard against absurd trade counts
+  if (estimatedTradesNeeded > 50) {
+    console.error('%c🚫 TRADE REJECTED - Unrealistic trade count', 'color: #ff0000; font-weight: bold');
+
+    return {
+      lotSize: actualLotSize,
+      expectedProfitAtCommonMove,
+      remainingGoal,
+      estimatedTradesNeeded,
+      reasoning: `This goal requires ${estimatedTradesNeeded} trades for ${symbol}, which is not feasible.`,
+      goalFeasibility: 'unrealistic',
+      feasible: false,
+      infeasibilityReason: 'TOO_MANY_TRADES_REQUIRED',
+      alternatives: [
+        'Reduce goal amount to realistic level',
+        'Increase position size if risk allows',
+        'Choose more volatile instrument',
+        'Break goal into smaller milestones'
+      ]
+    };
+  }
+
+  // Check if single trade contribution is meaningful
+  if (progressPercentage < minGoalContribution && goalFeasibility === 'multiple_trades') {
+    console.warn(`  ⚠️ Low goal contribution: ${(progressPercentage * 100).toFixed(1)}% < ${(minGoalContribution * 100)}% minimum`);
   }
 
   return {
@@ -624,7 +709,8 @@ export function calculateGoalAwareLotSize(
     remainingGoal,
     estimatedTradesNeeded,
     reasoning,
-    goalFeasibility
+    goalFeasibility,
+    feasible: true
   };
 }
 

@@ -25,6 +25,9 @@ export interface SymbolConfig {
   dollarPerPipPerLot: number;
   minLotSize: number;
   maxLotSize: number;
+  typicalDailyRangePoints: number;
+  typicalSessionMovePoints: number;
+  atrMultiplierForStop: number;
 }
 
 export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
@@ -42,6 +45,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 1.0,
     minLotSize: 0.01,
     maxLotSize: 10.0,
+    typicalDailyRangePoints: 300,
+    typicalSessionMovePoints: 150,
+    atrMultiplierForStop: 1.5,
   },
   XAGUSD: {
     symbol: 'XAGUSD',
@@ -56,6 +62,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 5.0,
     minLotSize: 0.01,
     maxLotSize: 10.0,
+    typicalDailyRangePoints: 0.50,
+    typicalSessionMovePoints: 0.25,
+    atrMultiplierForStop: 1.5,
   },
 
   // Indices - Forex Hours
@@ -72,6 +81,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 1.0,
     minLotSize: 0.01,
     maxLotSize: 1.0,
+    typicalDailyRangePoints: 400,
+    typicalSessionMovePoints: 200,
+    atrMultiplierForStop: 1.5,
   },
   NAS100: {
     symbol: 'NAS100',
@@ -86,6 +98,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 1.0,
     minLotSize: 0.01,
     maxLotSize: 1.0,
+    typicalDailyRangePoints: 500,
+    typicalSessionMovePoints: 250,
+    atrMultiplierForStop: 1.5,
   },
   SPX500: {
     symbol: 'SPX500',
@@ -100,6 +115,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 1.0,
     minLotSize: 0.01,
     maxLotSize: 1.0,
+    typicalDailyRangePoints: 300,
+    typicalSessionMovePoints: 150,
+    atrMultiplierForStop: 1.5,
   },
   UK100: {
     symbol: 'UK100',
@@ -114,6 +132,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 1.0,
     minLotSize: 0.01,
     maxLotSize: 1.0,
+    typicalDailyRangePoints: 250,
+    typicalSessionMovePoints: 125,
+    atrMultiplierForStop: 1.5,
   },
   GER40: {
     symbol: 'GER40',
@@ -128,6 +149,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 1.0,
     minLotSize: 0.01,
     maxLotSize: 1.0,
+    typicalDailyRangePoints: 350,
+    typicalSessionMovePoints: 175,
+    atrMultiplierForStop: 1.5,
   },
 
   // Forex - Major Pairs
@@ -144,6 +168,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 5.0,
+    typicalDailyRangePoints: 80,
+    typicalSessionMovePoints: 40,
+    atrMultiplierForStop: 1.2,
   },
   GBPUSD: {
     symbol: 'GBPUSD',
@@ -158,6 +185,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 5.0,
+    typicalDailyRangePoints: 100,
+    typicalSessionMovePoints: 50,
+    atrMultiplierForStop: 1.2,
   },
   USDJPY: {
     symbol: 'USDJPY',
@@ -172,6 +202,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 5.0,
+    typicalDailyRangePoints: 120,
+    typicalSessionMovePoints: 60,
+    atrMultiplierForStop: 1.2,
   },
   AUDUSD: {
     symbol: 'AUDUSD',
@@ -186,6 +219,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 5.0,
+    typicalDailyRangePoints: 70,
+    typicalSessionMovePoints: 35,
+    atrMultiplierForStop: 1.2,
   },
   USDCAD: {
     symbol: 'USDCAD',
@@ -200,6 +236,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 5.0,
+    typicalDailyRangePoints: 70,
+    typicalSessionMovePoints: 35,
+    atrMultiplierForStop: 1.2,
   },
   NZDUSD: {
     symbol: 'NZDUSD',
@@ -214,6 +253,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 5.0,
+    typicalDailyRangePoints: 65,
+    typicalSessionMovePoints: 32,
+    atrMultiplierForStop: 1.2,
   },
   USDCHF: {
     symbol: 'USDCHF',
@@ -228,6 +270,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 5.0,
+    typicalDailyRangePoints: 75,
+    typicalSessionMovePoints: 38,
+    atrMultiplierForStop: 1.2,
   },
 
   // Forex - Cross Pairs
@@ -244,6 +289,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 5.0,
+    typicalDailyRangePoints: 60,
+    typicalSessionMovePoints: 30,
+    atrMultiplierForStop: 1.2,
   },
   EURJPY: {
     symbol: 'EURJPY',
@@ -258,6 +306,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 5.0,
+    typicalDailyRangePoints: 140,
+    typicalSessionMovePoints: 70,
+    atrMultiplierForStop: 1.2,
   },
   GBPJPY: {
     symbol: 'GBPJPY',
@@ -272,6 +323,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 5.0,
+    typicalDailyRangePoints: 160,
+    typicalSessionMovePoints: 80,
+    atrMultiplierForStop: 1.2,
   },
   AUDJPY: {
     symbol: 'AUDJPY',
@@ -286,6 +340,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 5.0,
+    typicalDailyRangePoints: 130,
+    typicalSessionMovePoints: 65,
+    atrMultiplierForStop: 1.2,
   },
   EURAUD: {
     symbol: 'EURAUD',
@@ -300,6 +357,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 5.0,
+    typicalDailyRangePoints: 90,
+    typicalSessionMovePoints: 45,
+    atrMultiplierForStop: 1.2,
   },
 
   // Crypto - 24/7 Trading (via Kraken)
@@ -316,6 +376,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 1.0,
     minLotSize: 0.001,
     maxLotSize: 10.0,
+    typicalDailyRangePoints: 3000,
+    typicalSessionMovePoints: 1000,
+    atrMultiplierForStop: 1.5,
   },
   ETHUSD: {
     symbol: 'ETHUSD',
@@ -330,6 +393,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 0.1,
     minLotSize: 0.01,
     maxLotSize: 100.0,
+    typicalDailyRangePoints: 150,
+    typicalSessionMovePoints: 75,
+    atrMultiplierForStop: 1.5,
   },
 
   // Energy - Forex Hours
@@ -346,6 +412,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 10.0,
+    typicalDailyRangePoints: 100,
+    typicalSessionMovePoints: 50,
+    atrMultiplierForStop: 1.5,
   },
   UKOIL: {
     symbol: 'UKOIL',
@@ -360,6 +429,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
     maxLotSize: 10.0,
+    typicalDailyRangePoints: 100,
+    typicalSessionMovePoints: 50,
+    atrMultiplierForStop: 1.5,
   },
 };
 

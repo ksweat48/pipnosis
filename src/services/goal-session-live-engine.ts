@@ -813,6 +813,24 @@ class GoalSessionLiveEngine {
       console.log(`  Feasibility: ${goalAwareSizing.goalFeasibility}`);
       console.log(`  Strategy: ${goalAwareSizing.reasoning}`);
 
+      // ✅ FIX 5: Hard feasibility gate - abort if trade not feasible
+      if (!goalAwareSizing.feasible) {
+        console.error('%c🚫 TRADE EXECUTION ABORTED - NOT FEASIBLE', 'color: #ff0000; font-weight: bold; font-size: 18px');
+        console.error(`  Reason: ${goalAwareSizing.infeasibilityReason}`);
+
+        const alternativesText = goalAwareSizing.alternatives
+          ? '\n\nAlternatives:\n• ' + goalAwareSizing.alternatives.join('\n• ')
+          : '';
+
+        await this.sendAIMessage(
+          `🚫 Trade execution blocked - not feasible\n\n` +
+          `${goalAwareSizing.reasoning}${alternativesText}`
+        );
+
+        // Skip this scanning cycle
+        return;
+      }
+
       let calculatedLotSize = goalAwareSizing.lotSize;
 
       // Build comprehensive reasoning that explains the trade plan
@@ -841,8 +859,9 @@ class GoalSessionLiveEngine {
         console.error('%c🚨 EXECUTION BLOCKED: RISK TOO HIGH!', 'color: #ff0000; font-weight: bold; font-size: 16px');
         console.error(`  Risk: $${calculatedRisk.toFixed(2)} > Max: $${maxSafeRisk.toFixed(2)}`);
 
-        // Reduce lot size to safe level
-        const safeLotSize = maxSafeRisk / (stopPips * 10); // Conservative recalculation
+        // ✅ FIX: Use asset-specific dollarPerPipPerLot (NOT hardcoded * 10)
+        const pipInfo = getCurrencyPipInfo(selectedSymbol);
+        const safeLotSize = maxSafeRisk / (stopPips * pipInfo.dollarPerPipPerLot);
         calculatedLotSize = Math.max(0.01, Math.round(safeLotSize * 100) / 100);
 
         console.error(`  🛡️ SAFETY OVERRIDE: Reducing to ${calculatedLotSize.toFixed(2)} lots`);
