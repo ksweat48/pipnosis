@@ -8,6 +8,7 @@ import { marketConditionRiskAdjuster, MarketConditionInputs } from './market-con
 import { winRateRROptimizer, WinRateRRInputs } from './winrate-rr-optimizer';
 import { progressiveRiskScaling, RiskScalingInputs } from './progressive-risk-scaling';
 import { getRiskStrategyProfile } from '../config/risk-strategy-profiles';
+import { calculateDollarPerPip } from '../utils/currencyHelpers';
 
 export interface ComprehensiveRiskAssessment {
   approved: boolean;
@@ -243,9 +244,9 @@ class ProfessionalRiskManager {
       }
     }
 
-    // Calculate final lot size
+    // Calculate final lot size using SSOT pip values
     const riskAmount = currentBalance * finalRiskPercent;
-    const pipValue = 10; // Standard pip value
+    const pipValue = calculateDollarPerPip(symbol, 1.0);
     const recommendedLotSize = Math.max(0.01, riskAmount / (avgLossPips * pipValue));
     const roundedLotSize = Math.round(recommendedLotSize * 100) / 100;
 

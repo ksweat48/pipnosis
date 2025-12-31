@@ -7,6 +7,7 @@
  */
 
 import type { SimulatedTrade } from '../types';
+import { getCurrencyPipInfo, calculatePipDistance } from '../utils/currencyHelpers';
 
 export interface TriggerDetectionResult {
   triggered: boolean;
@@ -120,6 +121,12 @@ class MidTradeTriggerDetector {
     const risk = Math.abs(trade.entryPrice - trade.stopLoss);
     const riskRatio = priceDiff / risk;
 
+    // SSOT: Use centralized pip calculation for metadata
+    const pipInfoDD = getCurrencyPipInfo(trade.symbol);
+    const pipDistanceDD = calculatePipDistance(trade.symbol, trade.entryPrice, currentPrice);
+    const dollarPerPipDD = pipInfoDD.dollarPerPipPerLot * trade.positionSize;
+    const currentPnLDD = (priceDiff >= 0 ? pipDistanceDD : -pipDistanceDD) * dollarPerPipDD;
+
     // Near stop loss (within 15% of SL distance)
     const distanceToSL = Math.abs(currentPrice - trade.stopLoss);
     const slProximity = distanceToSL / risk;
@@ -152,7 +159,7 @@ class MidTradeTriggerDetector {
         shouldCallLLM: true,
         metadata: {
           risk_ratio: riskRatio.toFixed(2),
-          current_pnl: (priceDiff / 0.0001 * 10 * trade.positionSize).toFixed(2)
+          current_pnl: currentPnLDD.toFixed(2)
         }
       };
     }
@@ -168,7 +175,7 @@ class MidTradeTriggerDetector {
         shouldCallLLM: true,
         metadata: {
           risk_ratio: riskRatio.toFixed(2),
-          current_pnl: (priceDiff / 0.0001 * 10 * trade.positionSize).toFixed(2)
+          current_pnl: currentPnLDD.toFixed(2)
         }
       };
     }
@@ -191,9 +198,11 @@ class MidTradeTriggerDetector {
       ? (currentPrice - trade.entryPrice)
       : (trade.entryPrice - currentPrice);
 
-    const pipDiff = priceDiff / 0.0001;
-    const dollarPerPip = 10 * trade.positionSize;
-    const currentProfitDollars = pipDiff * dollarPerPip;
+    // SSOT: Use centralized pip calculation
+    const pipInfo = getCurrencyPipInfo(trade.symbol);
+    const pipDiff = calculatePipDistance(trade.symbol, trade.entryPrice, currentPrice);
+    const dollarPerPip = pipInfo.dollarPerPipPerLot * trade.positionSize;
+    const currentProfitDollars = (priceDiff >= 0 ? pipDiff : -pipDiff) * dollarPerPip;
 
     const totalTradeProgress = currentProfitDollars + goalContext.currentProgress;
     const goalProgressPercent = (totalTradeProgress / goalContext.targetValue) * 100;
@@ -275,6 +284,12 @@ class MidTradeTriggerDetector {
     const risk = Math.abs(trade.entryPrice - trade.stopLoss);
     const riskRatio = priceDiff / risk;
 
+    // SSOT: Use centralized pip calculation for profit metadata
+    const pipInfoProfit = getCurrencyPipInfo(trade.symbol);
+    const pipDistanceProfit = calculatePipDistance(trade.symbol, trade.entryPrice, currentPrice);
+    const dollarPerPipProfit = pipInfoProfit.dollarPerPipPerLot * trade.positionSize;
+    const currentPnLProfit = (priceDiff >= 0 ? pipDistanceProfit : -pipDistanceProfit) * dollarPerPipProfit;
+
     // Profit +1.5R (consider taking profit)
     if (riskRatio >= 1.5 && !firedSet.has('profit_1.5R')) {
       firedSet.add('profit_1.5R');
@@ -286,7 +301,7 @@ class MidTradeTriggerDetector {
         shouldCallLLM: true,
         metadata: {
           risk_ratio: riskRatio.toFixed(2),
-          current_pnl: (priceDiff / 0.0001 * 10 * trade.positionSize).toFixed(2)
+          current_pnl: currentPnLProfit.toFixed(2)
         }
       };
     }
@@ -550,10 +565,11 @@ class MidTradeTriggerDetector {
     const riskRatio = priceDiff / risk;
     const minutesInTrade = (now - trade.entryTime.getTime()) / 60000;
 
-    // Calculate dollar P&L for user-friendly message
-    const pipDiff = priceDiff / 0.0001;
-    const dollarPerPip = 10 * trade.positionSize;
-    const dollarPnL = pipDiff * dollarPerPip;
+    // SSOT: Calculate dollar P&L using centralized pip values
+    const pipInfoWellness = getCurrencyPipInfo(trade.symbol);
+    const pipDiffWellness = calculatePipDistance(trade.symbol, trade.entryPrice, marketConditions.currentPrice);
+    const dollarPerPipWellness = pipInfoWellness.dollarPerPipPerLot * trade.positionSize;
+    const dollarPnL = (priceDiff >= 0 ? pipDiffWellness : -pipDiffWellness) * dollarPerPipWellness;
 
     // Create user-friendly message
     const timeDescription = this.formatTradeTime(minutesInTrade);

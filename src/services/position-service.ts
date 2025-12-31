@@ -76,10 +76,10 @@ class PositionService {
       // Round lot size to broker standard precision (0.01 lots)
       const roundedLotSize = roundLotSize(params.lotSize);
 
-      // Calculate risk dollars with rounded values
+      // Calculate risk dollars with rounded values using SSOT
       const pipInfo = getCurrencyPipInfo(params.symbol);
       const riskPips = Math.abs(params.entryPrice - params.stopLoss) / pipInfo.pipValue;
-      const dollarPerPip = roundedLotSize * 10;
+      const dollarPerPip = roundedLotSize * pipInfo.dollarPerPipPerLot;
       const riskDollars = roundPnL(riskPips * dollarPerPip);
 
       const insert: GoalSessionTradeInsert = {
