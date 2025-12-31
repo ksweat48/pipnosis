@@ -7,6 +7,10 @@ import { calculatePnL } from '@/types/position';
 import { prodLogger } from '@/lib/production-logger';
 import { midTradeTriggerDetector } from './mid-trade-trigger-detector';
 import type { MarketConditions, GoalContext } from './mid-trade-trigger-detector';
+import { priceCoordinator } from './coordinators/price-coordinator';
+import { tradeClosureCoordinator } from './coordinators/trade-closure-coordinator';
+import { goalAchievementCoordinator } from './coordinators/goal-achievement-coordinator';
+import { TIME_MS } from '@/config/time-constants';
 
 logger.setCategoryLevel(LogCategory.POSITION_MONITOR, LogLevel.ERROR);
 

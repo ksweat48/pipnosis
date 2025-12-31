@@ -5,6 +5,12 @@ import { CandleData } from './candle-data-service';
 import { strategyPlaybookManager } from './strategy-playbook-manager';
 import { calculateDollarPerPip, calculatePipDistance } from '../utils/currencyHelpers';
 import { calculatePnL } from '../types/position';
+import {
+  goalAchievementCoordinator,
+  goalSessionStateMachine,
+  priceCoordinator,
+  tradeClosureCoordinator,
+} from './coordinators';
 
 export interface PriceUpdate {
   symbol: string;

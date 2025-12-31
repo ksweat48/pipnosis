@@ -1,0 +1,128 @@
+/**
+ * TRADING CONSTANTS - Single Source of Truth
+ *
+ * All trading-related thresholds and constants MUST be defined here.
+ * DO NOT hardcode these values elsewhere in the codebase.
+ *
+ * Usage: import { TRADING_CONSTANTS } from '@/config/trading-constants';
+ */
+
+export const TRADING_CONSTANTS = {
+  RISK_REWARD_RATIOS: {
+    MINIMUM: 1.0,
+    TARGET: 1.5,
+    GOOD: 2.0,
+    EXCELLENT: 2.5,
+    EXCEPTIONAL: 3.0,
+  },
+
+  ATR_MULTIPLIERS: {
+    STOP_LOSS_DEFAULT: 1.5,
+    STOP_LOSS_TIGHT: 1.0,
+    STOP_LOSS_WIDE: 2.0,
+    TAKE_PROFIT_DEFAULT: 2.0,
+    TAKE_PROFIT_EXTENDED: 3.0,
+    MIN_SL_DISTANCE: 0.5,
+  },
+
+  RISK_PERCENTAGES: {
+    MIN_PER_TRADE: 0.005,
+    DEFAULT_PER_TRADE: 0.01,
+    MAX_PER_TRADE: 0.05,
+    MAX_TOTAL_EXPOSURE: 0.08,
+    MAX_DAILY_DRAWDOWN: 0.08,
+    DRAWDOWN_RISK_REDUCTION_THRESHOLD: 0.03,
+    DRAWDOWN_RISK_REDUCTION_FACTOR: 0.5,
+    DAILY_LOSS_CRITICAL_REMAINING: 0.02,
+  },
+
+  LOT_SIZES: {
+    MIN: 0.01,
+    MAX_FOREX: 5.0,
+    MAX_METAL: 10.0,
+    MAX_INDEX: 1.0,
+    MAX_CRYPTO: 10.0,
+    PRECISION: 2,
+  },
+
+  POSITION_LIMITS: {
+    MAX_OPEN_TRADES: 3,
+    MAX_CORRELATION_RISK: 0.7,
+  },
+
+  KELLY_CRITERION: {
+    FRACTIONAL_KELLY: 0.25,
+    MIN_WIN_RATE: 0.35,
+    MIN_EDGE: 0.01,
+    MAX_RISK_AGGRESSIVE: 0.05,
+  },
+
+  EV_THRESHOLDS: {
+    MIN_EV: 0,
+    MIN_EV_COMFORTABLE: 5,
+    MIN_EV_EXCELLENT: 10,
+  },
+
+  PRICE_MOVEMENT: {
+    MAX_VELOCITY_PERCENT_PER_SECOND: 0.01,
+    MAX_VELOCITY_CRYPTO_PER_SECOND: 0.005,
+    SUSPICIOUS_CHANGE_THRESHOLD: 0.5,
+  },
+} as const;
+
+export const CONFIDENCE_THRESHOLDS = {
+  MINIMUM_TO_TRADE: 70,
+  GOOD: 75,
+  HIGH: 80,
+  VERY_HIGH: 85,
+  EXCELLENT: 90,
+  A_GRADE_ONLY_AT_GOAL_PERCENT: 90,
+} as const;
+
+export const SESSION_LIMITS = {
+  MAX_DURATION_MINUTES: {
+    AGGRESSIVE: 90,
+    MODERATE: 120,
+    CONSERVATIVE: 120,
+    ABSOLUTE_MAX: 240,
+  },
+  WARNING_THRESHOLDS_MINUTES: {
+    AGGRESSIVE: 60,
+    MODERATE: 90,
+    CONSERVATIVE: 90,
+  },
+  TIMEOUT_MINUTES: 15,
+} as const;
+
+export const SCALING_MULTIPLIERS = {
+  STREAK: {
+    MAX_SCALE_UP: 1.5,
+    MAX_SCALE_DOWN: 0.5,
+    WINNING_THRESHOLD: 3,
+    LOSING_THRESHOLD: 2,
+    PER_WIN_INCREASE: 0.1,
+    PER_LOSS_DECREASE: 0.15,
+  },
+  VOLATILITY: {
+    VERY_LOW: 1.3,
+    LOW: 1.1,
+    NORMAL: 1.0,
+    HIGH: 0.75,
+    VERY_HIGH: 0.5,
+  },
+  RANK: {
+    BRONZE: 0.4,
+    SILVER: 0.6,
+    GOLD: 0.8,
+    ALPHA: 0.95,
+    OMEGA: 1.0,
+  },
+  EXPOSURE_CAPS: {
+    CONSERVATIVE: 0.01,
+    MODERATE: 0.02,
+    AGGRESSIVE: 0.05,
+  },
+} as const;
+
+export type RiskRewardRatio = typeof TRADING_CONSTANTS.RISK_REWARD_RATIOS[keyof typeof TRADING_CONSTANTS.RISK_REWARD_RATIOS];
+export type ConfidenceThreshold = typeof CONFIDENCE_THRESHOLDS[keyof typeof CONFIDENCE_THRESHOLDS];

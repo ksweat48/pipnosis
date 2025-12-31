@@ -3,6 +3,7 @@ import { midTradeNotificationQueue } from './mid-trade-notification-queue';
 import { calculateDollarPerPip, calculatePipDistance, getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { liveTradeLearningTrigger } from './live-trade-learning-trigger';
 import { llmPostSessionAnalyzer } from './llm-post-session-analyzer';
+import { goalSessionStateMachine } from './coordinators/goal-session-state-machine';
 
 export interface GoalSessionConfig {
   goalType: 'profit_target' | 'percentage_gain' | 'account_growth';
