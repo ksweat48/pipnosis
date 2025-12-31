@@ -14,6 +14,7 @@ import { OpenAIUsageDashboard } from '@/components/OpenAIUsageDashboard';
 import { ServerSidePollingMonitor } from '@/components/ServerSidePollingMonitor';
 import { LLMTokenUsageDashboard } from '@/components/LLMTokenUsageDashboard';
 import { CacheMetricsDashboard } from '@/components/CacheMetricsDashboard';
+import { FreshnessGateAnalytics } from '@/components/FreshnessGateAnalytics';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import {
@@ -665,6 +666,17 @@ export function AdminDashboard() {
                 </div>
               </div>
               <CacheMetricsDashboard />
+            </div>
+
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <Layers size={24} className="text-emerald-400" />
+                <div>
+                  <h2 className="text-2xl font-semibold text-white">Freshness Gate Analytics</h2>
+                  <p className="text-gray-400 text-sm mt-1">Real-time monitoring of cache freshness validation and auto-refresh performance</p>
+                </div>
+              </div>
+              <FreshnessGateAnalytics hours={24} />
             </div>
           </div>
         )}
