@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Search, MoreVertical, User, DollarSign, RefreshCw, Eye, Copy, Clock, AlertTriangle, Users as UsersIcon, Activity, TrendingUp, Target } from 'lucide-react';
-import { adminUserService, AdminUser, PlatformKPIs } from '../../services/admin-user-service';
+import { adminUserService } from '../../services/admin-user-service';
+import { useAdminDashboard } from '../../hooks/useAdminDashboard';
 import { useToast } from '../../hooks/useToast';
 import { UserDetailsModal } from './UserDetailsModal';
 import { AddCreditsDialog } from './AddCreditsDialog';
@@ -8,100 +9,33 @@ import { ResetSessionDialog } from './ResetSessionDialog';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 export const UserManagementPanel: React.FC = () => {
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { users: allUsers, platformKPIs, loading, error, refresh, isStale } = useAdminDashboard();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showCreditsDialog, setShowCreditsDialog] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
-  const [stuckSessionsCount, setStuckSessionsCount] = useState(0);
   const [forceClosing, setForceClosing] = useState(false);
-  const [platformKPIs, setPlatformKPIs] = useState<PlatformKPIs | null>(null);
-  const [kpisLoading, setKpisLoading] = useState(true);
   const { showToast } = useToast();
   const { showConfirm } = useConfirmDialog();
 
-  const loadUsers = useCallback(async (search?: string) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await adminUserService.getAllUsers(search, 100);
-      setUsers(data);
+  // Filter users by search term
+  const users = useMemo(() => {
+    if (!searchTerm) return allUsers;
+    const term = searchTerm.toLowerCase();
+    return allUsers.filter(user => user.email.toLowerCase().includes(term));
+  }, [allUsers, searchTerm]);
 
-      // Count stuck sessions (>20 minutes of scanning)
-      const stuckCount = data.reduce((count, user) => {
-        if (user.scanning_duration_minutes && user.scanning_duration_minutes > 20) {
-          return count + user.scanning_sessions;
-        }
-        return count;
-      }, 0);
-      setStuckSessionsCount(stuckCount);
-    } catch (error: any) {
-      const errorMessage = error?.message || 'Failed to load users';
-      setError(errorMessage);
-
-      if (errorMessage.includes('Admin access required')) {
-        showToast('You do not have admin privileges', 'error');
-      } else if (errorMessage.includes('function') && errorMessage.includes('does not exist')) {
-        showToast('Admin function not found in database', 'error');
-      } else {
-        showToast(errorMessage, 'error');
+  // Count stuck sessions
+  const stuckSessionsCount = useMemo(() => {
+    return allUsers.reduce((count, user) => {
+      if (user.scanning_duration_minutes && user.scanning_duration_minutes > 20) {
+        return count + user.scanning_sessions;
       }
-
-      console.error('[UserManagementPanel] Error loading users:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [showToast]);
-
-  const loadPlatformKPIs = useCallback(async () => {
-    try {
-      setKpisLoading(true);
-      const data = await adminUserService.getPlatformKPIs();
-      setPlatformKPIs(data);
-    } catch (error) {
-      console.error('[UserManagementPanel] Error loading KPIs:', error);
-    } finally {
-      setKpisLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadUsers();
-    loadPlatformKPIs();
-
-    // Subscribe to real-time price updates to refresh PnL values
-    let updateTimeout: NodeJS.Timeout | null = null;
-    const unsubscribe = adminUserService.subscribeToRealtimePrices(() => {
-      // Throttle updates to once every 3 seconds to prevent excessive refreshes
-      if (updateTimeout) return;
-
-      updateTimeout = setTimeout(() => {
-        loadUsers(searchTerm || undefined);
-        updateTimeout = null;
-      }, 3000);
-    });
-
-    return () => {
-      unsubscribe();
-      if (updateTimeout) clearTimeout(updateTimeout);
-    };
-  }, [loadUsers, loadPlatformKPIs, searchTerm]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchTerm) {
-        loadUsers(searchTerm);
-      } else {
-        loadUsers();
-      }
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [searchTerm, loadUsers]);
+      return count;
+    }, 0);
+  }, [allUsers]);
 
   const handleAction = (action: string, userId: string, email: string) => {
     setSelectedUserId(userId);
@@ -135,7 +69,7 @@ export const UserManagementPanel: React.FC = () => {
           `Balance recalculated. Difference: $${result.balance_diff.toFixed(2)}`,
           'success'
         );
-        loadUsers(searchTerm || undefined);
+        await refresh();
       }
     } catch (error) {
       showToast('Failed to recalculate balance', 'error');
@@ -165,7 +99,7 @@ export const UserManagementPanel: React.FC = () => {
         console.log('[Admin] Force-closed sessions:', results);
       }
 
-      loadUsers(searchTerm || undefined);
+      await refresh();
     } catch (error) {
       showToast('Failed to force-close stuck sessions', 'error');
       console.error('[Admin] Error force-closing sessions:', error);
@@ -221,7 +155,7 @@ export const UserManagementPanel: React.FC = () => {
   return (
     <div className="space-y-4">
       {/* Platform KPIs */}
-      {!kpisLoading && platformKPIs && (
+      {!loading && platformKPIs && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6">
           <div className="bg-gradient-to-br from-blue-600/20 to-blue-800/20 backdrop-blur-sm border-2 border-blue-500/30 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-2">
@@ -297,10 +231,7 @@ export const UserManagementPanel: React.FC = () => {
             </button>
           )}
           <button
-            onClick={() => {
-              loadUsers(searchTerm || undefined);
-              loadPlatformKPIs();
-            }}
+            onClick={refresh}
             className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors flex items-center gap-2"
           >
             <RefreshCw size={16} />
@@ -329,7 +260,7 @@ export const UserManagementPanel: React.FC = () => {
           <div className="text-red-400 font-semibold mb-2">Error Loading Users</div>
           <div className="text-gray-300 text-sm mb-4">{error}</div>
           <button
-            onClick={() => loadUsers(searchTerm || undefined)}
+            onClick={refresh}
             className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center gap-2 mx-auto"
           >
             <RefreshCw size={16} />
@@ -581,8 +512,8 @@ export const UserManagementPanel: React.FC = () => {
             setShowCreditsDialog(false);
             setSelectedUserId(null);
           }}
-          onSuccess={() => {
-            loadUsers(searchTerm || undefined);
+          onSuccess={async () => {
+            await refresh();
             setShowCreditsDialog(false);
             setSelectedUserId(null);
           }}
@@ -596,8 +527,8 @@ export const UserManagementPanel: React.FC = () => {
             setShowResetDialog(false);
             setSelectedUserId(null);
           }}
-          onSuccess={() => {
-            loadUsers(searchTerm || undefined);
+          onSuccess={async () => {
+            await refresh();
             setShowResetDialog(false);
             setSelectedUserId(null);
           }}

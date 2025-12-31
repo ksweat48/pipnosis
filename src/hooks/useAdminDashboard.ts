@@ -1,0 +1,147 @@
+import { useState, useEffect, useCallback } from 'react';
+import { adminDataCoordinator } from '../services/admin-data-coordinator';
+import type { AdminUser, PlatformKPIs } from '../services/admin-user-service';
+
+interface UseAdminDashboardReturn {
+  users: AdminUser[];
+  platformKPIs: PlatformKPIs | null;
+  loading: boolean;
+  error: string | null;
+  lastUpdate: Date;
+  connectionStatus: 'connected' | 'disconnected' | 'reconnecting';
+  refreshCount: number;
+  isStale: boolean;
+  refresh: () => Promise<void>;
+}
+
+/**
+ * React hook for accessing admin dashboard data
+ *
+ * This hook provides a clean interface to the admin data coordinator.
+ * It handles subscription management, loading states, and automatic
+ * cleanup on unmount.
+ *
+ * Features:
+ * - Automatic real-time updates
+ * - Connection status monitoring
+ * - Manual refresh capability
+ * - Staleness detection
+ * - Automatic cleanup
+ *
+ * Usage:
+ * ```tsx
+ * function MyAdminComponent() {
+ *   const { users, platformKPIs, loading, refresh } = useAdminDashboard();
+ *
+ *   return (
+ *     <div>
+ *       <button onClick={refresh}>Refresh</button>
+ *       {users.map(user => ...)}
+ *     </div>
+ *   );
+ * }
+ * ```
+ */
+export function useAdminDashboard(): UseAdminDashboardReturn {
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [platformKPIs, setPlatformKPIs] = useState<PlatformKPIs | null>(null);
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('disconnected');
+  const [refreshCount, setRefreshCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState(false);
+
+  // Manual refresh function
+  const refresh = useCallback(async () => {
+    try {
+      setError(null);
+      await adminDataCoordinator.forceRefresh();
+    } catch (err: any) {
+      console.error('[useAdminDashboard] Error during manual refresh:', err);
+      setError(err?.message || 'Failed to refresh data');
+    }
+  }, []);
+
+  // Start coordinator and subscribe to updates
+  useEffect(() => {
+    let mounted = true;
+    let unsubscribe: (() => void) | null = null;
+    let unsubscribeConnection: (() => void) | null = null;
+
+    const initialize = async () => {
+      try {
+        // Start the coordinator
+        await adminDataCoordinator.start();
+
+        if (!mounted) return;
+
+        // Subscribe to data updates
+        unsubscribe = adminDataCoordinator.subscribe((data) => {
+          if (!mounted) return;
+
+          setUsers(data.users);
+          setPlatformKPIs(data.platformKPIs);
+          setLastUpdate(data.lastUpdate);
+          setRefreshCount(data.refreshCount);
+          setIsStale(adminDataCoordinator.isDataStale());
+          setLoading(false);
+          setError(null);
+        });
+
+        // Subscribe to connection status
+        unsubscribeConnection = adminDataCoordinator.subscribeToConnectionStatus((status) => {
+          if (!mounted) return;
+          setConnectionStatus(status);
+        });
+
+        // Get initial data
+        const currentData = adminDataCoordinator.getCurrentData();
+        setUsers(currentData.users);
+        setPlatformKPIs(currentData.platformKPIs);
+        setLastUpdate(currentData.lastUpdate);
+        setConnectionStatus(currentData.connectionStatus);
+        setRefreshCount(currentData.refreshCount);
+        setIsStale(adminDataCoordinator.isDataStale());
+        setLoading(false);
+      } catch (err: any) {
+        console.error('[useAdminDashboard] Error initializing:', err);
+        if (mounted) {
+          setError(err?.message || 'Failed to initialize admin dashboard');
+          setLoading(false);
+        }
+      }
+    };
+
+    initialize();
+
+    // Check staleness periodically
+    const staleCheckInterval = setInterval(() => {
+      if (mounted) {
+        setIsStale(adminDataCoordinator.isDataStale());
+      }
+    }, 5000); // Check every 5 seconds
+
+    // Cleanup
+    return () => {
+      mounted = false;
+      clearInterval(staleCheckInterval);
+      if (unsubscribe) unsubscribe();
+      if (unsubscribeConnection) unsubscribeConnection();
+      // Note: We don't stop the coordinator here because other components might be using it
+      // The coordinator should be stopped at the app level when no longer needed
+    };
+  }, []);
+
+  return {
+    users,
+    platformKPIs,
+    loading,
+    error,
+    lastUpdate,
+    connectionStatus,
+    refreshCount,
+    isStale,
+    refresh,
+  };
+}
