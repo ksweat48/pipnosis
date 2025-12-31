@@ -3,6 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 // learning-pipeline-health-check removed - diagnostics simplified
 // LearningPipelineMonitor removed
 import GPT4oUsageMonitor from '../components/GPT4oUsageMonitor';
+import { FreshnessGateAnalytics } from '../components/FreshnessGateAnalytics';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -367,6 +368,9 @@ export default function SystemDiagnosticsPage() {
 
         {/* GPT-4o Usage Monitor */}
         <GPT4oUsageMonitor />
+
+        {/* Freshness Gate Analytics */}
+        <FreshnessGateAnalytics hours={24} />
 
         {/* Pipeline Monitor */}
         <div className="bg-gray-900/50 border border-gray-800 rounded-lg p-6 text-center text-gray-400">

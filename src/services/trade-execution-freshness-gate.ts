@@ -18,6 +18,7 @@ import { priceDriftDetector } from './price-drift-detector';
 import { realtimePriceStalenessValidator } from './realtime-price-staleness-validator';
 import type { CachedOmegaIntelligence, AlphaStrategicInsight } from './shared-intelligence-coordinator';
 import { FreshnessBlockCategory, type BlockMetadata } from '../types/freshness-block';
+import { freshnessBlockLogger } from './freshness-block-logger';
 
 export interface FreshnessGateResult {
   canExecute: boolean;
@@ -185,7 +186,8 @@ export class TradeExecutionFreshnessGate {
    */
   async validateWithAutoRefresh(
     context: ExecutionContext,
-    refreshCallback: RefreshCallback
+    refreshCallback: RefreshCallback,
+    userId?: string
   ): Promise<FreshnessGateResult> {
     logger.info(
       LogCategory.AI_TRADING,
@@ -209,6 +211,24 @@ export class TradeExecutionFreshnessGate {
       `[Freshness Gate] ⚠️ Initial check FAILED - attempting auto-refresh`,
       { blockingReasons: firstCheck.blockingReasons }
     );
+
+    // Log initial blocks
+    if (userId && firstCheck.blockCategories && firstCheck.blockMetadata) {
+      for (let i = 0; i < firstCheck.blockCategories.length; i++) {
+        const metadata = firstCheck.blockMetadata[i] || {};
+        await freshnessBlockLogger.logBlock({
+          symbol: context.symbol,
+          timeframe: context.timeframe,
+          blockCategory: firstCheck.blockCategories[i],
+          blockMetadata: {
+            ...metadata,
+            refreshAttempted: true,
+            wasAutoRefreshed: false
+          },
+          cacheTier: 'omega'
+        });
+      }
+    }
 
     try {
       // Refresh stale data
@@ -237,6 +257,17 @@ export class TradeExecutionFreshnessGate {
           persistentMetadata
         );
 
+        // Log persistent staleness
+        if (userId) {
+          await freshnessBlockLogger.logBlock({
+            symbol: context.symbol,
+            timeframe: context.timeframe,
+            blockCategory: FreshnessBlockCategory.BLOCK_PERSISTENT_STALENESS,
+            blockMetadata: persistentMetadata,
+            cacheTier: 'omega'
+          });
+        }
+
         return {
           ...secondCheck,
           wasAutoRefreshed: false,
@@ -251,11 +282,29 @@ export class TradeExecutionFreshnessGate {
         };
       }
 
-      // Success after refresh
+      // Success after refresh - log successful refresh
       logger.info(
         LogCategory.AI_TRADING,
         `[Freshness Gate] ✅ PASSED after refresh - execution cleared`
       );
+
+      // Log successful auto-refresh for all initial blocks
+      if (userId && firstCheck.blockCategories && firstCheck.blockMetadata) {
+        for (let i = 0; i < firstCheck.blockCategories.length; i++) {
+          const metadata = firstCheck.blockMetadata[i] || {};
+          await freshnessBlockLogger.logBlock({
+            symbol: context.symbol,
+            timeframe: context.timeframe,
+            blockCategory: firstCheck.blockCategories[i],
+            blockMetadata: {
+              ...metadata,
+              refreshAttempted: true,
+              wasAutoRefreshed: true
+            },
+            cacheTier: 'omega'
+          });
+        }
+      }
 
       return { ...secondCheck, wasAutoRefreshed: true };
     } catch (error) {
